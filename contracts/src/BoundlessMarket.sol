@@ -292,27 +292,44 @@ contract BoundlessMarket is
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) public returns (bytes[] memory paymentError) {
+    ) public returns (bytes[] memory fulfillmentError) {
         for (uint256 i = 0; i < requests.length; i++) {
-            priceRequest(requests[i], clientSignatures[i]);
+            if (requests[i].offer.deadline() >= block.timestamp) {
+                priceRequest(requests[i], clientSignatures[i]);
+            }
         }
-        paymentError = fulfill(fills, assessorReceipt);
+        fulfillmentError = fulfill(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
     function fulfill(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
         public
-        returns (bytes[] memory paymentError)
+        returns (bytes[] memory fulfillmentError)
     {
         verifyDelivery(fills, assessorReceipt);
 
-        paymentError = new bytes[](fills.length);
+        fulfillmentError = new bytes[](fills.length);
 
         // NOTE: It would be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            paymentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
+            fulfillmentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
+
+            if (
+                keccak256(fulfillmentError[i])
+                    == keccak256(
+                        abi.encodeWithSelector(
+                            InvalidRequestFulfillment.selector, RequestId.unwrap(fills[i].id), fills[i].requestDigest
+                        )
+                    )
+                    || keccak256(fulfillmentError[i])
+                        == keccak256(
+                            abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(fills[i].id))
+                        )
+            ) {
+                continue;
+            }
             emit ProofDelivered(fills[i].id);
         }
 
@@ -330,19 +347,19 @@ contract BoundlessMarket is
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) public returns (bytes[] memory paymentError) {
+    ) public returns (bytes[] memory fulfillmentError) {
         for (uint256 i = 0; i < requests.length; i++) {
             priceRequest(requests[i], clientSignatures[i]);
         }
-        paymentError = fulfillAndWithdraw(fills, assessorReceipt);
+        fulfillmentError = fulfillAndWithdraw(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
     function fulfillAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
         public
-        returns (bytes[] memory paymentError)
+        returns (bytes[] memory fulfillmentError)
     {
-        paymentError = fulfill(fills, assessorReceipt);
+        fulfillmentError = fulfill(fills, assessorReceipt);
 
         // Withdraw any remaining balance from the prover account.
         uint256 balance = accounts[assessorReceipt.prover].balance;
@@ -352,7 +369,10 @@ contract BoundlessMarket is
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address prover) internal returns (bytes memory paymentError) {
+    function _fulfillAndPay(Fulfillment calldata fill, address prover)
+        internal
+        returns (bytes memory fulfillmentError)
+    {
         RequestId id = fill.id;
         (address client, uint32 idx) = id.clientAndIndex();
         Account storage clientAccount = accounts[client];
@@ -361,16 +381,16 @@ contract BoundlessMarket is
         if (locked) {
             RequestLock memory lock = requestLocks[id];
             if (lock.lockDeadline >= block.timestamp) {
-                paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
+                fulfillmentError = _fulfillAndPayLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
             } else {
-                paymentError = _fulfillAndPayWasLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
+                fulfillmentError = _fulfillAndPayWasLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
             }
         } else {
-            paymentError = _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
+            fulfillmentError = _fulfillAndPayNeverLocked(id, client, idx, fill.requestDigest, fulfilled, prover);
         }
 
-        if (paymentError.length > 0) {
-            emit PaymentRequirementsFailed(paymentError);
+        if (fulfillmentError.length > 0) {
+            emit FulfillmentFailed(fulfillmentError);
         }
     }
 
@@ -385,13 +405,13 @@ contract BoundlessMarket is
         bytes32 requestDigest,
         bool fulfilled,
         address assessorProver
-    ) internal returns (bytes memory paymentError) {
+    ) internal returns (bytes memory fulfillmentError) {
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
 
         if (lock.requestDigest != requestDigest) {
-            revert InvalidRequestFulfillment({requestId: id, provided: requestDigest, locked: lock.requestDigest});
+            return abi.encodeWithSelector(InvalidRequestFulfillment.selector, id, requestDigest);
         }
 
         if (!fulfilled) {
@@ -428,14 +448,9 @@ contract BoundlessMarket is
         bytes32 requestDigest,
         bool fulfilled,
         address assessorProver
-    ) internal returns (bytes memory paymentError) {
+    ) internal returns (bytes memory fulfillmentError) {
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
-        }
-
-        if (!fulfilled) {
-            accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id);
         }
 
         // If no fulfillment context was stored for this request digest (via priceRequest),
@@ -444,9 +459,14 @@ contract BoundlessMarket is
         // 2/ a smart contract signature check, since signatures are validated when a request is priced.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            revert RequestIsExpiredOrNotPriced(id);
+            return abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(id));
         }
         uint96 price = context.price;
+
+        if (!fulfilled) {
+            accounts[client].setRequestFulfilled(idx);
+            emit RequestFulfilled(id);
+        }
 
         // Deduct any additionally owned funds from client account. The client was already charged
         // for the price at lock time once when the request was locked. We only need to charge any
@@ -493,7 +513,7 @@ contract BoundlessMarket is
         bytes32 requestDigest,
         bool fulfilled,
         address assessorProver
-    ) internal returns (bytes memory paymentError) {
+    ) internal returns (bytes memory fulfillmentError) {
         // When never locked, the fulfilled flag _does_ indicate that payment has already been transferred,
         // so we return early here.
         if (fulfilled) {
@@ -567,9 +587,9 @@ contract BoundlessMarket is
         bytes calldata seal,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError) {
+    ) external returns (bytes[] memory fulfillmentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = fulfill(fills, assessorReceipt);
+        fulfillmentError = fulfill(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -579,9 +599,9 @@ contract BoundlessMarket is
         bytes calldata seal,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError) {
+    ) external returns (bytes[] memory fulfillmentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = fulfillAndWithdraw(fills, assessorReceipt);
+        fulfillmentError = fulfillAndWithdraw(fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -593,9 +613,9 @@ contract BoundlessMarket is
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError) {
+    ) external returns (bytes[] memory fulfillmentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        fulfillmentError = priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -607,9 +627,9 @@ contract BoundlessMarket is
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError) {
+    ) external returns (bytes[] memory fulfillmentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = priceAndFulfillAndWithdraw(requests, clientSignatures, fills, assessorReceipt);
+        fulfillmentError = priceAndFulfillAndWithdraw(requests, clientSignatures, fills, assessorReceipt);
     }
 
     /// @inheritdoc IBoundlessMarket

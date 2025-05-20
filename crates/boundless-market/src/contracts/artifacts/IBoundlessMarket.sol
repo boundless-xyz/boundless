@@ -73,14 +73,14 @@ interface IBoundlessMarket {
     /// @param version The new version of the contract.
     event Upgraded(uint64 indexed version);
 
-    /// @notice Event emitted during fulfillment if a request was fulfilled, but payment was not
+    /// @notice Event emitted during fulfillment if a request was expired or the payment was not
     /// transferred because at least one condition was not met. See the documentation on
     /// `IBoundlessMarket.fulfill` for more information.
     /// @dev The payload of the event is an ABI encoded error, from the errors on this contract.
     /// If there is an unexpired lock on the request, the order, the prover holding the lock may
     /// still be able to receive payment by sending another transaction.
     /// @param error The ABI encoded error.
-    event PaymentRequirementsFailed(bytes error);
+    event FulfillmentFailed(bytes error);
 
     /// @notice Event emitted when a callback to a contract fails during fulfillment
     /// @param requestId The ID of the request that was being fulfilled
@@ -131,8 +131,7 @@ interface IBoundlessMarket {
     /// using a different version.
     /// @param requestId The ID of the request.
     /// @param provided The provided fingerprint.
-    /// @param locked The locked fingerprint.
-    error InvalidRequestFulfillment(RequestId requestId, bytes32 provided, bytes32 locked);
+    error InvalidRequestFulfillment(RequestId requestId, bytes32 provided);
 
     /// @notice Error when unable to complete request because of insufficient balance.
     /// @param account The account with insufficient balance.
@@ -259,7 +258,7 @@ interface IBoundlessMarket {
     /// request's requirements are met.
     function fulfill(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
         external
-        returns (bytes[] memory paymentError);
+        returns (bytes[] memory fulfillmentError);
 
     /// @notice Fulfills a batch of requests and withdraw from the prover balance. See IBoundlessMarket.fulfill for more information.
     /// @param fills The array of fulfillment information.
@@ -267,7 +266,7 @@ interface IBoundlessMarket {
     /// request's requirements are met.
     function fulfillAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
         external
-        returns (bytes[] memory paymentError);
+        returns (bytes[] memory fulfillmentError);
 
     /// @notice Verify the application and assessor receipts for the batch, ensuring that the provided
     /// fulfillments satisfy the requests.
@@ -299,7 +298,7 @@ interface IBoundlessMarket {
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError);
+    ) external returns (bytes[] memory fulfillmentError);
 
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillAndWithdraw`.
     /// The caller should provide the signed request and signature for each unlocked request they
@@ -314,7 +313,7 @@ interface IBoundlessMarket {
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError);
+    ) external returns (bytes[] memory fulfillmentError);
 
     /// @notice Submit a new root to a set-verifier.
     /// @dev Consider using `submitRootAndFulfill` to submit the root and fulfill in one transaction.
@@ -337,7 +336,7 @@ interface IBoundlessMarket {
         bytes calldata seal,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError);
+    ) external returns (bytes[] memory fulfillmentError);
 
     /// @notice Combined function to submit a new root to a set-verifier and call fulfillAndWithdraw.
     /// @dev Useful to reduce the transaction count for fulfillments.
@@ -353,7 +352,7 @@ interface IBoundlessMarket {
         bytes calldata seal,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError);
+    ) external returns (bytes[] memory fulfillmentError);
 
     /// @notice Combined function to submit a new root to a set-verifier and call priceAndFulfill.
     /// @dev Useful to reduce the transaction count for fulfillments.
@@ -371,7 +370,7 @@ interface IBoundlessMarket {
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError);
+    ) external returns (bytes[] memory fulfillmentError);
 
     /// @notice Combined function to submit a new root to a set-verifier and call priceAndFulfillAndWithdraw.
     /// @dev Useful to reduce the transaction count for fulfillments.
@@ -389,7 +388,7 @@ interface IBoundlessMarket {
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes[] memory paymentError);
+    ) external returns (bytes[] memory fulfillmentError);
 
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn
     /// the associated prover stake.
