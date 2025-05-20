@@ -48,11 +48,11 @@ const BUILD_SPEC = `
       post_build:
         commands:
           - echo "Updating EC2 Bento Prover"
-          - SSM_DOCUMENT_NAME=$(pulumi stack output ${updateBentoBrokerPulumiOutputKey})
-          - INSTANCE_ID=$(pulumi stack output ${bentoBrokerInstanceIdStackOutputKey})
-          - echo "INSTANCE_ID: $INSTANCE_ID"
-          - echo "SSM_DOCUMENT_NAME: $SSM_DOCUMENT_NAME"
-          - aws ssm send-command --document-name $SSM_DOCUMENT_NAME --targets "Key=InstanceIds,Values=$INSTANCE_ID --cloud-watch-output-config CloudWatchOutputEnabled=true"
+          - export SSM_DOCUMENT_NAME=$(pulumi stack output ${updateBentoBrokerPulumiOutputKey})
+          - export INSTANCE_ID=$(pulumi stack output ${bentoBrokerInstanceIdStackOutputKey})
+          - echo "INSTANCE_ID $INSTANCE_ID"
+          - echo "SSM_DOCUMENT_NAME $SSM_DOCUMENT_NAME"
+          - aws ssm send-command --document-name $SSM_DOCUMENT_NAME --targets "Key=InstanceIds,Values=$INSTANCE_ID" --cloud-watch-output-config CloudWatchOutputEnabled=true"
     `;
 
 export class ProverPipeline extends pulumi.ComponentResource {
