@@ -244,6 +244,9 @@ contract BoundlessMarket is
         // NOTE: The assessor guest adds non-zero selector values to the list.
         uint256 selectorsLength = assessorReceipt.selectors.length;
         for (uint256 i = 0; i < selectorsLength; i++) {
+            if (fills[assessorReceipt.selectors[i].index].seal.length < 4) {
+                continue;
+            }
             bytes4 expected = assessorReceipt.selectors[i].value;
             bytes4 received = bytes4(fills[assessorReceipt.selectors[i].index].seal[0:4]);
             hasSelector[assessorReceipt.selectors[i].index] = true;
@@ -259,6 +262,11 @@ contract BoundlessMarket is
             bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
             leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, claimDigest).eip712Digest();
 
+            // Skip verification of the seal if the prover did not provide a seal.
+            // This is used for partial fulfillments.
+            if (fill.seal.length < 4) {
+                continue;
+            }
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
             if (!hasSelector[i]) {
@@ -312,6 +320,11 @@ contract BoundlessMarket is
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
+            // Skip fulfillment if the prover did not provide a seal.
+            // This is used for partial fulfillments.
+            if (fills[i].seal.length < 4) {
+                continue;
+            }
             paymentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
             emit ProofDelivered(fills[i].id);
         }
@@ -320,6 +333,9 @@ contract BoundlessMarket is
         for (uint256 i = 0; i < callbacksLength; i++) {
             AssessorCallback memory callback = assessorReceipt.callbacks[i];
             Fulfillment calldata fill = fills[callback.index];
+            if (fill.seal.length < 4) {
+                continue;
+            }
             _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
         }
     }

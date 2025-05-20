@@ -1571,6 +1571,64 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
+    // Tests trying to fulfill a batch with a request that was locked and has now expired.
+    function testPartialFulfill() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        ProofRequest memory request2 = client.request(2);
+        request2.offer.timeout = request.offer.timeout * 2;
+        ProofRequest[] memory requests = new ProofRequest[](2);
+        requests[0] = request;
+        requests[1] = request2;
+        bytes memory clientSignature = client.sign(request);
+        bytes memory clientSignature2 = client.sign(request2);
+        bytes[] memory clientSignatures = new bytes[](2);
+        clientSignatures[0] = clientSignature;
+        clientSignatures[1] = clientSignature2;
+        bytes[] memory journals = new bytes[](2);
+        journals[0] = APP_JOURNAL;
+        journals[1] = APP_JOURNAL;
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+        // At this point the client should have only been charged the 1 ETH at lock time.
+        client.expectBalanceChange(-1 ether);
+
+        // Advance the chain ahead to simulate the first request timeout.
+        vm.warp(request.offer.deadline() + 1);
+
+        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
+            createFillsAndSubmitRoot(requests, journals, testProverAddress);
+
+        // Try both fulfillment paths.
+        vm.expectRevert(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
+        );
+        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id));
+        boundlessMarket.fulfill(fills, assessorReceipt);
+
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(0 ether);
+        testProver.expectStakeBalanceChange(-1 ether);
+        expectMarketBalanceUnchanged();
+
+        // drop the expired request and fulfill the other one while keeping the same assessor receipt.
+        ProofRequest[] memory requests2 = new ProofRequest[](1);
+        requests2[0] = requests[1];
+        bytes[] memory clientSignatures2 = new bytes[](1);
+        clientSignatures2[0] = clientSignatures[1];
+        fills[0].seal = "";
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(fills[1].id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(fills[1].id);
+        boundlessMarket.priceAndFulfill(requests2, clientSignatures2, fills, assessorReceipt);
+    }
+
     function testFulfillLockedRequestMultipleRequestsSameIndex() public {
         _testFulfillRepeatIndex(LockRequestMethod.LockRequest);
     }
