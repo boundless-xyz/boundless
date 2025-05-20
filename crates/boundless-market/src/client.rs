@@ -465,6 +465,7 @@ where
     /// Set the signer that will be used for signing [ProofRequest].
     /// ```rust
     /// # use boundless_market::Client;
+    /// # use std::str::FromStr;
     /// # |client: Client| {
     /// use alloy::signers::local::PrivateKeySigner;
     ///

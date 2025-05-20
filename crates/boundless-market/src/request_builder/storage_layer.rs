@@ -189,7 +189,7 @@ where
         let mut params = self;
         if params.program_url.is_none() {
             let program_url = layer.process_program(params.require_program()?).await?;
-            params = params.with_program_url(program_url);
+            params = params.with_program_url(program_url)?;
         }
         if params.request_input.is_none() {
             let input = layer.process_env(params.require_env()?).await?;

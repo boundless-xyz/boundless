@@ -284,8 +284,19 @@ impl RequestParams {
         self.program_url.as_ref().ok_or(MissingFieldError::new("program_url"))
     }
 
-    pub fn with_program_url(self, value: impl Into<Url>) -> Self {
-        Self { program_url: Some(value.into()), ..self }
+    /// Set the program URL, where provers can download the program to be proven.
+    ///
+    /// ```rust
+    /// # use boundless_market::request_builder::RequestParams;
+    /// # use url::Url;
+    /// # || -> anyhow::Result<()> {
+    /// RequestParams::new()
+    ///     .with_program_url("https://fileserver.example/guest.bin")?;
+    /// # Ok(())
+    /// # }().unwrap();
+    /// ```
+    pub fn with_program_url<T: TryInto<Url>>(self, value: T) -> Result<Self, T::Error> {
+        Ok(Self { program_url: Some(value.try_into()?), ..self })
     }
 
     pub fn require_request_input(&self) -> Result<&RequestInput, MissingFieldError> {
@@ -400,19 +411,20 @@ impl MissingFieldError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{sync::Arc};
 
     use alloy::{
         network::TransactionBuilder, node_bindings::Anvil, primitives::Address,
-        rpc::types::TransactionRequest,
+        rpc::types::TransactionRequest, providers::Provider,
     };
     use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
     use tracing_test::traced_test;
+    use url::Url;
 
     use super::{
         Layer, OfferLayer, OfferLayerConfig, OfferParams, PreflightLayer, RequestBuilder,
         RequestId, RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequirementsLayer,
-        StandardRequestBuilder, StorageLayer, StorageLayerConfig,
+        StandardRequestBuilder, StorageLayer, StorageLayerConfig, RequestParams
     };
 
     use crate::{
@@ -503,7 +515,7 @@ mod tests {
         // Try again after uploading the program first.
         let storage = Arc::new(MockStorageProvider::start());
         let program_url = storage.upload_program(ECHO_ELF).await?;
-        let params = request_builder.params().with_program_url(program_url).with_stdin(b"hello!");
+        let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         assert_eq!(
             request.requirements.imageId,
@@ -715,5 +727,15 @@ mod tests {
         assert_eq!(offer_zero_mcycles.lockTimeout, 600);
         assert_eq!(offer_zero_mcycles.timeout, 1200);
         Ok(())
+    }
+
+
+    #[test]
+    fn request_params_with_program_url_infallible() {
+        // When passing a parsed URL, with_program_url should be infallible.
+        // NOTE: The `match *e {}` incantation is a compile-time assert that this error cannot
+        // occur.
+        let url = Url::parse("https://fileserver.example/guest.bin").unwrap();
+        RequestParams::new().with_program_url(url).inspect_err(|e| match *e {}).unwrap();
     }
 }
