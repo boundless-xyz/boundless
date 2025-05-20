@@ -1,0 +1,19 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFMKd6cFb+SwctS3Mtu0GZvAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMPNtjaOAcmFmr+4CjAgEQgDu40cj3XTW5MzeU4l/5S5JUXgbBfY+HKimb5vShrUvb8cnjALIF13GWi23posmX5CG3qKoYa8eEAs2h9w==
+config:
+  aws:region: us-west-2
+  order-stream:BASE_STACK: organization/bootstrap/services-prod
+  order-stream:BOUNDLESS_ADDRESS: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
+  order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
+  order-stream:DOCKER_DIR: ../../
+  order-stream:DOCKER_TAG: latest
+  order-stream:MIN_BALANCE: "0.0010"
+  order-stream:ORDER_STREAM_PING_TIME: "100"
+  order-stream:ETH_RPC_URL:
+    secure: v1:BmDPg7C3ZPG1qfGx:LcvkKGyImYzT3zW8vxTe7ehtZWicVxDaMUFuBGaQjv/kjEH8pgb6UaDsXszBni+0SxDIasxdLxkEEnx0kpBmNHMtqPvVcQ7IWj6ogezq+iKdT4ieWXE=
+  order-stream:RDS_PASSWORD:
+    secure: v1:6OldikDHGPtFsshU:3tg0ETBuoOsjoCnrxja5zQnWyaGOSvtIsNEIjH2uu7tvuA==
+  order-stream:CHAIN_ID: "8453"
+  #order-stream:ALB_DOMAIN: base-mainnet.beboundless.xyz
+  #order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  #order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
