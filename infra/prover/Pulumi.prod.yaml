@@ -14,6 +14,7 @@ config:
   base-prover:GH_TOKEN_SECRET:
     secure: v1:KXu1uWAeTAyQlH22:Vz6MTNAKYLeZYsRD8xMgdoGMPB1RER5UaONIyN9mRvt79nEGBkgia+Ikn2E4PNvVzVoZGkul8EKw4pacbWel591tUwddGlUUSCYFIlL/YEJNLm0tu6pLjXbs5BJng854LMuiw0/EK2KswzZUUQ==
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   bonsai-prover:BONSAI_API_KEY:
     secure: v1:DBLnIT+fWqeYZsZd:FEOPSijO1WHd24xhepKtRB37SnovAt7A+7QmgJJ84yUvoKAmntUYalyrTN3TvSspnpgR23dQlfM=
   bonsai-prover:PRIVATE_KEY:

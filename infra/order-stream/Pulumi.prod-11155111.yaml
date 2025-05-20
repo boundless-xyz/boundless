@@ -16,3 +16,4 @@ config:
   order-stream:ALB_DOMAIN: eth-sepolia.beboundless.xyz
   order-stream:CHAIN_ID: "11155111"
   order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic

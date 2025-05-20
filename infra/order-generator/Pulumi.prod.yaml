@@ -7,6 +7,7 @@ config:
   order-generator-base:ETH_RPC_URL:
     secure: v1:OL1dK9lvanA4+cxN:k/qrgdflqF78VPuRdMICh7VWbkydVI/FMNG4tjcWS/jkmTXPnmoaY49uG43/uSfyQNoiAZU9L0XhMSJSwimdf3cAwG9TD3hsGmPRAXsaqoJnHw3hqw==
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:BASE_STACK: organization/bootstrap/services-prod
   order-generator-base:BOUNDLESS_MARKET_ADDR: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
   order-generator-base:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd

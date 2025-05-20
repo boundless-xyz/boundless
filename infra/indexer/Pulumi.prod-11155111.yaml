@@ -13,6 +13,7 @@ config:
     secure: v1:6OldikDHGPtFsshU:3tg0ETBuoOsjoCnrxja5zQnWyaGOSvtIsNEIjH2uu7tvuA==
   indexer:CHAIN_ID: "11155111"
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:GH_TOKEN_SECRET:
     secure: v1:LfbDb8lBoozxHg+u:MSyFlUK/ayFKEXiZ2fvJuuTehwJeQBWsq4FruaZCOkxtxMpVwZnZ0frKzsLXN5UD8NRPNWC/NSfTu9oq4onmDcnn/XULgsiJerGtpuJNvjqjAwuG6GEZM61S1zoEgvI0My09F57JH7jV3OfLAQ==
   indexer:RUST_LOG: debug

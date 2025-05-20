@@ -26,14 +26,31 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
     ciCacheSecret?: pulumi.Output<string>;
     githubTokenSecret?: pulumi.Output<string>;
     brokerTomlPath: string;
-    boundlessAlertsTopicArn?: string;
+    boundlessAlertsTopicArns?: string[];
     dockerRemoteBuilder?: string;
   }, opts?: pulumi.ComponentResourceOptions) {
     super(`${name}-${args.chainId}`, name, opts);
 
     const isDev = pulumi.getStack() === "dev";
 
-    const { ethRpcUrl, privateKey, bonsaiApiUrl, dockerRemoteBuilder, bonsaiApiKey, orderStreamUrl, brokerTomlPath, boundlessMarketAddr: proofMarketAddr, setVerifierAddr, vpcId, privSubNetIds, dockerDir, dockerTag, ciCacheSecret, githubTokenSecret, boundlessAlertsTopicArn } = args;
+    const {
+      ethRpcUrl,
+      privateKey,
+      bonsaiApiUrl,
+      dockerRemoteBuilder,
+      bonsaiApiKey,
+      orderStreamUrl,
+      brokerTomlPath,
+      boundlessMarketAddr: proofMarketAddr,
+      setVerifierAddr,
+      vpcId,
+      privSubNetIds,
+      dockerDir,
+      dockerTag,
+      ciCacheSecret,
+      githubTokenSecret,
+      boundlessAlertsTopicArns
+    } = args;
     const serviceName = name;
 
     const ethRpcUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-brokerEthRpc`);
@@ -389,7 +406,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
       },
     }, { dependsOn: [fileSystem, mountTargets] });
 
-    const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+    const alarmActions = boundlessAlertsTopicArns ?? [];
 
     createProverAlarms(serviceName, logGroup, [service, logGroup], alarmActions);
   }

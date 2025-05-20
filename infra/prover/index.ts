@@ -32,6 +32,8 @@ export = () => {
   const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
   const brokerTomlPath = baseConfig.require('BROKER_TOML_PATH')
   const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
+  const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+  const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
 
   // Bonsai Prover Config
   const bonsaiProverPrivateKey = isDev ? getEnvVar("BONSAI_PROVER_PRIVATE_KEY") : bonsaiConfig.requireSecret('PRIVATE_KEY');
@@ -61,7 +63,7 @@ export = () => {
     dockerTag,
     ciCacheSecret,
     githubTokenSecret,
-    boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
     sshPublicKey: bentoProverSshPublicKey
   });
 
@@ -84,7 +86,7 @@ export = () => {
       dockerTag,
       ciCacheSecret,
       githubTokenSecret,
-      boundlessAlertsTopicArn,
+      boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
     });
   }

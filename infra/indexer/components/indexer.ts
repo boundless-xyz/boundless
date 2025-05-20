@@ -26,7 +26,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       vpcId: pulumi.Output<string>;
       rdsPassword: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
-      boundlessAlertsTopicArn?: string;
+      boundlessAlertsTopicArns?: string[];
       startBlock: string;
       serviceMetricsNamespace: string;
       dockerRemoteBuilder?: string;
@@ -361,7 +361,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       },
     }, { dependsOn: [taskRole, taskRolePolicy] });
 
-    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+    const alarmActions = args.boundlessAlertsTopicArns ?? [];
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-log-err-filter`, {
       name: `${serviceName}-log-err-filter`,

@@ -22,6 +22,8 @@ export = () => {
   const boundlessAddress = config.require('BOUNDLESS_ADDRESS');
   const baseStackName = config.require('BASE_STACK');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+  const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+  const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const startBlock = config.require('START_BLOCK');
   const rustLogLevel = config.get('RUST_LOG') || 'info';
 
@@ -51,7 +53,7 @@ export = () => {
     vpcId,
     rdsPassword,
     ethRpcUrl,
-    boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
     startBlock,
     serviceMetricsNamespace,
     dockerRemoteBuilder,
@@ -65,7 +67,7 @@ export = () => {
     rdsSgId: indexer.rdsSecurityGroupId,
     chainId: chainId,
     rustLogLevel: rustLogLevel,
-    boundlessAlertsTopicArn: boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
     serviceMetricsNamespace,
     marketMetricsNamespace,
   }, { parent: indexer, dependsOn: [indexer, indexer.dbUrlSecret, indexer.dbUrlSecretVersion] });

@@ -3,7 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
-import { getServiceNameV1 } from '../../util';
+import { getServiceNameV1, Severity } from '../../util';
 import * as crypto from 'crypto';
 
 const SERVICE_NAME_BASE = 'order-stream';
@@ -31,7 +31,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       albDomain?: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
       bypassAddrs: string;
-      boundlessAlertsTopicArn?: string;
+      boundlessAlertsTopicArns?: string[];
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -53,6 +53,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       albDomain,
       ethRpcUrl,
       bypassAddrs,
+      boundlessAlertsTopicArns,
     } = args;
 
     const stackName = pulumi.getStack();
@@ -491,7 +492,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       },
     });
 
-    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+    const alarmActions = boundlessAlertsTopicArns ?? [];
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-log-err-filter`, {
       name: `${serviceName}-log-err-filter`,
@@ -506,9 +507,9 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       pattern: `"ERROR "`,
     }, { dependsOn: [service] });
 
-    // Two errors within an hour triggers alarm.
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
-      name: `${serviceName}-log-err`,
+    // Two errors within an hour triggers SEV2 alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-${Severity.SEV2}-alarm`, {
+      name: `${serviceName}-${Severity.SEV2}-log-err`,
       metricQueries: [
         {
           id: 'm1',
@@ -527,7 +528,33 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       evaluationPeriods: 60,
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
-      alarmDescription: 'Order stream log ERROR level',
+      alarmDescription: 'Order stream: 2 ERROR logs within an hour',
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    // Two errors within an hour triggers SEV2 alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-${Severity.SEV1}-alarm`, {
+      name: `${serviceName}-${Severity.SEV1}-log-err`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-err`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      // Five errors within an hour triggers alarm.
+      evaluationPeriods: 60,
+      datapointsToAlarm: 5,
+      treatMissingData: 'notBreaching',
+      alarmDescription: 'Order stream: 5 ERROR logs within an hour',
       actionsEnabled: true,
       alarmActions,
     });
@@ -540,10 +567,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     const loadBalancerId = pulumi.interpolate`${loadbalancer.loadBalancer.arn.apply((arn) => arn.split('/').pop())}`;
     const targetGroupId = pulumi.interpolate`targetgroup/${loadbalancer.defaultTargetGroup.arn.apply((arn) => arn.split('/').pop())}`;
 
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-health-check-alarm`, {
-      name: `${serviceName}-health-check-alarm`,
-      comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 1,
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-health-check-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-health-check-alarm-${Severity.SEV2}`,
       metricName: `UnHealthyHostCount`,
       dimensions: {
         TargetGroup: targetGroupId,
@@ -551,9 +576,31 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       },
       namespace: 'AWS/ApplicationELB',
       period: 60,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 60,
+      datapointsToAlarm: 2,
       statistic: 'Sum',
       threshold: 1,
-      alarmDescription: 'Order stream health check alarm',
+      alarmDescription: 'Order stream health check alarm failed 2 times within an hour',
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-health-check-alarm-${Severity.SEV1}`, {
+      name: `${serviceName}-health-check-alarm-${Severity.SEV1}`,
+      metricName: `UnHealthyHostCount`,
+      dimensions: {
+        TargetGroup: targetGroupId,
+        LoadBalancer: loadBalancerId,
+      },
+      namespace: 'AWS/ApplicationELB',
+      period: 60,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 60,
+      datapointsToAlarm: 5,
+      statistic: 'Sum',
+      threshold: 1,
+      alarmDescription: 'Order stream health check alarm failed 5 times within an hour',
       actionsEnabled: true,
       alarmActions,
     });
@@ -570,8 +617,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       pattern: 'FATAL',
     }, { dependsOn: [service] });
 
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
-      name: `${serviceName}-log-fatal`,
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-log-fatal-${Severity.SEV2}`,
       metricQueries: [
         {
           id: 'm1',
@@ -586,10 +633,34 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       ],
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 1,
+      evaluationPeriods: 60,
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
-      alarmDescription: `Order stream FATAL (task exited)`,
+      alarmDescription: `Order stream FATAL (task exited) 1 time within an hour`,
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV1}`, {
+      name: `${serviceName}-log-fatal-${Severity.SEV1}`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-fatal`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 60,
+      datapointsToAlarm: 3,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Order stream FATAL (task exited) 3 times within an hour`,
       actionsEnabled: true,
       alarmActions,
     });

@@ -15,3 +15,4 @@ config:
     secure: v1:Q8vUXQ59MCkcmyw8:C8BUe4hjIDn+biTuqdDYoluH+rM6eRMO0LKjjmpN9EpQ7A==
   order-stream:CHAIN_ID: "11155111"
   order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
