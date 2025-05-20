@@ -25,14 +25,28 @@ library TestUtils {
         address prover
     ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory leaves = new bytes32[](fills.length);
+        bool[] memory withJournals = new bool[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
-            bytes32 claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            bytes32 claimDigest;
+            if (fills[i].withJournal) {
+                claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            } else {
+                claimDigest = fills[i].imageId;
+            }
             leaves[i] = AssessorCommitment(i, fills[i].id, fills[i].requestDigest, claimDigest).eip712Digest();
+            withJournals[i] = fills[i].withJournal;
         }
         bytes32 root = MerkleProofish.processTree(leaves);
 
-        bytes memory journal =
-            abi.encode(AssessorJournal({root: root, selectors: selectors, callbacks: callbacks, prover: prover}));
+        bytes memory journal = abi.encode(
+            AssessorJournal({
+                root: root,
+                selectors: selectors,
+                callbacks: callbacks,
+                withJournals: withJournals,
+                prover: prover
+            })
+        );
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 
@@ -53,7 +67,13 @@ library TestUtils {
     {
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
-            claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            bytes32 claimDigest;
+            if (fills[i].withJournal) {
+                claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            } else {
+                claimDigest = fills[i].imageId;
+            }
+            claimDigests[i] = claimDigest;
         }
         // compute the merkle tree of the batch
         (batchRoot, tree) = computeMerkleTree(claimDigests);
@@ -209,7 +229,8 @@ library TestUtils {
     /// @param self The Selectors struct to modify
     /// @param index The index where to add the selector
     /// @param selector The selector to add
-    function addSelector(Selector[] memory self, uint8 index, bytes4 selector)
+    /// @param verifier The address of the verifier contract
+    function addSelector(Selector[] memory self, uint8 index, bytes4 selector, address verifier)
         internal
         pure
         returns (Selector[] memory)
@@ -219,7 +240,7 @@ library TestUtils {
         for (uint256 i = 0; i < self.length; i++) {
             newSelectors[i] = self[i];
         }
-        newSelectors[self.length] = Selector(index, selector);
+        newSelectors[self.length] = Selector(index, selector, verifier);
         return newSelectors;
     }
 

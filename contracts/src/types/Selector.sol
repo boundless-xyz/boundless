@@ -10,4 +10,6 @@ struct Selector {
     uint16 index;
     /// @notice The actual required selector.
     bytes4 value;
+    /// @notice The address of the verifier contract.
+    address verifier;
 }

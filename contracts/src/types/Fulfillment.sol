@@ -17,10 +17,11 @@ struct Fulfillment {
     /// @notice Image ID of the guest that was verifiably executed to satisfy the request.
     /// @dev Must match the value in the request's requirements.
     bytes32 imageId;
-    // TODO: Add a flag in the request to decide whether to post the journal. Note that
-    // if the journal and journal digest do not need to be delivered to the client, imageId will
-    // be replaced with claim digest, since it is captured in the requirements on the request,
-    // checked by the Assessor guest.
+    /// @notice Whether the journal is posted or not.
+    /// @dev if the journal and journal digest do not need to be delivered to the client, imageId will
+    ///     be replaced with claim digest, since it is captured in the requirements on the request,
+    ///     checked by the Assessor guest.
+    bool withJournal;
     /// @notice Journal committed by the guest program execution.
     /// @dev The journal is checked to satisfy the predicate specified on the request's requirements.
     bytes journal;

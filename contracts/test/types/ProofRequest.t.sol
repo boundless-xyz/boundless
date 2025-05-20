@@ -75,7 +75,9 @@ contract ProofRequestTest is Test {
                     data: abi.encode(sha256(bytes("GUEST JOURNAL")))
                 }),
                 callback: Callback({gasLimit: 0, addr: address(0)}),
-                selector: bytes4(0)
+                selector: bytes4(0),
+                verifier: address(0),
+                withJournal: true
             }),
             imageUrl: "https://image.dev.null",
             input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),

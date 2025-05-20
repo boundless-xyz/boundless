@@ -16,6 +16,8 @@ struct AssessorJournal {
     /// @notice The (optional) selectors for the requests committed by the assessor.
     /// @dev This is used to verify the fulfillment of the request against its selector's seal.
     Selector[] selectors;
+    /// @notice Whether the journal was posted or not.
+    bool[] withJournals;
     /// @notice Root of the Merkle tree committing to the set of proven claims.
     /// @dev In the case of a batch of size one, this may simply be the eip712Digest of the `AssessorCommitment`.
     bytes32 root;

@@ -12,12 +12,19 @@ struct Requirements {
     bytes32 imageId;
     Callback callback;
     Predicate predicate;
+    /// @notice The selector for the seal.
+    /// @dev If the selector is set to zero, the seal is not required.
     bytes4 selector;
+    /// @notice The address of the IRiscZeroVerifier contract.
+    /// @dev If the address is set to zero, the default IRiscZeroVerifier is used.
+    address verifier;
+    /// @notice Whether the journal is required or not.
+    bool withJournal;
 }
 
 library RequirementsLibrary {
     string constant REQUIREMENTS_TYPE =
-        "Requirements(bytes32 imageId,Callback callback,Predicate predicate,bytes4 selector)";
+        "Requirements(bytes32 imageId,Callback callback,Predicate predicate,bytes4 selector,address verifier,bool withJournal)";
     bytes32 constant REQUIREMENTS_TYPEHASH =
         keccak256(abi.encodePacked(REQUIREMENTS_TYPE, CallbackLibrary.CALLBACK_TYPE, PredicateLibrary.PREDICATE_TYPE));
 
@@ -31,7 +38,9 @@ library RequirementsLibrary {
                 requirements.imageId,
                 CallbackLibrary.eip712Digest(requirements.callback),
                 PredicateLibrary.eip712Digest(requirements.predicate),
-                requirements.selector
+                requirements.selector,
+                requirements.verifier,
+                requirements.withJournal
             )
         );
     }
