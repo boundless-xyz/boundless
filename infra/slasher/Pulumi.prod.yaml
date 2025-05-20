@@ -16,3 +16,5 @@ config:
   slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   slasher:GH_TOKEN_SECRET:
     secure: v1:i3GxAv8H4tqMAos5:gaQ+Ameo+lRFYdu0nw/DbW4mPMAKb4SrNF3QGjtc/WQVg06y1XEt7E7DIbiTNmrkxqChb4TSqgN5ru4+e+J6C46HdTFw6KJpKqAJDt6ja2J9IgOAxiq9E1WjbMXwgmGWqJWWVGb+fgEv6kkVvQ==
+  order-stream:ETH_RPC_URL:
+    secure: v1:TJcLbCNiy5dxnl8s:fyJTFm9B+ikSyIxfIVjkfvB9yQz5oaZUyM5ZfQHVWpUg9u+K8/A2LoGUCNqByNlEZszOpKZYn10Opz3yQosdh4Jl5iSmhQeZKR5bGFW6QgOB/Oq/YA==

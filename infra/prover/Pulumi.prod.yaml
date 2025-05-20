@@ -10,7 +10,7 @@ config:
   base-prover:BROKER_TOML_PATH: broker-prod.toml
   base-prover:BASE_STACK: organization/bootstrap/services-prod
   base-prover:ETH_RPC_URL:
-    secure: v1:FFNFJKk+6IUUxLPF:K2/TacFMR2o7g3b7WQKJe6Y5ns2aQ4315EDMQhD92gN0l2WpaNlOvm8l3gCCRgaH2L4/GH/ZC3gFV7K7TwPaPrGhueDKK2OrNkmVtVqKLd81kJ9mWg==
+    secure: v1:bAVG2GALQYi8WaUJ:jXEhDAY41vm7/mFUIufc5xQKaOlybjNzMXJ+vbStlbn9MY9HoaxNk9ZZf2D8gPtXgqKLesnVFUdn03nJ9s2aYXK+gfgCiTkvgH9XTaPiBgIQWKv2AQ==
   base-prover:GH_TOKEN_SECRET:
     secure: v1:KXu1uWAeTAyQlH22:Vz6MTNAKYLeZYsRD8xMgdoGMPB1RER5UaONIyN9mRvt79nEGBkgia+Ikn2E4PNvVzVoZGkul8EKw4pacbWel591tUwddGlUUSCYFIlL/YEJNLm0tu6pLjXbs5BJng854LMuiw0/EK2KswzZUUQ==
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic

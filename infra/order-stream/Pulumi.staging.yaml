@@ -10,7 +10,7 @@ config:
   order-stream:MIN_BALANCE: "0.0010"
   order-stream:ORDER_STREAM_PING_TIME: "100"
   order-stream:ETH_RPC_URL:
-    secure: v1:D0LPseptkWMnYnOv:wW8eWtEA5HHwiJ7xc4RJIHWHCpEmcSAq8OHMeMk0HSYnZpLQXMuax6MqgFQBIzlNWkJKTCTaBw98Oj6TfUvnA8hC0Ub9NJejUHnJdzgKrEL3tscP7g==
+    secure: v1:iZMIczncztFwXYtI:qrmC1R9gmKYmHKl0xiBnq80TaUU3hyUbES2BauboUItSks0tDfmbHAxFznc3wFOjyF2w5xqgTpVw9TA+DYwuJ6h4JKWgqEIVIQOOat1NJ6LLGma9/A==
   order-stream:RDS_PASSWORD:
     secure: v1:Q8vUXQ59MCkcmyw8:C8BUe4hjIDn+biTuqdDYoluH+rM6eRMO0LKjjmpN9EpQ7A==
   order-stream:CHAIN_ID: "11155111"
