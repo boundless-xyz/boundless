@@ -576,7 +576,7 @@ reboot
 
         const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
 
-        createProverAlarms(serviceName, logGroup, [logGroup, this.instance], alarmActions);
+        createProverAlarms(serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions);
 
         this.updateCommandArn = updateDocument.arn;
         this.updateCommandId = updateDocument.id;

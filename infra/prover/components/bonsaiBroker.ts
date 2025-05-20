@@ -279,11 +279,27 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
 
     const brokerS3BucketName = brokerS3Bucket.bucket.apply(n => n);
 
-    const logGroup = new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
+    // Try to get existing log group
+    const existingLogGroup = pulumi.output(aws.cloudwatch.getLogGroup({
       name: serviceName,
-      retentionInDays: 0,
-      skipDestroy: true,
-    }, { parent: this });
+    }).catch(() => undefined));
+
+    const logGroup = existingLogGroup.apply(existing => {
+      if (existing) {
+        // Convert the existing log group to a LogGroup resource
+        return new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
+          name: existing.name,
+          retentionInDays: existing.retentionInDays,
+          skipDestroy: true,
+        }, { parent: this, import: existing.id });
+      }
+      return new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
+        name: serviceName,
+        retentionInDays: 0,
+        skipDestroy: true,
+      }, { parent: this });
+    });
+
 
     const service = new awsx.ecs.FargateService(serviceName, {
       name: serviceName,

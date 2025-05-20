@@ -39,8 +39,7 @@ impl Config {
     /// Load configuration from environment variables
     fn from_env() -> Result<Self, Error> {
         let db_url = env::var("DB_URL")
-            .context("DB_URL environment variable is required")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("DB_URL environment variable is required")?;
 
         let region = env::var("AWS_REGION").unwrap_or_else(|_| "us-west-2".to_string());
 
@@ -63,15 +62,13 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 
     let monitor = Monitor::new(&config.db_url)
         .await
-        .context("Failed to create monitor")
-        .map_err(|e| Error::from(e.to_string()))?;
+        .context("Failed to create monitor")?;
 
     let now = Utc::now().timestamp();
     let start_time = monitor
         .get_last_run()
         .await
-        .context("Failed to get last run time")
-        .map_err(|e| Error::from(e.to_string()))?;
+        .context("Failed to get last run time")?;
 
     let mut metrics = vec![];
 
@@ -80,8 +77,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     let expired = monitor
         .fetch_requests_expired(start_time, now)
         .await
-        .context("Failed to fetch expired requests")
-        .map_err(|e| Error::from(e.to_string()))?;
+        .context("Failed to fetch expired requests")?;
 
     let expired_count = expired.len();
     debug!(count = expired_count, expired = ?expired, "Found expired requests");
@@ -90,8 +86,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     let requests = monitor
         .fetch_requests(start_time, now)
         .await
-        .context("Failed to fetch requests number")
-        .map_err(|e| Error::from(e.to_string()))?;
+        .context("Failed to fetch requests number")?;
     let requests_count = requests.len();
     debug!(count = requests_count, requests = ?requests, "Found requests");
     metrics.push(new_metric("requests_number", requests_count as f64, now));
@@ -99,8 +94,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     let fulfillments = monitor
         .fetch_fulfillments(start_time, now)
         .await
-        .context("Failed to fetch fulfilled requests number")
-        .map_err(|e| Error::from(e.to_string()))?;
+        .context("Failed to fetch fulfilled requests number")?;
     let fulfillment_count = fulfillments.len();
     debug!(count = fulfillment_count, fulfillments = ?fulfillments, "Found fulfilled requests");
     metrics.push(new_metric("fulfilled_requests_number", fulfillment_count as f64, now));
@@ -108,8 +102,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     let slashed = monitor
         .fetch_slashed(start_time, now)
         .await
-        .context("Failed to fetch slashed requests number")
-        .map_err(|e| Error::from(e.to_string()))?;
+        .context("Failed to fetch slashed requests number")?;
     let slashed_count = slashed.len();
     debug!(count = slashed_count, slashed = ?slashed, "Found slashed requests");
     metrics.push(new_metric("slashed_requests_number", slashed_count as f64, now));
@@ -117,14 +110,12 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     for client in event.clients {
         debug!(client, "Processing client");
         let address = Address::from_str(&client)
-            .context("Failed to parse client address")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("Failed to parse client address")?;
 
         let expired_requests = monitor
             .fetch_requests_expired_from(start_time, now, address)
             .await
-            .context("Failed to fetch expired requests for client {client}")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("Failed to fetch expired requests for client {client}")?;
         let expired_count = expired_requests.len();
         debug!(count = expired_count, expired = ?expired_requests, "Found expired requests for client {client}");
         metrics.push(new_metric(
@@ -136,8 +127,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         let requests = monitor
             .fetch_requests_from_client(start_time, now, address)
             .await
-            .context("Failed to fetch requests number for client {client}")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("Failed to fetch requests number for client {client}")?;
         let requests_count = requests.len();
         debug!(count = requests_count, requests = ?requests, "Found requests for client {client}");
         metrics.push(new_metric(
@@ -149,8 +139,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         let fulfilled = monitor
             .fetch_fulfillments_from_client(start_time, now, address)
             .await
-            .context("Failed to fetch fulfilled requests number for client {client}")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("Failed to fetch fulfilled requests number for client {client}")?;
         let fulfilled_count = fulfilled.len();
         debug!(count = fulfilled_count, fulfillments = ?fulfilled, "Found fulfilled requests for client {client}");
         metrics.push(new_metric(
@@ -164,14 +153,12 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         debug!(prover, "Processing prover");
 
         let address = Address::from_str(&prover)
-            .context("Failed to parse prover address")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("Failed to parse prover address")?;
 
         let fulfilled = monitor
             .fetch_fulfillments_by_prover(start_time, now, address)
             .await
-            .context("Failed to fetch fulfilled requests number by prover {prover}")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("Failed to fetch fulfilled requests number by prover {prover}")?;
         let fulfilled_count = fulfilled.len();
         debug!(count = fulfilled_count, fulfillments = ?fulfilled, "Found fulfilled requests for prover {prover}");
         metrics.push(new_metric(
@@ -183,8 +170,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         let locked = monitor
             .fetch_locked_by_prover(start_time, now, address)
             .await
-            .context("Failed to fetch locked requests number by prover {prover}")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("Failed to fetch locked requests number by prover {prover}")?;
         let locked_count = locked.len();
         debug!(count = locked_count, locked = ?locked, "Found locked requests for prover {prover}");
         metrics.push(new_metric(
@@ -196,8 +182,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         let slashed = monitor
             .fetch_slashed_by_prover(start_time, now, address)
             .await
-            .context("Failed to fetch slashed requests number by prover {prover}")
-            .map_err(|e| Error::from(e.to_string()))?;
+            .context("Failed to fetch slashed requests number by prover {prover}")?;
         let slashed_count = slashed.len();
         debug!(count = slashed_count, slashed = ?slashed, "Found slashed requests for prover {prover}");
         metrics.push(new_metric(
@@ -209,15 +194,13 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 
     debug!("Publishing metrics to CloudWatch");
     publish_metric(&config.region, &config.namespace, metrics)
-        .await
-        .map_err(|e| Error::from(e.to_string()))?;
+        .await?;
 
     debug!("Updating last run time: {now}");
     monitor
         .set_last_run(now)
         .await
-        .context("Failed to update last run time")
-        .map_err(|e| Error::from(e.to_string()))?;
+        .context("Failed to update last run time")?;
 
     Ok(())
 }
@@ -258,8 +241,7 @@ async fn publish_metric(
         .set_metric_data(Some(metrics))
         .send()
         .await
-        .context("Failed to put metric data")
-        .map_err(|e| Error::from(e.to_string()))?;
+        .context("Failed to put metric data")?;
 
     Ok(())
 }

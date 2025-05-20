@@ -8,8 +8,8 @@ import * as fs from 'fs';
 
 export const createProverAlarms = (
   serviceName: string,
-  logGroup: aws.cloudwatch.LogGroup,
-  dependsOn: pulumi.Resource[],
+  logGroup: pulumi.Output<aws.cloudwatch.LogGroup>,
+  dependsOn: (pulumi.Resource | pulumi.Input<pulumi.Resource>)[],
   alarmActions: string[],
 ): void => {
   const createLogMetricFilter = (
@@ -20,7 +20,7 @@ export const createProverAlarms = (
     // Generate a metric by filtering for the error code
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-${metricName}-${severity}-filter`, {
       name: `${serviceName}-${metricName}-${severity}-filter`,
-      logGroupName: serviceName,
+      logGroupName: logGroup.name,
       metricTransformation: {
         namespace: `Boundless/Services/${serviceName}`,
         name: `${serviceName}-${metricName}-${severity}`,

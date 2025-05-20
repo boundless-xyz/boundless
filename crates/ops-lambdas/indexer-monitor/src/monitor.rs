@@ -253,7 +253,7 @@ impl Monitor {
     ) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT COUNT(*)
+            SELECT rfe.request_id
             FROM request_fulfilled_events rfe
             JOIN proof_requests pr
               ON rfe.request_digest = pr.request_digest
@@ -302,12 +302,10 @@ impl Monitor {
     ) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT pr.request_id
+            SELECT f.request_id
             FROM request_fulfilled_events rfe
             JOIN fulfillments f
               ON rfe.request_digest = f.request_digest
-            JOIN proof_requests pr
-              ON f.request_digest = pr.request_digest
             WHERE f.block_timestamp >= $1
             AND f.block_timestamp < $2
             AND f.prover_address = $3
@@ -398,12 +396,10 @@ impl Monitor {
     pub async fn fetch_slashed(&self, from: i64, to: i64) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT pr.request_id
-            FROM prover_slashed_events pse
-            JOIN proof_requests pr
-              ON pse.request_digest = pr.request_digest
-            WHERE pse.block_timestamp >= $1
-            AND pse.block_timestamp < $2
+            SELECT request_id
+            FROM prover_slashed_events
+            WHERE block_timestamp >= $1
+            AND block_timestamp < $2
             "#,
         )
         .bind(from)
@@ -435,13 +431,11 @@ impl Monitor {
     ) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT pr.request_id
-            FROM prover_slashed_events pse
-            JOIN proof_requests pr
-              ON pse.request_digest = pr.request_digest
-            WHERE pse.block_timestamp >= $1
-            AND pse.block_timestamp < $2
-            AND pse.prover_address = $3
+            SELECT request_id
+            FROM prover_slashed_events
+            WHERE block_timestamp >= $1
+            AND block_timestamp < $2
+            AND prover_address = $3
             "#,
         )
         .bind(from)
