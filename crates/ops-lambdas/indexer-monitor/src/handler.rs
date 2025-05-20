@@ -38,8 +38,7 @@ struct Config {
 impl Config {
     /// Load configuration from environment variables
     fn from_env() -> Result<Self, Error> {
-        let db_url = env::var("DB_URL")
-            .context("DB_URL environment variable is required")?;
+        let db_url = env::var("DB_URL").context("DB_URL environment variable is required")?;
 
         let region = env::var("AWS_REGION").unwrap_or_else(|_| "us-west-2".to_string());
 
@@ -60,15 +59,10 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     let event = event.payload;
     debug!(?event, "Received event");
 
-    let monitor = Monitor::new(&config.db_url)
-        .await
-        .context("Failed to create monitor")?;
+    let monitor = Monitor::new(&config.db_url).await.context("Failed to create monitor")?;
 
     let now = Utc::now().timestamp();
-    let start_time = monitor
-        .get_last_run()
-        .await
-        .context("Failed to get last run time")?;
+    let start_time = monitor.get_last_run().await.context("Failed to get last run time")?;
 
     let mut metrics = vec![];
 
@@ -83,10 +77,8 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     debug!(count = expired_count, expired = ?expired, "Found expired requests");
     metrics.push(new_metric("expired_requests_number", expired_count as f64, now));
 
-    let requests = monitor
-        .fetch_requests(start_time, now)
-        .await
-        .context("Failed to fetch requests number")?;
+    let requests =
+        monitor.fetch_requests(start_time, now).await.context("Failed to fetch requests number")?;
     let requests_count = requests.len();
     debug!(count = requests_count, requests = ?requests, "Found requests");
     metrics.push(new_metric("requests_number", requests_count as f64, now));
@@ -109,8 +101,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 
     for client in event.clients {
         debug!(client, "Processing client");
-        let address = Address::from_str(&client)
-            .context("Failed to parse client address")?;
+        let address = Address::from_str(&client).context("Failed to parse client address")?;
 
         let expired_requests = monitor
             .fetch_requests_expired_from(start_time, now, address)
@@ -152,8 +143,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     for prover in event.provers {
         debug!(prover, "Processing prover");
 
-        let address = Address::from_str(&prover)
-            .context("Failed to parse prover address")?;
+        let address = Address::from_str(&prover).context("Failed to parse prover address")?;
 
         let fulfilled = monitor
             .fetch_fulfillments_by_prover(start_time, now, address)
@@ -193,14 +183,10 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     }
 
     debug!("Publishing metrics to CloudWatch");
-    publish_metric(&config.region, &config.namespace, metrics)
-        .await?;
+    publish_metric(&config.region, &config.namespace, metrics).await?;
 
     debug!("Updating last run time: {now}");
-    monitor
-        .set_last_run(now)
-        .await
-        .context("Failed to update last run time")?;
+    monitor.set_last_run(now).await.context("Failed to update last run time")?;
 
     Ok(())
 }
