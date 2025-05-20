@@ -40,7 +40,7 @@ let builder = EthEvmEnv::builder()
     .beacon_api(CL_URL)
     .commitment_block_number(latest - 1) // Steel commitment block
     .chain_spec(&ETH_MAINNET_CHAIN_SPEC);
-  
+
 let env = builder.build().await?;
 
 // Preflight the call at the execution block.
@@ -83,7 +83,7 @@ For each block between the commitment block and the execution block, Steel will 
 Please bear in mind that the wider the gap between the execution block and the commitment block, the larger the load on the beacon endpoint will be.
 
 In terms of compute, the number of cycles for the Steel guest will also increase linearly with the number of blocks between the commitment block and the execution block.
-For every extra 24 hours of history, this is around 1 million cycles in the Steel guest. Please note this cycle count is without the Keccak precompile scheduled for release in Q1 2025. Once the Keccak precompile is available, the cycle count should be significantly reduced.
+For every extra 24 hours of history, this is just under 500,000 cycles in the Steel guest. .
 
 ## Using Steel History
 
@@ -91,7 +91,7 @@ For every extra 24 hours of history, this is around 1 million cycles in the Stee
 
 [EIP-4788]: https://eips.ethereum.org/EIPS/eip-4788
 [beacon chain]: https://ethereum.org/en/roadmap/beaconchain/
-[Steel Commitments]: ./steel-commitments.md
+[Steel Commitments]: /developers/steel/commitments
 [Cancun upgrade]: https://ethereum.org/en/history/#cancun-summary
 [publisher.rs]: https://github.com/risc0/risc0-ethereum/blob/main/examples/erc20-counter/apps/src/bin/publisher.rs
 [erc20-counter]: https://github.com/risc0/risc0-ethereum/tree/main/examples/erc20-counter
