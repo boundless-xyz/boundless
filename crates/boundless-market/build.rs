@@ -130,7 +130,7 @@ fn rewrite_solidity_interface_files() {
     fs::write(
         dest_path,
         format!(
-            "#[allow(missing_docs)]
+            "#[allow(missing_docs, clippy::too_many_arguments)]
         pub mod boundless_market_contract {{
             use serde::{{Deserialize, Serialize}};
             {alloy_import}::sol! {{

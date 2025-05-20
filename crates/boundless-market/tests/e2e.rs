@@ -22,8 +22,10 @@ use alloy::{
 use alloy_sol_types::SolCall;
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, AssessorReceipt, IBoundlessMarket, Offer, Predicate,
-        PredicateType, ProofRequest, RequestId, RequestStatus, Requirements,
+        boundless_market::{FulfillmentTx, UnlockedRequest},
+        hit_points::default_allowance,
+        AssessorReceipt, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
+        RequestId, RequestStatus, Requirements,
     },
     input::InputBuilder,
 };
@@ -219,7 +221,10 @@ async fn test_e2e() {
         callbacks: vec![],
     };
     // fulfill the request
-    ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
+    ctx.prover_market
+        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .await
+        .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve journal and seal from the fulfilled request
@@ -292,13 +297,11 @@ async fn test_e2e_merged_submit_fulfill() {
     };
     // publish the committed root + fulfillments
     ctx.prover_market
-        .submit_merkle_and_fulfill(
+        .fulfill(FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone()).with_submit_root(
             ctx.set_verifier_address,
             root,
             set_verifier_seal,
-            fulfillments.clone(),
-            assessor_fill,
-        )
+        ))
         .await
         .unwrap();
 
@@ -357,17 +360,13 @@ async fn test_e2e_price_and_fulfill_batch() {
         prover: ctx.prover_signer.address(),
         callbacks: vec![],
     };
-    // publish the committed root
-    ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
     // Price and fulfill the request
     ctx.prover_market
-        .price_and_fulfill_batch(
-            vec![request],
-            vec![customer_sig],
-            fulfillments.clone(),
-            assessor_fill,
-            None,
+        .fulfill(
+            FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone())
+                .with_submit_root(ctx.set_verifier_address, root, set_verifier_seal)
+                .with_unlocked_request(UnlockedRequest::new(request, customer_sig)),
         )
         .await
         .unwrap();
@@ -449,7 +448,10 @@ async fn test_e2e_no_payment() {
 
         let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         // fulfill the request.
-        ctx.prover_market.fulfill(&fulfillment, assessor_fill.clone()).await.unwrap();
+        ctx.prover_market
+            .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+            .await
+            .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
         let balance_after = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         assert!(balance_before == balance_after);
@@ -477,7 +479,10 @@ async fn test_e2e_no_payment() {
     };
 
     // fulfill the request, this time getting paid.
-    ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
+    ctx.prover_market
+        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .await
+        .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve journal and seal from the fulfilled request

@@ -75,8 +75,9 @@ use url::Url;
 use boundless_market::{
     client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR,
+        boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
+        Callback, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+        Requirements, UNSPECIFIED_SELECTOR,
     },
     input::{GuestEnv, InputBuilder},
     selector::ProofType,
@@ -327,6 +328,10 @@ enum ProvingCommands {
         /// If provided, the request will be fetched offchain via the provided order stream service URL.
         #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["tx_hash"])]
         order_stream_url: Option<Url>,
+
+        /// Withdraw the funds after fulfilling the requests
+        #[arg(long, default_value = "false")]
+        withdraw: bool,
     },
 
     /// Lock a request in the market
@@ -813,7 +818,13 @@ where
             tracing::debug!("Journal: {:?}", journal);
             Ok(())
         }
-        ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes, order_stream_url } => {
+        ProvingCommands::Fulfill {
+            request_ids,
+            request_digests,
+            tx_hashes,
+            order_stream_url,
+            withdraw,
+        } => {
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
             {
@@ -881,8 +892,7 @@ where
 
             let results = futures::future::join_all(fetch_order_jobs).await;
             let mut orders = Vec::new();
-            let mut signatures = Vec::new();
-            let mut requests_to_price = Vec::new();
+            let mut unlocked_requests = Vec::new();
 
             for result in results {
                 let (order, sig, is_locked) = result?;
@@ -890,28 +900,24 @@ where
                 // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
                 // and empty if the request is locked.
                 if !is_locked {
-                    requests_to_price.push(order.request.clone());
+                    unlocked_requests.push(UnlockedRequest::new(order.request.clone(), sig));
                 }
                 orders.push(order);
-                signatures.push(sig);
             }
 
             let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
             let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
-            tracing::debug!("Submitting root {} to SetVerifier", order_fulfilled.root);
-            set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
-            tracing::debug!("Successfully submitted root to SetVerifier");
 
-            match boundless_market
-                .price_and_fulfill_batch(
-                    requests_to_price,
-                    signatures,
-                    order_fulfilled.fills,
-                    order_fulfilled.assessorReceipt,
-                    None,
-                )
-                .await
-            {
+            let fulfillment_tx =
+                FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                    .with_submit_root(
+                        args.config.set_verifier_address,
+                        order_fulfilled.root,
+                        order_fulfilled.seal,
+                    )
+                    .with_unlocked_requests(unlocked_requests)
+                    .with_withdraw(*withdraw);
+            match boundless_market.fulfill(fulfillment_tx).await {
                 Ok(_) => {
                     tracing::info!("Successfully fulfilled requests {}", request_ids_string);
                     Ok(())
@@ -2171,6 +2177,7 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 order_stream_url: None,
+                withdraw: false,
             })),
         })
         .await
@@ -2243,6 +2250,7 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 order_stream_url: None,
+                withdraw: false,
             })),
         })
         .await
@@ -2322,6 +2330,7 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 order_stream_url: None,
+                withdraw: false,
             })),
         })
         .await
@@ -2377,6 +2386,7 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 order_stream_url: None,
+                withdraw: false,
             })),
         })
         .await
@@ -2479,12 +2489,17 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 order_stream_url: Some(order_stream_url),
+                withdraw: true,
             })),
         })
         .await
         .unwrap();
 
         assert!(logs_contain(&format!("Successfully fulfilled requests 0x{:x}", request.id)));
+
+        // test the automated withdraw
+        let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
+        assert_eq!(balance, U256::from(0));
 
         // Clean up
         order_stream_handle.abort();

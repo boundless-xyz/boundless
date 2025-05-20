@@ -13,13 +13,15 @@ use alloy::{
 };
 use boundless_cli::OrderFulfilled;
 use boundless_market::{
-    contracts::{Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements},
+    contracts::{
+        boundless_market::{FulfillmentTx, UnlockedRequest},
+        Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+    },
     order_stream_client::Order,
 };
 use boundless_market_test_utils::create_test_ctx;
 use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
 use futures_util::StreamExt;
-use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 
 async fn create_order(
     signer: &impl Signer,
@@ -197,12 +199,6 @@ async fn test_slash_fulfilled() {
     let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt).unwrap();
     let expires_at = request.offer.biddingStart + request.offer.timeout as u64;
     let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;
-    let set_verifier = SetVerifierService::new(
-        ctx.set_verifier_address,
-        ctx.customer_provider.clone(),
-        ctx.customer_signer.address(),
-    );
-    set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await.unwrap();
 
     // Wait for the lock to expire
     loop {
@@ -226,12 +222,14 @@ async fn test_slash_fulfilled() {
 
     // Fulfill the order
     ctx.customer_market
-        .price_and_fulfill_batch(
-            vec![request],
-            vec![client_sig],
-            order_fulfilled.fills,
-            order_fulfilled.assessorReceipt,
-            None,
+        .fulfill(
+            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                .with_submit_root(
+                    ctx.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                )
+                .with_unlocked_request(UnlockedRequest::new(request, client_sig)),
         )
         .await
         .unwrap();

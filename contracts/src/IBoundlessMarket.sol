@@ -75,7 +75,7 @@ interface IBoundlessMarket {
 
     /// @notice Event emitted during fulfillment if a request was fulfilled, but payment was not
     /// transferred because at least one condition was not met. See the documentation on
-    /// `IBoundlessMarket.fulfillBatch` for more information.
+    /// `IBoundlessMarket.fulfill` for more information.
     /// @dev The payload of the event is an ABI encoded error, from the errors on this contract.
     /// If there is an unexpired lock on the request, the order, the prover holding the lock may
     /// still be able to receive payment by sending another transaction.
@@ -253,59 +253,28 @@ interface IBoundlessMarket {
         bytes calldata proverSignature
     ) external;
 
-    /// @notice Fulfill a request by delivering the proof for the application.
-    /// If the order is locked, only the prover that locked the order may receive payment.
-    /// If another prover delivers a proof for an order that is locked, this method will revert
-    /// unless `paymentRequired` is set to `false` on the `Fulfillment` struct.
-    /// @param fill The fulfillment information, including the journal and seal.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
-    function fulfill(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt)
-        external
-        returns (bytes memory paymentError);
-
     /// @notice Fulfills a batch of requests. See IBoundlessMarket.fulfill for more information.
     /// @param fills The array of fulfillment information.
     /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function fulfillBatch(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
+    function fulfill(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
         external
         returns (bytes[] memory paymentError);
-
-    /// @notice Fulfill a request by delivering the proof for the application and withdraw from the prover balance.
-    /// If the order is locked, only the prover that locked the order may receive payment.
-    /// If another prover delivers a proof for an order that is locked, this method will revert
-    /// unless `paymentRequired` is set to `false` on the `Fulfillment` struct.
-    /// @param fill The fulfillment information, including the journal and seal.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
-    function fulfillAndWithdraw(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt)
-        external
-        returns (bytes memory paymentError);
 
     /// @notice Fulfills a batch of requests and withdraw from the prover balance. See IBoundlessMarket.fulfill for more information.
     /// @param fills The array of fulfillment information.
     /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function fulfillBatchAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
+    function fulfillAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
         external
         returns (bytes[] memory paymentError);
-
-    /// @notice Verify the application and assessor receipts, ensuring that the provided fulfillment
-    /// satisfies the request.
-    /// @param fill The fulfillment information, including the journal and seal.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
-    function verifyDelivery(Fulfillment calldata fill, AssessorReceipt calldata assessorReceipt) external view;
 
     /// @notice Verify the application and assessor receipts for the batch, ensuring that the provided
     /// fulfillments satisfy the requests.
     /// @param fills The array of fulfillment information.
     /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function verifyBatchDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
-        external
-        view;
+    function verifyDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) external view;
 
     /// @notice Checks the validity of the request and then writes the current auction price to
     /// transient storage.
@@ -320,27 +289,12 @@ interface IBoundlessMarket {
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfill`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
-    /// @param request The proof requests.
-    /// @param clientSignature The client signatures.
-    /// @param fill The fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
-    function priceAndFulfill(
-        ProofRequest calldata request,
-        bytes calldata clientSignature,
-        Fulfillment calldata fill,
-        AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes memory paymentError);
-
-    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
-    /// The caller should provide the signed request and signature for each unlocked request they
-    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     /// @param requests The array of proof requests.
     /// @param clientSignatures The array of client signatures.
     /// @param fills The array of fulfillment information.
     /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function priceAndFulfillBatch(
+    function priceAndFulfill(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
@@ -350,27 +304,12 @@ interface IBoundlessMarket {
     /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillAndWithdraw`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
-    /// @param request The proof requests.
-    /// @param clientSignature The client signatures.
-    /// @param fill The fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
-    function priceAndFulfillAndWithdraw(
-        ProofRequest calldata request,
-        bytes calldata clientSignature,
-        Fulfillment calldata fill,
-        AssessorReceipt calldata assessorReceipt
-    ) external returns (bytes memory paymentError);
-
-    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatchAndWithdraw`.
-    /// The caller should provide the signed request and signature for each unlocked request they
-    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     /// @param requests The array of proof requests.
     /// @param clientSignatures The array of client signatures.
     /// @param fills The array of fulfillment information.
     /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function priceAndFulfillBatchAndWithdraw(
+    function priceAndFulfillAndWithdraw(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
@@ -378,13 +317,13 @@ interface IBoundlessMarket {
     ) external returns (bytes[] memory paymentError);
 
     /// @notice Submit a new root to a set-verifier.
-    /// @dev Consider using `submitRootAndFulfillBatch` to submit the root and fulfill in one transaction.
+    /// @dev Consider using `submitRootAndFulfill` to submit the root and fulfill in one transaction.
     /// @param setVerifier The address of the set-verifier contract.
     /// @param root The new merkle root.
     /// @param seal The seal of the new merkle root.
     function submitRoot(address setVerifier, bytes32 root, bytes calldata seal) external;
 
-    /// @notice Combined function to submit a new root to a set-verifier and call fulfillBatch.
+    /// @notice Combined function to submit a new root to a set-verifier and call fulfill.
     /// @dev Useful to reduce the transaction count for fulfillments.
     /// @param setVerifier The address of the set-verifier contract.
     /// @param root The new merkle root.
@@ -392,7 +331,7 @@ interface IBoundlessMarket {
     /// @param fills The array of fulfillment information.
     /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function submitRootAndFulfillBatch(
+    function submitRootAndFulfill(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
@@ -400,7 +339,7 @@ interface IBoundlessMarket {
         AssessorReceipt calldata assessorReceipt
     ) external returns (bytes[] memory paymentError);
 
-    /// @notice Combined function to submit a new root to a set-verifier and call fulfillBatchAndWithdraw.
+    /// @notice Combined function to submit a new root to a set-verifier and call fulfillAndWithdraw.
     /// @dev Useful to reduce the transaction count for fulfillments.
     /// @param setVerifier The address of the set-verifier contract.
     /// @param root The new merkle root.
@@ -408,10 +347,46 @@ interface IBoundlessMarket {
     /// @param fills The array of fulfillment information.
     /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
     /// request's requirements are met.
-    function submitRootAndFulfillBatchAndWithdraw(
+    function submitRootAndFulfillAndWithdraw(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
+        Fulfillment[] calldata fills,
+        AssessorReceipt calldata assessorReceipt
+    ) external returns (bytes[] memory paymentError);
+
+    /// @notice Combined function to submit a new root to a set-verifier and call priceAndFulfill.
+    /// @dev Useful to reduce the transaction count for fulfillments.
+    /// @param setVerifier The address of the set-verifier contract.
+    /// @param root The new merkle root.
+    /// @param seal The seal of the new merkle root.
+    /// @param fills The array of fulfillment information.
+    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
+    /// request's requirements are met.
+    function submitRootAndPriceAndFulfill(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        ProofRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
+        Fulfillment[] calldata fills,
+        AssessorReceipt calldata assessorReceipt
+    ) external returns (bytes[] memory paymentError);
+
+    /// @notice Combined function to submit a new root to a set-verifier and call priceAndFulfillAndWithdraw.
+    /// @dev Useful to reduce the transaction count for fulfillments.
+    /// @param setVerifier The address of the set-verifier contract.
+    /// @param root The new merkle root.
+    /// @param seal The seal of the new merkle root.
+    /// @param fills The array of fulfillment information.
+    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
+    /// request's requirements are met.
+    function submitRootAndPriceAndFulfillAndWithdraw(
+        address setVerifier,
+        bytes32 root,
+        bytes calldata seal,
+        ProofRequest[] calldata requests,
+        bytes[] calldata clientSignatures,
         Fulfillment[] calldata fills,
         AssessorReceipt calldata assessorReceipt
     ) external returns (bytes[] memory paymentError);
