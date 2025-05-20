@@ -1,7 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
-ssh-add ~/.ssh/id_ed25519_dev_docker_builder
+# Check if the SSH key is added to the SSH agent
+if ! ssh-add -l | grep -q "id_ed25519_dev_docker_builder"; then
+    echo "SSH key not found in SSH agent. Adding it..."
+    ssh-add ~/.ssh/id_ed25519_dev_docker_builder
+    if [ $? -ne 0 ]; then
+        echo "Failed to add SSH key to agent. Please ensure the key exists and try again."
+        exit 1
+    fi
+    echo "SSH key added successfully."
+else
+    echo "SSH key already present in SSH agent."
+fi
 
 INSTANCE_ID=$(aws ec2 describe-instances \
   --filters "Name=tag:Name,Values=builder-local" \
@@ -41,7 +52,11 @@ echo "Found instance DNS: $INSTANCE_DNS"
 # Step 2: Add the instance to known_hosts if not already present
 if ! ssh-keygen -F "$INSTANCE_DNS" > /dev/null; then
   echo "Adding $INSTANCE_DNS to known_hosts..."
-  ssh-keyscan "$INSTANCE_DNS" >> ~/.ssh/known_hosts
+  if ! ssh-keyscan "$INSTANCE_DNS" 2>&1 | tee -a ~/.ssh/known_hosts; then
+    echo "Error: Failed to add $INSTANCE_DNS to known_hosts. Please check your network connection and instance status."
+    exit 1
+  fi
+  echo "Successfully added $INSTANCE_DNS to known_hosts"
 else
   echo "$INSTANCE_DNS is already in known_hosts"
 fi

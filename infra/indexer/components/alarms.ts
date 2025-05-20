@@ -1,17 +1,26 @@
 import * as aws from "@pulumi/aws";
 import { Severity } from "../../util";
-import { Target } from "./targets";
 
 export const buildCreateMetricFns = (serviceName: string, namespace: string, alarmActions: string[]) => {
-    const createMetricAlarm = (
+    const createMetricAlarm = ({
+        metricName: baseMetricName,
+        severity,
+        target,
+        description,
+        metricConfig,
+        alarmConfig,
+    }: {
         metricName: string,
         severity: Severity,
-        target?: Target,
+        target?: {
+            name: string;
+            address: string;
+        },
         description?: string,
         metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
         alarmConfig?: Partial<aws.cloudwatch.MetricAlarmArgs>,
-    ): void => {
-        metricName = target ? `${metricName}_${target.address}` : metricName;
+    }): void => {
+        const metricName = target ? `${baseMetricName}_${target.address}` : baseMetricName;
         const metricFullName = target ? `${metricName}_${target.name}` : metricName;
         new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricFullName}-${severity}-alarm`, {
             name: `${serviceName}-${metricName}-${severity}`,
@@ -33,7 +42,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             treatMissingData: 'notBreaching',
-            alarmDescription: `${severity} ${metricFullName} ${description}`,
+            alarmDescription: `${severity}: ${description}`,
             actionsEnabled: true,
             alarmActions,
             ...alarmConfig
@@ -41,7 +50,10 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
     }
 
     const createSuccessRateAlarm = (
-        target: Target,
+        target: {
+            name: string;
+            address: string;
+        },
         severity: Severity,
         description?: string,
         metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
@@ -85,7 +97,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             evaluationPeriods: 12,
             datapointsToAlarm: 1,
             treatMissingData: 'notBreaching',
-            alarmDescription: `${severity} ${metricName} ${description}`,
+            alarmDescription: `${severity}: ${description}`,
             actionsEnabled: true,
             alarmActions,
             ...alarmConfig

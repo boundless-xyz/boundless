@@ -26,7 +26,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
       vpcId: pulumi.Output<string>;
       rdsPassword: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
-      boundlessAlertsTopicArn?: string;
+      boundlessAlertsTopicArns?: string[];
       startBlock: string;
       serviceMetricsNamespace: string;
       dockerRemoteBuilder?: string;
@@ -143,7 +143,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
 
     const rdsUser = 'indexer';
     const rdsPort = 5432;
-    const rdsDbName = 'indexer';
+    const rdsDbName = 'indexerV1';
 
     const dbSubnets = new aws.rds.SubnetGroup(`${serviceName}-dbsubnets`, {
       subnetIds: privSubNetIds,
@@ -170,10 +170,10 @@ export class IndexerInstance extends pulumi.ComponentResource {
       ],
     });
 
-    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora`, {
+    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v1`, {
       engine: "aurora-postgresql",
       engineVersion: "17.4",
-      clusterIdentifier: `${serviceName}-aurora`,
+      clusterIdentifier: `${serviceName}-aurora-v1`,
       databaseName: rdsDbName,
       masterUsername: rdsUser,
       masterPassword: rdsPassword,
@@ -185,13 +185,12 @@ export class IndexerInstance extends pulumi.ComponentResource {
       storageEncrypted: true,
     }, { /** protect: true **/ }); // TODO: Re-enable protection once deployed and stable.
 
-    const auroraWriter = new aws.rds.ClusterInstance(
-      `${serviceName}-aurora-writer`, {
+    const auroraWriter = new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-1`, {
       clusterIdentifier: auroraCluster.id,
       engine: "aurora-postgresql",
       engineVersion: "17.4",
       instanceClass: "db.t4g.medium",
-      identifier: `${serviceName}-aurora-writer`,
+      identifier: `${serviceName}-aurora-writer-v1`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
     },
@@ -275,6 +274,18 @@ export class IndexerInstance extends pulumi.ComponentResource {
 
     const serviceLogGroup = `${serviceName}-service`;
 
+    const taskRole = new aws.iam.Role(`${serviceName}-task`, {
+      assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+        Service: 'ecs-tasks.amazonaws.com',
+      }),
+      managedPolicyArns: [aws.iam.ManagedPolicy.AmazonECSTaskExecutionRolePolicy],
+    });
+
+    const taskRolePolicy = new aws.iam.RolePolicyAttachment(`${serviceName}-task-policy`, {
+      role: taskRole.id,
+      policyArn: dbSecretAccessPolicy.arn,
+    });
+
     const service = new awsx.ecs.FargateService(`${serviceName}-service`, {
       name: `${serviceName}-service`,
       cluster: cluster.arn,
@@ -300,13 +311,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
           },
         },
         executionRole: { roleArn: executionRole.arn },
-        taskRole: {
-          args: {
-            name: `${serviceName}-task`,
-            description: 'indexer ECS task role with db secret access',
-            managedPolicyArns: [dbSecretAccessPolicy.arn],
-          },
-        },
+        taskRole: { roleArn: taskRole.arn },
         container: {
           name: `${serviceName}`,
           image: image.ref,
@@ -354,9 +359,9 @@ export class IndexerInstance extends pulumi.ComponentResource {
           ]
         },
       },
-    });
+    }, { dependsOn: [taskRole, taskRolePolicy] });
 
-    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+    const alarmActions = args.boundlessAlertsTopicArns ?? [];
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-log-err-filter`, {
       name: `${serviceName}-log-err-filter`,

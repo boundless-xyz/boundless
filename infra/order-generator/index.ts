@@ -31,12 +31,15 @@ export = () => {
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
   const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
+  const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+  const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const interval = baseConfig.require('INTERVAL');
   const lockStake = baseConfig.require('LOCK_STAKE');
   const rampUp = baseConfig.require('RAMP_UP');
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
   const secondsPerMCycle = baseConfig.require('SECONDS_PER_MCYCLE');
+  const txTimeout = baseConfig.require('TX_TIMEOUT');
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
   const repo = new awsx.ecr.Repository(`${imageName}-repo`, {
@@ -132,7 +135,8 @@ export = () => {
     secondsPerMCycle,
     vpcId,
     privateSubnetIds,
-    boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
+    txTimeout,
   });
 
   const onchainConfig = new pulumi.Config("order-generator-onchain");
@@ -156,6 +160,7 @@ export = () => {
     secondsPerMCycle,
     vpcId,
     privateSubnetIds,
-    boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
+    txTimeout,
   });
 };

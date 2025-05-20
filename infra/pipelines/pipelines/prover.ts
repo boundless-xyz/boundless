@@ -9,6 +9,10 @@ interface ProverPipelineArgs extends BasePipelineArgs {}
 const APP_NAME = "prover";
 // The branch that we should deploy from on push.
 const BRANCH_NAME = "main";
+// SSM Document Name for updating the EC2 Bento Prover
+const bentoBrokerInstanceIdStackOutputKey = "bentoBrokerInstanceId";
+const updateBentoBrokerPulumiOutputKey = "bentoBrokerUpdateCommandId";
+
 // The buildspec for the CodeBuild project that deploys our Pulumi stacks to the staging and prod accounts.
 // Note in pre-build we assume the deployment role for the given account before running pulumi commands, so
 // that we deploy to the target account.
@@ -41,6 +45,16 @@ const BUILD_SPEC = `
           - pulumi stack select $STACK_NAME
           - pulumi cancel --yes
           - pulumi up --yes
+      post_build:
+        commands:
+          - echo "Updating EC2 Bento Prover"
+          - SSM_DOCUMENT_NAME=$(pulumi stack output ${updateBentoBrokerPulumiOutputKey})
+          - INSTANCE_ID=$(pulumi stack output ${bentoBrokerInstanceIdStackOutputKey})
+          - echo "INSTANCE_ID: $INSTANCE_ID, SSM_DOCUMENT_NAME: $SSM_DOCUMENT_NAME"
+          - aws ssm send-command \
+            --document-name $SSM_DOCUMENT_NAME \
+            --targets "Key=InstanceIds,Values=$INSTANCE_ID \
+            --cloud-watch-output-config CloudWatchOutputEnabled=true"
     `;
 
 export class ProverPipeline extends pulumi.ComponentResource {

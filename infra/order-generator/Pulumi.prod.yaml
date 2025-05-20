@@ -5,8 +5,9 @@ config:
   order-generator-base:PINATA_JWT:
     secure: v1:VGD4b3duR8qDgPcf:hg7a9hzbcbo/Sqj79fp06XpgLsioFNM0gkumdtHBXWQNblz/srhGHjFDaCxkv+GO3jirWewM/woviNaPr4xJlhNPIjkHrhUB0OrVgshGAUwls7T+5uKSbTXhyT5UacEwa+nJvCdn5vwWwlUIT55xjADfRvlzeQYDaqA7UV0t7D4LX9Bn6kY/nM7cfhxodLEEuQGWhve5vlNZ6TQwtcPv/jGh3rC9610Z8DoThYXuRQbbI80MokDBW+7JWy3hZbaTvOMNE7aUaFKU8OVjXzPsYxo4K2v8CkS+2f/DwOBeLy/qtELKd0T8fVbjFSx38i4xDW3RKTic+R49llwb3awK4FCW1bfNxmq9rr6eXEQk3AisVyVpLnlpz2ssCez+fsJDNV7FBrGpT1RmUCxzHsJyGFa/OWVXYVHEBBa21OJnq5IjhAbWHdJZQTsAeqNNGXtfsFpCoUp6bCpyhlYwP0qoup35d1OetvRlmpXjgVUKerDaQ0+T7khtlBB4oIbtdc5BdYb6FL/CcaFZvtGcE9IX6CGAtSuVqbgICgqsHd5E8YvT856UjZ1vFQQ7KO0XlPnNcwpHgx6DbM1vKPZ7ogywcDFx51wnJKhczYPfV5CecmjGWelYH+UjOxsZFVUhB2+FOPwSDc8uTlFqTlhFc/hJX1yLfvo6SzNBVVtRnI33XYBvkJEBESs3Nu/EwuodK8YYAuIQMomsNP7rSTYfiRbKjrFdsZJIuLPZW94u5EcLyLnRNlWZHmDzgLLiMXzcZUBfhQ5Do7s43ab6Nt1tYTpSOpojV6RVzJlTDorm6fd2WhZ8nDJL1h2fdxG8LmnTZu4HeIsa65FFXVIbQos9Lulk8S1oEBYqOYiPRawJMP9mRGW/vwphWkCZ4X/HZoDI+UOZINhczxd1i2ohTd9/t3KUL163ZHQE79qg
   order-generator-base:ETH_RPC_URL:
-    secure: v1:OL1dK9lvanA4+cxN:k/qrgdflqF78VPuRdMICh7VWbkydVI/FMNG4tjcWS/jkmTXPnmoaY49uG43/uSfyQNoiAZU9L0XhMSJSwimdf3cAwG9TD3hsGmPRAXsaqoJnHw3hqw==
+    secure: v1:AHJX5RgcdGe/gPBl:QyR18cMUudBxUFu/p3oZoSUfxnfl7cYPEWG6+bNpnr3eXbYHAYv9xDAGJObSpzmNv+XfJZScwa7eDQvq6XpPqspg+s7HIfEYan5u34kXQq9F1qjf8A==
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:BASE_STACK: organization/bootstrap/services-prod
   order-generator-base:BOUNDLESS_MARKET_ADDR: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
   order-generator-base:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
@@ -26,6 +27,7 @@ config:
   order-generator-base:ORDER_STREAM_URL: https://eth-sepolia.beboundless.xyz
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:i+l18LS63TZDaTEk:DwR3R7w8tTJCqDQMZpOPF7Ih1xm+xszYALdKhiM+xvSJcPzPhY15QAtamb6RaHjj0g/eOWkHeueQmJY0lmTUNJ9TEte8N4YLfWomNAXJxKKCiXZc7P+S7yy1Gw+f+ljyOXEFDIpQGTO19ZVJ0g==
+  order-generator-base:TX_TIMEOUT: "90"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:9iJ6gE5+gp4aipMW:lZlt7k89kafxnLvr8Qe0sStef/3gNEOcr67breAfH/sSrlgL4m6k081WHMUpaU2doI683Sd0TQ+kSnbLKINXfxvqiw/EFfhz4SxOks6d9UI=
   order-generator-offchain:AUTO_DEPOSIT: "20"

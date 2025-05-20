@@ -2,9 +2,9 @@ import * as path from 'path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { createRustLambda } from './rust-lambda';
-import { Severity } from '../../util';
-import { clients, clientAddresses, proverAddresses } from './targets';
+import { ChainId, getChainId, Stage } from '../../util';
 import { buildCreateMetricFns } from './alarms';
+import { alarmConfig } from '../alarmConfig';
 
 export interface MonitorLambdaArgs {
   /** VPC where RDS lives */
@@ -21,8 +21,8 @@ export interface MonitorLambdaArgs {
   chainId: string;
   /** RUST_LOG level */
   rustLogLevel: string;
-  /** Boundless alerts topic ARN */
-  boundlessAlertsTopicArn?: string;
+  /** Boundless alerts topic ARNs */
+  boundlessAlertsTopicArns?: string[];
   /** Namespace for service metrics, e.g. operation health of the monitor/indexer infra */
   serviceMetricsNamespace: string;
   /** Namespace for market metrics, e.g. order volume, order count, etc. */
@@ -40,6 +40,9 @@ export class MonitorLambda extends pulumi.ComponentResource {
     super(name, name, opts);
 
     const serviceName = name;
+    const chainId: ChainId = getChainId(args.chainId);
+    const stage = pulumi.getStack().includes("staging") ? Stage.STAGING : Stage.PROD;
+    const chainStageAlarmConfig = alarmConfig[chainId][stage];
 
     const role = new aws.iam.Role(
       `${serviceName}-role`,
@@ -162,7 +165,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
       pattern: '?ERROR ?error ?Error',
     }, { dependsOn: [this.lambdaFunction] });
 
-    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+    const alarmActions = args.boundlessAlertsTopicArns ?? [];
 
     // 2 errors within 1 hour in the order generator triggers a SEV2 alarm.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-monitor-error-alarm`, {
@@ -198,6 +201,9 @@ export class MonitorLambda extends pulumi.ComponentResource {
       { parent: this },
     );
 
+    const clientAddresses = chainStageAlarmConfig.clients.map(c => c.address);
+    const proverAddresses = chainStageAlarmConfig.provers.map(p => p.address);
+
     const payload = {
       clients: clientAddresses,
       provers: proverAddresses,
@@ -222,87 +228,70 @@ export class MonitorLambda extends pulumi.ComponentResource {
     // Create top level alarms
     // Total Number of Fulfilled Orders - SEV1: <5 within 10 minutes
     const { createMetricAlarm, createSuccessRateAlarm } = buildCreateMetricFns(serviceName, marketMetricsNamespace, alarmActions);
+    const { fulfilledRequests, submittedRequests, expiredRequests, slashedRequests } = chainStageAlarmConfig.topLevel;
 
-    createMetricAlarm("fulfilled_requests_number", Severity.SEV1,
-      undefined,
-      "less than 5 fulfilled orders in 10 minutes", {
-      period: 600
-    },
-      {
-        threshold: 5,
-        comparisonOperator: "LessThanThreshold",
-      },
-    );
+    fulfilledRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+      createMetricAlarm({
+        metricName: "fulfilled_requests_number",
+        severity,
+        description,
+        metricConfig,
+        alarmConfig,
+      });
+    });
 
-    // Total Number of Submitted Orders - SEV2: TBD(needs baseline)
+    submittedRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+      createMetricAlarm({
+        metricName: "requests_number",
+        severity,
+        description,
+        metricConfig,
+        alarmConfig,
+      });
+    });
 
-    createMetricAlarm("requests_number", Severity.SEV2,
-      undefined,
-      "less than 5 submitted orders in 10 minutes", {
-      period: 600
-    },
-      {
-        threshold: 5,
-        comparisonOperator: "LessThanThreshold",
-      },
-    );
+    expiredRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+      createMetricAlarm({
+        metricName: "expired_requests_number",
+        severity,
+        description,
+        metricConfig,
+        alarmConfig,
+      });
+    });
 
+    slashedRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+      createMetricAlarm({
+        metricName: "slashed_requests_number",
+        severity,
+        description,
+        metricConfig,
+        alarmConfig,
+      });
+    });
 
-    // Total Number of Expired Orders - SEV2: TBD(needs baseline)
-
-    createMetricAlarm("expired_requests_number", Severity.SEV2,
-      undefined,
-      "at least 2 expired orders in 10 minutes", {
-      period: 600
-    },
-      {
-        threshold: 2,
-        comparisonOperator: "GreaterThanOrEqualToThreshold",
-      },
-    );
-
-    // Total Number of Slashed Orders - SEV2: TBD(needs baseline)
-
-    createMetricAlarm("slashed_requests_number", Severity.SEV2,
-      undefined,
-      "at least 2 slashed orders in 10 minutes", {
-      period: 600
-    },
-      {
-        threshold: 2,
-        comparisonOperator: "GreaterThanOrEqualToThreshold",
-      },
-    );
-
+    const { clients: clientAlarms } = chainStageAlarmConfig;
     // Create alarms for each client
-    clients.forEach((client) => {
-      if (client.submissionRate != null) {
-        client.submissionRate.forEach((cfg) => {
-          const severity = cfg.severity;
-          const metricConfig = cfg.metricConfig;
-          const alarmConfig = cfg.alarmConfig;
-
-          createMetricAlarm(`requests_number_from`, severity,
-            client,
-            `${alarmConfig.datapointsToAlarm} missed submissions in ${metricConfig.period} seconds`, metricConfig,
-            {
-              threshold: 1,
-              comparisonOperator: "LessThanThreshold",
-              ...alarmConfig,
-            },
-          );
+    clientAlarms.forEach((client) => {
+      const { submissionRate, successRate, name, address } = client;
+      if (submissionRate != null) {
+        submissionRate.forEach((cfg) => {
+          const { severity, description, metricConfig, alarmConfig } = cfg;
+          createMetricAlarm({
+            metricName: "requests_number_from",
+            severity,
+            target: { name, address },
+            description,
+            metricConfig,
+            alarmConfig,
+          });
         });
       };
 
-      if (client.successRate != null) {
-        client.successRate.forEach((cfg) => {
-          const severity = cfg.severity;
-          const metricConfig = cfg.metricConfig;
-          const alarmConfig = cfg.alarmConfig;
-
-          createSuccessRateAlarm(client, severity, `success rate is below ${alarmConfig.threshold}`, metricConfig,
-            alarmConfig
-          );
+      if (successRate != null) {
+        successRate.forEach((cfg) => {
+          const { severity, description, metricConfig, alarmConfig } = cfg;
+          createSuccessRateAlarm({ name, address }, severity, description, metricConfig, alarmConfig);
         });
       };
 

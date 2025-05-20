@@ -1,8 +1,6 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEr0ZJEO4dhQ1TcmzPl5RdoAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMv7kVvHyDIG5k3eROAgEQgDsjYA0oc2IvwF8i9snHCzZLqIS7m5MXWhDp++g8vXjT5YgqWtPuterOHYDss1R6C3cgaVv2+ow/d63q3A==
 config:
-  slasher:ETH_RPC_URL:
-    secure: v1:6nsR5L/6EU+pGf50:hN4tERoAxnyEh7npR3gfrndekS+vgm21atx1xRFTXz/1reaFURro1esQdmvbS39OIPzv7PIlBP2fJEjCdDjOHpDL0lJzprtxZV8Ekt5J1Xu3+UaHPg==
   slasher:PRIVATE_KEY:
     secure: v1:PS8c2ejmKEwjLkJb:yi3puIt9/XPmDuTKjc4m8GyGhpehesDTrwSVdnkrVCkLFvcOq+Lt5vXICRbawHR4VjPaegvQjGJOeP67XLBWiP1rKViAEz0AJp6eOo96GwE=
   slasher:BASE_STACK: organization/bootstrap/services-prod
@@ -16,3 +14,6 @@ config:
   slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   slasher:GH_TOKEN_SECRET:
     secure: v1:i3GxAv8H4tqMAos5:gaQ+Ameo+lRFYdu0nw/DbW4mPMAKb4SrNF3QGjtc/WQVg06y1XEt7E7DIbiTNmrkxqChb4TSqgN5ru4+e+J6C46HdTFw6KJpKqAJDt6ja2J9IgOAxiq9E1WjbMXwgmGWqJWWVGb+fgEv6kkVvQ==
+  slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  slasher:ETH_RPC_URL:
+    secure: v1:TJcLbCNiy5dxnl8s:fyJTFm9B+ikSyIxfIVjkfvB9yQz5oaZUyM5ZfQHVWpUg9u+K8/A2LoGUCNqByNlEZszOpKZYn10Opz3yQosdh4Jl5iSmhQeZKR5bGFW6QgOB/Oq/YA==
