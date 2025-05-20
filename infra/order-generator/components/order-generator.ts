@@ -2,7 +2,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import { Image } from '@pulumi/docker-build';
-import { getServiceNameV1 } from '../../util';
+import { getServiceNameV1, Severity } from '../../util';
 import * as crypto from 'crypto';
 
 interface OrderGeneratorArgs {
@@ -24,7 +24,7 @@ interface OrderGeneratorArgs {
   secondsPerMCycle: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
-  boundlessAlertsTopicArn?: string;
+  boundlessAlertsTopicArns?: string[];
   offchainConfig?: {
     autoDeposit: string;
     orderStreamUrl: pulumi.Output<string>;
@@ -207,11 +207,11 @@ export class OrderGenerator extends pulumi.ComponentResource {
       pattern: 'FATAL',
     }, { dependsOn: [service] });
 
-    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+    const alarmActions = args.boundlessAlertsTopicArns ?? [];
 
-    // 5 errors within 1 hour in the order generator triggers a SEV2 alarm.
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
-      name: `${serviceName}-log-err`,
+    // 3 errors within 1 hour in the order generator triggers a SEV2 alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-log-err-${Severity.SEV2}`,
       metricQueries: [
         {
           id: 'm1',
@@ -227,17 +227,42 @@ export class OrderGenerator extends pulumi.ComponentResource {
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
       evaluationPeriods: 60,
-      datapointsToAlarm: 5,
+      datapointsToAlarm: 3,
       treatMissingData: 'notBreaching',
-      alarmDescription: `Order generator ${name} log ERROR level`,
+      alarmDescription: `Order generator ${name} log ERROR level 3 times within an hour`,
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    // 7 errors within 1 hour in the order generator triggers a SEV1 alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV1}`, {
+      name: `${serviceName}-log-err-${Severity.SEV1}`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-err`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 60,
+      datapointsToAlarm: 7,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Order generator ${name} log ERROR level 7 times within an hour`,
       actionsEnabled: true,
       alarmActions,
     });
 
     // A single error in the order generator causes the process to exit.
-    // Alarm if we see 2 errors in 30 mins.
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
-      name: `${serviceName}-log-fatal`,
+    // SEV2 alarm if we see 2 errors in 30 mins.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-log-fatal-${Severity.SEV2}`,
       metricQueries: [
         {
           id: 'm1',
@@ -255,7 +280,33 @@ export class OrderGenerator extends pulumi.ComponentResource {
       evaluationPeriods: 30,
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
-      alarmDescription: `Order generator ${name} FATAL (task exited)`,
+      alarmDescription: `Order generator ${name} FATAL (task exited) 2 times within 30 mins`,
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    // A single error in the order generator causes the process to exit.
+    // SEV1 alarm if we see 4 errors in 30 mins.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV1}`, {
+      name: `${serviceName}-log-fatal-${Severity.SEV1}`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-fatal`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 30,
+      datapointsToAlarm: 4,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Order generator ${name} FATAL (task exited) 4 times within 30 mins`,
       actionsEnabled: true,
       alarmActions,
     });

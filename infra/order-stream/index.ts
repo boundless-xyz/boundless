@@ -24,6 +24,8 @@ export = () => {
   const orderStreamPingTime = config.requireNumber('ORDER_STREAM_PING_TIME');
   const albDomain = config.getSecret('ALB_DOMAIN');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+  const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+  const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -46,7 +48,7 @@ export = () => {
     rdsPassword,
     ethRpcUrl,
     albDomain,
-    boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
   });
 
   return {
