@@ -411,11 +411,11 @@ impl MissingFieldError {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc};
+    use std::sync::Arc;
 
     use alloy::{
         network::TransactionBuilder, node_bindings::Anvil, primitives::Address,
-        rpc::types::TransactionRequest, providers::Provider,
+        providers::Provider, rpc::types::TransactionRequest,
     };
     use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
     use tracing_test::traced_test;
@@ -423,8 +423,8 @@ mod tests {
 
     use super::{
         Layer, OfferLayer, OfferLayerConfig, OfferParams, PreflightLayer, RequestBuilder,
-        RequestId, RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequirementsLayer,
-        StandardRequestBuilder, StorageLayer, StorageLayerConfig, RequestParams
+        RequestId, RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequestParams,
+        RequirementsLayer, StandardRequestBuilder, StorageLayer, StorageLayerConfig,
     };
 
     use crate::{
@@ -728,7 +728,6 @@ mod tests {
         assert_eq!(offer_zero_mcycles.timeout, 1200);
         Ok(())
     }
-
 
     #[test]
     fn request_params_with_program_url_infallible() {
