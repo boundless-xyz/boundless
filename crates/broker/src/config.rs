@@ -47,7 +47,7 @@ mod defaults {
     }
 
     pub const fn max_submission_attempts() -> u32 {
-        3
+        2
     }
 }
 /// All configuration related to markets mechanics

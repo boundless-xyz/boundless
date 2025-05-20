@@ -3,8 +3,6 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEg8jL5aFSa2GTN2x
 config:
   slasher:PRIVATE_KEY:
     secure: v1:3efkipLM4idAlwaJ:zL3IFTwgobXL0/UB8myW8kA9QZlXJTkRLUQ6O40/jbF6VDQ1gTEFP2oOpzCuCjsR+3ZiaYHzJSe3AB0Ej6bIahODR0llzAF+RpzcB/tmz2U=
-  slasher:ETH_RPC_URL:
-    secure: v1:U9t0UwOizTLA1Hmf:i7YUWMkRaJOMUzXGq01qoVFCeMU+e2/N5bQaGSvkhzGb9pmqSL6PF6Oss9pRS5ucR2NOVeOErJxUFHaIN0F823Ro5oqlwSH6BTZr6b01jPhQ++QBgQ==
   slasher:BASE_STACK: organization/bootstrap/services-staging
   slasher:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
   slasher:DOCKER_DIR: ../../
@@ -17,3 +15,5 @@ config:
   slasher:GH_TOKEN_SECRET:
     secure: v1:ax6tdJIF/DIXguKN:AOrpjbk/vEfTIF7ShLmdQbfAoy2ZTHxHJYGv48NFMlfd2HtCqmKpsZACv1Tw3wnZxt+qhjFaCah6G981Cxi8QRGsEkyunQp6QEi/RvsXQT4FGiVY/kzM4HyCDDD402x/COrClodmIL1cWVGXbQ==
   slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  slasher:ETH_RPC_URL:
+    secure: v1:Hj/bfCVDhATl+X8L:7F0bJRV5f7CJsXKzLNN0izCjtnExs8yM5+We/KnPBeMLHp0DJMjzm8i/7cTcLBAc6Bfi7v+v/T2zO5LsXLe6K3wIqJHaJwiX9A+jvXQuBDT5bkAexw==

@@ -11,7 +11,7 @@ config:
   base-prover:BROKER_TOML_PATH: broker-staging.toml
   base-prover:BASE_STACK: organization/bootstrap/services-staging
   base-prover:ETH_RPC_URL:
-    secure: v1:bAYClD7XbW9P0Nct:UvKogu9L0Xam53xCdhAvfORvTE7KMcgt+PSAjFthJJRPxSWxxuNIsLCqXRXxwOU5EGf4ACAABAZH9QjMhxbXn47A6RCRgk270AY2z0LqpTjl4XfFJw==
+    secure: v1:dhUzhqsAztLcg1Qo:V6FO/xF0hNJxQ4graaNzf2AuW5fZLQ9mk9SFgfQWyYUf+De3V6yGf0a3p5hApClpwaTnZcnhRaEb/fofbm0J6zWNE0SvZdULYq6u3iVqxUcgE5oX9g==
   base-prover:GH_TOKEN_SECRET:
     secure: v1:uKW8SunjoJPWAf4l:GS38MomZJucbvxMfnp4PqigyTT4X7W9inHFdb53FOAXzhlpwIgL5fMURRviScfJaxE2l8chc+VALgMIywDoNFsc7kEvU8G/QerwZ1SWYhlLuu4w1IRi9sgrWGDhQmz62fSMYeNuNaaZG2LdZew==
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic

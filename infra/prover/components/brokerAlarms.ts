@@ -241,6 +241,8 @@ export const createProverAlarms = (
     threshold: 3,
   }, { period: 3600 });
 
+
+
   //
   // Prover
   //
@@ -270,6 +272,17 @@ export const createProverAlarms = (
 
   // Any 1 request expired before submission triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2);
+
+  // 2 failures to submit a batch within 1 hour in the submitter triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-SUB-003]"', 'submitter-batch-submission-failure', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 3600 });
+
+  // 3 txn confirmation errors within 1 hour in the submitter triggers a SEV2 alarm. 
+  // This may indicate a misconfiguration of the tx timeout config.
+  createErrorCodeAlarm('"[B-SUB-004]"', 'submitter-txn-confirmation-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 3600 });
 
   // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV2);
