@@ -2,7 +2,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-import { ChainId, getServiceNameV1, getEnvVar } from '../util';
+import { ChainId, getServiceNameV1, getEnvVar, Severity } from '../util';
 import * as crypto from 'crypto';
 require('dotenv').config();
 
@@ -32,6 +32,8 @@ export = () => {
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
 
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+  const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+  const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
 
   const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
   new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
@@ -229,10 +231,10 @@ export = () => {
     pattern: 'ERROR',
   }, { dependsOn: [service] });
 
-  const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+  const alarmActions = alertsTopicArns;
 
-  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
-    name: `${serviceName}-log-err`,
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV2}`, {
+    name: `${serviceName}-log-err-${Severity.SEV2}`,
     metricQueries: [
       {
         id: 'm1',
@@ -251,7 +253,7 @@ export = () => {
     evaluationPeriods: 60,
     datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
-    alarmDescription: 'Order slasher log ERROR level',
+    alarmDescription: 'Order slasher log ERROR level 2 times in one hour',
     actionsEnabled: true,
     alarmActions,
   });
@@ -268,8 +270,8 @@ export = () => {
     pattern: 'FATAL',
   }, { dependsOn: [service] });
 
-  new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
-    name: `${serviceName}-log-fatal`,
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV2}`, {
+    name: `${serviceName}-log-fatal-${Severity.SEV2}`,
     metricQueries: [
       {
         id: 'm1',
@@ -284,10 +286,10 @@ export = () => {
     ],
     threshold: 1,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
-    evaluationPeriods: 1,
-    datapointsToAlarm: 1,
+    evaluationPeriods: 60,
+    datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
-    alarmDescription: `Order slasher FATAL (task exited)`,
+    alarmDescription: `Order slasher FATAL (task exited) twice in 1 hour`,
     actionsEnabled: true,
     alarmActions,
   });

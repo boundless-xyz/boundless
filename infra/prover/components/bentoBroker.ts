@@ -27,12 +27,24 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         ciCacheSecret?: pulumi.Output<string>;
         githubTokenSecret?: pulumi.Output<string>;
         brokerTomlPath: string;
-        boundlessAlertsTopicArn?: string;
+        boundlessAlertsTopicArns?: string[];
         sshPublicKey?: string | pulumi.Output<string>;
     }, opts?: pulumi.ComponentResourceOptions) {
         super(name, name, opts);
 
-        const { boundlessMarketAddress, setVerifierAddress, ethRpcUrl, sshPublicKey, brokerTomlPath, privateKey, orderStreamUrl, pubSubNetIds, gitBranch, boundlessAlertsTopicArn, segmentSize } = args;
+        const {
+            boundlessMarketAddress,
+            setVerifierAddress,
+            ethRpcUrl,
+            sshPublicKey,
+            brokerTomlPath,
+            privateKey,
+            orderStreamUrl,
+            pubSubNetIds,
+            gitBranch,
+            boundlessAlertsTopicArns,
+            segmentSize
+        } = args;
 
         const region = "us-west-2";
         const serviceName = name;
@@ -574,9 +586,9 @@ reboot
             retentionInDays: 0,
         }, { parent: this });
 
-        const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+        const alarmActions = boundlessAlertsTopicArns ?? [];
 
-        createProverAlarms(serviceName, logGroup, [logGroup, this.instance], alarmActions);
+        createProverAlarms(serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions);
 
         this.updateCommandArn = updateDocument.arn;
         this.updateCommandId = updateDocument.id;

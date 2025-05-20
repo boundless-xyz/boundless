@@ -364,8 +364,8 @@ async fn test_monitoring() {
     let total_requests = monitor.total_requests().await.unwrap();
     assert_eq!(total_requests, 2);
 
-    let requests_count = monitor.fetch_requests_number(0, now as i64).await.unwrap();
-    assert_eq!(requests_count, 2);
+    let requests = monitor.fetch_requests(0, now as i64).await.unwrap();
+    assert_eq!(requests.len(), 2);
 
     let total_requests =
         monitor.total_requests_from_client(ctx.customer_signer.address()).await.unwrap();

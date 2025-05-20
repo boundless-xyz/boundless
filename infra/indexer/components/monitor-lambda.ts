@@ -21,8 +21,8 @@ export interface MonitorLambdaArgs {
   chainId: string;
   /** RUST_LOG level */
   rustLogLevel: string;
-  /** Boundless alerts topic ARN */
-  boundlessAlertsTopicArn?: string;
+  /** Boundless alerts topic ARNs */
+  boundlessAlertsTopicArns?: string[];
   /** Namespace for service metrics, e.g. operation health of the monitor/indexer infra */
   serviceMetricsNamespace: string;
   /** Namespace for market metrics, e.g. order volume, order count, etc. */
@@ -165,7 +165,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
       pattern: '?ERROR ?error ?Error',
     }, { dependsOn: [this.lambdaFunction] });
 
-    const alarmActions = args.boundlessAlertsTopicArn ? [args.boundlessAlertsTopicArn] : [];
+    const alarmActions = args.boundlessAlertsTopicArns ?? [];
 
     // 2 errors within 1 hour in the order generator triggers a SEV2 alarm.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-monitor-error-alarm`, {

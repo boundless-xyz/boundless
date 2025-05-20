@@ -31,6 +31,8 @@ export = () => {
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
   const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
+  const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+  const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const interval = baseConfig.require('INTERVAL');
   const lockStake = baseConfig.require('LOCK_STAKE');
   const rampUp = baseConfig.require('RAMP_UP');
@@ -133,7 +135,7 @@ export = () => {
     secondsPerMCycle,
     vpcId,
     privateSubnetIds,
-    boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
     txTimeout,
   });
 
@@ -158,7 +160,7 @@ export = () => {
     secondsPerMCycle,
     vpcId,
     privateSubnetIds,
-    boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
     txTimeout,
   });
 };

@@ -9,5 +9,7 @@ config:
     secure: v1:J2ub3a8jGaglZCGc:S/I5GH1h/1w3UsfHCjjInBOGz3nQG7/W9wYf
   pipelines:WORKSPACE_SLACK_ID:
     secure: v1:vV+qgJdAOlWjWopo:NnPGhM8xj5jRtaKJengh0njuWGTQfw41lmoy
+  pipelines:PAGERDUTY_INTEGRATION_URL:
+    secure: v1:2E/GhMEBxiNIM0ZP:Ru621fMUaloOvdXAeH5c+E1wwz69G0bcwTYfxVpeib6mL+QjkJFfWoaKb4vowKVfvYeEP2+fWovxX98KBUhT1a6VfgW76s/ms2jWH8/Hs4a3V9S3qlxQtf8bPU069WFVMA==
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFRXbSyr6AYSMcivVuIOKM1AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM99POLOpwmSAsUSA6AgEQgDtWlwiW1A4Ljv+YiqVnhqlhSZhL08n2udrkFcXJOak8aa7RyAbspSlyMy/J6r9TffIO8mXOioXADQfokg==
