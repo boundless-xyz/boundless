@@ -131,8 +131,7 @@ interface IBoundlessMarket {
     /// using a different version.
     /// @param requestId The ID of the request.
     /// @param provided The provided fingerprint.
-    /// @param locked The locked fingerprint.
-    error InvalidRequestFulfillment(RequestId requestId, bytes32 provided, bytes32 locked);
+    error InvalidRequestFulfillment(RequestId requestId, bytes32 provided);
 
     /// @notice Error when unable to complete request because of insufficient balance.
     /// @param account The account with insufficient balance.

@@ -302,7 +302,9 @@ contract BoundlessMarket is
         AssessorReceipt calldata assessorReceipt
     ) public returns (bytes[] memory paymentError) {
         for (uint256 i = 0; i < requests.length; i++) {
-            priceRequest(requests[i], clientSignatures[i]);
+            if (requests[i].offer.deadline() >= block.timestamp) {
+                priceRequest(requests[i], clientSignatures[i]);
+            }
         }
         paymentError = fulfill(fills, assessorReceipt);
     }
@@ -326,6 +328,21 @@ contract BoundlessMarket is
                 continue;
             }
             paymentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
+
+            if (
+                keccak256(paymentError[i])
+                    == keccak256(
+                        abi.encodeWithSelector(
+                            RequestIsFulfilled.selector, RequestId.unwrap(fills[i].id), fills[i].requestDigest
+                        )
+                    )
+                    || keccak256(paymentError[i])
+                        == keccak256(
+                            abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(fills[i].id))
+                        )
+            ) {
+                continue;
+            }
             emit ProofDelivered(fills[i].id);
         }
 
@@ -407,7 +424,7 @@ contract BoundlessMarket is
         }
 
         if (lock.requestDigest != requestDigest) {
-            revert InvalidRequestFulfillment({requestId: id, provided: requestDigest, locked: lock.requestDigest});
+            return abi.encodeWithSelector(InvalidRequestFulfillment.selector, id, requestDigest);
         }
 
         if (!fulfilled) {
@@ -449,20 +466,20 @@ contract BoundlessMarket is
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
 
-        if (!fulfilled) {
-            accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id);
-        }
-
         // If no fulfillment context was stored for this request digest (via priceRequest),
         // then payment cannot be processed. This check also serves as
         // 1/ an expiration check since fulfillment contexts cannot be created for expired requests.
         // 2/ a smart contract signature check, since signatures are validated when a request is priced.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            revert RequestIsExpiredOrNotPriced(id);
+            return abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(id));
         }
         uint96 price = context.price;
+
+        if (!fulfilled) {
+            accounts[client].setRequestFulfilled(idx);
+            emit RequestFulfilled(id);
+        }
 
         // Deduct any additionally owned funds from client account. The client was already charged
         // for the price at lock time once when the request was locked. We only need to charge any
