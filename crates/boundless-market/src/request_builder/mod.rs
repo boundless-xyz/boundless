@@ -21,6 +21,7 @@ use alloy::{network::Ethereum, providers::Provider};
 use derive_builder::Builder;
 use risc0_zkvm::{Digest, Journal};
 use url::Url;
+use risc0_ethereum_contracts::selector::Selector;
 
 use crate::{
     contracts::{Input as RequestInput, ProofRequest, RequestId},
@@ -369,6 +370,18 @@ impl RequestParams {
     /// ```
     pub fn with_requirements(self, value: impl Into<RequirementParams>) -> Self {
         Self { requirements: value.into(), ..self }
+    }
+
+    /// Request a stand-alone Groth16 proof for this request.
+    ///
+    /// This is a convinience method to set the selector on the requirements. Note that calling
+    /// [RequestParams::with_requirements] after this function will overwrite the change.
+    pub fn with_groth16_proof(self) -> Self {
+        // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
+        // risc0-ethereum.
+        let mut requirements = self.requirements;
+        requirements.selector = Some((Selector::Groth16V2_0 as u32).into());
+        Self { requirements, ..self }
     }
 }
 

@@ -11,14 +11,9 @@ members = [
     "crates/guest/util",
     "crates/indexer",
     "crates/ops-lambdas/indexer-monitor",
-#    "crates/order-generator",
+    "crates/order-generator",
     "crates/order-stream",
     "crates/slasher",
-#    "documentation/doc-test",
-]
-# DO NOT MERGE
-exclude = [
-    "crates/order-generator",
     "documentation/doc-test",
 ]
 

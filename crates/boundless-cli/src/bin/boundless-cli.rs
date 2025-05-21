@@ -1015,8 +1015,9 @@ async fn submit_offer(
         }
     }
     match args.requirements.proof_type {
-        // TODO: This needs to be kept up to date with releases of risc0-ethereum.
-        // Add a Selector::inclusion_latest() function to risc0-ethereum and use it here.
+        // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
+        // risc0-ethereum. Add a Selector::inclusion_latest() function to risc0-ethereum and use it
+        // here.
         ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_6 as u32),
         ProofType::Groth16 => requirements.selector(Selector::Groth16V2_0 as u32),
         ProofType::Any => &mut requirements,

@@ -91,6 +91,11 @@ pub struct GuestEnv {
 }
 
 impl GuestEnv {
+    /// Create a new [GuestEnvBuilder]
+    pub fn builder() -> GuestEnvBuilder {
+        Default::default()
+    }
+
     /// Parse an encoded [GuestEnv] with version support.
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.is_empty() {
