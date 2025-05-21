@@ -100,7 +100,7 @@ pub struct Args {
 
     /// Pre deposit amount
     ///
-    /// Amount of HP tokens to pre-deposit into the contract for staking eg: 100
+    /// Amount of stake tokens to pre-deposit into the contract for staking eg: 100
     #[clap(short, long)]
     pub deposit_amount: Option<U256>,
 

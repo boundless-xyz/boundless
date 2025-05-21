@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFMKd6cFb+SwctS3M
 config:
   aws:region: us-west-2
   order-stream:BASE_STACK: organization/bootstrap/services-prod
-  order-stream:BOUNDLESS_ADDRESS: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
+  order-stream:BOUNDLESS_ADDRESS: 0x581C7e8018f0888364c698f97F64eB069723131F
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
@@ -17,3 +17,6 @@ config:
   #order-stream:ALB_DOMAIN: base-mainnet.beboundless.xyz
   #order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   #order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+
+  order-stream:GH_TOKEN_SECRET:
+    secure: v1:D52HhU0chwlCKf7T:bbm1yRhbfYUjBns0Hbrcab6q6B32kxAnLyw2zGgyqGIYFPHDXk6JwCy0jnSpAFTQ5I35R3lU+uNkYkYaQPZys5YwC/cJAcQSZNwbYI6IN83Gs1k/jC5ILtsw9QnHaoCJ8Z7Rim+SZLpR6eLXLA==

@@ -10,7 +10,8 @@ export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  const serviceName = getServiceNameV1(stackName, "order-slasher", ChainId.SEPOLIA);
+  const chainId = config.require('CHAIN_ID');
+  const serviceName = getServiceNameV1(stackName, "order-slasher", chainId);
 
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');

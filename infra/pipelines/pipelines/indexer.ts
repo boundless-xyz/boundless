@@ -88,9 +88,15 @@ export class IndexerPipeline extends pulumi.ComponentResource {
       { dependsOn: [role] }
     );
 
-    const prodDeployment = new aws.codebuild.Project(
+    const prodDeploymentEthSepolia = new aws.codebuild.Project(
       `${APP_NAME}-prod-11155111-build`,
       this.codeBuildProjectArgs(APP_NAME, "prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+      { dependsOn: [role] }
+    );
+
+    const prodDeploymentBaseMainnet = new aws.codebuild.Project(
+      `${APP_NAME}-prod-8453-build`,
+      this.codeBuildProjectArgs(APP_NAME, "prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
       { dependsOn: [role] }
     );
 
@@ -149,14 +155,27 @@ export class IndexerPipeline extends pulumi.ComponentResource {
               configuration: {}
             },
             {
-              name: "DeployProduction",
+              name: "DeployProductionEthSepolia",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
               runOrder: 2,
               configuration: {
-                ProjectName: prodDeployment.name
+                ProjectName: prodDeploymentEthSepolia.name
+              },
+              outputArtifacts: ["production_output"],
+              inputArtifacts: ["source_output"],
+            },
+            {
+              name: "DeployProductionBaseMainnet",
+              category: "Build",
+              owner: "AWS",
+              provider: "CodeBuild",
+              version: "1",
+              runOrder: 2,
+              configuration: {
+                ProjectName: prodDeploymentBaseMainnet.name
               },
               outputArtifacts: ["production_output"],
               inputArtifacts: ["source_output"],

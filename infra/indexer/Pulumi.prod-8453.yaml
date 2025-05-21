@@ -3,3 +3,17 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAHIlGc0ZzFET4I6EE
 config:
   indexer:ETH_RPC_URL:
     secure: v1:95Eoqy548AQL/yS+:1qncgCj/F5lVunyyM5SF+i8voc/ayIwd87w4+wSYqK/MQ/v24cwRgtZKEXe4aB6yO+xLnp/x/eXnxXXK3spnAc/iCCmnZgnQk+ex6Ycbe8A6sbomd/g=
+  indexer:GH_TOKEN_SECRET:
+    secure: v1:xXO4POBzym2O6APZ:ztAczGWryoRP4LtRtv2MzWPGOv6rRIDt2spETOB4CPvv0U8jX1O9FYJaswCH3Td228QmOIIxcphPIIO8Rslf2bpdMidt15D00ZKpnsdh4leBZiksqSWt0L8TGvjG54QBwTU9SoNf+kG2F4Nu6g==
+  indexer:RDS_PASSWORD:
+    secure: v1:dNuwRu18DdYGG7bd:6+uBfFvgV6GWRxiMFGvANUMqM+w8/G2m63mnRumTv3DU2A==
+  aws:region: us-west-2
+  indexer:BASE_STACK: organization/bootstrap/services-prod
+  indexer:BOUNDLESS_ADDRESS: 0x581C7e8018f0888364c698f97F64eB069723131F
+  indexer:CHAIN_ID: "8453"
+  indexer:DOCKER_DIR: ../../
+  indexer:DOCKER_TAG: latest
+  indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  indexer:RUST_LOG: debug
+  indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  indexer:START_BLOCK: "30531354"

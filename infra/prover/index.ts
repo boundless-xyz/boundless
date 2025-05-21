@@ -21,6 +21,7 @@ export = () => {
   const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS');
 
   // Base Shared Prover Config
+  const chainId = baseConfig.require('CHAIN_ID');
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : baseConfig.requireSecret('ETH_RPC_URL');
   const orderStreamUrl = isDev ? getEnvVar("ORDER_STREAM_URL") : baseConfig.requireSecret('ORDER_STREAM_URL');
@@ -45,9 +46,9 @@ export = () => {
   const bentoProverPrivateKey = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY") : bentoConfig.requireSecret('PRIVATE_KEY');
   const segmentSize = bentoConfig.requireNumber('SEGMENT_SIZE');
 
-  const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-prover", ChainId.SEPOLIA);
+  const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-prover", chainId);
   const bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
-    chainId: ChainId.SEPOLIA,
+    chainId,
     ethRpcUrl,
     gitBranch: "main",
     privateKey: bentoProverPrivateKey,
@@ -68,9 +69,9 @@ export = () => {
   });
 
   if (process.env.SKIP_BONSAI !== "true") {
-    const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", ChainId.SEPOLIA);
+    const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", chainId);
     const bonsaiBroker = new BonsaiECSBroker(bonsaiBrokerServiceName, {
-      chainId: ChainId.SEPOLIA,
+      chainId,
       ethRpcUrl,
       privateKey: bonsaiProverPrivateKey,
       baseStackName,

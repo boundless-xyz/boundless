@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
             provider.default_signer_address(),
         );
 
-        tracing::info!("pre-depositing {deposit_amount} HP into the market contract");
+        tracing::info!("pre-depositing {deposit_amount} stake tokens into the market contract");
         boundless_market
             .deposit_stake_with_permit(*deposit_amount, &args.private_key)
             .await
