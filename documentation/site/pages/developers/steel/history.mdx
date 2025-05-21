@@ -41,7 +41,7 @@ let builder = EthEvmEnv::builder()
     .commitment_block_number(latest - 1) // Steel commitment block
     .chain_spec(&ETH_MAINNET_CHAIN_SPEC);
 
-let env = builder.build().await?;
+let mut env = builder.build().await?;
 
 // Preflight the call at the execution block.
 let mut contract = Contract::preflight(token_contract, &mut env);
