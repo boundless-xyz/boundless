@@ -1,0 +1,5 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAF0PMMy5T6GaCpvJDLQmxbHAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMjbqowdsv1kyyaugEAgEQgDuTjzWJJznPgt5HKWHZez2N4sLZidJzVA9Itn2OReC+u5KjyYFtI9tDMjUCzQ99uejQs5zkoe7qhYUWYw==
+config:
+  slasher:ETH_RPC_URL:
+    secure: v1:VkthlLkDI9cNXTd/:KgwCuKK4mgnExikwXZoWZXNR8i78r2fqX+kXHt9pjdUjGmH3/yrdAFP6YR7QtU1eh49N6Ji8Uk5L2dOmYazK5cgt5Ugfn3wqEUqrX5ulFD3hFd9OjHc=
