@@ -110,7 +110,7 @@ async fn test_e2e() {
     .await;
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.customer_market.submit_request_onchain_with_signature(&request, &client_sig).await.unwrap();
+    ctx.customer_market.submit_request_with_signature(&request, &client_sig).await.unwrap();
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
 
     let (fill, root_receipt, assessor_receipt) = prover
@@ -253,7 +253,7 @@ async fn test_monitoring() {
     .await;
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.customer_market.submit_request_with_signature_bytes(&request, &client_sig).await.unwrap();
+    ctx.customer_market.submit_request_with_signature(&request, &client_sig).await.unwrap();
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
 
     // Fetch requests ids that expired in the last 30 seconds
@@ -323,13 +323,13 @@ async fn test_monitoring() {
     .await;
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.customer_market.submit_request_with_signature_bytes(&request, &client_sig).await.unwrap();
+    ctx.customer_market.submit_request_with_signature(&request, &client_sig).await.unwrap();
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
     let (fill, root_receipt, assessor_receipt) = prover
         .fulfill(&[Order {
             request: request.clone(),
             request_digest: request
-                .signing_hash(ctx.boundless_market_address, anvil.chain_id())
+                .signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id())
                 .unwrap(),
             signature: Signature::try_from(client_sig.as_ref()).unwrap(),
         }])

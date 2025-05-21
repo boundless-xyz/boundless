@@ -160,8 +160,8 @@ async fn simple_e2e() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -217,8 +217,8 @@ async fn simple_e2e_with_callback() {
     // Deploy MockCallback contract
     let callback_address = deploy_mock_callback(
         &ctx.prover_provider,
-        ctx.verifier_address,
-        ctx.boundless_market_address,
+        ctx.deployment.verifier_router_address.expect("verifier_router_address should be set"),
+        ctx.deployment.boundless_market_address,
         ECHO_ID,
         U256::ZERO,
     )
@@ -231,8 +231,8 @@ async fn simple_e2e_with_callback() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -307,8 +307,8 @@ async fn e2e_fulfill_after_lock_expiry() {
     let config = new_config_with_min_deadline(1, 0).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -375,8 +375,8 @@ async fn e2e_with_selector() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -437,8 +437,8 @@ async fn e2e_with_multiple_requests() {
     let config = new_config(2).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
