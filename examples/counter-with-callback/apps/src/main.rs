@@ -8,15 +8,13 @@ use std::{
 };
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
-use alloy::{
-    primitives::{Address},
-    signers::local::PrivateKeySigner,
-    sol_types::SolCall,
-};
+use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol_types::SolCall};
 use anyhow::{Context, Result};
-use boundless_market::{Client, Deployment, StorageProviderConfig, request_builder::RequirementParams};
+use boundless_market::{
+    request_builder::RequirementParams, Client, Deployment, StorageProviderConfig,
+};
 use clap::Parser;
-use guest_util::{ECHO_ELF, ECHO_ID};
+use guest_util::ECHO_ELF;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
 
@@ -85,13 +83,16 @@ async fn run(args: Args) -> Result<()> {
     let echo_message = format!("{:?}", SystemTime::now());
 
     // Create a request with a callback to the counter contract
-    let request = client.request_params()
+    let request = client
+        .request_params()
         .with_program(ECHO_ELF)
         .with_stdin(echo_message.as_bytes())
         // Add the callback to the counter contract by configuring the requirements
-        .with_requirements(RequirementParams::builder()
-            .callback_address(args.counter_address)
-            .callback_gas_limit(100_000));
+        .with_requirements(
+            RequirementParams::builder()
+                .callback_address(args.counter_address)
+                .callback_gas_limit(100_000),
+        );
 
     // Submit the request to the blockchain
     let (request_id, expires_at) = client.submit_onchain(request).await?;
@@ -128,14 +129,14 @@ mod tests {
         node_bindings::{Anvil, AnvilInstance},
         providers::{Provider, ProviderBuilder, WalletProvider},
     };
+    use anyhow::Context;
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderType;
-    use boundless_market_test_utils::{create_test_ctx, TestCtx};
+    use boundless_market_test_utils::{create_test_ctx, TestCtx, ECHO_ID};
     use broker::test_utils::BrokerBuilder;
     use risc0_zkvm::Digest;
     use test_log::test;
     use tokio::task::JoinSet;
-    use anyhow::Context;
 
     alloy::sol!(
         #![sol(rpc)]
@@ -155,7 +156,9 @@ mod tests {
             .unwrap();
         let counter = Counter::deploy(
             &deployer_provider,
-            test_ctx.deployment.verifier_router_address
+            test_ctx
+                .deployment
+                .verifier_router_address
                 .ok_or_else(|| anyhow::anyhow!("deployment is missing verifier_router_address"))?,
             test_ctx.deployment.boundless_market_address,
             <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),

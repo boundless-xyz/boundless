@@ -19,9 +19,9 @@ use std::{borrow::Cow, fmt, fmt::Debug};
 
 use alloy::{network::Ethereum, providers::Provider};
 use derive_builder::Builder;
+use risc0_ethereum_contracts::selector::Selector;
 use risc0_zkvm::{Digest, Journal};
 use url::Url;
-use risc0_ethereum_contracts::selector::Selector;
 
 use crate::{
     contracts::{Input as RequestInput, ProofRequest, RequestId},
@@ -380,7 +380,10 @@ impl RequestParams {
         // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
         // risc0-ethereum.
         let mut requirements = self.requirements;
-        requirements.selector = Some((Selector::Groth16V2_0 as u32).into());
+        requirements.selector = match risc0_zkvm::is_dev_mode() {
+            true => Some((Selector::FakeReceipt as u32).into()),
+            false => Some((Selector::Groth16V2_0 as u32).into()),
+        };
         Self { requirements, ..self }
     }
 }
