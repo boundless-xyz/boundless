@@ -76,10 +76,10 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR,
+        PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR, Selector,
     },
     input::{GuestEnv, GuestEnvBuilder},
-    request_builder::OfferParams,
+    request_builder::{OfferParams, RequirementParams},
     selector::ProofType,
     storage::{fetch_url, StorageProvider, StorageProviderConfig},
     Client, Deployment, StandardClient,
@@ -316,10 +316,6 @@ struct SubmitOfferArgs {
     #[clap(short, long)]
     offchain: bool,
 
-    /// Skip preflight check (not recommended)
-    #[clap(long)]
-    no_preflight: bool,
-
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
     #[clap(long)]
     encode_input: bool,
@@ -363,7 +359,7 @@ struct SubmitOfferProgram {
     /// This option accepts a pre-uploaded program. If also using small inputs, a storage provider
     /// is not required when using a pre-uploaded program.
     #[clap(long = "program-url")]
-    program_url: Option<Url>,
+    url: Option<Url>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -376,7 +372,7 @@ struct SubmitOfferRequirements {
     callback_gas_limit: Option<u64>,
     /// Request a groth16 proof (i.e., a Groth16).
     #[clap(long)]
-    proof_type: Option<ProofType>,
+    proof_type: ProofType,
 }
 
 /// Common configuration options for all commands
@@ -414,7 +410,7 @@ struct MainArgs {
 }
 
 #[tokio::main]
-async fn main() -> Result<ExitCode> {
+async fn main() -> Result<()> {
     let args = match MainArgs::try_parse() {
         Ok(args) => args,
         Err(err) => {
@@ -451,7 +447,7 @@ async fn main() -> Result<ExitCode> {
     run(&args).await
 }
 
-pub(crate) async fn run(args: &MainArgs) -> Result<ExitCode> {
+pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     // If the config command is being run, don't create a client.
     if let Command::Config {} = &args.command {
         return handle_config_command(args).await;
@@ -479,14 +475,13 @@ pub(crate) async fn run(args: &MainArgs) -> Result<ExitCode> {
 
     match &args.command {
         Command::Account(account_cmd) => {
-            handle_account_command(account_cmd, client, args.config.private_key.clone()).await?
+            handle_account_command(account_cmd, client, args.config.private_key.clone()).await
         }
-        Command::Request(request_cmd) => handle_request_command(request_cmd, args, client).await?,
-        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, args).await?,
-        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await?,
+        Command::Request(request_cmd) => handle_request_command(request_cmd, args, client).await,
+        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, client).await,
+        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
         Command::Config {} => unreachable!(),
     }
-    Ok(ExitCode::SUCCESS)
 }
 
 /// Handle ops-related commands
@@ -997,15 +992,22 @@ async fn submit_offer(
     signer: &impl Signer,
     args: &SubmitOfferArgs,
 ) -> Result<()> {
-    let mut request = client.request_params();
+    let request = client.request_params();
 
-    // Resolve the program and input from command line arguments.
-    let program: Cow<'static, [u8]> = std::fs::read(&args.program)
-        .context(format!("Failed to read program file at {:?}", args.program))?
-        .into();
+    // Resolve the program from command line arguments.
+    let request = match (args.program.path.clone(), args.program.url.clone()) {
+        (Some(path), None) => {
+            let program: Cow<'static, [u8]> = std::fs::read(&path)
+                .context(format!("Failed to read program file at {:?}", args.program))?
+                .into();
+            request.with_program(program)
+        }
+        (None, Some(url)) => request.with_program_url(url).map_err(|e| match e {}).unwrap(),
+        _ => bail!("Exactly one of program path and program-url args must be provided")
+    };
 
     // Process input based on provided arguments
-    let input: Vec<u8> = match (&args.input.input, &args.input.input_file) {
+    let stdin: Vec<u8> = match (&args.input.input, &args.input.input_file) {
         (Some(input), None) => input.as_bytes().to_vec(),
         (None, Some(input_file)) => std::fs::read(input_file)
             .context(format!("Failed to read input file at {:?}", input_file))?,
@@ -1013,85 +1015,33 @@ async fn submit_offer(
     };
 
     // Prepare the input environment
-    let input_env = GuestEnvBuilder::new();
-    let encoded_input = if args.encode_input {
-        input_env.write(&input)?.build_vec()?
+    let env = if args.encode_input {
+        GuestEnvBuilder::new().write(&stdin)?
     } else {
-        input_env.write_slice(&input).build_vec()?
+        GuestEnvBuilder::new().write_slice(&stdin)
     };
-
-    // Resolve the predicate from the command line arguments.
-    let predicate: Predicate =
-        match (&args.requirements.journal_digest, &args.requirements.journal_prefix) {
-            (Some(digest), None) => Predicate {
-                predicateType: PredicateType::DigestMatch,
-                data: Bytes::copy_from_slice(Digest::from_hex(digest)?.as_bytes()),
-            },
-            (None, Some(prefix)) => Predicate {
-                predicateType: PredicateType::PrefixMatch,
-                data: Bytes::copy_from_slice(prefix.as_bytes()),
-            },
-            _ => bail!("Exactly one of journal-digest or journal-prefix args must be provided"),
-        };
+    let request = request.with_env(env);
 
     // Configure callback if provided
-    let callback =
-        match (&args.requirements.callback_address, &args.requirements.callback_gas_limit) {
-            (Some(addr), Some(gas_limit)) => {
-                Callback { addr: *addr, gasLimit: U96::from(*gas_limit) }
-            }
-            _ => Callback::default(),
-        };
-
-    // Compute the image_id, then upload the program
-    tracing::info!("Uploading image...");
-    let elf_url = client.upload_program(&program).await?;
-    let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&program)?));
-
-    // Upload the input or prepare inline input
-    tracing::info!("Preparing input...");
-    let requirements_input = match args.inline_input {
-        false => client.upload_input(&encoded_input).await?.into(),
-        true => Input::inline(encoded_input),
-    };
-
-    // Set request id
-    let id = match args.id {
-        Some(id) => id,
-        None => client.boundless_market.index_from_rand().await?,
-    };
-
-    // Construct the request from its individual parts.
-    let mut request = ProofRequest::new(
-        RequestId::new(client.caller(), id),
-        Requirements { imageId: image_id, predicate, callback, selector: UNSPECIFIED_SELECTOR },
-        elf_url,
-        requirements_input,
-        offer.clone(),
-    );
-
-    if let Some(ProofType::Groth16) = args.requirements.proof_type {
-        request.requirements = request.requirements.with_groth16_proof();
+    let mut requirements = RequirementParams::builder();
+    if let Some(address) = args.requirements.callback_address {
+        requirements.callback_address(address);
+        if let Some(gas_limit) = args.requirements.callback_gas_limit {
+            requirements.callback_gas_limit(gas_limit);
+        }
     }
+    match args.requirements.proof_type {
+        // TODO: This needs to be kept up to date with releases of risc0-ethereum.
+        // Add a Selector::inclusion_latest() function to risc0-ethereum and use it here.
+        ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_6 as u32),
+        ProofType::Groth16 => requirements.selector(Selector::Groth16V2_0 as u32),
+        ProofType::Any => &mut requirements,
+        ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty)
+    };
+    let request = request.with_requirements(requirements);
 
-    tracing::debug!("Request details: {}", serde_json::to_string_pretty(&request)?);
-
-    // Run preflight check if not disabled
-    if !args.no_preflight {
-        tracing::info!("Running request preflight check");
-        let session_info = execute(&request).await?;
-        let journal = session_info.journal.bytes;
-        ensure!(
-            request.requirements.predicate.eval(&journal),
-            "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
-            hex::encode(&journal),
-            request.requirements.predicate.predicateType,
-            hex::encode(&request.requirements.predicate.data)
-        );
-        tracing::info!("Preflight check passed");
-    } else {
-        tracing::warn!("Skipping preflight check");
-    }
+    let request = client.build_request(request).await.context("failed to build proof request")?;
+    tracing::debug!("Request details: {}", serde_yaml::to_string(&request)?);
 
     // Submit the request
     let (request_id, expires_at) = if args.offchain {
@@ -1104,7 +1054,7 @@ async fn submit_offer(
 
     tracing::info!(
         "Submitted request 0x{request_id:x}, bidding starts at {}",
-        convert_timestamp(offer.biddingStart)
+        convert_timestamp(request.offer.biddingStart)
     );
 
     // Wait for fulfillment if requested
@@ -1266,7 +1216,7 @@ fn now_timestamp() -> u64 {
 }
 
 /// Handle config command
-async fn handle_config_command(args: &MainArgs) -> Result<ExitCode> {
+async fn handle_config_command(args: &MainArgs) -> Result<()> {
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");
 
@@ -1302,7 +1252,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<ExitCode> {
         Err(e) => {
             println!("❌ Failed to connect: {}", e);
             // Do not run remaining checks, which require an RPC connection.
-            return Ok(ExitCode::FAILURE);
+            return Ok(());
         }
     };
 
@@ -1310,7 +1260,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<ExitCode> {
             .or_else(|| Deployment::from_chain_id(chain_id)) else {
 
             println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
-            return Ok(ExitCode::FAILURE);
+            return Ok(());
     };
 
 
@@ -1392,10 +1342,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<ExitCode> {
         if market_ok { "✅ Ready to use" } else { "❌ Issues detected" }
     );
 
-    Ok(match market_ok {
-        true => ExitCode::SUCCESS,
-        false => ExitCode::FAILURE,
-    })
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1739,11 +1686,9 @@ mod tests {
             config,
             command: Command::Request(Box::new(RequestCommands::SubmitOffer(SubmitOfferArgs {
                 storage_config: StorageProviderConfig::dev_mode(),
-                yaml_offer: "../../offer.yaml".to_string().into(),
                 id: None,
                 wait: false,
                 offchain: false,
-                no_preflight: true,
                 encode_input: false,
                 input: SubmitOfferInput {
                     input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),

@@ -564,6 +564,22 @@ where
         Params::default()
     }
 
+    /// Build a proof request from the given parameters.
+    ///
+    /// Requires a a [RequestBuilder] to be provided.
+    pub async fn build_request<Params>(&self, params: impl Into<Params>) -> Result<ProofRequest, ClientError>
+    where
+        R: RequestBuilder<Params>,
+        R::Error: Into<anyhow::Error>,
+    {
+        let request_builder =
+            self.request_builder.as_ref().context("request_builder is not set on Client")?;
+        tracing::debug!("Building request");
+        let request = request_builder.build(params).await.map_err(Into::into)?;
+        tracing::debug!("Built request with id {:x}", request.id);
+        Ok(request)
+    }
+
     /// Build and submit a proof request by sending an onchain transaction.
     ///
     /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
@@ -578,12 +594,7 @@ where
         R::Error: Into<anyhow::Error>,
     {
         let signer = self.signer.as_ref().context("signer is set on Client")?;
-        let request_builder =
-            self.request_builder.as_ref().context("request_builder is not set on Client")?;
-        tracing::debug!("Building request in Client::submit_onchain");
-        let request = request_builder.build(params).await.map_err(Into::into)?;
-        tracing::debug!("Built request with id {:x}", request.id);
-        self.submit_request_onchain_with_signer(&request, signer).await
+        self.submit_request_onchain_with_signer(&self.build_request(params).await?, signer).await
     }
 
     /// Submit a proof request in an onchain transaction.
@@ -655,12 +666,7 @@ where
         R::Error: Into<anyhow::Error>,
     {
         let signer = self.signer.as_ref().context("signer is set on Client")?;
-        let request_builder =
-            self.request_builder.as_ref().context("request_builder is not set on Client")?;
-        tracing::debug!("Building request in Client::submit_offchain");
-        let request = request_builder.build(params).await.map_err(Into::into)?;
-        tracing::debug!("Built request with id {:x}", request.id);
-        self.submit_request_offchain_with_signer(&request, signer).await
+        self.submit_request_offchain_with_signer(&self.build_request(params).await?, signer).await
     }
 
     /// Submit a proof request offchain via the order stream service.
