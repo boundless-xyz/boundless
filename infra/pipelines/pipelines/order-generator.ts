@@ -160,7 +160,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
               configuration: {
                 ProjectName: prodDeploymentEthSepolia.name
               },
-              outputArtifacts: ["production_output"],
+              outputArtifacts: ["production_output_eth_sepolia"],
               inputArtifacts: ["source_output"],
             },
             {
@@ -173,7 +173,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
               configuration: {
                 ProjectName: prodDeploymentBaseMainnet.name
               },
-              outputArtifacts: ["production_output"],
+              outputArtifacts: ["production_output_base_mainnet"],
               inputArtifacts: ["source_output"],
             }
           ]

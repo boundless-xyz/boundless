@@ -3,7 +3,7 @@ import * as aws from "@pulumi/aws";
 import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
 import { BasePipelineArgs } from "./base";
 
-interface SlasherPipelineArgs extends BasePipelineArgs {}
+interface SlasherPipelineArgs extends BasePipelineArgs { }
 
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "slasher";
@@ -57,7 +57,7 @@ export class SlasherPipeline extends pulumi.ComponentResource {
       secretId: githubTokenSecret.id,
       secretString: githubToken,
     });
-    
+
     new aws.secretsmanager.SecretVersion(`${APP_NAME}-dockerTokenVersion`, {
       secretId: dockerTokenSecret.id,
       secretString: dockerToken,
@@ -105,18 +105,18 @@ export class SlasherPipeline extends pulumi.ComponentResource {
         {
           name: "Github",
           actions: [{
-              name: "Github",
-              category: "Source",
-              owner: "AWS",
-              provider: "CodeStarSourceConnection",
-              version: "1",
-              outputArtifacts: ["source_output"],
-              configuration: {
-                  ConnectionArn: connection.arn,
-                  FullRepositoryId: "boundless-xyz/boundless",
-                  BranchName: BRANCH_NAME,
-                  OutputArtifactFormat: "CODEBUILD_CLONE_REF"
-              },
+            name: "Github",
+            category: "Source",
+            owner: "AWS",
+            provider: "CodeStarSourceConnection",
+            version: "1",
+            outputArtifacts: ["source_output"],
+            configuration: {
+              ConnectionArn: connection.arn,
+              FullRepositoryId: "boundless-xyz/boundless",
+              BranchName: BRANCH_NAME,
+              OutputArtifactFormat: "CODEBUILD_CLONE_REF"
+            },
           }],
         },
         {
@@ -140,11 +140,12 @@ export class SlasherPipeline extends pulumi.ComponentResource {
         {
           name: "DeployProduction",
           actions: [
-            { name: "ApproveDeployToProduction", 
-              category: "Approval", 
-              owner: "AWS", 
-              provider: "Manual", 
-              version: "1", 
+            {
+              name: "ApproveDeployToProduction",
+              category: "Approval",
+              owner: "AWS",
+              provider: "Manual",
+              version: "1",
               runOrder: 1,
               configuration: {}
             },
@@ -158,7 +159,7 @@ export class SlasherPipeline extends pulumi.ComponentResource {
               configuration: {
                 ProjectName: prodDeploymentEthSepolia.name
               },
-              outputArtifacts: ["production_output"],
+              outputArtifacts: ["production_output_eth_sepolia"],
               inputArtifacts: ["source_output"],
             },
             {
@@ -171,7 +172,7 @@ export class SlasherPipeline extends pulumi.ComponentResource {
               configuration: {
                 ProjectName: prodDeploymentBaseMainnet.name
               },
-              outputArtifacts: ["production_output"],
+              outputArtifacts: ["production_output_base_mainnet"],
               inputArtifacts: ["source_output"],
             }
           ]
@@ -213,12 +214,12 @@ export class SlasherPipeline extends pulumi.ComponentResource {
   }
 
   private codeBuildProjectArgs(
-    appName: string, 
-    stackName: string, 
-    role: aws.iam.Role, 
-    serviceAccountRoleArn: string, 
-    dockerUsername: string, 
-    dockerTokenSecret: aws.secretsmanager.Secret, 
+    appName: string,
+    stackName: string,
+    role: aws.iam.Role,
+    serviceAccountRoleArn: string,
+    dockerUsername: string,
+    dockerTokenSecret: aws.secretsmanager.Secret,
     githubTokenSecret: aws.secretsmanager.Secret
   ): aws.codebuild.ProjectArgs {
     return {
@@ -246,12 +247,12 @@ export class SlasherPipeline extends pulumi.ComponentResource {
             type: "PLAINTEXT",
             value: appName
           },
-          { 
+          {
             name: "GITHUB_TOKEN",
             type: "SECRETS_MANAGER",
             value: githubTokenSecret.name
           },
-          { 
+          {
             name: "DOCKER_USERNAME",
             type: "PLAINTEXT",
             value: dockerUsername

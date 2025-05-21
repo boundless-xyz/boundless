@@ -112,7 +112,7 @@ export class Notifications extends pulumi.ComponentResource {
             variable: "aws:SourceArn",
             values: [`arn:aws:cloudwatch:us-west-2:${serviceAccountId}:alarm:*`],
           }],
-          sid: `Grant publish to account ${serviceAccountId}`,
+          sid: `Grant publish to account ${serviceAccountId}.`,
         })),
         {
           actions: ["SNS:Publish"],
