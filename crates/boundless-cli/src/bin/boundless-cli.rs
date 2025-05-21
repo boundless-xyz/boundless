@@ -41,13 +41,11 @@ use std::{
     num::ParseIntError,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
-    process::ExitCode,
 };
 
 use alloy::{
     network::Ethereum,
     primitives::{
-        aliases::U96,
         utils::{format_ether, parse_ether},
         Address, Bytes, FixedBytes, TxKind, B256, U256,
     },
@@ -60,7 +58,6 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
-use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
@@ -75,8 +72,7 @@ use url::Url;
 
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR, Selector,
+        boundless_market::BoundlessMarketService, InputType, Offer, ProofRequest, Selector,
     },
     input::{GuestEnv, GuestEnvBuilder},
     request_builder::{OfferParams, RequirementParams},
@@ -165,7 +161,7 @@ enum AccountCommands {
 #[derive(Subcommand, Clone, Debug)]
 enum RequestCommands {
     /// Submit a proof request constructed with the given offer, input, and image
-    SubmitOffer(SubmitOfferArgs),
+    SubmitOffer(Box<SubmitOfferArgs>),
 
     /// Submit a fully specified proof request
     Submit {
@@ -186,7 +182,7 @@ enum RequestCommands {
 
         /// Configuration for the StorageProvider to use for uploading programs and inputs.
         #[clap(flatten, next_help_heading = "Storage Provider")]
-        storage_config: StorageProviderConfig,
+        storage_config: Box<StorageProviderConfig>,
     },
 
     /// Get the status of a given request
@@ -455,10 +451,8 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
 
     let storage_config = match args.command {
         Command::Request(ref req_cmd) => match **req_cmd {
-            RequestCommands::Submit { ref storage_config, .. } => storage_config.clone(),
-            RequestCommands::SubmitOffer(SubmitOfferArgs { ref storage_config, .. }) => {
-                storage_config.clone()
-            }
+            RequestCommands::Submit { ref storage_config, .. } => (**storage_config).clone(),
+            RequestCommands::SubmitOffer(ref args) => args.storage_config.clone(),
             _ => StorageProviderConfig::default(),
         },
         _ => StorageProviderConfig::default(),
@@ -618,17 +612,9 @@ async fn handle_request_command(
 }
 
 /// Handle proving-related commands
-async fn handle_proving_command(
-    cmd: &ProvingCommands,
-    client: StandardClient,
-) -> Result<()> {
+async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -> Result<()> {
     match cmd {
-        ProvingCommands::Execute {
-            request_path,
-            request_id,
-            request_digest,
-            tx_hash,
-        } => {
+        ProvingCommands::Execute { request_path, request_id, request_digest, tx_hash } => {
             tracing::info!("Executing proof request");
             let request: ProofRequest = if let Some(file_path) = request_path {
                 tracing::debug!("Loading request from file: {:?}", file_path);
@@ -729,7 +715,10 @@ async fn handle_proving_command(
             let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
             let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
             tracing::debug!("Submitting root {} to SetVerifier", order_fulfilled.root);
-            client.set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
+            client
+                .set_verifier
+                .submit_merkle_root(order_fulfilled.root, order_fulfilled.seal)
+                .await?;
             tracing::debug!("Successfully submitted root to SetVerifier");
 
             match client
@@ -770,13 +759,8 @@ async fn handle_proving_command(
             tracing::info!("Successfully locked request 0x{:x}", request_id);
             Ok(())
         }
-        ProvingCommands::Benchmark {
-            request_ids,
-            bonsai_api_url,
-            bonsai_api_key,
-        } => {
-            benchmark(client, request_ids, bonsai_api_url, bonsai_api_key)
-                .await
+        ProvingCommands::Benchmark { request_ids, bonsai_api_url, bonsai_api_key } => {
+            benchmark(client, request_ids, bonsai_api_url, bonsai_api_key).await
         }
     }
 }
@@ -1003,7 +987,7 @@ async fn submit_offer(
             request.with_program(program)
         }
         (None, Some(url)) => request.with_program_url(url).map_err(|e| match e {}).unwrap(),
-        _ => bail!("Exactly one of program path and program-url args must be provided")
+        _ => bail!("Exactly one of program path and program-url args must be provided"),
     };
 
     // Process input based on provided arguments
@@ -1036,7 +1020,7 @@ async fn submit_offer(
         ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_6 as u32),
         ProofType::Groth16 => requirements.selector(Selector::Groth16V2_0 as u32),
         ProofType::Any => &mut requirements,
-        ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty)
+        ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty),
     };
     let request = request.with_requirements(requirements);
 
@@ -1256,13 +1240,12 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
         }
     };
 
-        let Some(deployment) = args.config.deployment.clone()
-            .or_else(|| Deployment::from_chain_id(chain_id)) else {
-
-            println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
-            return Ok(());
+    let Some(deployment) =
+        args.config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+    else {
+        println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
+        return Ok(());
     };
-
 
     // Check market contract
     print!("Testing Boundless Market contract... ");
@@ -1314,11 +1297,11 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
         let mut call_data = Vec::new();
         call_data.extend_from_slice(&hex::decode("3cadf449")?);
         call_data.extend_from_slice(&FixedBytes::from(selector).abi_encode());
-            let tx = TransactionRequest {
-                to: Some(TxKind::Call(verifier_router_address)),
-                input: TransactionInput::new(call_data.into()),
-                ..Default::default()
-            };
+        let tx = TransactionRequest {
+            to: Some(TxKind::Call(verifier_router_address)),
+            input: TransactionInput::new(call_data.into()),
+            ..Default::default()
+        };
 
         // Check verifier contract
         print!("Testing VerifierRouter contract... ");
@@ -1348,6 +1331,9 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
+
+    use alloy::primitives::aliases::U96;
+    use boundless_market::contracts::{Input, Predicate, PredicateType, RequestId, Requirements};
 
     use super::*;
 
@@ -1436,7 +1422,7 @@ mod tests {
         GlobalConfig,
         JoinHandle<()>,
     ) {
-        let (mut ctx, anvil, global_config) = setup_test_env(owner).await;
+        let (mut ctx, anvil, mut global_config) = setup_test_env(owner).await;
 
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
@@ -1462,6 +1448,7 @@ mod tests {
 
         // Add the order_stream_url to the deployment config.
         ctx.deployment.order_stream_url = Some(order_stream_url.to_string().into());
+        global_config.deployment = Some(ctx.deployment.clone());
 
         (ctx, anvil, global_config, order_stream_handle)
     }
@@ -1636,7 +1623,7 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: StorageProviderConfig::dev_mode(),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: "../../request.yaml".to_string().into(),
                 wait: false,
                 offchain: false,
@@ -1661,7 +1648,7 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: StorageProviderConfig::dev_mode(),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: "../../request.yaml".to_string().into(),
                 wait: false,
                 offchain: true,
@@ -1684,24 +1671,26 @@ mod tests {
         // Submit a request onchain
         let args = MainArgs {
             config,
-            command: Command::Request(Box::new(RequestCommands::SubmitOffer(SubmitOfferArgs {
-                storage_config: StorageProviderConfig::dev_mode(),
-                id: None,
-                wait: false,
-                offchain: false,
-                encode_input: false,
-                input: SubmitOfferInput {
-                    input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),
-                    input_file: None,
+            command: Command::Request(Box::new(RequestCommands::SubmitOffer(Box::new(
+                SubmitOfferArgs {
+                    storage_config: StorageProviderConfig::dev_mode(),
+                    id: None,
+                    wait: false,
+                    offchain: false,
+                    encode_input: false,
+                    input: SubmitOfferInput {
+                        input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),
+                        input_file: None,
+                    },
+                    program: SubmitOfferProgram { path: Some(PathBuf::from(ECHO_PATH)), url: None },
+                    requirements: SubmitOfferRequirements {
+                        callback_address: None,
+                        callback_gas_limit: None,
+                        proof_type: ProofType::Any,
+                    },
+                    offer_params: OfferParams::default(),
                 },
-                program: PathBuf::from(ECHO_PATH),
-                requirements: SubmitOfferRequirements {
-                    callback_address: None,
-                    callback_gas_limit: None,
-                    proof_type: None,
-                },
-                offer_params: OfferParams::default(),
-            }))),
+            )))),
         };
         run(&args).await.unwrap();
         assert!(logs_contain("Submitting request onchain"));
@@ -1757,7 +1746,11 @@ mod tests {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         let client_sig = request
-            .sign_request(&ctx.customer_signer, ctx.deployment.boundless_market_address, anvil.chain_id())
+            .sign_request(
+                &ctx.customer_signer,
+                ctx.deployment.boundless_market_address,
+                anvil.chain_id(),
+            )
             .await
             .unwrap();
 
@@ -1827,7 +1820,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: StorageProviderConfig::dev_mode(),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
                 wait: false,
                 offchain: false,
@@ -1993,16 +1986,10 @@ mod tests {
     async fn test_callback() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
-        let request = generate_request(
+        let mut request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
             &ctx.customer_signer.address(),
         );
-
-        // Dump the request to a tmp file; tmp is deleted on drop.
-        let tmp = tempdir().unwrap();
-        let request_path = tmp.path().join("request.yaml");
-        let request_file = File::create(&request_path).unwrap();
-        serde_yaml::to_writer(request_file, &request).unwrap();
 
         // Deploy MockCallback contract
         let callback_address = deploy_mock_callback(
@@ -2015,11 +2002,21 @@ mod tests {
         .await
         .unwrap();
 
+        // Update the request with the callback address
+        request.requirements.callback.addr = callback_address;
+        request.requirements.callback.gasLimit = U96::from(100000);
+
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
+        let request_file = File::create(&request_path).unwrap();
+        serde_yaml::to_writer(request_file, &request).unwrap();
+
         // send the request onchain
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: StorageProviderConfig::dev_mode(),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
                 wait: false,
                 offchain: false,
@@ -2053,10 +2050,14 @@ mod tests {
     async fn test_selector() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
-        let request = generate_request(
+        let mut request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
             &ctx.customer_signer.address(),
         );
+
+        // Explicitly set the selector to a compatible value for the test
+        // In dev mode, instead of Groth16V2_0, use FakeReceipt
+        request.requirements.selector = FixedBytes::from(Selector::FakeReceipt as u32);
 
         // Dump the request to a tmp file; tmp is deleted on drop.
         let tmp = tempdir().unwrap();
@@ -2068,7 +2069,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: StorageProviderConfig::dev_mode(),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
                 wait: false,
                 offchain: false,
@@ -2124,7 +2125,7 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: StorageProviderConfig::dev_mode(),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
                 wait: false,
                 offchain: true,

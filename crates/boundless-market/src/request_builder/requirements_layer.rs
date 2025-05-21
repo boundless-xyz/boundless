@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Adapt, Layer, RequestParams, MissingFieldError};
-use crate::contracts::{Predicate, Requirements, Callback};
+use super::{Adapt, Layer, MissingFieldError, RequestParams};
+use crate::contracts::{Callback, Predicate, Requirements};
+use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
+use clap::Args;
 use derive_builder::Builder;
 use risc0_zkvm::{compute_image_id, Journal};
 use risc0_zkvm::{sha::Digestible, Digest};
-use clap::Args;
-use alloy::primitives::{Address, B256, FixedBytes, aliases::U96};
 
 const DEFAULT_CALLBACK_GAS_LIMT: u64 = 100000u64;
 
@@ -127,14 +127,21 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         &self,
         (image_id, journal, params): (Digest, &Journal, &RequirementParams),
     ) -> Result<Self::Output, Self::Error> {
-        let predicate = params.predicate.clone().unwrap_or_else(|| Predicate::digest_match(journal.digest()));
+        let predicate =
+            params.predicate.clone().unwrap_or_else(|| Predicate::digest_match(journal.digest()));
         if let Some(params_image_id) = params.image_id {
-            ensure!(image_id == Digest::from(<[u8; 32]>::from(params_image_id)), "mismatch between specified and computed image ID")
+            ensure!(
+                image_id == Digest::from(<[u8; 32]>::from(params_image_id)),
+                "mismatch between specified and computed image ID"
+            )
         }
-        let callback = params.callback_address.map(|addr| Callback {
-            addr,
-            gasLimit: U96::from(params.callback_gas_limit.unwrap_or(DEFAULT_CALLBACK_GAS_LIMT)),
-        }).unwrap_or_default();
+        let callback = params
+            .callback_address
+            .map(|addr| Callback {
+                addr,
+                gasLimit: U96::from(params.callback_gas_limit.unwrap_or(DEFAULT_CALLBACK_GAS_LIMT)),
+            })
+            .unwrap_or_default();
         let selector = params.selector.unwrap_or_default();
 
         Ok(Requirements {

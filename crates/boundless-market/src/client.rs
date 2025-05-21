@@ -567,7 +567,10 @@ where
     /// Build a proof request from the given parameters.
     ///
     /// Requires a a [RequestBuilder] to be provided.
-    pub async fn build_request<Params>(&self, params: impl Into<Params>) -> Result<ProofRequest, ClientError>
+    pub async fn build_request<Params>(
+        &self,
+        params: impl Into<Params>,
+    ) -> Result<ProofRequest, ClientError>
     where
         R: RequestBuilder<Params>,
         R::Error: Into<anyhow::Error>,

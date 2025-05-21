@@ -34,7 +34,7 @@ mod storage_layer;
 pub use preflight_layer::PreflightLayer;
 pub use storage_layer::{StorageLayer, StorageLayerConfig, StorageLayerConfigBuilder};
 mod requirements_layer;
-pub use requirements_layer::{RequirementsLayer, RequirementParams};
+pub use requirements_layer::{RequirementParams, RequirementsLayer};
 mod request_id_layer;
 pub use request_id_layer::{
     RequestIdLayer, RequestIdLayerConfig, RequestIdLayerConfigBuilder, RequestIdLayerMode,
