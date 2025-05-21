@@ -8,7 +8,7 @@ use alloy::{
     network::EthereumWallet,
     primitives::{
         utils::{format_units, parse_ether},
-        Address, U256,
+        U256,
     },
     providers::Provider,
     signers::local::PrivateKeySigner,
@@ -20,6 +20,7 @@ use boundless_market::{
     contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
     input::GuestEnvBuilder,
     storage::StorageProviderConfig,
+    deployments::Deployment,
 };
 use clap::Parser;
 use rand::Rng;
@@ -42,18 +43,17 @@ struct MainArgs {
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
-    /// Address of the SetVerifier contract.
-    #[clap(short, long, env)]
-    set_verifier_address: Address,
-    /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
-    boundless_market_address: Address,
+    /// Transaction timeout in seconds.
+    #[clap(long, default_value = "45")]
+    tx_timeout: u64,
+    /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
+    ///
+    /// This parameter can only be set if order_stream_url is provided.
+    #[clap(long, env, value_parser = parse_ether, requires = "order_stream_url")]
+    auto_deposit: Option<U256>,
     /// Interval in seconds between requests.
     #[clap(short, long, default_value = "60")]
     interval: u64,
-    // Storage provider to use.
-    #[clap(flatten)]
-    storage_config: StorageProviderConfig,
     /// Optional number of requests to submit.
     ///
     /// If unspecified, the loop will run indefinitely.
@@ -102,14 +102,13 @@ struct MainArgs {
     /// Balance threshold at which to log an error.
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
-    /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
-    ///
-    /// This parameter can only be set if order_stream_url is provided.
-    #[clap(long, env, value_parser = parse_ether, requires = "order_stream_url")]
-    auto_deposit: Option<U256>,
-    /// Transaction timeout in seconds.
-    #[clap(long, default_value = "45")]
-    tx_timeout: u64,
+
+    /// Boundless Market deployment configuration
+    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    deployment: Option<Deployment>,
+    /// Storage provider to use.
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    storage_config: StorageProviderConfig,
 }
 
 /// An estimated upper bound on the cost of locking and fulfilling a request.
