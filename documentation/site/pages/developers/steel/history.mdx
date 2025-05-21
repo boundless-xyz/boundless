@@ -38,7 +38,7 @@ let builder = EthEvmEnv::builder()
     .provider(&provider)
     .block_number(latest - 8191) // execution block
     .beacon_api(beacon_api_url)
-    .commitment_block_number(BlockNumberOrTag::Parent) // Steel commitment block
+    .commitment_block_number(latest - 1) // Steel commitment block
     .chain_spec(&ETH_MAINNET_CHAIN_SPEC);
 
 let env = builder.build().await?;
