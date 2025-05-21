@@ -13,12 +13,13 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_market::storage::BuiltinStorageProvider;
 use boundless_market::{
     client::Client,
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
+    contracts::{Predicate, ProofRequest, Requirements},
+    deployments::Deployment,
     input::GuestEnv,
-    storage::{StorageProvider, StorageProviderConfig},
+    request_builder::{OfferParams, RequestParams},
+    storage::{StandardStorageProvider, StorageProvider, StorageProviderConfig},
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};

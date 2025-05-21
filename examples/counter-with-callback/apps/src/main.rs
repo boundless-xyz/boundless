@@ -2,23 +2,22 @@
 //
 // All rights reserved.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    str::FromStr,
+    time::{Duration, SystemTime},
+};
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{
-    primitives::{aliases::U96, utils::parse_ether, Address},
+    primitives::{Address},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
-use anyhow::{bail, Context, Result};
-use boundless_market::{
-    client::Client,
-    contracts::{Callback, Input, Offer, Predicate, ProofRequest, Requirements},
-    storage::{BuiltinStorageProvider, StorageProvider, StorageProviderConfig},
-};
-use boundless_market_test_utils::{ECHO_ELF, ECHO_ID};
+use anyhow::{Context, Result};
+use boundless_market::{Client, Deployment, StorageProviderConfig, request_builder::RequirementParams};
 use clap::Parser;
-use risc0_zkvm::{default_executor, sha::Digestible, ExecutorEnv};
+use guest_util::{ECHO_ELF, ECHO_ID};
+use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
 
 /// Timeout for the transaction to be confirmed.
@@ -31,129 +30,86 @@ mod counter {
     );
 }
 
-/// Arguments of the publisher CLI.
+/// Arguments for the counter app CLI.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     rpc_url: Url,
-    /// URL of the offchain order stream endpoint.
-    #[clap(short, long, env)]
-    order_stream_url: Option<Url>,
-    /// Storage provider to use
-    #[clap(flatten)]
-    storage_config: StorageProviderConfig,
-    /// Private key used to interact with the Counter contract.
+    /// Private key used to interact with the Counter contract and the Boundless Market.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
     /// Address of the Counter contract.
     #[clap(short, long, env)]
     counter_address: Address,
-    /// Address of the SetVerifier contract.
-    #[clap(short, long, env)]
-    set_verifier_address: Address,
-    /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
-    boundless_market_address: Address,
+    /// Configuration for the StorageProvider to use for uploading programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    storage_config: StorageProviderConfig,
+    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    deployment: Option<Deployment>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+    // Initialize logging.
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::from_str("info")?.into())
+                .from_env_lossy(),
+        )
         .init();
 
     let args = Args::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
-    run(
-        args.private_key,
-        args.rpc_url,
-        args.order_stream_url,
-        BuiltinStorageProvider::from_config(&args.storage_config)?,
-        args.boundless_market_address,
-        args.set_verifier_address,
-        args.counter_address,
-    )
-    .await?;
-
-    Ok(())
+    run(args).await
 }
 
 /// Main logic which creates the Boundless client, executes the proofs and submits the tx.
-async fn run<P: StorageProvider>(
-    private_key: PrivateKeySigner,
-    rpc_url: Url,
-    order_stream_url: Option<Url>,
-    storage_provider: P,
-    boundless_market_address: Address,
-    set_verifier_address: Address,
-    counter_address: Address,
-) -> Result<()> {
+async fn run(args: Args) -> Result<()> {
+    // Create a Boundless client from the provided parameters.
     let client = Client::builder()
-        .with_rpc_url(rpc_url)
-        .with_boundless_market_address(boundless_market_address)
-        .with_set_verifier_address(set_verifier_address)
-        .with_order_stream_url(order_stream_url)
-        .with_storage_provider(Some(storage_provider))
-        .with_private_key(private_key)
+        .with_rpc_url(args.rpc_url)
+        .with_deployment(args.deployment)
+        .with_storage_provider_config(&args.storage_config)?
+        .with_private_key(args.private_key)
         .build()
         .await
         .context("failed to build boundless client")?;
 
-    let program_url = client.upload_program(ECHO_ELF).await.context("failed to upload program")?;
-    tracing::info!("Uploaded program to {}", program_url);
+    // We use a timestamp as input to the ECHO guest code as the Counter contract
+    // accepts only unique proofs. Using the same input twice would result in the same proof.
+    let echo_message = format!("{:?}", SystemTime::now());
 
-    let echo_message = format! {"{:?}", SystemTime::now()};
-    let echo_input = Input::builder().write_slice(echo_message.as_bytes()).build_env()?;
+    // Create a request with a callback to the counter contract
+    let request = client.request_params()
+        .with_program(ECHO_ELF)
+        .with_stdin(echo_message.as_bytes())
+        // Add the callback to the counter contract by configuring the requirements
+        .with_requirements(RequirementParams::builder()
+            .callback_address(args.counter_address)
+            .callback_gas_limit(100_000));
 
-    let input_encoded = echo_input.encode().context("failed to encode input")?;
-    let input_url = client.upload_input(&input_encoded).await.context("failed to upload input")?;
-    tracing::info!("Uploaded input to {}", input_url);
+    // Submit the request to the blockchain
+    let (request_id, expires_at) = client.submit_onchain(request).await?;
 
-    let env = ExecutorEnv::builder().write_slice(&echo_input.stdin).build()?;
-    let session_info =
-        default_executor().execute(env, ECHO_ELF).context("failed to execute ELF")?;
-    let mcycles_count = session_info
-        .segments
-        .iter()
-        .map(|segment| 1 << segment.po2)
-        .sum::<u64>()
-        .div_ceil(1_000_000);
-    let journal = session_info.journal;
-
-    let request = ProofRequest::builder()
-        .with_image_url(program_url)
-        .with_input(input_url)
-        .with_requirements(
-            Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()))
-                // The callback is a contract address and a gas limit. The boundless market
-                // will call the contract with the journal and seal as arguments. The contract can then verify
-                // the proof and execute the callback. The callback can be any contract that implements the
-                // `IBoundlessMarketCallback` interface.
-                .with_callback(Callback { addr: counter_address, gasLimit: U96::from(100_000) }),
+    // Wait for the request to be fulfilled. The market will return the journal and seal.
+    tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
+    let (_journal, _seal) = client
+        .wait_for_request_fulfillment(
+            request_id,
+            Duration::from_secs(5), // check every 5 seconds
+            expires_at,
         )
-        .with_offer(
-            Offer::default()
-                .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-                .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
-                .with_timeout(1000)
-                .with_lock_timeout(1000),
-        )
-        .build()?;
-
-    let (request_id, expires_at) = client.submit_request(&request).await?;
-    tracing::info!("Request {} submitted", request_id);
-
-    tracing::info!("Waiting for request {} to be fulfilled", request_id);
-    let (_journal, _seal) =
-        client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at).await?;
-    tracing::info!("Request {} fulfilled", request_id);
+        .await?;
+    tracing::info!("Request {:x} fulfilled", request_id);
 
     // We interact with the Counter contract by calling the getCount function to check that the callback
     // was executed correctly.
-    let counter = ICounterInstance::new(counter_address, client.provider().clone());
+    let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
     let count = counter
         .count()
         .call()
@@ -173,12 +129,13 @@ mod tests {
         providers::{Provider, ProviderBuilder, WalletProvider},
     };
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::MockStorageProvider;
+    use boundless_market::storage::StorageProviderType;
     use boundless_market_test_utils::{create_test_ctx, TestCtx};
     use broker::test_utils::BrokerBuilder;
     use risc0_zkvm::Digest;
     use test_log::test;
     use tokio::task::JoinSet;
+    use anyhow::Context;
 
     alloy::sol!(
         #![sol(rpc)]
@@ -198,8 +155,9 @@ mod tests {
             .unwrap();
         let counter = Counter::deploy(
             &deployer_provider,
-            test_ctx.verifier_address,
-            test_ctx.boundless_market_address,
+            test_ctx.deployment.verifier_router_address
+                .ok_or_else(|| anyhow::anyhow!("deployment is missing verifier_router_address"))?,
+            test_ctx.deployment.boundless_market_address,
             <[u8; 32]>::from(Digest::from(ECHO_ID)).into(),
         )
         .await?;
@@ -228,17 +186,20 @@ mod tests {
 
         const TIMEOUT_SECS: u64 = 600; // 10 minutes
 
+        let run_task = run(Args {
+            counter_address,
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.customer_signer,
+            storage_config: StorageProviderConfig::builder()
+                .storage_provider(StorageProviderType::Mock)
+                .build()
+                .unwrap(),
+            deployment: Some(ctx.deployment),
+        });
+
         // Run with properly handled cancellation.
         tokio::select! {
-            run_result = run(
-                ctx.customer_signer,
-                anvil.endpoint_url(),
-                None,
-                MockStorageProvider::start(),
-                ctx.boundless_market_address,
-                ctx.set_verifier_address,
-                counter_address,
-            ) => run_result?,
+            run_result = run_task => run_result?,
 
             broker_task_result = tasks.join_next() => {
                 panic!("Broker exited unexpectedly: {:?}", broker_task_result.unwrap());
