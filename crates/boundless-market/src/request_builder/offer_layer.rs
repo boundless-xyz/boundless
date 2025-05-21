@@ -289,15 +289,10 @@ where
     async fn process_with(self, layer: &OfferLayer<P>) -> Result<Self::Output, Self::Error> {
         tracing::trace!("Processing {self:?} with OfferLayer");
 
-        if self.offer.is_some() {
-            return Ok(self);
-        }
-
-        let requirements = self.require_requirements()?;
+        let requirements: Requirements = self.requirements.clone().try_into().context("failed to construct requirements in OfferLayer")?;
         let request_id = self.require_request_id()?;
-        let offer_params = self.offer.clone().unwrap_or_default();
 
-        let offer = layer.process((requirements, request_id, self.cycles, &offer_params)).await?;
+        let offer = layer.process((&requirements, request_id, self.cycles, &self.offer)).await?;
         Ok(self.with_offer(offer))
     }
 }

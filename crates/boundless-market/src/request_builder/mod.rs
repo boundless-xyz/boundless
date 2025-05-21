@@ -23,7 +23,7 @@ use risc0_zkvm::{Digest, Journal};
 use url::Url;
 
 use crate::{
-    contracts::{Input as RequestInput, ProofRequest, RequestId, Requirements},
+    contracts::{Input as RequestInput, ProofRequest, RequestId},
     input::GuestEnv,
     storage::{StandardStorageProvider, StorageProvider},
     util::{NotProvided, StandardRpcProvider},
@@ -34,7 +34,7 @@ mod storage_layer;
 pub use preflight_layer::PreflightLayer;
 pub use storage_layer::{StorageLayer, StorageLayerConfig, StorageLayerConfigBuilder};
 mod requirements_layer;
-pub use requirements_layer::RequirementsLayer;
+pub use requirements_layer::{RequirementsLayer, RequirementParams};
 mod request_id_layer;
 pub use request_id_layer::{
     RequestIdLayer, RequestIdLayerConfig, RequestIdLayerConfigBuilder, RequestIdLayerMode,
@@ -217,10 +217,10 @@ pub struct RequestParams {
     pub journal: Option<Journal>,
     /// [RequestId] to use for the proof request.
     pub request_id: Option<RequestId>,
-    /// [OfferParams] for constructing the [Offer] to send along with the request.
-    pub offer: Option<OfferParams>,
-    /// [Requirements] for the resulting proof.
-    pub requirements: Option<Requirements>,
+    /// [OfferParams] for constructing the [Offer][crate::Offer] to send along with the request.
+    pub offer: OfferParams,
+    /// [RequirementParams] for constructing the [Requirements][crate::Requirements] for the resulting proof.
+    pub requirements: RequirementParams,
 }
 
 impl RequestParams {
@@ -288,7 +288,6 @@ impl RequestParams {
     ///
     /// ```rust
     /// # use boundless_market::request_builder::RequestParams;
-    /// # use url::Url;
     /// # || -> anyhow::Result<()> {
     /// RequestParams::new()
     ///     .with_program_url("https://fileserver.example/guest.bin")?;
@@ -339,10 +338,6 @@ impl RequestParams {
         Self { request_id: Some(value.into()), ..self }
     }
 
-    pub fn require_offer(&self) -> Result<&OfferParams, MissingFieldError> {
-        self.offer.as_ref().ok_or(MissingFieldError::new("offer"))
-    }
-
     /// Configure the [Offer][crate::Offer] on the [ProofRequest] by either providing a complete
     /// offer, or a partial offer via [OfferParams].
     ///
@@ -358,15 +353,22 @@ impl RequestParams {
     ///         .timeout(240));
     /// ```
     pub fn with_offer(self, value: impl Into<OfferParams>) -> Self {
-        Self { offer: Some(value.into()), ..self }
+        Self { offer: value.into(), ..self }
     }
 
-    pub fn require_requirements(&self) -> Result<&Requirements, MissingFieldError> {
-        self.requirements.as_ref().ok_or(MissingFieldError::new("requirements"))
-    }
-
-    pub fn with_requirements(self, value: impl Into<Requirements>) -> Self {
-        Self { requirements: Some(value.into()), ..self }
+    /// Configure the [Requirements][crate::Requirements] on the [ProofRequest] by either providing
+    /// the complete requirements, or partial requirements via [RequirementParams].
+    ///
+    /// ```rust
+    /// # use boundless_market::request_builder::{RequestParams, RequirementParams};
+    /// use alloy::primitives::address;
+    ///
+    /// RequestParams::new()
+    ///     .with_requirements(RequirementParams::builder()
+    ///         .callback_address(address!("0x00000000000000000000000000000000deadbeef")));
+    /// ```
+    pub fn with_requirements(self, value: impl Into<RequirementParams>) -> Self {
+        Self { requirements: value.into(), ..self }
     }
 }
 
@@ -619,7 +621,7 @@ mod tests {
         let program = ECHO_ELF;
         let bytes = b"journal_data".to_vec();
         let journal = Journal::new(bytes.clone());
-        let req = layer.process((program, &journal)).await?;
+        let req = layer.process((program, &journal, &Default::default())).await?;
 
         // Predicate should match the same journal
         assert!(req.predicate.eval(&journal));

@@ -105,8 +105,8 @@ impl Adapt<Finalizer> for RequestParams {
         // We create local variables to hold owned values
         let program_url = self.require_program_url()?.clone();
         let input = self.require_request_input()?.clone();
-        let requirements = self.require_requirements()?.clone();
-        let offer = self.require_offer()?.clone();
+        let requirements: Requirements = self.requirements.clone().try_into()?;
+        let offer: Offer = self.offer.clone().try_into()?;
         let request_id = self.require_request_id()?.clone();
 
         // As an extra consistency check. verify the journal satisfies the required predicate.
@@ -116,6 +116,6 @@ impl Adapt<Finalizer> for RequestParams {
             }
         }
 
-        layer.process((program_url, input, requirements, offer.try_into()?, request_id)).await
+        layer.process((program_url, input, requirements, offer, request_id)).await
     }
 }
