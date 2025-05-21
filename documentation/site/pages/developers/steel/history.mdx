@@ -29,19 +29,19 @@ When using Steel history, the developer must specify both the execution block *a
 ```rust
 # use alloy::providers::ProviderBuilder;
 # use alloy::primitives::Address;
-# use risc0_steel::{ethereum::{EthEvmEnv, ETH_SEPOLIA_CHAIN_SPEC}, host::BlockNumberOrTag, Contract};
+# use risc0_steel::{ethereum::{EthEvmEnv, ETH_MAINNET_CHAIN_SPEC}, host::BlockNumberOrTag, Contract};
 # use url::Url;
-# async fn preflight(execution_block: BlockNumberOrTag, commitment_block: u64, beacon_api_url: Url, rpc_url: Url) -> Result<(), Box<dyn std::error::Error>> {
+# async fn preflight(latest: u64, beacon_api_url: Url, rpc_url: Url) -> Result<(), Box<dyn std::error::Error>> {
 # let provider = ProviderBuilder::new().connect_http(rpc_url);
 # let token_contract = Address::ZERO;
 let builder = EthEvmEnv::builder()
     .provider(&provider)
     .block_number(latest - 8191) // execution block
-    .beacon_api(CL_URL)
+    .beacon_api(beacon_api_url)
     .commitment_block_number(latest - 1) // Steel commitment block
     .chain_spec(&ETH_MAINNET_CHAIN_SPEC);
 
-let env = builder.build().await?;
+let mut env = builder.build().await?;
 
 // Preflight the call at the execution block.
 let mut contract = Contract::preflight(token_contract, &mut env);
