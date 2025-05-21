@@ -11,7 +11,7 @@ To get started, first clone the Boundless monorepo on your proving machine, and 
 ```sh
 git clone https://github.com/boundless-xyz/boundless
 cd boundless
-git checkout release-0.7.0
+git checkout release-0.8
 ```
 
 ## Setup Dependencies
@@ -120,6 +120,8 @@ RUST_LOG=info bento_cli -f ./crates/bento-client/method_name -i /tmp/input.bin
 :::
 
 Once the proving stack is running, the next step is to deposit funds to the Boundless market contract. This is for the Broker to be able to cover staking during lock-in. Currently, this will require depositing special non-transferable hitpoints (HP) tokens which are sent to whitelisted provers.
+
+To deposit to the market, please follow the [Deposit Stake to Market](/provers/broker#deposit--balance) instructions.
 
 ## What next?
 
