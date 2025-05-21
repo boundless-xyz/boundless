@@ -139,7 +139,7 @@ pub enum StorageProviderType {
 
 /// Configuration for the storage provider.
 #[non_exhaustive]
-#[derive(Clone, Debug, Args, Builder)]
+#[derive(Clone, Default, Debug, Args, Builder)]
 pub struct StorageProviderConfig {
     /// Storage provider to use [possible values: s3, pinata, file]
     ///

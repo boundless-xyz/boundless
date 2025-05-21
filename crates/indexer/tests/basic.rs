@@ -67,7 +67,7 @@ async fn test_e2e() {
         "--rpc-url",
         rpc_url.as_str(),
         "--boundless-market-address",
-        &ctx.boundless_market_address.to_string(),
+        &ctx.deployment.boundless_market_address.to_string(),
         "--db",
         &test_db.db_url,
         "--interval",
@@ -103,7 +103,7 @@ async fn test_e2e() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_address,
+        ctx.deployment.boundless_market_address,
         anvil.chain_id(),
         now,
     )
@@ -117,7 +117,7 @@ async fn test_e2e() {
         .fulfill(&[Order {
             request: request.clone(),
             request_digest: request
-                .signing_hash(ctx.boundless_market_address, anvil.chain_id())
+                .signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id())
                 .unwrap(),
             signature: Signature::try_from(client_sig.as_ref()).unwrap(),
         }])
@@ -127,7 +127,7 @@ async fn test_e2e() {
         OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
     ctx.prover_market
         .submit_merkle_and_fulfill(
-            ctx.set_verifier_address,
+            ctx.deployment.set_verifier_address,
             order_fulfilled.root,
             order_fulfilled.seal,
             order_fulfilled.fills,
@@ -209,7 +209,7 @@ async fn test_monitoring() {
         "--rpc-url",
         rpc_url.as_str(),
         "--boundless-market-address",
-        &ctx.boundless_market_address.to_string(),
+        &ctx.deployment.boundless_market_address.to_string(),
         "--db",
         &test_db.db_url,
         "--interval",
@@ -246,7 +246,7 @@ async fn test_monitoring() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_address,
+        ctx.deployment.boundless_market_address,
         anvil.chain_id(),
         now,
     )
@@ -316,7 +316,7 @@ async fn test_monitoring() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         2,
-        ctx.boundless_market_address,
+        ctx.deployment.boundless_market_address,
         anvil.chain_id(),
         now,
     )
@@ -339,7 +339,7 @@ async fn test_monitoring() {
         OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
     ctx.prover_market
         .submit_merkle_and_fulfill(
-            ctx.set_verifier_address,
+            ctx.deployment.set_verifier_address,
             order_fulfilled.root,
             order_fulfilled.seal,
             order_fulfilled.fills,

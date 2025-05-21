@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, str::FromStr, time::Duration};
+use std::time::Duration;
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
@@ -42,8 +42,8 @@ use crate::{
         StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
     },
     storage::{
-        storage_provider_from_env, StandardStorageProvider, StandardStorageProviderError,
-        StorageProvider, StorageProviderConfig,
+        StandardStorageProvider, StandardStorageProviderError, StorageProvider,
+        StorageProviderConfig,
     },
     util::{NotProvided, StandardRpcProvider},
 };
@@ -176,6 +176,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             offchain_client,
             signer: self.signer,
             request_builder: Some(request_builder),
+            deployment,
         };
 
         if let Some(timeout) = self.tx_timeout {
@@ -364,7 +365,17 @@ pub struct Client<
     ///
     /// If not provided, requests must be fully constructed before handing them to this client.
     pub request_builder: Option<R>,
+    /// Deployment of Boundless that this client is connected to.
+    pub deployment: Deployment,
 }
+
+/// Alias for a [Client] instantiated with the standard implementations provided by this crate.
+pub type StandardClient = Client<
+    StandardRpcProvider,
+    StandardStorageProvider,
+    StandardRequestBuilder<StandardRpcProvider>,
+    PrivateKeySigner,
+>;
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -406,6 +417,14 @@ where
         let boundless_market = boundless_market.clone();
         let set_verifier = set_verifier.clone();
         Self {
+            deployment: Deployment {
+                boundless_market_address: *boundless_market.instance().address(),
+                set_verifier_address: *set_verifier.instance().address(),
+                chain_id: None,
+                order_stream_url: None,
+                stake_token_address: None,
+                verifier_router_address: None,
+            },
             boundless_market,
             set_verifier,
             storage_provider: None,
@@ -432,12 +451,26 @@ where
 
     /// Set the Boundless market service
     pub fn with_boundless_market(self, boundless_market: BoundlessMarketService<P>) -> Self {
-        Self { boundless_market, ..self }
+        Self {
+            deployment: Deployment {
+                boundless_market_address: *boundless_market.instance().address(),
+                ..self.deployment
+            },
+            boundless_market,
+            ..self
+        }
     }
 
     /// Set the set verifier service
     pub fn with_set_verifier(self, set_verifier: SetVerifierService<P>) -> Self {
-        Self { set_verifier, ..self }
+        Self {
+            deployment: Deployment {
+                set_verifier_address: *set_verifier.instance().address(),
+                ..self.deployment
+            },
+            set_verifier,
+            ..self
+        }
     }
 
     /// Set the storage provider
@@ -450,7 +483,14 @@ where
 
     /// Set the offchain client
     pub fn with_offchain_client(self, offchain_client: OrderStreamClient) -> Self {
-        Self { offchain_client: Some(offchain_client), ..self }
+        Self {
+            deployment: Deployment {
+                order_stream_url: Some(offchain_client.base_url.to_string().into()),
+                ..self.deployment
+            },
+            offchain_client: Some(offchain_client),
+            ..self
+        }
     }
 
     /// Set the transaction timeout
@@ -483,6 +523,7 @@ where
             storage_provider: self.storage_provider,
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
+            deployment: self.deployment,
         }
     }
 
@@ -751,82 +792,5 @@ where
                 .fetch_order(request_id, request_digest)
                 .await?),
         }
-    }
-}
-
-/// Alias for a [Client] instantiated with the standard implementations provided by this crate.
-pub type StandardClient = Client<
-    StandardRpcProvider,
-    StandardStorageProvider,
-    StandardRequestBuilder<StandardRpcProvider>,
-    PrivateKeySigner,
->;
-
-impl StandardClient {
-    /// Create a new client from environment variables
-    ///
-    /// The following environment variables are required:
-    /// - PRIVATE_KEY: The private key of the wallet
-    /// - RPC_URL: The URL of the RPC server
-    /// - ORDER_STREAM_URL: The URL of the order stream server
-    /// - BOUNDLESS_MARKET_ADDRESS: The address of the market contract
-    /// - SET_VERIFIER_ADDRESS: The address of the set verifier contract
-    pub async fn from_env() -> Result<Self, ClientError> {
-        let private_key_str = env::var("private_key").context("private_key not set")?;
-        let private_key =
-            PrivateKeySigner::from_str(&private_key_str).context("Invalid private_key")?;
-        let rpc_url_str = env::var("RPC_URL").context("RPC_URL not set")?;
-        let rpc_url = Url::parse(&rpc_url_str).context("Invalid RPC_URL")?;
-        let boundless_market_address_str =
-            env::var("BOUNDLESS_MARKET_ADDRESS").context("BOUNDLESS_MARKET_ADDRESS not set")?;
-        let boundless_market_address = Address::from_str(&boundless_market_address_str)
-            .context("Invalid BOUNDLESS_MARKET_ADDRESS")?;
-        let set_verifier_address_str =
-            env::var("SET_VERIFIER_ADDRESS").context("SET_VERIFIER_ADDRESS not set")?;
-        let set_verifier_address =
-            Address::from_str(&set_verifier_address_str).context("Invalid SET_VERIFIER_ADDRESS")?;
-
-        let caller = private_key.address();
-        let wallet = EthereumWallet::from(private_key.clone());
-        let provider = ProviderBuilder::new()
-            .wallet(wallet.clone())
-            .layer(BalanceAlertLayer::default())
-            .connect_http(rpc_url);
-
-        let boundless_market =
-            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
-        let set_verifier = SetVerifierService::new(set_verifier_address, provider.clone(), caller);
-
-        let storage_provider = match storage_provider_from_env() {
-            Ok(provider) => Some(provider),
-            Err(_) => None,
-        };
-
-        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-
-        let order_stream_url = env::var("ORDER_STREAM_URL");
-        let offchain_client = match order_stream_url {
-            Ok(url) => Some(OrderStreamClient::new(
-                Url::parse(&url).context("Invalid ORDER_STREAM_URL")?,
-                boundless_market_address,
-                chain_id,
-            )),
-            Err(_) => None,
-        };
-
-        let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(storage_provider.clone())
-            .offer_layer(provider.clone())
-            .request_id_layer(boundless_market.clone())
-            .build()?;
-
-        Ok(Self {
-            boundless_market,
-            set_verifier,
-            storage_provider,
-            offchain_client,
-            signer: Some(private_key),
-            request_builder: Some(request_builder),
-        })
     }
 }

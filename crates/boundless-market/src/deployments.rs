@@ -46,7 +46,11 @@ pub struct Deployment {
     /// [RiscZeroVerifierRouter]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroVerifierRouter.sol
     /// [IRiscZeroVerifier]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/IRiscZeroVerifier.sol
     /// [Boundless docs for more details]: https://docs.beboundless.xyz/developers/smart-contracts/verifier-contracts
-    #[clap(long, env, long_help = "Address of the RiscZeroVerifierRouter contract")]
+    #[clap(
+        long,
+        env = "VERIFIER_ADDRESS",
+        long_help = "Address of the RiscZeroVerifierRouter contract"
+    )]
     #[builder(setter(strip_option), default)]
     pub verifier_router_address: Option<Address>,
 

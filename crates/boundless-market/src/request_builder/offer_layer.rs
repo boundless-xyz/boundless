@@ -27,6 +27,7 @@ use alloy::{
     providers::Provider,
 };
 use anyhow::{ensure, Context};
+use clap::Args;
 use derive_builder::Builder;
 
 #[non_exhaustive]
@@ -84,22 +85,29 @@ impl<P: Clone> From<P> for OfferLayer<P> {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug, Default, Builder)]
+#[derive(Clone, Debug, Default, Builder, Args)]
 /// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
 /// defaults set in the [OfferLayerConfig].
 pub struct OfferParams {
+    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub min_price: Option<U256>,
+    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub max_price: Option<U256>,
+    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub bidding_start: Option<u64>,
+    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub ramp_up_period: Option<u32>,
+    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub lock_timeout: Option<u32>,
+    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub timeout: Option<u32>,
+    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub lock_stake: Option<U256>,
 }
