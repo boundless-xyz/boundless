@@ -12,9 +12,9 @@ config:
   slasher:DOCKER_TAG: "latest"
   slasher:INTERVAL: "60"
   slasher:LOG_LEVEL: "debug,boundless_slasher=trace,alloy_transport_http=info,hyper_util=info"
-  slasher:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic"
+  #slasher:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic"
   slasher:PRIVATE_KEY:
     secure: v1:y8eStQ5qMAiWESW+:7h7dy4iFabk0eVUOqsF12zDeEOkxbEm/jM0VF3PZVo8hW2WvaoZSByXi5GfaOtNJ/LnQCFzkC8tKw0uqVseD+UCeEsbv+H7avy80mFE7JIY=
   slasher:RETRIES: "5"
   slasher:SKIP_ADDRESSES: ""
-  slasher:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic"
+  #slasher:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic"

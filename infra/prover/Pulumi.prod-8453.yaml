@@ -13,9 +13,9 @@ config:
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
   base-prover:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
-  base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  #base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0xa8DB64c92c5E113984C790dDA91789132114BAda
-  base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  #base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   bento-prover:PRIVATE_KEY:
     secure: v1:+cdh+iJoRfm9BSyx:PlWIkz5B4tMCYCT+YG0ANBYtLL9gYv07iFXww7bydPTDctrNASqnBPVcB1Ge4BXnWIBt6gpaW3vo0PhGmHc6rVxuSDsLI8bOB0irjHRLMas=
   bento-prover:SEGMENT_SIZE: "19"
