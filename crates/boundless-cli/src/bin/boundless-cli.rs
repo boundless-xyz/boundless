@@ -66,7 +66,7 @@ use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifi
 use risc0_zkvm::{
     compute_image_id, default_executor,
     sha::{Digest, Digestible},
-    ExecutorEnv, Journal, SessionInfo,
+    Journal, SessionInfo,
 };
 use shadow_rs::shadow;
 use tracing::level_filters::LevelFilter;
@@ -177,7 +177,7 @@ enum RequestCommands {
         wait: bool,
 
         /// Submit the request offchain via the provided order stream service url
-        #[clap(short, long, requires = "order_stream_url")]
+        #[clap(short, long)]
         offchain: bool,
 
         /// Skip preflight check (not recommended)
@@ -241,12 +241,6 @@ enum ProvingCommands {
         /// If provided along with request-id, uses the transaction hash to find the request.
         #[arg(long, conflicts_with = "request_path", requires = "request_id")]
         tx_hash: Option<B256>,
-
-        /// The order stream service URL.
-        ///
-        /// If provided, the request will be fetched offchain via the provided order stream service URL.
-        #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["request_path", "tx_hash"])]
-        order_stream_url: Option<Url>,
     },
     Benchmark {
         /// Proof request ids to benchmark.
@@ -264,14 +258,6 @@ enum ProvingCommands {
         /// Not necessary if using Bento without authentication, which is the default.
         #[clap(env = "BONSAI_API_KEY", hide_env_values = true)]
         bonsai_api_key: Option<String>,
-
-        /// Offchain order stream service URL to submit offchain requests to
-        #[clap(
-            long,
-            env = "ORDER_STREAM_URL",
-            default_value = "https://order-stream.beboundless.xyz"
-        )]
-        order_stream_url: Option<Url>,
     },
     /// Fulfill one or more proof requests using the RISC Zero zkVM default prover.
     ///
@@ -296,12 +282,6 @@ enum ProvingCommands {
         /// If provided, must have the same length and order as request_ids.
         #[arg(long, value_delimiter = ',')]
         tx_hashes: Option<Vec<B256>>,
-
-        /// The order stream service URL.
-        ///
-        /// If provided, the request will be fetched offchain via the provided order stream service URL.
-        #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["tx_hash"])]
-        order_stream_url: Option<Url>,
     },
 
     /// Lock a request in the market
@@ -317,26 +297,16 @@ enum ProvingCommands {
         /// The tx hash of the request submission
         #[arg(long)]
         tx_hash: Option<B256>,
-
-        /// The order stream service URL.
-        ///
-        /// If provided, the request will be fetched offchain via the provided order stream service URL.
-        #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["tx_hash"])]
-        order_stream_url: Option<Url>,
     },
 }
 
 #[derive(Args, Clone, Debug)]
 struct SubmitOfferArgs {
-    /// Path to a YAML file containing the offer
-    yaml_offer: PathBuf,
-
     /// Optional identifier for the request
     id: Option<u32>,
 
-    /// Program binary file to use as the guest image, given as a path
-    #[clap(long)]
-    program: PathBuf,
+    #[clap(flatten)]
+    program: SubmitOfferProgram,
 
     /// Wait until the request is fulfilled
     #[clap(short, long, default_value = "false")]
@@ -377,6 +347,23 @@ struct SubmitOfferInput {
     /// Input for the guest, given as a path to a file.
     #[clap(long)]
     input_file: Option<PathBuf>,
+}
+
+#[derive(Args, Clone, Debug)]
+#[group(required = true, multiple = false)]
+struct SubmitOfferProgram {
+    /// Program binary to use as the guest image, given as a path.
+    ///
+    /// The program will be uploaded to a public URL using the configured storage provider before
+    /// the proof request is sent.
+    #[clap(short = 'p', long = "program")]
+    path: Option<PathBuf>,
+    /// Program binary to use as a guest image, given as a public URL.
+    ///
+    /// This option accepts a pre-uploaded program. If also using small inputs, a storage provider
+    /// is not required when using a pre-uploaded program.
+    #[clap(long = "program-url")]
+    program_url: Option<Url>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -471,9 +458,9 @@ pub(crate) async fn run(args: &MainArgs) -> Result<ExitCode> {
     }
 
     let storage_config = match args.command {
-        Command::Request(req_cmd) => match *req_cmd {
-            RequestCommands::Submit { storage_config, .. } => storage_config.clone(),
-            RequestCommands::SubmitOffer(SubmitOfferArgs { storage_config, .. }) => {
+        Command::Request(ref req_cmd) => match **req_cmd {
+            RequestCommands::Submit { ref storage_config, .. } => storage_config.clone(),
+            RequestCommands::SubmitOffer(SubmitOfferArgs { ref storage_config, .. }) => {
                 storage_config.clone()
             }
             _ => StorageProviderConfig::default(),
@@ -484,7 +471,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<ExitCode> {
     let client = Client::builder()
         .with_private_key(args.config.private_key.clone())
         .with_rpc_url(args.config.rpc_url.clone())
-        .with_deployment(args.config.deployment)
+        .with_deployment(args.config.deployment.clone())
         .with_storage_provider_config(&storage_config)?
         .with_timeout(args.config.tx_timeout)
         .build()
@@ -492,11 +479,11 @@ pub(crate) async fn run(args: &MainArgs) -> Result<ExitCode> {
 
     match &args.command {
         Command::Account(account_cmd) => {
-            handle_account_command(account_cmd, client, args.config.private_key.clone()).await
+            handle_account_command(account_cmd, client, args.config.private_key.clone()).await?
         }
-        Command::Request(request_cmd) => handle_request_command(request_cmd, args, client).await,
-        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, args, client).await,
-        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
+        Command::Request(request_cmd) => handle_request_command(request_cmd, args, client).await?,
+        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, args).await?,
+        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await?,
         Command::Config {} => unreachable!(),
     }
     Ok(ExitCode::SUCCESS)
@@ -586,7 +573,7 @@ async fn handle_request_command(
             tracing::info!("Submitting new proof request with offer");
             submit_offer(client, &args.config.private_key, offer_args).await
         }
-        RequestCommands::Submit { storage_config, yaml_request, wait, offchain, no_preflight } => {
+        RequestCommands::Submit { yaml_request, wait, offchain, no_preflight, .. } => {
             tracing::info!("Submitting proof request from YAML file");
 
             submit_request(
@@ -620,7 +607,7 @@ async fn handle_request_command(
             let (journal, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
             let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
-            let verifier_address = client.deployment.verifier_router_address.ok_or("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
+            let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
             let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
 
             verifier
@@ -636,21 +623,16 @@ async fn handle_request_command(
 }
 
 /// Handle proving-related commands
-async fn handle_proving_command<P>(
+async fn handle_proving_command(
     cmd: &ProvingCommands,
-    args: &MainArgs,
     client: StandardClient,
-) -> Result<()>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+) -> Result<()> {
     match cmd {
         ProvingCommands::Execute {
             request_path,
             request_id,
             request_digest,
             tx_hash,
-            order_stream_url,
         } => {
             tracing::info!("Executing proof request");
             let request: ProofRequest = if let Some(file_path) = request_path {
@@ -678,7 +660,7 @@ where
             tracing::debug!("Journal: {:?}", journal);
             Ok(())
         }
-        ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes, order_stream_url } => {
+        ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes } => {
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
             {
@@ -697,17 +679,7 @@ where
             let assessor_program = fetch_url(&market_url).await?;
             let domain = client.boundless_market.eip712_domain().await?;
 
-            let mut set_verifier = SetVerifierService::new(
-                args.config.deployment.set_verifier_address,
-                client.provider().clone(),
-                client.boundless_market.caller(),
-            );
-
-            if let Some(tx_timeout) = args.config.tx_timeout {
-                set_verifier = set_verifier.with_timeout(tx_timeout);
-            }
-
-            let (_, set_builder_url) = set_verifier.image_info().await?;
+            let (_, set_builder_url) = client.set_verifier.image_info().await?;
             tracing::debug!("Fetching SetBuilder program from {}", set_builder_url);
             let set_builder_program = fetch_url(&set_builder_url).await?;
 
@@ -734,7 +706,7 @@ where
                     let sig: Bytes = order.signature.as_bytes().into();
                     order.request.verify_signature(
                         &sig,
-                        args.config.deployment.boundless_market_address,
+                        client.deployment.boundless_market_address,
                         boundless_market.get_chain_id().await?,
                     )?;
                     let is_locked = boundless_market.is_locked(*request_id).await?;
@@ -762,7 +734,7 @@ where
             let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
             let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
             tracing::debug!("Submitting root {} to SetVerifier", order_fulfilled.root);
-            set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
+            client.set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
             tracing::debug!("Successfully submitted root to SetVerifier");
 
             match client
@@ -786,7 +758,7 @@ where
                 }
             }
         }
-        ProvingCommands::Lock { request_id, request_digest, tx_hash, order_stream_url } => {
+        ProvingCommands::Lock { request_id, request_digest, tx_hash } => {
             tracing::info!("Locking proof request 0x{:x}", request_id);
 
             let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
@@ -795,7 +767,7 @@ where
             let sig: Bytes = order.signature.as_bytes().into();
             order.request.verify_signature(
                 &sig,
-                client.boundless_market.instance().address(),
+                client.deployment.boundless_market_address,
                 client.boundless_market.get_chain_id().await?,
             )?;
 
@@ -807,9 +779,8 @@ where
             request_ids,
             bonsai_api_url,
             bonsai_api_key,
-            order_stream_url,
         } => {
-            benchmark(client, request_ids, bonsai_api_url, bonsai_api_key, order_stream_url, args)
+            benchmark(client, request_ids, bonsai_api_url, bonsai_api_key)
                 .await
         }
     }
@@ -821,8 +792,6 @@ async fn benchmark(
     request_ids: &[U256],
     bonsai_api_url: &Option<String>,
     bonsai_api_key: &Option<String>,
-    order_stream_url: &Option<Url>,
-    args: &MainArgs,
 ) -> Result<()> {
     tracing::info!("Starting benchmark for {} requests", request_ids.len());
     if request_ids.is_empty() {
@@ -1023,28 +992,12 @@ async fn create_pg_pool() -> Result<sqlx::PgPool> {
 }
 
 /// Submit an offer and create a proof request
-async fn submit_offer<P, S>(
-    client: Client<P, S>,
+async fn submit_offer(
+    client: StandardClient,
     signer: &impl Signer,
     args: &SubmitOfferArgs,
-) -> Result<()>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-    S: StorageProvider + Clone,
-{
-    // Read the YAML offer file
-    let file = File::open(&args.yaml_offer)
-        .context(format!("Failed to open offer file at {:?}", args.yaml_offer))?;
-    let reader = BufReader::new(file);
-    let mut offer: Offer =
-        serde_yaml::from_reader(reader).context("failed to parse offer from YAML")?;
-
-    // If set to 0, override the offer bidding_start field with the current timestamp + 30 seconds.
-    if offer.biddingStart == 0 {
-        // Adding a delay to bidding start lets provers see and evaluate the request
-        // before the price starts to ramp up
-        offer = Offer { biddingStart: now_timestamp() + 30, ..offer };
-    }
+) -> Result<()> {
+    let mut request = client.request_params();
 
     // Resolve the program and input from command line arguments.
     let program: Cow<'static, [u8]> = std::fs::read(&args.program)
@@ -1194,22 +1147,21 @@ where
     let file = File::open(request_path.as_ref())
         .context(format!("Failed to open request file at {:?}", request_path.as_ref()))?;
     let reader = BufReader::new(file);
-    let mut request_yaml: ProofRequest =
+    let mut request: ProofRequest =
         serde_yaml::from_reader(reader).context("Failed to parse request from YAML")?;
 
     // Fill in some of the request parameters, this command supports filling a few of the request
     // parameters that new need to updated on every reqeust. Namely, ID and bidding start.
     //
     // If set to 0, override the offer bidding_start field with the current timestamp + 30s
-    if request_yaml.offer.biddingStart == 0 {
+    if request.offer.biddingStart == 0 {
         // Adding a delay to bidding start lets provers see and evaluate the request
         // before the price starts to ramp up
-        request_yaml.offer = Offer { biddingStart: now_timestamp() + 30, ..request_yaml.offer };
+        request.offer = Offer { biddingStart: now_timestamp() + 30, ..request.offer };
     }
-
-    if request_yaml.id == U256::ZERO {
-        request_yaml.id = client.request_id_from_rand().await?;
-        tracing::info!("Assigned request ID {:x}", request_yaml.id);
+    if request.id == U256::ZERO {
+        request.id = client.boundless_market.request_id_from_rand().await?;
+        tracing::info!("Assigned request ID {:x}", request.id);
     };
 
     // Run preflight check if enabled
@@ -1221,9 +1173,9 @@ where
         // Verify image ID if available
         if let Some(claim) = session_info.receipt_claim {
             ensure!(
-                claim.pre.digest().as_bytes() == request_yaml.requirements.imageId.as_slice(),
+                claim.pre.digest().as_bytes() == request.requirements.imageId.as_slice(),
                 "Image ID mismatch: requirements ({}) do not match the given program ({})",
-                hex::encode(request_yaml.requirements.imageId),
+                hex::encode(request.requirements.imageId),
                 hex::encode(claim.pre.digest().as_bytes())
             );
         } else {
@@ -1327,7 +1279,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<ExitCode> {
         println!("Transaction Timeout: <not set>");
     }
     println!("Log Level: {:?}", args.config.log_level);
-    if let Some(deployment) = args.config.deployment {
+    if let Some(ref deployment) = args.config.deployment {
         println!("Using custom Boundless deployment");
         println!("Chain ID: {:?}", deployment.chain_id);
         println!("Boundless Market Address: {}", deployment.boundless_market_address);
@@ -1354,7 +1306,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<ExitCode> {
         }
     };
 
-        let Some(deployment) = args.config.deployment
+        let Some(deployment) = args.config.deployment.clone()
             .or_else(|| Deployment::from_chain_id(chain_id)) else {
 
             println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
@@ -1401,7 +1353,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<ExitCode> {
     };
 
     // Create a transaction request with the call data
-    let verifier_ok = if let Some(verifier_router_address) = deployment.verifier_router_address {
+    if let Some(verifier_router_address) = deployment.verifier_router_address {
         let verifier_parameters =
             SetInclusionReceiptVerifierParameters { image_id: Digest::from_bytes(*image_id) };
         let selector: [u8; 4] = verifier_parameters.digest().as_bytes()[0..4].try_into()?;
@@ -1433,7 +1385,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<ExitCode> {
     } else {
         // Verifier router is recommended, but not required for most operations.
         println!("⚠️Verifier router address not configured");
-    };
+    }
 
     println!(
         "\nEnvironment Setup: {}",
@@ -1520,7 +1472,7 @@ mod tests {
         let config = GlobalConfig {
             rpc_url: anvil.endpoint_url(),
             private_key,
-            deployment: Some(ctx.deployment),
+            deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
@@ -1535,7 +1487,6 @@ mod tests {
         TestCtx<impl Provider + WalletProvider + Clone + 'static>,
         AnvilInstance,
         GlobalConfig,
-        Url,
         JoinHandle<()>,
     ) {
         let (mut ctx, anvil, global_config) = setup_test_env(owner).await;
@@ -1563,9 +1514,9 @@ mod tests {
         });
 
         // Add the order_stream_url to the deployment config.
-        ctx.deployment.order_stream_url = Some(order_stream_url);
+        ctx.deployment.order_stream_url = Some(order_stream_url.to_string().into());
 
-        (ctx, anvil, global_config, order_stream_url, order_stream_handle)
+        (ctx, anvil, global_config, order_stream_handle)
     }
 
     #[tokio::test]
@@ -1753,7 +1704,7 @@ mod tests {
     #[sqlx::test]
     #[traced_test]
     async fn test_submit_request_offchain(pool: PgPool) {
-        let (ctx, _anvil, config, order_stream_url, order_stream_handle) =
+        let (ctx, _anvil, config, order_stream_handle) =
             setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
 
         // Deposit funds into the market
@@ -1861,7 +1812,7 @@ mod tests {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         let client_sig = request
-            .sign_request(&ctx.customer_signer, ctx.boundless_market_address, anvil.chain_id())
+            .sign_request(&ctx.customer_signer, ctx.deployment.boundless_market_address, anvil.chain_id())
             .await
             .unwrap();
 
@@ -1949,7 +1900,6 @@ mod tests {
                 request_id: Some(request_id),
                 request_digest: None,
                 tx_hash: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -1972,7 +1922,6 @@ mod tests {
                 request_id,
                 request_digest: None,
                 tx_hash: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -1998,7 +1947,6 @@ mod tests {
                 request_ids: vec![request_id],
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -2070,7 +2018,6 @@ mod tests {
                 request_ids: request_ids.clone(),
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -2115,7 +2062,7 @@ mod tests {
         // Deploy MockCallback contract
         let callback_address = deploy_mock_callback(
             &ctx.prover_provider,
-            ctx.deployment.verifier_router_address,
+            ctx.deployment.verifier_router_address.unwrap(),
             ctx.deployment.boundless_market_address,
             ECHO_ID,
             U256::ZERO,
@@ -2144,7 +2091,6 @@ mod tests {
                 request_ids: vec![request.id],
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -2194,7 +2140,6 @@ mod tests {
                 request_ids: vec![request.id],
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -2211,7 +2156,7 @@ mod tests {
     #[traced_test]
     #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_proving_offchain(pool: PgPool) {
-        let (ctx, anvil, config, order_stream_url, order_stream_handle) =
+        let (ctx, anvil, config, order_stream_handle) =
             setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
 
         // Deposit funds into the market
@@ -2252,7 +2197,6 @@ mod tests {
                 request_id: Some(request_id),
                 request_digest: None,
                 tx_hash: None,
-                order_stream_url: Some(order_stream_url.clone()),
             })),
         })
         .await
@@ -2275,7 +2219,6 @@ mod tests {
                 request_id,
                 request_digest: None,
                 tx_hash: None,
-                order_stream_url: Some(order_stream_url.clone()),
             })),
         })
         .await
@@ -2289,7 +2232,6 @@ mod tests {
                 request_ids: vec![request_id],
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: Some(order_stream_url),
             })),
         })
         .await
