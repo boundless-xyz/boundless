@@ -457,12 +457,7 @@ export HOME=/home/ubuntu
 chmod +x /local/boundless/scripts/setup.sh
 /local/boundless/scripts/setup.sh
 
-# Install nvcc. After reboot we will set the NVCC flags in the compose.yml using this.
-sudo apt install nvidia-cuda-toolkit -y
-
-# Create a script that
-# 1/ creates a broker env file with all environment variables set.
-# 2/ sets the NVCC flags in the compose.yml
+# Create a script that creates a broker env file with all environment variables set.
 # This script is run when the instance is rebooted, and when the instance is updated.
 cat > /local/create-broker-env.sh << 'EOF'
 #!/bin/bash
