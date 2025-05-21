@@ -336,7 +336,7 @@ configure_docker_nvidia
 install_rust
 
 # Install Just
-install_rust
+install_just
 
 # Install CUDA Toolkit
 install_cuda
