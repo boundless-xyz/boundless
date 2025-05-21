@@ -14,7 +14,7 @@ config:
   order-stream:RDS_PASSWORD:
     secure: v1:6whQz1QLemakPyhf:HLLVSfo4o60VV3oSXINo0LDRxBFKMbka9V9O7Cbj+o6Pyw==
   order-stream:CHAIN_ID: "8453"
-  #order-stream:ALB_DOMAIN: base-mainnet.beboundless.xyz
+  order-stream:ALB_DOMAIN: base-mainnet.beboundless.xyz
   #order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   #order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-stream:GH_TOKEN_SECRET:
