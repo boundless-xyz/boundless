@@ -52,7 +52,7 @@ let evm_input = env.into_input().await?;
 
 During this `into_input` step, the preflight data is packed into a form that can be read and validated in the guest.
 
-Crucially, during the step, Steel will use the RPC call [eth\_getProof] for all accounts accessed during the preflight and the return data is combined into a sparse Merkle trie.
+Crucially, during the step, Steel will use the RPC call [eth_getProof] for all accounts accessed during the preflight and the return data is combined into a sparse Merkle trie.
 
 Within the guest, calling `into_env` checks that all Merkle tries are consistent, have the correct root and **computes the corresponding block hash.**
 

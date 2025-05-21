@@ -2512,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.1.0",
@@ -2529,8 +2529,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-bench"
+version = "0.9.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "boundless-indexer",
+ "boundless-market",
+ "boundless-market-test-utils",
+ "broker",
+ "bytemuck",
+ "chrono",
+ "clap",
+ "csv",
+ "dotenvy",
+ "futures",
+ "reqwest",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "tracing-test",
+ "url",
+]
+
+[[package]]
 name = "boundless-cli"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2566,7 +2595,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-indexer"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2592,7 +2621,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.1.0",
@@ -2633,7 +2662,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market-test-utils"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.1.0",
@@ -2651,7 +2680,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2672,7 +2701,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2697,7 +2726,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2750,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -3340,6 +3369,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acdc4883a9c96732e4733212c01447ebd805833b7275a73ca3ee080fd77afdaf"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d02f3b0da4c6504f86e9cd789d8dbafab48c2321be74e9987593de5a894d93d"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "cust"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3661,7 +3711,7 @@ dependencies = [
 
 [[package]]
 name = "doc-test"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.1.0",
@@ -4514,7 +4564,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -4532,7 +4582,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5162,7 +5212,7 @@ checksum = "4ee796ad498c8d9a1d68e477df8f754ed784ef875de1414ebdaf169f70a6a784"
 
 [[package]]
 name = "indexer-monitor"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -6457,7 +6507,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -8190,9 +8240,9 @@ checksum = "48fd7bd8a6377e15ad9d42a8ec25371b94ddc67abe7c8b9127bec79bebaaae18"
 
 [[package]]
 name = "rust-embed"
-version = "8.7.1"
+version = "8.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60e425e204264b144d4c929d126d0de524b40a961686414bab5040f7465c71be"
+checksum = "025908b8682a26ba8d12f6f2d66b987584a4a87bc024abc5bbc12553a8cd178a"
 dependencies = [
  "rust-embed-impl",
  "rust-embed-utils",
@@ -8201,9 +8251,9 @@ dependencies = [
 
 [[package]]
 name = "rust-embed-impl"
-version = "8.7.0"
+version = "8.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bf418c9a2e3f6663ca38b8a7134cc2c2167c9d69688860e8961e3faa731702e"
+checksum = "6065f1a4392b71819ec1ea1df1120673418bf386f50de1d6f54204d836d4349c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8214,9 +8264,9 @@ dependencies = [
 
 [[package]]
 name = "rust-embed-utils"
-version = "8.7.0"
+version = "8.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d55b95147fe01265d06b3955db798bdaed52e60e2211c41137701b3aba8e21"
+checksum = "f6cc0c81648b20b70c491ff8cce00c1c3b223bb8ed2b5d41f0e54c6c4c0a3594"
 dependencies = [
  "sha2 0.10.9",
  "walkdir",

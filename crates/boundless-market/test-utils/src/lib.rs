@@ -50,7 +50,10 @@ use risc0_zkvm::{
 // Export image IDs and paths publicly to ensure all dependants use the same ones.
 pub use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
 pub use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
-pub use guest_util::{ECHO_ELF, ECHO_ID, ECHO_PATH, IDENTITY_ELF, IDENTITY_ID, IDENTITY_PATH};
+pub use guest_util::{
+    ECHO_ELF, ECHO_ID, ECHO_PATH, IDENTITY_ELF, IDENTITY_ID, IDENTITY_PATH, LOOP_ELF, LOOP_ID,
+    LOOP_PATH,
+};
 
 #[non_exhaustive]
 pub struct TestCtx<P> {
@@ -358,7 +361,7 @@ pub async fn create_test_ctx_with_rpc_url(
 
     let prover_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_simple_nonce_management()
+        .with_cached_nonce_management()
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)
         .wallet(EthereumWallet::from(prover_signer.clone()))
@@ -366,7 +369,7 @@ pub async fn create_test_ctx_with_rpc_url(
         .await?;
     let customer_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_simple_nonce_management()
+        .with_cached_nonce_management()
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)
         .wallet(EthereumWallet::from(customer_signer.clone()))
@@ -374,7 +377,7 @@ pub async fn create_test_ctx_with_rpc_url(
         .await?;
     let verifier_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_simple_nonce_management()
+        .with_cached_nonce_management()
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)
         .wallet(EthereumWallet::from(verifier_signer.clone()))

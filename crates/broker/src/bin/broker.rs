@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     });
 
     let provider = ProviderBuilder::new()
+        .with_cached_nonce_management()
         .layer(balance_alerts_layer)
         .wallet(wallet)
         .with_chain(NamedChain::Sepolia)
