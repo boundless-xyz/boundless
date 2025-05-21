@@ -29,6 +29,7 @@ fn main() {
 
     // Generate Rust source files for the methods crate.
     let guests = embed_methods_with_options(HashMap::from([
+        ("loop", guest_options.clone()),
         ("echo", guest_options.clone()),
         ("identity", guest_options),
     ]));

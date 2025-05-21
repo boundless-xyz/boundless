@@ -327,16 +327,22 @@ cleanup
 success "All tasks completed successfully!"
 
 # Optionally, prompt to reboot if necessary
-read -rp "Do you want to reboot now to apply all changes? (y/N): " REBOOT
-case "$REBOOT" in
-    [yY][eE][sS]|[yY])
-        info "Rebooting the system..."
-        reboot
-        ;;
-    *)
-        info "Reboot skipped. Please consider rebooting your system to apply all changes."
-        ;;
-esac
+if [ -t 0 ]; then
+    # We're in an interactive terminal
+    read -rp "Do you want to reboot now to apply all changes? (y/N): " REBOOT
+    case "$REBOOT" in
+        [yY][eE][sS]|[yY])
+            info "Rebooting the system..."
+            reboot
+            ;;
+        *)
+            info "Reboot skipped. Please consider rebooting your system to apply all changes."
+            ;;
+    esac
+else
+    # We're in a non-interactive environment (like EC2 user data)
+    info "Running in non-interactive mode. Skipping reboot prompt."
+fi
 
 # Display end message with timestamp
 info "===== Script Execution Ended at $(date) ====="

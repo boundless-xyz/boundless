@@ -33,7 +33,7 @@ use url::Url;
 
 pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
-pub(crate) mod config;
+pub mod config;
 pub(crate) mod db;
 pub(crate) mod errors;
 pub mod futures_retry;
@@ -74,25 +74,25 @@ pub struct Args {
     /// Risc zero Set verifier address
     // TODO: Get this from the market contract via view call
     #[clap(long, env)]
-    set_verifier_address: Address,
+    pub set_verifier_address: Address,
 
     /// local prover API (Bento)
     ///
     /// Setting this value toggles using Bento for proving and disables Bonsai
     #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"])]
-    bento_api_url: Option<Url>,
+    pub bento_api_url: Option<Url>,
 
     /// Bonsai API URL
     ///
     /// Toggling this disables Bento proving and uses Bonsai as a backend
     #[clap(long, env, conflicts_with = "bento_api_url")]
-    bonsai_api_url: Option<Url>,
+    pub bonsai_api_url: Option<Url>,
 
     /// Bonsai API Key
     ///
     /// Required if using BONSAI_API_URL
     #[clap(long, env, conflicts_with = "bento_api_url")]
-    bonsai_api_key: Option<String>,
+    pub bonsai_api_key: Option<String>,
 
     /// Config file path
     #[clap(short, long, default_value = "broker.toml")]
@@ -420,9 +420,9 @@ where
             let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
                 .await
                 .context("Failed to parse image URI")?;
-            tracing::debug!("Downloading assessor image from: {image_uri}");
+            tracing::debug!("Downloading image from: {image_uri}");
 
-            image_uri.fetch().await.context("Failed to download assessor image")?
+            image_uri.fetch().await.context("Failed to download image")?
         };
 
         prover
@@ -558,6 +558,7 @@ where
             chain_monitor.clone(),
             config.clone(),
             block_times,
+            self.args.private_key.address(),
             self.args.boundless_market_address,
         )?);
         let cloned_config = config.clone();

@@ -1,26 +1,4 @@
 services:
-  exec_agent:
-    build:
-      secrets:
-        - ci_cache_creds
-      cache_to:
-        - type=s3,name=agent-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
-      cache_from:
-        - type=s3,name=agent-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
-      args:
-        SCCACHE_RECACHE: 1
-
-  rest_api:
-    build:
-      secrets:
-        - ci_cache_creds
-      cache_to:
-        - type=s3,name=rest-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
-      cache_from:
-        - type=s3,name=rest-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
-      args:
-        SCCACHE_RECACHE: 1
-
   broker:
     build:
       secrets:

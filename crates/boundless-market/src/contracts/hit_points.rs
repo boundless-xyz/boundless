@@ -32,7 +32,7 @@ const DEFAULT_ALLOWANCE: u128 = 100000000000000000000;
 /// HitPointsService provides a high-level interface to the HitPoints contract.
 #[derive(Clone)]
 pub struct HitPointsService<P> {
-    instance: IHitPointsInstance<(), P, Ethereum>,
+    instance: IHitPointsInstance<P, Ethereum>,
     caller: Address,
     tx_timeout: Duration,
 }
@@ -46,7 +46,7 @@ impl<P: Provider> HitPointsService<P> {
     }
 
     /// Returns the underlying IHitPointsInstance.
-    pub fn instance(&self) -> &IHitPointsInstance<(), P, Ethereum> {
+    pub fn instance(&self) -> &IHitPointsInstance<P, Ethereum> {
         &self.instance
     }
 
@@ -117,7 +117,7 @@ impl<P: Provider> HitPointsService<P> {
         let contract = IERC20::new(*self.instance.address(), self.instance.provider());
         let call = contract.balanceOf(account).from(self.caller);
         let balance = call.call().await.map_err(IHitPointsErrors::decode_error)?;
-        Ok(balance._0)
+        Ok(balance)
     }
 }
 

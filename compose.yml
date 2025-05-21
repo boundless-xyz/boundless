@@ -1,4 +1,24 @@
 name: bento
+# Anchors:
+x-base-environment: &base-environment
+  DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
+  REDIS_URL: redis://${REDIS_HOST:-redis}:6379
+  S3_URL: http://${MINIO_HOST:-minio}:9000
+  S3_BUCKET: ${MINIO_BUCKET:-workflow}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
+  RUST_LOG: ${RUST_LOG:-info}
+  RUST_BACKTRACE: 1
+
+x-agent-common: &agent-common
+  image: risczero/risc0-bento-agent:stable
+  restart: always
+  depends_on:
+    - postgres
+    - redis
+    - minio
+  environment:
+    <<: *base-environment
 
 services:
   redis:
@@ -71,92 +91,32 @@ services:
 
 
   exec_agent:
-    image: agent
+    <<: *agent-common
     runtime: nvidia
-    restart: always
-    depends_on:
-      - postgres
-      - redis
-      - minio
-
-    build:
-      context: .
-      dockerfile: dockerfiles/agent.dockerfile
-      # NOTE: we build a single image for all agents so specify the GPU flags here
-      # TODO: can we clean this up / make it more logical?
-      args:
-        NVCC_APPEND_FLAGS: ${NVCC_APPEND_FLAGS:---gpu-architecture=compute_70 --gpu-code=compute_70,sm_70 --generate-code arch=compute_70,code=sm_70}
-        CUDA_OPT_LEVEL: 1
 
     mem_limit: 4G
     cpus: 4
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-      REDIS_URL: redis://${REDIS_HOST:-redis}:6379
-      S3_URL: http://${MINIO_HOST:-minio}:9000
-      S3_BUCKET: ${MINIO_BUCKET:-workflow}
-      # TODO: create a lower perm user on startup of minio to use for agents
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
-      RUST_LOG: ${RUST_LOG:-info}
-      RUST_BACKTRACE: 1
+      <<: *base-environment
       RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-      # Enable / disable along with gpu_*_agent*
       # JOIN_STREAM: 1
       # COPROC_STREAM: 1
-
     entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
 
   aux_agent:
-    image: agent
+    <<: *agent-common
     runtime: nvidia
-    pull_policy: never
-    restart: always
-    depends_on:
-      - postgres
-      - redis
-      - minio
-
     mem_limit: 256M
     cpus: 1
 
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-      REDIS_URL: redis://${REDIS_HOST:-redis}:6379
-      S3_URL: http://${MINIO_HOST:-minio}:9000
-      S3_BUCKET: ${MINIO_BUCKET:-workflow}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
-      RUST_LOG: ${RUST_LOG:-info}
-      RUST_BACKTRACE: 1
-
-    # NOTE: if adding more aux workers, only one needs --monitor-requeue (for task reaping)
     entrypoint: /app/agent -t aux --monitor-requeue
 
-  gpu_prove_agent0: &gpu
-    image: agent
+  gpu_prove_agent0:
+    <<: *agent-common
     runtime: nvidia
-    pull_policy: never
-    restart: always
-    depends_on:
-      - postgres
-      - redis
-      - minio
-
     mem_limit: 4G
     cpus: 4
-
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-      REDIS_URL: redis://${REDIS_HOST:-redis}:6379
-      S3_URL: http://${MINIO_HOST:-minio}:9000
-      S3_BUCKET: ${MINIO_BUCKET:-workflow}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
-      RUST_LOG: ${RUST_LOG:-info}
-      RUST_BACKTRACE: 1
-
     entrypoint: /app/agent -t prove
 
     # comment-out if running in CPU proving mode
@@ -170,8 +130,8 @@ services:
               capabilities: [gpu]
 
   # gpu_prove_agent1:
-  #   <<: *gpu
-
+  #   <<: *agent-common
+  #   runtime: nvidia
   #   deploy:
   #     resources:
   #       reservations:
@@ -182,41 +142,23 @@ services:
 
 
   # gpu_join_agent0:
-  #   <<: *gpu
+  #   <<: *agent-common
+  #   runtime: nvidia
   #   mem_limit: 2G
   #   cpus: 2
   #   entrypoint: /app/agent -t join
 
   # gpu_coproc_agent0:
-  #   <<: *gpu
+  #   <<: *agent-common
+  #   runtime: nvidia
   #   mem_limit: 2G
   #   cpus: 2
   #   entrypoint: /app/agent -t coproc
 
 
   snark_agent:
-    image: agent
+    <<: *agent-common
     runtime: nvidia
-
-    pull_policy: never
-
-    restart: always
-
-    depends_on:
-      - postgres
-      - redis
-      - minio
-
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-      REDIS_URL: redis://${REDIS_HOST:-redis}:6379
-      S3_URL: http://${MINIO_HOST:-minio}:9000
-      S3_BUCKET: ${MINIO_BUCKET:-workflow}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
-      RUST_LOG: ${RUST_LOG:-info}
-      RUST_BACKTRACE: 1
-
     entrypoint: /app/agent -t snark
 
     ulimits:
@@ -225,26 +167,17 @@ services:
       stack: 90000000
 
   rest_api:
+    image: risczero/risc0-bento-rest-api:stable
     restart: always
     depends_on:
       - postgres
       - minio
 
-    build:
-      context: .
-      dockerfile: dockerfiles/rest_api.dockerfile
-
     mem_limit: 1G
     cpus: 1
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-      S3_URL: http://${MINIO_HOST:-minio}:9000
-      S3_BUCKET: ${MINIO_BUCKET:-workflow}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
-      RUST_LOG: ${RUST_LOG:-info}
-      RUST_BACKTRACE: 1
+      <<: *base-environment
 
     ports:
       - '8081:8081'

@@ -32,8 +32,9 @@ use tokio::time::Duration;
 use url::Url;
 
 mod db;
-
 pub mod test_utils;
+
+const MAX_BATCH_SIZE: u64 = 500;
 
 type ProviderWallet = FillProvider<
     JoinFill<
@@ -96,7 +97,7 @@ impl IndexerService<ProviderWallet> {
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
         let wallet = EthereumWallet::from(private_key.clone());
-        let provider = ProviderBuilder::new().wallet(wallet.clone()).on_http(rpc_url);
+        let provider = ProviderBuilder::new().wallet(wallet.clone()).connect_http(rpc_url);
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
@@ -113,9 +114,9 @@ where
 {
     pub async fn run(&mut self, starting_block: Option<u64>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
-        let current_block = self.current_block().await?;
-        let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
-        let mut from_block = min(starting_block.unwrap_or(last_processed_block), current_block);
+
+        let mut from_block: u64 = self.starting_block(starting_block).await?;
+        tracing::info!("Starting indexer at block {}", from_block);
 
         let mut attempt = 0;
         loop {
@@ -127,12 +128,15 @@ where
                         continue;
                     }
 
-                    tracing::info!("Processing blocks from {} to {}", from_block, to_block);
+                    // cap to at most 500 blocks per batch
+                    let batch_end = min(to_block, from_block.saturating_add(MAX_BATCH_SIZE));
 
-                    match self.process_blocks(from_block, to_block).await {
+                    tracing::info!("Processing blocks from {} to {}", from_block, batch_end);
+
+                    match self.process_blocks(from_block, batch_end).await {
                         Ok(_) => {
                             attempt = 0;
-                            from_block = to_block + 1;
+                            from_block = batch_end + 1;
                         }
                         Err(e) => match e {
                             // Irrecoverable errors
@@ -143,7 +147,7 @@ where
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
-                                    to_block,
+                                    batch_end,
                                     e
                                 );
                                 return Err(e);
@@ -159,7 +163,7 @@ where
                                 tracing::warn!(
                                     "Failed to process blocks from {} to {}: {:?}, attempt number {}, retrying in {}s",
                                     from_block,
-                                    to_block,
+                                    batch_end,
                                     e,
                                     attempt,
                                     delay.as_secs()
@@ -236,11 +240,13 @@ where
             let (metadata, input) = self.fetch_tx(log_data).await?;
 
             tracing::debug!(
-                "Processing request submitted event for request: 0x{:x}",
-                log.requestId
+                "Processing request submitted event for request: 0x{:x} [block: {}, timestamp: {}]",
+                log.requestId,
+                metadata.block_number,
+                metadata.block_timestamp
             );
 
-            let request = IBoundlessMarket::submitRequestCall::abi_decode(&input, true)
+            let request = IBoundlessMarket::submitRequestCall::abi_decode(&input)
                 .context(anyhow!(
                     "abi decode failure for request submitted event of tx: {}",
                     hex::encode(metadata.tx_hash)
@@ -254,7 +260,7 @@ where
                     log.requestId
                 ))?;
 
-            self.db.add_proof_request(request_digest, request).await?;
+            self.db.add_proof_request(request_digest, request, &metadata).await?;
             self.db.add_request_submitted_event(request_digest, log.requestId, &metadata).await?;
         }
 
@@ -275,7 +281,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} locked events from block {} to block {}",
             logs.len(),
             from_block,
@@ -283,10 +289,14 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing request locked event for request: 0x{:x}", log.requestId);
             let (metadata, input) = self.fetch_tx(log_data).await?;
-
-            let request = IBoundlessMarket::lockRequestCall::abi_decode(&input, true)
+            tracing::debug!(
+                "Processing request locked event for request: 0x{:x} [block: {}, timestamp: {}]",
+                log.requestId,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
+            let request = IBoundlessMarket::lockRequestCall::abi_decode(&input)
                 .context(anyhow!(
                     "abi decode failure for request locked event of tx: {}",
                     hex::encode(metadata.tx_hash)
@@ -300,7 +310,13 @@ where
                     log.requestId
                 ))?;
 
-            self.db.add_proof_request(request_digest, request).await?;
+            // We add the request here also to cover requests that were submitted off-chain,
+            // which we currently don't index at submission time.
+            let request_exists = self.db.has_proof_request(request_digest).await?;
+            if !request_exists {
+                tracing::debug!("Detected request locked for unseen request. Likely submitted off-chain: 0x{:x}", log.requestId);
+                self.db.add_proof_request(request_digest, request, &metadata).await?;
+            }
             self.db
                 .add_request_locked_event(request_digest, log.requestId, log.prover, &metadata)
                 .await?;
@@ -323,7 +339,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} proof delivered events from block {} to block {}",
             logs.len(),
             from_block,
@@ -331,8 +347,13 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing proof delivered event for request: 0x{:x}", log.requestId);
             let (metadata, input) = self.fetch_tx(log_data).await?;
+            tracing::debug!(
+                "Processing proof delivered event for request: 0x{:x} [block: {}, timestamp: {}]",
+                log.requestId,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
             let (fills, assessor_receipt) = decode_calldata(&input).context(anyhow!(
                 "abi decode failure for proof delivered event of tx: {}",
                 hex::encode(metadata.tx_hash)
@@ -362,7 +383,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} fulfilled events from block {} to block {}",
             logs.len(),
             from_block,
@@ -370,8 +391,13 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing fulfilled event for request: 0x{:x}", log.requestId);
             let (metadata, input) = self.fetch_tx(log_data).await?;
+            tracing::debug!(
+                "Processing fulfilled event for request: 0x{:x} [block: {}, timestamp: {}]",
+                log.requestId,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
 
             let (fills, _) = decode_calldata(&input).context(anyhow!(
                 "abi decode failure for fulfilled event of tx: {}",
@@ -399,7 +425,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} slashed events from block {} to block {}",
             logs.len(),
             from_block,
@@ -407,8 +433,13 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing slashed event for request: 0x{:x}", log.requestId);
             let (metadata, _) = self.fetch_tx(log_data).await?;
+            tracing::debug!(
+                "Processing slashed event for request: 0x{:x} [block: {}, timestamp: {}]",
+                log.requestId,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
             self.db
                 .add_prover_slashed_event(
                     log.requestId,
@@ -437,7 +468,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} deposit events from block {} to block {}",
             logs.len(),
             from_block,
@@ -445,8 +476,13 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing deposit event for account: 0x{:x}", log.account);
             let (metadata, _) = self.fetch_tx(log_data).await?;
+            tracing::debug!(
+                "Processing deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
+                log.account,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
             self.db.add_deposit_event(log.account, log.value, &metadata).await?;
         }
 
@@ -467,7 +503,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
@@ -475,8 +511,13 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing withdrawal event for account: 0x{:x}", log.account);
             let (metadata, _) = self.fetch_tx(log_data).await?;
+            tracing::debug!(
+                "Processing withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
+                log.account,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
             self.db.add_withdrawal_event(log.account, log.value, &metadata).await?;
         }
 
@@ -497,7 +538,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} stake deposit events from block {} to block {}",
             logs.len(),
             from_block,
@@ -505,8 +546,13 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing stake deposit event for account: 0x{:x}", log.account);
             let (metadata, _) = self.fetch_tx(log_data).await?;
+            tracing::debug!(
+                "Processing stake deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
+                log.account,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
             self.db.add_stake_deposit_event(log.account, log.value, &metadata).await?;
         }
 
@@ -527,7 +573,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} stake withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
@@ -535,8 +581,13 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing stake withdrawal event for account: 0x{:x}", log.account);
             let (metadata, _) = self.fetch_tx(log_data).await?;
+            tracing::debug!(
+                "Processing stake withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
+                log.account,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
             self.db.add_stake_withdrawal_event(log.account, log.value, &metadata).await?;
         }
 
@@ -557,7 +608,7 @@ where
 
         // Query the logs for the event
         let logs = event_filter.query().await?;
-        tracing::info!(
+        tracing::debug!(
             "Found {} callback failed events from block {} to block {}",
             logs.len(),
             from_block,
@@ -565,8 +616,13 @@ where
         );
 
         for (log, log_data) in logs {
-            tracing::debug!("Processing callback failed event for request: 0x{:x}", log.requestId);
-            let (metadata, _tx_input) = self.fetch_tx(log_data).await?;
+            let (metadata, _) = self.fetch_tx(log_data).await?;
+            tracing::debug!(
+                "Processing callback failed event for request: 0x{:x} [block: {}, timestamp: {}]",
+                log.requestId,
+                metadata.block_number,
+                metadata.block_timestamp
+            );
 
             self.db
                 .add_callback_failed_event(
@@ -586,15 +642,25 @@ where
     }
 
     async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
-        Ok(self
-            .boundless_market
-            .instance()
-            .provider()
-            .get_block_by_number(BlockNumberOrTag::Number(block_number))
-            .await?
-            .context(anyhow!("Failed to get block by number: {}", block_number))?
-            .header
-            .timestamp)
+        let timestamp = self.db.get_block_timestamp(block_number).await?;
+        let ts = match timestamp {
+            Some(ts) => ts,
+            None => {
+                tracing::debug!("Block timestamp not found in DB for block {}", block_number);
+                let ts = self
+                    .boundless_market
+                    .instance()
+                    .provider()
+                    .get_block_by_number(BlockNumberOrTag::Number(block_number))
+                    .await?
+                    .context(anyhow!("Failed to get block by number: {}", block_number))?
+                    .header
+                    .timestamp;
+                self.db.add_block(block_number, ts).await?;
+                ts
+            }
+        };
+        Ok(ts)
     }
 
     fn clear_cache(&mut self) {
@@ -626,5 +692,82 @@ where
         let input = tx.input().clone();
         self.cache.insert(tx_hash, (meta.clone(), input.clone()));
         Ok((meta, input))
+    }
+
+    // Return the last processed block from the DB is > 0;
+    // otherwise, return the starting_block if set and <= current_block;
+    // otherwise, return the current_block.
+    async fn starting_block(&self, starting_block: Option<u64>) -> Result<u64, ServiceError> {
+        let last_processed = self.get_last_processed_block().await?;
+        let current_block = self.current_block().await?;
+        Ok(find_starting_block(starting_block, last_processed, current_block))
+    }
+}
+
+fn find_starting_block(
+    starting_block: Option<u64>,
+    last_processed: Option<u64>,
+    current_block: u64,
+) -> u64 {
+    if let Some(last) = last_processed.filter(|&b| b > 0) {
+        tracing::debug!("Using last processed block {} as starting block", last);
+        return last;
+    }
+
+    let from = starting_block.unwrap_or(current_block);
+    if from > current_block {
+        tracing::warn!(
+            "Starting block {} is greater than current block {}, defaulting to current block",
+            from,
+            current_block
+        );
+        current_block
+    } else {
+        tracing::debug!("Using {} as starting block", from);
+        from
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_find_starting_block() {
+        let starting_block = Some(100);
+        let last_processed = Some(50);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 50);
+
+        let starting_block = None;
+        let last_processed = Some(50);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 50);
+
+        let starting_block = None;
+        let last_processed = None;
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 200);
+
+        let starting_block = None;
+        let last_processed = Some(0);
+        let current_block = 200;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 200);
+
+        let starting_block = Some(200);
+        let last_processed = None;
+        let current_block = 100;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 100);
+
+        let starting_block = Some(200);
+        let last_processed = Some(10);
+        let current_block = 100;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 10);
     }
 }

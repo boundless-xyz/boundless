@@ -31,6 +31,7 @@ boundless-cli = { workspace = true }
 boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 futures-util = { workspace = true }
+indexer-monitor = { path = "../ops-lambdas/indexer-monitor" }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 tracing-test = { workspace = true }
 
