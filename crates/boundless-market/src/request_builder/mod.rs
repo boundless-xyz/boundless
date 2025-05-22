@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(missing_docs)] // DO NOT MERGE: That would be too lazy
-#![allow(async_fn_in_trait)] // DO NOT MERGE: Consider alternatives.
-
 use std::{borrow::Cow, fmt, fmt::Debug};
 
 use alloy::{network::Ethereum, providers::Provider};

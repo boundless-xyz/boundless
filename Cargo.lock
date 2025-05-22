@@ -2542,7 +2542,6 @@ dependencies = [
  "chrono",
  "clap",
  "csv",
- "dotenvy",
  "futures",
  "reqwest",
  "risc0-zkvm",
