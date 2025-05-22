@@ -60,7 +60,7 @@ pub use boundless_market_contract::{
     AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
     AssessorReceipt, Callback, Fulfillment, FulfillmentContext, IBoundlessMarket,
     Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
-    PredicateType, ProofRequest, RequestLock, Requirements,
+    PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
 };
 
 #[allow(missing_docs)]
