@@ -20,13 +20,21 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_span_events(FmtSpan::CLOSE)
-        .init();
-
     let args = Args::parse();
     let config = Config::load(&args.config_file).await?;
+
+    if args.log_json {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_span_events(FmtSpan::CLOSE)
+            .json()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_span_events(FmtSpan::CLOSE)
+            .init();
+    }
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 
@@ -52,6 +60,7 @@ async fn main() -> Result<()> {
     });
 
     let provider = ProviderBuilder::new()
+        .with_cached_nonce_management()
         .layer(balance_alerts_layer)
         .wallet(wallet)
         .with_chain(NamedChain::Sepolia)
@@ -65,7 +74,7 @@ async fn main() -> Result<()> {
             provider.default_signer_address(),
         );
 
-        tracing::info!("pre-depositing {deposit_amount} HP into the market contract");
+        tracing::info!("pre-depositing {deposit_amount} stake tokens into the market contract");
         boundless_market
             .deposit_stake_with_permit(*deposit_amount, &args.private_key)
             .await

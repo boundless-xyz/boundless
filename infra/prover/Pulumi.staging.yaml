@@ -8,6 +8,7 @@ config:
   base-prover:ORDER_STREAM_URL:
     secure: v1:vFbwPj9LyBtHmeEa:QUPhb7T6oHXwEhydaXIOIw/dttiHus9nlpl2HarpY08/kPTM7APec8dnCWrSLJqmiUC/URv5swvFuoKg38nVQwNGR9N16uAHkZIODjadW1uKchEysg==
   base-prover:DOCKER_TAG: latest
+  base-prover:CHAIN_ID: "11155111"
   base-prover:BROKER_TOML_PATH: broker-staging.toml
   base-prover:BASE_STACK: organization/bootstrap/services-staging
   base-prover:ETH_RPC_URL:
@@ -24,3 +25,4 @@ config:
   bento-prover:SEGMENT_SIZE: "19"
   bento-prover:PRIVATE_KEY:
     secure: v1:AahxbrDObsEuAjpx:YDw8lqLxNq1CDhvIn4DEDvNn2JVoH79A0nFbTXbPeJb24omW13zK0u13GeCEH7XYEqdKfeRnv1rVkEVB7anoeUzXvhdSp3z5frKi14D1YJo=
+  bento-prover:LOG_JSON: true

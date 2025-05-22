@@ -108,7 +108,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
     });
 
     // EFS
-    const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev3`, {
+    const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev4`, {
       encrypted: true,
       tags: {
         Name: serviceName,

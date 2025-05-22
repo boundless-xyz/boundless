@@ -160,7 +160,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         }
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            Url::parse("https://gateway.pinata.cloud/ipfs/bafkreifpofz3uvc3vq7t2k2o66b2duwvmfab32js7dvn7jldpypwjqisyq").unwrap()
+            Url::parse("https://gateway.pinata.cloud/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi").unwrap()
         }
     };
     let program = match program {
@@ -176,17 +176,18 @@ async fn run(args: &MainArgs) -> Result<()> {
             }
         }
 
+        let mut rng = rand::rng();
+        let nonce: u64 = rng.random();
         let input = match args.input {
             Some(input) => input,
             None => {
                 // Generate a random input.
                 let input: u64 = rand::rng().random_range(1..=1000) << 20;
-                tracing::debug!("Generated random input: {}", input);
+                tracing::debug!("Generated random cycle count: {}", input);
                 input
             }
         };
-
-        let env = GuestEnvBuilder::new().write(&(input as u64))?.build_env();
+        let env = GuestEnvBuilder::new().write(&(input as u64))?.write(&nonce)?.build_env();
 
         // add 1 minute for each 1M cycles to the original timeout
         // Use the input directly as the estimated cycle count, since we are using a loop program.

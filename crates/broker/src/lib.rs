@@ -33,7 +33,7 @@ use url::Url;
 
 pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
-pub(crate) mod config;
+pub mod config;
 pub(crate) mod db;
 pub(crate) mod errors;
 pub mod futures_retry;
@@ -74,25 +74,25 @@ pub struct Args {
     /// Risc zero Set verifier address
     // TODO: Get this from the market contract via view call
     #[clap(long, env)]
-    set_verifier_address: Address,
+    pub set_verifier_address: Address,
 
     /// local prover API (Bento)
     ///
     /// Setting this value toggles using Bento for proving and disables Bonsai
     #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"])]
-    bento_api_url: Option<Url>,
+    pub bento_api_url: Option<Url>,
 
     /// Bonsai API URL
     ///
     /// Toggling this disables Bento proving and uses Bonsai as a backend
     #[clap(long, env, conflicts_with = "bento_api_url")]
-    bonsai_api_url: Option<Url>,
+    pub bonsai_api_url: Option<Url>,
 
     /// Bonsai API Key
     ///
     /// Required if using BONSAI_API_URL
     #[clap(long, env, conflicts_with = "bento_api_url")]
-    bonsai_api_key: Option<String>,
+    pub bonsai_api_key: Option<String>,
 
     /// Config file path
     #[clap(short, long, default_value = "broker.toml")]
@@ -100,7 +100,7 @@ pub struct Args {
 
     /// Pre deposit amount
     ///
-    /// Amount of HP tokens to pre-deposit into the contract for staking eg: 100
+    /// Amount of stake tokens to pre-deposit into the contract for staking eg: 100
     #[clap(short, long)]
     pub deposit_amount: Option<U256>,
 
@@ -121,6 +121,10 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
+
+    /// Log JSON
+    #[clap(long, env, default_value_t = false)]
+    pub log_json: bool,
 }
 
 /// Status of a order as it moves through the lifecycle
@@ -718,6 +722,7 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
+                log_json: false,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }
