@@ -17,29 +17,53 @@ use crate::{contracts::boundless_market::BoundlessMarketService, contracts::Requ
 use alloy::{network::Ethereum, providers::Provider};
 use derive_builder::Builder;
 
+/// Mode for generating request IDs.
+///
+/// Controls how the request ID's index is generated.
 #[non_exhaustive]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum RequestIdLayerMode {
+    /// Generate a random ID for each request.
+    ///
+    /// This is the default mode and generates unpredictable request IDs.
     #[default]
     Rand,
+    
+    /// Use the account's nonce as the ID.
+    ///
+    /// This creates sequential IDs based on the number of transactions sent from the account.
     Nonce,
 }
 
+/// Configuration for the [RequestIdLayer].
+///
+/// Controls how request IDs are generated.
 #[non_exhaustive]
 #[derive(Clone, Builder)]
 pub struct RequestIdLayerConfig {
+    /// The mode to use for generating request IDs.
     #[builder(default)]
     pub mode: RequestIdLayerMode,
 }
 
+/// A layer responsible for generating request IDs.
+///
+/// This layer creates unique identifiers for proof requests based on the
+/// configured generation mode.
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct RequestIdLayer<P> {
+    /// The BoundlessMarket service used to generate request IDs.
     pub boundless_market: BoundlessMarketService<P>,
+    
+    /// Configuration controlling ID generation behavior.
     pub config: RequestIdLayerConfig,
 }
 
 impl RequestIdLayerConfig {
+    /// Creates a new builder for constructing a [RequestIdLayerConfig].
+    ///
+    /// This provides a way to customize the request ID generation behavior.
     pub fn builder() -> RequestIdLayerConfigBuilder {
         Default::default()
     }
@@ -58,6 +82,10 @@ impl Default for RequestIdLayerConfig {
 }
 
 impl<P> RequestIdLayer<P> {
+    /// Creates a new [RequestIdLayer] with the specified market service and configuration.
+    ///
+    /// The BoundlessMarket service is used to generate request IDs according to the
+    /// configured mode.
     pub fn new(boundless_market: BoundlessMarketService<P>, config: RequestIdLayerConfig) -> Self {
         Self { boundless_market, config }
     }

@@ -24,15 +24,23 @@ use url::Url;
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Builder)]
+/// Configuration for the [Finalizer] layer.
+///
+/// Controls validation behavior when finalizing a proof request.
 pub struct FinalizerConfig {
     /// If true, the request's expiration time will be checked against the system clock.
     #[builder(default = true)]
     pub check_expiration: bool,
 }
 
+/// The final layer in the request building pipeline.
+///
+/// This layer assembles the complete [ProofRequest] from its components and performs
+/// validation checks to ensure the request is valid before it is submitted.
 #[non_exhaustive]
 #[derive(Debug, Clone, Default)]
 pub struct Finalizer {
+    /// Configuration controlling the finalization process.
     pub config: FinalizerConfig,
 }
 
@@ -49,6 +57,9 @@ impl Default for FinalizerConfig {
 }
 
 impl FinalizerConfig {
+    /// Creates a new builder for constructing a [FinalizerConfig].
+    ///
+    /// This provides a fluent API for configuring the finalizer behavior.
     pub fn builder() -> FinalizerConfigBuilder {
         Default::default()
     }

@@ -23,6 +23,10 @@ use risc0_zkvm::{sha::Digestible, Digest};
 
 const DEFAULT_CALLBACK_GAS_LIMT: u64 = 100000u64;
 
+/// A layer responsible for configuring verification requirements for proof requests.
+///
+/// This layer sets up the predicate, image ID, callbacks, and other verification
+/// parameters that ensure proofs meet the requestor's specifications.
 #[non_exhaustive]
 #[derive(Clone, Builder, Default)]
 pub struct RequirementsLayer {}
@@ -34,18 +38,27 @@ pub struct RequirementsLayer {}
 ///
 /// Does not include the predicate, which is created by [RequirementsLayer].
 pub struct RequirementParams {
+    /// Predicate specifying what conditions the proof must satisfy.
     #[clap(skip)]
     #[builder(setter(strip_option, into), default)]
     pub predicate: Option<Predicate>,
+    
+    /// Image ID identifying the program to be executed.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub image_id: Option<B256>,
+    
+    /// Address of the contract to call when the proof is fulfilled.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub callback_address: Option<Address>,
+    
+    /// Gas limit for the callback when the proof is fulfilled.
     #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub callback_gas_limit: Option<u64>,
+    
+    /// Selector specifying the type of proof required.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub selector: Option<FixedBytes<4>>,
@@ -94,12 +107,18 @@ impl From<&mut RequirementParamsBuilder> for RequirementParams {
 }
 
 impl RequirementParams {
+    /// Creates a new builder for constructing [RequirementParams].
+    ///
+    /// Use this to set specific verification requirements for the proof request.
     pub fn builder() -> RequirementParamsBuilder {
         Default::default()
     }
 }
 
 impl RequirementsLayer {
+    /// Creates a new builder for constructing a [RequirementsLayer].
+    ///
+    /// The requirements layer configures verification parameters for the proof request.
     pub fn builder() -> RequirementsLayerBuilder {
         Default::default()
     }

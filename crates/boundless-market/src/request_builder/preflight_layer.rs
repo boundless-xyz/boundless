@@ -21,9 +21,19 @@ use risc0_zkvm::{default_executor, sha::Digestible, Executor, SessionInfo};
 use std::rc::Rc;
 use url::Url;
 
+/// A layer that performs preflight execution of the guest program.
+///
+/// This layer runs the program with the provided input to compute:
+/// - The journal output
+/// - The cycle count
+/// - The image ID
+///
+/// Running the program in advance allows for proper pricing estimation and
+/// verification configuration based on actual execution results.
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct PreflightLayer {
+    /// The executor implementation to use for running the guest program.
     pub executor: Rc<dyn Executor>,
 }
 

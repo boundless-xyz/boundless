@@ -30,43 +30,82 @@ use anyhow::{ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
 
+/// Configuration for the [OfferLayer].
+///
+/// Defines the default pricing parameters, timeouts, gas estimates, and other
+/// settings used when constructing offers for proof requests.
 #[non_exhaustive]
 #[derive(Clone, Builder)]
 pub struct OfferLayerConfig {
+    /// Minimum price per RISC Zero execution cycle, in wei.
     #[builder(setter(into), default = "U256::ZERO")]
     pub min_price_per_cycle: U256,
+    
+    /// Maximum price per RISC Zero execution cycle, in wei.
     #[builder(setter(into), default = "U256::from(100) * Unit::MWEI.wei_const()")]
     pub max_price_per_cycle: U256,
+    
+    /// Time in seconds to delay the start of bidding after request creation.
     #[builder(default = "15")]
     pub bidding_start_delay: u64,
+    
+    /// Duration in seconds for the price to ramp up from min to max.
     #[builder(default = "60")]
     pub ramp_up_period: u32,
+    
+    /// Time in seconds that a prover has to fulfill a locked request.
     #[builder(default = "600")]
     pub lock_timeout: u32,
+    
+    /// Maximum time in seconds that a request can remain active.
     #[builder(default = "1200")]
     pub timeout: u32,
+    
+    /// Amount of the stake token that the prover must stake when locking a request.
     #[builder(setter(into), default = "U256::from(100) * Unit::PWEI.wei_const()")]
     pub lock_stake: U256,
+    
+    /// Estimated gas used when locking a request.
     #[builder(default = "200_000")]
     pub lock_gas_estimate: u64,
+    
+    /// Estimated gas used when fulfilling a request.
     #[builder(default = "750_000")]
     pub fulfill_gas_estimate: u64,
+    
+    /// Estimated gas used for Groth16 verification.
     #[builder(default = "250_000")]
     pub groth16_verify_gas_estimate: u64,
+    
+    /// Estimated gas used for ERC-1271 signature verification.
     #[builder(default = "100_000")]
     pub smart_contract_sig_verify_gas_estimate: u64,
+    
+    /// Supported proof types and their corresponding selectors.
     #[builder(setter(into), default)]
     pub supported_selectors: SupportedSelectors,
 }
 
 #[non_exhaustive]
 #[derive(Clone)]
+/// A layer responsible for configuring the offer part of a proof request.
+///
+/// This layer uses an Ethereum provider to estimate gas costs and sets appropriate
+/// pricing parameters for the proof request. It combines cycle count estimates with
+/// gas price information to determine minimum and maximum prices for the request.
 pub struct OfferLayer<P> {
+    /// The Ethereum provider used for gas price estimation.
     pub provider: P,
+    
+    /// Configuration for offer generation.
     pub config: OfferLayerConfig,
 }
 
 impl OfferLayerConfig {
+    /// Creates a new builder for constructing an [OfferLayerConfig].
+    ///
+    /// This provides a way to customize pricing parameters, timeouts, and other
+    /// offer-related settings used when generating proof requests.
     pub fn builder() -> OfferLayerConfigBuilder {
         Default::default()
     }
@@ -89,24 +128,37 @@ impl<P: Clone> From<P> for OfferLayer<P> {
 /// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
 /// defaults set in the [OfferLayerConfig].
 pub struct OfferParams {
+    /// Minimum price willing to pay for the proof, in wei.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub min_price: Option<U256>,
+    
+    /// Maximum price willing to pay for the proof, in wei.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub max_price: Option<U256>,
+    
+    /// Timestamp when bidding will start for this request.
     #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub bidding_start: Option<u64>,
+    
+    /// Duration in seconds for the price to ramp up from min to max.
     #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub ramp_up_period: Option<u32>,
+    
+    /// Time in seconds that a prover has to fulfill a locked request.
     #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub lock_timeout: Option<u32>,
+    
+    /// Maximum time in seconds that a request can remain active.
     #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub timeout: Option<u32>,
+    
+    /// Amount of the stake token that the prover must stake when locking a request.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub lock_stake: Option<U256>,
@@ -157,6 +209,10 @@ impl TryFrom<OfferParams> for Offer {
 }
 
 impl OfferParams {
+    /// Creates a new builder for constructing [OfferParams].
+    ///
+    /// Use this to set specific pricing parameters, timeouts, or other offer details
+    /// that will override the defaults from [OfferLayerConfig].
     pub fn builder() -> OfferParamsBuilder {
         Default::default()
     }
@@ -166,10 +222,21 @@ impl<P> OfferLayer<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
+    /// Creates a new [OfferLayer] with the given provider and configuration.
+    ///
+    /// The provider is used to fetch current gas prices for estimating transaction costs,
+    /// which are factored into the offer pricing.
     pub fn new(provider: P, config: OfferLayerConfig) -> Self {
         Self { provider, config }
     }
 
+    /// Estimates the maximum gas usage for a proof request.
+    ///
+    /// This calculates the upper bound of gas usage based on the request's requirements,
+    /// configuration settings, and request ID characteristics.
+    ///
+    /// The estimate includes gas for locking, fulfilling, signature verification,
+    /// callback execution, and proof verification.
     pub fn estimate_gas_usage_upper_bound(
         &self,
         requirements: &Requirements,
@@ -196,6 +263,13 @@ where
         Ok(gas_usage_estimate)
     }
 
+    /// Estimates the maximum gas cost for a proof request.
+    ///
+    /// This calculates the cost in wei based on the estimated gas usage and 
+    /// the provided gas price.
+    ///
+    /// The result is used to determine appropriate pricing parameters for
+    /// the proof request offer.
     pub fn estimate_gas_cost_upper_bound(
         &self,
         requirements: &Requirements,

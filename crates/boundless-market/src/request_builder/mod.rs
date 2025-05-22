@@ -44,13 +44,17 @@ pub use offer_layer::{
 mod finalizer;
 pub use finalizer::{Finalizer, FinalizerConfig, FinalizerConfigBuilder};
 
+/// A trait for building proof requests, used by the [Client][crate::Client].
+///
+/// See [StandardRequestBuilder] for an example implementation.
 pub trait RequestBuilder<Params> {
-    /// Error type that may be returned by this filler.
+    /// Error type that may be returned by this builder.
     type Error;
 
     // NOTE: Takes the self receiver so that the caller does not need to explicitly name the
     // RequestBuilder trait (e.g. `<MyRequestBuilder as RequestBuilder>::params()`). This could
     // also be used to set initial values on the params that are specific to the rrequest builder.
+    /// Returns a default instance of the parameter type used by this builder.
     fn params(&self) -> Params
     where
         Params: Default,
@@ -58,6 +62,7 @@ pub trait RequestBuilder<Params> {
         Default::default()
     }
 
+    /// Builds a [ProofRequest] using the provided parameters.
     fn build(&self, params: impl Into<Params>) -> impl Future<Output = Result<ProofRequest, Self::Error>>;
 }
 
@@ -76,18 +81,38 @@ where
     }
 }
 
+/// A trait representing a processing layer in a request building pipeline.
+///
+/// Layers can be composed together to form a multi-step processing pipeline where the output 
+/// of one layer becomes the input to the next. Each layer handles a specific aspect of the 
+/// request building process.
 pub trait Layer<Input> {
+    /// The output type produced by this layer.
     type Output;
+    
     /// Error type that may be returned by this layer.
     type Error;
 
+    /// Processes the input and returns the transformed output.
     fn process(&self, input: Input) -> impl Future<Output = Result<Self::Output, Self::Error>>;
 }
 
+/// A trait for adapting types to be processed by a [Layer].
+///
+/// This trait provides a mechanism for a type to be processed by a layer, enabling
+/// the composition of multiple layers into a processing pipeline. Inputs are adapted
+/// to work with specific layer types, with the output of one layer feeding into the next.
+///
+/// Existing [Layer] implementations can be adapted to work with new parameter types by
+/// implementating `Adapt<Layer>` on the parameter type.
 pub trait Adapt<L> {
+    /// The output type after processing by the layer.
     type Output;
+    
+    /// Error type that may be returned during processing.
     type Error;
 
+    /// Processes this value with the provided layer.
     fn process_with(self, layer: &L) -> impl Future<Output = Result<Self::Output, Self::Error>>;
 }
 
@@ -118,25 +143,55 @@ where
     }
 }
 
-/// A standard [RequestBuilder] provided as a default implementation.
+/// A standard implementation of [RequestBuilder] that uses a layered architecture.
+///
+/// This builder composes multiple layers, each handling a specific aspect of request building:
+/// - `storage_layer`: Manages program and input storage
+/// - `preflight_layer`: Validates and simulates the request
+/// - `requirements_layer`: Sets up verification requirements
+/// - `request_id_layer`: Manages request identifier generation
+/// - `offer_layer`: Configures the offer details
+/// - `finalizer`: Validates and finalizes the request
+///
+/// Each layer processes the request in sequence, with the output of one layer becoming 
+/// the input for the next.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
 pub struct StandardRequestBuilder<P = StandardRpcProvider, S = StandardStorageProvider> {
+    /// Handles uploading and preparing program and input data.
     #[builder(setter(into))]
     pub storage_layer: StorageLayer<S>,
+    
+    /// Executes preflight checks to validate the request.
     #[builder(setter(into), default)]
     pub preflight_layer: PreflightLayer,
+    
+    /// Configures the requirements for the proof request.
     #[builder(setter(into), default)]
     pub requirements_layer: RequirementsLayer,
+    
+    /// Generates and manages request identifiers.
     #[builder(setter(into))]
     pub request_id_layer: RequestIdLayer<P>,
+    
+    /// Configures offer parameters for the request.
     #[builder(setter(into))]
     pub offer_layer: OfferLayer<P>,
+    
+    /// Finalizes and validates the complete request.
     #[builder(setter(into), default)]
     pub finalizer: Finalizer,
 }
 
 impl StandardRequestBuilder<NotProvided, NotProvided> {
+    /// Creates a new builder for constructing a [StandardRequestBuilder].
+    ///
+    /// This is the entry point for creating a request builder with specific
+    /// provider and storage implementations.
+    ///
+    /// # Type Parameters
+    /// * `P` - An Ethereum RPC provider, using alloy.
+    /// * `S` - The storage provider type for storing programs and inputs.
     pub fn builder<P: Clone, S: Clone>() -> StandardRequestBuilderBuilder<P, S> {
         Default::default()
     }
@@ -194,46 +249,76 @@ where
 
 // NOTE: We don't use derive_builder here because we need to be able to access the values on the
 // incrementally built parameters.
+/// Parameters for building a proof request.
+///
+/// This struct holds all the necessary information for constructing a [ProofRequest].
+/// It provides a builder pattern for incrementally setting fields and methods for
+/// validating and accessing the parameters.
+///
+/// Most fields are optional and can be populated during the request building process 
+/// by various layers. The structure serves as the central data container that passes 
+/// through the request builder pipeline.
 #[non_exhaustive]
 #[derive(Clone, Default)]
 pub struct RequestParams {
     /// RISC-V guest program that will be run in the zkVM.
     pub program: Option<Cow<'static, [u8]>>,
+    
     /// Guest execution environment, providing the input for the guest.
     /// See [GuestEnv].
     pub env: Option<GuestEnv>,
+    
     /// Uploaded program URL, from which provers will fetch the program.
     pub program_url: Option<Url>,
+    
     /// Prepared input for the [ProofRequest], containing either a URL or inline input.
     /// See [RequestInput].
     pub request_input: Option<RequestInput>,
+    
     /// Count of the RISC Zero execution cycles. Used to estimate proving cost.
     pub cycles: Option<u64>,
+    
     /// Image ID identifying the program being executed.
     pub image_id: Option<Digest>,
+    
     /// Contents of the [Journal] that results from the execution.
     pub journal: Option<Journal>,
+    
     /// [RequestId] to use for the proof request.
     pub request_id: Option<RequestId>,
+    
     /// [OfferParams] for constructing the [Offer][crate::Offer] to send along with the request.
     pub offer: OfferParams,
+    
     /// [RequirementParams] for constructing the [Requirements][crate::Requirements] for the resulting proof.
     pub requirements: RequirementParams,
 }
 
 impl RequestParams {
+    /// Creates a new empty instance of [RequestParams].
+    ///
+    /// This is equivalent to calling `Default::default()` and is provided as a 
+    /// convenience method for better readability when building requests.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Gets the program bytes, returning an error if not set.
+    ///
+    /// This method is used by layers in the request building pipeline to access
+    /// the program when it's required for processing.
     pub fn require_program(&self) -> Result<&[u8], MissingFieldError> {
         self.program.as_deref().ok_or(MissingFieldError::new("program"))
     }
 
+    /// Sets the program to be executed in the zkVM.
     pub fn with_program(self, value: impl Into<Cow<'static, [u8]>>) -> Self {
         Self { program: Some(value.into()), ..self }
     }
 
+    /// Gets the guest environment, returning an error if not set.
+    ///
+    /// The guest environment contains the input data for the program.
     pub fn require_env(&self) -> Result<&GuestEnv, MissingFieldError> {
         self.env.as_ref().ok_or(MissingFieldError::new("env"))
     }
@@ -278,6 +363,9 @@ impl RequestParams {
         Self { env: Some(GuestEnv::from_stdin(value)), ..self }
     }
 
+    /// Gets the program URL, returning an error if not set.
+    ///
+    /// The program URL is where provers will download the program to execute.
     pub fn require_program_url(&self) -> Result<&Url, MissingFieldError> {
         self.program_url.as_ref().ok_or(MissingFieldError::new("program_url"))
     }
@@ -296,42 +384,76 @@ impl RequestParams {
         Ok(Self { program_url: Some(value.try_into()?), ..self })
     }
 
+    /// Gets the request input, returning an error if not set.
+    ///
+    /// The request input contains the input data for the guest program, either inline or as a URL.
     pub fn require_request_input(&self) -> Result<&RequestInput, MissingFieldError> {
         self.request_input.as_ref().ok_or(MissingFieldError::new("input"))
     }
 
+    /// Sets the input data for the request.
+    ///
+    /// This is typically created from a GuestEnv by the storage layer.
     pub fn with_request_input(self, value: impl Into<RequestInput>) -> Self {
         Self { request_input: Some(value.into()), ..self }
     }
 
+    /// Gets the cycle count, returning an error if not set.
+    ///
+    /// The cycle count is used to estimate proving costs.
     pub fn require_cycles(&self) -> Result<u64, MissingFieldError> {
         self.cycles.ok_or(MissingFieldError::new("cycles"))
     }
 
+    /// Sets the cycle count for the proof request.
+    ///
+    /// This is used to estimate proving costs and determine appropriate pricing.
     pub fn with_cycles(self, value: u64) -> Self {
         Self { cycles: Some(value), ..self }
     }
 
+    /// Gets the journal, returning an error if not set.
+    ///
+    /// The journal contains the output from the guest program execution.
     pub fn require_journal(&self) -> Result<&Journal, MissingFieldError> {
         self.journal.as_ref().ok_or(MissingFieldError::new("journal"))
     }
 
+    /// Sets the journal for the request.
+    ///
+    /// The journal is the output from the guest program execution and is used
+    /// to configure verification requirements.
     pub fn with_journal(self, value: impl Into<Journal>) -> Self {
         Self { journal: Some(value.into()), ..self }
     }
 
+    /// Gets the image ID, returning an error if not set.
+    ///
+    /// The image ID uniquely identifies the program being executed.
     pub fn require_image_id(&self) -> Result<Digest, MissingFieldError> {
         self.image_id.ok_or(MissingFieldError::new("image_id"))
     }
 
+    /// Sets the image ID for the request.
+    ///
+    /// The image ID is the hash of the program binary and uniquely identifies
+    /// the program being executed.
     pub fn with_image_id(self, value: impl Into<Digest>) -> Self {
         Self { image_id: Some(value.into()), ..self }
     }
 
+    /// Gets the request ID, returning an error if not set.
+    ///
+    /// The request ID contains the requestor's address and a unique index,
+    /// and is used to track the request throughout its lifecycle.
     pub fn require_request_id(&self) -> Result<&RequestId, MissingFieldError> {
         self.request_id.as_ref().ok_or(MissingFieldError::new("request_id"))
     }
 
+    /// Sets the request ID for the proof request.
+    ///
+    /// The request ID contains the requestor's address and a unique index,
+    /// and is used to track the request throughout its lifecycle.
     pub fn with_request_id(self, value: impl Into<RequestId>) -> Self {
         Self { request_id: Some(value.into()), ..self }
     }
@@ -412,13 +534,19 @@ where
     }
 }
 
+/// Error indicating that a required field is missing when building a request.
+///
+/// This error is returned when attempting to access a field that hasn't been 
+/// set yet in the request parameters.
 #[derive(thiserror::Error, Debug)]
 #[error("field `{label}` is required but is uninitialized")]
 pub struct MissingFieldError {
+    /// The name of the missing field.
     pub label: Cow<'static, str>,
 }
 
 impl MissingFieldError {
+    /// Creates a new error for the specified missing field.
     pub fn new(label: impl Into<Cow<'static, str>>) -> Self {
         Self { label: label.into() }
     }

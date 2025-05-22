@@ -23,6 +23,9 @@ use anyhow::{bail, Context};
 use derive_builder::Builder;
 use url::Url;
 
+/// Configuration for the [StorageLayer].
+///
+/// Controls how programs and inputs are handled during request building.
 #[non_exhaustive]
 #[derive(Clone, Builder)]
 pub struct StorageLayerConfig {
@@ -34,6 +37,11 @@ pub struct StorageLayerConfig {
     pub inline_input_max_bytes: Option<usize>,
 }
 
+/// A layer responsible for storing programs and inputs.
+///
+/// This layer handles the preparation of program and input data for the proof request.
+/// It can upload large programs and inputs to external storage, or include smaller 
+/// inputs directly in the request as inline data.
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct StorageLayer<S = StandardStorageProvider> {
@@ -42,10 +50,16 @@ pub struct StorageLayer<S = StandardStorageProvider> {
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
     /// [StorageLayerConfig::inline_input_max_bytes].
     pub storage_provider: Option<S>,
+    
+    /// Configuration controlling storage behavior.
     pub config: StorageLayerConfig,
 }
 
 impl StorageLayerConfig {
+    /// Creates a new builder for constructing a [StorageLayerConfig].
+    ///
+    /// This provides a way to customize storage behavior, such as
+    /// the maximum size for inline inputs.
     pub fn builder() -> StorageLayerConfigBuilder {
         Default::default()
     }
@@ -103,6 +117,10 @@ where
     S: StorageProvider,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    /// Uploads a program binary and returns its URL.
+    ///
+    /// This method requires a configured storage provider and will return an error
+    /// if none is available.
     pub async fn process_program(&self, program: &[u8]) -> anyhow::Result<Url> {
         let storage_provider = self
             .storage_provider
@@ -112,6 +130,10 @@ where
         Ok(program_url)
     }
 
+    /// Processes a guest environment into a [RequestInput].
+    ///
+    /// Small inputs (as determined by configuration) will be included inline in the request.
+    /// Larger inputs will be uploaded to external storage, requiring a configured storage provider.
     pub async fn process_env(&self, env: &GuestEnv) -> anyhow::Result<RequestInput> {
         let input_data = env.encode().context("failed to encode guest environment")?;
         let request_input = match self.config.inline_input_max_bytes {
@@ -128,6 +150,10 @@ where
 }
 
 impl<S> StorageLayer<S> {
+    /// Creates a new [StorageLayer] with the given provider and configuration.
+    ///
+    /// The storage provider is used to upload programs and inputs to external storage.
+    /// If no storage provider is given, the layer can only handle inline inputs.
     pub fn new(storage_provider: Option<S>, config: StorageLayerConfig) -> Self {
         Self { storage_provider, config }
     }
