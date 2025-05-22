@@ -18,7 +18,9 @@ use alloy::{
     primitives::{Address, Bytes, FixedBytes},
     providers::{
         ext::AnvilApi,
-        fillers::{ChainIdFiller, FillerControlFlow, GasFillable, GasFiller, TxFiller},
+        fillers::{
+            ChainIdFiller, FillerControlFlow, GasFillable, GasFiller, NonceFiller, TxFiller,
+        },
         Provider, ProviderBuilder, SendableTx, WalletProvider,
     },
     signers::local::PrivateKeySigner,
@@ -28,11 +30,14 @@ use alloy::{
 use alloy_primitives::{B256, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use anyhow::{Context, Ok, Result};
-use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService,
-    bytecode::*,
-    hit_points::{default_allowance, HitPointsService},
-    AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
+use boundless_market::{
+    contracts::{
+        boundless_market::BoundlessMarketService,
+        bytecode::*,
+        hit_points::{default_allowance, HitPointsService},
+        AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
+    },
+    resettable_nonce_layer::{NonceResetLayer, ResettableNonceManager},
 };
 use risc0_aggregation::{
     merkle_path, merkle_root, GuestState, SetInclusionReceipt,
@@ -359,25 +364,37 @@ pub async fn create_test_ctx_with_rpc_url(
     let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
     let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
+    let nonce_manager = ResettableNonceManager::default();
+    let nonce_filler = NonceFiller::new(nonce_manager.clone());
+    let nonce_reset_layer = NonceResetLayer::new(prover_signer.address(), nonce_manager.clone());
     let prover_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_cached_nonce_management()
+        .layer(nonce_reset_layer)
+        .filler(nonce_filler)
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)
         .wallet(EthereumWallet::from(prover_signer.clone()))
         .connect(rpc_url)
         .await?;
+    let nonce_manager = ResettableNonceManager::default();
+    let nonce_filler = NonceFiller::new(nonce_manager.clone());
+    let nonce_reset_layer = NonceResetLayer::new(customer_signer.address(), nonce_manager.clone());
     let customer_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_cached_nonce_management()
+        .layer(nonce_reset_layer)
+        .filler(nonce_filler)
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)
         .wallet(EthereumWallet::from(customer_signer.clone()))
         .connect(rpc_url)
         .await?;
+    let nonce_manager = ResettableNonceManager::default();
+    let nonce_filler = NonceFiller::new(nonce_manager.clone());
+    let nonce_reset_layer = NonceResetLayer::new(verifier_signer.address(), nonce_manager.clone());
     let verifier_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_cached_nonce_management()
+        .layer(nonce_reset_layer)
+        .filler(nonce_filler)
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)
         .wallet(EthereumWallet::from(verifier_signer.clone()))

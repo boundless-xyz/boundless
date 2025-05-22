@@ -40,6 +40,10 @@ pub mod input;
 #[cfg(not(target_os = "zkvm"))]
 /// Order stream client module for submitting requests off-chain.
 pub mod order_stream_client;
+
+#[cfg(not(target_os = "zkvm"))]
+/// A nonce manager module.
+pub mod resettable_nonce_layer;
 #[cfg(not(target_os = "zkvm"))]
 /// Selector module implementing utility functions for supported selectors.
 pub mod selector;

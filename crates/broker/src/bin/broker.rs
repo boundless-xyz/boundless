@@ -4,7 +4,7 @@
 
 use alloy::{
     primitives::utils::parse_ether,
-    providers::{network::EthereumWallet, ProviderBuilder, WalletProvider},
+    providers::{fillers::NonceFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
     rpc::client::RpcClient,
     transports::layers::RetryBackoffLayer,
 };
@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use boundless_market::{
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
     contracts::boundless_market::BoundlessMarketService,
+    resettable_nonce_layer::{NonceResetLayer, ResettableNonceManager},
 };
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
@@ -60,8 +61,14 @@ async fn main() -> Result<()> {
             .transpose()?,
     });
 
+    let nonce_manager = ResettableNonceManager::default();
+    let nonce_filler = NonceFiller::new(nonce_manager.clone());
+    let nonce_reset_layer =
+        NonceResetLayer::new(wallet.default_signer().address(), nonce_manager.clone());
     let provider = ProviderBuilder::new()
-        .with_cached_nonce_management()
+        .disable_recommended_fillers()
+        .filler(nonce_filler)
+        .layer(nonce_reset_layer)
         .layer(balance_alerts_layer)
         .wallet(wallet)
         .with_chain(NamedChain::Sepolia)
