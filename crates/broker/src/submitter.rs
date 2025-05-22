@@ -227,10 +227,13 @@ where
                     )?;
 
                 let mut stake_reward = U256::ZERO;
+                let mut deadline =
+                    order_request.offer.biddingStart + order_request.offer.lockTimeout as u64;
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price
                         .push(UnlockedRequest::new(order_request.clone(), client_sig.clone()));
                     stake_reward = order_request.offer.stake_reward_if_locked_and_not_fulfilled();
+                    deadline = order_request.offer.deadline();
                 }
 
                 order_prices.insert(order_id, OrderPrice { price: lock_price, stake_reward });
@@ -291,6 +294,7 @@ where
                     imageId: order_img_id,
                     journal: order_journal.into(),
                     seal: seal.into(),
+                    deadline,
                 });
                 anyhow::Ok(())
             };

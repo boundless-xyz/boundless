@@ -14,6 +14,8 @@ struct Fulfillment {
     RequestId id;
     /// @notice EIP-712 digest of request struct.
     bytes32 requestDigest;
+    /// @notice The timestamp when the request is considered expired.
+    uint64 deadline;
     /// @notice Image ID of the guest that was verifiably executed to satisfy the request.
     /// @dev Must match the value in the request's requirements.
     bytes32 imageId;

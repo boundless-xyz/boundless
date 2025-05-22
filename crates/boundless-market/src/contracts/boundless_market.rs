@@ -1646,6 +1646,7 @@ mod tests {
             imageId: B256::default(),
             journal: Bytes::from(vec![1, 2, 3]),
             seal: Bytes::from(vec![1, 2, 3]),
+            deadline: 0,
         }];
         let assessor_receipt = AssessorReceipt {
             seal: Bytes::from(vec![1, 2, 3]),

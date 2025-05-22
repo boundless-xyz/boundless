@@ -381,6 +381,7 @@ contract BoundlessMarketTest is Test {
                 requestDigest: MessageHashUtils.toTypedDataHash(
                     boundlessMarket.eip712DomainSeparator(), requests[i].eip712Digest()
                 ),
+                deadline: requests[i].offer.deadline(),
                 imageId: requests[i].requirements.imageId,
                 journal: journals[i],
                 seal: bytes("")
@@ -1554,12 +1555,16 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         // Try both fulfillment paths.
-        vm.expectRevert(
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
 
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id));
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
+        );
         boundlessMarket.fulfill(fills, assessorReceipt);
 
         // Client is out 1 eth until slash is called.
@@ -2243,7 +2248,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         vm.warp(request.offer.deadline() + 1);
 
-        vm.expectRevert(
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
         );
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
@@ -2252,7 +2258,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory paymentError = boundlessMarket.fulfill(fills, assessorReceipt);
         assert(
             keccak256(paymentError[0])
-                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpiredOrNotPriced.selector, request.id))
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline()))
         );
 
         expectRequestNotFulfilled(fill.id);

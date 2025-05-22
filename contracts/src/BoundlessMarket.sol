@@ -294,7 +294,9 @@ contract BoundlessMarket is
         AssessorReceipt calldata assessorReceipt
     ) public returns (bytes[] memory paymentError) {
         for (uint256 i = 0; i < requests.length; i++) {
-            priceRequest(requests[i], clientSignatures[i]);
+            if (requests[i].offer.deadline() >= block.timestamp) {
+                priceRequest(requests[i], clientSignatures[i]);
+            }
         }
         paymentError = fulfill(fills, assessorReceipt);
     }
@@ -312,8 +314,13 @@ contract BoundlessMarket is
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            paymentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
-            emit ProofDelivered(fills[i].id);
+            if (fills[i].deadline < block.timestamp) {
+                paymentError[i] = abi.encodeWithSelector(RequestIsExpired.selector, fills[i].id, fills[i].deadline);
+                emit PaymentRequirementsFailed(paymentError[i]);
+            } else {
+                paymentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
+                emit ProofDelivered(fills[i].id);
+            }
         }
 
         uint256 callbacksLength = assessorReceipt.callbacks.length;
