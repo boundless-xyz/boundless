@@ -764,7 +764,7 @@ where
         let mut first_block = 0;
         let mut interval = tokio::time::interval_at(
             tokio::time::Instant::now(),
-            tokio::time::Duration::from_secs(self.block_time / 2),
+            tokio::time::Duration::from_secs(self.block_time),
         );
 
         let mut new_orders = self.priced_order_rx.lock().await;
