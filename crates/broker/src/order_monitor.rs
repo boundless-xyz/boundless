@@ -329,10 +329,26 @@ where
             .collect::<Vec<_>>();
 
         let capacity_debug_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
-        // if self.capacity_debug_log != capacity_debug_log {
         tracing::info!("{}", capacity_debug_log);
-        // self.capacity_debug_log = capacity_debug_log;
-        // }
+    }
+
+    /// Helper method to skip an order in the database and invalidate the appropriate cache
+    async fn skip_order(&self, order: &OrderRequest, reason: &str) -> Result<(), anyhow::Error> {
+        if let Err(e) = self.db.insert_skipped_request(order).await {
+            tracing::error!("Failed to skip order ({}): {} - {e:?}", reason, order.id());
+            return Err(e.into());
+        }
+
+        match order.fulfillment_type {
+            FulfillmentType::LockAndFulfill => {
+                self.lock_and_prove_cache.invalidate(&order.id()).await;
+            }
+            FulfillmentType::FulfillAfterLockExpire | FulfillmentType::FulfillWithoutLocking => {
+                self.prove_cache.invalidate(&order.id()).await;
+            }
+        }
+
+        Ok(())
     }
 
     async fn get_valid_orders(
@@ -369,33 +385,20 @@ where
                     "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
-                self.db
-                    .insert_skipped_request(&order)
-                    .await
-                    .context("Failed to skip order (was fulfilled by other)")?;
-                self.prove_cache.invalidate(&order.id()).await;
+                self.skip_order(&order, "was fulfilled by other").await?;
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
-                self.db
-                    .insert_skipped_request(&order)
-                    .await
-                    .context("Failed to skip order (expired)")?;
-                self.prove_cache.invalidate(&order.id()).await;
+                self.skip_order(&order, "expired").await?;
             } else {
                 tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
                 candidate_orders.push(order);
             }
         }
 
-        for (id, order) in self.lock_and_prove_cache.iter() {
+        for (_, order) in self.lock_and_prove_cache.iter() {
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
                 tracing::debug!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
-                self.db
-                    .insert_skipped_request(&order)
-                    .await
-                    .context("Failed to skip order (lock expired before we locked)")?;
-
-                self.lock_and_prove_cache.invalidate(id.as_ref()).await;
+                self.skip_order(&order, "lock expired before we locked").await?;
             } else if let Some((locker, _)) =
                 self.db.get_request_locked(U256::from(order.request.id)).await?
             {
@@ -407,22 +410,14 @@ where
 
                 if locker_address_normalized != our_address_normalized {
                     tracing::debug!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
-                    self.db
-                        .insert_skipped_request(&order)
-                        .await
-                        .context("Failed to set order status to skipped")?;
-                    self.lock_and_prove_cache.invalidate(id.as_ref()).await;
+                    self.skip_order(&order, "locked by another prover").await?;
                 } else {
                     // Edge case where we locked the order, but due to some reason was not moved to proving state. Should not happen.
                     tracing::debug!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
                     candidate_orders.push(order);
                 }
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
-                self.db
-                    .insert_skipped_request(&order)
-                    .await
-                    .context("Failed to skip order (insufficient deadline)")?;
-                self.lock_and_prove_cache.invalidate(id.as_ref()).await;
+                self.skip_order(&order, "insufficient deadline").await?;
             } else {
                 candidate_orders.push(order);
             }
@@ -687,12 +682,7 @@ where
                         format_ether(order_cost_wei),
                         format_ether(remaining_balance_wei)
                     );
-                    if let Err(e) = self.db.insert_skipped_request(&order).await {
-                        tracing::error!(
-                            "Failed to skip order (insufficient balance): {} - {e:?}",
-                            order.id()
-                        );
-                    }
+                    self.skip_order(&order, "insufficient balance").await?;
                     continue;
                 }
 
@@ -722,9 +712,7 @@ where
                         completion_time
                     );
                     // Set order to skipped in DB and continue.
-                    if let Err(e) = self.db.insert_skipped_request(&order).await {
-                        tracing::error!("Failed to skip order (peak KHz limit: completion past expiration): {} - {e:?}", order.id());
-                    }
+                    self.skip_order(&order, "peak KHz limit: completion past expiration").await?;
                     continue;
                 }
 
@@ -745,12 +733,7 @@ where
                         format_ether(order_cost_wei),
                         format_ether(remaining_balance_wei)
                     );
-                    if let Err(e) = self.db.insert_skipped_request(&order).await {
-                        tracing::error!(
-                            "Failed to skip order (insufficient balance): {} - {e:?}",
-                            order.id()
-                        );
-                    }
+                    self.skip_order(&order, "insufficient balance").await?;
                     continue;
                 }
 
