@@ -85,7 +85,7 @@ We then use this proof as input to the Identity guest program:
 // Build the IDENTITY input from the ECHO receipt
 let identity_input = (Digest::from(ECHO_ID), echo_receipt);
 let identity_guest_env =
-    Input::builder().write_frame(&postcard::to_allocvec(&identity_input)?).build_env()?;
+    Input::builder().write_frame(&postcard::to_allocvec(&identity_input)?).build_env();
 
 // Request a proof from the Boundless market using the IDENTITY guest
 let (identity_journal, identity_seal) =

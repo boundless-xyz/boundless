@@ -173,11 +173,16 @@ When the prover fulfills their request, the requestor will (the app developer) w
 <StripRustCodeComments>
 ```rust
 # use std::time::Duration;
-# use boundless_market::client::Client;
+# use boundless_market::{Client, storage::storage_provider_from_env};
+# use alloy::signers::local::LocalSigner; 
 # use boundless_market::contracts::ProofRequest;
 # async fn submit_request(request: ProofRequest) -> anyhow::Result<()> {
-# let boundless_client = Client::builder().build().await?;
-# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+# let boundless_client = Client::builder()
+#    .with_private_key(LocalSigner::random())
+#    .with_storage_provider(Some(storage_provider_from_env()?))
+#    .build()
+#    .await?;
+# let (request_id, expires_at) = boundless_client.submit_request_onchain(&request).await?;
 let (_journal, seal) = boundless_client
   .wait_for_request_fulfillment(
     request_id,
