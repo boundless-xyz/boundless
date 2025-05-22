@@ -104,7 +104,7 @@ First we execute the guest program locally with our expected input, to generate 
 // We encode the input as Big Endian, as this is how Solidity represents values. This simplifies validating
 // the requirements of the request in the smart contract client.
 let input = days_since_epoch.to_be_bytes();
-let guest_env = GuestEnv::from_stdin(&input);
+let guest_env = GuestEnv::from_stdin(input);
 let input_url = client
     .upload_input(&guest_env.encode()?)
     .await
