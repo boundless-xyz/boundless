@@ -56,7 +56,12 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // with alloy derive statements added.
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
-pub use boundless_market_contract::*;
+pub use boundless_market_contract::{
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
+    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, IBoundlessMarket,
+    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
+    PredicateType, ProofRequest, RequestLock, Requirements,
+};
 
 #[allow(missing_docs)]
 #[cfg(not(target_os = "zkvm"))]
