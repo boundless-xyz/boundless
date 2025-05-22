@@ -157,6 +157,12 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         protocol: 'HTTPS',
         certificateArn: certValidation.certificateArn,
       });
+
+      // For sepolia, we need to swap the order of the listeners so that the https listener is first.
+      // On sepolia prod the https listener was deployed first, and we aren't able to change the order.
+      if (chainId === '11155111') {
+        listeners = [listeners[1], listeners[0]];
+      }
     }
 
     // Protect the load balancer so it doesn't get deleted if the stack is accidently modified/deleted
