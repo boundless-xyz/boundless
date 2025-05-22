@@ -2128,6 +2128,8 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "dashmap",
+ "futures",
  "futures-util",
  "hex",
  "httpmock",
