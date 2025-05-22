@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, fmt, fmt::Debug};
+use std::{borrow::Cow, fmt, fmt::Debug, future::Future};
 
 use alloy::{network::Ethereum, providers::Provider};
 use derive_builder::Builder;
@@ -58,7 +58,7 @@ pub trait RequestBuilder<Params> {
         Default::default()
     }
 
-    async fn build(&self, params: impl Into<Params>) -> Result<ProofRequest, Self::Error>;
+    fn build(&self, params: impl Into<Params>) -> impl Future<Output = Result<ProofRequest, Self::Error>>;
 }
 
 /// Blanket implementation for [RequestBuilder] for all [Layer] that output a proof request.
@@ -81,14 +81,14 @@ pub trait Layer<Input> {
     /// Error type that may be returned by this layer.
     type Error;
 
-    async fn process(&self, input: Input) -> Result<Self::Output, Self::Error>;
+    fn process(&self, input: Input) -> impl Future<Output = Result<Self::Output, Self::Error>>;
 }
 
 pub trait Adapt<L> {
     type Output;
     type Error;
 
-    async fn process_with(self, layer: &L) -> Result<Self::Output, Self::Error>;
+    fn process_with(self, layer: &L) -> impl Future<Output = Result<Self::Output, Self::Error>>;
 }
 
 impl<L, I> Adapt<L> for I
