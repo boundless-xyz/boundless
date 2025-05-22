@@ -61,11 +61,16 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
 
     // If we're in prod and have a domain, create a cert
     let cert: aws.acm.Certificate | undefined;
+    let certValidation: aws.acm.CertificateValidation | undefined;
     if (stackName.includes('prod') && albDomain) {
       cert = new aws.acm.Certificate(`${serviceName}-cert`, {
         domainName: pulumi.interpolate`${albDomain}`,
         validationMethod: "DNS",
       }, { protect: true });
+
+      certValidation = new aws.acm.CertificateValidation(`${serviceName}-cert-validation`, {
+        certificateArn: cert.arn,
+      });
     }
 
     const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
@@ -142,19 +147,16 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     });
 
     // If we have a cert and a domain, use it, and enable https.
-    // Otherwise we use the default lb endpoint that AWS provides that only supports http.
-    let listener: awsx.types.input.lb.ListenerArgs;
-    if (cert && albDomain) {
-      listener = {
+    let listeners: awsx.types.input.lb.ListenerArgs[] = [{
+      port: 80,
+      protocol: 'HTTP',
+    }];
+    if (cert && albDomain && certValidation) {
+      listeners.push({
         port: 443,
         protocol: 'HTTPS',
-        certificateArn: cert.arn.apply((arn) => arn),
-      };
-    } else {
-      listener = {
-        port: 80,
-        protocol: 'HTTP',
-      };
+        certificateArn: certValidation.certificateArn,
+      });
     }
 
     // Protect the load balancer so it doesn't get deleted if the stack is accidently modified/deleted
@@ -162,7 +164,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     const loadbalancer = new awsx.lb.ApplicationLoadBalancer(`${serviceName}-lb`, {
       name: `${serviceName}-lb`,
       subnetIds: pubSubNetIds,
-      listener,
+      listeners,
       defaultTargetGroup: {
         name: `${serviceName}-tg`,
         port: 8585,

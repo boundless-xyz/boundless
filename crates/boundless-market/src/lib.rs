@@ -57,6 +57,10 @@ pub use input::{GuestEnv, GuestEnvBuilder};
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]
 pub mod order_stream_client;
+
+#[cfg(not(target_os = "zkvm"))]
+/// A nonce manager module.
+pub mod resettable_nonce_layer;
 #[cfg(not(target_os = "zkvm"))]
 pub use order_stream_client::OrderStreamClient;
 

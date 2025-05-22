@@ -509,10 +509,10 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 2 fulfilled orders in 10 minutes",
+          description: "less than 2 fulfilled orders in 30 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 600
+            period: 1800
           },
           alarmConfig: {
             threshold: 2,
@@ -713,10 +713,10 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 2 fulfilled orders in 10 minutes",
+          description: "less than 2 fulfilled orders in 30 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 600
+            period: 1800
           },
           alarmConfig: {
             threshold: 2,
@@ -727,10 +727,10 @@ export const alarmConfig: ChainStageAlarms = {
           }
         },
         {
-          description: "less than 1 fulfilled orders in 15 minutes",
+          description: "less than 1 fulfilled orders in 30 minutes",
           severity: Severity.SEV1,
           metricConfig: {
-            period: 900
+            period: 1800
           },
           alarmConfig: {
             threshold: 1,
@@ -755,10 +755,10 @@ export const alarmConfig: ChainStageAlarms = {
           }
         },
         {
-          description: "less than 1 submitted orders in 15 minutes",
+          description: "less than 1 submitted orders in 30 minutes",
           severity: Severity.SEV1,
           metricConfig: {
-            period: 900,
+            period: 1800,
           },
           alarmConfig: {
             threshold: 1,
@@ -774,7 +774,7 @@ export const alarmConfig: ChainStageAlarms = {
           description: "greater than 2 expired orders in 30 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 900,
+            period: 1800,
           },
           alarmConfig: {
             threshold: 2,
@@ -787,7 +787,7 @@ export const alarmConfig: ChainStageAlarms = {
           description: "greater than 2 slashed orders in 30 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 900,
+            period: 1800,
           },
           alarmConfig: {
             threshold: 2,
