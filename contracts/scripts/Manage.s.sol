@@ -98,7 +98,7 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
         );
 
         // Add the market address in the authorized list of the stake-token contract
-        HitPoints(stakeToken).grantAuthorizedTransferRole(marketAddress);
+        // HitPoints(stakeToken).grantAuthorizedTransferRole(marketAddress);
 
         vm.stopBroadcast();
 

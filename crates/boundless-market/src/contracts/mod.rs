@@ -62,11 +62,10 @@ pub use boundless_market_contract::*;
 #[cfg(not(target_os = "zkvm"))]
 pub mod token {
     use alloy::{
-        primitives::{Address, Signature},
+        primitives::{Signature, B256},
         signers::Signer,
         sol_types::SolStruct,
     };
-    use alloy_sol_types::eip712_domain;
     use anyhow::Result;
     use serde::Serialize;
 
@@ -110,22 +109,27 @@ pub mod token {
     }
 
     impl Permit {
-        /// Signs the [Permit] with the given signer and EIP-712 domain derived from the given
-        /// contract address and chain ID.
+        /// Signs the [Permit] with the given signer and EIP-712 domain separator.
+        ///
+        /// The content to be signed is the hash of the magic bytes 0x1901
+        /// concatenated with the domain separator and the `hashStruct` result:
+        /// `keccak256("\x19\x01" ‖ domainSeparator ‖ hashStruct(permit))`
         pub async fn sign(
             &self,
             signer: &impl Signer,
-            contract_addr: Address,
-            chain_id: u64,
+            domain_separator: B256,
         ) -> Result<Signature> {
-            let domain = eip712_domain! {
-                name: "HitPoints",
-                version: "1",
-                chain_id: chain_id,
-                verifying_contract: contract_addr,
-            };
-            let hash = self.eip712_signing_hash(&domain);
-            Ok(signer.sign_hash(&hash).await?)
+            let struct_hash = self.eip712_hash_struct();
+            let prefix: &[u8] = &[0x19, 0x01];
+            let signing_bytes = prefix
+                .iter()
+                .chain(domain_separator.as_slice())
+                .chain(struct_hash.as_slice())
+                .cloned()
+                .collect::<Vec<u8>>();
+            let signing_hash = alloy::primitives::keccak256(signing_bytes);
+
+            Ok(signer.sign_hash(&signing_hash).await?)
         }
     }
 }

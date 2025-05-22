@@ -145,7 +145,7 @@ enum AccountCommands {
         /// Amount in HP to deposit.
         ///
         /// e.g. 10 is uint256(10 * 10**18).
-        #[clap(value_parser = parse_ether)]
+        // #[clap(value_parser = parse_ether)]
         amount: U256,
     },
     /// Withdraw stake funds from the market
@@ -153,7 +153,6 @@ enum AccountCommands {
         /// Amount in HP to withdraw.
         ///
         /// e.g. 10 is uint256(10 * 10**18).
-        #[clap(value_parser = parse_ether)]
         amount: U256,
     },
     /// Check the stake balance of an account in the market

@@ -1263,8 +1263,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             deadline,
         };
         tracing::debug!("Permit: {:?}", permit);
-        let chain_id = self.get_chain_id().await?;
-        let sig = permit.sign(signer, token_address.into(), chain_id).await?.as_bytes();
+        let domain_separator = contract.DOMAIN_SEPARATOR().call().await?;
+        let sig = permit.sign(signer, domain_separator).await?.as_bytes();
         let r = B256::from_slice(&sig[..32]);
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
