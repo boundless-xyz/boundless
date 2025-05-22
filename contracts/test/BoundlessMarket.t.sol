@@ -2258,7 +2258,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory paymentError = boundlessMarket.fulfill(fills, assessorReceipt);
         assert(
             keccak256(paymentError[0])
-                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline()))
+                == keccak256(
+                    abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
+                )
         );
 
         expectRequestNotFulfilled(fill.id);
