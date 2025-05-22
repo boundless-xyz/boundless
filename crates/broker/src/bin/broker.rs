@@ -4,7 +4,11 @@
 
 use alloy::{
     primitives::utils::parse_ether,
-    providers::{fillers::NonceFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
+    providers::{
+        fillers::{ChainIdFiller, NonceFiller},
+        network::EthereumWallet,
+        ProviderBuilder, WalletProvider,
+    },
     rpc::client::RpcClient,
     transports::layers::RetryBackoffLayer,
 };
@@ -67,6 +71,8 @@ async fn main() -> Result<()> {
         NonceResetLayer::new(wallet.default_signer().address(), nonce_manager.clone());
     let provider = ProviderBuilder::new()
         .disable_recommended_fillers()
+        .with_gas_estimation()
+        .filler(ChainIdFiller::default())
         .filler(nonce_filler)
         .layer(nonce_reset_layer)
         .layer(balance_alerts_layer)
