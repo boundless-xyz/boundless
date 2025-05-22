@@ -73,8 +73,6 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       });
     }
 
-
-
     const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
       lifecyclePolicy: {
         rules: [
@@ -149,19 +147,16 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     });
 
     // If we have a cert and a domain, use it, and enable https.
-    // Otherwise we use the default lb endpoint that AWS provides that only supports http.
-    let listener: awsx.types.input.lb.ListenerArgs;
+    let listeners: awsx.types.input.lb.ListenerArgs[] = [{
+      port: 80,
+      protocol: 'HTTP',
+    }];
     if (cert && albDomain && certValidation) {
-      listener = {
+      listeners.push({
         port: 443,
         protocol: 'HTTPS',
         certificateArn: certValidation.certificateArn,
-      };
-    } else {
-      listener = {
-        port: 80,
-        protocol: 'HTTP',
-      };
+      });
     }
 
     // Protect the load balancer so it doesn't get deleted if the stack is accidently modified/deleted
@@ -169,7 +164,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     const loadbalancer = new awsx.lb.ApplicationLoadBalancer(`${serviceName}-lb`, {
       name: `${serviceName}-lb`,
       subnetIds: pubSubNetIds,
-      listener,
+      listeners,
       defaultTargetGroup: {
         name: `${serviceName}-tg`,
         port: 8585,
