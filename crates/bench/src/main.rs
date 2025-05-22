@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use boundless_bench::{run, MainArgs};
 use clap::Parser;
 
