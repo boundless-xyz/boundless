@@ -33,7 +33,7 @@ pub struct Deployment {
 
     /// Address of the [BoundlessMarket] contract.
     ///
-    /// [BoundlessMarket]: crate::contracts::boundless_market_contract
+    /// [BoundlessMarket]: crate::contracts::IBoundlessMarket
     #[clap(long, env, required = false, long_help = "Address of the BoundlessMarket contract")]
     pub boundless_market_address: Address,
 
