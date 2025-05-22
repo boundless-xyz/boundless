@@ -498,6 +498,7 @@ mod tests {
             rpc_retry_max: 3,
             rpc_retry_backoff: 200,
             rpc_retry_cu: 1000,
+            log_json: false,
         }
     }
 
