@@ -15,7 +15,7 @@ use alloy::{
 use anyhow::Result;
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig, client::Client, deployments::Deployment,
-    input::GuestEnvBuilder, request_builder::OfferParams, storage::fetch_url,
+    input::GuestEnv, request_builder::OfferParams, storage::fetch_url,
     storage::StorageProviderConfig,
 };
 use clap::Parser;
@@ -187,7 +187,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 input
             }
         };
-        let env = GuestEnvBuilder::new().write(&(input as u64))?.write(&nonce)?.build_env();
+        let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
 
         // add 1 minute for each 1M cycles to the original timeout
         // Use the input directly as the estimated cycle count, since we are using a loop program.

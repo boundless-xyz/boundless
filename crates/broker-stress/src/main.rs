@@ -19,10 +19,10 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Input, InputType, Offer, Predicate, PredicateType,
-        ProofRequest, RequestId, Requirements,
+        hit_points::default_allowance, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+        RequestInput, RequestInputType, Requirements,
     },
-    input::GuestEnvBuilder,
+    input::GuestEnv,
 };
 use boundless_market_test_utils::{create_test_ctx_with_rpc_url, TestCtx, ECHO_ELF, ECHO_ID};
 use broker::test_utils::BrokerBuilder;
@@ -83,9 +83,9 @@ async fn request_spawner<P: Provider>(
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             program_url,
-            Input {
-                inputType: InputType::Inline,
-                data: GuestEnvBuilder::new()
+            RequestInput {
+                inputType: RequestInputType::Inline,
+                data: GuestEnv::builder()
                     .write_slice(&vec![0x41u8; r.random_range(1..32)])
                     .build_vec()
                     .unwrap()

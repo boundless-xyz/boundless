@@ -357,7 +357,7 @@ impl ProofRequest {
         request_id: RequestId,
         requirements: impl Into<Requirements>,
         image_url: impl Into<String>,
-        input: impl Into<Input>,
+        input: impl Into<RequestInput>,
         offer: impl Into<Offer>,
     ) -> Self {
         Self {
@@ -601,7 +601,7 @@ impl Callback {
     }
 }
 
-impl Input {
+impl RequestInput {
     /// Create a new [GuestEnvBuilder] for use in constructing and encoding the guest zkVM environment.
     #[cfg(not(target_os = "zkvm"))]
     pub fn builder() -> GuestEnvBuilder {
@@ -615,23 +615,23 @@ impl Input {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::contracts::Input;
+    /// use boundless_market::contracts::RequestInput;
     ///
-    /// let input_vec = Input::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
-    /// let input = Input::inline(input_vec);
+    /// let input_vec = RequestInput::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
+    /// let input = RequestInput::inline(input_vec);
     /// # anyhow::Ok(())
     /// ```
     pub fn inline(data: impl Into<Bytes>) -> Self {
-        Self { inputType: InputType::Inline, data: data.into() }
+        Self { inputType: RequestInputType::Inline, data: data.into() }
     }
 
     /// Sets the input type to URL and the data to the given URL.
     pub fn url(url: impl Into<String>) -> Self {
-        Self { inputType: InputType::Url, data: url.into().as_bytes().to_vec().into() }
+        Self { inputType: RequestInputType::Url, data: url.into().as_bytes().to_vec().into() }
     }
 }
 
-impl From<Url> for Input {
+impl From<Url> for RequestInput {
     /// Create a URL input from the given URL.
     fn from(value: Url) -> Self {
         Self::url(value)
@@ -866,7 +866,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             imageUrl: "https://dev.null".to_string(),
-            input: Input::builder().build_inline().unwrap(),
+            input: RequestInput::builder().build_inline().unwrap(),
             offer: Offer {
                 minPrice: U256::from(0),
                 maxPrice: U256::from(1),

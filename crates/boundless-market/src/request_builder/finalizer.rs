@@ -14,7 +14,7 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::Input as RequestInput,
+    contracts::RequestInput,
     contracts::{Offer, ProofRequest, RequestId, Requirements},
     util::now_timestamp,
 };

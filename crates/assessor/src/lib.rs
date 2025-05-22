@@ -170,8 +170,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId,
-        Requirements,
+        eip712_domain, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
+        RequestInputType, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -189,7 +189,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
             ),
             "test",
-            Input { inputType: InputType::Url, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
                 maxPrice: U256::from(10),

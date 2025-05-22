@@ -14,7 +14,9 @@ use alloy::{
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::test_utils::TestDb;
 use boundless_market::{
-    contracts::{Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements},
+    contracts::{
+        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
+    },
     order_stream_client::Order,
 };
 use boundless_market_test_utils::{
@@ -37,7 +39,7 @@ async fn create_order(
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         ),
         format!("file://{ECHO_PATH}"),
-        Input::builder().build_inline().unwrap(),
+        RequestInput::builder().build_inline().unwrap(),
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),

@@ -1452,8 +1452,8 @@ mod tests {
     use super::decode_calldata;
     use crate::{
         contracts::{
-            AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType, Offer, Predicate,
-            PredicateType, ProofRequest, RequestId, Requirements,
+            AssessorReceipt, Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType,
+            ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
         },
         util::now_timestamp,
     };
@@ -1524,7 +1524,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http:s//image.dev.null",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
                 maxPrice: U256::from(4),

@@ -92,7 +92,7 @@ First we execute the guest program locally with our expected input, to generate 
 ```rust
 # use anyhow::{Result, Context};
 # use boundless_market::Client;
-# use boundless_market::input::{GuestEnv, GuestEnvBuilder};
+# use boundless_market::input::GuestEnv;
 # use risc0_zkvm::default_executor;
 # use std::ops::Div;
 # // Function that takes the required parameters so we don't need to construct them

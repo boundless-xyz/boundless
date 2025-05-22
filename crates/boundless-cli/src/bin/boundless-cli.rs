@@ -72,9 +72,9 @@ use url::Url;
 
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, InputType, Offer, ProofRequest, Selector,
+        boundless_market::BoundlessMarketService, Offer, ProofRequest, RequestInputType, Selector,
     },
-    input::{GuestEnv, GuestEnvBuilder},
+    input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
     selector::ProofType,
     storage::{fetch_url, StorageProvider, StorageProviderConfig},
@@ -840,8 +840,8 @@ async fn benchmark(
 
         tracing::debug!("Processing input");
         let input = match request.input.inputType {
-            InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
-            InputType::Url => {
+            RequestInputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
+            RequestInputType::Url => {
                 let input_url = std::str::from_utf8(&request.input.data)
                     .context("Input URL is not valid UTF-8")?;
                 tracing::debug!("Fetching input from {}", input_url);
@@ -1000,9 +1000,9 @@ async fn submit_offer(
 
     // Prepare the input environment
     let env = if args.encode_input {
-        GuestEnvBuilder::new().write(&stdin)?
+        GuestEnv::builder().write(&stdin)?
     } else {
-        GuestEnvBuilder::new().write_slice(&stdin)
+        GuestEnv::builder().write_slice(&stdin)
     };
     let request = request.with_env(env);
 
@@ -1170,8 +1170,8 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
 
     tracing::info!("Processing input");
     let env = match request.input.inputType {
-        InputType::Inline => GuestEnv::decode(&request.input.data)?,
-        InputType::Url => {
+        RequestInputType::Inline => GuestEnv::decode(&request.input.data)?,
+        RequestInputType::Url => {
             let input_url =
                 std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
             tracing::info!("Fetching input from {}", input_url);
@@ -1334,7 +1334,9 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
     use alloy::primitives::aliases::U96;
-    use boundless_market::contracts::{Input, Predicate, PredicateType, RequestId, Requirements};
+    use boundless_market::contracts::{
+        Predicate, PredicateType, RequestId, RequestInput, Requirements,
+    };
 
     use super::*;
 
@@ -1365,7 +1367,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             format!("file://{ECHO_PATH}"),
-            Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

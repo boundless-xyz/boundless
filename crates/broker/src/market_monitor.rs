@@ -587,10 +587,10 @@ mod tests {
     use boundless_market::{
         contracts::{
             boundless_market::BoundlessMarketService, hit_points::default_allowance,
-            AssessorReceipt, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-            Requirements,
+            AssessorReceipt, Offer, Predicate, PredicateType, ProofRequest, RequestInput,
+            RequestInputType, Requirements,
         },
-        input::GuestEnvBuilder,
+        input::GuestEnv,
     };
     use boundless_market_test_utils::{
         create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx, ASSESSOR_GUEST_ID,
@@ -636,7 +636,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             imageUrl: "test".to_string(),
-            input: Input { inputType: InputType::Url, data: Default::default() },
+            input: RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             offer: Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(max_price),
@@ -775,7 +775,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://image_uri.null",
-            GuestEnvBuilder::new().build_inline().unwrap(),
+            GuestEnv::builder().build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

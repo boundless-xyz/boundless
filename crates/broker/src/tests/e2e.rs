@@ -13,8 +13,8 @@ use alloy::{
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, Input, Offer, Predicate, PredicateType,
-        ProofRequest, RequestId, Requirements,
+        hit_points::default_allowance, Callback, Offer, Predicate, PredicateType, ProofRequest,
+        RequestId, RequestInput, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
@@ -51,7 +51,7 @@ fn generate_request(
         RequestId::new(*addr, id),
         requirements,
         image_url,
-        Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+        RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         offer.unwrap_or(Offer {
             minPrice: parse_ether("0.02").unwrap(),
             maxPrice: parse_ether("0.04").unwrap(),

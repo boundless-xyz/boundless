@@ -37,9 +37,9 @@ use risc0_zkvm::{
 use boundless_market::{
     contracts::{
         AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
-        Fulfillment as BoundlessFulfillment, InputType,
+        Fulfillment as BoundlessFulfillment, RequestInputType,
     },
-    input::{GuestEnv, GuestEnvBuilder},
+    input::GuestEnv,
     order_stream_client::Order,
     selector::{is_groth16_selector, SupportedSelectors},
     storage::fetch_url,
@@ -204,7 +204,7 @@ impl DefaultProver {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
 
-        let stdin = GuestEnvBuilder::new().write_frame(&assessor_input.encode()).stdin;
+        let stdin = GuestEnv::builder().write_frame(&assessor_input.encode()).stdin;
 
         self.prove(self.assessor_program.clone(), stdin, receipts, ProverOpts::succinct()).await
     }
@@ -221,8 +221,8 @@ impl DefaultProver {
             let request = order.request.clone();
             let order_program = fetch_url(&request.imageUrl).await?;
             let order_input: Vec<u8> = match request.input.inputType {
-                InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
-                InputType::Url => {
+                RequestInputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
+                RequestInputType::Url => {
                     GuestEnv::decode(
                         &fetch_url(
                             std::str::from_utf8(&request.input.data)
@@ -369,7 +369,7 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, Offer, Predicate, ProofRequest, RequestId, Requirements,
+        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         UNSPECIFIED_SELECTOR,
     };
     use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
@@ -387,7 +387,7 @@ mod tests {
                     None => UNSPECIFIED_SELECTOR,
                 }),
             format!("file://{ECHO_PATH}"),
-            Input::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
+            RequestInput::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
             Offer::default(),
         );
 

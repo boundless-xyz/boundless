@@ -25,7 +25,7 @@ use boundless_market::{
         hit_points::default_allowance, AssessorReceipt, IBoundlessMarket, Offer, Predicate,
         PredicateType, ProofRequest, RequestId, RequestStatus, Requirements,
     },
-    input::GuestEnvBuilder,
+    input::GuestEnv,
 };
 use boundless_market_test_utils::{create_test_ctx, mock_singleton, TestCtx, ECHO_ID};
 use risc0_zkvm::sha::Digest;
@@ -46,7 +46,7 @@ async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         ),
         "http://image_uri.null",
-        GuestEnvBuilder::new().build_inline().unwrap(),
+        GuestEnv::builder().build_inline().unwrap(),
         Offer {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),

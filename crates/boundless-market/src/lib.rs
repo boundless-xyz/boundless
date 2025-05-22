@@ -40,7 +40,7 @@ pub use client::{Client, StandardClient};
 pub mod contracts;
 #[cfg(not(target_os = "zkvm"))]
 pub use contracts::boundless_market::BoundlessMarketService;
-pub use contracts::{Input, Offer, ProofRequest, RequestId, Requirements};
+pub use contracts::{Offer, ProofRequest, RequestId, RequestInput, Requirements};
 
 /// Configs for deployments of the Boundless Market (e.g. contract addresses, URLs, etc).
 #[cfg(not(target_os = "zkvm"))]

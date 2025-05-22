@@ -124,7 +124,6 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 
 ### `input`
 - `GuestEnv`: Environment for the guest, including input (e.g. `stdin`)
-- `GuestEnvBuilder`: Prepare inputs for the guest by construsting `GuestEnv`.
 
 ### `order_stream_client`
 - `OrderStreamClient`: Submit/fetch orders offchain via WebSocket.
@@ -142,7 +141,6 @@ use boundless_market::{
   Client,
   contracts::{RequestId, Requirements, Predicate, Offer},
   storage::storage_provider_from_env,
-  input::GuestEnvBuilder,
   request_builder::OfferParams,
 };
 use alloy::signers::local::PrivateKeySigner;

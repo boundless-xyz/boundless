@@ -375,7 +375,7 @@ pub async fn upload_input_uri(
     config: &crate::config::ConfigLock,
 ) -> Result<String> {
     Ok(match order.request.input.inputType {
-        boundless_market::contracts::InputType::Inline => prover
+        boundless_market::contracts::RequestInputType::Inline => prover
             .upload_input(
                 boundless_market::input::GuestEnv::decode(&order.request.input.data)
                     .with_context(|| "Failed to decode input")?
@@ -384,7 +384,7 @@ pub async fn upload_input_uri(
             .await
             .context("Failed to upload input data")?,
 
-        boundless_market::contracts::InputType::Url => {
+        boundless_market::contracts::RequestInputType::Url => {
             let input_uri_str =
                 std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");

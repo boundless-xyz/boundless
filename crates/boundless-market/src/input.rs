@@ -18,7 +18,7 @@ use risc0_zkvm::ExecutorEnv;
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 
-use crate::contracts::Input;
+use crate::contracts::RequestInput;
 
 // Input version.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -168,9 +168,9 @@ impl GuestEnvBuilder {
         self.build_env().encode()
     }
 
-    /// Build and encode the [GuestEnv] into an inline [Input] for inclusion in a proof request.
-    pub fn build_inline(self) -> Result<Input, Error> {
-        Ok(Input::inline(self.build_env().encode()?))
+    /// Build and encode the [GuestEnv] into an inline [RequestInput] for inclusion in a proof request.
+    pub fn build_inline(self) -> Result<RequestInput, Error> {
+        Ok(RequestInput::inline(self.build_env().encode()?))
     }
 
     /// Write input data.
@@ -182,7 +182,7 @@ impl GuestEnvBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::GuestEnvBuilder;
+    /// use boundless_market::GuestEnv;
     /// use serde::Serialize;
     ///
     /// #[derive(Serialize)]
@@ -193,7 +193,7 @@ impl GuestEnvBuilder {
     ///
     /// let input1 = Input{ a: 1, b: 2 };
     /// let input2 = Input{ a: 3, b: 4 };
-    /// let input = GuestEnvBuilder::new()
+    /// let input = GuestEnv::builder()
     ///     .write(&input1).unwrap()
     ///     .write(&input2).unwrap();
     /// ```
@@ -210,11 +210,11 @@ impl GuestEnvBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::input::GuestEnvBuilder;
+    /// use boundless_market::GuestEnvBuilder;
     ///
     /// let slice1 = [0, 1, 2, 3];
     /// let slice2 = [3, 2, 1, 0];
-    /// let input = GuestEnvBuilder::new()
+    /// let input = GuestEnv::builder()
     ///     .write_slice(&slice1)
     ///     .write_slice(&slice2);
     /// ```
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_version_parsing() -> Result<(), Error> {
         // Test V1
-        let v1 = GuestEnvBuilder::new().write_slice(&[1u8, 2, 3]);
+        let v1 = GuestEnv::builder().write_slice(&[1u8, 2, 3]);
         let bytes = v1.build_vec()?;
         let parsed = GuestEnv::decode(&bytes)?;
         assert_eq!(parsed.stdin, vec![1, 2, 3]);
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn test_encode_decode_env() -> Result<(), Error> {
         let timestamp = format! {"{:?}", std::time::SystemTime::now()};
-        let env = GuestEnvBuilder::new().write_slice(timestamp.as_bytes()).build_env();
+        let env = GuestEnv::builder().write_slice(timestamp.as_bytes()).build_env();
 
         let decoded_env = GuestEnv::decode(&env.encode()?)?;
         assert_eq!(env, decoded_env);

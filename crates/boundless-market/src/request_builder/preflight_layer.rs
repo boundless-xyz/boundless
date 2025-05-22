@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::contracts::{Input as RequestInput, InputType};
+use crate::contracts::{RequestInput, RequestInputType};
 use crate::input::GuestEnv;
 use crate::storage::fetch_url;
 use anyhow::{bail, ensure, Context};
@@ -39,8 +39,8 @@ pub struct PreflightLayer {}
 impl PreflightLayer {
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
-            InputType::Inline => GuestEnv::decode(&input.data)?,
-            InputType::Url => {
+            RequestInputType::Inline => GuestEnv::decode(&input.data)?,
+            RequestInputType::Url => {
                 let input_url =
                     std::str::from_utf8(&input.data).context("Input URL is not valid UTF-8")?;
                 tracing::info!("Fetching input from {}", input_url);

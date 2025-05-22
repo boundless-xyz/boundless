@@ -836,7 +836,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Callback, Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+        Callback, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
+        Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use boundless_market_test_utils::{
@@ -904,7 +905,10 @@ mod tests {
                         },
                     ),
                     image_url,
-                    Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+                    RequestInput::builder()
+                        .write_slice(&[0x41, 0x41, 0x41, 0x41])
+                        .build_inline()
+                        .unwrap(),
                     Offer {
                         minPrice: params.min_price,
                         maxPrice: params.max_price,

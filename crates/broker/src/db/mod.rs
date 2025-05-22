@@ -1397,7 +1397,7 @@ mod tests {
     use crate::ProofRequest;
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, RequestId, Requirements,
+        Offer, Predicate, PredicateType, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
@@ -1417,7 +1417,7 @@ mod tests {
                     },
                 ),
                 "http://risczero.com",
-                Input { inputType: InputType::Inline, data: "".into() },
+                RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
