@@ -63,7 +63,10 @@ pub trait RequestBuilder<Params> {
     }
 
     /// Builds a [ProofRequest] using the provided parameters.
-    fn build(&self, params: impl Into<Params>) -> impl Future<Output = Result<ProofRequest, Self::Error>>;
+    fn build(
+        &self,
+        params: impl Into<Params>,
+    ) -> impl Future<Output = Result<ProofRequest, Self::Error>>;
 }
 
 /// Blanket implementation for [RequestBuilder] for all [Layer] that output a proof request.
@@ -83,13 +86,13 @@ where
 
 /// A trait representing a processing layer in a request building pipeline.
 ///
-/// Layers can be composed together to form a multi-step processing pipeline where the output 
-/// of one layer becomes the input to the next. Each layer handles a specific aspect of the 
+/// Layers can be composed together to form a multi-step processing pipeline where the output
+/// of one layer becomes the input to the next. Each layer handles a specific aspect of the
 /// request building process.
 pub trait Layer<Input> {
     /// The output type produced by this layer.
     type Output;
-    
+
     /// Error type that may be returned by this layer.
     type Error;
 
@@ -108,7 +111,7 @@ pub trait Layer<Input> {
 pub trait Adapt<L> {
     /// The output type after processing by the layer.
     type Output;
-    
+
     /// Error type that may be returned during processing.
     type Error;
 
@@ -153,7 +156,7 @@ where
 /// - `offer_layer`: Configures the offer details
 /// - `finalizer`: Validates and finalizes the request
 ///
-/// Each layer processes the request in sequence, with the output of one layer becoming 
+/// Each layer processes the request in sequence, with the output of one layer becoming
 /// the input for the next.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
@@ -161,23 +164,23 @@ pub struct StandardRequestBuilder<P = StandardRpcProvider, S = StandardStoragePr
     /// Handles uploading and preparing program and input data.
     #[builder(setter(into))]
     pub storage_layer: StorageLayer<S>,
-    
+
     /// Executes preflight checks to validate the request.
     #[builder(setter(into), default)]
     pub preflight_layer: PreflightLayer,
-    
+
     /// Configures the requirements for the proof request.
     #[builder(setter(into), default)]
     pub requirements_layer: RequirementsLayer,
-    
+
     /// Generates and manages request identifiers.
     #[builder(setter(into))]
     pub request_id_layer: RequestIdLayer<P>,
-    
+
     /// Configures offer parameters for the request.
     #[builder(setter(into))]
     pub offer_layer: OfferLayer<P>,
-    
+
     /// Finalizes and validates the complete request.
     #[builder(setter(into), default)]
     pub finalizer: Finalizer,
@@ -255,41 +258,41 @@ where
 /// It provides a builder pattern for incrementally setting fields and methods for
 /// validating and accessing the parameters.
 ///
-/// Most fields are optional and can be populated during the request building process 
-/// by various layers. The structure serves as the central data container that passes 
+/// Most fields are optional and can be populated during the request building process
+/// by various layers. The structure serves as the central data container that passes
 /// through the request builder pipeline.
 #[non_exhaustive]
 #[derive(Clone, Default)]
 pub struct RequestParams {
     /// RISC-V guest program that will be run in the zkVM.
     pub program: Option<Cow<'static, [u8]>>,
-    
+
     /// Guest execution environment, providing the input for the guest.
     /// See [GuestEnv].
     pub env: Option<GuestEnv>,
-    
+
     /// Uploaded program URL, from which provers will fetch the program.
     pub program_url: Option<Url>,
-    
+
     /// Prepared input for the [ProofRequest], containing either a URL or inline input.
     /// See [RequestInput].
     pub request_input: Option<RequestInput>,
-    
+
     /// Count of the RISC Zero execution cycles. Used to estimate proving cost.
     pub cycles: Option<u64>,
-    
+
     /// Image ID identifying the program being executed.
     pub image_id: Option<Digest>,
-    
+
     /// Contents of the [Journal] that results from the execution.
     pub journal: Option<Journal>,
-    
+
     /// [RequestId] to use for the proof request.
     pub request_id: Option<RequestId>,
-    
+
     /// [OfferParams] for constructing the [Offer][crate::Offer] to send along with the request.
     pub offer: OfferParams,
-    
+
     /// [RequirementParams] for constructing the [Requirements][crate::Requirements] for the resulting proof.
     pub requirements: RequirementParams,
 }
@@ -297,7 +300,7 @@ pub struct RequestParams {
 impl RequestParams {
     /// Creates a new empty instance of [RequestParams].
     ///
-    /// This is equivalent to calling `Default::default()` and is provided as a 
+    /// This is equivalent to calling `Default::default()` and is provided as a
     /// convenience method for better readability when building requests.
     pub fn new() -> Self {
         Self::default()
@@ -536,7 +539,7 @@ where
 
 /// Error indicating that a required field is missing when building a request.
 ///
-/// This error is returned when attempting to access a field that hasn't been 
+/// This error is returned when attempting to access a field that hasn't been
 /// set yet in the request parameters.
 #[derive(thiserror::Error, Debug)]
 #[error("field `{label}` is required but is uninitialized")]

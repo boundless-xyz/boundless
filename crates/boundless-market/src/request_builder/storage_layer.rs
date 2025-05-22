@@ -40,7 +40,7 @@ pub struct StorageLayerConfig {
 /// A layer responsible for storing programs and inputs.
 ///
 /// This layer handles the preparation of program and input data for the proof request.
-/// It can upload large programs and inputs to external storage, or include smaller 
+/// It can upload large programs and inputs to external storage, or include smaller
 /// inputs directly in the request as inline data.
 #[non_exhaustive]
 #[derive(Clone)]
@@ -50,7 +50,7 @@ pub struct StorageLayer<S = StandardStorageProvider> {
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
     /// [StorageLayerConfig::inline_input_max_bytes].
     pub storage_provider: Option<S>,
-    
+
     /// Configuration controlling storage behavior.
     pub config: StorageLayerConfig,
 }

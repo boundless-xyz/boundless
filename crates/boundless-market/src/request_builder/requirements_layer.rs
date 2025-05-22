@@ -42,22 +42,22 @@ pub struct RequirementParams {
     #[clap(skip)]
     #[builder(setter(strip_option, into), default)]
     pub predicate: Option<Predicate>,
-    
+
     /// Image ID identifying the program to be executed.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub image_id: Option<B256>,
-    
+
     /// Address of the contract to call when the proof is fulfilled.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub callback_address: Option<Address>,
-    
+
     /// Gas limit for the callback when the proof is fulfilled.
     #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub callback_gas_limit: Option<u64>,
-    
+
     /// Selector specifying the type of proof required.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]

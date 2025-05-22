@@ -28,7 +28,7 @@ pub enum RequestIdLayerMode {
     /// This is the default mode and generates unpredictable request IDs.
     #[default]
     Rand,
-    
+
     /// Use the account's nonce as the ID.
     ///
     /// This creates sequential IDs based on the number of transactions sent from the account.
@@ -55,7 +55,7 @@ pub struct RequestIdLayerConfig {
 pub struct RequestIdLayer<P> {
     /// The BoundlessMarket service used to generate request IDs.
     pub boundless_market: BoundlessMarketService<P>,
-    
+
     /// Configuration controlling ID generation behavior.
     pub config: RequestIdLayerConfig,
 }
