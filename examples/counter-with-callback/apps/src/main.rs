@@ -84,7 +84,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Create a request with a callback to the counter contract
     let request = client
-        .request_params()
+        .new_request()
         .with_program(ECHO_ELF)
         .with_stdin(echo_message.as_bytes())
         // Add the callback to the counter contract by configuring the requirements

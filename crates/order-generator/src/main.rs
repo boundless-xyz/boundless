@@ -196,8 +196,8 @@ async fn run(args: &MainArgs) -> Result<()> {
         let lock_timeout =
             args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
 
-        let request_params = client
-            .request_params()
+        let request = client
+            .new_request()
             .with_program(program.clone())
             .with_program_url(program_url.clone())?
             .with_env(env)
@@ -210,7 +210,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             );
 
         // Build the request, including preflight, and assigned the remaining fields.
-        let request = client.build_request(request_params).await?;
+        let request = client.build_request(request).await?;
 
         tracing::info!("Request: {:?}", request);
 

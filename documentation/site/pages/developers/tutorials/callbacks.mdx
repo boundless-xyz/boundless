@@ -51,7 +51,7 @@ When creating the proof request, the requestor specifies the callback contract a
 # use risc0_zkvm::sha::Digest;
 # async fn create_callback_request(client: Client, program: &'static [u8], input: &[u8]) -> anyhow::Result<()> {
 # let counter_address = address!("0x000000000000000000000000000000000c0077e5");
-let request_params = client.request_params()
+let request = client.new_request()
     .with_program(program)
     .with_stdin(input)
     .with_requirements(
@@ -69,7 +69,7 @@ let request_params = client.request_params()
     );
 
 // Submit the request onchain
-let (request_id, expires_at) = client.submit_onchain(request_params).await?;
+let (request_id, expires_at) = client.submit_onchain(request).await?;
 # Ok(())
 # }
 ```

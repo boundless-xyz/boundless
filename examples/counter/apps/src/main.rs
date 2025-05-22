@@ -84,8 +84,7 @@ async fn run(args: Args) -> Result<()> {
     // We use a timestamp as input to the ECHO guest code as the Counter contract
     // accepts only unique proofs. Using the same input twice would result in the same proof.
     let echo_message = format!("{:?}", SystemTime::now());
-    let request =
-        client.request_params().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes());
+    let request = client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes());
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.

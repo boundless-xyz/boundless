@@ -157,7 +157,7 @@ async fn proof_submission(signer: &PrivateKeySigner, rpc_url: Url) -> anyhow::Re
         .await?;
 
     // Build the request.
-    let request = client.request_params()
+    let request = client.new_request()
         .with_program(std::fs::read("guest.bin")?)
         .with_stdin(42u32.to_le_bytes())
         .with_offer(OfferParams::builder()

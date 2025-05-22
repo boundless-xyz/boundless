@@ -83,7 +83,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Request an un-aggregated proof from the Boundless market using the ECHO guest.
     let echo_request = client
-        .request_params()
+        .new_request()
         .with_program(ECHO_ELF)
         .with_stdin(format!("{:?}", SystemTime::now()).as_bytes())
         .with_groth16_proof();
@@ -114,7 +114,7 @@ async fn run(args: Args) -> Result<()> {
     // Build the IDENTITY input with from the ECHO receipt.
     let identity_input = (Digest::from(ECHO_ID), echo_receipt);
     let identity_request = client
-        .request_params()
+        .new_request()
         .with_program(IDENTITY_ELF)
         .with_env(GuestEnv::builder().write_frame(&postcard::to_allocvec(&identity_input)?));
 

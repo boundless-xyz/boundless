@@ -150,8 +150,8 @@ A proof request consists of four essential components that specify which program
 # client: Client,
 # program: &'static [u8],
 # input: &[u8]) -> Result<()> {
-// Create a request using request_params
-let request_params = client.request_params()
+// Create a request using new_request
+let request = client.new_request()
   .with_program(program)
   .with_stdin(input)
   .with_offer(
@@ -170,7 +170,7 @@ let request_params = client.request_params()
   );
 
 // Submit the request directly
-let (request_id, expires_at) = client.submit_onchain(request_params).await?;
+let (request_id, expires_at) = client.submit_onchain(request).await?;
 # Ok(())
 # }
 ```
@@ -209,7 +209,7 @@ let (request_id, expires_at) = client.submit_request_onchain(&request).await?;
 </StripRustCodeComments>
 
 This will send the request onchain in a transaction.
-Using `client.submit_offchain(request_params)`, you can send your request offchain through the order-stream service.
+Using `client.submit_offchain(request)`, you can send your request offchain through the order-stream service.
 Offchain requests will not cost any gas, but does require you to deposit funds to the market first.
 
 The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).

@@ -180,7 +180,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     let inital_request = boundless_client
         .build_request(
             boundless_client
-                .request_params()
+                .new_request()
                 .with_program(program.clone())
                 .with_program_url(program_url.clone())?
                 .with_env(env.clone())

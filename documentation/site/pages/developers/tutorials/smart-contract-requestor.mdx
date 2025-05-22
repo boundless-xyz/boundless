@@ -133,7 +133,7 @@ Then we create our proof request, setting a `Requirement` that the journal shoul
 # let program_url = "https://example.com/image";
 # let input = "example input".as_bytes();
 // Create the request params
-let request_params = client.request_params()
+let request = client.new_request()
     .with_program_url(program_url)?
     .with_stdin(input)
     .with_offer(
@@ -145,7 +145,7 @@ let request_params = client.request_params()
     );
 
 // Build the request
-let request = client.build_request(request_params).await?;
+let request = client.build_request(request).await?;
 # Ok(())
 # }
 ```

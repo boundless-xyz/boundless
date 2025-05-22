@@ -556,7 +556,7 @@ where
     }
 
     /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
-    pub fn request_params<Params>(&self) -> Params
+    pub fn new_request<Params>(&self) -> Params
     where
         R: RequestBuilder<Params>,
         Params: Default,

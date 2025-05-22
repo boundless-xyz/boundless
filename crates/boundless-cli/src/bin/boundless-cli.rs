@@ -976,7 +976,7 @@ async fn submit_offer(
     signer: &impl Signer,
     args: &SubmitOfferArgs,
 ) -> Result<()> {
-    let request = client.request_params();
+    let request = client.new_request();
 
     // Resolve the program from command line arguments.
     let request = match (args.program.path.clone(), args.program.url.clone()) {

@@ -95,7 +95,7 @@ async fn run(args: Args) -> Result<()> {
     let days_since_epoch_be = days_since_epoch.to_be_bytes();
 
     let request = client
-        .request_params()
+        .new_request()
         .with_request_id(request_id)
         .with_program(ECHO_ELF)
         .with_stdin(days_since_epoch_be);

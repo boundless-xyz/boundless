@@ -39,7 +39,7 @@ Boundless supports requesting a raw Groth16 proof instead of a merkle inclusion 
 #     program: &'static [u8],
 #     input: &[u8]
 # ) -> anyhow::Result<()> {
-let request_params = client.request_params()
+let request = client.new_request()
     .with_program(program)
     .with_stdin(input)
     .with_groth16_proof()  // Request raw Groth16 proof
@@ -86,7 +86,7 @@ In the composition example, we first request a raw Groth16 proof from the Boundl
 #     program: &'static [u8],
 #     input: &[u8]
 # ) -> anyhow::Result<()> {
-let request_params = client.request_params()
+let request = client.new_request()
     .with_program(program)
     .with_stdin(input)
     .with_groth16_proof()  // Request raw Groth16 proof
