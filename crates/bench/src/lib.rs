@@ -23,6 +23,7 @@ use boundless_market::{
     deployments::Deployment,
     input::GuestEnv,
     storage::StorageProviderConfig,
+    request_builder::OfferParams,
 };
 use clap::Parser;
 use futures::future::try_join_all;
@@ -184,11 +185,11 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                 .with_program_url(program_url.clone())?
                 .with_env(env.clone())
                 .with_offer(
-                    Offer::default()
-                        .with_lock_stake(parse_ether(&bench.lockin_stake)?)
-                        .with_ramp_up_period(bench.ramp_up)
-                        .with_timeout(bench.timeout)
-                        .with_lock_timeout(bench.lock_timeout),
+                    OfferParams::builder()
+                        .lock_stake(parse_ether(&bench.lockin_stake)?)
+                        .ramp_up_period(bench.ramp_up)
+                        .timeout(bench.timeout)
+                        .lock_timeout(bench.lock_timeout),
                 ),
         )
         .await?;
