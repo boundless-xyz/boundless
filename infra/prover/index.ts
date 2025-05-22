@@ -45,6 +45,7 @@ export = () => {
   const bentoProverSshPublicKey = isDev ? process.env.BENTO_PROVER_SSH_PUBLIC_KEY : bentoConfig.getSecret('SSH_PUBLIC_KEY');
   const bentoProverPrivateKey = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY") : bentoConfig.requireSecret('PRIVATE_KEY');
   const segmentSize = bentoConfig.requireNumber('SEGMENT_SIZE');
+  const logJson = bentoConfig.getBoolean('LOG_JSON');
 
   const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-prover", chainId);
   const bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
@@ -65,7 +66,8 @@ export = () => {
     ciCacheSecret,
     githubTokenSecret,
     boundlessAlertsTopicArns: alertsTopicArns,
-    sshPublicKey: bentoProverSshPublicKey
+    sshPublicKey: bentoProverSshPublicKey,
+    logJson,
   });
 
   if (process.env.SKIP_BONSAI !== "true") {

@@ -29,6 +29,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         brokerTomlPath: string;
         boundlessAlertsTopicArns?: string[];
         sshPublicKey?: string | pulumi.Output<string>;
+        logJson?: boolean;
     }, opts?: pulumi.ComponentResourceOptions) {
         super(name, name, opts);
 
@@ -43,7 +44,8 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
             pubSubNetIds,
             gitBranch,
             boundlessAlertsTopicArns,
-            segmentSize
+            segmentSize,
+            logJson
         } = args;
 
         const region = "us-west-2";
@@ -347,7 +349,8 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                         ethRpcUrl: ethRpcArn,
                         privateKey: privateKeyArn,
                         orderStreamUrl: orderStreamArn
-                    }
+                    },
+                    logJson: logJson ?? false
                 }),
             }, { parent: this });
         });
@@ -473,7 +476,7 @@ ETH_RPC_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.ethRpcUrl')
 PRIVATE_KEY_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.privateKey')
 ORDER_STREAM_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.orderStreamUrl')
 SEGMENT_SIZE=$(echo $CONFIG | jq -r '.segmentSize')
-
+LOG_JSON=$(echo $CONFIG | jq -r '.logJson')
 # Get secrets from AWS Secrets Manager
 RPC_URL=$(aws --region ${region} secretsmanager get-secret-value --secret-id $ETH_RPC_URL_SECRET_ARN --query SecretString --output text)
 PRIVATE_KEY=$(aws --region ${region} secretsmanager get-secret-value --secret-id $PRIVATE_KEY_SECRET_ARN --query SecretString --output text)
@@ -494,6 +497,7 @@ RPC_URL=$RPC_URL
 PRIVATE_KEY=$PRIVATE_KEY
 ORDER_STREAM_URL=$ORDER_STREAM_URL
 SEGMENT_SIZE=$SEGMENT_SIZE
+LOG_JSON=$LOG_JSON
 ENVEOF
 
 EOF

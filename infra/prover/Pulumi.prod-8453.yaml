@@ -24,4 +24,4 @@ config:
   bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
   bonsai-prover:PRIVATE_KEY:
     secure: v1:c2Eh9eBTs4bg9u24:xlMjBD0jaMKdydGEYEyNoWVhQkwwVJbLqjWPphEYOKDmNGytPq7VZ86K3BAg0mkBMmpQOfOrwtPHsq3aLAj/Ug5TzgjLZU2BO6cEJ7okXVw=
-  
+  bento-prover:LOG_JSON: true
