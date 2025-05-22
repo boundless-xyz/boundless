@@ -129,7 +129,6 @@ mod tests {
         node_bindings::{Anvil, AnvilInstance},
         providers::{Provider, ProviderBuilder, WalletProvider},
     };
-    use anyhow::Context;
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderType;
     use boundless_market_test_utils::{create_test_ctx, TestCtx, ECHO_ID};
