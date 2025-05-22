@@ -91,6 +91,7 @@ pub struct SlashServiceConfig {
     pub balance_warn_threshold: Option<U256>,
     pub balance_error_threshold: Option<U256>,
     pub skip_addresses: Vec<Address>,
+    pub tx_timeout: Duration,
 }
 
 impl SlashService<ProviderWallet> {
@@ -116,7 +117,8 @@ impl SlashService<ProviderWallet> {
             .connect_http(rpc_url);
 
         let boundless_market =
-            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
+            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller)
+                .with_timeout(config.tx_timeout);
 
         let db: DbObj = Arc::new(SqliteDb::new(db_conn).await.unwrap());
 

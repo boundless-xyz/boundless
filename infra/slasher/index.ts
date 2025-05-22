@@ -31,6 +31,7 @@ export = () => {
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
+  const txTimeout = config.require('TX_TIMEOUT');
 
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
@@ -231,7 +232,7 @@ export = () => {
           ],
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/boundless-slasher --db sqlite:///app/data/slasher.db --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
+            `/app/boundless-slasher --db sqlite:///app/data/slasher.db --tx-timeout ${txTimeout} --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
           ],
           environment: [
             {
