@@ -21,7 +21,7 @@ use risc0_zkvm::{Digest, Journal};
 use url::Url;
 
 use crate::{
-    contracts::{Input as RequestInput, ProofRequest, RequestId},
+    contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
     storage::{StandardStorageProvider, StorageProvider},
     util::{NotProvided, StandardRpcProvider},
@@ -333,14 +333,16 @@ impl RequestParams {
     /// ```rust
     /// # use boundless_market::request_builder::RequestParams;
     /// # const ECHO_ELF: &[u8] = b"";
-    /// use boundless_market::GuestEnvBuilder;
+    /// use boundless_market::GuestEnv;
     ///
     /// RequestParams::new()
     ///     .with_program(ECHO_ELF)
-    ///     .with_env(GuestEnvBuilder::new()
+    ///     .with_env(GuestEnv::builder()
     ///         .write_frame(b"hello!")
     ///         .write_frame(b"goodbye."));
     /// ```
+    ///
+    /// See also [Self::with_env] and [GuestEnvBuilder][crate::input::GuestEnvBuilder]
     pub fn with_env(self, value: impl Into<GuestEnv>) -> Self {
         Self { env: Some(value.into()), ..self }
     }
@@ -394,9 +396,12 @@ impl RequestParams {
         self.request_input.as_ref().ok_or(MissingFieldError::new("input"))
     }
 
-    /// Sets the input data for the request.
+    /// Sets the encoded input data for the request. This data will be decoded by the prover into a
+    /// [GuestEnv] that will be used to run the guest.
     ///
-    /// This is typically created from a GuestEnv by the storage layer.
+    /// If not provided, the this will be constructed from the data given via
+    /// [RequestParams::with_env] or [RequestParams::with_stdin]. If the input is set with both
+    /// this method and one of those two, the input specified here takes precedence.
     pub fn with_request_input(self, value: impl Into<RequestInput>) -> Self {
         Self { request_input: Some(value.into()), ..self }
     }
@@ -575,7 +580,7 @@ mod tests {
 
     use crate::{
         contracts::{
-            boundless_market::BoundlessMarketService, Input as RequestInput, InputType, Predicate,
+            boundless_market::BoundlessMarketService, Predicate, RequestInput, RequestInputType,
             Requirements,
         },
         input::GuestEnv,
@@ -684,7 +689,7 @@ mod tests {
 
         // Program should be uploaded and input inline.
         assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
-        assert_eq!(request_input.inputType, InputType::Inline);
+        assert_eq!(request_input.inputType, RequestInputType::Inline);
         assert_eq!(request_input.data, env.encode()?);
         Ok(())
     }
@@ -700,7 +705,7 @@ mod tests {
         let request_input = layer.process(&env).await?;
 
         // Program should be uploaded and input inline.
-        assert_eq!(request_input.inputType, InputType::Inline);
+        assert_eq!(request_input.inputType, RequestInputType::Inline);
         assert_eq!(request_input.data, env.encode()?);
         Ok(())
     }
@@ -718,7 +723,7 @@ mod tests {
 
         // Program and input should be uploaded and input inline.
         assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
-        assert_eq!(request_input.inputType, InputType::Url);
+        assert_eq!(request_input.inputType, RequestInputType::Url);
         let fetched_input = fetch_url(String::from_utf8(request_input.data.to_vec())?).await?;
         assert_eq!(fetched_input, env.encode()?);
         Ok(())
