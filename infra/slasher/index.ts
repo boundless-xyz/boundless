@@ -141,6 +141,15 @@ export = () => {
     ],
   });
 
+  new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
+    type: 'ingress',
+    fromPort: 2049,
+    toPort: 2049,
+    protocol: 'tcp',
+    securityGroupId: securityGroup.id,
+    sourceSecurityGroupId: securityGroup.id,
+  });
+
   // Create an execution role that has permissions to access the necessary secrets
   const execRole = new aws.iam.Role(`${serviceName}-exec`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
