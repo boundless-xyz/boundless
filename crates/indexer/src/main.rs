@@ -32,13 +32,26 @@ struct MainArgs {
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
+    /// Whether to log in JSON format.
+    #[clap(long, env, default_value_t = false)]
+    log_json: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
+    let args = MainArgs::parse();
+
+    if args.log_json {
+        tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .json()
+        .init();
+    } else {
+        tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+    }
 
     match dotenvy::dotenv() {
         Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
@@ -46,7 +59,6 @@ async fn main() -> Result<()> {
         Err(e) => bail!("failed to load .env file: {}", e),
     }
 
-    let args = MainArgs::parse();
 
     let mut indexer_service = IndexerService::new(
         args.rpc_url.clone(),
