@@ -265,12 +265,7 @@ impl BrokerDb for SqliteDb {
     #[cfg(test)]
     #[instrument(level = "trace", skip_all, fields(id = %format!("{order}")))]
     async fn add_order(&self, order: &Order) -> Result<(), DbError> {
-        sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2)")
-            .bind(order.id())
-            .bind(sqlx::types::Json(&order))
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+        self.insert_order(order).await
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]

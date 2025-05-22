@@ -333,10 +333,9 @@ where
     }
 
     /// Helper method to skip an order in the database and invalidate the appropriate cache
-    async fn skip_order(&self, order: &OrderRequest, reason: &str) -> Result<(), anyhow::Error> {
+    async fn skip_order(&self, order: &OrderRequest, reason: &str) {
         if let Err(e) = self.db.insert_skipped_request(order).await {
             tracing::error!("Failed to skip order ({}): {} - {e:?}", reason, order.id());
-            return Err(e.into());
         }
 
         match order.fulfillment_type {
@@ -347,8 +346,6 @@ where
                 self.prove_cache.invalidate(&order.id()).await;
             }
         }
-
-        Ok(())
     }
 
     async fn get_valid_orders(
@@ -385,9 +382,9 @@ where
                     "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
-                self.skip_order(&order, "was fulfilled by other").await?;
+                self.skip_order(&order, "was fulfilled by other").await;
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
-                self.skip_order(&order, "expired").await?;
+                self.skip_order(&order, "expired").await;
             } else {
                 tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
                 candidate_orders.push(order);
@@ -398,7 +395,7 @@ where
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
                 tracing::debug!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
-                self.skip_order(&order, "lock expired before we locked").await?;
+                self.skip_order(&order, "lock expired before we locked").await;
             } else if let Some((locker, _)) =
                 self.db.get_request_locked(U256::from(order.request.id)).await?
             {
@@ -410,14 +407,14 @@ where
 
                 if locker_address_normalized != our_address_normalized {
                     tracing::debug!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
-                    self.skip_order(&order, "locked by another prover").await?;
+                    self.skip_order(&order, "locked by another prover").await;
                 } else {
                     // Edge case where we locked the order, but due to some reason was not moved to proving state. Should not happen.
                     tracing::debug!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
                     candidate_orders.push(order);
                 }
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
-                self.skip_order(&order, "insufficient deadline").await?;
+                self.skip_order(&order, "insufficient deadline").await;
             } else {
                 candidate_orders.push(order);
             }
@@ -682,7 +679,7 @@ where
                         format_ether(order_cost_wei),
                         format_ether(remaining_balance_wei)
                     );
-                    self.skip_order(&order, "insufficient balance").await?;
+                    self.skip_order(&order, "insufficient balance").await;
                     continue;
                 }
 
@@ -712,7 +709,7 @@ where
                         completion_time
                     );
                     // Set order to skipped in DB and continue.
-                    self.skip_order(&order, "peak KHz limit: completion past expiration").await?;
+                    self.skip_order(&order, "peak KHz limit: completion past expiration").await;
                     continue;
                 }
 
@@ -733,7 +730,7 @@ where
                         format_ether(order_cost_wei),
                         format_ether(remaining_balance_wei)
                     );
-                    self.skip_order(&order, "insufficient balance").await?;
+                    self.skip_order(&order, "insufficient balance").await;
                     continue;
                 }
 
