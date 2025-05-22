@@ -15,7 +15,7 @@ config:
   order-generator-base:LOCK_STAKE: "0.1"
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.001"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
   #order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
@@ -28,7 +28,7 @@ config:
   #order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   order-generator-base:TIMEOUT: "1800"
   order-generator-base:TX_TIMEOUT: "90"
-  order-generator-offchain:AUTO_DEPOSIT: "1"
+  order-generator-offchain:AUTO_DEPOSIT: "0.05"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:/VtYD3aNdYBoGYNY:Zf9aAMkbScrZ1/sZVbYPM8pHT6v5afTGybLg4XCvGdONvP4/e9qtNnhSeSdNjUBJv6KSKdBwUNWHN65RlxpwqVYbL+XceV7DYd8sBlZy4f4=
   order-generator-onchain:PRIVATE_KEY:
