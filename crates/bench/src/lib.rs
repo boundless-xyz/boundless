@@ -22,8 +22,8 @@ use boundless_market::{
     contracts::{Offer, Predicate, ProofRequest, Requirements},
     deployments::Deployment,
     input::GuestEnv,
-    storage::StorageProviderConfig,
     request_builder::OfferParams,
+    storage::StorageProviderConfig,
 };
 use clap::Parser;
 use futures::future::try_join_all;
