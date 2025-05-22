@@ -163,6 +163,24 @@ export = () => {
     },
   });
 
+  // EFS
+  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev4`, {
+    encrypted: true,
+    tags: {
+      Name: serviceName,
+    },
+  });
+
+  const mountTargets = privateSubnetIds.apply((subnets) =>
+    subnets.map((subnetId: string, index: number) => {
+      return new aws.efs.MountTarget(`${serviceName}-mount-${index}`, {
+        fileSystemId: fileSystem.id,
+        subnetId: subnetId,
+        securityGroups: [securityGroup.id],
+      }, { dependsOn: [fileSystem] });
+    })
+  );
+
   const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
   const service = new awsx.ecs.FargateService(
     `${serviceName}-service`,
@@ -180,15 +198,31 @@ export = () => {
         executionRole: {
           roleArn: execRole.arn,
         },
+        volumes: [
+          {
+            name: 'slasher-storage',
+            efsVolumeConfiguration: {
+              fileSystemId: fileSystem.id,
+              rootDirectory: '/',
+            },
+          },
+        ],
         container: {
           name: serviceName,
           image: image.ref,
           cpu: 128,
           memory: 512,
           essential: true,
+          mountPoints: [
+            {
+              sourceVolume: 'slasher-storage',
+              containerPath: '/app/data',
+              readOnly: false,
+            },
+          ],
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/boundless-slasher --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
+            `/app/boundless-slasher --db sqlite:///app/data/slasher.db --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
           ],
           environment: [
             {
@@ -217,7 +251,7 @@ export = () => {
         },
       },
     },
-    { dependsOn: [execRole, execRolePolicy] }
+    { dependsOn: [execRole, execRolePolicy, mountTargets, fileSystem] }
   );
 
   new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
