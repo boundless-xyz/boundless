@@ -121,6 +121,10 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
+
+    /// Log JSON
+    #[clap(long, env, default_value_t = false)]
+    pub log_json: bool,
 }
 
 /// Status of a order as it moves through the lifecycle
@@ -718,6 +722,7 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
+                log_json: false,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }

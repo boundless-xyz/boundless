@@ -20,13 +20,21 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_span_events(FmtSpan::CLOSE)
-        .init();
-
     let args = Args::parse();
     let config = Config::load(&args.config_file).await?;
+
+    if args.log_json {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_span_events(FmtSpan::CLOSE)
+            .json()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_span_events(FmtSpan::CLOSE)
+            .init();
+    }
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 
