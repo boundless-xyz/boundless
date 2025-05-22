@@ -14,7 +14,9 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_market::{input::GuestEnv, Client, Deployment, StorageProviderConfig};
+use boundless_market::{
+    input::GuestEnv, request_builder::OfferParams, Client, Deployment, StorageProviderConfig,
+};
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
 use risc0_ethereum_contracts::receipt::Receipt as ContractReceipt;
@@ -116,6 +118,8 @@ async fn run(args: Args) -> Result<()> {
     let identity_request = client
         .new_request()
         .with_program(IDENTITY_ELF)
+        // Set lock timeout to 20 minutes to allow this example to be run onn slower provers.
+        .with_offer(OfferParams::builder().lock_timeout(1200).timeout(1200))
         .with_env(GuestEnv::builder().write_frame(&postcard::to_allocvec(&identity_input)?));
 
     // Submit the request to the Boundless market
