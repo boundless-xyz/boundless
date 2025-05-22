@@ -69,7 +69,7 @@ test-db action="setup":
     fi
 
 # Run all formatting and linting checks
-check: check-links check-license check-format check-clippy
+check: check-links check-license check-format check-clippy check-docs
 
 # Check links in markdown files
 check-links:
@@ -122,6 +122,10 @@ check-clippy:
     forge build && \
     RUSTFLAGS=-Dwarnings ISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
+
+check-docs:
+    # Matches the docs-rs job in CI 
+    RUSTDOCFLAGS="--cfg docsrs -D warnings" RISC0_SKIP_BUILD=1 cargo +nightly-2025-01-03 doc -p boundless-market --all-features --no-deps
 
 # Format all code
 format:
