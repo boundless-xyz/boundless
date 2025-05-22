@@ -343,6 +343,7 @@ impl DefaultProver {
                 imageId: order.request.requirements.imageId,
                 journal: fills[i].journal.clone().into(),
                 seal: order_seal.into(),
+                deadline: order.request.offer.deadline(),
             };
 
             boundless_fills.push(fulfillment);

@@ -863,6 +863,7 @@ mod tests {
             imageId: B256::ZERO,
             journal: Bytes::default(),
             seal: Bytes::default(),
+            deadline: 0,
         };
 
         let prover_address = Address::ZERO;
