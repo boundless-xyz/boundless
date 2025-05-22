@@ -18,7 +18,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 
 [dev-dependencies]
-boundless-market = { workspace = true }
+boundless-market = { workspace = true, features = ["test-utils"] }
 broker = { workspace = true, features = ["test-utils"] }
 test-log = "0.2"
 
