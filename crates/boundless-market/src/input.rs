@@ -210,7 +210,7 @@ impl GuestEnvBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::GuestEnvBuilder;
+    /// use boundless_market::GuestEnv;
     ///
     /// let slice1 = [0, 1, 2, 3];
     /// let slice2 = [3, 2, 1, 0];
