@@ -581,6 +581,7 @@ mod tests {
         input::GuestEnv,
         storage::{fetch_url, MockStorageProvider, StorageProvider},
         util::NotProvided,
+        StandardRpcProvider, StandardStorageProvider,
     };
     use alloy_primitives::U256;
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
@@ -883,4 +884,10 @@ mod tests {
         let url = Url::parse("https://fileserver.example/guest.bin").unwrap();
         RequestParams::new().with_program_url(url).inspect_err(|e| match *e {}).unwrap();
     }
+
+    #[allow(dead_code)]
+    trait AssertSend: Send {}
+
+    // The StandardRequestBuilder must be Send such that a Client can be sent between threads.
+    impl AssertSend for StandardRequestBuilder<StandardRpcProvider, StandardStorageProvider> {}
 }

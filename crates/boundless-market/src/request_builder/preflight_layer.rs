@@ -17,8 +17,7 @@ use crate::contracts::{Input as RequestInput, InputType};
 use crate::input::GuestEnv;
 use crate::storage::fetch_url;
 use anyhow::{bail, ensure, Context};
-use risc0_zkvm::{default_executor, sha::Digestible, Executor, SessionInfo};
-use std::rc::Rc;
+use risc0_zkvm::{default_executor, sha::Digestible, SessionInfo};
 use url::Url;
 
 /// A layer that performs preflight execution of the guest program.
@@ -30,12 +29,12 @@ use url::Url;
 ///
 /// Running the program in advance allows for proper pricing estimation and
 /// verification configuration based on actual execution results.
+///
+/// Each time this layer is invoked, it created a new [Executor][risc0_zkvm::Executor] with
+/// [default_executor].
 #[non_exhaustive]
-#[derive(Clone)]
-pub struct PreflightLayer {
-    /// The executor implementation to use for running the guest program.
-    pub executor: Rc<dyn Executor>,
-}
+#[derive(Clone, Default)]
+pub struct PreflightLayer {}
 
 impl PreflightLayer {
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
@@ -53,21 +52,6 @@ impl PreflightLayer {
     }
 }
 
-impl Default for PreflightLayer {
-    fn default() -> Self {
-        Self { executor: default_executor() }
-    }
-}
-
-impl<E> From<E> for PreflightLayer
-where
-    E: Into<Rc<dyn Executor>>,
-{
-    fn from(executor: E) -> Self {
-        Self { executor: executor.into() }
-    }
-}
-
 impl Layer<(&Url, &RequestInput)> for PreflightLayer {
     type Output = SessionInfo;
     type Error = anyhow::Error;
@@ -78,7 +62,7 @@ impl Layer<(&Url, &RequestInput)> for PreflightLayer {
     ) -> anyhow::Result<Self::Output> {
         let program = fetch_url(program_url).await?;
         let env = self.fetch_env(input).await?;
-        let session_info = self.executor.execute(env.try_into()?, &program)?;
+        let session_info = default_executor().execute(env.try_into()?, &program)?;
         Ok(session_info)
     }
 }
