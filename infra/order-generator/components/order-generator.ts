@@ -17,7 +17,7 @@ interface OrderGeneratorArgs {
   boundlessMarketAddr: string;
   pinataGateway: string;
   interval: string;
-  lockStake: string;
+  lockStakeRaw: string;
   rampUp: string;
   minPricePerMCycle: string;
   maxPricePerMCycle: string;
@@ -173,7 +173,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
-              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lockin-stake ${args.lockStake} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle} --tx-timeout ${args.txTimeout}`,
+              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lock-stake-raw ${args.lockStakeRaw} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle} --tx-timeout ${args.txTimeout}`,
             ],
             environment,
             secrets,

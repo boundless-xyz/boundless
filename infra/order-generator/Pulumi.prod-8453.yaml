@@ -12,7 +12,7 @@ config:
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:INTERVAL: "300"
-  order-generator-base:LOCK_STAKE: "0.1"
+  order-generator-base:LOCK_STAKE_RAW: "500000" # $0.50 USDC
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
   order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0001"

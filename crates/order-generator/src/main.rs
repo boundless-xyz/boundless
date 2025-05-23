@@ -61,8 +61,8 @@ struct MainArgs {
     #[clap(long = "max", value_parser = parse_ether, default_value = "0.002")]
     max_price_per_mcycle: U256,
     /// Lockin stake amount in ether.
-    #[clap(short, long, value_parser = parse_ether, default_value = "0.0")]
-    lockin_stake: U256,
+    #[clap(short, long, default_value = "0")]
+    lock_stake_raw: U256,
     /// Number of seconds, from the current time, before the auction period starts.
     #[clap(long, default_value = "30")]
     bidding_start_delay: u64,
@@ -206,7 +206,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                     .ramp_up_period(args.ramp_up)
                     .lock_timeout(lock_timeout)
                     .timeout(timeout)
-                    .lock_stake(args.lockin_stake),
+                    .lock_stake(args.lock_stake_raw),
             );
 
         // Build the request, including preflight, and assigned the remaining fields.
@@ -304,7 +304,7 @@ mod tests {
             count: Some(2),
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
             max_price_per_mcycle: parse_ether("0.002").unwrap(),
-            lockin_stake: parse_ether("0.0").unwrap(),
+            lock_stake_raw: parse_ether("0.0").unwrap(),
             bidding_start_delay: 30,
             ramp_up: 0,
             timeout: 1000,
