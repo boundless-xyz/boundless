@@ -32,6 +32,7 @@ jobs:
       - foundry
       - examples
       - docker
+      - infra
       - rust-pkg-check
       - docs-rs
 
