@@ -32,8 +32,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use url::Url;
 
-const NEW_ORDER_CHANNEL_CAPACITY: usize = 100;
-const PRICING_CHANNEL_CAPACITY: usize = 100;
+const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
+const PRICING_CHANNEL_CAPACITY: usize = 1000;
 
 pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
