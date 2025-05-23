@@ -39,7 +39,7 @@ struct MainArgs {
     /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
     ///
     /// This parameter can only be set if order_stream_url is provided.
-    #[clap(long, env, value_parser = parse_ether, requires = "order_stream_url")]
+    #[clap(long, env, value_parser = parse_ether, requires = "submit_offchain")]
     auto_deposit: Option<U256>,
     /// Interval in seconds between requests.
     #[clap(short, long, default_value = "60")]
@@ -96,6 +96,11 @@ struct MainArgs {
     /// Boundless Market deployment configuration
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
+
+    /// Submit requests offchain.
+    #[clap(long)]
+    submit_offchain: bool,
+
     /// Storage provider to use.
     #[clap(flatten, next_help_heading = "Storage Provider")]
     storage_config: StorageProviderConfig,

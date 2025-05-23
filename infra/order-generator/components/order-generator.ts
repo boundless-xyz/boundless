@@ -30,6 +30,7 @@ interface OrderGeneratorArgs {
     orderStreamUrl: pulumi.Output<string>;
   };
   txTimeout: string;
+  submitOffchain: boolean;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -173,7 +174,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
-              `/app/boundless-order-generator --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lock-stake-raw ${args.lockStakeRaw} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle} --tx-timeout ${args.txTimeout}`,
+              `/app/boundless-order-generator ${args.submitOffchain ? '--submit-offchain' : ''} --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lock-stake-raw ${args.lockStakeRaw} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle} --tx-timeout ${args.txTimeout}`,
             ],
             environment,
             secrets,
