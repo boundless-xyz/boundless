@@ -24,7 +24,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       privSubNetIds: pulumi.Output<string[]>;
       pubSubNetIds: pulumi.Output<string[]>;
       githubTokenSecret?: pulumi.Output<string>;
-      minBalance: string;
+      minBalanceRaw: string;
       boundlessAddress: string;
       vpcId: pulumi.Output<string>;
       rdsPassword: pulumi.Output<string>;
@@ -46,7 +46,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       privSubNetIds,
       pubSubNetIds,
       githubTokenSecret,
-      minBalance,
+      minBalanceRaw,
       boundlessAddress,
       vpcId,
       rdsPassword,
@@ -450,8 +450,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
             ethRpcUrl,
             '--boundless-market-address',
             boundlessAddress,
-            '--min-balance',
-            minBalance,
+            '--min-balance-raw',
+            minBalanceRaw,
             '--bypass-addrs',
             bypassAddrs,
             '--domain',

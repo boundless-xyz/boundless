@@ -539,26 +539,26 @@ export const alarmConfig: ChainStageAlarms = {
         // Expired and slashed requests are not necessarily problems with the market. We keep these at low threshold
         // just during the initial launch for monitoring purposes.
         expiredRequests: [{
-          description: "greater than 2 expired orders in 30 minutes",
+          description: "greater than 15 expired orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 900,
+            period: 3600,
           },
           alarmConfig: {
-            threshold: 2,
+            threshold: 15,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",
           }
         }],
         slashedRequests: [{
-          description: "greater than 2 slashed orders in 30 minutes",
+          description: "greater than 15 slashed orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 900,
+            period: 3600,
           },
           alarmConfig: {
-            threshold: 2,
+            threshold: 15,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",
@@ -771,26 +771,26 @@ export const alarmConfig: ChainStageAlarms = {
         // Expired and slashed requests are not necessarily problems with the market. We keep these at low threshold
         // just during the initial launch for monitoring purposes.
         expiredRequests: [{
-          description: "greater than 2 expired orders in 30 minutes",
+          description: "greater than 15 expired orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800,
+            period: 3600,
           },
           alarmConfig: {
-            threshold: 2,
+            threshold: 15,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",
           }
         }],
         slashedRequests: [{
-          description: "greater than 2 slashed orders in 30 minutes",
+          description: "greater than 15 slashed orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800,
+            period: 3600,
           },
           alarmConfig: {
-            threshold: 2,
+            threshold: 15,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",

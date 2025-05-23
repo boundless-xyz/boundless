@@ -419,7 +419,24 @@ cat > /opt/aws/amazon-cloudwatch-agent/bin/config.json << 'EOF'
                     {
                         "file_path": "/local/docker/containers/*/*.log",
                         "log_group_name": "${name}",
-                        "log_stream_name": "${name}"
+                        "log_stream_name": "${name}",
+                        "filters": [
+                            {
+                                "type": "include",
+                                "expression": "broker"
+                            }
+                        ]
+                    },
+                    {
+                        "file_path": "/local/docker/containers/*/*.log",
+                        "log_group_name": "${name}/bento",
+                        "log_stream_name": "${name}/bento",
+                        "filters": [
+                            {
+                                "type": "exclude",
+                                "expression": "broker"
+                            }
+                        ]
                     }
                 ]
             }

@@ -7,7 +7,7 @@ config:
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
-  order-stream:MIN_BALANCE: "0.0010"
+  order-stream:MIN_BALANCE_RAW: "5000000"
   order-stream:ORDER_STREAM_PING_TIME: "100"
   order-stream:ETH_RPC_URL:
     secure: v1:BmDPg7C3ZPG1qfGx:LcvkKGyImYzT3zW8vxTe7ehtZWicVxDaMUFuBGaQjv/kjEH8pgb6UaDsXszBni+0SxDIasxdLxkEEnx0kpBmNHMtqPvVcQ7IWj6ogezq+iKdT4ieWXE=

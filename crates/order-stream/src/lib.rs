@@ -121,9 +121,9 @@ pub struct Args {
     #[clap(long, env)]
     boundless_market_address: Address,
 
-    /// Minimum stake balance required to connect to the WebSocket
-    #[clap(long, value_parser = parse_ether)]
-    min_balance: U256,
+    /// Minimum stake balance, in raw units, required to connect to the WebSocket
+    #[clap(long)]
+    min_balance_raw: U256,
 
     /// Maximum number of WebSocket connections
     #[clap(long, default_value = "100")]
@@ -294,7 +294,7 @@ impl From<&Args> for Config {
         Self {
             rpc_url: args.rpc_url.clone(),
             market_address: args.boundless_market_address,
-            min_balance: args.min_balance,
+            min_balance: args.min_balance_raw,
             max_connections: args.max_connections,
             queue_size: args.queue_size,
             domain: args.domain.clone(),
