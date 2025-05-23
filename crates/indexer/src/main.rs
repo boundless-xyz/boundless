@@ -43,14 +43,14 @@ async fn main() -> Result<()> {
 
     if args.log_json {
         tracing_subscriber::fmt()
-        .with_ansi(false)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .json()
-        .init();
+            .with_ansi(false)
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .json()
+            .init();
     } else {
         tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
     }
 
     match dotenvy::dotenv() {
@@ -58,7 +58,6 @@ async fn main() -> Result<()> {
         Err(e) if e.not_found() => tracing::debug!("No .env file found"),
         Err(e) => bail!("failed to load .env file: {}", e),
     }
-
 
     let mut indexer_service = IndexerService::new(
         args.rpc_url.clone(),
