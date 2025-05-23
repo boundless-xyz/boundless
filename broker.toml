@@ -44,7 +44,7 @@ max_file_size = 50_000_000
 # Max concurrent locks
 #
 # Maximum number of concurrent proofs that can be processed at once
-max_concurrent_proofs = 200
+max_concurrent_proofs = 2
 # Max critical task retries on recoverable failures.
 #
 # The broker service has a number of subtasks. Some are considered critical. If a task fails, it
