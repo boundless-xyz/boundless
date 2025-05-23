@@ -474,67 +474,58 @@ where
     }
 
     async fn lock_and_prove_orders(&self, orders: &[Arc<OrderRequest>]) -> Result<()> {
-        let mut processed_any = false;
-
-        // Process new orders
-        for order in orders {
-            // Process the order
-            let order_id = order.id();
-            if order.fulfillment_type == FulfillmentType::LockAndFulfill {
-                let request_id = order.request.id;
-                match self.lock_order(order).await {
-                    Ok(lock_price) => {
-                        tracing::info!("Locked request: {request_id}");
-                        if let Err(err) = self.db.insert_accepted_request(order, lock_price).await {
-                            tracing::error!(
-                                "FATAL STAKE AT RISK: {} failed to move from locking -> proving status {}",
-                                order_id,
-                                err
-                            );
-                        } else {
-                            processed_any = true;
-                        }
-                    }
-                    Err(ref err) => {
-                        match err {
-                            OrderMonitorErr::UnexpectedError(inner) => {
+        let lock_jobs = orders.iter().map(|order| {
+            async move {
+                let order_id = order.id();
+                if order.fulfillment_type == FulfillmentType::LockAndFulfill {
+                    let request_id = order.request.id;
+                    match self.lock_order(order).await {
+                        Ok(lock_price) => {
+                            tracing::info!("Locked request: {request_id}");
+                            if let Err(err) = self.db.insert_accepted_request(order, lock_price).await {
                                 tracing::error!(
-                                    "Failed to lock order: {order_id} - {} - {inner:?}",
-                                    err.code()
-                                );
-                            }
-                            _ => {
-                                tracing::warn!(
-                                    "Soft failed to lock request: {request_id} - {} - {err:?}",
-                                    err.code()
+                                    "FATAL STAKE AT RISK: {} failed to move from locking -> proving status {}",
+                                    order_id,
+                                    err
                                 );
                             }
                         }
-                        if let Err(err) = self.db.insert_skipped_request(order).await {
-                            tracing::error!(
-                                "Failed to set DB failure state for order: {order_id} - {err:?}"
-                            );
+                        Err(ref err) => {
+                            match err {
+                                OrderMonitorErr::UnexpectedError(inner) => {
+                                    tracing::error!(
+                                        "Failed to lock order: {order_id} - {} - {inner:?}",
+                                        err.code()
+                                    );
+                                }
+                                _ => {
+                                    tracing::warn!(
+                                        "Soft failed to lock request: {request_id} - {} - {err:?}",
+                                        err.code()
+                                    );
+                                }
+                            }
+                            if let Err(err) = self.db.insert_skipped_request(order).await {
+                                tracing::error!(
+                                    "Failed to set DB failure state for order: {order_id} - {err:?}"
+                                );
+                            }
                         }
                     }
-                }
-                self.lock_and_prove_cache.invalidate(&order_id).await;
-            } else {
-                if let Err(err) = self.db.insert_accepted_request(order, U256::ZERO).await {
-                    tracing::error!(
-                        "Failed to set order status to pending proving: {} - {err:?}",
-                        order_id
-                    );
+                    self.lock_and_prove_cache.invalidate(&order_id).await;
                 } else {
-                    processed_any = true;
+                    if let Err(err) = self.db.insert_accepted_request(order, U256::ZERO).await {
+                        tracing::error!(
+                            "Failed to set order status to pending proving: {} - {err:?}",
+                            order_id
+                        );
+                    }
+                    self.prove_cache.invalidate(&order_id).await;
                 }
-                self.prove_cache.invalidate(&order_id).await;
             }
-        }
+        });
 
-        // Log results
-        if !processed_any && !orders.is_empty() {
-            tracing::warn!("No new orders processed.");
-        }
+        futures::future::join_all(lock_jobs).await;
 
         Ok(())
     }
