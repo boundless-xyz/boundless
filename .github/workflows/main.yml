@@ -440,11 +440,16 @@ jobs:
 
       - name: Run build for changed packages
         run: |
-          for dir in $(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | grep "^infra/" | xargs -I{} dirname {} | sort -u); do
-            cd $dir
-            npm install
-            npm run build
-            cd -
+          for file in $(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | grep "^infra/"); do
+            # Get the package directory (the directory containing package.json)
+            package_dir=$(dirname "$file")
+            if [ -f "$package_dir/package.json" ]; then
+              echo "Building package in $package_dir"
+              cd "$package_dir"
+              npm install
+              npm run build
+              cd -
+            fi
           done
 
   files-changed:
