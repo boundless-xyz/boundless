@@ -419,6 +419,37 @@ jobs:
       - name: docker compose build
         run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
 
+  infra:
+    runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    needs: files-changed
+    if: needs.files-changed.outputs.infra == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Pulumi
+        uses: pulumi/setup-pulumi@v2
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v39
+        with:
+          files: |
+            infra/**
+
+      - name: Run Pulumi preview for changed packages
+        run: |
+          for dir in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            if [[ $dir == infra/* ]]; then
+              cd $(dirname $dir)
+              pulumi login --local
+              pulumi preview --yes
+              cd -
+            fi
+          done
+
   files-changed:
     runs-on: ubuntu-latest
     outputs:
@@ -426,6 +457,7 @@ jobs:
       main:      ${{ steps.changes.outputs.main }}
       examples:  ${{ steps.changes.outputs.examples }}
       docs:      ${{ steps.changes.outputs.docs }}
+      infra:     ${{ steps.changes.outputs.infra }}
 
     steps:
       - name: checkout code
@@ -456,4 +488,7 @@ jobs:
               - 'crates/**'
               - 'contracts/**'
               - 'documentation/**'
+            # Changes to infrastructure code
+            infra:
+              - 'infra/**'
 
