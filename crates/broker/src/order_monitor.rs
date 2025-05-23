@@ -712,8 +712,8 @@ where
                         proof_time_seconds,
                         completion_time
                     );
-                    // Set order to skipped in DB and continue.
-                    self.skip_order(&order, "peak KHz limit: completion past expiration").await;
+                    // Note: this skips processing this order now, but does not remove it and skip
+                    // it in the db, to allow it to be picked up once capacity freed up.
                     continue;
                 }
 
