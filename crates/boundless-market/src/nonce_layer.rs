@@ -47,6 +47,7 @@ where
     F: TxFiller<Ethereum>,
     P: Provider<Ethereum> + Send + Sync,
 {
+	/// Construct a new provider with the inner filler and wallet.
     pub fn new(inner: FillProvider<F, P, Ethereum>, wallet: EthereumWallet) -> Self {
         Self {
             inner: Arc::new(inner),
