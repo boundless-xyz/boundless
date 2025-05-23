@@ -1380,7 +1380,7 @@ mod tests {
 
         // Count processed orders
         let mut processed_count = 0;
-        for order in orders {
+        for order in filtered_orders {
             if let Some(order) = ctx.db.get_order(&order.id()).await.unwrap() {
                 processed_count += 1;
                 assert_eq!(order.status, OrderStatus::PendingProving);
@@ -1431,7 +1431,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(orders.len(), 0);
+        assert_eq!(filtered_orders.len(), 0);
         assert!(logs_contain("cannot be completed before its expiration"));
         assert!(logs_contain("Started with 2 orders"));
         assert!(logs_contain("filtered to 0 orders: []"));
