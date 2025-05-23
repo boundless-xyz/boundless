@@ -435,21 +435,22 @@ jobs:
 
       - name: Get changed files
         id: changed-files
-        uses: tj-actions/changed-files@v39
+        uses: dorny/paths-filter@v3.0.0
         with:
-          files: |
-            infra/**
+          filters: |
+            infra-changes:
+              - 'infra/**'
 
       - name: Run Pulumi preview for changed packages
         run: |
-          for dir in ${{ steps.changed-files.outputs.all_changed_files }}; do
-            if [[ $dir == infra/* ]]; then
-              cd $(dirname $dir)
+          if [[ "${{ steps.changed-files.outputs.infra-changes }}" == "true" ]]; then
+            for dir in $(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep "^infra/" | xargs -I{} dirname {} | sort -u); do
+              cd $dir
               pulumi login --local
               pulumi preview --yes
               cd -
-            fi
-          done
+            done
+          fi
 
   files-changed:
     runs-on: ubuntu-latest
