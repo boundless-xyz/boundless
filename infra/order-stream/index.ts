@@ -8,11 +8,11 @@ export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  
+
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
   const chainId = isDev ? getEnvVar("CHAIN_ID") : config.require('CHAIN_ID');
-  
+
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const dockerDir = config.require('DOCKER_DIR');
   const dockerTag = config.require('DOCKER_TAG');
@@ -40,7 +40,7 @@ export = () => {
     orderStreamPingTime,
     privSubNetIds,
     pubSubNetIds,
-    minBalance,
+    minBalanceRaw,
     githubTokenSecret,
     boundlessAddress,
     bypassAddrs,
