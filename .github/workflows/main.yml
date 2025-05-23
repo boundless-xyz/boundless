@@ -433,12 +433,12 @@ jobs:
       - name: Install Pulumi
         uses: pulumi/setup-pulumi@v2
 
-      - name: Run Pulumi preview for changed packages
+      - name: Run build for changed packages
         run: |
           for dir in $(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | grep "^infra/" | xargs -I{} dirname {} | sort -u); do
             cd $dir
-            pulumi login --local
-            pulumi preview
+            npm install
+            npm run build
             cd -
           done
 

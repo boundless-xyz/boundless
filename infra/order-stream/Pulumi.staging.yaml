@@ -1,5 +1,3 @@
-secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
-encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAHtr8teNb0/7Lg/Tm/X0vsDAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM25ECvR4QS8hDmELeAgEQgDvCxRxFXZ2CR5qk3YJ7/30fSy77uQQl1rwBT3P3Tx0DzRTuQUMx14qEWGt/k3CB8O8EOp7Xw2CehaFs3g==
 config:
   aws:region: us-west-2
   order-stream:BASE_STACK: organization/bootstrap/services-staging
@@ -16,3 +14,4 @@ config:
   order-stream:CHAIN_ID: "11155111"
   order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+encryptionsalt: v1:yffl8Jq5xhM=:v1:xffriD5dbdinG0r5:q+R+pGJAJ7sh85hYqMA7nBdKKU3OqQ==
