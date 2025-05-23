@@ -291,6 +291,7 @@ where
     async fn get_proving_order_capacity(
         &self,
         max_concurrent_proofs: Option<u32>,
+        previous_capacity_log: &mut String,
     ) -> Result<Capacity, OrderMonitorErr> {
         if max_concurrent_proofs.is_none() {
             return Ok(Capacity::Unlimited);
@@ -304,13 +305,17 @@ where
             .map_err(|e| OrderMonitorErr::UnexpectedError(e.into()))?;
         let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
 
-        self.log_capacity(committed_orders, max).await;
+        Self::log_capacity(previous_capacity_log, committed_orders, max).await;
 
         let available_slots = max.saturating_sub(committed_orders_count);
         Ok(Capacity::Proving(available_slots))
     }
 
-    async fn log_capacity(&self, commited_orders: Vec<Order>, max: u32) {
+    async fn log_capacity(
+        previous_capacity_log: &mut String,
+        commited_orders: Vec<Order>,
+        max: u32,
+    ) {
         let committed_orders_count: u32 = commited_orders.len().try_into().unwrap();
         let request_id_and_status = commited_orders
             .iter()
@@ -328,8 +333,12 @@ where
             })
             .collect::<Vec<_>>();
 
-        let capacity_debug_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
-        tracing::info!("{}", capacity_debug_log);
+        let capacity_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
+
+        if *previous_capacity_log != capacity_log {
+            tracing::info!("{}", capacity_log);
+            *previous_capacity_log = capacity_log;
+        }
     }
 
     /// Helper method to skip an order in the database and invalidate the appropriate cache
@@ -569,10 +578,12 @@ where
         orders: Vec<Arc<OrderRequest>>,
         max_concurrent_proofs: Option<u32>,
         peak_prove_khz: Option<u64>,
+        previous_capacity_log: &mut String,
     ) -> Result<Vec<Arc<OrderRequest>>> {
         let num_orders = orders.len();
         // Get our current capacity for proving orders given our config and the number of orders that are currently committed to be proven + fulfilled.
-        let capacity = self.get_proving_order_capacity(max_concurrent_proofs).await?;
+        let capacity =
+            self.get_proving_order_capacity(max_concurrent_proofs, previous_capacity_log).await?;
         let capacity_granted = capacity
             .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"));
 
@@ -769,6 +780,7 @@ where
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut new_orders = self.priced_order_rx.lock().await;
+        let mut previous_capacity_debug_log = String::new();
 
         loop {
             tokio::select! {
@@ -821,6 +833,7 @@ where
                                 valid_orders,
                                 max_concurrent_proofs,
                                 peak_prove_khz,
+                                &mut previous_capacity_debug_log,
                             )
                             .await?;
 
@@ -1304,8 +1317,11 @@ mod tests {
         ctx.config.load_write().unwrap().market.max_concurrent_proofs = None;
 
         // Process all orders with unlimited capacity
-        let filtered_orders =
-            ctx.monitor.apply_capacity_limits(orders.clone(), None, None).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(orders.clone(), None, None, &mut String::new())
+            .await
+            .unwrap();
         let result = ctx.monitor.lock_and_prove_orders(&filtered_orders).await;
         assert!(result.is_ok(), "lock_and_prove_orders should succeed");
 
@@ -1355,8 +1371,12 @@ mod tests {
         }
 
         // Process orders with limited capacity
-        let orders = ctx.monitor.apply_capacity_limits(orders, Some(3), None).await.unwrap();
-        ctx.monitor.lock_and_prove_orders(&orders).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(orders, Some(3), None, &mut String::new())
+            .await
+            .unwrap();
+        ctx.monitor.lock_and_prove_orders(&filtered_orders).await.unwrap();
 
         // Count processed orders
         let mut processed_count = 0;
@@ -1405,7 +1425,11 @@ mod tests {
         order2.total_cycles = Some(100);
         orders.push(Arc::from(order2));
 
-        let orders = ctx.monitor.apply_capacity_limits(orders, None, Some(100)).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(orders, None, Some(100), &mut String::new())
+            .await
+            .unwrap();
 
         assert_eq!(orders.len(), 0);
         assert!(logs_contain("cannot be completed before its expiration"));
@@ -1441,8 +1465,11 @@ mod tests {
             ctx.market_service.submit_request(&order2.request, &ctx.signer).await.unwrap();
         candidate_orders.push(Arc::from(order2));
 
-        let filtered_orders =
-            ctx.monitor.apply_capacity_limits(candidate_orders, None, Some(1)).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(candidate_orders, None, Some(1), &mut String::new())
+            .await
+            .unwrap();
 
         assert_eq!(filtered_orders[0].total_cycles, Some(2000));
         assert_eq!(filtered_orders[0].id(), order2_id);
@@ -1482,7 +1509,11 @@ mod tests {
             .unwrap();
 
         let orders = vec![Arc::from(lock_and_fulfill_order), Arc::from(fulfill_only_order)];
-        let filtered_orders = ctx.monitor.apply_capacity_limits(orders, None, None).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(orders, None, None, &mut String::new())
+            .await
+            .unwrap();
         let result = ctx.monitor.lock_and_prove_orders(&filtered_orders).await;
         assert!(result.is_ok(), "lock_and_prove_orders should succeed");
 
@@ -1519,8 +1550,11 @@ mod tests {
             orders.push(Arc::from(order));
         }
 
-        let filtered_orders =
-            ctx.monitor.apply_capacity_limits(orders, None, Some(100)).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(orders, None, Some(100), &mut String::new())
+            .await
+            .unwrap();
 
         println!("filtered_orders: {:?}", filtered_orders);
         // 100khz can prove 1m+2m+3m+4m (10m) cycles in 100 seconds
@@ -1547,8 +1581,11 @@ mod tests {
         let mut orders = vec![Arc::from(incoming_order)];
 
         // Should be able to have enough gas for 1 lock and fulfill
-        let filtered_orders =
-            ctx.monitor.apply_capacity_limits(orders.clone(), None, None).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(orders.clone(), None, None, &mut String::new())
+            .await
+            .unwrap();
         assert_eq!(filtered_orders.len(), 1);
 
         orders.push(Arc::from(
@@ -1556,8 +1593,11 @@ mod tests {
         ));
 
         // Should still only be able to have enough gas for 1 lock and fulfill
-        let filtered_orders =
-            ctx.monitor.apply_capacity_limits(orders.clone(), None, None).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(orders.clone(), None, None, &mut String::new())
+            .await
+            .unwrap();
         assert_eq!(filtered_orders.len(), 1);
 
         for _ in 0..3 {
@@ -1572,7 +1612,11 @@ mod tests {
         }
 
         // Process the order - with insufficient balance for committed orders
-        let filtered_orders = ctx.monitor.apply_capacity_limits(orders, None, None).await.unwrap();
+        let filtered_orders = ctx
+            .monitor
+            .apply_capacity_limits(orders, None, None, &mut String::new())
+            .await
+            .unwrap();
 
         assert!(filtered_orders.is_empty());
     }
