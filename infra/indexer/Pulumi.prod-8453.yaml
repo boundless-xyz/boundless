@@ -14,6 +14,6 @@ config:
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
   #indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
-  indexer:RUST_LOG: debug
+  indexer:RUST_LOG: "indexer_monitor=debug"
   #indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   indexer:START_BLOCK: "30531354"

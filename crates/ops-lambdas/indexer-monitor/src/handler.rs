@@ -49,24 +49,33 @@ impl Config {
     }
 }
 
+/// Helper function to debug log request counts only when count > 0
+fn debug_requests_if_any(metric_time: &str, count: usize, requests: &[String], message: &str) {
+    if count > 0 {
+        debug!(metric_time, count, requests = ?requests, "{}", message);
+    }
+}
+
 /// Main Lambda handler function
 #[instrument(skip_all, err)]
 pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
-    debug!("Lambda function started");
-
     let config = Config::from_env()?;
-
     let event = event.payload;
-    debug!(?event, "Received event");
+    debug!(?event, "Lambda function started");
 
     let monitor = Monitor::new(&config.db_url).await.context("Failed to create monitor")?;
 
     let now = Utc::now().timestamp();
+    let now_str = chrono::DateTime::from_timestamp(now, 0).unwrap().to_rfc3339();
     let start_time = monitor.get_last_run().await.context("Failed to get last run time")?;
+    let start_time_str = chrono::DateTime::from_timestamp(start_time, 0).unwrap().to_rfc3339();
 
     let mut metrics = vec![];
 
-    debug!(start_time, now, "Fetching metrics from {start_time} to {now}");
+    debug!(
+        start_time,
+        now, "Fetching metrics from {start_time_str} [{start_time}] to {now_str} [{now}]"
+    );
 
     let expired = monitor
         .fetch_requests_expired(start_time, now)
@@ -74,13 +83,13 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .context("Failed to fetch expired requests")?;
 
     let expired_count = expired.len();
-    debug!(count = expired_count, requests = ?expired, "Found {expired_count} expired requests");
+    debug_requests_if_any(&now_str, expired_count, &expired, "Found expired request(s)");
     metrics.push(new_metric("expired_requests_number", expired_count as f64, now));
 
     let requests =
         monitor.fetch_requests(start_time, now).await.context("Failed to fetch requests number")?;
     let requests_count = requests.len();
-    debug!(count = requests_count, requests = ?requests, "Found {requests_count} requests");
+    debug_requests_if_any(&now_str, requests_count, &requests, "Found request(s)");
     metrics.push(new_metric("requests_number", requests_count as f64, now));
 
     let fulfillments = monitor
@@ -88,7 +97,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .await
         .context("Failed to fetch fulfilled requests number")?;
     let fulfillment_count = fulfillments.len();
-    debug!(count = fulfillment_count, requests = ?fulfillments, "Found {fulfillment_count} fulfilled requests");
+    debug_requests_if_any(&now_str, fulfillment_count, &fulfillments, "Found fulfilled request(s)");
     metrics.push(new_metric("fulfilled_requests_number", fulfillment_count as f64, now));
 
     let slashed = monitor
@@ -96,11 +105,11 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         .await
         .context("Failed to fetch slashed requests number")?;
     let slashed_count = slashed.len();
-    debug!(count = slashed_count, requests = ?slashed, "Found {slashed_count} slashed requests");
+    debug_requests_if_any(&now_str, slashed_count, &slashed, "Found slashed request(s)");
     metrics.push(new_metric("slashed_requests_number", slashed_count as f64, now));
 
     for client in event.clients {
-        debug!(client, "Processing client");
+        debug!(client, "Processing client {client}");
         let address = Address::from_str(&client).context("Failed to parse client address")?;
 
         let expired_requests = monitor
@@ -108,7 +117,12 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .await
             .context("Failed to fetch expired requests for client {client}")?;
         let expired_count = expired_requests.len();
-        debug!(count = expired_count, requests = ?expired_requests, "Found {expired_count} expired requests for client {client}");
+        debug_requests_if_any(
+            &now_str,
+            expired_count,
+            &expired_requests,
+            &format!("Found expired request(s) for client {client}"),
+        );
         metrics.push(new_metric(
             &format!("expired_requests_number_from_{client}"),
             expired_count as f64,
@@ -120,7 +134,12 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .await
             .context("Failed to fetch requests number for client {client}")?;
         let requests_count = requests.len();
-        debug!(count = requests_count, requests = ?requests, "Found {requests_count} requests for client {client}");
+        debug_requests_if_any(
+            &now_str,
+            requests_count,
+            &requests,
+            &format!("Found request(s) for client {client}"),
+        );
         metrics.push(new_metric(
             &format!("requests_number_from_{client}"),
             requests_count as f64,
@@ -132,7 +151,12 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .await
             .context("Failed to fetch fulfilled requests number for client {client}")?;
         let fulfilled_count = fulfilled.len();
-        debug!(count = fulfilled_count, requests = ?fulfilled, "Found {fulfilled_count} fulfilled requests for client {client}");
+        debug_requests_if_any(
+            &now_str,
+            fulfilled_count,
+            &fulfilled,
+            &format!("Found fulfilled request(s) for client {client}"),
+        );
         metrics.push(new_metric(
             &format!("fulfilled_requests_number_from_{client}"),
             fulfilled_count as f64,
@@ -141,7 +165,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     }
 
     for prover in event.provers {
-        debug!(prover, "Processing prover");
+        debug!(prover, "Processing prover {prover}");
 
         let address = Address::from_str(&prover).context("Failed to parse prover address")?;
 
@@ -150,7 +174,12 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .await
             .context("Failed to fetch fulfilled requests number by prover {prover}")?;
         let fulfilled_count = fulfilled.len();
-        debug!(count = fulfilled_count, requests = ?fulfilled, "Found {fulfilled_count} fulfilled requests for prover {prover}");
+        debug_requests_if_any(
+            &now_str,
+            fulfilled_count,
+            &fulfilled,
+            &format!("Found fulfilled request(s) for prover {prover}"),
+        );
         metrics.push(new_metric(
             &format!("fulfilled_requests_number_by_{prover}"),
             fulfilled_count as f64,
@@ -162,7 +191,12 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .await
             .context("Failed to fetch locked requests number by prover {prover}")?;
         let locked_count = locked.len();
-        debug!(count = locked_count, requests = ?locked, "Found {locked_count} locked requests for prover {prover}");
+        debug_requests_if_any(
+            &now_str,
+            locked_count,
+            &locked,
+            &format!("Found locked request(s) for prover {prover}"),
+        );
         metrics.push(new_metric(
             &format!("locked_requests_number_by_{prover}"),
             locked_count as f64,
@@ -174,7 +208,12 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
             .await
             .context("Failed to fetch slashed requests number by prover {prover}")?;
         let slashed_count = slashed.len();
-        debug!(count = slashed_count, requests = ?slashed, "Found {slashed_count} slashed requests for prover {prover}");
+        debug_requests_if_any(
+            &now_str,
+            slashed_count,
+            &slashed,
+            &format!("Found slashed request(s) for prover {prover}"),
+        );
         metrics.push(new_metric(
             &format!("slashed_requests_number_by_{prover}"),
             slashed_count as f64,
@@ -182,7 +221,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         ));
     }
 
-    debug!("Publishing metrics to CloudWatch");
+    debug!(metric_time = now_str, "Publishing metrics to CloudWatch with time: {now_str}");
     publish_metric(&config.region, &config.namespace, metrics).await?;
 
     debug!("Updating last run time: {now}");

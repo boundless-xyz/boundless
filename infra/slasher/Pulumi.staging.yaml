@@ -18,3 +18,4 @@ config:
   slasher:ETH_RPC_URL:
     secure: v1:Hj/bfCVDhATl+X8L:7F0bJRV5f7CJsXKzLNN0izCjtnExs8yM5+We/KnPBeMLHp0DJMjzm8i/7cTcLBAc6Bfi7v+v/T2zO5LsXLe6K3wIqJHaJwiX9A+jvXQuBDT5bkAexw==
   slasher:CHAIN_ID: "11155111"
+  slasher:TX_TIMEOUT: "120"

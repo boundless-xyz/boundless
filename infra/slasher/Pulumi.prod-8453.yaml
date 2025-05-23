@@ -18,3 +18,4 @@ config:
   slasher:RETRIES: "5"
   slasher:SKIP_ADDRESSES: ""
   #slasher:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic"
+  slasher:TX_TIMEOUT: "60"

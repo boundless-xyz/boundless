@@ -4,7 +4,6 @@
 
 use indexer_monitor::handler::function_handler;
 use lambda_runtime::{run, service_fn, Error};
-use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -13,7 +12,7 @@ async fn main() -> Result<(), Error> {
         .with_ansi(false)
         .with_target(false)
         .with_line_number(true)
-        .with_span_events(FmtSpan::CLOSE)
+        .without_time()
         .json()
         .init();
 
