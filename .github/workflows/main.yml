@@ -438,7 +438,7 @@ jobs:
           for dir in $(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | grep "^infra/" | xargs -I{} dirname {} | sort -u); do
             cd $dir
             pulumi login --local
-            pulumi preview --yes
+            pulumi preview
             cd -
           done
 
