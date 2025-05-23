@@ -766,6 +766,7 @@ where
             tokio::time::Instant::now(),
             tokio::time::Duration::from_secs(self.block_time),
         );
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut new_orders = self.priced_order_rx.lock().await;
 
