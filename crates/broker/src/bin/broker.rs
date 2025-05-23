@@ -14,7 +14,7 @@ use boundless_market::{
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
     contracts::boundless_market::BoundlessMarketService,
     dynamic_gas_filler::DynamicGasFiller,
-    mutex_layer::MutexLayer,
+    nonce_layer::NonceLayer,
 };
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
             .transpose()?,
     });
 
-    let mutex_layer = MutexLayer::default();
+    let nonce_layer = NonceLayer::default();
     let dynamic_gas_filler = DynamicGasFiller::new(
         0.2,  // 20% increase of gas limit
         0.05, // 5% increase of gas_price per pending transaction
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
         .filler(dynamic_gas_filler)
         .wallet(wallet)
         .layer(balance_alerts_layer)
-        .layer(mutex_layer)
+        .layer(nonce_layer)
         .with_chain(NamedChain::Sepolia)
         .connect_client(client);
 

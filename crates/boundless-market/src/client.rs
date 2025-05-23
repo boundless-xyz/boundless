@@ -45,7 +45,7 @@ use crate::{
         ProofRequest, RequestError,
     },
     dynamic_gas_filler::DynamicGasFiller,
-    mutex_layer::{MutexLayer, MutexProvider},
+    nonce_layer::{NonceLayer, NonceProvider},
     now_timestamp,
     order_stream_client::{Client as OrderStreamClient, Order},
     storage::{
@@ -68,7 +68,7 @@ type ProviderWallet = FillProvider<
         >,
         WalletFiller<EthereumWallet>,
     >,
-    BalanceAlertProvider<MutexProvider<RootProvider>>,
+    BalanceAlertProvider<NonceProvider<RootProvider>>,
 >;
 
 #[derive(thiserror::Error, Debug)]
@@ -576,7 +576,7 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
             .filler(dynamic_gas_filler)
             .wallet(wallet)
             .layer(BalanceAlertLayer::default())
-            .layer(MutexLayer::default())
+            .layer(NonceLayer::default())
             .connect_http(rpc_url);
 
         let boundless_market =
@@ -634,7 +634,7 @@ impl<P: StorageProvider> Client<ProviderWallet, P> {
             .filler(dynamic_gas_filler)
             .wallet(wallet)
             .layer(BalanceAlertLayer::new(balance_alerts.unwrap_or_default()))
-            .layer(MutexLayer::default())
+            .layer(NonceLayer::default())
             .connect_http(rpc_url);
 
         let boundless_market =

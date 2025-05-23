@@ -35,7 +35,7 @@ use boundless_market::{
         hit_points::{default_allowance, HitPointsService},
         AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
     },
-    mutex_layer::MutexLayer,
+    nonce_layer::NonceLayer,
 };
 use risc0_aggregation::{
     merkle_path, merkle_root, GuestState, SetInclusionReceipt,
@@ -362,30 +362,27 @@ pub async fn create_test_ctx_with_rpc_url(
     let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
     let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
-    let nonce_queue_layer = MutexLayer::default();
+    let nonce_queue_layer = NonceLayer::default();
     let prover_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_simple_nonce_management()
         .layer(nonce_queue_layer)
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)
         .wallet(EthereumWallet::from(prover_signer.clone()))
         .connect(rpc_url)
         .await?;
-    let nonce_queue_layer = MutexLayer::default();
+    let nonce_queue_layer = NonceLayer::default();
     let customer_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_simple_nonce_management()
         .layer(nonce_queue_layer)
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)
         .wallet(EthereumWallet::from(customer_signer.clone()))
         .connect(rpc_url)
         .await?;
-    let nonce_queue_layer = MutexLayer::default();
+    let nonce_queue_layer = NonceLayer::default();
     let verifier_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
-        .with_simple_nonce_management()
         .layer(nonce_queue_layer)
         .filler(ChainIdFiller::default())
         .filler(TestGasFiller)

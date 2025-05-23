@@ -45,8 +45,8 @@ pub mod input;
 pub mod order_stream_client;
 
 #[cfg(not(target_os = "zkvm"))]
-/// A ProviderLayer and nonce manager module.
-pub mod mutex_layer;
+/// A ProviderLayer module for managing nonces with semaphores.
+pub mod nonce_layer;
 #[cfg(not(target_os = "zkvm"))]
 /// Selector module implementing utility functions for supported selectors.
 pub mod selector;
