@@ -19,7 +19,7 @@ export = () => {
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const bypassAddrs = config.require('BYPASS_ADDRS');
   const boundlessAddress = config.require('BOUNDLESS_ADDRESS');
-  const minBalance = config.require('MIN_BALANCE');
+  const minBalanceRaw = config.require('MIN_BALANCE_RAW');
   const baseStackName = config.require('BASE_STACK');
   const orderStreamPingTime = config.requireNumber('ORDER_STREAM_PING_TIME');
   const albDomain = config.getSecret('ALB_DOMAIN');
@@ -40,7 +40,7 @@ export = () => {
     orderStreamPingTime,
     privSubNetIds,
     pubSubNetIds,
-    minBalance,
+    minBalanceRaw,
     githubTokenSecret,
     boundlessAddress,
     bypassAddrs,
