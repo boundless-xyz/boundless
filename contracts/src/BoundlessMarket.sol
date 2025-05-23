@@ -358,6 +358,10 @@ contract BoundlessMarket is
         Account storage clientAccount = accounts[client];
         (bool locked, bool fulfilled) = clientAccount.requestFlags(idx);
 
+        // NOTE: Every code path in this function must ensure the `fulfilled` flag is set, or
+        // revert. If this is not the case, then it will break the invariant that the first
+        // delivered proof (e.g. the first time `ProofDelivered` fires and the first time the
+        // callback is called) the fulfilled flag is set.
         if (locked) {
             RequestLock memory lock = requestLocks[id];
             if (lock.lockDeadline >= block.timestamp) {
@@ -386,6 +390,7 @@ contract BoundlessMarket is
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
+        // NOTE: If the prover is paid, the fulfilled flag must be set.
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
@@ -429,6 +434,7 @@ contract BoundlessMarket is
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
+        // NOTE: If the prover is paid, the fulfilled flag must be set.
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
@@ -484,7 +490,7 @@ contract BoundlessMarket is
     }
 
     /// @notice For a request that has never been locked. Marks the request as fulfilled, and transfers payment if eligible.
-    /// @dev If a never locked request is fulfilled, but fails the requirements for payment, no
+    /// @dev If a never locked request is fulfilled, but client has not enough funds to cover the payment, no
     /// payment can ever be rendered for this order in the future.
     function _fulfillAndPayNeverLocked(
         RequestId id,
@@ -505,7 +511,7 @@ contract BoundlessMarket is
         // fulfillment contexts cannot be created for expired requests.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
         if (!context.valid) {
-            return abi.encodeWithSelector(RequestIsExpiredOrNotPriced.selector, RequestId.unwrap(id));
+            revert RequestIsExpiredOrNotPriced(id);
         }
         uint96 price = context.price;
 
