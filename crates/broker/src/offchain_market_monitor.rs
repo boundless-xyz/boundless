@@ -85,10 +85,16 @@ impl OffchainMarketMonitor {
                         client.chain_id,
                     );
 
-                    new_order_tx
-                        .send(Box::new(new_order))
-                        .await
-                        .map_err(|_| OffchainMarketMonitorErr::ReceiverDropped)
+                    if let Err(e) = new_order_tx.send(Box::new(new_order)).await {
+                        tracing::error!("Failed to send new order to broker: {}", e);
+                        Err(OffchainMarketMonitorErr::ReceiverDropped)
+                    } else {
+                        tracing::debug!(
+                            "Sent new off-chain order {:x} to OrderPicker via channel.",
+                            order_data.id
+                        );
+                        Ok(())
+                    }
                 }
             })
             .await?;
