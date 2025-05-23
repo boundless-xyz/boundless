@@ -9,10 +9,7 @@ use alloy::{
     network::{Ethereum, EthereumWallet, TransactionResponse},
     primitives::{Address, U256},
     providers::{
-        fillers::{
-            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-            WalletFiller,
-        },
+        fillers::{BlobGasFiller, ChainIdFiller, GasFiller, JoinFill, NonceFiller},
         Identity, Provider, ProviderBuilder, RootProvider,
     },
     signers::local::PrivateKeySigner,
@@ -25,6 +22,7 @@ use boundless_market::{
         boundless_market::{BoundlessMarketService, MarketError},
         IBoundlessMarket::{self},
     },
+    nonce_layer::NonceProvider,
 };
 use db::{DbError, DbObj, SqliteDb};
 use thiserror::Error;
@@ -33,13 +31,10 @@ use url::Url;
 
 mod db;
 
-type ProviderWallet = FillProvider<
+type ProviderWallet = NonceProvider<
     JoinFill<
-        JoinFill<
-            Identity,
-            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-        >,
-        WalletFiller<EthereumWallet>,
+        Identity,
+        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
     >,
     BalanceAlertProvider<RootProvider>,
 >;
@@ -111,10 +106,9 @@ impl SlashService<ProviderWallet> {
             error_threshold: config.balance_error_threshold,
         });
 
-        let provider = ProviderBuilder::new()
-            .layer(balance_alerts_layer)
-            .wallet(wallet.clone())
-            .connect_http(rpc_url);
+        let base_provider =
+            ProviderBuilder::new().layer(balance_alerts_layer).connect_http(rpc_url);
+        let provider = NonceProvider::new(base_provider, wallet.clone());
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller)

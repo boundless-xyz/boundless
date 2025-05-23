@@ -8,13 +8,12 @@ use alloy::{
     rpc::client::RpcClient,
     transports::layers::RetryBackoffLayer,
 };
-use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
     contracts::boundless_market::BoundlessMarketService,
     dynamic_gas_filler::DynamicGasFiller,
-    nonce_layer::NonceLayer,
+    nonce_layer::NonceProvider,
 };
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
@@ -62,20 +61,19 @@ async fn main() -> Result<()> {
             .transpose()?,
     });
 
-    let nonce_layer = NonceLayer::default();
     let dynamic_gas_filler = DynamicGasFiller::new(
         0.2,  // 20% increase of gas limit
         0.05, // 5% increase of gas_price per pending transaction
         2.0,  // 2x max gas multiplier
         wallet.default_signer().address(),
     );
-    let provider = ProviderBuilder::new()
+
+    let base_provider = ProviderBuilder::new()
         .filler(dynamic_gas_filler)
-        .wallet(wallet)
         .layer(balance_alerts_layer)
-        .layer(nonce_layer)
-        .with_chain(NamedChain::Sepolia)
         .connect_client(client);
+
+    let provider = NonceProvider::new(base_provider, wallet.clone());
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {

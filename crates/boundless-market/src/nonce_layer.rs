@@ -13,89 +13,83 @@
 // limitations under the License.
 
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet, NetworkWallet, TransactionBuilder},
     primitives::Address,
-    providers::{PendingTransactionBuilder, Provider, ProviderLayer, RootProvider},
+    providers::{
+        fillers::{FillProvider, TxFiller},
+        PendingTransactionBuilder, Provider, RootProvider, SendableTx, WalletProvider,
+    },
     rpc::types::TransactionRequest,
-    transports::TransportResult,
+    transports::{RpcError, TransportResult},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 
-#[derive(Clone, Default)]
-/// A layer that manages nonces per account using semaphores.
-///
-/// It fetches the pending nonce before each transaction and holds a semaphore
-/// until the transaction is submitted to ensure nonces are managed correctly.
-pub struct NonceLayer {
-    account_semaphores: Arc<Mutex<HashMap<Address, Arc<Semaphore>>>>,
-}
-
-impl<P> ProviderLayer<P> for NonceLayer
-where
-    P: Provider<Ethereum>,
-{
-    type Provider = NonceProvider<P>;
-
-    fn layer(&self, inner: P) -> Self::Provider {
-        NonceProvider {
-            inner: Arc::new(inner),
-            account_semaphores: Arc::clone(&self.account_semaphores),
-        }
-    }
-}
-
-#[derive(Clone)]
 /// A provider that manages nonces per account using semaphores.
-pub struct NonceProvider<P> {
-    inner: Arc<P>,
-    account_semaphores: Arc<Mutex<HashMap<Address, Arc<Semaphore>>>>,
-}
-
-impl<P> NonceProvider<P>
+///
+/// This provider exists to avoid nonce collisions when submitting transactions concurrently.
+/// It does so by holding a semaphore permit between fetching the pending nonce of the signer until
+/// the transaction is sent.
+#[derive(Clone, Debug)]
+pub struct NonceProvider<F, P>
 where
+    F: TxFiller<Ethereum>,
     P: Provider<Ethereum> + Send + Sync,
 {
+    inner: Arc<FillProvider<F, P, Ethereum>>,
+    wallet: EthereumWallet,
+    account_semaphores: Arc<Mutex<HashMap<Address, Arc<Semaphore>>>>,
+}
+
+impl<F, P> NonceProvider<F, P>
+where
+    F: TxFiller<Ethereum>,
+    P: Provider<Ethereum> + Send + Sync,
+{
+    pub fn new(inner: FillProvider<F, P, Ethereum>, wallet: EthereumWallet) -> Self {
+        Self {
+            inner: Arc::new(inner),
+            wallet,
+            account_semaphores: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
     /// Get or create a semaphore for the given account address.
     async fn get_account_semaphore(&self, address: Address) -> Arc<Semaphore> {
         let mut semaphores = self.account_semaphores.lock().await;
-        semaphores
-            .entry(address)
-            .or_insert_with(|| Arc::new(Semaphore::new(1)))
-            .clone()
+        semaphores.entry(address).or_insert_with(|| Arc::new(Semaphore::new(1))).clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl<F, P> Provider<Ethereum> for NonceProvider<F, P>
+where
+    F: TxFiller<Ethereum>,
+    P: Provider<Ethereum> + Send + Sync + std::fmt::Debug,
+{
+    fn root(&self) -> &RootProvider<Ethereum> {
+        self.inner.root()
     }
 
-    /// Send a transaction with proper nonce management.
-    async fn send_with_nonce_management(
+    async fn send_transaction(
         &self,
         mut request: TransactionRequest,
     ) -> TransportResult<PendingTransactionBuilder<Ethereum>> {
-        // Extract the from address from the transaction request
-        let from_address = request.from.ok_or_else(|| {
-            alloy::transports::RpcError::Transport(
-                alloy::transports::TransportErrorKind::Custom(
-                    "Transaction request must have a 'from' address for nonce management".into()
-                )
-            )
-        })?;
+        let from_address = if let Some(from) = request.from {
+            from
+        } else {
+            <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&self.wallet)
+        };
+        request.set_from(from_address);
 
+        // Get semaphore for this account and acquire permit
         let semaphore = self.get_account_semaphore(from_address).await;
-
-        // Acquire semaphore to ensure only one transaction per account at a time
         let _permit = semaphore.acquire().await.unwrap();
-        tracing::trace!(
-            "NonceProvider::send_with_nonce_management - acquired semaphore for address: {}",
-            from_address
-        );
 
         // Fetch the pending nonce if not already set
         if request.nonce.is_none() {
-            let pending_nonce = self
-                .inner
-                .get_transaction_count(from_address)
-                .pending()
-                .await?;
+            let pending_nonce = self.inner.get_transaction_count(from_address).pending().await?;
             request.nonce = Some(pending_nonce);
             tracing::trace!(
                 "NonceProvider::send_with_nonce_management - set nonce {} for address: {}",
@@ -104,40 +98,38 @@ where
             );
         }
 
-        // Send the transaction
-        let pending_tx = self.inner.send_transaction(request).await?;
-        tracing::trace!(
-            "NonceProvider::send_with_nonce_management - transaction sent: {:?}",
-            pending_tx.tx_hash()
-        );
+        let tx = self.inner.fill(request).await.unwrap();
 
-        // Semaphore is automatically released when _permit is dropped
-        Ok(pending_tx)
+        let builder = match tx {
+            SendableTx::Builder(builder) => builder,
+            _ => {
+                panic!("should not be called test");
+                // return Ok(tx);
+            }
+        };
+
+        let envelope = builder.build(&self.wallet).await.map_err(RpcError::local_usage)?;
+
+        self.inner.send_transaction_internal(SendableTx::Envelope(envelope)).await
     }
 }
 
-#[async_trait::async_trait]
-impl<P> Provider<Ethereum> for NonceProvider<P>
+impl<F, P> WalletProvider<Ethereum> for NonceProvider<F, P>
 where
-    P: Provider<Ethereum> + Send + Sync,
+    F: TxFiller<Ethereum>,
+    P: Provider<Ethereum> + Send + Sync + std::fmt::Debug,
 {
-    fn root(&self) -> &RootProvider {
-        self.inner.root()
+    type Wallet = EthereumWallet;
+
+    fn wallet(&self) -> &Self::Wallet {
+        &self.wallet
     }
 
-    async fn send_raw_transaction(
-        &self,
-        encoded_tx: &[u8],
-    ) -> TransportResult<PendingTransactionBuilder<Ethereum>> {
-        // For raw transactions, we can't manage nonces since they're already encoded
-        // Just pass through to the inner provider
-        self.inner.send_raw_transaction(encoded_tx).await
+    fn wallet_mut(&mut self) -> &mut Self::Wallet {
+        &mut self.wallet
     }
 
-    async fn send_transaction(
-        &self,
-        request: TransactionRequest,
-    ) -> TransportResult<PendingTransactionBuilder<Ethereum>> {
-        self.send_with_nonce_management(request).await
+    fn default_signer_address(&self) -> Address {
+        <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&self.wallet)
     }
-} 
+}

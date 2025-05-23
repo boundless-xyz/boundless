@@ -18,10 +18,7 @@ use alloy::{
     network::{Ethereum, EthereumWallet},
     primitives::{Address, Bytes, U256},
     providers::{
-        fillers::{
-            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-            WalletFiller,
-        },
+        fillers::{BlobGasFiller, ChainIdFiller, GasFiller, JoinFill, NonceFiller},
         Identity, Provider, ProviderBuilder, RootProvider,
     },
     signers::{
@@ -45,7 +42,7 @@ use crate::{
         ProofRequest, RequestError,
     },
     dynamic_gas_filler::DynamicGasFiller,
-    nonce_layer::{NonceLayer, NonceProvider},
+    nonce_layer::NonceProvider,
     now_timestamp,
     order_stream_client::{Client as OrderStreamClient, Order},
     storage::{
@@ -57,18 +54,15 @@ use crate::{
 // Default bidding start delay (from the current time) in seconds
 const BIDDING_START_DELAY: u64 = 30;
 
-type ProviderWallet = FillProvider<
+type ProviderWallet = NonceProvider<
     JoinFill<
         JoinFill<
-            JoinFill<
-                Identity,
-                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-            >,
-            DynamicGasFiller,
+            Identity,
+            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
         >,
-        WalletFiller<EthereumWallet>,
+        DynamicGasFiller,
     >,
-    BalanceAlertProvider<NonceProvider<RootProvider>>,
+    BalanceAlertProvider<RootProvider>,
 >;
 
 #[derive(thiserror::Error, Debug)]
@@ -572,12 +566,11 @@ impl Client<ProviderWallet, BuiltinStorageProvider> {
             2.0,  // 2x max gas multiplier
             wallet.default_signer().address(),
         );
-        let provider = ProviderBuilder::new()
+        let base_provider = ProviderBuilder::new()
             .filler(dynamic_gas_filler)
-            .wallet(wallet)
             .layer(BalanceAlertLayer::default())
-            .layer(NonceLayer::default())
             .connect_http(rpc_url);
+        let provider = NonceProvider::new(base_provider, wallet.clone());
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
@@ -630,12 +623,11 @@ impl<P: StorageProvider> Client<ProviderWallet, P> {
             2.0,  // 2x max gas multiplier
             wallet.default_signer().address(),
         );
-        let provider = ProviderBuilder::new()
+        let base_provider = ProviderBuilder::new()
             .filler(dynamic_gas_filler)
-            .wallet(wallet)
             .layer(BalanceAlertLayer::new(balance_alerts.unwrap_or_default()))
-            .layer(NonceLayer::default())
             .connect_http(rpc_url);
+        let provider = NonceProvider::new(base_provider, wallet.clone());
 
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
