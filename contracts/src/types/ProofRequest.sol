@@ -72,6 +72,6 @@ library ProofRequestLibrary {
     /// @return lockDeadline The deadline for when a lock expires for the request.
     /// @return deadline The deadline for the request as a whole.
     function validate(ProofRequest calldata request) internal view returns (uint64 lockDeadline, uint64 deadline) {
-        return request.offer.validate(request.id);
+        return request.offer.validate();
     }
 }

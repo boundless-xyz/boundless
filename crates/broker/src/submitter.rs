@@ -444,7 +444,9 @@ where
             }
         }
 
-        if err.to_string().contains("RequestIsExpiredOrNotPriced") {
+        // DO NOT MERGE: Is this still right, considering this is a returned error and not a
+        // revert.
+        if err.to_string().contains("RequestIsExpired") {
             return Err(SubmitterErr::RequestExpiredBeforeSubmission(err));
         }
 

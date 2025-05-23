@@ -17,7 +17,6 @@ import {RequestId} from "../../src/types/RequestId.sol";
 import {Callback} from "../../src/types/Callback.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {Account} from "../../src/types/Account.sol";
-import {FulfillmentContext} from "../../src/types/FulfillmentContext.sol";
 import {RequestLock} from "../../src/types/RequestLock.sol";
 import {LockRequest} from "../../src/types/LockRequest.sol";
 import {Fulfillment} from "../../src/types/Fulfillment.sol";
@@ -71,7 +70,7 @@ abstract contract BaseClient {
             biddingStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
-            timeout: uint32(100),
+            timeout: uint32(200),
             lockStake: 1 ether
         });
     }

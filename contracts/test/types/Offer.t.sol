@@ -91,9 +91,8 @@ contract OfferTest is Test {
             lockStake: 0.1 ether
         });
 
-        RequestId id = RequestIdLibrary.from(address(this), 1);
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
-        invalidOffer.validate(id);
+        invalidOffer.validate();
     }
 
     /// forge-config: default.allow_internal_expect_revert = true
@@ -108,9 +107,8 @@ contract OfferTest is Test {
             lockStake: 0.1 ether
         });
 
-        RequestId id = RequestIdLibrary.from(address(this), 1);
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
-        invalidOffer.validate(id);
+        invalidOffer.validate();
     }
 
     function testValidTimeouts() public view {
@@ -124,8 +122,7 @@ contract OfferTest is Test {
             lockStake: 0.1 ether
         });
 
-        RequestId id = RequestIdLibrary.from(address(this), 1);
-        (uint64 lockDeadline, uint64 deadline) = validOffer.validate(id);
+        (uint64 lockDeadline, uint64 deadline) = validOffer.validate();
 
         assertEq(lockDeadline, 600); // biddingStart + lockTimeout
         assertEq(deadline, uint32(600) + type(uint24).max); // biddingStart + timeout
