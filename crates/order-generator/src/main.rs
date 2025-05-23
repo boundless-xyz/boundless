@@ -98,7 +98,7 @@ struct MainArgs {
     deployment: Option<Deployment>,
 
     /// Submit requests offchain.
-    #[clap(long)]
+    #[clap(long, default_value = "false")]
     submit_offchain: bool,
 
     /// Storage provider to use.
@@ -221,7 +221,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             format_units(request.offer.maxPrice, "ether")?
         );
 
-        let submit_offchain = args.deployment.is_some() && args.deployment.as_ref().unwrap().order_stream_url.is_some();
+        let submit_offchain = args.submit_offchain;
 
         // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
         // in the submitRequest call.
@@ -315,6 +315,7 @@ mod tests {
             error_balance_below: None,
             auto_deposit: None,
             tx_timeout: 45,
+            submit_offchain: false,
         };
 
         run(&args).await.unwrap();
