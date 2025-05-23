@@ -428,29 +428,19 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          fetch-depth: 0  # Fetch all history
 
       - name: Install Pulumi
         uses: pulumi/setup-pulumi@v2
 
-      - name: Get changed files
-        id: changed-files
-        uses: dorny/paths-filter@v3.0.0
-        with:
-          filters: |
-            infra-changes:
-              - 'infra/**'
-
       - name: Run Pulumi preview for changed packages
         run: |
-          if [[ "${{ steps.changed-files.outputs.infra-changes }}" == "true" ]]; then
-            for dir in $(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep "^infra/" | xargs -I{} dirname {} | sort -u); do
-              cd $dir
-              pulumi login --local
-              pulumi preview --yes
-              cd -
-            done
-          fi
+          for dir in $(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | grep "^infra/" | xargs -I{} dirname {} | sort -u); do
+            cd $dir
+            pulumi login --local
+            pulumi preview --yes
+            cd -
+          done
 
   files-changed:
     runs-on: ubuntu-latest
