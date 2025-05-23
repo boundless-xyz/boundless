@@ -81,8 +81,14 @@ impl TryFrom<RequirementParams> for Requirements {
 
     fn try_from(value: RequirementParams) -> Result<Self, Self::Error> {
         Ok(Self {
-            predicate: value.predicate.ok_or(MissingFieldError::new("predicate"))?,
-            imageId: value.image_id.ok_or(MissingFieldError::new("image_id"))?,
+            predicate: value.predicate.ok_or(MissingFieldError::with_hint(
+                "predicate",
+                "please provide a Predicate with requirements e.g. a digest match on a journal",
+            ))?,
+            imageId: value.image_id.ok_or(MissingFieldError::with_hint(
+                "image_id",
+                "please provide the image ID for the program to be proven",
+            ))?,
             selector: value.selector.unwrap_or_default(),
             callback: Callback {
                 addr: value.callback_address.unwrap_or_default(),
@@ -185,7 +191,7 @@ impl Adapt<RequirementsLayer> for RequestParams {
             return Ok(self);
         }
 
-        let journal = self.require_journal()?;
+        let journal = self.require_journal().context("failed to build Requirements for request")?;
         let requirements = if let Some(image_id) = self.image_id {
             layer.process((image_id, journal, &self.requirements)).await?
         } else {

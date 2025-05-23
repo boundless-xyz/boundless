@@ -78,8 +78,8 @@ impl Adapt<PreflightLayer> for RequestParams {
             return Ok(self);
         }
 
-        let program_url = self.require_program_url()?;
-        let input = self.require_request_input()?;
+        let program_url = self.require_program_url().context("failed to preflight request")?;
+        let input = self.require_request_input().context("failed to preflight request")?;
 
         let session_info = layer.process((program_url, input)).await?;
         let cycles = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();

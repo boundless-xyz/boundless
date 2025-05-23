@@ -114,11 +114,19 @@ impl Adapt<Finalizer> for RequestParams {
         tracing::trace!("Processing {self:?} with Finalizer");
 
         // We create local variables to hold owned values
-        let program_url = self.require_program_url()?.clone();
-        let input = self.require_request_input()?.clone();
-        let requirements: Requirements = self.requirements.clone().try_into()?;
-        let offer: Offer = self.offer.clone().try_into()?;
-        let request_id = self.require_request_id()?.clone();
+        let program_url = self.require_program_url().context("failed to build request")?.clone();
+        let input = self.require_request_input().context("failed to build request")?.clone();
+        let requirements: Requirements = self
+            .requirements
+            .clone()
+            .try_into()
+            .context("failed to build request: requirements are incomplete")?;
+        let offer: Offer = self
+            .offer
+            .clone()
+            .try_into()
+            .context("failed to build request: offer is incomplete")?;
+        let request_id = self.require_request_id().context("failed to build request")?.clone();
 
         // As an extra consistency check. verify the journal satisfies the required predicate.
         if let Some(ref journal) = self.journal {
