@@ -677,7 +677,9 @@ where
                 prover_available_at.saturating_sub(now),
             );
 
-            // For each order in consideration, check if it can be completed before its expiration.
+            // For each order in consideration, check if it can be completed before its expiration
+            // and that there is enough gas to pay for the lock and fulfillment of all orders
+            // including the committed orders.
             for order in orders_truncated {
                 // Calculate gas and cost for this order using our helper method
                 let order_cost_wei = self.calculate_order_gas_cost_wei(&order, gas_price).await?;
