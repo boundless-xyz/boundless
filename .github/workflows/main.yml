@@ -433,6 +433,11 @@ jobs:
       - name: Install Pulumi
         uses: pulumi/setup-pulumi@v2
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Run build for changed packages
         run: |
           for dir in $(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | grep "^infra/" | xargs -I{} dirname {} | sort -u); do
