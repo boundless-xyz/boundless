@@ -30,11 +30,6 @@ struct MainArgs {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     rpc_url: Url,
-    /// Optional URL of the offchain order stream endpoint.
-    ///
-    /// If set, the order-generator will submit requests off-chain.
-    #[clap(short, long, env)]
-    order_stream_url: Option<Url>,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -221,7 +216,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             format_units(request.offer.maxPrice, "ether")?
         );
 
-        let submit_offchain = args.order_stream_url.is_some();
+        let submit_offchain = args.deployment.is_some() && args.deployment.as_ref().unwrap().order_stream_url.is_some();
 
         // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
         // in the submitRequest call.
@@ -261,7 +256,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         if submit_offchain {
             tracing::info!(
                 "Request 0x{request_id:x} submitted offchain to {}",
-                args.order_stream_url.clone().unwrap()
+                client.deployment.order_stream_url.clone().unwrap()
             );
         } else {
             tracing::info!(
@@ -296,7 +291,6 @@ mod tests {
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
-            order_stream_url: None,
             storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             deployment: Some(ctx.deployment.clone()),
