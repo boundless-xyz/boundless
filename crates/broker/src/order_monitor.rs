@@ -659,7 +659,7 @@ where
             // Estimate the time the prover will be available given our current committed orders.
             let started_proving_at = committed_orders
                 .iter()
-                .map(|order| order.proving_started_at.unwrap_or(now))
+                .map(|order| order.proving_started_at.unwrap())
                 .min()
                 .unwrap_or(now);
 
