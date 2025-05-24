@@ -712,8 +712,11 @@ where
                         proof_time_seconds,
                         completion_time
                     );
-                    // Note: this skips processing this order now, but does not remove it and skip
-                    // it in the db, to allow it to be picked up once capacity freed up.
+                    if now + proof_time_seconds > expiration {
+                        // If the order cannot be completed regardless of other orders, skip it
+                        // permanently. Otherwise, will retry including the order.
+                        self.skip_order(&order, "cannot be completed before expiration").await;
+                    }
                     continue;
                 }
 
