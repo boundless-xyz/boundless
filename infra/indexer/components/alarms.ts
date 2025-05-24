@@ -87,7 +87,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
                 },
                 {
                     id: "sr",
-                    expression: "IF(a + b > 0, a / (a + b), 1)",
+                    expression: "IF(a + b > 0, IF(a / (a + b) < 0.2, 0, IF(AND(a / (a + b) < 0.8, b >= 5), 0, 1)), 1)",
                     label: "SuccessRate",
                     returnData: true,
                 },
