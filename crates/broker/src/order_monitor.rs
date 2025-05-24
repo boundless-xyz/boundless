@@ -893,14 +893,12 @@ mod tests {
         node_bindings::Anvil,
         primitives::{Address, U256},
         providers::{
-            ext::AnvilApi,
             fillers::{
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
                 WalletFiller,
             },
             ProviderBuilder, RootProvider,
         },
-        providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -962,7 +960,7 @@ mod tests {
                     },
                 ),
                 "http://risczero.com/image",
-                Input { inputType: InputType::Inline, data: Default::default() },
+                RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),

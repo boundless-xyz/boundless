@@ -371,7 +371,7 @@ pub async fn upload_input_uri(
     config: &crate::config::ConfigLock,
 ) -> Result<String> {
     Ok(match request.input.inputType {
-        boundless_market::contracts::InputType::Inline => prover
+        boundless_market::contracts::RequestInputType::Inline => prover
             .upload_input(
                 boundless_market::input::GuestEnv::decode(&request.input.data)
                     .with_context(|| "Failed to decode input")?
