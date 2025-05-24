@@ -214,8 +214,6 @@ pub async fn deploy_contracts(
         .connect(&anvil.endpoint())
         .await?;
 
-    println!("PRE DEPLOY PROVIDER: {:?}", deployer_provider);
-
     // Deploy contracts
     let verifier_router = deploy_verifier_router(&deployer_provider, deployer_address).await?;
     let (verifier, groth16_selector) = match is_dev_mode() {
