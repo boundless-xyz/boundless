@@ -34,7 +34,7 @@ export = () => {
   const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const interval = baseConfig.require('INTERVAL');
-  const lockStake = baseConfig.require('LOCK_STAKE');
+  const lockStakeRaw = baseConfig.require('LOCK_STAKE_RAW');
   const rampUp = baseConfig.require('RAMP_UP');
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
@@ -128,7 +128,7 @@ export = () => {
     boundlessMarketAddr,
     pinataGateway,
     interval,
-    lockStake,
+    lockStakeRaw,
     rampUp,
     minPricePerMCycle,
     maxPricePerMCycle,
@@ -153,7 +153,7 @@ export = () => {
     boundlessMarketAddr,
     pinataGateway,
     interval,
-    lockStake,
+    lockStakeRaw,
     rampUp,
     minPricePerMCycle,
     maxPricePerMCycle,

@@ -9,5 +9,8 @@
         "@pulumi/aws": "^6.0.0",
         "@pulumi/awsx": "^2.0.2",
         "@pulumi/pulumi": "^3.113.0"
+    },
+    "scripts": {
+        "build": "tsc"
     }
 }

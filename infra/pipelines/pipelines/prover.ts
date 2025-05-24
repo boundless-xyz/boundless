@@ -52,7 +52,7 @@ const BUILD_SPEC = `
           - export INSTANCE_ID=$(pulumi stack output ${bentoBrokerInstanceIdStackOutputKey})
           - echo "INSTANCE_ID $INSTANCE_ID"
           - echo "SSM_DOCUMENT_NAME $SSM_DOCUMENT_NAME"
-          - aws ssm send-command --document-name $SSM_DOCUMENT_NAME --targets "Key=InstanceIds,Values=$INSTANCE_ID" --cloud-watch-output-config CloudWatchOutputEnabled=true"
+          - aws ssm send-command --document-name $SSM_DOCUMENT_NAME --targets "Key=InstanceIds,Values=$INSTANCE_ID" --cloud-watch-output-config CloudWatchOutputEnabled=true
     `;
 
 export class ProverPipeline extends pulumi.ComponentResource {

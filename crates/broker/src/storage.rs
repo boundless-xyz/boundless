@@ -380,7 +380,7 @@ pub async fn upload_input_uri(
             .await
             .context("Failed to upload input data")?,
 
-        boundless_market::contracts::InputType::Url => {
+        boundless_market::contracts::RequestInputType::Url => {
             let input_uri_str =
                 std::str::from_utf8(&request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");

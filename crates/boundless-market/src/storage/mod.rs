@@ -15,17 +15,20 @@
 //! Provider implementations for uploading image and input files such that they are publicly
 //! accessible to provers.
 
-use std::{fmt::Debug, path::PathBuf, result::Result::Ok, sync::Arc};
+use std::{fmt::Debug, ops::Deref, path::PathBuf, result::Result::Ok, sync::Arc};
 
 use async_trait::async_trait;
-use clap::{Parser, ValueEnum};
+use clap::{builder::ArgPredicate, Args, ValueEnum};
+use derive_builder::Builder;
 use reqwest::Url;
 
+mod fetch;
 mod file;
 mod mock;
 mod pinata;
 mod s3;
 
+pub use fetch::fetch_url;
 pub use file::{TempFileStorageProvider, TempFileStorageProviderError};
 pub use mock::{MockStorageError, MockStorageProvider};
 pub use pinata::{PinataStorageProvider, PinataStorageProviderError};
@@ -55,11 +58,11 @@ impl<S: StorageProvider + Sync + ?Sized> StorageProvider for Box<S> {
     type Error = S::Error;
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_program(program).await
+        self.deref().upload_program(program).await
     }
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_input(input).await
+        self.deref().upload_input(input).await
     }
 }
 
@@ -68,30 +71,33 @@ impl<S: StorageProvider + Sync + Send + ?Sized> StorageProvider for Arc<S> {
     type Error = S::Error;
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_program(program).await
+        self.deref().upload_program(program).await
     }
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
-        self.upload_input(input).await
+        self.deref().upload_input(input).await
     }
 }
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 /// A storage provider that can be used to upload images and inputs to a public URL.
-pub enum BuiltinStorageProvider {
+pub enum StandardStorageProvider {
     /// S3 storage provider.
     S3(S3StorageProvider),
     /// Pinata storage provider.
     Pinata(PinataStorageProvider),
     /// Temporary file storage provider, used for local testing.
     File(TempFileStorageProvider),
+    /// Mock storage provider, used for local testing.
+    #[cfg(feature = "test-utils")]
+    Mock(Arc<MockStorageProvider>),
 }
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 /// Error type for the builtin storage providers.
-pub enum BuiltinStorageProviderError {
+pub enum StandardStorageProviderError {
     /// Error type for the S3 storage provider.
     #[error("S3 storage provider error")]
     S3(#[from] S3StorageProviderError),
@@ -101,6 +107,10 @@ pub enum BuiltinStorageProviderError {
     /// Error type for the temporary file storage provider.
     #[error("temp file storage provider error")]
     File(#[from] TempFileStorageProviderError),
+    /// Error type for the mock storage provider.
+    #[cfg(feature = "test-utils")]
+    #[error("mock storage provider error")]
+    Mock(#[from] MockStorageError),
     /// Error type for an invalid storage provider.
     #[error("Invalid storage provider: {0}")]
     InvalidProvider(String),
@@ -109,20 +119,27 @@ pub enum BuiltinStorageProviderError {
     NoProvider,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Default, Clone, Debug, ValueEnum)]
 #[non_exhaustive]
 /// The type of storage provider to use.
 pub enum StorageProviderType {
+    /// No storage provider.
+    #[default]
+    None,
     /// S3 storage provider.
     S3,
     /// Pinata storage provider.
     Pinata,
     /// Temporary file storage provider.
     File,
+    /// Mock storage provider.
+    #[cfg(feature = "test-utils")]
+    Mock,
 }
 
-#[derive(Clone, Debug, Parser)]
 /// Configuration for the storage provider.
+#[non_exhaustive]
+#[derive(Clone, Default, Debug, Args, Builder)]
 pub struct StorageProviderConfig {
     /// Storage provider to use [possible values: s3, pinata, file]
     ///
@@ -131,47 +148,67 @@ pub struct StorageProviderConfig {
     /// - For 'pinata', the following option is required:
     ///   --pinata-jwt (optionally, you can specify --pinata-api-url, --ipfs-gateway-url)
     /// - For 'file', no additional options are required (optionally, you can specify --file-path)    
-    #[arg(long, env, value_enum, default_value_t = StorageProviderType::Pinata)]
+    #[arg(long, env, value_enum, default_value = "none", default_value_ifs = [
+        ("s3_access_key", ArgPredicate::IsPresent, "s3"),
+        ("pinata_jwt", ArgPredicate::IsPresent, "pinata"),
+        ("file_path", ArgPredicate::IsPresent, "file")
+    ])]
+    #[builder(default)]
     pub storage_provider: StorageProviderType,
 
     // **S3 Storage Provider Options**
     /// S3 access key
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub s3_access_key: Option<String>,
     /// S3 secret key
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub s3_secret_key: Option<String>,
     /// S3 bucket
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub s3_bucket: Option<String>,
     /// S3 URL
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub s3_url: Option<String>,
     /// S3 region
     #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[builder(setter(strip_option, into), default)]
     pub aws_region: Option<String>,
     /// Use presigned URLs for S3
     #[arg(long, env, requires("s3_access_key"), default_value = "true")]
+    #[builder(setter(strip_option), default)]
     pub s3_use_presigned: Option<bool>,
 
     // **Pinata Storage Provider Options**
     /// Pinata JWT
     #[arg(long, env, required_if_eq("storage_provider", "pinata"))]
+    #[builder(setter(strip_option, into), default)]
     pub pinata_jwt: Option<String>,
     /// Pinata API URL
     #[arg(long, env, requires("pinata_jwt"))]
+    #[builder(setter(strip_option), default)]
     pub pinata_api_url: Option<Url>,
     /// Pinata gateway URL
     #[arg(long, env, requires("pinata_jwt"))]
+    #[builder(setter(strip_option), default)]
     pub ipfs_gateway_url: Option<Url>,
 
     // **File Storage Provider Options**
     /// Path for file storage provider
     #[arg(long)]
+    #[builder(setter(strip_option, into), default)]
     pub file_path: Option<PathBuf>,
 }
 
 impl StorageProviderConfig {
+    /// Create a new [StorageProviderConfigBuilder] to construct a config.
+    pub fn builder() -> StorageProviderConfigBuilder {
+        Default::default()
+    }
+
     /// Create a new configuration for a [StorageProviderType::File].
     pub fn dev_mode() -> Self {
         Self {
@@ -191,14 +228,16 @@ impl StorageProviderConfig {
 }
 
 #[async_trait]
-impl StorageProvider for BuiltinStorageProvider {
-    type Error = BuiltinStorageProviderError;
+impl StorageProvider for StandardStorageProvider {
+    type Error = StandardStorageProviderError;
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
         Ok(match self {
             Self::S3(provider) => provider.upload_program(program).await?,
             Self::Pinata(provider) => provider.upload_program(program).await?,
             Self::File(provider) => provider.upload_program(program).await?,
+            #[cfg(feature = "test-utils")]
+            Self::Mock(provider) => provider.upload_program(program).await?,
         })
     }
 
@@ -207,6 +246,8 @@ impl StorageProvider for BuiltinStorageProvider {
             Self::S3(provider) => provider.upload_input(input).await?,
             Self::Pinata(provider) => provider.upload_input(input).await?,
             Self::File(provider) => provider.upload_input(input).await?,
+            #[cfg(feature = "test-utils")]
+            Self::Mock(provider) => provider.upload_input(input).await?,
         })
     }
 }
@@ -217,55 +258,61 @@ impl StorageProvider for BuiltinStorageProvider {
 /// Otherwise, the following environment variables are checked in order:
 /// - `PINATA_JWT`, `PINATA_API_URL`, `IPFS_GATEWAY_URL`: Pinata storage provider;
 /// - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
-pub async fn storage_provider_from_env(
-) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
+pub fn storage_provider_from_env() -> Result<StandardStorageProvider, StandardStorageProviderError>
+{
     if risc0_zkvm::is_dev_mode() {
-        return Ok(BuiltinStorageProvider::File(TempFileStorageProvider::new()?));
+        return Ok(StandardStorageProvider::File(TempFileStorageProvider::new()?));
     }
 
-    if let Ok(provider) = PinataStorageProvider::from_env().await {
-        return Ok(BuiltinStorageProvider::Pinata(provider));
+    if let Ok(provider) = PinataStorageProvider::from_env() {
+        return Ok(StandardStorageProvider::Pinata(provider));
     }
 
-    if let Ok(provider) = S3StorageProvider::from_env().await {
-        return Ok(BuiltinStorageProvider::S3(provider));
+    if let Ok(provider) = S3StorageProvider::from_env() {
+        return Ok(StandardStorageProvider::S3(provider));
     }
 
-    Err(BuiltinStorageProviderError::NoProvider)
+    Err(StandardStorageProviderError::NoProvider)
 }
 
 /// Creates a storage provider based on the given configuration.
-pub async fn storage_provider_from_config(
+pub fn storage_provider_from_config(
     config: &StorageProviderConfig,
-) -> Result<BuiltinStorageProvider, BuiltinStorageProviderError> {
+) -> Result<StandardStorageProvider, StandardStorageProviderError> {
     match config.storage_provider {
         StorageProviderType::S3 => {
-            let provider = S3StorageProvider::from_config(config).await?;
-            Ok(BuiltinStorageProvider::S3(provider))
+            let provider = S3StorageProvider::from_config(config)?;
+            Ok(StandardStorageProvider::S3(provider))
         }
         StorageProviderType::Pinata => {
-            let provider = PinataStorageProvider::from_config(config).await?;
-            Ok(BuiltinStorageProvider::Pinata(provider))
+            let provider = PinataStorageProvider::from_config(config)?;
+            Ok(StandardStorageProvider::Pinata(provider))
         }
         StorageProviderType::File => {
             let provider = TempFileStorageProvider::from_config(config)?;
-            Ok(BuiltinStorageProvider::File(provider))
+            Ok(StandardStorageProvider::File(provider))
         }
+        #[cfg(feature = "test-utils")]
+        StorageProviderType::Mock => {
+            let provider = MockStorageProvider::start();
+            Ok(StandardStorageProvider::Mock(Arc::new(provider)))
+        }
+        StorageProviderType::None => Err(StandardStorageProviderError::NoProvider),
     }
 }
 
-impl BuiltinStorageProvider {
+impl StandardStorageProvider {
     /// Creates a storage provider based on the environment variables.
     ///
     /// See [storage_provider_from_env()].
     pub async fn from_env() -> Result<Self, <Self as StorageProvider>::Error> {
-        storage_provider_from_env().await
+        storage_provider_from_env()
     }
 
     /// Creates a storage provider based on the given configuration.
-    pub async fn from_config(
+    pub fn from_config(
         config: &StorageProviderConfig,
     ) -> Result<Self, <Self as StorageProvider>::Error> {
-        storage_provider_from_config(config).await
+        storage_provider_from_config(config)
     }
 }

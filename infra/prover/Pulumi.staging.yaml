@@ -25,3 +25,4 @@ config:
   bento-prover:SEGMENT_SIZE: "19"
   bento-prover:PRIVATE_KEY:
     secure: v1:AahxbrDObsEuAjpx:YDw8lqLxNq1CDhvIn4DEDvNn2JVoH79A0nFbTXbPeJb24omW13zK0u13GeCEH7XYEqdKfeRnv1rVkEVB7anoeUzXvhdSp3z5frKi14D1YJo=
+  bento-prover:LOG_JSON: true

@@ -19,7 +19,6 @@ bytemuck = { workspace = true }
 chrono = "0.4"
 clap = { workspace = true, features = ["env"] }
 csv = "1.2"
-dotenvy = { workspace = true }
 futures = { version = "0.3" }
 reqwest = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }

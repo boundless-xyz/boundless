@@ -1,4 +1,4 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
 // All rights reserved.
 
@@ -12,7 +12,7 @@ contract Deploy is Script {
     function run() external payable {
         // load ENV variables first
         uint256 key = vm.envUint("PRIVATE_KEY");
-        address verifierAddress = vm.envAddress("SET_VERIFIER_ADDRESS");
+        address verifierAddress = vm.envAddress("VERIFIER_ADDRESS");
         vm.startBroadcast(key);
 
         IRiscZeroVerifier verifier = IRiscZeroVerifier(verifierAddress);

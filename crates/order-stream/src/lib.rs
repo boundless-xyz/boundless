@@ -6,9 +6,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use alloy::providers::fillers::{
-    BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-};
+use alloy::providers::fillers::{ChainIdFiller, FillProvider, JoinFill};
 use alloy::providers::Identity;
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
@@ -121,9 +119,9 @@ pub struct Args {
     #[clap(long, env)]
     boundless_market_address: Address,
 
-    /// Minimum stake balance required to connect to the WebSocket
-    #[clap(long, value_parser = parse_ether)]
-    min_balance: U256,
+    /// Minimum stake balance, in raw units, required to connect to the WebSocket
+    #[clap(long)]
+    min_balance_raw: U256,
 
     /// Maximum number of WebSocket connections
     #[clap(long, default_value = "100")]
@@ -294,7 +292,7 @@ impl From<&Args> for Config {
         Self {
             rpc_url: args.rpc_url.clone(),
             market_address: args.boundless_market_address,
-            min_balance: args.min_balance,
+            min_balance: args.min_balance_raw,
             max_connections: args.max_connections,
             queue_size: args.queue_size,
             domain: args.domain.clone(),
@@ -313,13 +311,7 @@ pub enum ConfigError {
     MissingRequiredField(&'static str),
 }
 
-type WalletProvider = FillProvider<
-    JoinFill<
-        Identity,
-        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-    >,
-    RootProvider,
->;
+type ReadOnlyProvider = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
 
 /// Application state struct
 pub struct AppState {
@@ -330,7 +322,7 @@ pub struct AppState {
     /// Map of pending connections by address with their timestamp
     pending_connections: Arc<Mutex<HashMap<Address, Instant>>>,
     /// Ethereum RPC provider
-    rpc_provider: WalletProvider,
+    rpc_provider: ReadOnlyProvider,
     /// Configuration
     config: Config,
     /// chain_id
@@ -349,7 +341,10 @@ impl AppState {
             config.rpc_retry_cu,
         );
         let client = RpcClient::builder().layer(retry_layer).http(config.rpc_url.clone());
-        let rpc_provider = ProviderBuilder::new().connect_client(client);
+        let rpc_provider = ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .filler(ChainIdFiller::default())
+            .connect_client(client);
 
         let db = if let Some(db_pool) = db_pool_opt {
             OrderDb::from_pool(db_pool).await?
@@ -529,8 +524,8 @@ mod tests {
         contracts::{
             hit_points::default_allowance, Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
-        input::InputBuilder,
-        order_stream_client::{order_stream, Client},
+        input::GuestEnv,
+        order_stream_client::{order_stream, OrderStreamClient},
     };
     use boundless_market_test_utils::{create_test_ctx, TestCtx};
 
@@ -589,7 +584,7 @@ mod tests {
             RequestId::new(*addr, idx),
             Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
             "http://image_uri.null",
-            InputBuilder::new().build_inline().unwrap(),
+            GuestEnv::builder().build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
@@ -603,7 +598,11 @@ mod tests {
     }
 
     /// Helper to wait for server health with exponential backoff
-    async fn wait_for_server_health(client: &Client, addr: &SocketAddr, max_retries: usize) {
+    async fn wait_for_server_health(
+        client: &OrderStreamClient,
+        addr: &SocketAddr,
+        max_retries: usize,
+    ) {
         let mut retry_delay = tokio::time::Duration::from_millis(50);
 
         let health_url = format!("http://{}{}", addr, HEALTH_CHECK);
@@ -644,7 +643,7 @@ mod tests {
         let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
 
         // Create client
-        let client = Client::new(
+        let client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,
@@ -666,7 +665,7 @@ mod tests {
         let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
 
         // Connect customer signer as well
-        let customer_client = Client::new(
+        let customer_client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,

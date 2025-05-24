@@ -31,6 +31,7 @@ export = () => {
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
+  const txTimeout = config.require('TX_TIMEOUT');
 
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
@@ -141,6 +142,15 @@ export = () => {
     ],
   });
 
+  new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
+    type: 'ingress',
+    fromPort: 2049,
+    toPort: 2049,
+    protocol: 'tcp',
+    securityGroupId: securityGroup.id,
+    sourceSecurityGroupId: securityGroup.id,
+  });
+
   // Create an execution role that has permissions to access the necessary secrets
   const execRole = new aws.iam.Role(`${serviceName}-exec`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
@@ -163,6 +173,24 @@ export = () => {
     },
   });
 
+  // EFS
+  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev4`, {
+    encrypted: true,
+    tags: {
+      Name: serviceName,
+    },
+  });
+
+  const mountTargets = privateSubnetIds.apply((subnets) =>
+    subnets.map((subnetId: string, index: number) => {
+      return new aws.efs.MountTarget(`${serviceName}-mount-${index}`, {
+        fileSystemId: fileSystem.id,
+        subnetId: subnetId,
+        securityGroups: [securityGroup.id],
+      }, { dependsOn: [fileSystem] });
+    })
+  );
+
   const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
   const service = new awsx.ecs.FargateService(
     `${serviceName}-service`,
@@ -180,15 +208,31 @@ export = () => {
         executionRole: {
           roleArn: execRole.arn,
         },
+        volumes: [
+          {
+            name: 'slasher-storage',
+            efsVolumeConfiguration: {
+              fileSystemId: fileSystem.id,
+              rootDirectory: '/',
+            },
+          },
+        ],
         container: {
           name: serviceName,
           image: image.ref,
           cpu: 128,
           memory: 512,
           essential: true,
+          mountPoints: [
+            {
+              sourceVolume: 'slasher-storage',
+              containerPath: '/app/data',
+              readOnly: false,
+            },
+          ],
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/boundless-slasher --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
+            `/app/boundless-slasher --db sqlite:///app/data/slasher.db --tx-timeout ${txTimeout} --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
           ],
           environment: [
             {
@@ -217,7 +261,7 @@ export = () => {
         },
       },
     },
-    { dependsOn: [execRole, execRolePolicy] }
+    { dependsOn: [execRole, execRolePolicy, mountTargets, fileSystem] }
   );
 
   new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {

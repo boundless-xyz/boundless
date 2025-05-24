@@ -328,6 +328,7 @@ export class IndexerInstance extends pulumi.ComponentResource {
             boundlessAddress,
             '--start-block',
             startBlock,
+            '--log-json'
           ],
           secrets: [
             {

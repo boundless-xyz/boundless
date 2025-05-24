@@ -29,22 +29,15 @@ To instantiate a boundless client, you will need a wallet with sufficient funds 
 
 <StripRustCodeComments>
 ```rust
-# use alloy::{primitives::Address, signers::local::PrivateKeySigner};
-# use boundless_market::{client::ClientBuilder, storage::BuiltinStorageProvider};
+# use alloy::signers::local::PrivateKeySigner;
+# use boundless_market::{Client, storage::storage_provider_from_env};
 # async fn create_boundless_client(
 # rpc_url: url::Url,
-# boundless_market_address: Address,
-# set_verifier_address: Address,
-# order_stream_url: Option<url::Url>,
-# storage_provider: Option<BuiltinStorageProvider>,
 # private_key: PrivateKeySigner) -> Result<(), Box<dyn std::error::Error>> {
-let boundless_client = ClientBuilder::new()
+let client = Client::builder()
   .with_rpc_url(rpc_url)
-  .with_boundless_market_address(boundless_market_address)
-  .with_set_verifier_address(set_verifier_address)
-  .with_order_stream_url(order_stream_url)
-  .with_storage_provider(storage_provider)
   .with_private_key(private_key)
+  .with_storage_provider(Some(storage_provider_from_env()?))
   .build()
   .await?;
 # Ok(())
@@ -70,10 +63,13 @@ With the storage provider added to the `Client`, the executable can be uploaded 
 
 <StripRustCodeComments>
 ```rust
-# use boundless_market::client::ClientBuilder;
-# async fn upload_program(PROGRAM: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::new().build().await?;
-let program_url = boundless_client.upload_program(PROGRAM).await?;
+# use boundless_market::{Client, storage::storage_provider_from_env};
+# async fn upload_program(program: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+# let client = Client::builder()
+#   .with_storage_provider(Some(storage_provider_from_env()?))
+#   .build()
+#   .await?;
+let program_url = client.upload_program(program).await?;
 # Ok(())
 # }
 ```
@@ -93,10 +89,13 @@ Similar to the program executable, the program inputs are uploaded to a public H
 
 <StripRustCodeComments>
 ```rust
-# use boundless_market::client::ClientBuilder;
-# async fn upload_program(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::new().build().await?;
-let input_url = boundless_client.upload_input(&input_bytes).await?;
+# use boundless_market::{Client, storage::storage_provider_from_env};
+# async fn upload_input(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+# let client = Client::builder()
+#   .with_storage_provider(Some(storage_provider_from_env()?))
+#   .build()
+#   .await?;
+let input_url = client.upload_input(&input_bytes).await?;
 # Ok(())
 # }
 ```
@@ -146,44 +145,40 @@ A proof request consists of four essential components that specify which program
 ```rust showLineNumbers
 # use anyhow::Result;
 # use alloy_primitives::utils::parse_ether;
-# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
-# use risc0_zkvm::sha::{Digest, Digestible};
-# fn create_proof_request(
-# ECHO_ID: Digest,
-# program_url: url::Url,
-# input_url: url::Url,
-# mcycles_count: u64,
-# journal: Vec<u8>) -> Result<ProofRequest> {
-let request = ProofRequest::builder()
-  .with_image_url(program_url)
-  .with_input(input_url)
-  .with_requirements(Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest())))
+# use boundless_market::{Client, request_builder::OfferParams};
+# async fn create_proof_request(
+# client: Client,
+# program: &'static [u8],
+# input: &[u8]) -> Result<()> {
+// Create a request using new_request
+let request = client.new_request()
+  .with_program(program)
+  .with_stdin(input)
   .with_offer(
-    Offer::default()
+    OfferParams::builder()
       // The market uses a reverse Dutch auction mechanism to match requests with provers.
-      // Each request has a price range that a prover can bid on. One way to set the price
-      // is to choose a desired (min and max) price per million cycles and multiply it
-      // by the number of cycles. Alternatively, you can use the `with_min_price` and
-      // `with_max_price` methods to set the price directly.
-      .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-      // NOTE: If your offer is not being accepted, try increasing the max price.
-      .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
+      // Each request has a price range that a prover can bid on.
+      .min_price(parse_ether("0.001")?)
+      .max_price(parse_ether("0.002")?)
       // The timeout is the maximum number of blocks the request can stay
       // unfulfilled in the market before it expires. If a prover locks in
       // the request and does not fulfill it before the timeout, the prover can be
       // slashed.
-      .with_timeout(1000),
-  )
-  .build()?;
-# Ok(request)
+      .timeout(1000)
+      .lock_timeout(500)
+      .ramp_up_period(100)
+  );
+
+// Submit the request directly
+let (request_id, expires_at) = client.submit_onchain(request).await?;
+# Ok(())
 # }
 ```
 </StripRustCodeComments>
 
-1. Program Image (`with_image_url`) (line #2)
-2. Program Input (`with_input`) (line #3)
-3. Requirements (`with_requirements`) (line #4)
-4. Offer (`with_offer`) (line #5)
+1. Program Image (`with_program`) (line #2)
+2. Program Input (`with_stdin`) (line #3)
+3. Offer Settings (`with_offer`) (line #4)
 
 The program image and program inputs are discussed in steps 2 and 3 respectively.
 
@@ -204,18 +199,17 @@ Once the request is configured, it can submitted to the market:
 
 <StripRustCodeComments>
 ```rust
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::Client;
 # use boundless_market::contracts::ProofRequest;
-# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::new().build().await?;
-let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+# async fn submit_request(client: Client, request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+let (request_id, expires_at) = client.submit_request_onchain(&request).await?;
 # Ok(())
 # }
 ```
 </StripRustCodeComments>
 
 This will send the request onchain in a transaction.
-Using `boundless_client.submit_request_offchain`, you can send your request offchain through the order-stream service.
+Using `client.submit_offchain(request)`, you can send your request offchain through the order-stream service.
 Offchain requests will not cost any gas, but does require you to deposit funds to the market first.
 
 The `submit_request` method returns a `request_id` which can be used to track the proof request (see [Boundless Indexer](https://indexer.beboundless.xyz)).
@@ -227,17 +221,16 @@ you can use the following code:
 <StripRustCodeComments>
 ```rust
 # use alloy::signers::Signer;
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::Client;
 # use boundless_market::contracts::ProofRequest;
-# async fn submit_request_with_signer(request: ProofRequest, signer: impl Signer) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::new().build().await?;
-let (request_id, expires_at) = boundless_client.submit_request_with_signer(&request, &signer).await?;
+# async fn submit_request_with_signer(client: Client, request: ProofRequest, signer: impl Signer) -> Result<(), Box<dyn std::error::Error>> {
+let (request_id, expires_at) = client.submit_request_onchain_with_signer(&request, &signer).await?;
 # Ok(())
 # }
 ```
 </StripRustCodeComments>
 
-Similarly, using `boundless_client.submit_request_offchain_with_signer`, will send your request offchain through the order-stream service.
+Similarly, using `client.submit_request_onchain_with_signer`, will send your request offchain through the order-stream service.
 
 > Relevant links: [Signers supported by alloy](https://alloy.rs/examples/wallets/index.html)
 
@@ -248,12 +241,11 @@ Once fulfilled, the journal and seal are returned. The journal contains the publ
 <StripRustCodeComments>
 ```rust
 # use std::time::Duration;
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::Client;
 # use boundless_market::contracts::ProofRequest;
-# async fn submit_request(request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
-# let boundless_client = ClientBuilder::new().build().await?;
-# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
-let (_journal, seal) = boundless_client
+# async fn submit_request(client: Client, request: ProofRequest) -> Result<(), Box<dyn std::error::Error>> {
+# let (request_id, expires_at) = client.submit_request_onchain(&request).await?;
+let (journal, seal) = client
   .wait_for_request_fulfillment(
     request_id,
     Duration::from_secs(5), // check every 5 seconds

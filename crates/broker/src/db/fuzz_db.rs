@@ -23,7 +23,8 @@ use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
 use super::{BrokerDb, SqliteDb};
 
 use boundless_market::contracts::{
-    Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+    Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
+    Requirements,
 };
 
 // Add new state tracking structure
@@ -84,7 +85,7 @@ fn generate_test_order(request_id: u32) -> Order {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "test",
-            Input { inputType: InputType::Url, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
                 maxPrice: U256::from(10),

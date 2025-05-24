@@ -263,7 +263,7 @@ mod tests {
     };
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Offer, Predicate, PredicateType, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
     use boundless_market_test_utils::{ECHO_ELF, ECHO_ID};
     use chrono::Utc;
@@ -305,7 +305,10 @@ mod tests {
                     },
                 ),
                 imageUrl: "http://risczero.com/image".into(),
-                input: Input { inputType: InputType::Inline, data: Default::default() },
+                input: RequestInput {
+                    inputType: RequestInputType::Inline,
+                    data: Default::default(),
+                },
                 offer: Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
@@ -378,7 +381,10 @@ mod tests {
                     },
                 ),
                 imageUrl: "http://risczero.com/image".into(),
-                input: Input { inputType: InputType::Inline, data: Default::default() },
+                input: RequestInput {
+                    inputType: RequestInputType::Inline,
+                    data: Default::default(),
+                },
                 offer: Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),

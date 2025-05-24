@@ -604,10 +604,10 @@ mod tests {
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, Input, InputType, Offer, Predicate, PredicateType,
-            ProofRequest, RequestId, Requirements,
+            hit_points::default_allowance, Offer, Predicate, PredicateType, ProofRequest,
+            RequestId, RequestInput, RequestInputType, Requirements,
         },
-        input::InputBuilder,
+        input::GuestEnv,
     };
     use boundless_market_test_utils::{
         deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
@@ -705,7 +705,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(2),
                 maxPrice: U256::from(4),
@@ -733,7 +733,7 @@ mod tests {
             }],
             prover_address: prover_addr,
         };
-        let assessor_stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
+        let assessor_stdin = GuestEnv::builder().write_frame(&assessor_input.encode()).stdin;
 
         let assessor_input = prover.upload_input(assessor_stdin).await.unwrap();
 

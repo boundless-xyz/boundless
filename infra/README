@@ -28,6 +28,12 @@ These steps create a new project with a dev stack for deploying to the developme
 4. `git add -u && git commit -m "Initialize <project_name>"`
 5. Add `Pulumi.dev.yaml` to `.gitignore`
 6. `git add -u && git commit -m ".gitignore"`
+7. Modify `package.json` to add a script that builds using `tsc`. This is used by Github Actions CI. Add:
+   ```
+    "scripts": {
+        "build": "tsc"
+    }
+   ```
 
 ## Deploying to staging and prod
 

@@ -8,7 +8,7 @@ use alloy::{
     network::EthereumWallet,
     primitives::{
         utils::{format_units, parse_ether},
-        Address, U256,
+        U256,
     },
     providers::Provider,
     signers::local::PrivateKeySigner,
@@ -19,16 +19,15 @@ use boundless_indexer::{IndexerService, IndexerServiceConfig};
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
     client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
-    input::InputBuilder,
-    storage::{
-        storage_provider_from_config, storage_provider_from_env, BuiltinStorageProvider,
-        StorageProviderConfig,
-    },
+    contracts::{Offer, Predicate, ProofRequest, Requirements},
+    deployments::Deployment,
+    input::GuestEnv,
+    request_builder::OfferParams,
+    storage::StorageProviderConfig,
 };
 use clap::Parser;
 use futures::future::try_join_all;
-use risc0_zkvm::{compute_image_id, default_executor, serde::to_vec, sha::Digestible, Journal};
+use risc0_zkvm::{compute_image_id, serde::to_vec, sha::Digestible, Journal};
 use tempfile::NamedTempFile;
 use tokio::{signal, task::JoinHandle, time::Instant};
 use url::Url;
@@ -38,8 +37,6 @@ pub mod db;
 
 pub use bench::{Bench, BenchRow, BenchRows};
 
-const LOCK_FULFILL_GAS_UPPER_BOUND: u128 = 100_000_000;
-
 /// Arguments of the benchmark.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -47,25 +44,11 @@ pub struct MainArgs {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     pub rpc_url: Url,
-    /// Optional URL of the offchain order stream endpoint.
-    ///
-    /// If set, the order-generator will submit requests off-chain.
-    #[clap(short, long, env)]
-    pub order_stream_url: Option<Url>,
     /// Private key used to sign and submit requests.
     ///
     /// The key must be in hex format, without the 0x prefix.
     #[clap(short, long, env)]
     pub private_key: PrivateKeySigner,
-    /// Address of the SetVerifier contract.
-    #[clap(short, long, env)]
-    pub set_verifier_address: Address,
-    /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
-    pub boundless_market_address: Address,
-    // Storage provider to use.
-    #[clap(flatten)]
-    pub storage_config: Option<StorageProviderConfig>,
     /// The DB url of the indexer to use.
     ///
     /// If not set, a new indexer instance is spawn locally.
@@ -103,13 +86,21 @@ pub struct MainArgs {
     /// This is useful for testing the cost of a benchmark without actually running it.
     #[clap(long)]
     pub estimate: bool,
+
+    /// Boundless Market deployment configuration
+    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    deployment: Option<Deployment>,
+    /// Storage provider to use.
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    storage_config: StorageProviderConfig,
 }
 
 pub async fn run(args: &MainArgs) -> Result<()> {
-    let storage_provider = match &args.storage_config {
-        Some(storage_config) => storage_provider_from_config(storage_config).await?,
-        None => storage_provider_from_env().await?,
-    };
+    let bench_file = File::open(&args.bench)?;
+    let bench: Bench = serde_json::from_reader(bench_file)?;
+    let min_price_per_cycle = parse_ether(&bench.min_price_per_mcycle)? >> 20;
+    let max_price_per_cycle = parse_ether(&bench.max_price_per_mcycle)? >> 20;
+
     let private_key = args.private_key.clone();
     let wallet = EthereumWallet::from(private_key.clone());
     let balance_alerts = BalanceAlertConfig {
@@ -117,14 +108,15 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         warn_threshold: args.warn_balance_below,
         error_threshold: args.error_balance_below,
     };
-    let boundless_client = ClientBuilder::<BuiltinStorageProvider>::new()
+    let boundless_client = ClientBuilder::new()
         .with_rpc_url(args.rpc_url.clone())
-        .with_storage_provider(Some(storage_provider.clone()))
-        .with_boundless_market_address(args.boundless_market_address)
-        .with_set_verifier_address(args.set_verifier_address)
-        .with_order_stream_url(args.order_stream_url.clone())
+        .with_storage_provider_config(&args.storage_config)?
+        .with_deployment(args.deployment.clone())
         .with_private_key(private_key)
         .with_balance_alerts(balance_alerts)
+        .config_offer_layer(|config| {
+            config.min_price_per_cycle(min_price_per_cycle).max_price_per_cycle(max_price_per_cycle)
+        })
         .build()
         .await?;
 
@@ -143,21 +135,10 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     };
     let image_id = compute_image_id(&program)?;
 
-    let bench_file = File::open(&args.bench)?;
-    let bench: Bench = serde_json::from_reader(bench_file)?;
-    let input = bench.cycle_count_per_request;
-    let env = InputBuilder::new().write(&(input as u64))?.write(&now_timestamp())?.build_env()?;
-    let session_info = default_executor().execute(env.clone().try_into()?, &program)?;
-
-    let cycles_count = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
-    let min_price = parse_ether(&bench.min_price_per_mcycle)?
-        .checked_mul(U256::from(cycles_count))
-        .unwrap()
-        .div_ceil(U256::from(1_000_000));
-    let mcycle_max_price = parse_ether(&bench.max_price_per_mcycle)?
-        .checked_mul(U256::from(cycles_count))
-        .unwrap()
-        .div_ceil(U256::from(1_000_000));
+    let env = GuestEnv::builder()
+        .write(&(bench.cycle_count_per_request as u64))?
+        .write(&now_timestamp())?
+        .build_env();
 
     // start the indexer
     let temp_db = NamedTempFile::new().unwrap();
@@ -176,7 +157,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                 let mut indexer = IndexerService::new(
                     args.rpc_url.clone(),
                     &PrivateKeySigner::random(),
-                    args.boundless_market_address,
+                    boundless_client.deployment.boundless_market_address,
                     &db_url,
                     IndexerServiceConfig { interval: Duration::from_secs(2), retries: 5 },
                 )
@@ -194,11 +175,28 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         };
     tracing::debug!("Indexer URL: {}", indexer_url);
 
-    //force auto-deposit
-    let gas_price: u128 = boundless_client.provider().get_gas_price().await?;
-    let gas_cost_estimate = (gas_price + gas_price / 10) * LOCK_FULFILL_GAS_UPPER_BOUND;
-    let max_price = mcycle_max_price + U256::from(gas_cost_estimate);
-    let amount: alloy::primitives::Uint<256, 4> = max_price * U256::from(bench.requests_count);
+    // Build the first request. We will clone this request, updating the id and bidding start, to
+    // create each request sent.
+    let inital_request = boundless_client
+        .build_request(
+            boundless_client
+                .new_request()
+                .with_program(program.clone())
+                .with_program_url(program_url.clone())?
+                .with_env(env.clone())
+                .with_offer(
+                    OfferParams::builder()
+                        .lock_stake(parse_ether(&bench.lockin_stake)?)
+                        .ramp_up_period(bench.ramp_up)
+                        .timeout(bench.timeout)
+                        .lock_timeout(bench.lock_timeout),
+                ),
+        )
+        .await?;
+
+    // Calculate how much to deposit to cover all the requests we intend to make.
+    let amount: alloy::primitives::Uint<256, 4> =
+        inital_request.offer.maxPrice * U256::from(bench.requests_count);
     let current_balance =
         boundless_client.boundless_market.balance_of(boundless_client.caller()).await?;
     let deposit_value =
@@ -234,60 +232,50 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         format_units(balance_before, "ether")?
     );
 
-    let timeout = bench.timeout;
-    let lock_timeout = bench.lock_timeout;
     let interval = bench.interval;
-    let lockin_stake = parse_ether(&bench.lockin_stake)?;
-    let ramp_up = bench.ramp_up;
     let threads = bench.threads as usize;
-    let boundless_market_address = args.boundless_market_address;
 
     // Spawn one task per thread
     // Each task will handle its own requests
     let mut tasks: Vec<JoinHandle<anyhow::Result<Vec<BenchRow>>>> = Vec::with_capacity(threads);
     for i in 0..threads {
         // Pre-clone everything each task will need
-        let client = boundless_client.clone();
-        let program_url = program_url.clone();
+        let boundless_client = boundless_client.clone();
         let domain = domain.clone();
-        let order_stream = args.order_stream_url.clone();
+        let order_stream = boundless_client.deployment.order_stream_url.clone();
+        let inital_request = inital_request.clone();
 
         tasks.push(tokio::spawn(async move {
             let mut rows: Vec<BenchRow> = Vec::new();
 
             for i in (i..bench.requests_count as usize).step_by(threads) {
                 let bidding_start = now_timestamp() + 10;
-                let env =
-                    InputBuilder::new().write(&(i as u64))?.write(&bidding_start)?.build_env()?;
+                let request_input = GuestEnv::builder()
+                    .write(&(i as u64))?
+                    .write(&bidding_start)?
+                    .build_inline()?;
                 let journal = Journal::new(bytemuck::pod_collect_to_vec(&to_vec(&(
                     i as u64,
                     bidding_start,
                 ))?));
 
-                let mut request = ProofRequest::builder()
-                    .with_image_url(program_url.clone())
-                    .with_input(Input::inline(env.encode()?))
-                    .with_requirements(Requirements::new(
+                let initial_offer = inital_request.offer.clone();
+                let mut request = ProofRequest {
+                    id: boundless_client.boundless_market.request_id_from_rand().await?,
+                    offer: Offer { biddingStart: bidding_start, ..initial_offer },
+                    input: request_input,
+                    requirements: Requirements::new(
                         image_id,
                         Predicate::digest_match(journal.digest()),
-                    ))
-                    .with_offer(
-                        Offer::default()
-                            .with_bidding_start(bidding_start)
-                            .with_min_price(min_price)
-                            .with_max_price(max_price)
-                            .with_lock_stake(lockin_stake)
-                            .with_ramp_up_period(ramp_up)
-                            .with_timeout(timeout)
-                            .with_lock_timeout(lock_timeout),
-                    )
-                    .build()?;
+                    ),
+                    imageUrl: inital_request.imageUrl.clone(),
+                };
                 tracing::debug!("Request: {:?}", request);
 
                 let res = if order_stream.is_some() {
-                    client.submit_request_offchain(&request).await
+                    boundless_client.submit_request_offchain(&request).await
                 } else {
-                    client.submit_request(&request).await
+                    boundless_client.submit_request_onchain(&request).await
                 };
                 if let Err(e) = res {
                     tracing::error!("Error submitting request: {}", e);
@@ -315,7 +303,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                 } else {
                     tracing::info!(
                         "Request 0x{request_id:x} submitted onchain to {} - {}/{}",
-                        boundless_market_address,
+                        boundless_client.deployment.boundless_market_address,
                         i + 1,
                         bench.requests_count
                     );
@@ -453,7 +441,7 @@ fn now_timestamp() -> u64 {
 mod tests {
     use std::fs::create_dir_all;
 
-    use alloy::node_bindings::Anvil;
+    use alloy::{node_bindings::Anvil, primitives::Address};
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderConfig;
     use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
@@ -498,6 +486,7 @@ mod tests {
             rpc_retry_max: 3,
             rpc_retry_backoff: 200,
             rpc_retry_cu: 1000,
+            log_json: false,
         }
     }
 
@@ -533,8 +522,8 @@ mod tests {
         let config = new_config_with_min_deadline(2, 10).await;
         let args = broker_args(
             config.path().to_path_buf(),
-            ctx.boundless_market_address,
-            ctx.set_verifier_address,
+            ctx.deployment.boundless_market_address,
+            ctx.deployment.set_verifier_address,
             anvil.endpoint_url(),
             ctx.prover_signer,
         );
@@ -569,11 +558,9 @@ mod tests {
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
-            order_stream_url: None,
-            storage_config: Some(StorageProviderConfig::dev_mode()),
+            storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer.clone(),
-            set_verifier_address: ctx.set_verifier_address,
-            boundless_market_address: ctx.boundless_market_address,
+            deployment: Some(ctx.deployment.clone()),
             program: is_dev_mode().then(|| PathBuf::from(LOOP_PATH)),
             warn_balance_below: None,
             error_balance_below: None,

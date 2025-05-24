@@ -7,13 +7,10 @@ use std::{cmp::min, collections::HashMap, sync::Arc};
 use alloy::{
     consensus::Transaction,
     eips::BlockNumberOrTag,
-    network::{Ethereum, EthereumWallet, TransactionResponse},
+    network::{Ethereum, TransactionResponse},
     primitives::{Address, Bytes, B256},
     providers::{
-        fillers::{
-            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-            WalletFiller,
-        },
+        fillers::{ChainIdFiller, FillProvider, JoinFill},
         Identity, Provider, ProviderBuilder, RootProvider,
     },
     rpc::types::Log,
@@ -36,16 +33,7 @@ pub mod test_utils;
 
 const MAX_BATCH_SIZE: u64 = 500;
 
-type ProviderWallet = FillProvider<
-    JoinFill<
-        JoinFill<
-            Identity,
-            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-        >,
-        WalletFiller<EthereumWallet>,
-    >,
-    RootProvider,
->;
+type ProviderWallet = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
 
 #[derive(Error, Debug)]
 pub enum ServiceError {
@@ -96,8 +84,10 @@ impl IndexerService<ProviderWallet> {
         config: IndexerServiceConfig,
     ) -> Result<Self, ServiceError> {
         let caller = private_key.address();
-        let wallet = EthereumWallet::from(private_key.clone());
-        let provider = ProviderBuilder::new().wallet(wallet.clone()).connect_http(rpc_url);
+        let provider = ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .filler(ChainIdFiller::default())
+            .connect_http(rpc_url);
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);

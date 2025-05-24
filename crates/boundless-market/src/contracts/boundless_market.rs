@@ -22,7 +22,7 @@ use alloy::{
     consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
     network::Ethereum,
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{utils::format_ether, Address, Bytes, B256, U256},
     providers::{PendingTransactionBuilder, PendingTransactionError, Provider},
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
@@ -140,10 +140,7 @@ struct StakeBalanceAlertConfig {
     error_threshold: Option<U256>,
 }
 
-impl<P> Clone for BoundlessMarketService<P>
-where
-    IBoundlessMarketInstance<P, Ethereum>: Clone,
-{
+impl<P: Clone> Clone for BoundlessMarketService<P> {
     fn clone(&self) -> Self {
         Self {
             instance: self.instance.clone(),
@@ -310,6 +307,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
         tracing::trace!("Calling submitRequest({:x?})", request);
+        tracing::debug!("Sending request ID {:x}", request.id);
         let client_address = request.client_address();
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()));
@@ -324,12 +322,12 @@ impl<P: Provider> BoundlessMarketService<P> {
             .submitRequest(request.clone(), client_sig.as_bytes().into())
             .from(self.caller)
             .value(value.into());
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
-        tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
-
+        let pending_tx = call.send().await?;
+        tracing::debug!(
+            "Broadcasting tx {:x} with request ID {:x}",
+            pending_tx.tx_hash(),
+            request.id
+        );
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         // Look for the logs for submitting the transaction.
@@ -339,19 +337,21 @@ impl<P: Provider> BoundlessMarketService<P> {
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
     /// on, with a signature specified as Bytes.
-    pub async fn submit_request_with_signature_bytes(
+    pub async fn submit_request_with_signature(
         &self,
         request: &ProofRequest,
         signature: &Bytes,
     ) -> Result<U256, MarketError> {
         tracing::trace!("Calling submitRequest({:x?})", request);
+        tracing::debug!("Sending request ID {:x}", request.id);
         let call =
             self.instance.submitRequest(request.clone(), signature.clone()).from(self.caller);
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
-        tracing::debug!("broadcasting tx {}", pending_tx.tx_hash());
+        let pending_tx = call.send().await?;
+        tracing::debug!(
+            "Broadcasting tx {:x} with request ID {:x}",
+            pending_tx.tx_hash(),
+            request.id
+        );
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -374,6 +374,9 @@ impl<P: Provider> BoundlessMarketService<P> {
             .context("failed to get whether the client balance can cover the offer max price")?;
         let max_price = U256::from(request.offer.maxPrice);
         let value = if balance > max_price { U256::ZERO } else { U256::from(max_price) - balance };
+        if value > U256::ZERO {
+            tracing::debug!("Sending {} ETH with request {:x}", format_ether(value), request.id);
+        }
         self.submit_request_with_value(request, signer, value).await
     }
 
@@ -414,13 +417,9 @@ impl<P: Provider> BoundlessMarketService<P> {
                 .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
         }
 
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
+        tracing::trace!("Sending tx {}", format!("{:?}", call));
 
-        tracing::trace!("Sending tx {} with est gas {est_with_buffer}", format!("{:?}", call));
-
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         let tx_hash = *pending_tx.tx_hash();
         tracing::trace!("Broadcasting lock request tx {}", tx_hash);
 
@@ -476,10 +475,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .instance
             .lockRequestWithSignature(request.clone(), client_sig.clone(), prover_sig.clone())
             .from(self.caller);
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await.context("Failed to lock")?;
+        let pending_tx = call.send().await.context("Failed to lock")?;
         tracing::trace!("Broadcasting lock request with signature tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
@@ -557,10 +553,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<IBoundlessMarket::ProverSlashed, MarketError> {
         tracing::trace!("Calling slash({:x?})", request_id);
         let call = self.instance.slash(request_id).from(self.caller);
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
@@ -585,10 +578,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<(), MarketError> {
         tracing::trace!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_fill);
         let call = self.instance.fulfill(fulfillment.clone(), assessor_fill).from(self.caller);
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
@@ -619,10 +609,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling fulfillAndWithdraw({:x?},{:x?})", fulfillment, assessor_fill);
         let call =
             self.instance.fulfillAndWithdraw(fulfillment.clone(), assessor_fill).from(self.caller);
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
@@ -648,10 +635,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling fulfillBatch({fulfillments:?}, {assessor_fill:?})");
         let call = self.instance.fulfillBatch(fulfillments, assessor_fill).from(self.caller);
         tracing::trace!("Calldata: {:x}", call.calldata());
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
@@ -674,10 +658,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let call =
             self.instance.fulfillBatchAndWithdraw(fulfillments, assessor_fill).from(self.caller);
         tracing::trace!("Calldata: {:x}", call.calldata());
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::trace!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
@@ -703,10 +684,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .submitRootAndFulfillBatch(verifier_address, root, seal, fulfillments, assessor_fill)
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
         let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -737,10 +715,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             )
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
         let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -781,10 +756,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                 .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
         }
 
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
@@ -828,10 +800,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                 .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
         }
 
-        let est = call.estimate_gas().await?;
-        // Add 20% of buffer
-        let est_with_buffer = est + est / 5u64;
-        let pending_tx = call.gas(est_with_buffer).send().await?;
+        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
@@ -1440,10 +1409,10 @@ mod tests {
     use super::decode_calldata;
     use crate::{
         contracts::{
-            AssessorReceipt, Fulfillment, IBoundlessMarket, Input, InputType, Offer, Predicate,
-            PredicateType, ProofRequest, RequestId, Requirements,
+            AssessorReceipt, Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType,
+            ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
         },
-        now_timestamp,
+        util::now_timestamp,
     };
     use alloy::primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256};
     use alloy_sol_types::SolCall;
@@ -1512,7 +1481,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http:s//image.dev.null",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
                 maxPrice: U256::from(4),

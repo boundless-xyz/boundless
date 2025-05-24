@@ -30,10 +30,11 @@ use crate::contracts::UNSPECIFIED_SELECTOR;
 /// Define the selector types.
 ///
 /// This is used to indicate the type of proof that is being requested.
-#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, ValueEnum)]
 #[non_exhaustive]
 pub enum ProofType {
     /// Any proof type.
+    #[default]
     Any,
     /// Groth16 proof type.
     Groth16,
