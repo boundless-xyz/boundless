@@ -29,6 +29,7 @@ futures = "0.3"
 futures-util = { workspace = true }
 hex = { workspace = true }
 http-cache-reqwest = "0.15.1"
+moka = { version = "0.12", features = ["future"] }
 notify = "6.1"
 reqwest = { workspace = true }
 reqwest-middleware = "0.4.1"

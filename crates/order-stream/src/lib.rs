@@ -681,7 +681,7 @@ mod tests {
 
                 // Handle potential errors from both streams
                 match (res1, res2) {
-                    (Some(Ok(order1)), Some(Ok(order2))) => {
+                    (Some(order1), Some(order2)) => {
                         if order1.order == order2.order {
                             order_tx.send(order1).await.unwrap();
                         } else {

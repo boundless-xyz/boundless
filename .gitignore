@@ -28,6 +28,7 @@ target/
 # Misc
 .DS_Store
 .idea
+.aider*
 
 # Ignore generated files
 contracts/src/SetBuilderImageID.sol

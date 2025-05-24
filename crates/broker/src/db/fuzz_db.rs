@@ -39,13 +39,8 @@ enum DbOperation {
     AddOrder(u32),
     OperateOnExistingOrder(ExistingOrderOperation),
     BatchOperation(BatchOperation),
-    GetOrderForPricing,
-    GetActivePricingOrders,
-    GetPendingLockOrders(u32),
     GetProvingOrder,
     GetActiveProofs,
-    GetLastBlock,
-    SetLastBlock(u32),
     GetAggregationProofs,
     GetBatch(u32),
 }
@@ -53,16 +48,11 @@ enum DbOperation {
 #[derive(Debug, Arbitrary, Clone)]
 enum ExistingOrderOperation {
     GetOrder,
-    SetOrderLock { lock_timestamp: u32, expire_timestamp: u32 },
-    SetProvingStatus { lock_price: u64 },
     SetOrderComplete,
-    SkipOrder,
-    SetOrderFailure { failure_str: String },
+    SetOrderFailure,
     SetOrderProofId { proof_id: String },
-    SetImageInputIds { image_id: String, input_id: String },
     SetAggregationStatus,
     GetSubmissionOrder,
-    OrderExists,
 }
 
 #[derive(Debug, Arbitrary, Clone)]
@@ -85,7 +75,7 @@ enum BatchOperation {
 // Generate a valid Order for testing
 fn generate_test_order(request_id: u32) -> Order {
     Order {
-        status: OrderStatus::New,
+        status: OrderStatus::PendingProving,
         updated_at: Utc::now(),
         target_timestamp: None,
         request: ProofRequest::new(
@@ -180,7 +170,7 @@ proptest! {
                             DbOperation::AddOrder(request_id) => {
                                 let order = generate_test_order(request_id);
                                 let id = order.id();
-                                db.add_order(order).await.unwrap();
+                                db.add_order(&order).await.unwrap();
                                 state.added_orders.push(id);
                             },
                             DbOperation::OperateOnExistingOrder(operation) => {
@@ -198,26 +188,14 @@ proptest! {
                                     ExistingOrderOperation::GetOrder => {
                                         db.get_order(id).await.unwrap();
                                     },
-                                    ExistingOrderOperation::SetOrderLock { lock_timestamp, expire_timestamp } => {
-                                        db.set_order_lock(id, lock_timestamp as u64, expire_timestamp as u64, None).await.unwrap();
-                                    },
-                                    ExistingOrderOperation::SetProvingStatus { lock_price } => {
-                                        db.set_proving_status_lock_and_fulfill_orders(id, U256::from(lock_price)).await.unwrap();
-                                    },
                                     ExistingOrderOperation::SetOrderComplete => {
                                         db.set_order_complete(id).await.unwrap();
                                     },
-                                    ExistingOrderOperation::SkipOrder => {
-                                        db.skip_order(id).await.unwrap();
-                                    },
-                                    ExistingOrderOperation::SetOrderFailure { failure_str } => {
-                                        db.set_order_failure(id, failure_str).await.unwrap();
+                                    ExistingOrderOperation::SetOrderFailure => {
+                                        db.set_order_failure(id, "test").await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderProofId { proof_id } => {
                                         db.set_order_proof_id(id, &proof_id).await.unwrap();
-                                    },
-                                    ExistingOrderOperation::SetImageInputIds { image_id, input_id } => {
-                                        db.set_image_input_ids(id, &image_id, &input_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
                                         db.set_aggregation_status(id, OrderStatus::PendingAgg).await.unwrap();
@@ -230,10 +208,7 @@ proptest! {
                                             }
                                         }
                                     },
-                                    ExistingOrderOperation::OrderExists => {
-                                        let request_id = U256::from_str(id.split("-").next().unwrap()).unwrap();
-                                        db.order_exists_with_request_id(request_id).await.unwrap();
-                                    },
+
                                 }
                             },
                             DbOperation::BatchOperation(operation) => {
@@ -301,27 +276,14 @@ proptest! {
                                     },
                                 }
                             },
-                            DbOperation::GetOrderForPricing => {
-                                db.update_orders_for_pricing(1).await.unwrap();
-                            },
-                            DbOperation::GetActivePricingOrders => {
-                                db.get_active_pricing_orders().await.unwrap();
-                            },
-                            DbOperation::GetPendingLockOrders(end_timestamp) => {
-                                db.get_pending_lock_orders(end_timestamp as u64).await.unwrap();
-                            },
+
                             DbOperation::GetProvingOrder => {
                                 db.get_proving_order().await.unwrap();
                             },
                             DbOperation::GetActiveProofs => {
                                 db.get_active_proofs().await.unwrap();
                             },
-                            DbOperation::GetLastBlock => {
-                                db.get_last_block().await.unwrap();
-                            },
-                            DbOperation::SetLastBlock(block) => {
-                                db.set_last_block(block as u64).await.unwrap();
-                            },
+
                             DbOperation::GetAggregationProofs => {
                                 db.get_aggregation_proofs().await.unwrap();
                             },

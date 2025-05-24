@@ -13,13 +13,12 @@
 	],
 	"rust-analyzer.linkedProjects": [
 		"./Cargo.toml",
-		"./crates/guest/assessor/assessor-guest/Cargo.toml",
-		"./crates/guest/util/echo/Cargo.toml",
-		"./crates/guest/util/identity/Cargo.toml",
-		"./crates/guest/util/loop/Cargo.toml",
-		"./examples/counter/Cargo.toml",
-		"./examples/smart-contract-requestor/Cargo.toml",
-		"./examples/counter-with-callback/Cargo.toml"
+		// "./crates/guest/assessor/assessor-guest/Cargo.toml",
+		// "./crates/guest/util/echo/Cargo.toml",
+		// "./crates/guest/util/identity/Cargo.toml",
+		// "./examples/counter/Cargo.toml",
+		// "./examples/smart-contract-requestor/Cargo.toml",
+		// "./examples/counter-with-callback/Cargo.toml"
 	],
 	"rust-analyzer.files.exclude": [
 		"./lib/",
