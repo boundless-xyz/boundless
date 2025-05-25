@@ -39,6 +39,9 @@ pub enum MarketMonitorErr {
     #[error("{code} Event polling failed: {0:?}", code = self.code())]
     EventPollingErr(anyhow::Error),
 
+    #[error("{code} Log processing failed: {0:?}", code = self.code())]
+    LogProcessingFailed(anyhow::Error),
+
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -47,6 +50,7 @@ impl CodedError for MarketMonitorErr {
     fn code(&self) -> &str {
         match self {
             MarketMonitorErr::EventPollingErr(_) => "[B-MM-501]",
+            MarketMonitorErr::LogProcessingFailed(_) => "[B-MM-502]",
             MarketMonitorErr::UnexpectedErr(_) => "[B-MM-500]",
         }
     }
@@ -271,11 +275,13 @@ where
                         )
                         .await
                         {
-                            tracing::error!("Failed to process event log: {err:?}");
+                            let event_err = MarketMonitorErr::LogProcessingFailed(err);
+                            tracing::error!("Failed to process event log: {event_err:?}");
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
+                        tracing::warn!("Failed to fetch event log: {event_err:?}");
                     }
                 }
             })
@@ -378,7 +384,8 @@ where
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch RequestLocked event log: {:?}", err);
+                        let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
+                        tracing::warn!("Failed to fetch RequestLocked event log: {event_err:?}");
                     }
                 }
             })
@@ -431,7 +438,8 @@ where
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch RequestFulfilled event log: {:?}", err);
+                        let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
+                        tracing::warn!("Failed to fetch RequestFulfilled event log: {event_err:?}");
                     }
                 }
             })

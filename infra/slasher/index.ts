@@ -32,6 +32,8 @@ export = () => {
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
   const txTimeout = config.require('TX_TIMEOUT');
+  const warnBalanceBelow = config.get('WARN_BALANCE_BELOW');
+  const errorBalanceBelow = config.get('ERROR_BALANCE_BELOW');
 
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
@@ -51,7 +53,7 @@ export = () => {
 
   const secretHash = pulumi
     .all([ethRpcUrl, privateKey])
-    .apply(([_ethRpcUrl, _privateKey]) => {
+    .apply(([_ethRpcUrl, _privateKey]: [string, string]) => {
       const hash = crypto.createHash("sha1");
       hash.update(_ethRpcUrl);
       hash.update(_privateKey);
@@ -192,6 +194,23 @@ export = () => {
   );
 
   const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
+
+  let slasherArgs = [
+    `--db sqlite:///app/data/slasher.db`,
+    `--tx-timeout ${txTimeout}`,
+    `--interval ${interval}`,
+    `--retries ${retries}`,
+  ]
+  if (skipAddresses) {
+    slasherArgs.push(`--skip-addresses ${skipAddresses}`);
+  }
+  if (warnBalanceBelow) {
+    slasherArgs.push(`--warn-balance-below ${warnBalanceBelow}`);
+  }
+  if (errorBalanceBelow) {
+    slasherArgs.push(`--error-balance-below ${errorBalanceBelow}`);
+  }
+
   const service = new awsx.ecs.FargateService(
     `${serviceName}-service`,
     {
@@ -232,7 +251,7 @@ export = () => {
           ],
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/boundless-slasher --db sqlite:///app/data/slasher.db --tx-timeout ${txTimeout} --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
+            `/app/boundless-slasher ${slasherArgs.join(' ')}`,
           ],
           environment: [
             {

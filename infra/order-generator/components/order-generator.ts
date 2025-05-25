@@ -29,6 +29,8 @@ interface OrderGeneratorArgs {
     autoDeposit: string;
     orderStreamUrl: pulumi.Output<string>;
   };
+  warnBalanceBelow?: string;
+  errorBalanceBelow?: string;
   txTimeout: string;
 }
 
@@ -37,6 +39,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
     super(`boundless:order-generator:${name}`, name, args, opts);
 
     const serviceName = getServiceNameV1(args.stackName, `og-${name}`, args.chainId);
+    const isStaging = args.stackName.includes('staging');
 
     const offchainConfig = args.offchainConfig;
 
@@ -66,7 +69,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
     const secretHash = pulumi
       .all([args.ethRpcUrl, args.privateKey, offchainConfig?.orderStreamUrl])
-      .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl]) => {
+      .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl]: [string, string, string | undefined]) => {
         const hash = crypto.createHash("sha1");
         hash.update(_ethRpcUrl);
         hash.update(_privateKey);
@@ -149,6 +152,27 @@ export class OrderGenerator extends pulumi.ComponentResource {
     };
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
+
+    let ogArgs = [
+      `--interval ${args.interval}`,
+      `--min ${args.minPricePerMCycle}`,
+      `--max ${args.maxPricePerMCycle}`,
+      `--lock-stake-raw ${args.lockStakeRaw}`,
+      `--ramp-up ${args.rampUp}`,
+      `--set-verifier-address ${args.setVerifierAddr}`,
+      `--boundless-market-address ${args.boundlessMarketAddr}`,
+      `--seconds-per-mcycle ${args.secondsPerMCycle}`,
+    ]
+    if (offchainConfig) {
+      ogArgs.push('--submit-offchain');
+    }
+    if (args.warnBalanceBelow) {
+      ogArgs.push(`--warn-balance-below ${args.warnBalanceBelow}`);
+    }
+    if (args.errorBalanceBelow) {
+      ogArgs.push(`--error-balance-below ${args.errorBalanceBelow}`);
+    }
+
     const service = new awsx.ecs.FargateService(
       `${serviceName}-service`,
       {
@@ -173,7 +197,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
-              `/app/boundless-order-generator ${offchainConfig ? '--submit-offchain' : ''} --interval ${args.interval} --min ${args.minPricePerMCycle} --max ${args.maxPricePerMCycle} --lock-stake-raw ${args.lockStakeRaw} --ramp-up ${args.rampUp} --set-verifier-address ${args.setVerifierAddr} --boundless-market-address ${args.boundlessMarketAddr} --seconds-per-mcycle ${args.secondsPerMCycle} --tx-timeout ${args.txTimeout}`,
+              `/app/boundless-order-generator ${ogArgs.join(' ')}`,
             ],
             environment,
             secrets,
@@ -207,7 +231,81 @@ export class OrderGenerator extends pulumi.ComponentResource {
       pattern: 'FATAL',
     }, { dependsOn: [service] });
 
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-bal-eth-filter-${Severity.SEV2}`, {
+      name: `${serviceName}-log-bal-eth-filter-${Severity.SEV2}`,
+      logGroupName: serviceName,
+      metricTransformation: {
+        namespace: `Boundless/Services/${serviceName}`,
+        name: `${serviceName}-log-bal-eth-${Severity.SEV2}`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: 'WARN "[B-BAL-ETH]"',
+    }, { dependsOn: [service] });
+
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-bal-eth-filter-${Severity.SEV1}`, {
+      name: `${serviceName}-log-bal-eth-filter-${Severity.SEV1}`,
+      logGroupName: serviceName,
+      metricTransformation: {
+        namespace: `Boundless/Services/${serviceName}`,
+        name: `${serviceName}-log-bal-eth-${Severity.SEV1}`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: 'ERROR "[B-BAL-ETH]"',
+    }, { dependsOn: [service] });
+
     const alarmActions = args.boundlessAlertsTopicArns ?? [];
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-low-bal-eth-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-low-bal-eth-${Severity.SEV2}`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-bal-eth-${Severity.SEV2}`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 60,
+      datapointsToAlarm: 3,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `${name} ETH bal < ${args.warnBalanceBelow} ${Severity.SEV2}`,
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    if (!isStaging) {
+      new aws.cloudwatch.MetricAlarm(`${serviceName}-low-bal-eth-alarm-${Severity.SEV1}`, {
+        name: `${serviceName}-low-bal-eth-${Severity.SEV1}`,
+        metricQueries: [
+          {
+            id: 'm1',
+            metric: {
+              namespace: `Boundless/Services/${serviceName}`,
+              metricName: `${serviceName}-log-bal-eth-${Severity.SEV1}`,
+              period: 60,
+              stat: 'Sum',
+            },
+            returnData: true,
+          },
+        ],
+        threshold: 1,
+        comparisonOperator: 'GreaterThanOrEqualToThreshold',
+        evaluationPeriods: 60,
+        datapointsToAlarm: 3,
+        treatMissingData: 'notBreaching',
+        alarmDescription: `${name} ETH bal < ${args.errorBalanceBelow} ${Severity.SEV1}`,
+        actionsEnabled: true,
+        alarmActions,
+      });
+    }
 
     // 3 errors within 1 hour in the order generator triggers a SEV2 alarm.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV2}`, {
@@ -235,29 +333,31 @@ export class OrderGenerator extends pulumi.ComponentResource {
     });
 
     // 7 errors within 1 hour in the order generator triggers a SEV1 alarm.
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV1}`, {
-      name: `${serviceName}-log-err-${Severity.SEV1}`,
-      metricQueries: [
-        {
-          id: 'm1',
-          metric: {
-            namespace: `Boundless/Services/${serviceName}`,
-            metricName: `${serviceName}-log-err`,
-            period: 60,
-            stat: 'Sum',
+    if (!isStaging) {
+      new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV1}`, {
+        name: `${serviceName}-log-err-${Severity.SEV1}`,
+        metricQueries: [
+          {
+            id: 'm1',
+            metric: {
+              namespace: `Boundless/Services/${serviceName}`,
+              metricName: `${serviceName}-log-err`,
+              period: 60,
+              stat: 'Sum',
+            },
+            returnData: true,
           },
-          returnData: true,
-        },
-      ],
-      threshold: 1,
-      comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 60,
-      datapointsToAlarm: 7,
-      treatMissingData: 'notBreaching',
-      alarmDescription: `Order generator ${name} log ERROR level 7 times within an hour`,
-      actionsEnabled: true,
-      alarmActions,
-    });
+        ],
+        threshold: 1,
+        comparisonOperator: 'GreaterThanOrEqualToThreshold',
+        evaluationPeriods: 60,
+        datapointsToAlarm: 7,
+        treatMissingData: 'notBreaching',
+        alarmDescription: `Order generator ${name} log ERROR level 7 times within an hour`,
+        actionsEnabled: true,
+        alarmActions,
+      });
+    }
 
     // A single error in the order generator causes the process to exit.
     // SEV2 alarm if we see 2 errors in 30 mins.
@@ -287,28 +387,30 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
     // A single error in the order generator causes the process to exit.
     // SEV1 alarm if we see 4 errors in 30 mins.
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV1}`, {
-      name: `${serviceName}-log-fatal-${Severity.SEV1}`,
-      metricQueries: [
-        {
-          id: 'm1',
-          metric: {
-            namespace: `Boundless/Services/${serviceName}`,
-            metricName: `${serviceName}-log-fatal`,
-            period: 60,
-            stat: 'Sum',
+    if (!isStaging) {
+      new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV1}`, {
+        name: `${serviceName}-log-fatal-${Severity.SEV1}`,
+        metricQueries: [
+          {
+            id: 'm1',
+            metric: {
+              namespace: `Boundless/Services/${serviceName}`,
+              metricName: `${serviceName}-log-fatal`,
+              period: 60,
+              stat: 'Sum',
+            },
+            returnData: true,
           },
-          returnData: true,
-        },
-      ],
-      threshold: 1,
-      comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 30,
-      datapointsToAlarm: 4,
-      treatMissingData: 'notBreaching',
-      alarmDescription: `Order generator ${name} FATAL (task exited) 4 times within 30 mins`,
-      actionsEnabled: true,
-      alarmActions,
-    });
+        ],
+        threshold: 1,
+        comparisonOperator: 'GreaterThanOrEqualToThreshold',
+        evaluationPeriods: 30,
+        datapointsToAlarm: 4,
+        treatMissingData: 'notBreaching',
+        alarmDescription: `Order generator ${name} FATAL (task exited) 4 times within 30 mins`,
+        actionsEnabled: true,
+        alarmActions,
+      });
+    }
   }
 }

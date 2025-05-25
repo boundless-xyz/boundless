@@ -243,11 +243,17 @@ async fn run(args: &MainArgs) -> Result<()> {
                         format_units(balance, "ether")?,
                         format_units(auto_deposit, "ether")?
                     );
-                    market.deposit(auto_deposit).await?;
-                    tracing::info!(
-                        "Successfully deposited {} ETH",
-                        format_units(auto_deposit, "ether")?
-                    );
+                    match market.deposit(auto_deposit).await {
+                        Ok(_) => {
+                            tracing::info!(
+                                "Successfully deposited {} ETH",
+                                format_units(auto_deposit, "ether")?
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to auto deposit ETH: {e:?}");
+                        }
+                    }
                 }
             }
         }

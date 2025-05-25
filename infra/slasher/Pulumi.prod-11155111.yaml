@@ -19,3 +19,5 @@ config:
   slasher:ETH_RPC_URL:
     secure: v1:TJcLbCNiy5dxnl8s:fyJTFm9B+ikSyIxfIVjkfvB9yQz5oaZUyM5ZfQHVWpUg9u+K8/A2LoGUCNqByNlEZszOpKZYn10Opz3yQosdh4Jl5iSmhQeZKR5bGFW6QgOB/Oq/YA==
   slasher:TX_TIMEOUT: "120"
+  slasher:WARN_BALANCE_BELOW: "5"
+  slasher:ERROR_BALANCE_BELOW: "2"

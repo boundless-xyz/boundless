@@ -146,6 +146,11 @@ export const createProverAlarms = (
     threshold: 10,
   }, { period: 1800 });
 
+  // 5 log processing errors within 15 minutes in the market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-MM-502]"', 'market-monitor-log-processing-error', Severity.SEV2, {
+    threshold: 5,
+  }, { period: 900 });
+
   // Any 1 unexpected error in the market monitor triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2);
 
