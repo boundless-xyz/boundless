@@ -304,7 +304,7 @@ where
 
             if let Err(err) = res.await {
                 tracing::error!("Failed to submit {order_id}: {err}");
-                if let Err(db_err) = self.db.set_order_failure(order_id, err.to_string()).await {
+                if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit").await {
                     tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
                 }
             }
@@ -484,7 +484,8 @@ where
     ) -> Result<(), SubmitterErr> {
         tracing::warn!("Failed to submit proofs: {err:?} for batch {batch_id}");
         for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
-            if let Err(db_err) = self.db.set_order_failure(order_id, format!("{err:?}")).await {
+            if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
+            {
                 tracing::error!(
                     "Failed to set order failure during proof submission: {:x} {db_err:?}",
                     fulfillment.id
@@ -802,7 +803,7 @@ mod tests {
             proving_started_at: None,
         };
         let order_id = order.id();
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         let batch_id = 0;
         let batch = Batch {

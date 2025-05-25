@@ -95,14 +95,14 @@ impl ProvingService {
         // Mostly hit by skipping pre-flight
         let image_id = match order.image_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::storage::upload_image_uri(&self.prover, &order, &self.config)
+            None => crate::storage::upload_image_uri(&self.prover, &order.request, &self.config)
                 .await
                 .context("Failed to upload image")?,
         };
 
         let input_id = match order.input_id.as_ref() {
             Some(val) => val.clone(),
-            None => crate::storage::upload_input_uri(&self.prover, &order, &self.config)
+            None => crate::storage::upload_input_uri(&self.prover, &order.request, &self.config)
                 .await
                 .context("Failed to upload input")?,
         };
@@ -139,7 +139,7 @@ impl ProvingService {
                 tracing::error!("Order in status Proving missing proof_id: {order_id}");
                 if let Err(inner_err) = prove_serv
                     .db
-                    .set_order_failure(&order_id, "Proving status missing proof_id".into())
+                    .set_order_failure(&order_id, "Proving status missing proof_id")
                     .await
                 {
                     tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
@@ -159,8 +159,10 @@ impl ProvingService {
                     Ok(_) => tracing::info!("Successfully complete order proof {order_id}"),
                     Err(err) => {
                         tracing::error!("FATAL: Order failed to prove: {err:?}");
-                        if let Err(inner_err) =
-                            prove_serv.db.set_order_failure(&order_id, format!("{err:?}")).await
+                        if let Err(inner_err) = prove_serv
+                            .db
+                            .set_order_failure(&order_id, "Monitoring existing proof failed")
+                            .await
                         {
                             tracing::error!(
                                 "Failed to set order {order_id} failure: {inner_err:?}"
@@ -230,7 +232,7 @@ impl RetryTask for ProvingService {
                                 );
                                 if let Err(inner_err) = prov_serv
                                     .db
-                                    .set_order_failure(&order_id, format!("{err:?}"))
+                                    .set_order_failure(&order_id, "Failed to prove")
                                     .await
                                 {
                                     tracing::error!(
@@ -290,7 +292,7 @@ mod tests {
         let max_price = 4;
 
         let order = Order {
-            status: OrderStatus::WaitingToLock,
+            status: OrderStatus::PendingProving,
             updated_at: Utc::now(),
             target_timestamp: Some(0),
             request: ProofRequest {
@@ -332,7 +334,7 @@ mod tests {
             proving_started_at: None,
         };
 
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         proving_service.prove_order(order.clone()).await.unwrap();
 
@@ -407,7 +409,7 @@ mod tests {
             total_cycles: None,
             proving_started_at: None,
         };
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         proving_service.find_and_monitor_proofs().await.unwrap();
 
