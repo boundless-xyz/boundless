@@ -23,7 +23,6 @@ risc0-ethereum-contracts = "2.1"
 alloy = { version = "0.15" }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env"] }
-dotenvy = "0.15"
 postcard = "1.0"
 test-log = { version = "0.2", features = ["trace"] }
 tokio = { version = "1" }

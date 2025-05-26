@@ -8,8 +8,8 @@ import * as fs from 'fs';
 
 export const createProverAlarms = (
   serviceName: string,
-  logGroup: aws.cloudwatch.LogGroup,
-  dependsOn: pulumi.Resource[],
+  logGroup: pulumi.Output<aws.cloudwatch.LogGroup>,
+  dependsOn: (pulumi.Resource | pulumi.Input<pulumi.Resource>)[],
   alarmActions: string[],
 ): void => {
   const createLogMetricFilter = (
@@ -20,7 +20,7 @@ export const createProverAlarms = (
     // Generate a metric by filtering for the error code
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-${metricName}-${severity}-filter`, {
       name: `${serviceName}-${metricName}-${severity}-filter`,
-      logGroupName: serviceName,
+      logGroupName: logGroup.name,
       metricTransformation: {
         namespace: `Boundless/Services/${serviceName}`,
         name: `${serviceName}-${metricName}-${severity}`,
@@ -146,6 +146,11 @@ export const createProverAlarms = (
     threshold: 10,
   }, { period: 1800 });
 
+  // 5 log processing errors within 15 minutes in the market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-MM-502]"', 'market-monitor-log-processing-error', Severity.SEV2, {
+    threshold: 5,
+  }, { period: 900 });
+
   // Any 1 unexpected error in the market monitor triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2);
 
@@ -241,6 +246,8 @@ export const createProverAlarms = (
     threshold: 3,
   }, { period: 3600 });
 
+
+
   //
   // Prover
   //
@@ -270,6 +277,17 @@ export const createProverAlarms = (
 
   // Any 1 request expired before submission triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2);
+
+  // 2 failures to submit a batch within 1 hour in the submitter triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-SUB-003]"', 'submitter-batch-submission-failure', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 3600 });
+
+  // 3 txn confirmation errors within 1 hour in the submitter triggers a SEV2 alarm. 
+  // This may indicate a misconfiguration of the tx timeout config.
+  createErrorCodeAlarm('"[B-SUB-004]"', 'submitter-txn-confirmation-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 3600 });
 
   // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV2);

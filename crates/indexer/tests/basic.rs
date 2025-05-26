@@ -15,8 +15,8 @@ use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::test_utils::TestDb;
 use boundless_market::{
     contracts::{
-        boundless_market::FulfillmentTx, Input, Offer, Predicate, PredicateType, ProofRequest,
-        RequestId, Requirements,
+        boundless_market::FulfillmentTx, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+        RequestInput, Requirements,
     },
     order_stream_client::Order,
 };
@@ -40,7 +40,7 @@ async fn create_order(
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         ),
         format!("file://{ECHO_PATH}"),
-        Input::builder().build_inline().unwrap(),
+        RequestInput::builder().build_inline().unwrap(),
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
@@ -70,7 +70,7 @@ async fn test_e2e() {
         "--rpc-url",
         rpc_url.as_str(),
         "--boundless-market-address",
-        &ctx.boundless_market_address.to_string(),
+        &ctx.deployment.boundless_market_address.to_string(),
         "--db",
         &test_db.db_url,
         "--interval",
@@ -106,21 +106,21 @@ async fn test_e2e() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_address,
+        ctx.deployment.boundless_market_address,
         anvil.chain_id(),
         now,
     )
     .await;
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.customer_market.submit_request_with_signature_bytes(&request, &client_sig).await.unwrap();
+    ctx.customer_market.submit_request_with_signature(&request, &client_sig).await.unwrap();
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
 
     let (fill, root_receipt, assessor_receipt) = prover
         .fulfill(&[Order {
             request: request.clone(),
             request_digest: request
-                .signing_hash(ctx.boundless_market_address, anvil.chain_id())
+                .signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id())
                 .unwrap(),
             signature: Signature::try_from(client_sig.as_ref()).unwrap(),
         }])
@@ -132,7 +132,7 @@ async fn test_e2e() {
         .fulfill(
             FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
                 .with_submit_root(
-                    ctx.set_verifier_address,
+                    ctx.deployment.set_verifier_address,
                     order_fulfilled.root,
                     order_fulfilled.seal,
                 ),
@@ -213,7 +213,7 @@ async fn test_monitoring() {
         "--rpc-url",
         rpc_url.as_str(),
         "--boundless-market-address",
-        &ctx.boundless_market_address.to_string(),
+        &ctx.deployment.boundless_market_address.to_string(),
         "--db",
         &test_db.db_url,
         "--interval",
@@ -250,14 +250,14 @@ async fn test_monitoring() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_address,
+        ctx.deployment.boundless_market_address,
         anvil.chain_id(),
         now,
     )
     .await;
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.customer_market.submit_request_with_signature_bytes(&request, &client_sig).await.unwrap();
+    ctx.customer_market.submit_request_with_signature(&request, &client_sig).await.unwrap();
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
 
     // Fetch requests ids that expired in the last 30 seconds
@@ -320,20 +320,20 @@ async fn test_monitoring() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         2,
-        ctx.boundless_market_address,
+        ctx.deployment.boundless_market_address,
         anvil.chain_id(),
         now,
     )
     .await;
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.customer_market.submit_request_with_signature_bytes(&request, &client_sig).await.unwrap();
+    ctx.customer_market.submit_request_with_signature(&request, &client_sig).await.unwrap();
     ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
     let (fill, root_receipt, assessor_receipt) = prover
         .fulfill(&[Order {
             request: request.clone(),
             request_digest: request
-                .signing_hash(ctx.boundless_market_address, anvil.chain_id())
+                .signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id())
                 .unwrap(),
             signature: Signature::try_from(client_sig.as_ref()).unwrap(),
         }])
@@ -342,7 +342,11 @@ async fn test_monitoring() {
     let order_fulfilled =
         OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
     let fulfillment = FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
-        .with_submit_root(ctx.set_verifier_address, order_fulfilled.root, order_fulfilled.seal);
+        .with_submit_root(
+            ctx.deployment.set_verifier_address,
+            order_fulfilled.root,
+            order_fulfilled.seal,
+        );
     ctx.prover_market.fulfill(fulfillment).await.unwrap();
 
     // Wait for the events to be indexed

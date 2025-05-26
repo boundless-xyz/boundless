@@ -8,22 +8,24 @@ export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  
+
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
   const chainId = isDev ? getEnvVar("CHAIN_ID") : config.require('CHAIN_ID');
-  
+
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const dockerDir = config.require('DOCKER_DIR');
   const dockerTag = config.require('DOCKER_TAG');
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const bypassAddrs = config.require('BYPASS_ADDRS');
   const boundlessAddress = config.require('BOUNDLESS_ADDRESS');
-  const minBalance = config.require('MIN_BALANCE');
+  const minBalanceRaw = config.require('MIN_BALANCE_RAW');
   const baseStackName = config.require('BASE_STACK');
   const orderStreamPingTime = config.requireNumber('ORDER_STREAM_PING_TIME');
   const albDomain = config.getSecret('ALB_DOMAIN');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+  const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+  const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -38,7 +40,7 @@ export = () => {
     orderStreamPingTime,
     privSubNetIds,
     pubSubNetIds,
-    minBalance,
+    minBalanceRaw,
     githubTokenSecret,
     boundlessAddress,
     bypassAddrs,
@@ -46,7 +48,7 @@ export = () => {
     rdsPassword,
     ethRpcUrl,
     albDomain,
-    boundlessAlertsTopicArn,
+    boundlessAlertsTopicArns: alertsTopicArns,
   });
 
   return {

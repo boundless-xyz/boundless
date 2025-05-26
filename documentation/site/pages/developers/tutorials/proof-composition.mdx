@@ -59,7 +59,7 @@ We then use this proof as input to the Identity guest program:
 ```rust
 # use alloy::{providers::Provider, network::Ethereum};
 # use anyhow::Context;
-# use boundless_market::{client::Client, contracts::Input, input::GuestEnv};
+# use boundless_market::{client::Client, contracts::RequestInput, input::GuestEnv};
 # use risc0_zkvm::sha::{Digest, Digestible};
 # use boundless_market::storage::StorageProvider;
 # async fn boundless_proof<P, S>(
@@ -85,7 +85,7 @@ We then use this proof as input to the Identity guest program:
 // Build the IDENTITY input from the ECHO receipt
 let identity_input = (Digest::from(ECHO_ID), echo_receipt);
 let identity_guest_env =
-    Input::builder().write_frame(&postcard::to_allocvec(&identity_input)?).build_env()?;
+    RequestInput::builder().write_frame(&postcard::to_allocvec(&identity_input)?).build_env();
 
 // Request a proof from the Boundless market using the IDENTITY guest
 let (identity_journal, identity_seal) =
@@ -101,7 +101,7 @@ Finally, we can use the composed proof to interact with a smart contract:
 
 <StripRustCodeComments>
 ```rust
-# use boundless_market::{client::ClientBuilder, contracts::ProofRequest};
+# use boundless_market::{client::Client, contracts::ProofRequest};
 # use risc0_zkvm::sha::{Digest, Digestible};
 # use alloy::{
 #    network::Ethereum,
@@ -119,7 +119,7 @@ alloy::sol! {
 }
 
 # async fn interact(request: ProofRequest) -> anyhow::Result<()> {
-# let boundless_client = ClientBuilder::new().build().await?;
+# let boundless_client = Client::builder().build().await?;
 # let identity_journal = Vec::<u8>::new();
 # let identity_seal = Bytes::new();
 # let IDENTITY_ID = [0u8; 32];

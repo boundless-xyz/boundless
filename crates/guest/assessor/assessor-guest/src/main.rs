@@ -12,7 +12,7 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};
 use boundless_assessor::{process_tree, AssessorInput};
 use boundless_market::contracts::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, RequestId, Selector,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, RequestId,
     UNSPECIFIED_SELECTOR,
 };
 use risc0_zkvm::{
@@ -38,7 +38,7 @@ fn main() {
     // sparse list of callbacks to be recorded in the journal
     let mut callbacks: Vec<AssessorCallback> = Vec::<AssessorCallback>::new();
     // list of optional Selectors specified as part of the requests requirements
-    let mut selectors = Vec::<Selector>::new();
+    let mut selectors = Vec::<AssessorSelector>::new();
 
     let eip_domain_separator = input.domain.alloy_struct();
     // For each fill we
@@ -81,7 +81,7 @@ fn main() {
             });
         }
         if fill.request.requirements.selector != UNSPECIFIED_SELECTOR {
-            selectors.push(Selector {
+            selectors.push(AssessorSelector {
                 index: index.try_into().expect("selector index overflow"),
                 value: fill.request.requirements.selector,
             });

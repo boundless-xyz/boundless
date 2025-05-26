@@ -11,5 +11,8 @@
         "@pulumi/docker-build": "0.0.10",
         "@pulumi/pulumi": "^3.113.0",
         "dotenv": "^16.5.0"
+    },
+    "scripts": {
+        "build": "tsc"
     }
 }

@@ -27,12 +27,26 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         ciCacheSecret?: pulumi.Output<string>;
         githubTokenSecret?: pulumi.Output<string>;
         brokerTomlPath: string;
-        boundlessAlertsTopicArn?: string;
+        boundlessAlertsTopicArns?: string[];
         sshPublicKey?: string | pulumi.Output<string>;
+        logJson?: boolean;
     }, opts?: pulumi.ComponentResourceOptions) {
         super(name, name, opts);
 
-        const { boundlessMarketAddress, setVerifierAddress, ethRpcUrl, sshPublicKey, brokerTomlPath, privateKey, orderStreamUrl, pubSubNetIds, gitBranch, boundlessAlertsTopicArn, segmentSize } = args;
+        const {
+            boundlessMarketAddress,
+            setVerifierAddress,
+            ethRpcUrl,
+            sshPublicKey,
+            brokerTomlPath,
+            privateKey,
+            orderStreamUrl,
+            pubSubNetIds,
+            gitBranch,
+            boundlessAlertsTopicArns,
+            segmentSize,
+            logJson
+        } = args;
 
         const region = "us-west-2";
         const serviceName = name;
@@ -335,7 +349,8 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                         ethRpcUrl: ethRpcArn,
                         privateKey: privateKeyArn,
                         orderStreamUrl: orderStreamArn
-                    }
+                    },
+                    logJson: logJson ?? false
                 }),
             }, { parent: this });
         });
@@ -404,7 +419,24 @@ cat > /opt/aws/amazon-cloudwatch-agent/bin/config.json << 'EOF'
                     {
                         "file_path": "/local/docker/containers/*/*.log",
                         "log_group_name": "${name}",
-                        "log_stream_name": "${name}"
+                        "log_stream_name": "${name}",
+                        "filters": [
+                            {
+                                "type": "include",
+                                "expression": "broker"
+                            }
+                        ]
+                    },
+                    {
+                        "file_path": "/local/docker/containers/*/*.log",
+                        "log_group_name": "${name}/bento",
+                        "log_stream_name": "${name}/bento",
+                        "filters": [
+                            {
+                                "type": "exclude",
+                                "expression": "broker"
+                            }
+                        ]
                     }
                 ]
             }
@@ -445,12 +477,7 @@ export HOME=/home/ubuntu
 chmod +x /local/boundless/scripts/setup.sh
 /local/boundless/scripts/setup.sh
 
-# Install nvcc. After reboot we will set the NVCC flags in the compose.yml using this.
-sudo apt install nvidia-cuda-toolkit -y
-
-# Create a script that
-# 1/ creates a broker env file with all environment variables set.
-# 2/ sets the NVCC flags in the compose.yml
+# Create a script that creates a broker env file with all environment variables set.
 # This script is run when the instance is rebooted, and when the instance is updated.
 cat > /local/create-broker-env.sh << 'EOF'
 #!/bin/bash
@@ -466,7 +493,7 @@ ETH_RPC_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.ethRpcUrl')
 PRIVATE_KEY_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.privateKey')
 ORDER_STREAM_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.orderStreamUrl')
 SEGMENT_SIZE=$(echo $CONFIG | jq -r '.segmentSize')
-
+LOG_JSON=$(echo $CONFIG | jq -r '.logJson')
 # Get secrets from AWS Secrets Manager
 RPC_URL=$(aws --region ${region} secretsmanager get-secret-value --secret-id $ETH_RPC_URL_SECRET_ARN --query SecretString --output text)
 PRIVATE_KEY=$(aws --region ${region} secretsmanager get-secret-value --secret-id $PRIVATE_KEY_SECRET_ARN --query SecretString --output text)
@@ -487,6 +514,7 @@ RPC_URL=$RPC_URL
 PRIVATE_KEY=$PRIVATE_KEY
 ORDER_STREAM_URL=$ORDER_STREAM_URL
 SEGMENT_SIZE=$SEGMENT_SIZE
+LOG_JSON=$LOG_JSON
 ENVEOF
 
 EOF
@@ -574,9 +602,9 @@ reboot
             retentionInDays: 0,
         }, { parent: this });
 
-        const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+        const alarmActions = boundlessAlertsTopicArns ?? [];
 
-        createProverAlarms(serviceName, logGroup, [logGroup, this.instance], alarmActions);
+        createProverAlarms(serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions);
 
         this.updateCommandArn = updateDocument.arn;
         this.updateCommandId = updateDocument.id;

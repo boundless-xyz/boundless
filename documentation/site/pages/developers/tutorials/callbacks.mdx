@@ -45,38 +45,33 @@ When creating the proof request, the requestor specifies the callback contract a
 
 <StripRustCodeComments>
 ```rust
-# use alloy::primitives::{address, aliases::U96};
+# use alloy::primitives::address;
 # use alloy_primitives::utils::parse_ether;
-# use boundless_market::contracts::{Input, Callback, Offer, Predicate, ProofRequest, Requirements};
-# use risc0_zkvm::sha::{Digest, Digestible};
-# use url::Url;
-# (|| -> anyhow::Result<()> {
-# let ECHO_ID = Digest::default();
-# let image_url = Url::parse("https://example.com/image").unwrap();
-# let input_url = Url::parse("https://example.com/input").unwrap();
-# let mcycles_count: u64 = 1000;
-# let journal: Vec<u8> = Vec::new();
+# use boundless_market::{Client, request_builder::{OfferParams, RequirementParams}};
+# use risc0_zkvm::sha::Digest;
+# async fn create_callback_request(client: Client, program: &'static [u8], input: &[u8]) -> anyhow::Result<()> {
 # let counter_address = address!("0x000000000000000000000000000000000c0077e5");
-let request = ProofRequest::builder()
-    .with_image_url(image_url)
-    .with_input(input_url)
+let request = client.new_request()
+    .with_program(program)
+    .with_stdin(input)
     .with_requirements(
-        Requirements::new(ECHO_ID, Predicate::digest_match(journal.digest()))
-            .with_callback(Callback {
-                addr: counter_address,
-                gasLimit: U96::from(100_000)
-            }),
+        RequirementParams::builder()
+            .callback_address(counter_address)
+            .callback_gas_limit(100_000)
     )
     .with_offer(
-        Offer::default()
-            .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-            .with_max_price_per_mcycle(parse_ether("0.002")?, mcycles_count)
-            .with_timeout(1000)
-            .with_lock_timeout(1000),
-    )
-    .build()?;
+        OfferParams::builder()
+            .min_price(parse_ether("0.001")?)
+            .max_price(parse_ether("0.002")?)
+            .timeout(1000)
+            .lock_timeout(1000)
+            .ramp_up_period(100)
+    );
+
+// Submit the request onchain
+let (request_id, expires_at) = client.submit_onchain(request).await?;
 # Ok(())
-# })().unwrap();
+# }
 ```
 </StripRustCodeComments>
 
@@ -110,12 +105,9 @@ Once the proof is fulfilled, our example checks the counter contract and confirm
 ```rust
 # use std::time::Duration;
 # use alloy::primitives::address;
-# use boundless_market::client::ClientBuilder;
-# use boundless_market::contracts::ProofRequest;
+# use boundless_market::Client;
 # use alloy::sol_types::SolCall;
-# async fn submit_request(request: ProofRequest) -> anyhow::Result<()> {
-# let boundless_client = ClientBuilder::new().build().await?;
-# let (request_id, expires_at) = boundless_client.submit_request(&request).await?;
+# async fn check_counter(client: Client, request_id: alloy::primitives::U256, expires_at: u64) -> anyhow::Result<()> {
 alloy::sol! {
     #[sol(rpc)]
     interface ICounter {
@@ -123,13 +115,13 @@ alloy::sol! {
     }
 }
 
-let (_journal, _seal) =
-    boundless_client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at).await?;
+let (journal, seal) =
+    client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at).await?;
 
 // We interact with the Counter contract by calling the getCount function to check that the callback
 // was executed correctly.
 let counter_address = address!("0x000000000000000000000000000000000c0077e5");
-let counter = ICounter::ICounterInstance::new(counter_address, boundless_client.provider().clone());
+let counter = ICounter::ICounterInstance::new(counter_address, client.provider().clone());
 let count = counter
     .count()
     .call()

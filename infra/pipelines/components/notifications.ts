@@ -3,34 +3,35 @@ import * as pulumi from '@pulumi/pulumi';
 
 export class Notifications extends pulumi.ComponentResource {
   public slackSNSTopic: aws.sns.Topic;
-
+  public pagerdutySNSTopic: aws.sns.Topic;
   constructor(
     name: string,
     args: {
       serviceAccountIds: string[];
       slackChannelId: pulumi.Output<string>;
       slackTeamId: pulumi.Output<string>;
+      pagerdutyIntegrationUrl: pulumi.Output<string>;
       opsAccountId: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
     super('pipelines:Notifications', name, args, opts);
 
-    const { serviceAccountIds, slackChannelId: slackChannelIdOutput, slackTeamId: slackTeamIdOutput } = args;
+    const { serviceAccountIds, slackChannelId: slackChannelIdOutput, slackTeamId: slackTeamIdOutput, pagerdutyIntegrationUrl } = args;
 
     // Create an IAM Role for AWS Chatbot
     const chatbotRole = new aws.iam.Role('chatbotRole', {
       assumeRolePolicy: {
-          Version: '2012-10-17',
-          Statement: [
-              {
-                  Effect: 'Allow',
-                  Principal: {
-                      Service: 'chatbot.amazonaws.com',
-                  },
-                  Action: 'sts:AssumeRole',
-              },
-          ],
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: {
+              Service: 'chatbot.amazonaws.com',
+            },
+            Action: 'sts:AssumeRole',
+          },
+        ],
       },
       managedPolicyArns: [
         'arn:aws:iam::aws:policy/AmazonSNSReadOnlyAccess',
@@ -44,41 +45,41 @@ export class Notifications extends pulumi.ComponentResource {
     // https://docs.aws.amazon.com/sns/latest/dg/topics-attrib-prereq.html
     const snsLoggingRole = new aws.iam.Role('snsLoggingRole', {
       assumeRolePolicy: {
-          Version: '2012-10-17',
-          Statement: [
-              {
-                  Effect: 'Allow',
-                  Principal: {
-                      Service: 'sns.amazonaws.com',
-                  },
-                  Action: 'sts:AssumeRole',
-              },
-          ],
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: {
+              Service: 'sns.amazonaws.com',
+            },
+            Action: 'sts:AssumeRole',
+          },
+        ],
       },
       inlinePolicies: [
         {
-            name: "snsLoggingPolicy",
-            policy: JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [{
-                    Effect: "Allow",
-                    Action: [
-                      "logs:CreateLogGroup",
-                      "logs:CreateLogStream",
-                      "logs:PutLogEvents",
-                      "logs:PutMetricFilter",
-                      "logs:PutRetentionPolicy"
-                    ],
-                    Resource: "arn:aws:logs:*:*:*"
-                }],
-            }),
+          name: "snsLoggingPolicy",
+          policy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+              Effect: "Allow",
+              Action: [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:PutMetricFilter",
+                "logs:PutRetentionPolicy"
+              ],
+              Resource: "arn:aws:logs:*:*:*"
+            }],
+          }),
         },
       ],
     });
 
     const snsLoggingRoleArn = pulumi.interpolate`${snsLoggingRole.arn}`;
 
-    // Create an SNS topic for the alerts
+    // Create an SNS topic for the slack alerts
     this.slackSNSTopic = new aws.sns.Topic("boundless-alerts-topic", {
       name: "boundless-alerts-topic",
       applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
@@ -94,16 +95,16 @@ export class Notifications extends pulumi.ComponentResource {
 
     // Create a policy that allows the service accounts to publish to the SNS topic
     // https://repost.aws/knowledge-center/cloudwatch-cross-account-sns
-    const snsTopicPolicy = this.slackSNSTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+    const slackSnsTopicPolicy = this.slackSNSTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
       statements: [
         ...serviceAccountIds.map(serviceAccountId => ({
           actions: [
-              "SNS:Publish",
+            "SNS:Publish",
           ],
           effect: "Allow",
           principals: [{
-              type: "AWS",
-              identifiers: ["*"], // Restricted by the condition below.
+            type: "AWS",
+            identifiers: ["*"], // Restricted by the condition below.
           }],
           resources: [arn],
           conditions: [{
@@ -111,13 +112,13 @@ export class Notifications extends pulumi.ComponentResource {
             variable: "aws:SourceArn",
             values: [`arn:aws:cloudwatch:us-west-2:${serviceAccountId}:alarm:*`],
           }],
-          sid: `Grant publish to account ${serviceAccountId}`,
+          sid: `Grant publish to account ${serviceAccountId}.`,
         })),
         {
           actions: ["SNS:Publish"],
           principals: [{
-              type: "Service",
-              identifiers: ["codestar-notifications.amazonaws.com"],
+            type: "Service",
+            identifiers: ["codestar-notifications.amazonaws.com"],
           }],
           resources: [arn],
           sid: "Grant publish to codestar for deployment notifications",
@@ -126,9 +127,9 @@ export class Notifications extends pulumi.ComponentResource {
     }));
 
     // Attach the policy to the SNS topic
-    new aws.sns.TopicPolicy("service-accounts-publish-policy", {
-        arn: this.slackSNSTopic.arn,
-        policy: snsTopicPolicy.apply(snsTopicPolicy => snsTopicPolicy.json),
+    new aws.sns.TopicPolicy("service-accounts-slack-publish-policy", {
+      arn: this.slackSNSTopic.arn,
+      policy: slackSnsTopicPolicy.apply(slackSnsTopicPolicy => slackSnsTopicPolicy.json),
     });
 
     // Create a dead letter queue for the Slack channel subscription.
@@ -148,14 +149,14 @@ export class Notifications extends pulumi.ComponentResource {
           },
           Action: "sqs:SendMessage",
           Resource: sqsDeadLetterQueue.arn,
-        },{
+        }, {
           Effect: "Allow",
           Principal: {
             Service: "chatbot.amazonaws.com",
           },
           Action: "sqs:SendMessage",
           Resource: sqsDeadLetterQueue.arn,
-        },{
+        }, {
           Effect: "Allow",
           Principal: {
             AWS: args.opsAccountId,
@@ -177,5 +178,65 @@ export class Notifications extends pulumi.ComponentResource {
         loggingLevel: "INFO",
       }));
 
+    // Create an SNS topic for the pagerduty alerts
+    this.pagerdutySNSTopic = new aws.sns.Topic("boundless-pagerduty-topic", {
+      name: "boundless-pagerduty-topic",
+      applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackSampleRate: 100,
+      httpFailureFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackSampleRate: 100,
+      sqsFailureFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackSampleRate: 100,
+    } as aws.sns.TopicArgs);
+
+    // Create a policy that allows the service accounts to publish to the SNS topic
+    // https://repost.aws/knowledge-center/cloudwatch-cross-account-sns
+    const pagerdutySnsTopicPolicy = this.pagerdutySNSTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+      statements: [
+        ...serviceAccountIds.map(serviceAccountId => ({
+          actions: [
+            "SNS:Publish",
+          ],
+          effect: "Allow",
+          principals: [{
+            type: "AWS",
+            identifiers: ["*"], // Restricted by the condition below.
+          }],
+          resources: [arn],
+          conditions: [{
+            test: "ArnLike",
+            variable: "aws:SourceArn",
+            values: [`arn:aws:cloudwatch:us-west-2:${serviceAccountId}:alarm:*`],
+          }],
+          sid: `Grant publish to account ${serviceAccountId}`,
+        })),
+        {
+          actions: ["SNS:Publish"],
+          principals: [{
+            type: "Service",
+            identifiers: ["codestar-notifications.amazonaws.com"],
+          }],
+          resources: [arn],
+          sid: "Grant publish to codestar for deployment notifications",
+        },
+      ],
+    }));
+
+    // Attach the policy to the SNS topic
+    new aws.sns.TopicPolicy("service-accounts-pagerduty-publish-policy", {
+      arn: this.pagerdutySNSTopic.arn,
+      policy: pagerdutySnsTopicPolicy.apply(pagerdutySnsTopicPolicy => pagerdutySnsTopicPolicy.json),
+    });
+
+    // Create an SNS subscription for the pagerduty alerts
+    new aws.sns.TopicSubscription("boundless-pagerduty-subscription", {
+      topic: this.pagerdutySNSTopic,
+      protocol: "https",
+      endpoint: pagerdutyIntegrationUrl,
+      rawMessageDelivery: false,
+    });
   }
 }

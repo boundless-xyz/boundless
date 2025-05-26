@@ -59,12 +59,12 @@ pub enum PinataStorageProviderError {
     Other(#[from] anyhow::Error),
 }
 
-const DEFAULT_PINATA_API_URL: &str = "https://api.pinata.cloud";
+const DEFAULT_PINATA_API_URL: &str = "https://uploads.pinata.cloud";
 const DEFAULT_GATEWAY_URL: &str = "https://gateway.pinata.cloud";
 
 impl PinataStorageProvider {
     /// Creates a new Pinata storage provider from the environment variables.
-    pub async fn from_env() -> Result<Self, PinataStorageProviderError> {
+    pub fn from_env() -> Result<Self, PinataStorageProviderError> {
         let jwt = std::env::var("PINATA_JWT")
             .context("failed to fetch environment variable 'PINATA_JWT'")?;
         if jwt.is_empty() {
@@ -108,9 +108,7 @@ impl PinataStorageProvider {
     }
 
     /// Creates a new Pinata storage provider from the given configuration.
-    pub async fn from_config(
-        config: &StorageProviderConfig,
-    ) -> Result<Self, PinataStorageProviderError> {
+    pub fn from_config(config: &StorageProviderConfig) -> Result<Self, PinataStorageProviderError> {
         Ok(PinataStorageProvider {
             pinata_jwt: config
                 .pinata_jwt
@@ -133,14 +131,16 @@ impl PinataStorageProvider {
         data: impl AsRef<[u8]>,
         filename: impl Into<String>,
     ) -> Result<Url, PinataStorageProviderError> {
-        // https://docs.pinata.cloud/api-reference/endpoint/pin-file-to-ipfs
-        let url = self.pinata_api_url.join("/pinning/pinFileToIPFS")?;
-        let form = Form::new().part(
-            "file",
-            Part::bytes(data.as_ref().to_vec())
-                .mime_str("application/octet-stream")?
-                .file_name(filename.into()),
-        );
+        // https://docs.pinata.cloud/api-reference/endpoint/upload-a-file
+        let url = self.pinata_api_url.join("/v3/files")?;
+        let form = Form::new()
+            .part(
+                "file",
+                Part::bytes(data.as_ref().to_vec())
+                    .mime_str("application/octet-stream")?
+                    .file_name(filename.into()),
+            )
+            .part("network", Part::text("public"));
 
         let request = self
             .client
@@ -149,21 +149,26 @@ impl PinataStorageProvider {
             .multipart(form)
             .build()?;
 
-        tracing::debug!("Sending upload HTTP request: {:#?}", request);
+        tracing::debug!("Sending upload HTTP request: {}", request.url());
+        tracing::trace!("{:#?}", request);
 
         let response = self.client.execute(request).await?;
 
-        tracing::debug!("Received HTTP response: {:#?}", response);
+        tracing::debug!("Received HTTP response: status {}", response.status());
+        tracing::trace!("{:#?}", response);
+
         let response = response.error_for_status()?;
 
         let json_value: serde_json::Value = response.json().await?;
         let ipfs_hash = json_value
             .as_object()
             .ok_or(anyhow!("response from Pinata is not a JSON object"))?
-            .get("IpfsHash")
-            .ok_or(anyhow!("response from Pinata does not contain IpfsHash"))?
+            .get("data")
+            .ok_or(anyhow!("response from Pinata does not contain data"))?
+            .get("cid")
+            .ok_or(anyhow!("response from Pinata does not contain data.cid"))?
             .as_str()
-            .ok_or(anyhow!("response from Pinata contains an invalid IpfsHash"))?;
+            .ok_or(anyhow!("response from Pinata contains an invalid IPFS hash"))?;
 
         let data_url = self.ipfs_gateway_url.join(&format!("ipfs/{ipfs_hash}"))?;
         Ok(data_url)

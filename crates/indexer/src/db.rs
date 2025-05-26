@@ -7,7 +7,7 @@ use std::{str::FromStr, sync::Arc};
 use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
-    AssessorReceipt, Fulfillment, InputType, PredicateType, ProofRequest,
+    AssessorReceipt, Fulfillment, PredicateType, ProofRequest, RequestInputType,
 };
 use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
@@ -288,8 +288,8 @@ impl IndexerDb for AnyDb {
             _ => return Err(DbError::BadTransaction("Invalid predicate type".to_string())),
         };
         let input_type = match request.input.inputType {
-            InputType::Inline => "Inline",
-            InputType::Url => "Url",
+            RequestInputType::Inline => "Inline",
+            RequestInputType::Url => "Url",
             _ => return Err(DbError::BadTransaction("Invalid input type".to_string())),
         };
 
@@ -722,8 +722,8 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment, Input, Offer, Predicate, PredicateType, ProofRequest,
-        RequestId, Requirements,
+        AssessorReceipt, Fulfillment, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+        RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
 
@@ -736,7 +736,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "https://image_url.dev",
-            Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

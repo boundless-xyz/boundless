@@ -131,6 +131,23 @@ install_rust() {
     fi
 }
 
+# Function to install the `just` command runner
+install_just() {
+    if command -v just &>/dev/null; then
+        info "'just' is already installed. Skipping."
+        return
+    fi
+
+    info "Installing the 'just' command-runner…"
+    {
+        # Install the latest pre-built binary straight to /usr/local/bin
+        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+        | sudo bash -s -- --to /usr/local/bin
+    } >> "$LOG_FILE" 2>&1
+
+    success "'just' installed successfully."
+}
+
 # Function to install CUDA Toolkit
 install_cuda() {
     if is_package_installed "cuda-toolkit"; then
@@ -317,6 +334,9 @@ configure_docker_nvidia
 
 # Install Rust
 install_rust
+
+# Install Just
+install_just
 
 # Install CUDA Toolkit
 install_cuda

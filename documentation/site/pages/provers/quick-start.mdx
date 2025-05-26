@@ -11,7 +11,7 @@ To get started, first clone the Boundless monorepo on your proving machine, and 
 ```sh
 git clone https://github.com/boundless-xyz/boundless
 cd boundless
-git checkout release-0.7.0
+git checkout release-0.8
 ```
 
 ## Setup Dependencies
@@ -71,16 +71,6 @@ just broker down ./.env.broker
 
 The `compose.yml` file defines all services within Bento. The Boundless repo includes a starter `compose.yml` which you can see [here](https://github.com/boundless-xyz/boundless/blob/main/compose.yml). For Broker configuration options, please see [Broker.toml](/provers/broker#settings-in-brokertoml).
 
-### CUDA Compute Capability Detection
-
-When working with NVIDIA GPUs, it's crucial to compile CUDA code with the correct compute capability to ensure optimal performance. The compute capability (e.g., `sm_86` for Ampere architecture) defines the features and instructions supported by the GPU.
-
-To automatically detect and set the correct NVCC flags for your system, please run:
-
-```sh [Terminal]
-sudo scripts/set_nvcc_flags.sh
-```
-
 ### Multi GPU
 
 In `compose.yml`, you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
@@ -130,6 +120,8 @@ RUST_LOG=info bento_cli -f ./crates/bento-client/method_name -i /tmp/input.bin
 :::
 
 Once the proving stack is running, the next step is to deposit funds to the Boundless market contract. This is for the Broker to be able to cover staking during lock-in. Currently, this will require depositing special non-transferable hitpoints (HP) tokens which are sent to whitelisted provers.
+
+To deposit to the market, please follow the [Deposit Stake to Market](/provers/broker#deposit--balance) instructions.
 
 ## What next?
 
