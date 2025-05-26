@@ -298,7 +298,7 @@ async fn test_e2e_merged_submit_fulfill() {
     // publish the committed root + fulfillments
     ctx.prover_market
         .fulfill(FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone()).with_submit_root(
-            ctx.set_verifier_address,
+            ctx.deployment.set_verifier_address,
             root,
             set_verifier_seal,
         ))
@@ -365,7 +365,7 @@ async fn test_e2e_price_and_fulfill_batch() {
     ctx.prover_market
         .fulfill(
             FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone())
-                .with_submit_root(ctx.set_verifier_address, root, set_verifier_seal)
+                .with_submit_root(ctx.deployment.set_verifier_address, root, set_verifier_seal)
                 .with_unlocked_request(UnlockedRequest::new(request, customer_sig)),
         )
         .await

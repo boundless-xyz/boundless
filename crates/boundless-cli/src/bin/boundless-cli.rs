@@ -72,7 +72,8 @@ use url::Url;
 
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, Offer, ProofRequest, RequestInputType, Selector,
+        boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
+        Offer, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -476,7 +477,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
             handle_account_command(account_cmd, client, args.config.private_key.clone()).await
         }
         Command::Request(request_cmd) => handle_request_command(request_cmd, args, client).await,
-        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, client).await,
+        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, args, client).await,
         Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
         Command::Config {} => unreachable!(),
     }
@@ -616,7 +617,11 @@ async fn handle_request_command(
 }
 
 /// Handle proving-related commands
-async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -> Result<()> {
+async fn handle_proving_command(
+    cmd: &ProvingCommands,
+    args: &MainArgs,
+    client: StandardClient,
+) -> Result<()> {
     match cmd {
         ProvingCommands::Execute { request_path, request_id, request_digest, tx_hash } => {
             tracing::info!("Executing proof request");
@@ -716,11 +721,21 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
 
             let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
             let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
+            let boundless_market = client.boundless_market.clone();
+            let chain_id = boundless_market.get_chain_id().await?;
+            let Some(deployment) =
+                args.config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+            else {
+                println!(
+                    "❌ No Boundless deployment config provided for unknown chain ID: {chain_id}"
+                );
+                return Ok(());
+            };
 
             let fulfillment_tx =
                 FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
                     .with_submit_root(
-                        args.config.set_verifier_address,
+                        deployment.set_verifier_address,
                         order_fulfilled.root,
                         order_fulfilled.seal,
                     )
