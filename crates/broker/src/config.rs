@@ -49,6 +49,10 @@ mod defaults {
     pub const fn max_submission_attempts() -> u32 {
         2
     }
+
+    pub const fn reaper_interval() -> u64 {
+        60
+    }
 }
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
@@ -226,21 +230,28 @@ pub struct ProverConf {
     /// will be retried, but after this number of retries, the process will exit.
     /// None indicates there are infinite number of retries.
     pub max_critical_task_retries: Option<u32>,
+    /// Interval for checking expired committed orders (in seconds)
+    ///
+    /// This is the interval at which the ReaperTask will check for expired orders and mark them as failed.
+    /// If not set, it defaults to 60 seconds.
+    #[serde(default = "defaults::reaper_interval")]
+    pub reaper_interval: u64,
 }
 
 impl Default for ProverConf {
     fn default() -> Self {
         Self {
-            status_poll_retry_count: 0,
-            status_poll_ms: 1000,
+            status_poll_retry_count: 20,
+            status_poll_ms: 10_000,
             bonsai_r0_zkvm_ver: None,
-            req_retry_count: 0,
-            req_retry_sleep_ms: 1000,
-            proof_retry_count: 0,
-            proof_retry_sleep_ms: 1000,
+            req_retry_count: 5,
+            req_retry_sleep_ms: 1_000,
+            proof_retry_count: 5,
+            proof_retry_sleep_ms: 1_000,
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
-            max_critical_task_retries: None,
+            max_critical_task_retries: Some(10),
+            reaper_interval: defaults::reaper_interval(),
         }
     }
 }
