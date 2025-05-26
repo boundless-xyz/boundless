@@ -195,8 +195,9 @@ async fn run(args: &MainArgs) -> Result<()> {
         let lock_timeout =
             args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
         // Give equal time for provers that are fulfilling after lock expiry to prove.
-        let timeout: u32 = args.timeout + lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-
+        let timeout: u32 = args.timeout
+            + lock_timeout
+            + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
 
         let request = client
             .new_request()
