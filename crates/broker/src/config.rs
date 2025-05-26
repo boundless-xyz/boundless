@@ -252,7 +252,7 @@ pub struct BatcherConfig {
     pub batch_max_time: Option<u64>,
     /// Batch size (in proofs) before publishing
     #[serde(alias = "batch_size")]
-    pub min_batch_size: Option<u64>,
+    pub min_batch_size: Option<u32>,
     /// Max combined journal size (in bytes) that once exceeded will trigger a publish
     #[serde(default = "defaults::batch_max_journal_bytes")]
     pub batch_max_journal_bytes: usize,
