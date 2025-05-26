@@ -9,7 +9,8 @@ config:
     secure: v1:vFbwPj9LyBtHmeEa:QUPhb7T6oHXwEhydaXIOIw/dttiHus9nlpl2HarpY08/kPTM7APec8dnCWrSLJqmiUC/URv5swvFuoKg38nVQwNGR9N16uAHkZIODjadW1uKchEysg==
   base-prover:DOCKER_TAG: latest
   base-prover:CHAIN_ID: "11155111"
-  base-prover:BROKER_TOML_PATH: broker-staging.toml
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging.toml
+  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-staging.toml
   base-prover:BASE_STACK: organization/bootstrap/services-staging
   base-prover:ETH_RPC_URL:
     secure: v1:dhUzhqsAztLcg1Qo:V6FO/xF0hNJxQ4graaNzf2AuW5fZLQ9mk9SFgfQWyYUf+De3V6yGf0a3p5hApClpwaTnZcnhRaEb/fofbm0J6zWNE0SvZdULYq6u3iVqxUcgE5oX9g==

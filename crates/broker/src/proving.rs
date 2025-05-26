@@ -17,6 +17,9 @@ use thiserror::Error;
 
 #[derive(Error)]
 pub enum ProvingErr {
+    #[error("{code} Proving failed after retries: {0:?}", code = self.code())]
+    ProvingFailed(anyhow::Error),
+
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -26,6 +29,7 @@ impl_coded_debug!(ProvingErr);
 impl CodedError for ProvingErr {
     fn code(&self) -> &str {
         match self {
+            ProvingErr::ProvingFailed(_) => "[B-PRO-501]",
             ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
         }
     }
@@ -225,8 +229,9 @@ impl RetryTask for ProvingService {
                                 tracing::info!("Successfully complete order proof {order_id}");
                             }
                             Err(err) => {
+                                let proving_err = ProvingErr::ProvingFailed(err);
                                 tracing::error!(
-                                    "FATAL: Order {} failed to prove after {} retries: {err:?}",
+                                    "FATAL: Order {} failed to prove after {} retries: {proving_err:?}",
                                     order_id,
                                     proof_retry_count
                                 );

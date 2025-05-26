@@ -68,15 +68,18 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes for og_offchain",
+              // Since we deploy with CI to staging, and this causes all the provers to restart,
+              // we set a longer time period for the success rate. If we see two consecutive hours
+              // with less than 90% success rate, we will trigger an alarm.
+              description: "less than 90% success rate for two consecutive hours for og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
                 threshold: 0.90,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -104,15 +107,17 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes from og_onchain",
+              // Since we deploy with CI to staging, and this causes all the provers to restart,
+              // we set a longer time period for the success rate.
+              description: "less than 90% success rate for two consecutive hours from og_onchain",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
                 threshold: 0.90,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -130,11 +135,13 @@ export const alarmConfig: ChainStageAlarms = {
         }
       ],
       topLevel: {
+        // Since we deploy with CI to staging, and this causes all the provers to restart,
+        // we set a longer time period for the success rate.
         fulfilledRequests: [{
-          description: "less than 2 fulfilled orders in 10 minutes",
+          description: "less than 2 fulfilled orders in 30 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 600
+            period: 1800
           },
           alarmConfig: {
             threshold: 2,

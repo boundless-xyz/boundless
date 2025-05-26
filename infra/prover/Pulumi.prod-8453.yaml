@@ -9,7 +9,8 @@ config:
   aws:region: us-west-2
   base-prover:BASE_STACK: organization/bootstrap/services-prod
   base-prover:BOUNDLESS_MARKET_ADDR: 0x581C7e8018f0888364c698f97F64eB069723131F
-  base-prover:BROKER_TOML_PATH: broker-prod-8453.toml
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-8453.toml
+  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-prod-8453.toml
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
   base-prover:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
