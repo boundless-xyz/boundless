@@ -77,7 +77,7 @@ struct MainArgs {
     seconds_per_mcycle: u32,
     /// Program binary file to use as the guest image, given as a path.
     ///
-    /// If unspecified, defaults to the included echo guest.
+    /// If unspecified, defaults to the included loop guest.
     #[clap(long)]
     program: Option<PathBuf>,
     /// The cycle count to drive the loop.
@@ -86,6 +86,9 @@ struct MainArgs {
     /// with a step of 1_000_000.
     #[clap(long, env = "CYCLE_COUNT")]
     input: Option<u64>,
+    /// The maximum cycle count to drive the loop.
+    #[clap(long, env = "CYCLE_COUNT_MAX", conflicts_with_all = ["input", "program"])]
+    input_max_mcycles: Option<u64>,
     /// Balance threshold at which to log a warning.
     #[clap(long, value_parser = parse_ether, default_value = "1")]
     warn_balance_below: Option<U256>,
@@ -182,7 +185,8 @@ async fn run(args: &MainArgs) -> Result<()> {
             Some(input) => input,
             None => {
                 // Generate a random input.
-                let input: u64 = rand::rng().random_range(1..=1000) << 20;
+                let max = args.input_max_mcycles.unwrap_or(1000);
+                let input: u64 = rand::rng().random_range(1..=max) << 20;
                 tracing::debug!("Generated random cycle count: {}", input);
                 input
             }
@@ -320,6 +324,7 @@ mod tests {
             seconds_per_mcycle: 60,
             program: None,
             input: None,
+            input_max_mcycles: None,
             warn_balance_below: None,
             error_balance_below: None,
             auto_deposit: None,

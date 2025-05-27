@@ -85,7 +85,8 @@ export const createProverAlarms = (
   }, { period: 3600 });
 
   // Matches on any ERROR log that does NOT contain an error code. Ensures we don't miss any errors.
-  createErrorCodeAlarm('ERROR -"[B-"', 'error-without-code', Severity.SEV2);
+  // Don't match on INTERNAL_ERROR which is sometimes returned by our dependencies e.g. Bonsai on retryable errors.
+  createErrorCodeAlarm('ERROR -"[B-" -"INTERNAL_ERROR"', 'error-without-code', Severity.SEV2);
 
   // Alarms for low balances
   createErrorCodeAlarm('WARN "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV2);
