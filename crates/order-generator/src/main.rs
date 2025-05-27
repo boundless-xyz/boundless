@@ -73,7 +73,7 @@ struct MainArgs {
     #[clap(long, default_value = "1800")]
     timeout: u32,
     /// Additional time in seconds to add to the timeout for each 1M cycles.
-    #[clap(long, default_value = "60")]
+    #[clap(long, default_value = "20")]
     seconds_per_mcycle: u32,
     /// Program binary file to use as the guest image, given as a path.
     ///
@@ -192,9 +192,12 @@ async fn run(args: &MainArgs) -> Result<()> {
         // add 1 minute for each 1M cycles to the original timeout
         // Use the input directly as the estimated cycle count, since we are using a loop program.
         let m_cycles = input >> 20;
-        let timeout = args.timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
         let lock_timeout =
             args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+        // Give equal time for provers that are fulfilling after lock expiry to prove.
+        let timeout: u32 = args.timeout
+            + lock_timeout
+            + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
 
         let request = client
             .new_request()

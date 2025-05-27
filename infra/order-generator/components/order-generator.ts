@@ -162,6 +162,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       `--set-verifier-address ${args.setVerifierAddr}`,
       `--boundless-market-address ${args.boundlessMarketAddr}`,
       `--seconds-per-mcycle ${args.secondsPerMCycle}`,
+      `--tx-timeout ${args.txTimeout}`
     ]
     if (offchainConfig) {
       ogArgs.push('--submit-offchain');

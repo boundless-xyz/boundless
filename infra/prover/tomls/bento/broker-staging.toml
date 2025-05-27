@@ -1,0 +1,37 @@
+[market]
+mcycle_price = "0.00001"
+mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
+peak_prove_khz = 150
+min_deadline = 200
+lookback_blocks = 100
+max_stake = "0.5"
+max_file_size = 50_000_000
+max_mcycle_limit = 8_000
+max_concurrent_locks = 10
+balance_warn_threshold = "5"
+balance_error_threshold = "1"
+stake_balance_warn_threshold = "5"
+stake_balance_error_threshold = "1"
+# max_fetch_retries = 2
+# allow_client_addresses = []
+# lockin_priority_gas = 100
+
+[prover]
+bonsai_r0_zkvm_ver = '2.0.0'
+status_poll_retry_count = 3
+status_poll_ms = 1000
+req_retry_count = 3
+req_retry_sleep_ms = 500
+proof_retry_count = 1
+proof_retry_sleep_ms = 500
+# set_builder_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
+# assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
+
+[batcher]
+batch_max_time = 1000
+min_batch_size = 1
+block_deadline_buffer_secs = 120
+txn_timeout = 75
+single_txn_fulfill = true
+max_submission_attempts = 2
+# batch_poll_time_ms = 500

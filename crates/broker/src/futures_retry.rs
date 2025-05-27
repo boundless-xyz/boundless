@@ -42,7 +42,7 @@ where
         }
     }
 
-    tracing::error!(
+    tracing::warn!(
         "Operation [{}] failed after {} attempts, returning {:?}",
         function_name,
         retry_count,

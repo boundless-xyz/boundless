@@ -63,7 +63,7 @@ export const createProverAlarms = (
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
-      alarmDescription: `${severity} ${metricName} ${description}`,
+      alarmDescription: `${severity} ${metricName} ${description ?? ''}`,
       actionsEnabled: true,
       alarmActions,
       ...alarmConfig
@@ -258,6 +258,11 @@ export const createProverAlarms = (
   createErrorCodeAlarm('"[B-PRO-500]"', 'prover-unexpected-error', Severity.SEV1, {
     threshold: 3,
   }, { period: 300 });
+
+  // 2 proving failed errors within 30 minutes in the prover triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-PRO-501]"', 'prover-proving-failed', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 }, "Proving with retries failed 2 times within 30 minutes");
 
   // Aggregator
   // Any 1 unexpected error in the aggregator triggers a SEV2 alarm.

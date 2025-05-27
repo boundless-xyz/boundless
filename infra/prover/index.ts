@@ -31,7 +31,6 @@ export = () => {
   const boundlessMarketAddr = baseConfig.require('BOUNDLESS_MARKET_ADDR');
   const ciCacheSecret = baseConfig.getSecret('CI_CACHE_SECRET');
   const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
-  const brokerTomlPath = baseConfig.require('BROKER_TOML_PATH')
   const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
@@ -40,12 +39,14 @@ export = () => {
   const bonsaiProverPrivateKey = isDev ? getEnvVar("BONSAI_PROVER_PRIVATE_KEY") : bonsaiConfig.requireSecret('PRIVATE_KEY');
   const bonsaiApiUrl = bonsaiConfig.require('BONSAI_API_URL');
   const bonsaiApiKey = isDev ? getEnvVar("BONSAI_API_KEY") : bonsaiConfig.getSecret('BONSAI_API_KEY');
+  const bonsaiBrokerTomlPath = bonsaiConfig.require('BROKER_TOML_PATH')
 
   // Bento Prover Config
   const bentoProverSshPublicKey = isDev ? process.env.BENTO_PROVER_SSH_PUBLIC_KEY : bentoConfig.getSecret('SSH_PUBLIC_KEY');
   const bentoProverPrivateKey = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY") : bentoConfig.requireSecret('PRIVATE_KEY');
   const segmentSize = bentoConfig.requireNumber('SEGMENT_SIZE');
   const logJson = bentoConfig.getBoolean('LOG_JSON');
+  const bentoBrokerTomlPath = bentoConfig.require('BROKER_TOML_PATH')
 
   const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-prover", chainId);
   const bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
@@ -55,7 +56,7 @@ export = () => {
     privateKey: bentoProverPrivateKey,
     baseStackName,
     orderStreamUrl,
-    brokerTomlPath,
+    brokerTomlPath: bentoBrokerTomlPath,
     boundlessMarketAddress: boundlessMarketAddr,
     setVerifierAddress: setVerifierAddr,
     segmentSize,
@@ -80,7 +81,7 @@ export = () => {
       bonsaiApiUrl,
       bonsaiApiKey,
       orderStreamUrl,
-      brokerTomlPath,
+      brokerTomlPath: bonsaiBrokerTomlPath,
       boundlessMarketAddr,
       setVerifierAddr,
       vpcId,
