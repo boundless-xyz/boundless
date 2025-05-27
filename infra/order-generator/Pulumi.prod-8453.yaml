@@ -15,7 +15,7 @@ config:
   order-generator-base:LOCK_STAKE_RAW: "500000" # $0.50 USDC
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0001"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
   #order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
