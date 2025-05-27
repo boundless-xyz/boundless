@@ -59,8 +59,8 @@ impl ReaperTask {
                 debug!("Setting expired order {} to failed", order_id);
 
                 match self.db.set_order_failure(&order_id, "Order expired").await {
-                    Ok(_) => {
-                        info!("Successfully marked order {} as failed due to expiration", order_id)
+                    Ok(()) => {
+                        warn!("Order {} has expired, marked as failed", order_id);
                     }
                     Err(err) => {
                         error!("Failed to update status for expired order {}: {}", order_id, err);
@@ -82,7 +82,6 @@ impl ReaperTask {
         loop {
             if let Err(err) = self.check_expired_orders().await {
                 warn!("Error checking expired orders: {}", err);
-                // Continue the loop even on error
             }
 
             tokio::time::sleep(Duration::from_secs(interval)).await;
