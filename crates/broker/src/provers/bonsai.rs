@@ -105,7 +105,6 @@ impl Bonsai {
         }
     }
 
-    // New retry helper method
     async fn retry<T, F, Fut>(&self, f: F, msg: &str) -> Result<T, ProverError>
     where
         F: Fn() -> Fut,
@@ -120,7 +119,6 @@ impl Bonsai {
         .await
     }
 
-    // New retry helper method
     async fn retry_only<T, F, Fut>(
         &self,
         f: F,
