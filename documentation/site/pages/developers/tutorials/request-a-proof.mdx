@@ -1,0 +1,165 @@
+import { StripRustCodeComments } from "../../../components/strip-rust-code-comments";
+
+# Request a Proof
+
+The [Boundless Market SDK](/developers/tooling/sdk) allows developers to build and submit requests to the Boundless protocol. The SDK has sensible defaults, designed to make sending ~95% of requests straightforward. This page is split into two sections:
+
+  - The first section, [Sending A Request](#sending-a-request), shows the quickest and easiest way to request a proof using these sensible defaults, without any additional configuration.
+  - The second section, [Request Configuration](#request-configuration), covers all available configuration options for the 5% of requests that require fine-tuning.
+
+## Sending a Request
+
+:::note[Source Code]
+All code you see below can be found at: [apps/src/main.rs](https://github.com/boundless-xyz/boundless/blob/main/examples/counter/apps/src/main.rs)
+:::
+
+### Getting Started
+
+If you want to follow along locally, start by running:
+
+```bash
+git clone https://github.com/boundless-xyz/boundless.git
+git checkout release-0.8
+cd boundless/examples/counter && cargo build && forge build
+```
+The counter example has two folders:
+
+- `/apps` which contains the source code for requesting a proof from Boundless, retrieving the proof from Boundless and sending that proof onchain for verification.
+- `/contracts` which contains the Solidity contracts for onchain proof verification.
+
+### Onchain vs Offchain
+
+The Boundless protocol allows you to submit requests both onchain and offchain.
+
+For this tutorial, we will concern ourselves with onchain requests only. For onchain requests, Boundless uses a set of [smart contracts](/developers/smart-contracts/reference); these contracts are a central hub for requests *and* proofs. Effectively, we want to be able to submit a request for a proof so that provers can pick up the request and start proving.
+
+### Setting environment variables
+
+#### Blockchain
+
+Since we are submitting requests onchain, we will need private key for a wallet with sufficient funds on Sepolia, and a working RPC URL:
+
+```bash
+export RPC_URL="https://..."
+export PRIVATE_KEY="abcdef..."
+```
+
+#### Storage Providers
+
+To make a program accessible to provers, it needs to be hosted on a public HTTP server. The Boundless SDK is compatible with both IPFS and S3 as storage.
+
+We recommend using IPFS for storage, particularly via [Pinata](https://pinata.cloud), as their free tier comfortably covers most Boundless use cases. To set this up:
+
+- Sign up for an account with Pinata.
+- Generate an API key following their documentation.
+- Copy the JWT token and set it as the `PINATA_JWT` environment variable i.e. `export PINATA_JWT=abcdef....`
+
+
+We recommend using [clap](https://crates.io/crates/clap) to parse these environment variables, as seen in [apps/L37-52](https://github.com/boundless-xyz/boundless/blob/cdc2435b6119a009c2cc73dc227a250bee7594fc/examples/counter/apps/src/main.rs#L37-L52).
+
+### Build the Boundless Client
+
+<StripRustCodeComments>
+```rust
+# use alloy::signers::local::PrivateKeySigner;
+# use boundless_market::{Client, storage::storage_provider_from_env};
+# async fn create_boundless_client(
+# rpc_url: url::Url,
+# private_key: PrivateKeySigner) -> Result<(), Box<dyn std::error::Error>> {
+let client = Client::builder()
+  .with_rpc_url(args.rpc_url)
+  .with_private_key(args.private_key)
+  .with_storage_provider(&args.storage_config)?
+  .build()
+  .await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+### Upload Program to IPFS
+
+When we built the client, we attached a storage provider with:
+
+<StripRustCodeComments>
+```rust
+# use alloy::signers::local::PrivateKeySigner;
+# use boundless_market::{Client, storage::storage_provider_from_env};
+# async fn create_boundless_client(
+# rpc_url: url::Url,
+# private_key: PrivateKeySigner) -> Result<(), Box<dyn std::error::Error>> {
+let client = Client::builder()
+  .with_rpc_url(args.rpc_url)
+  .with_private_key(args.private_key)
+  .with_storage_provider(&args.storage_config)? // [!code hl] // [!code focus]
+  .build()
+  .await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+This will automatically pull the `PINATA_JWT` enviroment variable, and set IPFS as the storage provider.
+
+To upload the program to IPFS:
+
+<StripRustCodeComments>
+```rust
+# use boundless_market::{Client, storage::storage_provider_from_env};
+# async fn upload_program(program: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+# let client = Client::builder()
+#   .with_storage_provider(Some(storage_provider_from_env()?))
+#   .build()
+#   .await?;
+let program_url = client.upload_program(program).await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+### Upload Inputs to IPFS
+
+:::tip[*Rather not have inputs publicly available?**]
+When working with trusted provers, you can store inputs in *Amazon S3* and restrict access with a bucket policy (plus an optional *KMS key policy* if you enable server-side encryption).
+Only provers whose IAM role appears in those policies can download the inputs.
+
+See [Sensitive Inputs](/developers/tutorials/sensitive-inputs) for more information.
+:::
+
+To execute and run proving, the prover requires the inputs of the program.
+Similar to the program executable, the program inputs are uploaded to a public HTTP server, and the [`BuiltinStorageProvider`](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html) can help with that.
+
+<StripRustCodeComments>
+```rust
+# use boundless_market::{Client, storage::storage_provider_from_env};
+# async fn upload_input(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+# let client = Client::builder()
+#   .with_storage_provider(Some(storage_provider_from_env()?))
+#   .build()
+#   .await?;
+let input_url = client.upload_input(&input_bytes).await?;
+# Ok(())
+# }
+```
+</StripRustCodeComments>
+
+Inputs can also be included directly into the request instead as in-line input.
+When submitting requests onchain, this will cost more gas if the inputs are large.
+The offchain order-stream service also places limits on the size of in-line input.
+
+
+
+
+
+
+
+
+
+
+
+## Request Configuration
+
+[offer parameters](/developers/tutorials/pricing#contents-of-an-offer)
+
+
+Before we start, we will have to allow the Boundless app to contact two pieces of external infrastructure: the blockchain (Sepolia for testing purposes), and a storage provider. The blockchain is used, as mentioned, for communicating and transacting with the Boundless smart contracts. A storage provider stores the guest program (the program to be proven), and also (optionally) stores the inputs for the program. Therefore, the Boundless SDK requires relevant envionment variables to be set before you can request a proof. For this tutorial, we will use IPFS as the storage provider.
