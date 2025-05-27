@@ -275,6 +275,14 @@ export const createProverAlarms = (
   }, { period: 300 });
 
   //
+  // Proving engine
+  //
+
+  // Track internal errors as a metric, but these errors are expected to happen occasionally.
+  // and are retried and covered by other alarms.
+  createLogMetricFilter('"[B-BON-008]"', 'proving-engine-internal-error');
+
+  //
   // Submitter
   //
   // Any 1 request expired before submission triggers a SEV2 alarm.
