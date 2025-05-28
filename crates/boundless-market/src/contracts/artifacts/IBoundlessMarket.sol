@@ -24,22 +24,28 @@ interface IBoundlessMarket {
     /// @dev Note that the signature is not verified by the contract and should instead be verified
     /// by the receiver of the event.
     /// @param requestId The ID of the request.
-    event RequestSubmitted(RequestId indexed requestId);
+    /// @param request The proof request details.
+    /// @param clientSignature The signature of the client.
+    event RequestSubmitted(RequestId indexed requestId, ProofRequest request, bytes clientSignature);
 
     /// @notice Event logged when a request is locked in by the given prover.
     /// @param requestId The ID of the request.
     /// @param prover The address of the prover.
-    event RequestLocked(RequestId indexed requestId, address prover);
+    /// @param request The proof request details.
+    /// @param clientSignature The signature of the client.
+    event RequestLocked(RequestId indexed requestId, address prover, ProofRequest request, bytes clientSignature);
 
     /// @notice Event logged when a request is fulfilled.
     /// @param requestId The ID of the request.
-    event RequestFulfilled(RequestId indexed requestId);
+    /// @param fulfillment The fulfillment details.
+    event RequestFulfilled(RequestId indexed requestId, Fulfillment fulfillment);
 
     /// @notice Event logged when a proof is delivered that satisfies the request's requirements.
     /// @dev It is possible for this event to be logged multiple times for a single request. The
     /// first event logged will always coincide with the `RequestFulfilled` event and the fulfilled flag on the request being set.
     /// @param requestId The ID of the request.
-    event ProofDelivered(RequestId indexed requestId);
+    /// @param fulfillment The fulfillment details.
+    event ProofDelivered(RequestId indexed requestId, Fulfillment fulfillment);
 
     /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.
