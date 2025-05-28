@@ -37,7 +37,7 @@ use crate::{
 
 #[derive(Error)]
 pub enum ProverError {
-    #[error("Bonsai proving error")]
+    #[error("Bonsai proving error {0:?}")]
     BonsaiErr(#[from] SdkErr),
 
     #[error("Config error")]

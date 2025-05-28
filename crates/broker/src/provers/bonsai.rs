@@ -238,6 +238,9 @@ impl StatusPoller {
                 "SUCCEEDED" => return Ok(proof_id.uuid.clone()),
                 _ => {
                     let err_msg = status.error_msg.unwrap_or_default();
+                    if err_msg.contains("INTERNAL_ERROR") {
+                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+                    }
                     return Err(ProverError::ProvingFailed(format!(
                         "snark proving failed: {err_msg}"
                     )));
