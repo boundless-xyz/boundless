@@ -268,15 +268,6 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn get_nonexistent_order(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::from(999);
-        
-        let result = db.get_order(id).await.unwrap();
-        assert!(result.is_none());
-    }
-
-    #[sqlx::test]
     async fn get_existing_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::ZERO;
@@ -297,6 +288,9 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::from(999);
         
+        let result = db.get_order(id).await.unwrap();
+        assert!(result.is_none());
+
         db.remove_order(id).await.unwrap();
         
         db.remove_order(id).await.unwrap();
