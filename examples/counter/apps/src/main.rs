@@ -211,6 +211,8 @@ mod tests {
             counter_address,
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
+            program_url: None,
+            input_url: None,
             storage_config: StorageProviderConfig::builder()
                 .storage_provider(StorageProviderType::Mock)
                 .build()
