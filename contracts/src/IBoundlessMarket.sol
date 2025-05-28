@@ -24,7 +24,9 @@ interface IBoundlessMarket {
     /// @dev Note that the signature is not verified by the contract and should instead be verified
     /// by the receiver of the event.
     /// @param requestId The ID of the request.
-    event RequestSubmitted(RequestId indexed requestId);
+    /// @param request The proof request details.
+    /// @param clientSignature The signature of the client.
+    event RequestSubmitted(RequestId indexed requestId, ProofRequest request, bytes clientSignature);
 
     /// @notice Event logged when a request is locked in by the given prover.
     /// @param requestId The ID of the request.

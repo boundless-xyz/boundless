@@ -120,9 +120,7 @@ contract BoundlessMarket is
         if (msg.value > 0) {
             deposit();
         }
-        // No-op usage to avoid unused parameter warning.
-        clientSignature;
-        emit RequestSubmitted(request.id);
+        emit RequestSubmitted(request.id, request, clientSignature);
     }
 
     /// @inheritdoc IBoundlessMarket
