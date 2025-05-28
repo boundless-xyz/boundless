@@ -22,7 +22,7 @@ import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 contract ProofRequestTestContract {
     mapping(address => Account) accounts;
 
-    function validate(ProofRequest calldata request) external view returns (uint64, uint64) {
+    function validate(ProofRequest calldata request) external pure returns (uint64, uint64) {
         return request.validate();
     }
 
