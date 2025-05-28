@@ -64,11 +64,11 @@ fn generate_request(
     )
 }
 
-async fn new_config(min_batch_size: u64) -> NamedTempFile {
+async fn new_config(min_batch_size: u32) -> NamedTempFile {
     new_config_with_min_deadline(min_batch_size, 100).await
 }
 
-async fn new_config_with_min_deadline(min_batch_size: u64, min_deadline: u64) -> NamedTempFile {
+async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> NamedTempFile {
     let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let mut config = Config::default();
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
