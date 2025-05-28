@@ -376,18 +376,29 @@ contract BoundlessMarketTest is Test {
         Selector[] memory selectors = new Selector[](0);
         AssessorCallback[] memory callbacks = new AssessorCallback[](0);
         for (uint8 i = 0; i < requests.length; i++) {
+            bytes32 imageIdOrClaimDigest;
+            bytes memory journal;
+            if (requests[i].requirements.withJournal) {
+                imageIdOrClaimDigest = requests[i].requirements.imageId;
+                journal = journals[i];
+            } else {
+                imageIdOrClaimDigest =
+                    ReceiptClaimLib.ok(requests[i].requirements.imageId, sha256(journals[i])).digest();
+            }
             Fulfillment memory fill = Fulfillment({
                 id: requests[i].id,
                 requestDigest: MessageHashUtils.toTypedDataHash(
                     boundlessMarket.eip712DomainSeparator(), requests[i].eip712Digest()
                 ),
-                imageId: requests[i].requirements.imageId,
-                journal: journals[i],
-                seal: bytes("")
+                imageId: imageIdOrClaimDigest,
+                journal: journal,
+                seal: bytes(""),
+                withJournal: requests[i].requirements.withJournal
             });
             fills[i] = fill;
             if (requests[i].requirements.selector != bytes4(0)) {
-                selectors = selectors.addSelector(i, requests[i].requirements.selector);
+                selectors =
+                    selectors.addSelector(i, requests[i].requirements.selector, requests[i].requirements.verifier);
             }
             if (requests[i].requirements.callback.addr != address(0)) {
                 callbacks = callbacks.addCallback(
@@ -439,7 +450,7 @@ contract BoundlessMarketTest is Test {
         }
     }
 
-    function newBatchWithSelector(uint256 batchSize, bytes4 selector)
+    function newBatchWithSelector(uint256 batchSize, bytes4 selector, address _verifier)
         internal
         returns (ProofRequest[] memory requests, bytes[] memory journals)
     {
@@ -452,6 +463,7 @@ contract BoundlessMarketTest is Test {
             Client client = clients[i % 5];
             ProofRequest memory request = client.request(uint32(i / 5));
             request.requirements.selector = selector;
+            request.requirements.verifier = _verifier;
             bytes memory clientSignature = client.sign(request);
             vm.prank(testProverAddress);
             boundlessMarket.lockRequest(request, clientSignature);
@@ -843,7 +855,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x363482aC3961d6dEdFC95d7f496a5d2271A6c19f)
+                IBoundlessMarket.InsufficientBalance.selector, address(0x1a4f4CFaD07d9c5C696b228F987D7Ae53D0C5DFf)
             )
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
@@ -867,7 +879,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0xAe21125c67Cab883b58cF5e88318275f47AC2E88)
+                IBoundlessMarket.InsufficientBalance.selector, address(0x4a2df7372703F372caebFCfecf39434936793678)
             )
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
@@ -1415,6 +1427,40 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit IBoundlessMarket.ProofDelivered(request.id);
         boundlessMarket.fulfill(fills, assessorReceipt);
         vm.snapshotGasLastCall("fulfill: a locked request with 10kB journal");
+
+        // Check that the proof was submitted
+        expectRequestFulfilled(fill.id);
+
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillNoJournal() external {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        request.requirements.withJournal = false;
+        bytes memory clientSignature = client.sign(request);
+
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+        require(fill.withJournal == false, "Expected no journal");
+        require(fill.journal.length == 0, "Expected no journal");
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = fill;
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id);
+        boundlessMarket.fulfill(fills, assessorReceipt);
+        vm.snapshotGasLastCall("fulfill: a locked request with no journal");
 
         // Check that the proof was submitted
         expectRequestFulfilled(fill.id);
@@ -2413,7 +2459,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             imageId: bytes32(APP_IMAGE_ID_2),
             predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL_2))}),
             selector: bytes4(0),
-            callback: Callback({addr: address(0), gasLimit: 0})
+            verifier: address(0),
+            callback: Callback({addr: address(0), gasLimit: 0}),
+            withJournal: true
         });
         boundlessMarket.lockRequestWithSignature(
             request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
@@ -2652,6 +2700,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
         request.requirements.selector = setVerifier.SELECTOR();
+        request.requirements.verifier = address(setVerifier);
 
         (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
             createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
@@ -2693,7 +2742,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         // Attempt to fulfill a request with wrong selector.
-        assessorReceipt.selectors[0] = Selector({index: 0, value: bytes4(0xdeadbeef)});
+        assessorReceipt.selectors[0] = Selector({index: 0, value: bytes4(0xdeadbeef), verifier: address(0)});
         vm.expectRevert(
             abi.encodeWithSelector(
                 IBoundlessMarket.SelectorMismatch.selector, bytes4(0xdeadbeef), setVerifier.SELECTOR()
@@ -2742,6 +2791,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
         request.requirements.selector = setVerifier.SELECTOR();
+        request.requirements.verifier = address(setVerifier);
         ProofRequest[] memory requests = new ProofRequest[](1);
         requests[0] = request;
 
@@ -3574,7 +3624,7 @@ contract BoundlessMarketBench is BoundlessMarketTest {
 
     function benchFulfillWithSelector(uint256 batchSize, string memory snapshot) public {
         (ProofRequest[] memory requests, bytes[] memory journals) =
-            newBatchWithSelector(batchSize, setVerifier.SELECTOR());
+            newBatchWithSelector(batchSize, setVerifier.SELECTOR(), address(setVerifier));
         (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
             createFillsAndSubmitRoot(requests, journals, testProverAddress);
 

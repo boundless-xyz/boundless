@@ -81,7 +81,9 @@ abstract contract BaseClient {
             imageId: bytes32(APP_IMAGE_ID),
             predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))}),
             selector: bytes4(0),
-            callback: Callback({addr: address(0), gasLimit: 0})
+            verifier: address(0),
+            callback: Callback({addr: address(0), gasLimit: 0}),
+            withJournal: true
         });
     }
 

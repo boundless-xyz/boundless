@@ -239,6 +239,7 @@ contract BoundlessMarket is
         }
         bytes32[] memory leaves = new bytes32[](fills.length);
         bool[] memory hasSelector = new bool[](fills.length);
+        bool[] memory withJournal = new bool[](fills.length);
 
         // Check the selector constraints.
         // NOTE: The assessor guest adds non-zero selector values to the list.
@@ -255,8 +256,14 @@ contract BoundlessMarket is
         // Verify the application receipts.
         for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
+            withJournal[i] = fill.withJournal;
 
-            bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+            bytes32 claimDigest;
+            if (fill.withJournal) {
+                claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
+            } else {
+                claimDigest = fill.imageId;
+            }
             leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, claimDigest).eip712Digest();
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
@@ -264,7 +271,9 @@ contract BoundlessMarket is
             if (!hasSelector[i]) {
                 VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
             } else {
-                VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigest));
+                IRiscZeroVerifier(assessorReceipt.selectors[i].verifier).verifyIntegrity(
+                    Receipt(fill.seal, claimDigest)
+                );
             }
         }
 
@@ -278,6 +287,7 @@ contract BoundlessMarket is
                     root: batchRoot,
                     callbacks: assessorReceipt.callbacks,
                     selectors: assessorReceipt.selectors,
+                    withJournals: withJournal,
                     prover: assessorReceipt.prover
                 })
             )
