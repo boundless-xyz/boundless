@@ -390,18 +390,18 @@ contract BoundlessMarket is
         if (locked) {
             RequestLock memory lock = requestLocks[id];
             if (lock.lockDeadline >= block.timestamp) {
-                paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill.requestDigest, fulfilled, prover);
+                paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill, fulfilled, prover);
             } else {
-                paymentError = _fulfillAndPayWasLocked(lock, context, id, client, idx, fulfilled, prover);
+                paymentError = _fulfillAndPayWasLocked(lock, context, id, client, idx, fill, fulfilled, prover);
             }
         } else {
-            paymentError = _fulfillAndPayNeverLocked(context, id, client, idx, fulfilled, prover);
+            paymentError = _fulfillAndPayNeverLocked(context, id, client, idx, fill, fulfilled, prover);
         }
 
         if (paymentError.length > 0) {
             emit PaymentRequirementsFailed(paymentError);
         }
-        emit ProofDelivered(fill.id);
+        emit ProofDelivered(fill.id, fill);
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.
@@ -412,14 +412,14 @@ contract BoundlessMarket is
         RequestId id,
         address client,
         uint32 idx,
-        bytes32 requestDigest,
+        Fulfillment calldata fill,
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
         // NOTE: We check this before checking fulfillment status to maintain the invariant that
         // the transaction will revert if the delivered proof is not associated with a valid request.
-        if (lock.requestDigest != requestDigest) {
-            revert InvalidRequestFulfillment({requestId: id, provided: requestDigest, locked: lock.requestDigest});
+        if (lock.requestDigest != fill.requestDigest) {
+            revert InvalidRequestFulfillment({requestId: id, provided: fill.requestDigest, locked: lock.requestDigest});
         }
 
         // NOTE: If the prover is paid, the fulfilled flag must be set.
@@ -429,7 +429,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id);
+            emit RequestFulfilled(id, fill);
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
@@ -459,6 +459,7 @@ contract BoundlessMarket is
         RequestId id,
         address client,
         uint32 idx,
+        Fulfillment calldata fill,
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
@@ -481,7 +482,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id);
+            emit RequestFulfilled(id, fill);
         }
 
         // Deduct any additionally owned funds from client account. The client was already charged
@@ -527,6 +528,7 @@ contract BoundlessMarket is
         RequestId id,
         address client,
         uint32 idx,
+        Fulfillment calldata fill,
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
@@ -551,7 +553,7 @@ contract BoundlessMarket is
 
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id);
+        emit RequestFulfilled(id, fill);
 
         // Deduct the funds from client account.
         if (clientAccount.balance < price) {
