@@ -490,7 +490,7 @@ mod tests {
         }
     }
 
-    async fn new_config_with_min_deadline(min_batch_size: u64, min_deadline: u64) -> NamedTempFile {
+    async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> NamedTempFile {
         let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
         let mut config = Config::default();
         if !is_dev_mode() {
