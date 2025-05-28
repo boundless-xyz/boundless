@@ -2,6 +2,8 @@
 //
 // All rights reserved.
 
+use std::time::Duration;
+
 use crate::{
     config::ConfigLock,
     db::DbObj,
@@ -14,8 +16,6 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use thiserror::Error;
-
-const MONITOR_EXISTING_PROOFS_SLEEP_MS: u64 = 5000;
 
 #[derive(Error)]
 pub enum ProvingErr {
@@ -49,13 +49,13 @@ impl ProvingService {
         Ok(Self { db, prover, config })
     }
 
-    pub async fn monitor_proof(
+    async fn monitor_proof_internal(
         &self,
         order_id: &str,
         stark_proof_id: &str,
         is_groth16: bool,
         snark_proof_id: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<OrderStatus> {
         let proof_res = self
             .prover
             .wait_for_stark(stark_proof_id)
@@ -80,57 +80,132 @@ impl ProvingService {
             true => OrderStatus::SkipAggregation,
         };
 
-        self.db
-            .set_aggregation_status(order_id, status)
-            .await
-            .with_context(|| format!("Failed to set the DB record to aggregation {order_id}"))?;
-
         tracing::info!(
             "Customer Proof complete for proof_id: {stark_proof_id}, order_id: {order_id} cycles: {} time: {}",
             proof_res.stats.total_cycles,
             proof_res.elapsed_time,
         );
 
-        Ok(())
+        Ok(status)
     }
 
-    pub async fn prove_order(&self, order: Order) -> Result<()> {
+    pub async fn monitor_proof_with_timeout(&self, order: Order) -> Result<OrderStatus> {
         let order_id = order.id();
 
-        // If the ID's are not present then upload them now
-        // Mostly hit by skipping pre-flight
-        let image_id = match order.image_id.as_ref() {
-            Some(val) => val.clone(),
-            None => crate::storage::upload_image_uri(&self.prover, &order.request, &self.config)
-                .await
-                .context("Failed to upload image")?,
+        // Get the proof_id - either from existing order or create new proof
+        let proof_id = match order.proof_id.clone() {
+            Some(existing_proof_id) => {
+                tracing::debug!(
+                    "Monitoring existing proof {existing_proof_id} for order {order_id}"
+                );
+                existing_proof_id
+            }
+            None => {
+                // This is a new order that needs proving
+                tracing::info!("Proving order {order_id}");
+
+                // If the ID's are not present then upload them now
+                // Mostly hit by skipping pre-flight
+                let image_id = match order.image_id.as_ref() {
+                    Some(val) => val.clone(),
+                    None => {
+                        crate::storage::upload_image_uri(&self.prover, &order.request, &self.config)
+                            .await
+                            .context("Failed to upload image")?
+                    }
+                };
+
+                let input_id = match order.input_id.as_ref() {
+                    Some(val) => val.clone(),
+                    None => {
+                        crate::storage::upload_input_uri(&self.prover, &order.request, &self.config)
+                            .await
+                            .context("Failed to upload input")?
+                    }
+                };
+
+                let proof_id = self
+                    .prover
+                    .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
+                    .await
+                    .context("Failed to prove customer proof STARK order")?;
+
+                tracing::debug!("Order {order_id} proof id: {proof_id}");
+
+                self.db.set_order_proof_id(&order_id, &proof_id).await.with_context(|| {
+                    format!("Failed to set order {order_id} proof id: {}", proof_id)
+                })?;
+
+                proof_id
+            }
         };
 
-        let input_id = match order.input_id.as_ref() {
-            Some(val) => val.clone(),
-            None => crate::storage::upload_input_uri(&self.prover, &order.request, &self.config)
-                .await
-                .context("Failed to upload input")?,
+        let timeout_duration = {
+            let expiry_timestamp_secs =
+                order.expire_timestamp.expect("Order should have expiry set");
+            let now = crate::now_timestamp();
+            Duration::from_secs(expiry_timestamp_secs.saturating_sub(now))
         };
 
-        tracing::info!("Proving order {order_id}");
+        let monitor_task = self.monitor_proof_internal(
+            &order_id,
+            &proof_id,
+            order.is_groth16(),
+            order.compressed_proof_id,
+        );
 
-        let proof_id = self
-            .prover
-            .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
-            .await
-            .context("Failed to prove customer proof STARK order")?;
+        // Note: this timeout may not exactly match the order expiry exactly due to
+        // discrepancy between wall clock and monotonic clock from the timeout,
+        // but this time, along with aggregation and submission time, should never
+        // exceed the actual order expiry.
+        let order_status = match tokio::time::timeout(timeout_duration, monitor_task).await {
+            Ok(result) => result.context("Monitoring proof failed")?,
+            Err(_) => {
+                return Err(anyhow::anyhow!("Proving timed out"));
+            }
+        };
 
-        tracing::debug!("Order {order_id} proof id: {proof_id}");
+        Ok(order_status)
+    }
 
-        self.db
-            .set_order_proof_id(&order_id, &proof_id)
-            .await
-            .with_context(|| format!("Failed to set order {order_id} proof id: {}", proof_id))?;
+    async fn prove_and_update_db(&self, order: Order) {
+        let order_id = order.id();
 
-        self.monitor_proof(&order_id, &proof_id, order.is_groth16(), None).await?;
+        let (proof_retry_count, proof_retry_sleep_ms) = {
+            let config = self.config.lock_all().unwrap();
+            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+        };
 
-        Ok(())
+        let result = retry(
+            proof_retry_count,
+            proof_retry_sleep_ms,
+            || async { self.monitor_proof_with_timeout(order.clone()).await },
+            "monitor_proof_with_timeout",
+        )
+        .await;
+
+        match result {
+            Ok(order_status) => {
+                tracing::info!("Successfully completed proof monitoring for order {order_id}");
+
+                if let Err(e) = self.db.set_aggregation_status(&order_id, order_status).await {
+                    tracing::error!("Failed to set aggregation status for order {order_id}: {e:?}");
+                }
+            }
+            Err(err) => {
+                let proving_err = ProvingErr::ProvingFailed(err);
+                tracing::error!(
+                    "FATAL: Order {} failed to prove after {} retries: {proving_err:?}",
+                    order_id,
+                    proof_retry_count
+                );
+
+                if let Err(inner_err) = self.db.set_order_failure(&order_id, "Proving failed").await
+                {
+                    tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
+                }
+            }
+        }
     }
 
     pub async fn find_and_monitor_proofs(&self) -> Result<(), ProvingErr> {
@@ -141,7 +216,8 @@ impl ProvingService {
         for order in current_proofs {
             let order_id = order.id();
             let prove_serv = self.clone();
-            let Some(proof_id) = order.proof_id.clone() else {
+
+            if order.proof_id.is_none() {
                 tracing::error!("Order in status Proving missing proof_id: {order_id}");
                 if let Err(inner_err) = prove_serv
                     .db
@@ -151,55 +227,12 @@ impl ProvingService {
                     tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
                 }
                 continue;
-            };
-            let is_groth16 = order.is_groth16();
-            let compressed_proof_id = order.compressed_proof_id.clone();
+            }
+
             // TODO: Manage these tasks in a joinset?
             // They should all be fail-able without triggering a larger failure so it should be
             // fine.
-            tokio::spawn(async move {
-                // We retry here as we occasionally run into BusyLoadingErrors during prover restart
-                // where we attempt to access Bento before various services are ready (e.g. Redis
-                // still loading dataset into memory).
-                retry(
-                    1,
-                    MONITOR_EXISTING_PROOFS_SLEEP_MS,
-                    || async {
-                        match prove_serv
-                            .monitor_proof(
-                                &order_id,
-                                &proof_id,
-                                is_groth16,
-                                compressed_proof_id.clone(),
-                            )
-                            .await
-                        {
-                            Ok(_) => {
-                                tracing::info!("Successfully complete order proof {order_id}");
-                                Ok(())
-                            }
-                            Err(err) => {
-                                tracing::error!("FATAL: Order failed to prove: {err:?}");
-                                if let Err(inner_err) = prove_serv
-                                    .db
-                                    .set_order_failure(
-                                        &order_id,
-                                        "Monitoring existing proof failed",
-                                    )
-                                    .await
-                                {
-                                    tracing::error!(
-                                        "Failed to set order {order_id} failure: {inner_err:?}"
-                                    );
-                                }
-                                Err(err)
-                            }
-                        }
-                    },
-                    "find_and_monitor_proof",
-                )
-                .await
-            });
+            tokio::spawn(async move { prove_serv.prove_and_update_db(order).await });
         }
 
         Ok(())
@@ -234,45 +267,8 @@ impl RetryTask for ProvingService {
                     .map_err(SupervisorErr::Recover)?;
 
                 if let Some(order) = order_res {
-                    let order_id = order.id();
                     let prov_serv = proving_service_copy.clone();
-                    tokio::spawn(async move {
-                        let (proof_retry_count, proof_retry_sleep_ms) = {
-                            let config = prov_serv.config.lock_all().unwrap();
-                            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-                        };
-
-                        match retry(
-                            proof_retry_count,
-                            proof_retry_sleep_ms,
-                            || async { prov_serv.prove_order(order.clone()).await },
-                            "prove_order",
-                        )
-                        .await
-                        {
-                            Ok(_) => {
-                                tracing::info!("Successfully complete order proof {order_id}");
-                            }
-                            Err(err) => {
-                                let proving_err = ProvingErr::ProvingFailed(err);
-                                tracing::error!(
-                                    "FATAL: Order {} failed to prove after {} retries: {proving_err:?}",
-                                    order_id,
-                                    proof_retry_count
-                                );
-                                if let Err(inner_err) = prov_serv
-                                    .db
-                                    .set_order_failure(&order_id, "Failed to prove")
-                                    .await
-                                {
-                                    tracing::error!(
-                                        "Failed to set order {} failure: {inner_err:?}",
-                                        order_id
-                                    );
-                                }
-                            }
-                        }
-                    });
+                    tokio::spawn(async move { prov_serv.prove_and_update_db(order).await });
                 }
 
                 // TODO: configuration
@@ -353,7 +349,7 @@ mod tests {
             input_id: Some(input_id),
             proof_id: None,
             compressed_proof_id: None,
-            expire_timestamp: None,
+            expire_timestamp: Some(now_timestamp() + 3600), // 1 hour from now
             client_sig: Bytes::new(),
             lock_price: None,
             fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -366,7 +362,7 @@ mod tests {
 
         db.add_order(&order).await.unwrap();
 
-        proving_service.prove_order(order.clone()).await.unwrap();
+        proving_service.prove_and_update_db(order.clone()).await;
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingAgg);
@@ -429,7 +425,7 @@ mod tests {
             input_id: Some(input_id),
             proof_id: Some(proof_id.clone()),
             compressed_proof_id: None,
-            expire_timestamp: None,
+            expire_timestamp: Some(now_timestamp() + 3600), // 1 hour from now
             client_sig: Bytes::new(),
             lock_price: None,
             fulfillment_type: FulfillmentType::LockAndFulfill,

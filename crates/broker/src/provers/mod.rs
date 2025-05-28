@@ -37,31 +37,31 @@ use crate::{
 
 #[derive(Error)]
 pub enum ProverError {
-    #[error("Bonsai proving error {0:?}")]
+    #[error("{code} Bonsai proving error {0:?}", code = self.code())]
     BonsaiErr(#[from] SdkErr),
 
-    #[error("Config error")]
+    #[error("{code} Config error {0}", code = self.code())]
     ConfigReadErr(#[from] ConfigErr),
 
-    #[error("Not found: {0}")]
+    #[error("{code} Not found: {0}", code = self.code())]
     NotFound(String),
 
-    #[error("Stark job missing stats data")]
+    #[error("{code} Stark job missing stats data", code = self.code())]
     MissingStatus,
 
-    #[error("Prover failure: {0}")]
+    #[error("{code} Prover failure: {0}", code = self.code())]
     ProvingFailed(String),
 
-    #[error("Bincode deserilization error")]
+    #[error("{code} Bincode deserilization error {0}", code = self.code())]
     BincodeErr(#[from] bincode::Error),
 
-    #[error("proof status expired retry count")]
+    #[error("{code} proof status expired retry count", code = self.code())]
     StatusFailure,
 
-    #[error("Prover internal error: {0}")]
+    #[error("{code} Prover internal error: {0}", code = self.code())]
     ProverInternalError(String),
 
-    #[error(transparent)]
+    #[error("{code} {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
 

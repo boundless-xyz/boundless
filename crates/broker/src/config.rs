@@ -49,6 +49,14 @@ mod defaults {
     pub const fn max_submission_attempts() -> u32 {
         2
     }
+
+    pub const fn reaper_interval_secs() -> u32 {
+        60
+    }
+
+    pub const fn reaper_grace_period_secs() -> u32 {
+        30
+    }
 }
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
@@ -226,6 +234,19 @@ pub struct ProverConf {
     /// will be retried, but after this number of retries, the process will exit.
     /// None indicates there are infinite number of retries.
     pub max_critical_task_retries: Option<u32>,
+    /// Interval for checking expired committed orders (in seconds)
+    ///
+    /// This is the interval at which the ReaperTask will check for expired orders and mark them as failed.
+    /// If not set, it defaults to 60 seconds.
+    #[serde(default = "defaults::reaper_interval_secs")]
+    pub reaper_interval_secs: u32,
+    /// Grace period before marking expired orders as failed (in seconds)
+    ///
+    /// This provides a buffer time after an order expires before the reaper marks it as failed.
+    /// This helps prevent race conditions with the aggregator that might be processing the order.
+    /// If not set, it defaults to 30 seconds.
+    #[serde(default = "defaults::reaper_grace_period_secs")]
+    pub reaper_grace_period_secs: u32,
 }
 
 impl Default for ProverConf {
@@ -241,6 +262,8 @@ impl Default for ProverConf {
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
             max_critical_task_retries: None,
+            reaper_interval_secs: defaults::reaper_interval_secs(),
+            reaper_grace_period_secs: defaults::reaper_grace_period_secs(),
         }
     }
 }
