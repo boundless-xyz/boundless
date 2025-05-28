@@ -67,7 +67,6 @@ library OfferLibrary {
         if (deadline1 - lockDeadline1 > type(uint24).max) {
             revert IBoundlessMarket.InvalidRequest();
         }
-        // DO NOT MERGE: Make sure tests cover expired requests on each entrypoint, to ensure this change does not break security.
     }
 
     /// @notice Calculates the earliest time at which the offer will be worth at least the given price.

@@ -111,7 +111,7 @@ contract OfferTest is Test {
         invalidOffer.validate();
     }
 
-    function testValidTimeouts() public view {
+    function testValidTimeouts() public pure {
         Offer memory validOffer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,

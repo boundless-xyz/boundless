@@ -50,14 +50,9 @@ library OfferLibrary {
 
     /// @notice Validates that price, ramp-up, timeout, and deadline are internally consistent and well formed.
     /// @param offer The offer to validate.
-    /// @param requestId The ID of the request associated with the offer.
     /// @return lockDeadline1 The deadline for when a lock expires for the offer.
     /// @return deadline1 The deadline for the offer as a whole.
-    function validate(Offer memory offer, RequestId requestId)
-        internal
-        pure
-        returns (uint64 lockDeadline1, uint64 deadline1)
-    {
+    function validate(Offer memory offer) internal pure returns (uint64 lockDeadline1, uint64 deadline1) {
         if (offer.minPrice > offer.maxPrice) {
             revert IBoundlessMarket.InvalidRequest();
         }
@@ -72,7 +67,6 @@ library OfferLibrary {
         if (deadline1 - lockDeadline1 > type(uint24).max) {
             revert IBoundlessMarket.InvalidRequest();
         }
-        // DO NOT MERGE: Make sure tests cover expired requests on each entrypoint, to ensure this change does not break security.
     }
 
     /// @notice Calculates the earliest time at which the offer will be worth at least the given price.
