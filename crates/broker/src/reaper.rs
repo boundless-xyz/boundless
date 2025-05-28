@@ -205,7 +205,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_check_expired_orders_with_expired() {
+    async fn test_expired_orders() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         let reaper = ReaperTask::new(db.clone(), config);
@@ -220,7 +220,7 @@ mod tests {
             Some(past_time),
         );
         let expired_order2 =
-            create_order_with_status_and_expiration(2, OrderStatus::Aggregating, Some(past_time));
+            create_order_with_status_and_expiration(2, OrderStatus::PendingAgg, Some(past_time));
         let active_order =
             create_order_with_status_and_expiration(3, OrderStatus::Proving, Some(future_time));
         let done_order =
@@ -267,7 +267,6 @@ mod tests {
             OrderStatus::PendingProving,
             OrderStatus::Proving,
             OrderStatus::PendingAgg,
-            OrderStatus::Aggregating,
             OrderStatus::SkipAggregation,
             OrderStatus::PendingSubmission,
         ];
