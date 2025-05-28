@@ -2642,6 +2642,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory clientSignatures = new bytes[](1);
         clientSignatures[0] = getClient(1).sign(request);
 
+        // TODO(#704): Workaround in test for edge case described in #704
+        vm.warp(request.offer.lockDeadline() + 1);
+
         // Attempt to fulfill a request already fulfilled
         // should return "RequestIsFulfilled({requestId: request.id})"
         bytes[] memory paymentError =
