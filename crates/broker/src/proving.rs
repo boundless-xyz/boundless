@@ -193,8 +193,12 @@ impl ProvingService {
                 }
             }
             Err(err) => {
-                let err = ProvingErr::ProvingFailed(err);
-                tracing::error!("FATAL: Order {order_id} failed to prove: {err}");
+                let proving_err = ProvingErr::ProvingFailed(err);
+                tracing::error!(
+                    "FATAL: Order {} failed to prove after {} retries: {proving_err:?}",
+                    order_id,
+                    proof_retry_count
+                );
 
                 if let Err(inner_err) = self.db.set_order_failure(&order_id, "Proving failed").await
                 {
