@@ -49,7 +49,12 @@ impl ReaperTask {
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
-        let expired_orders = self.db.get_expired_committed_orders().await?;
+        let grace_period = {
+            let config = self.config.lock_all()?;
+            config.prover.reaper_grace_period_secs
+        };
+
+        let expired_orders = self.db.get_expired_committed_orders(grace_period.into()).await?;
 
         if !expired_orders.is_empty() {
             info!("Found {} expired committed orders", expired_orders.len());
@@ -76,7 +81,7 @@ impl ReaperTask {
     async fn run_reaper_loop(&self) -> Result<(), ReaperError> {
         let interval = {
             let config = self.config.lock_all()?;
-            config.prover.reaper_interval
+            config.prover.reaper_interval_secs
         };
 
         loop {
@@ -84,7 +89,7 @@ impl ReaperTask {
                 warn!("Error checking expired orders: {}", err);
             }
 
-            tokio::time::sleep(Duration::from_secs(interval)).await;
+            tokio::time::sleep(Duration::from_secs(interval.into())).await;
         }
     }
 }

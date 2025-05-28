@@ -50,8 +50,12 @@ mod defaults {
         2
     }
 
-    pub const fn reaper_interval() -> u64 {
+    pub const fn reaper_interval_secs() -> u32 {
         60
+    }
+
+    pub const fn reaper_grace_period_secs() -> u32 {
+        30
     }
 }
 /// All configuration related to markets mechanics
@@ -234,8 +238,15 @@ pub struct ProverConf {
     ///
     /// This is the interval at which the ReaperTask will check for expired orders and mark them as failed.
     /// If not set, it defaults to 60 seconds.
-    #[serde(default = "defaults::reaper_interval")]
-    pub reaper_interval: u64,
+    #[serde(default = "defaults::reaper_interval_secs")]
+    pub reaper_interval_secs: u32,
+    /// Grace period before marking expired orders as failed (in seconds)
+    ///
+    /// This provides a buffer time after an order expires before the reaper marks it as failed.
+    /// This helps prevent race conditions with the aggregator that might be processing the order.
+    /// If not set, it defaults to 30 seconds.
+    #[serde(default = "defaults::reaper_grace_period_secs")]
+    pub reaper_grace_period_secs: u32,
 }
 
 impl Default for ProverConf {
@@ -251,7 +262,8 @@ impl Default for ProverConf {
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
             max_critical_task_retries: None,
-            reaper_interval: defaults::reaper_interval(),
+            reaper_interval_secs: defaults::reaper_interval_secs(),
+            reaper_grace_period_secs: defaults::reaper_grace_period_secs(),
         }
     }
 }

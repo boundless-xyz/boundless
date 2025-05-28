@@ -131,7 +131,10 @@ pub trait BrokerDb {
     /// Get all orders that are committed to be prove and be fulfilled.
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
     /// Get all orders that are committed to be proved but have expired based on their expire_timestamp.
-    async fn get_expired_committed_orders(&self) -> Result<Vec<Order>, DbError>;
+    async fn get_expired_committed_orders(
+        &self,
+        grace_period_secs: i64,
+    ) -> Result<Vec<Order>, DbError>;
     async fn get_proving_order(&self) -> Result<Option<Order>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<Order>, DbError>;
     async fn set_order_proof_id(&self, order_id: &str, proof_id: &str) -> Result<(), DbError>;
@@ -430,20 +433,22 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip(self))]
-    async fn get_expired_committed_orders(&self) -> Result<Vec<Order>, DbError> {
+    async fn get_expired_committed_orders(
+        &self,
+        grace_period_secs: i64,
+    ) -> Result<Vec<Order>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             SELECT * FROM orders
-                WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6)
-                AND data->>'expire_timestamp' IS NOT NULL AND data->>'expire_timestamp' < $7"#,
+                WHERE data->>'status' IN ($1, $2, $3, $4, $5)
+                AND data->>'expire_timestamp' IS NOT NULL AND data->>'expire_timestamp' < $6"#,
         )
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
         .bind(OrderStatus::SkipAggregation)
         .bind(OrderStatus::PendingSubmission)
-        .bind(Utc::now().timestamp())
+        .bind(Utc::now().timestamp().saturating_sub(grace_period_secs))
         .fetch_all(&self.pool)
         .await?;
 
@@ -1506,11 +1511,6 @@ mod tests {
                 ..create_order()
             },
             Order {
-                status: OrderStatus::Aggregating,
-                expire_timestamp: Some(past_time),
-                ..create_order()
-            },
-            Order {
                 status: OrderStatus::SkipAggregation,
                 expire_timestamp: Some(past_time),
                 ..create_order()
@@ -1521,6 +1521,11 @@ mod tests {
                 ..create_order()
             },
             // Non-expired orders (should NOT be returned)
+            Order {
+                status: OrderStatus::Aggregating,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
             Order {
                 status: OrderStatus::PendingProving,
                 expire_timestamp: Some(future_time),
@@ -1556,9 +1561,9 @@ mod tests {
             db.add_order(order).await.unwrap();
         }
 
-        let expired_orders = db.get_expired_committed_orders().await.unwrap();
+        let expired_orders = db.get_expired_committed_orders(0).await.unwrap();
 
-        assert_eq!(expired_orders.len(), 6);
+        assert_eq!(expired_orders.len(), 5);
 
         for order in &expired_orders {
             assert!(order.expire_timestamp.is_some());
@@ -1568,13 +1573,12 @@ mod tests {
                 OrderStatus::PendingProving
                     | OrderStatus::Proving
                     | OrderStatus::PendingAgg
-                    | OrderStatus::Aggregating
                     | OrderStatus::SkipAggregation
                     | OrderStatus::PendingSubmission
             ));
         }
 
-        let mut expected_ids: Vec<U256> = (0..6).map(|i| U256::from(i)).collect();
+        let mut expected_ids: Vec<U256> = (0..5).map(|i| U256::from(i)).collect();
         let mut returned_ids: Vec<U256> = expired_orders.iter().map(|o| o.request.id).collect();
         returned_ids.sort();
         expected_ids.sort();
