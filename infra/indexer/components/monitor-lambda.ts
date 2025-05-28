@@ -201,101 +201,103 @@ export class MonitorLambda extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    const clientAddresses = chainStageAlarmConfig.clients.map(c => c.address);
-    const proverAddresses = chainStageAlarmConfig.provers.map(p => p.address);
+    if (chainStageAlarmConfig) {
+      const clientAddresses = chainStageAlarmConfig.clients.map(c => c.address);
+      const proverAddresses = chainStageAlarmConfig.provers.map(p => p.address);
 
-    const payload = {
-      clients: clientAddresses,
-      provers: proverAddresses,
-    };
+      const payload = {
+        clients: clientAddresses,
+        provers: proverAddresses,
+      };
 
-    new aws.cloudwatch.EventTarget(
-      `${name}-target`,
-      { rule: rule.name, arn: this.lambdaFunction.arn, input: JSON.stringify(payload) },
-      { parent: this },
-    );
-    new aws.lambda.Permission(
-      `${name}-perm`,
-      {
-        action: 'lambda:InvokeFunction',
-        function: this.lambdaFunction.name,
-        principal: 'events.amazonaws.com',
-        sourceArn: rule.arn,
-      },
-      { parent: this },
-    );
+      new aws.cloudwatch.EventTarget(
+        `${name}-target`,
+        { rule: rule.name, arn: this.lambdaFunction.arn, input: JSON.stringify(payload) },
+        { parent: this },
+      );
+      new aws.lambda.Permission(
+        `${name}-perm`,
+        {
+          action: 'lambda:InvokeFunction',
+          function: this.lambdaFunction.name,
+          principal: 'events.amazonaws.com',
+          sourceArn: rule.arn,
+        },
+        { parent: this },
+      );
 
-    // Create top level alarms
-    // Total Number of Fulfilled Orders - SEV1: <5 within 10 minutes
-    const { createMetricAlarm, createSuccessRateAlarm } = buildCreateMetricFns(serviceName, marketMetricsNamespace, alarmActions);
-    const { fulfilledRequests, submittedRequests, expiredRequests, slashedRequests } = chainStageAlarmConfig.topLevel;
+      // Create top level alarms
+      // Total Number of Fulfilled Orders - SEV1: <5 within 10 minutes
+      const { createMetricAlarm, createSuccessRateAlarm } = buildCreateMetricFns(serviceName, marketMetricsNamespace, alarmActions);
+      const { fulfilledRequests, submittedRequests, expiredRequests, slashedRequests } = chainStageAlarmConfig.topLevel;
 
-    fulfilledRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
-      createMetricAlarm({
-        metricName: "fulfilled_requests_number",
-        severity,
-        description,
-        metricConfig,
-        alarmConfig,
+      fulfilledRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+        createMetricAlarm({
+          metricName: "fulfilled_requests_number",
+          severity,
+          description,
+          metricConfig,
+          alarmConfig,
+        });
       });
-    });
 
-    submittedRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
-      createMetricAlarm({
-        metricName: "requests_number",
-        severity,
-        description,
-        metricConfig,
-        alarmConfig,
+      submittedRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+        createMetricAlarm({
+          metricName: "requests_number",
+          severity,
+          description,
+          metricConfig,
+          alarmConfig,
+        });
       });
-    });
 
-    expiredRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
-      createMetricAlarm({
-        metricName: "expired_requests_number",
-        severity,
-        description,
-        metricConfig,
-        alarmConfig,
+      expiredRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+        createMetricAlarm({
+          metricName: "expired_requests_number",
+          severity,
+          description,
+          metricConfig,
+          alarmConfig,
+        });
       });
-    });
 
-    slashedRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
-      createMetricAlarm({
-        metricName: "slashed_requests_number",
-        severity,
-        description,
-        metricConfig,
-        alarmConfig,
+      slashedRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+        createMetricAlarm({
+          metricName: "slashed_requests_number",
+          severity,
+          description,
+          metricConfig,
+          alarmConfig,
+        });
       });
-    });
 
-    const { clients: clientAlarms } = chainStageAlarmConfig;
-    // Create alarms for each client
-    clientAlarms.forEach((client) => {
-      const { submissionRate, successRate, name, address } = client;
-      if (submissionRate != null) {
-        submissionRate.forEach((cfg) => {
-          const { severity, description, metricConfig, alarmConfig } = cfg;
-          createMetricAlarm({
-            metricName: "requests_number_from",
-            severity,
-            target: { name, address },
-            description,
-            metricConfig,
-            alarmConfig,
+      const { clients: clientAlarms } = chainStageAlarmConfig;
+      // Create alarms for each client
+      clientAlarms.forEach((client) => {
+        const { submissionRate, successRate, name, address } = client;
+        if (submissionRate != null) {
+          submissionRate.forEach((cfg) => {
+            const { severity, description, metricConfig, alarmConfig } = cfg;
+            createMetricAlarm({
+              metricName: "requests_number_from",
+              severity,
+              target: { name, address },
+              description,
+              metricConfig,
+              alarmConfig,
+            });
           });
-        });
-      };
+        };
 
-      if (successRate != null) {
-        successRate.forEach((cfg) => {
-          const { severity, description, metricConfig, alarmConfig } = cfg;
-          createSuccessRateAlarm({ name, address }, severity, description, metricConfig, alarmConfig);
-        });
-      };
+        if (successRate != null) {
+          successRate.forEach((cfg) => {
+            const { severity, description, metricConfig, alarmConfig } = cfg;
+            createSuccessRateAlarm({ name, address }, severity, description, metricConfig, alarmConfig);
+          });
+        };
 
-    });
+      });
+    }
 
     this.registerOutputs({ lambdaFunction: this.lambdaFunction });
   }
