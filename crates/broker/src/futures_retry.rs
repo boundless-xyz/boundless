@@ -211,7 +211,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 2);
         assert!(logs_contain(
-            "Operation [test operation] failed: \"Retryable\", starting retry 1/5"
+            "Operation [test operation] failed: Retryable, starting retry 1/5"
         ));
         assert!(logs_contain("Operation [test operation] failed with non-retryable error: NonRetryable, not retrying"));
     }
