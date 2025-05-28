@@ -241,16 +241,16 @@ pub struct ProverConf {
 impl Default for ProverConf {
     fn default() -> Self {
         Self {
-            status_poll_retry_count: 20,
-            status_poll_ms: 10_000,
+            status_poll_retry_count: 0,
+            status_poll_ms: 1000,
             bonsai_r0_zkvm_ver: None,
-            req_retry_count: 5,
-            req_retry_sleep_ms: 1_000,
-            proof_retry_count: 5,
-            proof_retry_sleep_ms: 1_000,
+            req_retry_count: 0,
+            req_retry_sleep_ms: 1000,
+            proof_retry_count: 0,
+            proof_retry_sleep_ms: 1000,
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
-            max_critical_task_retries: Some(10),
+            max_critical_task_retries: None,
             reaper_interval: defaults::reaper_interval(),
         }
     }
