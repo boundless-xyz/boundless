@@ -46,6 +46,7 @@ pub enum SubmitterErr {
 
     // TODO: As of PR #703, has no sources. We need to parse PaymentRequirementsFailed events to
     // reenable this error reporting.
+    #[allow(dead_code)]
     #[error("{code} Request expired before submission: {0}", code = self.code())]
     RequestExpiredBeforeSubmission(MarketError),
 
