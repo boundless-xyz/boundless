@@ -37,15 +37,17 @@ interface IBoundlessMarket {
 
     /// @notice Event logged when a request is fulfilled.
     /// @param requestId The ID of the request.
+    /// @param prover The address of the prover fulfilling the request.
     /// @param fulfillment The fulfillment details.
-    event RequestFulfilled(RequestId indexed requestId, Fulfillment fulfillment);
+    event RequestFulfilled(RequestId indexed requestId, address indexed prover, Fulfillment fulfillment);
 
     /// @notice Event logged when a proof is delivered that satisfies the request's requirements.
     /// @dev It is possible for this event to be logged multiple times for a single request. The
     /// first event logged will always coincide with the `RequestFulfilled` event and the fulfilled flag on the request being set.
     /// @param requestId The ID of the request.
+    /// @param prover The address of the prover delivering the proof.
     /// @param fulfillment The fulfillment details.
-    event ProofDelivered(RequestId indexed requestId, Fulfillment fulfillment);
+    event ProofDelivered(RequestId indexed requestId, address indexed prover, Fulfillment fulfillment);
 
     /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.

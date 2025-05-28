@@ -328,6 +328,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             pending_tx.tx_hash(),
             request.id
         );
+
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         // Look for the logs for submitting the transaction.
@@ -418,8 +419,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         }
 
         tracing::trace!("Sending tx {}", format!("{:?}", call));
-
         let pending_tx = call.send().await?;
+
         let tx_hash = *pending_tx.tx_hash();
         tracing::trace!("Broadcasting lock request tx {}", tx_hash);
 
@@ -998,22 +999,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             // Query the logs for the event
             let logs = event_filter.query().await?;
 
-            if let Some((_, data)) = logs.first() {
-                // get the calldata inputs
-                let tx_data = self
-                    .instance
-                    .provider()
-                    .get_transaction_by_hash(data.transaction_hash.context("tx hash is none")?)
-                    .await
-                    .context("Failed to get transaction")?
-                    .context("Transaction not found")?;
-                let inputs = tx_data.input();
-                let (fills, _) = decode_calldata(inputs).context("Failed to decode calldata")?;
-                for fill in fills {
-                    if fill.id == request_id {
-                        return Ok((fill.journal.clone(), fill.seal.clone()));
-                    }
-                }
+            if let Some((event, _)) = logs.first() {
+                return Ok((event.fulfillment.journal.clone(), event.fulfillment.seal.clone()));
             }
 
             // Move the upper_block down for the next iteration
@@ -1064,19 +1051,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             // Query the logs for the event
             let logs = event_filter.query().await?;
 
-            if let Some((_, data)) = logs.first() {
-                // get the calldata inputs
-                let tx_data = self
-                    .instance
-                    .provider()
-                    .get_transaction_by_hash(data.transaction_hash.context("tx hash is none")?)
-                    .await
-                    .context("Failed to get transaction")?
-                    .context("Transaction not found")?;
-                let inputs = tx_data.input();
-                let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs)
-                    .context("Failed to decode input")?;
-                return Ok((calldata.request, calldata.clientSignature));
+            if let Some((event, _)) = logs.first() {
+                return Ok((event.request.clone(), event.clientSignature.clone()));
             }
 
             // Move the upper_block down for the next iteration
@@ -1439,41 +1415,6 @@ impl Offer {
     }
 }
 
-/// Decodes the given calldata into a vector of Fulfillment objects.
-pub fn decode_calldata(data: &Bytes) -> Result<(Vec<Fulfillment>, AssessorReceipt)> {
-    if let Ok(call) = IBoundlessMarket::submitRootAndFulfillCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::submitRootAndFulfillAndWithdrawCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::submitRootAndPriceAndFulfillCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) =
-        IBoundlessMarket::submitRootAndPriceAndFulfillAndWithdrawCall::abi_decode(data)
-    {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::fulfillCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::fulfillAndWithdrawCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillAndWithdrawCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-
-    Err(anyhow!(
-        "Failed to decode calldata with selector {} as any fulfillment call",
-        hex::encode(&data[0..4])
-    ))
-}
-
 #[derive(Debug, Clone)]
 /// Represents the parameters for submitting a Merkle Root.
 pub struct Root {
@@ -1560,18 +1501,8 @@ impl FulfillmentTx {
 
 #[cfg(test)]
 mod tests {
-    use super::decode_calldata;
-    use crate::{
-        contracts::{
-            AssessorReceipt, Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType,
-            ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
-        },
-        util::now_timestamp,
-    };
-    use alloy::primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256};
-    use alloy_sol_types::SolCall;
-    use risc0_zkvm::sha::Digest;
-
+    use crate::contracts::Offer;
+    use alloy::primitives::{utils::parse_ether, U256};
     fn ether(value: &str) -> U256 {
         parse_ether(value).unwrap()
     }
@@ -1624,109 +1555,5 @@ mod tests {
 
         // Price cannot exceed maxPrice
         assert!(offer.time_at_price(ether("3")).is_err());
-    }
-
-    #[test]
-    fn test_decode_calldata() {
-        let requests = vec![ProofRequest::new(
-            RequestId::new(Address::ZERO, 0),
-            Requirements::new(
-                Digest::ZERO,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
-            "http:s//image.dev.null",
-            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
-            Offer {
-                minPrice: U256::from(1),
-                maxPrice: U256::from(4),
-                biddingStart: now_timestamp(),
-                timeout: 100,
-                rampUpPeriod: 1,
-                lockTimeout: 100,
-                lockStake: U256::from(10),
-            },
-        )];
-
-        let fills = vec![Fulfillment {
-            id: U256::default(),
-            requestDigest: B256::default(),
-            imageId: B256::default(),
-            journal: Bytes::from(vec![1, 2, 3]),
-            seal: Bytes::from(vec![1, 2, 3]),
-        }];
-        let assessor_receipt = AssessorReceipt {
-            seal: Bytes::from(vec![1, 2, 3]),
-            selectors: vec![],
-            prover: Address::from(U160::from(1)),
-            callbacks: vec![],
-        };
-
-        let call = IBoundlessMarket::submitRootAndFulfillCall {
-            setVerifier: Address::default(),
-            root: B256::default(),
-            seal: Bytes::default(),
-            fills: fills.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::submitRootAndFulfillAndWithdrawCall {
-            setVerifier: Address::default(),
-            root: B256::default(),
-            seal: Bytes::default(),
-            fills: fills.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::submitRootAndPriceAndFulfillCall {
-            setVerifier: Address::default(),
-            root: B256::default(),
-            seal: Bytes::default(),
-            requests: requests.clone(),
-            clientSignatures: vec![Bytes::default()],
-            fills: fills.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::submitRootAndPriceAndFulfillAndWithdrawCall {
-            setVerifier: Address::default(),
-            root: B256::default(),
-            seal: Bytes::default(),
-            requests: requests.clone(),
-            clientSignatures: vec![Bytes::default()],
-            fills: fills.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::fulfillCall {
-            fills: fills.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::fulfillAndWithdrawCall {
-            fills: fills.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::priceAndFulfillCall {
-            requests: requests.clone(),
-            clientSignatures: vec![Bytes::default()],
-            fills: fills.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::priceAndFulfillAndWithdrawCall {
-            requests,
-            clientSignatures: vec![Bytes::default()],
-            fills,
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
     }
 }

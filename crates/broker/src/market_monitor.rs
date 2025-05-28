@@ -5,13 +5,12 @@
 use std::sync::Arc;
 
 use alloy::{
-    consensus::Transaction,
     network::Ethereum,
     primitives::{Address, U256},
     providers::Provider,
-    rpc::types::{Filter, Log},
+    rpc::types::Filter,
     sol,
-    sol_types::{SolCall, SolEvent},
+    sol_types::SolEvent,
 };
 
 use anyhow::{Context, Result};
@@ -180,17 +179,9 @@ where
         for log in decoded_logs {
             let event = &log.inner.data;
             let request_id = U256::from(event.requestId);
-            let tx_hash = log.transaction_hash.context("Missing transaction hash")?;
-            let tx_data = provider
-                .get_transaction_by_hash(tx_hash)
-                .await
-                .context("Failed to get transaction by hash")?
-                .context("Missing transaction data")?;
-            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input())
-                .context("Failed to decode calldata")?;
 
             let req_status =
-                match market.get_status(request_id, Some(calldata.request.expires_at())).await {
+                match market.get_status(request_id, Some(event.request.expires_at())).await {
                     Ok(val) => val,
                     Err(err) => {
                         tracing::warn!("Failed to get request status: {err:?}");
@@ -201,7 +192,7 @@ where
             if !matches!(req_status, RequestStatus::Unknown) {
                 tracing::debug!(
                     "Skipping order {} reason: order status no longer bidding: {:?}",
-                    calldata.request.id,
+                    request_id,
                     req_status
                 );
                 continue;
@@ -214,14 +205,14 @@ where
 
             tracing::info!(
                 "Found open order: {:x} with request status: {:?}, preparing to process with fulfillment type: {:?}",
-                calldata.request.id,
+                request_id,
                 req_status,
                 fulfillment_type
             );
 
             let new_order = OrderRequest::new(
-                calldata.request.clone(),
-                calldata.clientSignature.clone(),
+                event.request.clone(),
+                event.clientSignature.clone(),
                 fulfillment_type,
                 market_addr,
                 chain_id,
@@ -262,10 +253,9 @@ where
             .into_stream()
             .for_each(|log_res| async {
                 match log_res {
-                    Ok((event, log)) => {
-                        if let Err(err) = Self::process_log(
+                    Ok((event, _)) => {
+                        if let Err(err) = Self::process_event(
                             event,
-                            log,
                             provider.clone(),
                             market_addr,
                             chain_id,
@@ -441,65 +431,50 @@ where
         )))
     }
 
-    async fn process_log(
+    async fn process_event(
         event: IBoundlessMarket::RequestSubmitted,
-        log: Log,
         provider: Arc<P>,
         market_addr: Address,
         chain_id: u64,
         new_order_tx: &tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<()> {
         tracing::info!("Detected new request {:x}", event.requestId);
-
-        let tx_hash = log.transaction_hash.context("Missing transaction hash")?;
-        let tx_data =
-            provider.get_transaction_by_hash(tx_hash).await?.context("Missing transaction data")?;
-
-        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input())
-            .context("Failed to decode calldata")?;
-
         // Check the request id flag to determine if the request is smart contract signed. If so we verify the
         // ERC1271 signature by calling isValidSignature on the smart contract client. Otherwise we verify the
         // the signature as an ECDSA signature.
-        let request_id = RequestId::from_lossy(calldata.request.id);
+        let request_id = RequestId::from_lossy(event.requestId);
         if request_id.smart_contract_signed {
             let erc1271 = IERC1271::new(request_id.addr, provider);
-            let request_hash = calldata.request.signing_hash(market_addr, chain_id)?;
+            let request_hash = event.request.signing_hash(market_addr, chain_id)?;
             tracing::debug!(
                 "Validating ERC1271 signature for request 0x{:x}, calling contract: {} with hash {:x}",
-                calldata.request.id,
+                event.requestId,
                 request_id.addr,
                 request_hash
             );
-            match erc1271
-                .isValidSignature(request_hash, calldata.clientSignature.clone())
-                .call()
-                .await
+            match erc1271.isValidSignature(request_hash, event.clientSignature.clone()).call().await
             {
                 Ok(magic_value) => {
                     if magic_value != ERC1271_MAGIC_VALUE {
-                        tracing::warn!("Invalid ERC1271 signature for request 0x{:x}, contract: {} returned magic value: 0x{:x}", calldata.request.id, request_id.addr, magic_value);
+                        tracing::warn!("Invalid ERC1271 signature for request 0x{:x}, contract: {} returned magic value: 0x{:x}", event.requestId, request_id.addr, magic_value);
                         return Ok(());
                     }
                 }
                 Err(err) => {
-                    tracing::warn!("Failed to call ERC1271 isValidSignature for request 0x{:x}, contract: {} - {err:?}", calldata.request.id, request_id.addr);
+                    tracing::warn!("Failed to call ERC1271 isValidSignature for request 0x{:x}, contract: {} - {err:?}", event.requestId, request_id.addr);
                     return Ok(());
                 }
             }
         } else if let Err(err) =
-            calldata.request.verify_signature(&calldata.clientSignature, market_addr, chain_id)
+            event.request.verify_signature(&event.clientSignature, market_addr, chain_id)
         {
-            tracing::warn!(
-                "Failed to validate order signature: 0x{:x} - {err:?}",
-                calldata.request.id
-            );
+            tracing::warn!("Failed to validate order signature: 0x{:x} - {err:?}", event.requestId);
             return Ok(()); // Return early without propagating the error if signature verification fails.
         }
 
         let new_order = OrderRequest::new(
-            calldata.request.clone(),
-            calldata.clientSignature.clone(),
+            event.request.clone(),
+            event.clientSignature.clone(),
             FulfillmentType::LockAndFulfill,
             market_addr,
             chain_id,
@@ -723,28 +698,16 @@ mod tests {
         // fetch logs to retrieve the customer signature from the event
         let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
-        let (_, log) = logs.first().unwrap();
-        let tx_hash = log.transaction_hash.unwrap();
-        let tx_data = ctx
-            .customer_market
-            .instance()
-            .provider()
-            .get_transaction_by_hash(tx_hash)
-            .await
-            .unwrap()
-            .unwrap();
-        let inputs = tx_data.input();
-        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
-
-        let request = calldata.request;
-        let customer_sig = calldata.clientSignature;
+        let (event, _) = logs.first().unwrap();
+        let request = &event.request;
+        let customer_sig = &event.clientSignature;
 
         // Deposit prover balances
         let deposit = default_allowance();
         ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
         // Lock the request
-        ctx.prover_market.lock_request(&request, &customer_sig, None).await.unwrap();
+        ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
         assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -753,7 +716,7 @@ mod tests {
 
         // mock the fulfillment
         let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
+            mock_singleton(request, eip712_domain, ctx.prover_signer.address());
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();

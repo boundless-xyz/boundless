@@ -5,23 +5,18 @@
 use std::{cmp::min, sync::Arc};
 
 use alloy::{
-    consensus::Transaction,
-    network::{Ethereum, EthereumWallet, TransactionResponse},
+    network::{Ethereum, EthereumWallet},
     primitives::{Address, U256},
     providers::{
         fillers::{ChainIdFiller, JoinFill},
         Identity, Provider, ProviderBuilder, RootProvider,
     },
     signers::local::PrivateKeySigner,
-    sol_types::SolCall,
     transports::{RpcError, TransportErrorKind},
 };
 use boundless_market::{
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer, BalanceAlertProvider},
-    contracts::{
-        boundless_market::{BoundlessMarketService, MarketError},
-        IBoundlessMarket::{self},
-    },
+    contracts::boundless_market::{BoundlessMarketService, MarketError},
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
@@ -246,44 +241,31 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            // TODO(willpote): Remove, or make more resilient.
-            // Note this logic is not full proof. It will not handle lockRequestWithSignature
-            // nor if the lockRequest calls were for example, made via a proxy contract.
-            // This is a temporary solution to avoid slashing requests from the team's broker.
-            let tx_hash = log_data.transaction_hash.unwrap();
-            let tx = self
-                .boundless_market
-                .instance()
-                .provider()
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .unwrap();
-
-            let sender = tx.from();
+        for (event, log_data) in logs {
+            let prover = event.prover;
 
             // Skip if sender is in the skip list
-            if self.config.skip_addresses.contains(&sender) {
+            if self.config.skip_addresses.contains(&prover) {
                 tracing::info!(
-                    "Skipping locked event from sender: {:?} for request: 0x{:x}",
-                    sender,
-                    log.requestId
+                    "Skipping locked event from prover: {:?} for request: 0x{:x}",
+                    prover,
+                    event.requestId
                 );
                 continue;
             }
 
             tracing::debug!(
-                "Processing locked event from sender: {:?} for request: 0x{:x} found at block {}",
-                sender,
-                log.requestId,
-                log_data.block_number.unwrap_or(0)
+                "Processing locked event from prover: {:?} for request: 0x{:x} found at block {:?}",
+                prover,
+                event.requestId,
+                log_data.block_number
             );
 
-            let request = IBoundlessMarket::lockRequestCall::abi_decode(tx.input())?.request;
+            let request = event.request.clone();
             let expires_at = request.expires_at();
             let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;
 
-            self.add_order(log.requestId, expires_at, lock_expires_at).await?;
+            self.add_order(event.requestId, expires_at, lock_expires_at).await?;
         }
 
         Ok(())

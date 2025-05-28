@@ -1105,18 +1105,18 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             clientSignatures[0] = client.sign(request);
 
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, fill);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
             boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
             if (!_stringEquals(snapshot, "")) {
                 vm.snapshotGasLastCall(snapshot);
             }
         } else {
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, fill);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
             boundlessMarket.fulfill(fills, assessorReceipt);
             if (!_stringEquals(snapshot, "")) {
                 vm.snapshotGasLastCall(snapshot);
@@ -1169,18 +1169,18 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             clientSignatures[0] = client.sign(request);
 
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, fill);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
             boundlessMarket.priceAndFulfillAndWithdraw(requests, clientSignatures, fills, assessorReceipt);
             if (!_stringEquals(snapshot, "")) {
                 vm.snapshotGasLastCall(snapshot);
             }
         } else {
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, fill);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
             boundlessMarket.fulfillAndWithdraw(fills, assessorReceipt);
             if (!_stringEquals(snapshot, "")) {
                 vm.snapshotGasLastCall(snapshot);
@@ -1237,9 +1237,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             clientSignatures[0] = client.sign(request);
 
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, fills[0]);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fills[0]);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, fills[0]);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fills[0]);
             boundlessMarket.submitRootAndPriceAndFulfill(
                 address(setVerifier), root, seal, requests, clientSignatures, fills, assessorReceipt
             );
@@ -1248,9 +1248,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             }
         } else {
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, fills[0]);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fills[0]);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, fills[0]);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fills[0]);
             boundlessMarket.submitRootAndPriceAndFulfill(
                 address(setVerifier), root, seal, new ProofRequest[](0), new bytes[](0), fills, assessorReceipt
             );
@@ -1311,9 +1311,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             clientSignatures[0] = client.sign(request);
 
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, fills[0]);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fills[0]);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, fills[0]);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fills[0]);
             boundlessMarket.submitRootAndPriceAndFulfillAndWithdraw(
                 address(setVerifier), root, seal, requests, clientSignatures, fills, assessorReceipt
             );
@@ -1322,9 +1322,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             }
         } else {
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, fills[0]);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fills[0]);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, fills[0]);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fills[0]);
             boundlessMarket.submitRootAndPriceAndFulfillAndWithdraw(
                 address(setVerifier), root, seal, new ProofRequest[](0), new bytes[](0), fills, assessorReceipt
             );
@@ -1412,9 +1412,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
         boundlessMarket.fulfill(fills, assessorReceipt);
         vm.snapshotGasLastCall("fulfill: a locked request with 10kB journal");
 
@@ -1629,9 +1629,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, otherProver.addr(), fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, otherProver.addr(), fill);
 
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
 
@@ -1739,9 +1739,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, lockerAddress, fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, lockerAddress, fill);
 
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
 
@@ -2087,9 +2087,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
 
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
 
@@ -2336,9 +2336,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         for (uint256 i = 0; i < fills.length; i++) {
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(fills[i].id, fills[i]);
+            emit IBoundlessMarket.RequestFulfilled(fills[i].id, testProverAddress, fills[i]);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(fills[i].id, fills[i]);
+            emit IBoundlessMarket.ProofDelivered(fills[i].id, testProverAddress, fills[i]);
         }
         boundlessMarket.fulfill(fills, assessorReceipt);
         vm.snapshotGasLastCall(string.concat("fulfill: a batch of ", vm.toString(batchSize)));
@@ -2492,9 +2492,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
         // Expect isValidSignature to be called on the smart contract wallet
         bytes32 requestHash =
             MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
@@ -2553,9 +2553,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         for (uint256 i = 0; i < fills.length; i++) {
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(fills[i].id, fills[i]);
+            emit IBoundlessMarket.RequestFulfilled(fills[i].id, testProverAddress, fills[i]);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(fills[i].id, fills[i]);
+            emit IBoundlessMarket.ProofDelivered(fills[i].id, testProverAddress, fills[i]);
         }
         boundlessMarket.fulfillAndWithdraw(fills, assessorReceipt);
         vm.snapshotGasLastCall(string.concat("fulfillAndWithdraw: a batch of ", vm.toString(batchSize)));
@@ -2584,9 +2584,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         clientSignatures[0] = client.sign(request);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         vm.snapshotGasLastCall("priceAndFulfill: a single request");
 
@@ -2615,9 +2615,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         clientSignatures[0] = client.sign(requests[0]);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(requests[0].id, fills[0]);
+        emit IBoundlessMarket.RequestFulfilled(requests[0].id, testProverAddress, fills[0]);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(requests[0].id, fills[0]);
+        emit IBoundlessMarket.ProofDelivered(requests[0].id, testProverAddress, fills[0]);
         boundlessMarket.submitRootAndPriceAndFulfill(
             address(setVerifier), root, seal, requests, clientSignatures, fills, assessorReceipt
         );
@@ -2673,9 +2673,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         clientSignatures[0] = client.sign(request);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         vm.snapshotGasLastCall("priceAndFulfill: a single request (with selector)");
 
@@ -3272,9 +3272,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, false);
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
         boundlessMarket.fulfill(fills, assessorReceipt);
@@ -3310,9 +3310,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.CallbackFailed(request.id, address(mockHighGasCallback), "");
         boundlessMarket.fulfill(fills, assessorReceipt);
@@ -3350,13 +3350,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, fill);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
         );
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, fill);
         vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
 
@@ -3396,13 +3396,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, fill);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.PaymentRequirementsFailed(
             abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
         );
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, fill);
         vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
         boundlessMarket.fulfill(fills, assessorReceipt);
@@ -3471,9 +3471,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(request.id, otherProver.addr(), fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, otherProver.addr(), fill);
         vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(request.requirements.imageId, APP_JOURNAL, fill.seal);
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
@@ -3541,9 +3541,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(requestB.id, fill);
+        emit IBoundlessMarket.RequestFulfilled(requestB.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(requestB.id, fill);
+        emit IBoundlessMarket.ProofDelivered(requestB.id, testProverAddress, fill);
         vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(requestB.requirements.imageId, APP_JOURNAL, fill.seal);
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);

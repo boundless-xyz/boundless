@@ -401,7 +401,7 @@ contract BoundlessMarket is
         if (paymentError.length > 0) {
             emit PaymentRequirementsFailed(paymentError);
         }
-        emit ProofDelivered(fill.id, fill);
+        emit ProofDelivered(fill.id, prover, fill);
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.
@@ -429,7 +429,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, fill);
+            emit RequestFulfilled(id, assessorProver, fill);
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
@@ -482,7 +482,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, fill);
+            emit RequestFulfilled(id, assessorProver, fill);
         }
 
         // Deduct any additionally owned funds from client account. The client was already charged
@@ -553,7 +553,7 @@ contract BoundlessMarket is
 
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id, fill);
+        emit RequestFulfilled(id, assessorProver, fill);
 
         // Deduct the funds from client account.
         if (clientAccount.balance < price) {
