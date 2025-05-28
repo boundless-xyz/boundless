@@ -422,6 +422,22 @@ impl RequestParams {
         Self { request_input: Some(value.into()), ..self }
     }
 
+    /// Sets the input as a URL from which provers can download the input data.
+    ///
+    /// This is a convenience method that creates a [RequestInput] with URL type.
+    ///
+    /// ```rust
+    /// # use boundless_market::request_builder::RequestParams;
+    /// # || -> anyhow::Result<()> {
+    /// RequestParams::new()
+    ///     .with_input_url("https://fileserver.example/input.bin")?;
+    /// # Ok(())
+    /// # }().unwrap();
+    /// ```
+    pub fn with_input_url<T: TryInto<Url>>(self, value: T) -> Result<Self, T::Error> {
+        Ok(Self { request_input: Some(RequestInput::url(value.try_into()?)), ..self })
+    }
+
     /// Gets the cycle count, returning an error if not set.
     ///
     /// The cycle count is used to estimate proving costs.
@@ -932,6 +948,34 @@ mod tests {
         // occur.
         let url = Url::parse("https://fileserver.example/guest.bin").unwrap();
         RequestParams::new().with_program_url(url).inspect_err(|e| match *e {}).unwrap();
+    }
+
+    #[test]
+    fn request_params_with_input_url_infallible() {
+        // When passing a parsed URL, with_input_url should be infallible.
+        // NOTE: The `match *e {}` incantation is a compile-time assert that this error cannot
+        // occur.
+        let url = Url::parse("https://fileserver.example/input.bin").unwrap();
+        RequestParams::new().with_input_url(url).inspect_err(|e| match *e {}).unwrap();
+    }
+
+    #[test]
+    fn test_with_input_url() {
+        // Test with string URL
+        let params =
+            RequestParams::new().with_input_url("https://fileserver.example/input.bin").unwrap();
+
+        let input = params.request_input.unwrap();
+        assert_eq!(input.inputType, RequestInputType::Url);
+        assert_eq!(input.data.as_ref(), "https://fileserver.example/input.bin".as_bytes());
+
+        // Test with parsed URL
+        let url = Url::parse("https://fileserver.example/input2.bin").unwrap();
+        let params = RequestParams::new().with_input_url(url).unwrap();
+
+        let input = params.request_input.unwrap();
+        assert_eq!(input.inputType, RequestInputType::Url);
+        assert_eq!(input.data.as_ref(), "https://fileserver.example/input2.bin".as_bytes());
     }
 
     #[allow(dead_code)]
