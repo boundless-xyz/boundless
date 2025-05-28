@@ -44,6 +44,9 @@ struct Args {
     /// Address of the Counter contract.
     #[clap(short, long, env)]
     counter_address: Address,
+    /// URL where provers can download the program to be proven.
+    #[clap(long, env)]
+    program_url: Option<Url>,
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
     storage_config: StorageProviderConfig,
@@ -81,10 +84,19 @@ async fn run(args: Args) -> Result<()> {
         .await
         .context("failed to build boundless client")?;
 
+    // Use the default ECHO program with timestamp input
     // We use a timestamp as input to the ECHO guest code as the Counter contract
     // accepts only unique proofs. Using the same input twice would result in the same proof.
     let echo_message = format!("{:?}", SystemTime::now());
-    let request = client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes());
+
+    // Build the request based on whether program URL is provided
+    let request = if let Some(program_url) = args.program_url {
+        // Use the provided URL
+        client.new_request().with_program_url(program_url)?.with_stdin(echo_message.as_bytes())
+    } else {
+        client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes())
+    };
+
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
@@ -194,6 +206,7 @@ mod tests {
             counter_address,
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
+            program_url: None,
             storage_config: StorageProviderConfig::builder()
                 .storage_provider(StorageProviderType::Mock)
                 .build()
