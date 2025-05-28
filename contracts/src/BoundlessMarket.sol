@@ -375,7 +375,7 @@ contract BoundlessMarket is
         // Note that this will be true if and only if the request with the given digest is both
         // valid (i.e. signed and internally consistent) and expired. If the request has not been
         // priced (e.g. it is currently locked, and so a call to priceRequest was not required; or
-        // the request is invalid) then this bit will not be set. If request is not not locked, and
+        // the request is invalid) then this bit will not be set. If request is not locked, and
         // the valid bit is not set, the fulfillAndPayX functions will revert.
         FulfillmentContext memory context = FulfillmentContextLibrary.load(fill.requestDigest);
         if (context.expired) {
