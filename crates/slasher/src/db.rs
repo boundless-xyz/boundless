@@ -273,9 +273,9 @@ mod tests {
         let id = U256::ZERO;
         let expires_at = 100;
         let lock_expires_at = 50;
-        
+
         db.add_order(id, expires_at, lock_expires_at).await.unwrap();
-        
+
         let result = db.get_order(id).await.unwrap();
         assert!(result.is_some());
         let (fetched_expires_at, fetched_lock_expires_at) = result.unwrap();
@@ -287,12 +287,12 @@ mod tests {
     async fn query_nonexistent_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let id = U256::from(999);
-        
+
         let result = db.get_order(id).await.unwrap();
         assert!(result.is_none());
 
         db.remove_order(id).await.unwrap();
-        
+
         db.remove_order(id).await.unwrap();
         assert!(!db.order_exists(id).await.unwrap());
     }
