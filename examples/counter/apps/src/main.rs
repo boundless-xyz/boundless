@@ -44,6 +44,12 @@ struct Args {
     /// Address of the Counter contract.
     #[clap(short, long, env)]
     counter_address: Address,
+    /// URL where provers can download the program to be proven.
+    #[clap(long, env)]
+    program_url: Option<Url>,
+    /// URL where provers can download the input data.
+    #[clap(long, env)]
+    input_url: Option<Url>,
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
     storage_config: StorageProviderConfig,
@@ -81,10 +87,21 @@ async fn run(args: Args) -> Result<()> {
         .await
         .context("failed to build boundless client")?;
 
-    // We use a timestamp as input to the ECHO guest code as the Counter contract
-    // accepts only unique proofs. Using the same input twice would result in the same proof.
-    let echo_message = format!("{:?}", SystemTime::now());
-    let request = client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes());
+    // Build the request based on whether URLs are provided
+    let request = match (args.program_url.clone(), args.input_url.clone()) {
+        (Some(program_url), Some(input_url)) => {
+            // Use the provided URLs
+            client.new_request().with_program_url(program_url)?.with_input_url(input_url)?
+        }
+        _ => {
+            // Use the default ECHO program with timestamp input
+            // We use a timestamp as input to the ECHO guest code as the Counter contract
+            // accepts only unique proofs. Using the same input twice would result in the same proof.
+            let echo_message = format!("{:?}", SystemTime::now());
+            client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes())
+        }
+    };
+
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
