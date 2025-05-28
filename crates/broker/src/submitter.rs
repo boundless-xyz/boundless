@@ -44,6 +44,8 @@ pub enum SubmitterErr {
     #[error("{code} Failed to confirm transaction: {0}", code = self.code())]
     TxnConfirmationError(MarketError),
 
+    // TODO: As of PR #703, has no sources. We need to parse PaymentRequirementsFailed events to
+    // reenable this error reporting.
     #[error("{code} Request expired before submission: {0}", code = self.code())]
     RequestExpiredBeforeSubmission(MarketError),
 
@@ -442,12 +444,6 @@ where
                     fulfillment.id
                 );
             }
-        }
-
-        // DO NOT MERGE: Is this still right, considering this is a returned error and not a
-        // revert.
-        if err.to_string().contains("RequestIsExpired") {
-            return Err(SubmitterErr::RequestExpiredBeforeSubmission(err));
         }
 
         if let MarketError::TxnConfirmationError(_) = &err {
