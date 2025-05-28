@@ -37,7 +37,7 @@ use crate::{
 
 #[derive(Error)]
 pub enum ProverError {
-    #[error("Bonsai proving error")]
+    #[error("Bonsai proving error {0:?}")]
     BonsaiErr(#[from] SdkErr),
 
     #[error("Config error")]
@@ -58,6 +58,9 @@ pub enum ProverError {
     #[error("proof status expired retry count")]
     StatusFailure,
 
+    #[error("Prover internal error: {0}")]
+    ProverInternalError(String),
+
     #[error(transparent)]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -74,6 +77,7 @@ impl CodedError for ProverError {
             ProverError::ProvingFailed(_) => "[B-BON-005]",
             ProverError::BincodeErr(_) => "[B-BON-006]",
             ProverError::StatusFailure => "[B-BON-007]",
+            ProverError::ProverInternalError(_) => "[B-BON-008]",
             ProverError::UnexpectedError(_) => "[B-BON-500]",
         }
     }

@@ -106,7 +106,6 @@ export const alarmConfig: ChainStageAlarms = {
           ],
           successRate: [
             {
-              // Since current submit every 5 mins, this is >= 2 failures an hour
               // Since we deploy with CI to staging, and this causes all the provers to restart,
               // we set a longer time period for the success rate.
               description: "less than 90% success rate for two consecutive hours from og_onchain",
@@ -233,29 +232,28 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes",
+              description: "less than 90% success rate for two 30 minute periods in 2 hours from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 3600
+                period: 1800
               },
               alarmConfig: {
                 threshold: 0.90,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 4,
+                datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
             },
             {
-              // Since current submit every 5 mins, this is >= 3 failures an hour
-              description: "less than 80% success rate in 60 minutes from og_offchain",
+              description: "less than 90% success rate for three 30 minute periods within 3 hours from og_offchain",
               severity: Severity.SEV1,
               metricConfig: {
-                period: 3600
+                period: 1800
               },
               alarmConfig: {
-                threshold: 0.80,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                threshold: 0.90,
+                evaluationPeriods: 5,
+                datapointsToAlarm: 3,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -295,31 +293,19 @@ export const alarmConfig: ChainStageAlarms = {
             }
           ],
           successRate: [
+            // Onchain orders are large orders that can take variable lengths of time to fulfill, 
+            // so we set a more lenient success rate threshold, since there may be periods where 
+            // fewer proofs get fulfilled due to variant proof lengths.
             {
-              // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes from og_onchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                comparisonOperator: "LessThanThreshold"
-              }
-            },
-            {
-              // Since current submit every 5 mins, this is >= 3 failures an hour
-              description: "less than 80% success rate in 60 minutes from og_onchain",
+              description: "less than 90% success rate for two consecutive hours from og_onchain",
               severity: Severity.SEV1,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
-                threshold: 0.80,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                threshold: 0.90,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -452,16 +438,17 @@ export const alarmConfig: ChainStageAlarms = {
           ],
           successRate: [
             {
-              // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes for og_offchain",
+              // Since we deploy with CI to staging, and this causes all the provers to restart,
+              // we set a longer time period for the success rate.
+              description: "less than 90% success rate for two consecutive hours from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
                 threshold: 0.90,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -489,15 +476,17 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes from og_onchain",
+              // Since we deploy with CI to staging, and this causes all the provers to restart,
+              // we set a longer time period for the success rate.
+              description: "less than 90% success rate for two consecutive hours from og_onchain",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
                 threshold: 0.90,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -609,31 +598,31 @@ export const alarmConfig: ChainStageAlarms = {
             }
           ],
           successRate: [
+            // Offchain orders are small orders submitted every 5 mins, 
+            // so we set a more aggressive success rate threshold.
             {
-              // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes",
+              description: "less than 90% success rate for two 30 minute periods in 2 hours from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 3600
+                period: 1800
               },
               alarmConfig: {
                 threshold: 0.90,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 4,
+                datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
             },
             {
-              // Since current submit every 5 mins, this is >= 3 failures an hour
-              description: "less than 80% success rate in 60 minutes from og_offchain",
+              description: "less than 90% success rate for three 30 minute periods within 3 hours from og_offchain",
               severity: Severity.SEV1,
               metricConfig: {
-                period: 3600
+                period: 1800
               },
               alarmConfig: {
-                threshold: 0.80,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                threshold: 0.90,
+                evaluationPeriods: 5,
+                datapointsToAlarm: 3,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -673,31 +662,19 @@ export const alarmConfig: ChainStageAlarms = {
             }
           ],
           successRate: [
+            // Onchain orders are large orders that can take variable lengths of time to fulfill, 
+            // so we set a more lenient success rate threshold, since there may be periods where 
+            // fewer proofs get fulfilled due to variant proof lengths.
             {
-              // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 90% success rate in 60 minutes from og_onchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                comparisonOperator: "LessThanThreshold"
-              }
-            },
-            {
-              // Since current submit every 5 mins, this is >= 3 failures an hour
-              description: "less than 80% success rate in 60 minutes from og_onchain",
+              description: "less than 90% success rate for two consecutive hours from og_onchain",
               severity: Severity.SEV1,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
-                threshold: 0.80,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                threshold: 0.90,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -720,13 +697,13 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 2 fulfilled orders in 30 minutes",
+          description: "less than 3 fulfilled orders in 30 minutes",
           severity: Severity.SEV2,
           metricConfig: {
             period: 1800
           },
           alarmConfig: {
-            threshold: 2,
+            threshold: 3,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "LessThanThreshold",
@@ -734,13 +711,13 @@ export const alarmConfig: ChainStageAlarms = {
           }
         },
         {
-          description: "less than 1 fulfilled orders in 30 minutes",
+          description: "less than 2 fulfilled orders in 30 minutes",
           severity: Severity.SEV1,
           metricConfig: {
             period: 1800
           },
           alarmConfig: {
-            threshold: 1,
+            threshold: 2,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "LessThanThreshold",

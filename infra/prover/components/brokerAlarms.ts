@@ -85,7 +85,8 @@ export const createProverAlarms = (
   }, { period: 3600 });
 
   // Matches on any ERROR log that does NOT contain an error code. Ensures we don't miss any errors.
-  createErrorCodeAlarm('ERROR -"[B-"', 'error-without-code', Severity.SEV2);
+  // Don't match on INTERNAL_ERROR which is sometimes returned by our dependencies e.g. Bonsai on retryable errors.
+  createErrorCodeAlarm('ERROR -"[B-" -"INTERNAL_ERROR"', 'error-without-code', Severity.SEV2);
 
   // Alarms for low balances
   createErrorCodeAlarm('WARN "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV2);
@@ -272,6 +273,14 @@ export const createProverAlarms = (
   createErrorCodeAlarm('"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV1, {
     threshold: 3,
   }, { period: 300 });
+
+  //
+  // Proving engine
+  //
+
+  // Track internal errors as a metric, but these errors are expected to happen occasionally.
+  // and are retried and covered by other alarms.
+  createLogMetricFilter('"[B-BON-008]"', 'proving-engine-internal-error');
 
   //
   // Submitter

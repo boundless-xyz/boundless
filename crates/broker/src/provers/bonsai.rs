@@ -12,7 +12,7 @@ use bonsai_sdk::{
 use risc0_zkvm::Receipt;
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
-use crate::config::ProverConf;
+use crate::{config::ProverConf, futures_retry::retry_only};
 use crate::{
     config::{ConfigErr, ConfigLock},
     futures_retry::retry,
@@ -105,7 +105,6 @@ impl Bonsai {
         }
     }
 
-    // New retry helper method
     async fn retry<T, F, Fut>(&self, f: F, msg: &str) -> Result<T, ProverError>
     where
         F: Fn() -> Fut,
@@ -116,6 +115,26 @@ impl Bonsai {
             self.req_retry_sleep_ms,
             || async { f().await },
             msg,
+        )
+        .await
+    }
+
+    async fn retry_only<T, F, Fut>(
+        &self,
+        f: F,
+        msg: &str,
+        should_retry: impl Fn(&ProverError) -> bool,
+    ) -> Result<T, ProverError>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<T, ProverError>>,
+    {
+        retry_only(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { f().await },
+            msg,
+            should_retry,
         )
         .await
     }
@@ -179,6 +198,9 @@ impl StatusPoller {
                 }
                 _ => {
                     let err_msg = status.error_msg.unwrap_or_default();
+                    if err_msg.contains("INTERNAL_ERROR") {
+                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+                    }
                     return Err(ProverError::ProvingFailed(format!(
                         "{proof_id:?} failed: {err_msg}"
                     )));
@@ -216,6 +238,9 @@ impl StatusPoller {
                 "SUCCEEDED" => return Ok(proof_id.uuid.clone()),
                 _ => {
                     let err_msg = status.error_msg.unwrap_or_default();
+                    if err_msg.contains("INTERNAL_ERROR") {
+                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+                    }
                     return Err(ProverError::ProvingFailed(format!(
                         "snark proving failed: {err_msg}"
                     )));
@@ -254,29 +279,36 @@ impl Prover for Bonsai {
         assumptions: Vec<String>,
         executor_limit: Option<u64>,
     ) -> Result<ProofResult, ProverError> {
-        let preflight_id: SessionId = self
-            .retry(
-                || async {
-                    Ok(self
-                        .client
-                        .create_session_with_limit(
-                            image_id.into(),
-                            input_id.into(),
-                            assumptions.clone(),
-                            true,
-                            executor_limit,
-                        )
-                        .await?)
-                },
-                "create session for preflight",
-            )
-            .await?;
+        self.retry_only(
+            || async {
+                let preflight_id: SessionId = self
+                    .retry(
+                        || async {
+                            Ok(self
+                                .client
+                                .create_session_with_limit(
+                                    image_id.into(),
+                                    input_id.into(),
+                                    assumptions.clone(),
+                                    true,
+                                    executor_limit,
+                                )
+                                .await?)
+                        },
+                        "create session for preflight",
+                    )
+                    .await?;
 
-        let poller = StatusPoller {
-            poll_sleep_ms: self.status_poll_ms,
-            retry_counts: self.status_poll_retry_count,
-        };
-        poller.poll_with_retries_session_id(&preflight_id, &self.client).await
+                let poller = StatusPoller {
+                    poll_sleep_ms: self.status_poll_ms,
+                    retry_counts: self.status_poll_retry_count,
+                };
+                poller.poll_with_retries_session_id(&preflight_id, &self.client).await
+            },
+            "preflight",
+            |err| matches!(err, ProverError::ProverInternalError(_)),
+        )
+        .await
     }
 
     async fn prove_stark(

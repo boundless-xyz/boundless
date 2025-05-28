@@ -114,6 +114,7 @@ export = () => {
   const offchainWarnBalanceBelow = offchainConfig.get('WARN_BALANCE_BELOW');
   const offchainErrorBalanceBelow = offchainConfig.get('ERROR_BALANCE_BELOW');
   const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
+  const offchainInputMaxMCycles = offchainConfig.get('INPUT_MAX_MCYCLES');
   new OrderGenerator('offchain', {
     chainId,
     stackName,
@@ -141,12 +142,14 @@ export = () => {
     privateSubnetIds,
     boundlessAlertsTopicArns: alertsTopicArns,
     txTimeout,
+    inputMaxMCycles: offchainInputMaxMCycles,
   });
 
   const onchainConfig = new pulumi.Config("order-generator-onchain");
   const onchainWarnBalanceBelow = onchainConfig.get('WARN_BALANCE_BELOW');
   const onchainErrorBalanceBelow = onchainConfig.get('ERROR_BALANCE_BELOW');
   const onchainPrivateKey = isDev ? pulumi.output(getEnvVar("ONCHAIN_PRIVATE_KEY")) : onchainConfig.requireSecret('PRIVATE_KEY');
+  const onchainInputMaxMCycles = onchainConfig.get('INPUT_MAX_MCYCLES');
   new OrderGenerator('onchain', {
     chainId,
     stackName,
@@ -163,6 +166,7 @@ export = () => {
     interval,
     lockStakeRaw,
     rampUp,
+    inputMaxMCycles: onchainInputMaxMCycles,
     minPricePerMCycle,
     maxPricePerMCycle,
     secondsPerMCycle,
