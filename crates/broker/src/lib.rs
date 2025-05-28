@@ -7,14 +7,14 @@ use std::{path::PathBuf, sync::Arc, time::SystemTime};
 use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
-    primitives::{Address, Bytes, U256},
+    primitives::{Address, Bytes, FixedBytes, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
-    order_stream_client::Client as OrderStreamClient,
+    order_stream_client::OrderStreamClient,
     selector::is_groth16_selector,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -28,12 +28,16 @@ use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};
 use task::{RetryPolicy, Supervisor};
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use url::Url;
 
+const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
+const PRICING_CHANNEL_CAPACITY: usize = 1000;
+
 pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
-pub(crate) mod config;
+pub mod config;
 pub(crate) mod db;
 pub(crate) mod errors;
 pub mod futures_retry;
@@ -47,6 +51,7 @@ pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
+pub(crate) mod utils;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -74,25 +79,25 @@ pub struct Args {
     /// Risc zero Set verifier address
     // TODO: Get this from the market contract via view call
     #[clap(long, env)]
-    set_verifier_address: Address,
+    pub set_verifier_address: Address,
 
     /// local prover API (Bento)
     ///
     /// Setting this value toggles using Bento for proving and disables Bonsai
     #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"])]
-    bento_api_url: Option<Url>,
+    pub bento_api_url: Option<Url>,
 
     /// Bonsai API URL
     ///
     /// Toggling this disables Bento proving and uses Bonsai as a backend
     #[clap(long, env, conflicts_with = "bento_api_url")]
-    bonsai_api_url: Option<Url>,
+    pub bonsai_api_url: Option<Url>,
 
     /// Bonsai API Key
     ///
     /// Required if using BONSAI_API_URL
     #[clap(long, env, conflicts_with = "bento_api_url")]
-    bonsai_api_key: Option<String>,
+    pub bonsai_api_key: Option<String>,
 
     /// Config file path
     #[clap(short, long, default_value = "broker.toml")]
@@ -100,7 +105,7 @@ pub struct Args {
 
     /// Pre deposit amount
     ///
-    /// Amount of HP tokens to pre-deposit into the contract for staking eg: 100
+    /// Amount of stake tokens to pre-deposit into the contract for staking eg: 100
     #[clap(short, long)]
     pub deposit_amount: Option<U256>,
 
@@ -121,19 +126,17 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
+
+    /// Log JSON
+    #[clap(long, env, default_value_t = false)]
+    pub log_json: bool,
 }
 
-/// Status of a order as it moves through the lifecycle
+/// Status of a persistent order as it moves through the lifecycle in the database.
+/// Orders in initial, intermediate, or terminal non-failure states (e.g. New, Pricing, Done, Skipped)
+/// are managed in-memory or removed from the database.
 #[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
 enum OrderStatus {
-    /// New order found on chain, waiting pricing analysis
-    New,
-    /// Order is in the process of being priced
-    Pricing,
-    /// Order is ready to lock at target_timestamp and then be fulfilled
-    WaitingToLock,
-    /// Order is ready to be fulfilled when its lock expires at target_timestamp
-    WaitingForLockToExpire,
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
     /// Order is actively ready for proving
@@ -160,6 +163,97 @@ enum FulfillmentType {
     FulfillAfterLockExpire,
     // Currently not supported
     FulfillWithoutLocking,
+}
+
+/// Helper function to format an order ID consistently
+fn format_order_id(
+    request_id: &U256,
+    signing_hash: &FixedBytes<32>,
+    fulfillment_type: &FulfillmentType,
+) -> String {
+    format!("0x{:x}-{}-{:?}", request_id, signing_hash, fulfillment_type)
+}
+
+/// Order request from the network.
+///
+/// This will turn into an [`Order`] once it is locked or skipped.
+#[derive(Serialize, Deserialize, Debug)]
+struct OrderRequest {
+    request: ProofRequest,
+    client_sig: Bytes,
+    fulfillment_type: FulfillmentType,
+    boundless_market_address: Address,
+    chain_id: u64,
+    image_id: Option<String>,
+    input_id: Option<String>,
+    total_cycles: Option<u64>,
+    target_timestamp: Option<u64>,
+    expire_timestamp: Option<u64>,
+}
+
+impl OrderRequest {
+    pub fn new(
+        request: ProofRequest,
+        client_sig: Bytes,
+        fulfillment_type: FulfillmentType,
+        boundless_market_address: Address,
+        chain_id: u64,
+    ) -> Self {
+        Self {
+            request,
+            client_sig,
+            fulfillment_type,
+            boundless_market_address,
+            chain_id,
+            image_id: None,
+            input_id: None,
+            total_cycles: None,
+            target_timestamp: None,
+            expire_timestamp: None,
+        }
+    }
+
+    // An Order is identified by the request_id, the fulfillment type, and the hash of the proof request.
+    // This structure supports multiple different ProofRequests with the same request_id, and different
+    // fulfillment types.
+    pub fn id(&self) -> String {
+        let signing_hash =
+            self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap();
+        format_order_id(&self.request.id, &signing_hash, &self.fulfillment_type)
+    }
+
+    fn to_order(&self, status: OrderStatus) -> Order {
+        Order {
+            boundless_market_address: self.boundless_market_address,
+            chain_id: self.chain_id,
+            fulfillment_type: self.fulfillment_type,
+            request: self.request.clone(),
+            status,
+            client_sig: self.client_sig.clone(),
+            updated_at: Utc::now(),
+            image_id: self.image_id.clone(),
+            input_id: self.input_id.clone(),
+            total_cycles: self.total_cycles,
+            target_timestamp: self.target_timestamp,
+            expire_timestamp: self.expire_timestamp,
+            proving_started_at: None,
+            proof_id: None,
+            compressed_proof_id: None,
+            lock_price: None,
+            error_msg: None,
+        }
+    }
+
+    fn to_skipped_order(&self) -> Order {
+        self.to_order(OrderStatus::Skipped)
+    }
+
+    fn to_proving_order(&self, lock_price: U256) -> Order {
+        let mut order = self.to_order(OrderStatus::PendingProving);
+        order.lock_price = Some(lock_price);
+        order.proving_started_at = Some(Utc::now().timestamp().try_into().unwrap());
+        order
+    }
 }
 
 /// An Order represents a proof request and a specific method of fulfillment.
@@ -226,44 +320,13 @@ struct Order {
 }
 
 impl Order {
-    pub fn new(
-        request: ProofRequest,
-        client_sig: Bytes,
-        fulfillment_type: FulfillmentType,
-        boundless_market_address: Address,
-        chain_id: u64,
-    ) -> Self {
-        Self {
-            boundless_market_address,
-            chain_id,
-            request,
-            status: OrderStatus::New,
-            updated_at: Utc::now(),
-            target_timestamp: None,
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
-            expire_timestamp: None,
-            client_sig,
-            lock_price: None,
-            fulfillment_type,
-            error_msg: None,
-            total_cycles: None,
-            proving_started_at: None,
-        }
-    }
-
     // An Order is identified by the request_id, the fulfillment type, and the hash of the proof request.
     // This structure supports multiple different ProofRequests with the same request_id, and different
     // fulfillment types.
     pub fn id(&self) -> String {
-        format!(
-            "0x{:x}-{}-{:?}",
-            self.request.id,
-            self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap(),
-            self.fulfillment_type
-        )
+        let signing_hash =
+            self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap();
+        format_order_id(&self.request.id, &signing_hash, &self.fulfillment_type)
     }
 
     pub fn is_groth16(&self) -> bool {
@@ -401,10 +464,10 @@ where
         }
 
         let program_bytes = if let Some(path) = program_path {
-            let file_elf_buf =
+            let file_program_buf =
                 tokio::fs::read(&path).await.context("Failed to read program file")?;
-            let file_img_id =
-                risc0_zkvm::compute_image_id(&file_elf_buf).context("Failed to compute imageId")?;
+            let file_img_id = risc0_zkvm::compute_image_id(&file_program_buf)
+                .context("Failed to compute imageId")?;
 
             if image_id != file_img_id {
                 anyhow::bail!(
@@ -415,7 +478,7 @@ where
                 );
             }
 
-            file_elf_buf
+            file_program_buf
         } else {
             let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
                 .await
@@ -467,6 +530,9 @@ where
                 OrderStreamClient::new(url, self.args.boundless_market_address, chain_id)
             });
 
+        // Create a channel for new orders to be sent to the OrderPicker / from monitors
+        let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
@@ -476,6 +542,7 @@ where
             chain_monitor.clone(),
             self.args.private_key.address(),
             client.clone(),
+            new_order_tx.clone(),
         ));
 
         let block_times =
@@ -493,12 +560,12 @@ where
         });
 
         // spin up a supervisor for the offchain market monitor
-        if let Some(client) = client {
+        if let Some(client_clone) = client {
             let offchain_market_monitor =
                 Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
-                    self.db.clone(),
-                    client.clone(),
+                    client_clone,
                     self.args.private_key.clone(),
+                    new_order_tx.clone(),
                 ));
             let cloned_config = config.clone();
             supervisor_tasks.spawn(async move {
@@ -534,6 +601,8 @@ where
             Arc::new(provers::DefaultProver::new())
         };
 
+        let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
+
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
@@ -542,6 +611,8 @@ where
             self.args.boundless_market_address,
             self.provider.clone(),
             chain_monitor.clone(),
+            new_order_rx,
+            pricing_tx,
         ));
         let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
@@ -549,24 +620,6 @@ where
                 .spawn()
                 .await
                 .context("Failed to start order picker")?;
-            Ok(())
-        });
-
-        let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
-            self.db.clone(),
-            self.provider.clone(),
-            chain_monitor.clone(),
-            config.clone(),
-            block_times,
-            self.args.private_key.address(),
-            self.args.boundless_market_address,
-        )?);
-        let cloned_config = config.clone();
-        supervisor_tasks.spawn(async move {
-            Supervisor::new(order_monitor, cloned_config)
-                .spawn()
-                .await
-                .context("Failed to start order monitor")?;
             Ok(())
         });
 
@@ -585,10 +638,29 @@ where
             Ok(())
         });
 
+        let prover_addr = self.args.private_key.address();
+        let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
+            self.db.clone(),
+            self.provider.clone(),
+            chain_monitor.clone(),
+            config.clone(),
+            block_times,
+            prover_addr,
+            self.args.boundless_market_address,
+            pricing_rx,
+        )?);
+        let cloned_config = config.clone();
+        supervisor_tasks.spawn(async move {
+            Supervisor::new(order_monitor, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start order monitor")?;
+            Ok(())
+        });
+
         let set_builder_img_id = self.fetch_and_upload_set_builder_image(&prover).await?;
         let assessor_img_id = self.fetch_and_upload_assessor_image(&prover).await?;
 
-        let prover_addr = self.args.private_key.address();
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
                 self.db.clone(),
@@ -706,8 +778,8 @@ pub mod test_utils {
             let args = Args {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
-                boundless_market_address: ctx.boundless_market_address,
-                set_verifier_address: ctx.set_verifier_address,
+                boundless_market_address: ctx.deployment.boundless_market_address,
+                set_verifier_address: ctx.deployment.set_verifier_address,
                 rpc_url,
                 order_stream_url: None,
                 private_key: ctx.prover_signer.clone(),
@@ -718,6 +790,7 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
+                log_json: false,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }

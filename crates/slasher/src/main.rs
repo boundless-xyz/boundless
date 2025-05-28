@@ -47,6 +47,9 @@ struct MainArgs {
     /// Comma-separated list of addresses to skip when processing locked events.
     #[clap(long, value_delimiter = ',', value_parser = parse_address)]
     skip_addresses: Vec<Address>,
+    /// Transaction timeout in seconds.
+    #[clap(long, default_value = "120")]
+    tx_timeout: u64,
 }
 
 fn parse_address(s: &str) -> Result<Address, String> {
@@ -71,12 +74,6 @@ async fn main() -> Result<()> {
         .json()
         .init();
 
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
-    }
-
     let args = MainArgs::parse();
 
     let slash_service = SlashService::new(
@@ -90,6 +87,7 @@ async fn main() -> Result<()> {
             balance_warn_threshold: args.warn_balance_below,
             balance_error_threshold: args.error_balance_below,
             skip_addresses: args.skip_addresses,
+            tx_timeout: Duration::from_secs(args.tx_timeout),
         },
     )
     .await?;

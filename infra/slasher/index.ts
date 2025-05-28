@@ -2,7 +2,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-import { ChainId, getServiceNameV1, getEnvVar } from '../util';
+import { ChainId, getServiceNameV1, getEnvVar, Severity } from '../util';
 import * as crypto from 'crypto';
 require('dotenv').config();
 
@@ -10,7 +10,8 @@ export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
-  const serviceName = getServiceNameV1(stackName, "order-slasher", ChainId.SEPOLIA);
+  const chainId = config.require('CHAIN_ID');
+  const serviceName = getServiceNameV1(stackName, "order-slasher", chainId);
 
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
@@ -30,8 +31,13 @@ export = () => {
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
+  const txTimeout = config.require('TX_TIMEOUT');
+  const warnBalanceBelow = config.get('WARN_BALANCE_BELOW');
+  const errorBalanceBelow = config.get('ERROR_BALANCE_BELOW');
 
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
+  const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+  const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
 
   const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
   new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
@@ -47,7 +53,7 @@ export = () => {
 
   const secretHash = pulumi
     .all([ethRpcUrl, privateKey])
-    .apply(([_ethRpcUrl, _privateKey]) => {
+    .apply(([_ethRpcUrl, _privateKey]: [string, string]) => {
       const hash = crypto.createHash("sha1");
       hash.update(_ethRpcUrl);
       hash.update(_privateKey);
@@ -138,6 +144,15 @@ export = () => {
     ],
   });
 
+  new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
+    type: 'ingress',
+    fromPort: 2049,
+    toPort: 2049,
+    protocol: 'tcp',
+    securityGroupId: securityGroup.id,
+    sourceSecurityGroupId: securityGroup.id,
+  });
+
   // Create an execution role that has permissions to access the necessary secrets
   const execRole = new aws.iam.Role(`${serviceName}-exec`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
@@ -160,7 +175,42 @@ export = () => {
     },
   });
 
+  // EFS
+  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev4`, {
+    encrypted: true,
+    tags: {
+      Name: serviceName,
+    },
+  });
+
+  const mountTargets = privateSubnetIds.apply((subnets) =>
+    subnets.map((subnetId: string, index: number) => {
+      return new aws.efs.MountTarget(`${serviceName}-mount-${index}`, {
+        fileSystemId: fileSystem.id,
+        subnetId: subnetId,
+        securityGroups: [securityGroup.id],
+      }, { dependsOn: [fileSystem] });
+    })
+  );
+
   const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
+
+  let slasherArgs = [
+    `--db sqlite:///app/data/slasher.db`,
+    `--tx-timeout ${txTimeout}`,
+    `--interval ${interval}`,
+    `--retries ${retries}`,
+  ]
+  if (skipAddresses) {
+    slasherArgs.push(`--skip-addresses ${skipAddresses}`);
+  }
+  if (warnBalanceBelow) {
+    slasherArgs.push(`--warn-balance-below ${warnBalanceBelow}`);
+  }
+  if (errorBalanceBelow) {
+    slasherArgs.push(`--error-balance-below ${errorBalanceBelow}`);
+  }
+
   const service = new awsx.ecs.FargateService(
     `${serviceName}-service`,
     {
@@ -177,15 +227,31 @@ export = () => {
         executionRole: {
           roleArn: execRole.arn,
         },
+        volumes: [
+          {
+            name: 'slasher-storage',
+            efsVolumeConfiguration: {
+              fileSystemId: fileSystem.id,
+              rootDirectory: '/',
+            },
+          },
+        ],
         container: {
           name: serviceName,
           image: image.ref,
           cpu: 128,
           memory: 512,
           essential: true,
+          mountPoints: [
+            {
+              sourceVolume: 'slasher-storage',
+              containerPath: '/app/data',
+              readOnly: false,
+            },
+          ],
           entryPoint: ['/bin/sh', '-c'],
           command: [
-            `/app/boundless-slasher --interval ${interval} --retries ${retries} ${skipAddresses ? `--skip-addresses ${skipAddresses}` : ''}`,
+            `/app/boundless-slasher ${slasherArgs.join(' ')}`,
           ],
           environment: [
             {
@@ -214,7 +280,7 @@ export = () => {
         },
       },
     },
-    { dependsOn: [execRole, execRolePolicy] }
+    { dependsOn: [execRole, execRolePolicy, mountTargets, fileSystem] }
   );
 
   new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
@@ -229,10 +295,10 @@ export = () => {
     pattern: 'ERROR',
   }, { dependsOn: [service] });
 
-  const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+  const alarmActions = alertsTopicArns;
 
-  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
-    name: `${serviceName}-log-err`,
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV2}`, {
+    name: `${serviceName}-log-err-${Severity.SEV2}`,
     metricQueries: [
       {
         id: 'm1',
@@ -251,7 +317,7 @@ export = () => {
     evaluationPeriods: 60,
     datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
-    alarmDescription: 'Order slasher log ERROR level',
+    alarmDescription: 'Order slasher log ERROR level 2 times in one hour',
     actionsEnabled: true,
     alarmActions,
   });
@@ -268,8 +334,8 @@ export = () => {
     pattern: 'FATAL',
   }, { dependsOn: [service] });
 
-  new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
-    name: `${serviceName}-log-fatal`,
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV2}`, {
+    name: `${serviceName}-log-fatal-${Severity.SEV2}`,
     metricQueries: [
       {
         id: 'm1',
@@ -284,10 +350,10 @@ export = () => {
     ],
     threshold: 1,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
-    evaluationPeriods: 1,
-    datapointsToAlarm: 1,
+    evaluationPeriods: 60,
+    datapointsToAlarm: 2,
     treatMissingData: 'notBreaching',
-    alarmDescription: `Order slasher FATAL (task exited)`,
+    alarmDescription: `Order slasher FATAL (task exited) twice in 1 hour`,
     actionsEnabled: true,
     alarmActions,
   });

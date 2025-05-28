@@ -1,0 +1,23 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAF0PMMy5T6GaCpvJDLQmxbHAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMjbqowdsv1kyyaugEAgEQgDuTjzWJJznPgt5HKWHZez2N4sLZidJzVA9Itn2OReC+u5KjyYFtI9tDMjUCzQ99uejQs5zkoe7qhYUWYw==
+config:
+  slasher:CHAIN_ID: "8453"
+  slasher:ETH_RPC_URL:
+    secure: v1:VkthlLkDI9cNXTd/:KgwCuKK4mgnExikwXZoWZXNR8i78r2fqX+kXHt9pjdUjGmH3/yrdAFP6YR7QtU1eh49N6Ji8Uk5L2dOmYazK5cgt5Ugfn3wqEUqrX5ulFD3hFd9OjHc=
+  slasher:GH_TOKEN_SECRET:
+    secure: v1:LWw6xJq7+fGdFQaZ:pv9S88lVxuzI4kJu6D4p0qBkPI/qidMIt6kK7IDUrYBUKTCdqKbv7HEkSPE8ycIq/eEe2jm1m4Wcsj+n8s8bQFQ5V76RyYcUMeSgeB/MmFrrBO3KcDDHQ/cjWCvmNkqHJQv2vvgJ2oV0E7P9xA==
+  slasher:BASE_STACK: "organization/bootstrap/services-prod"
+  slasher:BOUNDLESS_MARKET_ADDR: "0x581C7e8018f0888364c698f97F64eB069723131F"
+  slasher:DOCKER_DIR: "../../"
+  slasher:DOCKER_TAG: "latest"
+  slasher:INTERVAL: "60"
+  slasher:LOG_LEVEL: "debug,boundless_slasher=trace,alloy_transport_http=info,hyper_util=info"
+  #slasher:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic"
+  slasher:PRIVATE_KEY:
+    secure: v1:y8eStQ5qMAiWESW+:7h7dy4iFabk0eVUOqsF12zDeEOkxbEm/jM0VF3PZVo8hW2WvaoZSByXi5GfaOtNJ/LnQCFzkC8tKw0uqVseD+UCeEsbv+H7avy80mFE7JIY=
+  slasher:RETRIES: "5"
+  slasher:SKIP_ADDRESSES: ""
+  #slasher:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic"
+  slasher:TX_TIMEOUT: "60"
+  slasher:WARN_BALANCE_BELOW: "0.01"
+  slasher:ERROR_BALANCE_BELOW: "0.005"

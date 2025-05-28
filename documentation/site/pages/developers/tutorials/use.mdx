@@ -38,11 +38,11 @@ Concretely, receiving the proof ([see code](https://github.com/boundless-xyz/bou
 # use std::time::Duration;
 # use alloy_primitives::U256;
 # use anyhow::Result;
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::client::Client;
 # async fn wait_for_request_fulfillment(
 # request_id: U256,
 # expires_at: u64) -> Result<()> {
-# let boundless_client = ClientBuilder::new().build().await?;
+# let boundless_client = Client::builder().build().await?;
 let (journal, seal) = boundless_client
     .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
     .await?;
@@ -51,14 +51,14 @@ let (journal, seal) = boundless_client
 ```
 </StripRustCodeComments>
 
-Using Alloys [sol! Macro](https://alloy.rs/examples/sol-macro/index.html), the rust types/bindings are generated for the [`EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol) contract.
+Using Alloys [sol! Macro](https://alloy.rs/contract-interactions/using-sol%21/), the rust types/bindings are generated for the [`EvenNumber.sol`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/contracts/src/EvenNumber.sol) contract.
 To create an `EvenNumber` contract instance:
 
 <StripRustCodeComments>
 ```rust
 # use alloy_primitives::Address;
 # use anyhow::Result;
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::client::Client;
 # struct Args {
 #    even_number_address: Address,
 #    number: u64,
@@ -70,7 +70,7 @@ To create an `EvenNumber` contract instance:
 #    }
 # );
 # async fn run(args: Args) -> Result<()> {
-# let boundless_client = ClientBuilder::new().build().await?;
+# let boundless_client = Client::builder().build().await?;
 let even_number = IEvenNumber::new(
     args.even_number_address,
     boundless_client.provider().clone(),
@@ -86,7 +86,7 @@ To call the `set` function on the `EvenNumber` contract, a “set number” tran
 ```rust
 # use alloy_primitives::{Address, Bytes, U256};
 # use anyhow::Result;
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::client::Client;
 # struct Args {
 #    even_number_address: Address,
 #    number: u64,
@@ -98,7 +98,7 @@ To call the `set` function on the `EvenNumber` contract, a “set number” tran
 #    }
 # );
 # async fn run(args: Args) -> Result<()> {
-# let boundless_client = ClientBuilder::new().build().await?;
+# let boundless_client = Client::builder().build().await?;
 # let even_number = IEvenNumber::new(
 #    args.even_number_address,
 #    boundless_client.provider().clone(),
@@ -119,7 +119,7 @@ Finally, this transaction is broadcasted with:
 # use std::time::Duration;
 # use alloy_primitives::{Address, Bytes, U256};
 # use anyhow::{Context, Result};
-# use boundless_market::client::ClientBuilder;
+# use boundless_market::client::Client;
 # struct Args {
 #    even_number_address: Address,
 #    number: u64,
@@ -131,7 +131,7 @@ Finally, this transaction is broadcasted with:
 #    }
 # );
 # async fn run(args: Args, TX_TIMEOUT: Duration) -> Result<()> {
-# let boundless_client = ClientBuilder::new().build().await?;
+# let boundless_client = Client::builder().build().await?;
 # let even_number = IEvenNumber::new(
 #    args.even_number_address,
 #    boundless_client.provider().clone(),

@@ -27,7 +27,7 @@ use boundless_market::{
         AssessorReceipt, IBoundlessMarket, Offer, Predicate, PredicateType, ProofRequest,
         RequestId, RequestStatus, Requirements,
     },
-    input::InputBuilder,
+    input::GuestEnv,
 };
 use boundless_market_test_utils::{create_test_ctx, mock_singleton, TestCtx, ECHO_ID};
 use risc0_zkvm::sha::Digest;
@@ -48,7 +48,7 @@ async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         ),
         "http://image_uri.null",
-        InputBuilder::new().build_inline().unwrap(),
+        GuestEnv::builder().build_inline().unwrap(),
         Offer {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),
@@ -298,7 +298,7 @@ async fn test_e2e_merged_submit_fulfill() {
     // publish the committed root + fulfillments
     ctx.prover_market
         .fulfill(FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone()).with_submit_root(
-            ctx.set_verifier_address,
+            ctx.deployment.set_verifier_address,
             root,
             set_verifier_seal,
         ))
@@ -365,7 +365,7 @@ async fn test_e2e_price_and_fulfill_batch() {
     ctx.prover_market
         .fulfill(
             FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone())
-                .with_submit_root(ctx.set_verifier_address, root, set_verifier_seal)
+                .with_submit_root(ctx.deployment.set_verifier_address, root, set_verifier_seal)
                 .with_unlocked_request(UnlockedRequest::new(request, customer_sig)),
         )
         .await

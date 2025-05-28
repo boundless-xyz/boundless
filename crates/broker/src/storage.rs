@@ -329,27 +329,23 @@ impl Handler for S3Handler {
 
 pub async fn upload_image_uri(
     prover: &crate::provers::ProverObj,
-    order: &crate::Order,
+    request: &crate::ProofRequest,
     config: &crate::config::ConfigLock,
 ) -> Result<String> {
-    let required_image_id = Digest::from(order.request.requirements.imageId.0);
+    let required_image_id = Digest::from(request.requirements.imageId.0);
     let image_id_str = required_image_id.to_string();
     if prover.has_image(&image_id_str).await? {
         tracing::debug!("Skipping program upload for cached image ID: {image_id_str}");
         return Ok(image_id_str);
     }
 
-    tracing::debug!(
-        "Fetching program with image ID {image_id_str} from URI {}",
-        order.request.imageUrl
-    );
-    let uri =
-        create_uri_handler(&order.request.imageUrl, config).await.context("URL handling failed")?;
+    tracing::debug!("Fetching program with image ID {image_id_str} from URI {}", request.imageUrl);
+    let uri = create_uri_handler(&request.imageUrl, config).await.context("URL handling failed")?;
 
     let image_data = uri
         .fetch()
         .await
-        .with_context(|| format!("Failed to fetch image URI: {}", order.request.imageUrl))?;
+        .with_context(|| format!("Failed to fetch image URI: {}", request.imageUrl))?;
     let image_id =
         risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
 
@@ -371,22 +367,22 @@ pub async fn upload_image_uri(
 
 pub async fn upload_input_uri(
     prover: &crate::provers::ProverObj,
-    order: &crate::Order,
+    request: &crate::ProofRequest,
     config: &crate::config::ConfigLock,
 ) -> Result<String> {
-    Ok(match order.request.input.inputType {
-        boundless_market::contracts::InputType::Inline => prover
+    Ok(match request.input.inputType {
+        boundless_market::contracts::RequestInputType::Inline => prover
             .upload_input(
-                boundless_market::input::GuestEnv::decode(&order.request.input.data)
+                boundless_market::input::GuestEnv::decode(&request.input.data)
                     .with_context(|| "Failed to decode input")?
                     .stdin,
             )
             .await
             .context("Failed to upload input data")?,
 
-        boundless_market::contracts::InputType::Url => {
+        boundless_market::contracts::RequestInputType::Url => {
             let input_uri_str =
-                std::str::from_utf8(&order.request.input.data).context("input url is not utf8")?;
+                std::str::from_utf8(&request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");
             let input_uri =
                 create_uri_handler(input_uri_str, config).await.context("URL handling failed")?;
@@ -403,7 +399,7 @@ pub async fn upload_input_uri(
             prover.upload_input(input_data).await.context("Failed to upload input")?
         }
         //???
-        _ => anyhow::bail!("Invalid input type: {:?}", order.request.input.inputType),
+        _ => anyhow::bail!("Invalid input type: {:?}", request.input.inputType),
     })
 }
 

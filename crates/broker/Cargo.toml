@@ -29,6 +29,7 @@ futures = "0.3"
 futures-util = { workspace = true }
 hex = { workspace = true }
 http-cache-reqwest = "0.15.1"
+moka = { version = "0.12", features = ["future"] }
 notify = "6.1"
 reqwest = { workspace = true }
 reqwest-middleware = "0.4.1"
@@ -44,7 +45,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs"] }
 toml = "0.8"
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 url = { workspace = true }
 uuid = { workspace = true }
 

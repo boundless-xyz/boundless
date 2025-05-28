@@ -157,4 +157,4 @@ withdraw = false
 # max batch fees (in ETH) before publishing
 #batch_max_fees = "0.1"
 # Number of attempts to make to submit a batch before abandoning
-#max_submission_attempts = 3
+#max_submission_attempts = 2

@@ -26,14 +26,31 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
     ciCacheSecret?: pulumi.Output<string>;
     githubTokenSecret?: pulumi.Output<string>;
     brokerTomlPath: string;
-    boundlessAlertsTopicArn?: string;
+    boundlessAlertsTopicArns?: string[];
     dockerRemoteBuilder?: string;
   }, opts?: pulumi.ComponentResourceOptions) {
     super(`${name}-${args.chainId}`, name, opts);
 
     const isDev = pulumi.getStack() === "dev";
 
-    const { ethRpcUrl, privateKey, bonsaiApiUrl, dockerRemoteBuilder, bonsaiApiKey, orderStreamUrl, brokerTomlPath, boundlessMarketAddr: proofMarketAddr, setVerifierAddr, vpcId, privSubNetIds, dockerDir, dockerTag, ciCacheSecret, githubTokenSecret, boundlessAlertsTopicArn } = args;
+    const {
+      ethRpcUrl,
+      privateKey,
+      bonsaiApiUrl,
+      dockerRemoteBuilder,
+      bonsaiApiKey,
+      orderStreamUrl,
+      brokerTomlPath,
+      boundlessMarketAddr: proofMarketAddr,
+      setVerifierAddr,
+      vpcId,
+      privSubNetIds,
+      dockerDir,
+      dockerTag,
+      ciCacheSecret,
+      githubTokenSecret,
+      boundlessAlertsTopicArns
+    } = args;
     const serviceName = name;
 
     const ethRpcUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-brokerEthRpc`);
@@ -91,7 +108,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
     });
 
     // EFS
-    const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev3`, {
+    const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev4`, {
       encrypted: true,
       tags: {
         Name: serviceName,
@@ -279,11 +296,25 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
 
     const brokerS3BucketName = brokerS3Bucket.bucket.apply(n => n);
 
-    const logGroup = new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
+    // Try to get existing log group
+    const existingLogGroup = pulumi.output(aws.cloudwatch.getLogGroup({
       name: serviceName,
-      retentionInDays: 0,
-      skipDestroy: true,
-    }, { parent: this });
+    }).catch(() => undefined));
+
+    const logGroup = existingLogGroup.apply(existing => {
+      if (existing) {
+        // Convert the existing log group to a LogGroup resource
+        return new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
+          name: existing.name,
+          retentionInDays: existing.retentionInDays,
+        }, { parent: this, import: existing.id });
+      }
+      return new aws.cloudwatch.LogGroup(`${serviceName}-log-group`, {
+        name: serviceName,
+        retentionInDays: 0,
+      }, { parent: this });
+    });
+
 
     const service = new awsx.ecs.FargateService(serviceName, {
       name: serviceName,
@@ -375,7 +406,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
       },
     }, { dependsOn: [fileSystem, mountTargets] });
 
-    const alarmActions = boundlessAlertsTopicArn ? [boundlessAlertsTopicArn] : [];
+    const alarmActions = boundlessAlertsTopicArns ?? [];
 
     createProverAlarms(serviceName, logGroup, [service, logGroup], alarmActions);
   }

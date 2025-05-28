@@ -47,7 +47,7 @@ mod defaults {
     }
 
     pub const fn max_submission_attempts() -> u32 {
-        3
+        2
     }
 }
 /// All configuration related to markets mechanics
@@ -161,13 +161,13 @@ impl Default for MarketConf {
         // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
         Self {
-            mcycle_price: "0.1".to_string(),
-            mcycle_price_stake_token: "0.1".to_string(),
+            mcycle_price: "0.00001".to_string(),
+            mcycle_price_stake_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,
-            min_deadline: 300, // 5 mins
+            min_deadline: 120, // 2 mins
             lookback_blocks: 100,
             max_stake: "0.1".to_string(),
             allow_client_addresses: None,

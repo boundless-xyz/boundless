@@ -69,7 +69,7 @@ test-db action="setup":
     fi
 
 # Run all formatting and linting checks
-check: check-links check-license check-format check-clippy
+check: check-links check-license check-format check-clippy check-docs
 
 # Check links in markdown files
 check-links:
@@ -122,6 +122,10 @@ check-clippy:
     forge build && \
     RUSTFLAGS=-Dwarnings ISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNEL=1 \
     cargo clippy --workspace --all-targets
+
+check-docs:
+    # Matches the docs-rs job in CI 
+    RUSTDOCFLAGS="--cfg docsrs -D warnings" RISC0_SKIP_BUILD=1 cargo +nightly-2025-01-03 doc -p boundless-market --all-features --no-deps
 
 # Format all code
 format:
@@ -192,21 +196,21 @@ localnet action="up": check-deps
         echo "Deploying contracts..."
         DEPLOYER_PRIVATE_KEY=$DEPLOYER_PRIVATE_KEY CHAIN_KEY=$CHAIN_KEY RISC0_DEV_MODE=$RISC0_DEV_MODE BOUNDLESS_MARKET_OWNER=$ADMIN_ADDRESS forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$ANVIL_PORT --broadcast -vv || { echo "Failed to deploy contracts"; just localnet down; exit 1; }
         echo "Fetching contract addresses..."
-        SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
-        BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json)
+        VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroVerifierRouter") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
+        SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
+        BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
         HIT_POINTS_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
         echo "Contract deployed at addresses:"
+        echo "VERIFIER_ADDRESS=$VERIFIER_ADDRESS"
         echo "SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
         echo "BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
         echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS"
         echo "Updating .env.localnet file..."
         # Update the environment variables in .env.localnet
+        sed -i.bak "s/^VERIFIER_ADDRESS=.*/VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
-        # Add HIT_POINTS_ADDRESS to .env.localnet
-        grep -q "^HIT_POINTS_ADDRESS=" .env.localnet && \
-            sed -i.bak "s/^HIT_POINTS_ADDRESS=.*/HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet || \
-            echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS" >> .env.localnet
+        sed -i.bak "s/^HIT_POINTS_ADDRESS=.*/HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
         echo "Minting HP for prover address."
@@ -216,11 +220,12 @@ localnet action="up": check-deps
 
         # Start order stream server
         just test-db setup
+        echo "Starting order stream server..."
         DATABASE_URL={{DATABASE_URL}} RUST_LOG=$RUST_LOG ./target/debug/order_stream \
-            --min-balance 0 \
+            --min-balance-raw 0 \
             --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
             --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
-        # Start a broker
+        echo "Starting broker..."
         RISC0_DEV_MODE=$RISC0_DEV_MODE RUST_LOG=$RUST_LOG ./target/debug/broker \
             --private-key $PRIVATE_KEY \
             --boundless-market-address $BOUNDLESS_MARKET_ADDRESS \
@@ -228,6 +233,8 @@ localnet action="up": check-deps
             --rpc-url http://localhost:$ANVIL_PORT \
             --order-stream-url http://localhost:8585 \
             --deposit-amount $DEPOSIT_AMOUNT > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
+        # Wait 5 seconds and see if that broker is still running, or if it has crashed.
+        sleep 5 && kill -0 $(tail -n1 {{PID_FILE}})
         echo "Localnet is running!"
         echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
     elif [ "{{action}}" = "down" ]; then
@@ -238,6 +245,11 @@ localnet action="up": check-deps
             rm {{PID_FILE}}
         fi
         just test-db clean
+    elif [ "{{action}}" = "logs" ]; then
+        if [ ! -f {{PID_FILE}} ]; then
+            echo "localnet is not running" >/dev/stderr; exit 1
+        fi
+        tail -F {{LOGS_DIR}}/*
     else
         echo "Unknown action: {{action}}"
         echo "Available actions: up, down"
@@ -334,11 +346,6 @@ broker action="up" env_file="" detached="true":
 bento-setup:
     #!/usr/bin/env bash
     ./scripts/setup.sh
-
-# Run the set_nvcc_flags script
-bento-set-nvcc-flags:
-    #!/usr/bin/env bash
-    ./scripts/set_nvcc_flags.sh
 
 # Check job status in Postgres
 job-status job_id:

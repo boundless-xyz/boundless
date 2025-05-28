@@ -15,7 +15,7 @@ use boundless_cli::OrderFulfilled;
 use boundless_market::{
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
-        Input, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
     },
     order_stream_client::Order,
 };
@@ -38,7 +38,7 @@ async fn create_order(
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         ),
         format!("file://{ECHO_PATH}"),
-        Input::builder().build_inline().unwrap(),
+        RequestInput::builder().build_inline().unwrap(),
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
@@ -68,7 +68,7 @@ async fn test_basic_usage() {
         "--private-key",
         &hex::encode(ctx.customer_signer.clone().to_bytes()),
         "--boundless-market-address",
-        &ctx.boundless_market_address.to_string(),
+        &ctx.deployment.boundless_market_address.to_string(),
         "--db",
         "sqlite::memory:",
         "--interval",
@@ -101,7 +101,7 @@ async fn test_basic_usage() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_address,
+        ctx.deployment.boundless_market_address,
         anvil.chain_id(),
         now,
     )
@@ -117,7 +117,7 @@ async fn test_basic_usage() {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
             // Check that the stake recipient is the market treasury address
-            assert_eq!(request_slashed.stakeRecipient, ctx.boundless_market_address);
+            assert_eq!(request_slashed.stakeRecipient, ctx.deployment.boundless_market_address);
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(20)) => {
@@ -140,7 +140,7 @@ async fn test_slash_fulfilled() {
         "--private-key",
         &hex::encode(ctx.customer_signer.clone().to_bytes()),
         "--boundless-market-address",
-        &ctx.boundless_market_address.to_string(),
+        &ctx.deployment.boundless_market_address.to_string(),
         "--db",
         "sqlite::memory:",
         "--interval",
@@ -173,7 +173,7 @@ async fn test_slash_fulfilled() {
         &ctx.customer_signer,
         ctx.customer_signer.address(),
         1,
-        ctx.boundless_market_address,
+        ctx.deployment.boundless_market_address,
         anvil.chain_id(),
         now,
     )
@@ -185,7 +185,7 @@ async fn test_slash_fulfilled() {
     let domain = ctx.customer_market.eip712_domain().await.unwrap();
     let order = Order::new(
         request.clone(),
-        request.signing_hash(ctx.boundless_market_address, anvil.chain_id()).unwrap(),
+        request.signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id()).unwrap(),
         Signature::try_from(client_sig.as_ref()).unwrap(),
     );
     let prover = boundless_cli::DefaultProver::new(
@@ -225,7 +225,7 @@ async fn test_slash_fulfilled() {
         .fulfill(
             FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
                 .with_submit_root(
-                    ctx.set_verifier_address,
+                    ctx.deployment.set_verifier_address,
                     order_fulfilled.root,
                     order_fulfilled.seal,
                 )

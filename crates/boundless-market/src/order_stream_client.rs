@@ -25,7 +25,7 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use siwe::Message as SiweMsg;
-use std::{error::Error, pin::Pin};
+use std::pin::Pin;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tokio::net::TcpStream;
@@ -197,7 +197,7 @@ impl AuthMsg {
 
 /// Client for interacting with the order stream server
 #[derive(Clone, Debug)]
-pub struct Client {
+pub struct OrderStreamClient {
     /// HTTP client
     pub client: reqwest::Client,
     /// Base URL of the order stream server
@@ -208,7 +208,7 @@ pub struct Client {
     pub chain_id: u64,
 }
 
-impl Client {
+impl OrderStreamClient {
     /// Create a new client
     pub fn new(base_url: Url, boundless_market_address: Address, chain_id: u64) -> Self {
         Self { client: reqwest::Client::new(), base_url, boundless_market_address, chain_id }
@@ -376,9 +376,9 @@ impl Client {
 /// Example usage:
 /// ```no_run
 /// use alloy::signers::Signer;
-/// use boundless_market::order_stream_client::{Client, order_stream, OrderData};
+/// use boundless_market::order_stream_client::{OrderStreamClient, order_stream, OrderData};
 /// use futures_util::StreamExt;
-/// async fn example_stream(client: Client, signer: &impl Signer) {
+/// async fn example_stream(client: OrderStreamClient, signer: &impl Signer) {
 ///     let socket = client.connect_async(signer).await.unwrap();
 ///     let mut order_stream = order_stream(socket);
 ///     while let Some(order) = order_stream.next().await {
@@ -392,7 +392,7 @@ impl Client {
 #[allow(clippy::type_complexity)]
 pub fn order_stream(
     mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-) -> Pin<Box<dyn Stream<Item = Result<OrderData, Box<dyn Error + Send + Sync>>> + Send>> {
+) -> Pin<Box<dyn Stream<Item = OrderData> + Send>> {
     Box::pin(stream! {
         // Create a ping interval - configurable via environment variable
         let ping_duration = match std::env::var("ORDER_STREAM_CLIENT_PING_MS") {
@@ -420,15 +420,18 @@ pub fn order_stream(
                     match msg_result {
                         Some(Ok(tungstenite::Message::Text(msg))) => {
                             match serde_json::from_str::<OrderData>(&msg) {
-                                Ok(order) => yield Ok(order),
-                                Err(err) => yield Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+                                Ok(order) => yield order,
+                                Err(err) => {
+                                    tracing::warn!("Failed to parse order: {:?}", err);
+                                    continue;
+                                }
                             }
                         }
                         // Reply to Ping's inline
                         Some(Ok(tungstenite::Message::Ping(data))) => {
                             tracing::trace!("Responding to ping");
                             if let Err(err) = socket.send(tungstenite::Message::Pong(data)).await {
-                                yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                                tracing::warn!("Failed to send pong: {:?}", err);
                                 break;
                             }
                         }
@@ -438,10 +441,6 @@ pub fn order_stream(
                             if let Some(expected_data) = ping_data.take() {
                                 if data != expected_data {
                                     tracing::warn!("Server responded with invalid pong data");
-                                    yield Err(Box::new(std::io::Error::new(
-                                        std::io::ErrorKind::InvalidData,
-                                        "Server responded with invalid pong data"
-                                    )) as Box<dyn Error + Send + Sync>);
                                     break;
                                 }
                             } else {
@@ -457,7 +456,7 @@ pub fn order_stream(
                             continue;
                         }
                         Some(Err(err)) => {
-                            yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                            tracing::warn!("order stream socket error: {:?}", err);
                             break;
                         }
                         None => {
@@ -471,17 +470,13 @@ pub fn order_stream(
                     // If we still have a pending ping that hasn't been responded to
                     if ping_data.is_some() {
                         tracing::warn!("Server did not respond to ping, closing connection");
-                        yield Err(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "Server did not respond to ping"
-                        )) as Box<dyn Error + Send + Sync>);
                         break;
                     }
 
                     tracing::trace!("Sending ping to server");
                     let random_bytes: Vec<u8> = (0..16).map(|_| rand::random::<u8>()).collect();
                     if let Err(err) = socket.send(tungstenite::Message::Ping(random_bytes.clone())).await {
-                        yield Err(Box::new(err) as Box<dyn Error + Send + Sync>);
+                        tracing::warn!("Failed to send ping: {:?}", err);
                         break;
                     }
                     ping_data = Some(random_bytes);
