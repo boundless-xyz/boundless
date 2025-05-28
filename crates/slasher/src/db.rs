@@ -35,7 +35,7 @@ pub trait SlasherDb {
         expires_at: u64,
         lock_expires_at: u64,
     ) -> Result<(), DbError>;
-    async fn get_order(&self, id: U256) -> Result<(u64, u64), DbError>; // (expires_at, lock_expires_at)
+    async fn get_order(&self, id: U256) -> Result<Option<(u64, u64)>, DbError>; // (expires_at, lock_expires_at)
     async fn remove_order(&self, id: U256) -> Result<(), DbError>;
     async fn order_exists(&self, id: U256) -> Result<bool, DbError>;
     async fn get_expired_orders(&self, current_timestamp: u64) -> Result<Vec<U256>, DbError>;
@@ -110,7 +110,7 @@ impl SlasherDb for SqliteDb {
         Ok(())
     }
 
-    async fn get_order(&self, id: U256) -> Result<(u64, u64), DbError> {
+    async fn get_order(&self, id: U256) -> Result<Option<(u64, u64)>, DbError> {
         tracing::trace!("Getting order: 0x{:x}", id);
         let res = sqlx::query("SELECT expires_at, lock_expires_at FROM orders WHERE id = $1")
             .bind(format!("{id:x}"))
@@ -120,20 +120,18 @@ impl SlasherDb for SqliteDb {
         if let Some(row) = res {
             let expires_at: i64 = row.try_get("expires_at")?;
             let lock_expires_at: i64 = row.try_get("lock_expires_at")?;
-            Ok((expires_at as u64, lock_expires_at as u64))
+            Ok(Some((expires_at as u64, lock_expires_at as u64)))
         } else {
-            Err(DbError::SqlErr(sqlx::Error::RowNotFound))
+            Ok(None)
         }
     }
 
     async fn remove_order(&self, id: U256) -> Result<(), DbError> {
         tracing::trace!("Removing order: 0x{:x}", id);
-        if self.order_exists(id).await? {
-            sqlx::query("DELETE FROM orders WHERE id = $1")
-                .bind(format!("{id:x}"))
-                .execute(&self.pool)
-                .await?;
-        }
+        sqlx::query("DELETE FROM orders WHERE id = $1")
+            .bind(format!("{id:x}"))
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -267,5 +265,41 @@ mod tests {
 
         let db_block = db.get_last_block().await.unwrap().unwrap();
         assert_eq!(block_numb, db_block);
+    }
+
+    #[sqlx::test]
+    async fn get_nonexistent_order(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let id = U256::from(999);
+        
+        let result = db.get_order(id).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[sqlx::test]
+    async fn get_existing_order(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let id = U256::ZERO;
+        let expires_at = 100;
+        let lock_expires_at = 50;
+        
+        db.add_order(id, expires_at, lock_expires_at).await.unwrap();
+        
+        let result = db.get_order(id).await.unwrap();
+        assert!(result.is_some());
+        let (fetched_expires_at, fetched_lock_expires_at) = result.unwrap();
+        assert_eq!(fetched_expires_at, expires_at);
+        assert_eq!(fetched_lock_expires_at, lock_expires_at);
+    }
+
+    #[sqlx::test]
+    async fn query_nonexistent_order(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let id = U256::from(999);
+        
+        db.remove_order(id).await.unwrap();
+        
+        db.remove_order(id).await.unwrap();
+        assert!(!db.order_exists(id).await.unwrap());
     }
 }

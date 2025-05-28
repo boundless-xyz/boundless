@@ -355,7 +355,16 @@ where
                 let bn = log_data.block_number.ok_or(ServiceError::BlockNumberNotFound)?;
                 self.block_timestamp(bn).await?
             };
-            let (_, lock_expires_at) = self.db.get_order(log.requestId).await?;
+            let (_, lock_expires_at) = match self.db.get_order(log.requestId).await? {
+                Some(order_data) => order_data,
+                None => {
+                    tracing::warn!(
+                        "Order not found in database for fulfilled request: 0x{:x}, skipping",
+                        log.requestId
+                    );
+                    continue;
+                }
+            };
             if current_ts <= lock_expires_at {
                 tracing::debug!(
                     "Request was fulfilled before lock expired. Removing from db: 0x{:x}",
