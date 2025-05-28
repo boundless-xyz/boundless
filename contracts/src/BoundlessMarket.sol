@@ -129,7 +129,7 @@ contract BoundlessMarket is
         bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
-        _lockRequest(request, requestHash, client, idx, msg.sender, lockDeadline, deadline);
+        _lockRequest(request, clientSignature, requestHash, client, idx, msg.sender, lockDeadline, deadline);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -143,13 +143,14 @@ contract BoundlessMarket is
             _verifyClientSignatureAndExtractProverAddress(request, client, clientSignature, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
-        _lockRequest(request, requestHash, client, idx, prover, lockDeadline, deadline);
+        _lockRequest(request, clientSignature, requestHash, client, idx, prover, lockDeadline, deadline);
     }
 
     /// @notice Locks the request to the prover. Deducts funds from the client for payment
     /// and funding from the prover for locking stake.
     function _lockRequest(
         ProofRequest calldata request,
+        bytes calldata clientSignature,
         bytes32 requestDigest,
         address client,
         uint32 idx,
@@ -198,7 +199,7 @@ contract BoundlessMarket is
         });
 
         clientAccount.setRequestLocked(idx);
-        emit RequestLocked(request.id, prover);
+        emit RequestLocked(request.id, prover, request, clientSignature);
     }
 
     /// Validates the request and records the price to transient storage such that it can be

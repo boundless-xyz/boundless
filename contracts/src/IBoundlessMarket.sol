@@ -31,7 +31,9 @@ interface IBoundlessMarket {
     /// @notice Event logged when a request is locked in by the given prover.
     /// @param requestId The ID of the request.
     /// @param prover The address of the prover.
-    event RequestLocked(RequestId indexed requestId, address prover);
+    /// @param request The proof request details.
+    /// @param clientSignature The signature of the client.
+    event RequestLocked(RequestId indexed requestId, address prover, ProofRequest request, bytes clientSignature);
 
     /// @notice Event logged when a request is fulfilled.
     /// @param requestId The ID of the request.
