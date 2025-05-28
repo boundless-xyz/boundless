@@ -22,6 +22,7 @@ interface OrderGeneratorArgs {
   minPricePerMCycle: string;
   maxPricePerMCycle: string;
   secondsPerMCycle: string;
+  inputMaxMCycles?: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
   boundlessAlertsTopicArns?: string[];
@@ -173,6 +174,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     if (args.errorBalanceBelow) {
       ogArgs.push(`--error-balance-below ${args.errorBalanceBelow}`);
     }
+    if (args.inputMaxMCycles) {
+      ogArgs.push(`--input-max-mcycles ${args.inputMaxMCycles}`);
+    }
 
     const service = new awsx.ecs.FargateService(
       `${serviceName}-service`,
@@ -208,6 +212,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       { dependsOn: [execRole, execRolePolicy] }
     );
 
+    // Exclude balance errors which have a separate alarm.
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
       name: `${serviceName}-log-err-filter`,
       logGroupName: serviceName,
@@ -217,7 +222,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         value: '1',
         defaultValue: '0',
       },
-      pattern: '?ERROR ?error ?Error',
+      pattern: 'ERROR -"[B-BAL-ETH]"',
     }, { dependsOn: [service] });
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
