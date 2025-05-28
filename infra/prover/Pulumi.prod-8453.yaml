@@ -1,0 +1,28 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAH+Zy7RAu06f4HzFQI+laUDAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMqr4RyK36TS9nyvgbAgEQgDvlqrCBEv9kWPAgNOffMZLb/fhLhXObIb3CGWT5a1qPtz72aXpIpwL6Cq2lURYURG+eioTwZmhEj5C4cg==
+config:
+  base-prover:CHAIN_ID: "8453"
+  base-prover:ETH_RPC_URL:
+    secure: v1:C94P2XYWLckX+jEy:vCRm04zThyomy3TzO29jwK9XQvlBt0v6hmD6kNAX3rI3Zl9TTx78E21RjPPK/2SnOia9Q1omxTczOIDPeFAJZPi1t/cV8TDRIl2YNGPX3wSwbENxw48=
+  base-prover:GH_TOKEN_SECRET:
+    secure: v1:Gm/LAD0owrO9sGYC:KGx/TriJReWeNGYBEDHbqLFna34E/74TDIEJcXARY0ErZTrK1L4gYZx1PfmxKbW8GHsMCr4hFkIBJHnfOqrVWRPNgBYtomSoYWgAd4HSShtVHd5wi3hC+UPaHwbkWlB9qW3V6it37MfnxBEAnA==
+  aws:region: us-west-2
+  base-prover:BASE_STACK: organization/bootstrap/services-prod
+  base-prover:BOUNDLESS_MARKET_ADDR: 0x581C7e8018f0888364c698f97F64eB069723131F
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-8453.toml
+  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-prod-8453.toml
+  base-prover:DOCKER_DIR: ../../
+  base-prover:DOCKER_TAG: latest
+  base-prover:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
+  #base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  base-prover:SET_VERIFIER_ADDR: 0xa8DB64c92c5E113984C790dDA91789132114BAda
+  #base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  bento-prover:PRIVATE_KEY:
+    secure: v1:+cdh+iJoRfm9BSyx:PlWIkz5B4tMCYCT+YG0ANBYtLL9gYv07iFXww7bydPTDctrNASqnBPVcB1Ge4BXnWIBt6gpaW3vo0PhGmHc6rVxuSDsLI8bOB0irjHRLMas=
+  bento-prover:SEGMENT_SIZE: "19"
+  bonsai-prover:BONSAI_API_KEY:
+    secure: v1:ruLmGnsrmt4Aq+z5:Qy8MbREGnlxyLxSSy0omgMZ6PFdfTjHuLOOQfpyd9a4nhOFGPMAGLFqPTn6748+AD07kC0ghF0Q=
+  bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
+  bonsai-prover:PRIVATE_KEY:
+    secure: v1:c2Eh9eBTs4bg9u24:xlMjBD0jaMKdydGEYEyNoWVhQkwwVJbLqjWPphEYOKDmNGytPq7VZ86K3BAg0mkBMmpQOfOrwtPHsq3aLAj/Ug5TzgjLZU2BO6cEJ7okXVw=
+  bento-prover:LOG_JSON: true

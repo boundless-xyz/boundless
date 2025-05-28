@@ -5,10 +5,11 @@ config:
   order-generator-base:PINATA_JWT:
     secure: v1:spij1pLpVrldXhfv:wJce+hGsA1OyjRTMtmuQML5BKt4n6kdUl+8ULEzBWYnNFQile0QpK6O7tciHoHDiZlOPYSzfe6mc/2k43MT0JNbxVnpk0ARaYZlk8X0eH1Uy10/vvpLy/JSy+7UrYLvK4YfXAADoUK4BXTgsJ2Lds6vQDdO7NFxV6RpImKT2ACdUR6BJkC0CSc2gexY/1ivyo11Uv387l+c3sP22N0DXy6DLBw1mU5T+TuPnpmIxvI730Usi9dtN20sYNIJpQ8hs+zeDxbIFwkFa7a+kg2dqwAMe811XUceWUNKqBcZtxtc2FhdF+DOIGCs0oUjn4ATIF0wA4AviV1P7gHNgsZu5qMBZHTLb2g2MkE5rOjk6qPW6HBcV+UilG3Qna9+RpcEUvRFBPvnS2Z8ewpemlN5uaAJlNRS7cF9qz1TqV1YOrYX31q2bcjxha4oT5fT++YF8M87v48A2UePv2K9ireelDmapVIOA9tf5sVIVfxuAPfQqAuoB9vlRXga+Sgeh5OzadnbFLogv1dv+e/lh672UOCrRFaOSMeEHMClB5RYR4CyfLEjMoZOk437oFy+K8AyedfIuCnbRBv5rOjXq99U61IG+s/KT1rAmCGtWW8u9hnkl86l0hsHee6IcuoUKwebIYY7/V1/uO1rIJnBCH8w0Nu+fQJCQiQUyNhwYwiA+yyqwQ5qZDDt6agVr6ee2StM1r0i4gUOkureL4i0maj1NJsVBuq5l/1sjDVpc5/f53met21ICAKM1hoEuAD/h06DmPE9KR5WtVXKOLgu3GlI2xR8ru2UxnMGvSaOmw8SV0rvfmE1ShF8BlXx9HbYowY4if+FRpUWxHpf2taBi47S4RN3Lc+pKFYPcXWYwleavMieWLtTBAq/YVsRdzN7V7WB4RhDhGSFCR6B8Ajh3cMYPizrgJb9pRsLN
   order-generator-base:ETH_RPC_URL:
-    secure: v1:IIsPhs8Wknx1kFA3:i+w82uAGEWTWzhgyAT0UASrDIr0A7j0/pcyDUu4Wf4kD2zXuXVQVz1F11H0oEv2zJjFj9a/q7l6p+Xl2sQatAkdVUVlOuP8XlLSJJK4JFvwLqHVdig==
+    secure: v1:54VKT47TarVCPEY3:TQqcCt78JE0Br3VDnr00NyGbgsHE0KECtp2IDyCM/lv6pi3x5B5NuzvyEXpjUXCHRI1SbPIFO6avkc5KRlTjZq642OOInrxKyXByTEoJgTTnuXVm8Q==
   order-generator-base:ORDER_STREAM_URL:
     secure: v1:+5dxEU6iX85SMPrl:leEoJCPf57OO9LNagQuBXDEJVvLw+nTIRu5LixJ9Efhhi917Z+F9Qgz0I7ps7uGDiyobcMv2gYj56C4nYAkSMC2gsHI5cMQ5xEf58oe0dcRzYD+U
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:BASE_STACK: organization/bootstrap/services-staging
   order-generator-base:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
   order-generator-base:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
@@ -17,27 +18,23 @@ config:
   order-generator-base:LOG_LEVEL: info
   order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
   order-generator-base:CHAIN_ID: "11155111"
-  order-generator-simple:PRIVATE_KEY:
+  order-generator-base:INTERVAL: "300"
+  order-generator-base:LOCK_STAKE_RAW: "100000000000000000" # 0.1 ETH
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0075"
+  order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
+  order-generator-base:RAMP_UP: "600"
+  order-generator-base:LOCK_TIMEOUT: "900"
+  order-generator-base:TIMEOUT: "1800"
+  order-generator-base:SECONDS_PER_MCYCLE: "60"
+  order-generator-base:GH_TOKEN_SECRET:
+    secure: v1:JwMshDYyGPxsESiX:SY8Ye0Yf4BUg2vHfUa0kzK+KV1hUXFBLBdMgDGsIfNosmLjwXkm1+vombjLfhzJQg+/7AFLsKUgHdteI7grj+abG6ty2365BG+claz92m1pKXc+2lJ8ot3B/bghgM5na2s/K1De2p7BEXiIHHQ==
+  order-generator-base:TX_TIMEOUT: "120"
+  order-generator-offchain:PRIVATE_KEY:
     secure: v1:/PAo8IW1iSC4PfVa:j+e1NmKVKprC8cRWBPmmQ5GT9O4ppUeU2VYFdpPiZDZHHCW6GCrTbHO+1BWu1rinjCT1lppKhzXhxBXlVabTVdwPOfjYZO7lF4g+dQjqq5U=
-  order-generator-simple:INTERVAL: "300"
-  order-generator-simple:LOCK_STAKE: "0.1"
-  order-generator-simple:MAX_PRICE_PER_MCYCLE: "0.1"
-  order-generator-simple:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-simple:RAMP_UP: "600"
-  order-generator-simple:LOCK_TIMEOUT: "900"
-  order-generator-simple:TIMEOUT: "1800"
-  order-generator-zeth:SCHEDULE_MINUTES: "10"
-  order-generator-zeth:RETRIES: "2"
-  order-generator-zeth:INTERVAL: "3600"
-  order-generator-zeth:LOCK_STAKE: "0.5"
-  order-generator-zeth:RAMP_UP: "600"
-  order-generator-zeth:MAX_PRICE_PER_MCYCLE: "0.001"
-  order-generator-zeth:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-zeth:LOCK_TIMEOUT: "1800"
-  order-generator-zeth:TIMEOUT: "3600"
-  order-generator-zeth:BOUNDLESS_RPC_URL:
-    secure: v1:MHEt88nuxpcIVLhN:J6BP6EMsIaFoP/USYnC6gUG1UcGg6ursry8zxf7rMXS8cOF7qgDnDMQ2pCOt5F0lBZl8yOhV4+n1TbTI04aWS4+z/ZDw0Tu+M+Ch3rH+87Clihc0MVC5VJ2K0MT9f6HYt6cpF5dah4t/StqwkCUhqQ==
-  order-generator-zeth:PRIVATE_KEY:
+  order-generator-offchain:AUTO_DEPOSIT: "15"
+  order-generator-offchain:WARN_BALANCE_BELOW: "50"
+  order-generator-offchain:ERROR_BALANCE_BELOW: "25"
+  order-generator-onchain:WARN_BALANCE_BELOW: "50"
+  order-generator-onchain:ERROR_BALANCE_BELOW: "25"
+  order-generator-onchain:PRIVATE_KEY:
     secure: v1:mCtZDPI169gCEzCS:fs7WOQUknWQ3SgRy1tJWLzSqrm0DFlDyBlOy0FvCr+qPgOPpdedminnQHR4Em1kBoJteJ0H1iUKfNsaE0NUZOk3RAmCdGtsnu/QiYkHQAiQ=
-  order-generator-zeth:ZETH_RPC_URL:
-    secure: v1:AQO1+97uYjxzN5eH:hguME3zdmNAgk4Ttuw/7DsXkkkXCt4grXX9rEVTAN+1Eb8hGb4vSKIKhA2mx+9Xz6TkHUm7+U+c8YReupsEsGp/A+5sUd2JO4Ml5BWGYgw/We/OcxfP3pXVV0n56BwNEfC+7VaY=

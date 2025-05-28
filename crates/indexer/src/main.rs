@@ -26,24 +26,31 @@ struct MainArgs {
     /// Starting block number.
     #[clap(long)]
     start_block: Option<u64>,
-    /// Interval in seconds between checking for expired requests.
+    /// Interval in seconds between checking for new events.
     #[clap(long, default_value = "5")]
     interval: u64,
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
+    /// Whether to log in JSON format.
+    #[clap(long, env, default_value_t = false)]
+    log_json: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    let args = MainArgs::parse();
 
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
+    if args.log_json {
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .json()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
     }
 
     let args = MainArgs::parse();
@@ -61,7 +68,7 @@ async fn main() -> Result<()> {
     .await?;
 
     if let Err(err) = indexer_service.run(args.start_block).await {
-        bail!("Error running the indexer: {err}");
+        bail!("FATAL: Error running the indexer: {err}");
     }
 
     Ok(())

@@ -5,7 +5,7 @@
 use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
-use boundless_market::{contracts::eip712_domain, input::InputBuilder};
+use boundless_market::{contracts::eip712_domain, input::GuestEnv};
 use chrono::Utc;
 use risc0_aggregation::GuestState;
 use risc0_zkvm::{
@@ -26,7 +26,7 @@ use thiserror::Error;
 
 #[derive(Error)]
 pub enum AggregatorErr {
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 
@@ -203,7 +203,7 @@ impl AggregatorService {
             domain: eip712_domain(self.market_addr, self.chain_id),
             prover_address: self.prover_addr,
         };
-        let stdin = InputBuilder::new().write_frame(&input.encode()).stdin;
+        let stdin = GuestEnv::builder().write_frame(&input.encode()).stdin;
 
         let input_id =
             self.prover.upload_input(stdin).await.context("Failed to upload assessor input")?;
@@ -260,7 +260,13 @@ impl AggregatorService {
         batch: &Batch,
         pending_orders: &[AggregationOrder],
     ) -> Result<bool> {
-        let (conf_batch_size, conf_batch_time, conf_batch_fees, conf_max_journal_bytes) = {
+        let (
+            conf_batch_size,
+            conf_batch_time,
+            conf_batch_fees,
+            conf_max_journal_bytes,
+            conf_max_concurrent_proofs,
+        ) = {
             let config = self.config.lock_all().context("Failed to lock config")?;
 
             // TODO: Move this parse into config
@@ -275,7 +281,22 @@ impl AggregatorService {
                 config.batcher.batch_max_time,
                 batch_max_fees,
                 config.batcher.batch_max_journal_bytes,
+                config.market.max_concurrent_proofs,
             )
+        };
+
+        // Check that the min batch size is not greater than the max concurrent proofs
+        let conf_batch_size = match (conf_batch_size, conf_max_concurrent_proofs) {
+            (Some(batch_size), Some(max_concurrent)) if batch_size > max_concurrent => {
+                tracing::warn!(
+                    "Configured min_batch_size ({}) exceeds max_concurrent_proofs ({}). \
+                     Setting min_batch_size to max_concurrent_proofs.",
+                    batch_size,
+                    max_concurrent
+                );
+                Some(max_concurrent)
+            }
+            (batch_size, _) => batch_size,
         };
 
         // Skip finalization checks if we have nothing in this batch
@@ -557,11 +578,12 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId, Requirements,
+        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
+        Requirements,
     };
-    use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
-    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
-    use guest_util::{ECHO_ELF, ECHO_ID};
+    use boundless_market_test_utils::{
+        ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF, SET_BUILDER_ID,
+    };
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -630,7 +652,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
@@ -667,7 +689,7 @@ mod tests {
             total_cycles: None,
             proving_started_at: None,
         };
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         // Second order
         let order_request = ProofRequest::new(
@@ -677,7 +699,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
@@ -714,7 +736,7 @@ mod tests {
             total_cycles: None,
             proving_started_at: None,
         };
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
@@ -792,7 +814,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
@@ -829,7 +851,7 @@ mod tests {
             total_cycles: None,
             proving_started_at: None,
         };
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         // Aggregate the first order. Should not finalize.
         aggregator.aggregate().await.unwrap();
@@ -854,7 +876,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
@@ -891,7 +913,7 @@ mod tests {
             total_cycles: None,
             proving_started_at: None,
         };
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
@@ -965,7 +987,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
@@ -1002,7 +1024,7 @@ mod tests {
             total_cycles: None,
             proving_started_at: None,
         };
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
@@ -1079,7 +1101,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
@@ -1116,7 +1138,7 @@ mod tests {
             total_cycles: None,
             proving_started_at: None,
         };
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         provider.anvil_mine(Some(51), Some(2)).await.unwrap();
 
@@ -1201,7 +1223,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
@@ -1240,7 +1262,7 @@ mod tests {
         };
 
         // add first order and aggregate
-        db.add_order(order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
         aggregator.aggregate().await.unwrap();
         assert!(logs_contain("journal size below limit 20 < 30"));
 
@@ -1277,7 +1299,7 @@ mod tests {
             proving_started_at: None,
         };
 
-        db.add_order(order2.clone()).await.unwrap();
+        db.add_order(&order2).await.unwrap();
         aggregator.aggregate().await.unwrap();
         assert!(logs_contain("journal size target hit 40 >= 30"));
 

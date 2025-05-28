@@ -16,23 +16,19 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true }
-dotenvy = { workspace = true }
 hex = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 sqlx = { workspace = true, features = [ "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["json","env-filter"] }
 url = { workspace = true }
 
 [dev-dependencies]
 boundless-cli = { workspace = true }
 boundless-market-test-utils = { workspace = true }
 futures-util = { workspace = true }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
-guest-util = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 tracing-test = { workspace = true }
 

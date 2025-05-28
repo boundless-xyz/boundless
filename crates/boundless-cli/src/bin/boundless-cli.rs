@@ -46,7 +46,6 @@ use std::{
 use alloy::{
     network::Ethereum,
     primitives::{
-        aliases::U96,
         utils::{format_ether, parse_ether},
         Address, Bytes, FixedBytes, TxKind, B256, U256,
     },
@@ -56,15 +55,15 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use boundless_cli::{convert_timestamp, fetch_url, DefaultProver, OrderFulfilled};
+use bonsai_sdk::non_blocking::Client as BonsaiClient;
+use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, Parser, Subcommand};
-use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
-    default_executor,
+    compute_image_id, default_executor,
     sha::{Digest, Digestible},
-    ExecutorEnv, Journal, SessionInfo,
+    Journal, SessionInfo,
 };
 use shadow_rs::shadow;
 use tracing::level_filters::LevelFilter;
@@ -72,14 +71,14 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use boundless_market::{
-    client::{Client, ClientBuilder},
     contracts::{
-        boundless_market::BoundlessMarketService, Callback, Input, InputType, Offer, Predicate,
-        PredicateType, ProofRequest, RequestId, Requirements, UNSPECIFIED_SELECTOR,
+        boundless_market::BoundlessMarketService, Offer, ProofRequest, RequestInputType, Selector,
     },
-    input::{GuestEnv, InputBuilder},
+    input::GuestEnv,
+    request_builder::{OfferParams, RequirementParams},
     selector::ProofType,
-    storage::{StorageProvider, StorageProviderConfig},
+    storage::{fetch_url, StorageProvider, StorageProviderConfig},
+    Client, Deployment, StandardClient,
 };
 
 shadow!(build);
@@ -103,11 +102,7 @@ enum Command {
     Ops(Box<OpsCommands>),
 
     /// Display configuration and environment variables
-    Config {
-        /// Show raw values for sensitive information like private keys
-        #[clap(long)]
-        show_sensitive: bool,
-    },
+    Config {},
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -166,51 +161,28 @@ enum AccountCommands {
 #[derive(Subcommand, Clone, Debug)]
 enum RequestCommands {
     /// Submit a proof request constructed with the given offer, input, and image
-    SubmitOffer(SubmitOfferArgs),
+    SubmitOffer(Box<SubmitOfferArgs>),
 
     /// Submit a fully specified proof request
     Submit {
-        /// Storage provider to use
-        #[clap(flatten)]
-        storage_config: Option<StorageProviderConfig>,
-
         /// Path to a YAML file containing the request
         yaml_request: PathBuf,
-
-        /// Optional identifier for the request
-        id: Option<u32>,
 
         /// Wait until the request is fulfilled
         #[clap(short, long, default_value = "false")]
         wait: bool,
 
         /// Submit the request offchain via the provided order stream service url
-        #[clap(short, long, requires = "order_stream_url")]
+        #[clap(short, long)]
         offchain: bool,
-
-        /// Offchain order stream service URL to submit offchain requests to
-        #[clap(
-            long,
-            env = "ORDER_STREAM_URL",
-            default_value = "https://order-stream.beboundless.xyz"
-        )]
-        order_stream_url: Option<Url>,
 
         /// Skip preflight check (not recommended)
         #[clap(long, default_value = "false")]
         no_preflight: bool,
 
-        /// Set the proof type.
-        #[clap(long, value_enum, default_value_t = ProofType::Any)]
-        proof_type: ProofType,
-
-        /// Address of the callback to use in the requirements.
-        #[clap(long, requires = "callback_gas_limit")]
-        callback_address: Option<Address>,
-
-        /// Gas limit of the callback to use in the requirements.
-        #[clap(long, requires = "callback_address")]
-        callback_gas_limit: Option<u64>,
+        /// Configuration for the StorageProvider to use for uploading programs and inputs.
+        #[clap(flatten, next_help_heading = "Storage Provider")]
+        storage_config: Box<StorageProviderConfig>,
     },
 
     /// Get the status of a given request
@@ -265,14 +237,24 @@ enum ProvingCommands {
         /// If provided along with request-id, uses the transaction hash to find the request.
         #[arg(long, conflicts_with = "request_path", requires = "request_id")]
         tx_hash: Option<B256>,
-
-        /// The order stream service URL.
-        ///
-        /// If provided, the request will be fetched offchain via the provided order stream service URL.
-        #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["request_path", "tx_hash"])]
-        order_stream_url: Option<Url>,
     },
+    Benchmark {
+        /// Proof request ids to benchmark.
+        #[arg(long, value_delimiter = ',')]
+        request_ids: Vec<U256>,
 
+        /// Bonsai API URL
+        ///
+        /// Toggling this disables Bento proving and uses Bonsai as a backend
+        #[clap(env = "BONSAI_API_URL")]
+        bonsai_api_url: Option<String>,
+
+        /// Bonsai API Key
+        ///
+        /// Not necessary if using Bento without authentication, which is the default.
+        #[clap(env = "BONSAI_API_KEY", hide_env_values = true)]
+        bonsai_api_key: Option<String>,
+    },
     /// Fulfill one or more proof requests using the RISC Zero zkVM default prover.
     ///
     /// This command can process multiple requests in a single batch, which is more efficient
@@ -296,12 +278,6 @@ enum ProvingCommands {
         /// If provided, must have the same length and order as request_ids.
         #[arg(long, value_delimiter = ',')]
         tx_hashes: Option<Vec<B256>>,
-
-        /// The order stream service URL.
-        ///
-        /// If provided, the request will be fetched offchain via the provided order stream service URL.
-        #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["tx_hash"])]
-        order_stream_url: Option<Url>,
     },
 
     /// Lock a request in the market
@@ -317,67 +293,48 @@ enum ProvingCommands {
         /// The tx hash of the request submission
         #[arg(long)]
         tx_hash: Option<B256>,
-
-        /// The order stream service URL.
-        ///
-        /// If provided, the request will be fetched offchain via the provided order stream service URL.
-        #[arg(long, env = "ORDER_STREAM_URL", conflicts_with_all = ["tx_hash"])]
-        order_stream_url: Option<Url>,
     },
 }
 
 #[derive(Args, Clone, Debug)]
 struct SubmitOfferArgs {
-    /// Storage provider to use
-    #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
-
-    /// Path to a YAML file containing the offer
-    yaml_offer: PathBuf,
-
     /// Optional identifier for the request
     id: Option<u32>,
+
+    #[clap(flatten)]
+    program: SubmitOfferProgram,
 
     /// Wait until the request is fulfilled
     #[clap(short, long, default_value = "false")]
     wait: bool,
 
     /// Submit the request offchain via the provided order stream service url
-    #[clap(short, long, requires = "order_stream_url")]
+    #[clap(short, long)]
     offchain: bool,
 
-    /// Offchain order stream service URL to submit offchain requests to
-    #[clap(long, env = "ORDER_STREAM_URL", default_value = "https://order-stream.beboundless.xyz")]
-    order_stream_url: Option<Url>,
-
-    /// Skip preflight check (not recommended)
-    #[clap(long, default_value = "false")]
-    no_preflight: bool,
-
     /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
-    #[clap(short, long)]
+    #[clap(long)]
     encode_input: bool,
 
-    /// Send the input inline (i.e. in the transaction calldata) rather than uploading it
-    #[clap(long)]
-    inline_input: bool,
-
-    /// Program binary file to use as the guest image, given as a path
-    #[clap(long)]
-    program: PathBuf,
-
-    #[command(flatten)]
+    #[clap(flatten)]
     input: SubmitOfferInput,
 
-    #[command(flatten)]
-    reqs: SubmitOfferRequirements,
+    #[clap(flatten)]
+    requirements: SubmitOfferRequirements,
+
+    #[clap(flatten, next_help_heading = "Offer")]
+    offer_params: OfferParams,
+
+    /// Configuration for the StorageProvider to use for uploading programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    storage_config: StorageProviderConfig,
 }
 
 #[derive(Args, Clone, Debug)]
 #[group(required = true, multiple = false)]
 struct SubmitOfferInput {
     /// Input for the guest, given as a string.
-    #[clap(short, long)]
+    #[clap(long)]
     input: Option<String>,
     /// Input for the guest, given as a path to a file.
     #[clap(long)]
@@ -386,13 +343,23 @@ struct SubmitOfferInput {
 
 #[derive(Args, Clone, Debug)]
 #[group(required = true, multiple = false)]
+struct SubmitOfferProgram {
+    /// Program binary to use as the guest image, given as a path.
+    ///
+    /// The program will be uploaded to a public URL using the configured storage provider before
+    /// the proof request is sent.
+    #[clap(short = 'p', long = "program")]
+    path: Option<PathBuf>,
+    /// Program binary to use as a guest image, given as a public URL.
+    ///
+    /// This option accepts a pre-uploaded program. If also using small inputs, a storage provider
+    /// is not required when using a pre-uploaded program.
+    #[clap(long = "program-url")]
+    url: Option<Url>,
+}
+
+#[derive(Args, Clone, Debug)]
 struct SubmitOfferRequirements {
-    /// Hex encoded journal digest to use as the predicate in the requirements.
-    #[clap(short, long)]
-    journal_digest: Option<String>,
-    /// Journal prefix to use as the predicate in the requirements.
-    #[clap(long)]
-    journal_prefix: Option<String>,
     /// Address of the callback to use in the requirements.
     #[clap(long, requires = "callback_gas_limit")]
     callback_address: Option<Address>,
@@ -408,54 +375,38 @@ struct SubmitOfferRequirements {
 #[derive(Args, Debug, Clone)]
 struct GlobalConfig {
     /// URL of the Ethereum RPC endpoint
-    #[clap(short, long, env = "RPC_URL", default_value = "http://localhost:8545")]
+    #[clap(short, long, env = "RPC_URL")]
     rpc_url: Url,
 
     /// Private key of the wallet (without 0x prefix)
     #[clap(long, env = "PRIVATE_KEY", hide_env_values = true)]
     private_key: PrivateKeySigner,
 
-    /// Address of the market contract
-    #[clap(short, long, env = "BOUNDLESS_MARKET_ADDRESS")]
-    boundless_market_address: Address,
-
-    /// Address of the VerifierRouter contract
-    #[clap(short, long, env = "VERIFIER_ADDRESS")]
-    verifier_address: Address,
-
-    /// Address of the SetVerifier contract
-    #[clap(short, long, env = "SET_VERIFIER_ADDRESS")]
-    set_verifier_address: Address,
-
-    /// Tx timeout in seconds
+    /// Ethereum transaction timeout in seconds.
     #[clap(long, env = "TX_TIMEOUT", value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
     tx_timeout: Option<Duration>,
 
     /// Log level (error, warn, info, debug, trace)
     #[clap(long, env = "LOG_LEVEL", default_value = "info")]
     log_level: LevelFilter,
+
+    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    deployment: Option<Deployment>,
 }
 
 #[derive(Parser, Debug)]
 #[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for the Boundless market", long_about = None)]
 struct MainArgs {
-    #[command(flatten)]
-    config: GlobalConfig,
-
     /// Subcommand to run
     #[command(subcommand)]
     command: Command,
+
+    #[command(flatten)]
+    config: GlobalConfig,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load environment variables from .env file if it exists
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
-    }
-
     let args = match MainArgs::try_parse() {
         Ok(args) => args,
         Err(err) => {
@@ -489,57 +440,50 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    if let Err(e) = run(&args).await {
-        tracing::error!("Command failed: {}", e);
-        if let Some(ctx) = e.source() {
-            tracing::error!("Context: {}", ctx);
-        }
-        bail!("{}", e)
-    }
-    Ok(())
+    run(&args).await
 }
 
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
-    let caller = args.config.private_key.address();
-    let wallet = EthereumWallet::from(args.config.private_key.clone());
-    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.config.rpc_url.clone());
-
-    let mut boundless_market =
-        BoundlessMarketService::new(args.config.boundless_market_address, provider.clone(), caller);
-
-    if let Some(tx_timeout) = args.config.tx_timeout {
-        boundless_market = boundless_market.with_timeout(tx_timeout);
+    // If the config command is being run, don't create a client.
+    if let Command::Config {} = &args.command {
+        return handle_config_command(args).await;
     }
+
+    let storage_config = match args.command {
+        Command::Request(ref req_cmd) => match **req_cmd {
+            RequestCommands::Submit { ref storage_config, .. } => (**storage_config).clone(),
+            RequestCommands::SubmitOffer(ref args) => args.storage_config.clone(),
+            _ => StorageProviderConfig::default(),
+        },
+        _ => StorageProviderConfig::default(),
+    };
+
+    let client = Client::builder()
+        .with_private_key(args.config.private_key.clone())
+        .with_rpc_url(args.config.rpc_url.clone())
+        .with_deployment(args.config.deployment.clone())
+        .with_storage_provider_config(&storage_config)?
+        .with_timeout(args.config.tx_timeout)
+        .build()
+        .await?;
 
     match &args.command {
         Command::Account(account_cmd) => {
-            handle_account_command(account_cmd, boundless_market, args.config.private_key.clone())
-                .await
+            handle_account_command(account_cmd, client, args.config.private_key.clone()).await
         }
-        Command::Request(request_cmd) => {
-            handle_request_command(request_cmd, args, boundless_market, provider.clone()).await
-        }
-        Command::Proving(proving_cmd) => {
-            handle_proving_command(proving_cmd, args, boundless_market, caller, provider.clone())
-                .await
-        }
-        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, boundless_market).await,
-        Command::Config { show_sensitive } => handle_config_command(args, *show_sensitive).await,
+        Command::Request(request_cmd) => handle_request_command(request_cmd, args, client).await,
+        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, client).await,
+        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
+        Command::Config {} => unreachable!(),
     }
 }
 
 /// Handle ops-related commands
-async fn handle_ops_command<P>(
-    cmd: &OpsCommands,
-    boundless_market: BoundlessMarketService<P>,
-) -> Result<()>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result<()> {
     match cmd {
         OpsCommands::Slash { request_id } => {
             tracing::info!("Slashing prover for request 0x{:x}", request_id);
-            boundless_market.slash(*request_id).await?;
+            client.boundless_market.slash(*request_id).await?;
             tracing::info!("Successfully slashed prover for request 0x{:x}", request_id);
             Ok(())
         }
@@ -547,44 +491,41 @@ where
 }
 
 /// Handle account-related commands
-async fn handle_account_command<P>(
+async fn handle_account_command(
     cmd: &AccountCommands,
-    boundless_market: BoundlessMarketService<P>,
+    client: StandardClient,
     private_key: PrivateKeySigner,
-) -> Result<()>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+) -> Result<()> {
     match cmd {
         AccountCommands::Deposit { amount } => {
             tracing::info!("Depositing {} ETH into the market", format_ether(*amount));
-            boundless_market.deposit(*amount).await?;
+            client.boundless_market.deposit(*amount).await?;
             tracing::info!("Successfully deposited {} ETH into the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Withdraw { amount } => {
             tracing::info!("Withdrawing {} ETH from the market", format_ether(*amount));
-            boundless_market.withdraw(*amount).await?;
+            client.boundless_market.withdraw(*amount).await?;
             tracing::info!("Successfully withdrew {} ETH from the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Balance { address } => {
-            let addr = address.unwrap_or(boundless_market.caller());
+            let addr = address.unwrap_or(client.boundless_market.caller());
             tracing::info!("Checking balance for address {}", addr);
-            let balance = boundless_market.balance_of(addr).await?;
+            let balance = client.boundless_market.balance_of(addr).await?;
             tracing::info!("Balance for address {}: {} ETH", addr, format_ether(balance));
             Ok(())
         }
         AccountCommands::DepositStake { amount } => {
             tracing::info!("Depositing {} HP as stake", format_ether(*amount));
-            match boundless_market.deposit_stake_with_permit(*amount, &private_key).await {
+            match client.boundless_market.deposit_stake_with_permit(*amount, &private_key).await {
                 Ok(_) => {
                     tracing::info!("Successfully deposited {} HP as stake", format_ether(*amount));
                     Ok(())
                 }
                 Err(e) => {
                     if e.to_string().contains("TRANSFER_FROM_FAILED") {
-                        let addr = boundless_market.caller();
+                        let addr = client.boundless_market.caller();
                         Err(anyhow!(
                             "Failed to deposit stake: Ensure your address ({}) has funds on the HP contract", addr
                         ))
@@ -596,14 +537,14 @@ where
         }
         AccountCommands::WithdrawStake { amount } => {
             tracing::info!("Withdrawing {} HP from stake", format_ether(*amount));
-            boundless_market.withdraw_stake(*amount).await?;
+            client.boundless_market.withdraw_stake(*amount).await?;
             tracing::info!("Successfully withdrew {} HP from stake", format_ether(*amount));
             Ok(())
         }
         AccountCommands::StakeBalance { address } => {
-            let addr = address.unwrap_or(boundless_market.caller());
+            let addr = address.unwrap_or(client.boundless_market.caller());
             tracing::info!("Checking stake balance for address {}", addr);
-            let balance = boundless_market.balance_of_stake(addr).await?;
+            let balance = client.boundless_market.balance_of_stake(addr).await?;
             tracing::info!("Stake balance for address {}: {} HP", addr, format_ether(balance));
             Ok(())
         }
@@ -611,103 +552,37 @@ where
 }
 
 /// Handle request-related commands
-async fn handle_request_command<P>(
+async fn handle_request_command(
     cmd: &RequestCommands,
     args: &MainArgs,
-    boundless_market: BoundlessMarketService<P>,
-    provider: impl Provider<Ethereum> + 'static + Clone,
-) -> Result<()>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+    client: StandardClient,
+) -> Result<()> {
     match cmd {
         RequestCommands::SubmitOffer(offer_args) => {
             tracing::info!("Submitting new proof request with offer");
-            let order_stream_url = offer_args
-                .offchain
-                .then_some(
-                    offer_args
-                        .order_stream_url
-                        .clone()
-                        .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
-                )
-                .transpose()?;
-            let client = ClientBuilder::new()
-                .with_private_key(args.config.private_key.clone())
-                .with_rpc_url(args.config.rpc_url.clone())
-                .with_boundless_market_address(args.config.boundless_market_address)
-                .with_set_verifier_address(args.config.set_verifier_address)
-                .with_storage_provider_config(offer_args.storage_config.clone())
-                .await?
-                .with_order_stream_url(order_stream_url)
-                .with_timeout(args.config.tx_timeout)
-                .build()
-                .await?;
-
             submit_offer(client, &args.config.private_key, offer_args).await
         }
-        RequestCommands::Submit {
-            storage_config,
-            yaml_request,
-            id,
-            wait,
-            offchain,
-            order_stream_url,
-            no_preflight,
-            proof_type,
-            callback_address,
-            callback_gas_limit,
-        } => {
+        RequestCommands::Submit { yaml_request, wait, offchain, no_preflight, .. } => {
             tracing::info!("Submitting proof request from YAML file");
-            let id = match id {
-                Some(id) => *id,
-                None => boundless_market.index_from_rand().await?,
-            };
-
-            let order_stream_url = offchain
-                .then_some(
-                    order_stream_url
-                        .clone()
-                        .ok_or(anyhow!("offchain flag set, but order stream URL not provided")),
-                )
-                .transpose()?;
-            let client = ClientBuilder::new()
-                .with_private_key(args.config.private_key.clone())
-                .with_rpc_url(args.config.rpc_url.clone())
-                .with_boundless_market_address(args.config.boundless_market_address)
-                .with_set_verifier_address(args.config.set_verifier_address)
-                .with_order_stream_url(order_stream_url.clone())
-                .with_storage_provider_config(storage_config.clone())
-                .await?
-                .with_timeout(args.config.tx_timeout)
-                .build()
-                .await?;
 
             submit_request(
-                id,
                 yaml_request,
                 client,
                 &args.config.private_key,
-                SubmitOptions {
-                    wait: *wait,
-                    offchain: *offchain,
-                    preflight: !*no_preflight,
-                    proof_type: proof_type.clone(),
-                    callback_address: *callback_address,
-                    callback_gas_limit: *callback_gas_limit,
-                },
+                SubmitOptions { wait: *wait, offchain: *offchain, preflight: !*no_preflight },
             )
             .await
         }
         RequestCommands::Status { request_id, expires_at } => {
             tracing::info!("Checking status for request 0x{:x}", request_id);
-            let status = boundless_market.get_status(*request_id, *expires_at).await?;
+            let status = client.boundless_market.get_status(*request_id, *expires_at).await?;
             tracing::info!("Request 0x{:x} status: {:?}", request_id, status);
             Ok(())
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
-            let (journal, seal) = boundless_market.get_request_fulfillment(*request_id).await?;
+            let (journal, seal) =
+                client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
             tracing::info!(
                 "Journal: {} - Seal: {}",
@@ -718,9 +593,11 @@ where
         }
         RequestCommands::VerifyProof { request_id, image_id } => {
             tracing::info!("Verifying proof for request 0x{:x}", request_id);
-            let (journal, seal) = boundless_market.get_request_fulfillment(*request_id).await?;
+            let (journal, seal) =
+                client.boundless_market.get_request_fulfillment(*request_id).await?;
             let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
-            let verifier = IRiscZeroVerifier::new(args.config.verifier_address, provider.clone());
+            let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
+            let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
 
             verifier
                 .verify(seal, *image_id, journal_digest)
@@ -735,24 +612,9 @@ where
 }
 
 /// Handle proving-related commands
-async fn handle_proving_command<P>(
-    cmd: &ProvingCommands,
-    args: &MainArgs,
-    boundless_market: BoundlessMarketService<P>,
-    caller: Address,
-    provider: impl Provider<Ethereum> + 'static + Clone,
-) -> Result<()>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -> Result<()> {
     match cmd {
-        ProvingCommands::Execute {
-            request_path,
-            request_id,
-            request_digest,
-            tx_hash,
-            order_stream_url,
-        } => {
+        ProvingCommands::Execute { request_path, request_id, request_digest, tx_hash } => {
             tracing::info!("Executing proof request");
             let request: ProofRequest = if let Some(file_path) = request_path {
                 tracing::debug!("Loading request from file: {:?}", file_path);
@@ -761,15 +623,6 @@ where
                 serde_yaml::from_reader(reader).context("failed to parse request from YAML")?
             } else if let Some(request_id) = request_id {
                 tracing::debug!("Loading request from blockchain: 0x{:x}", request_id);
-                let client = ClientBuilder::new()
-                    .with_private_key(args.config.private_key.clone())
-                    .with_rpc_url(args.config.rpc_url.clone())
-                    .with_boundless_market_address(args.config.boundless_market_address)
-                    .with_set_verifier_address(args.config.set_verifier_address)
-                    .with_order_stream_url(order_stream_url.clone())
-                    .with_timeout(args.config.tx_timeout)
-                    .build()
-                    .await?;
                 let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
                 order.request
             } else {
@@ -788,7 +641,7 @@ where
             tracing::debug!("Journal: {:?}", journal);
             Ok(())
         }
-        ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes, order_stream_url } => {
+        ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes } => {
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
             {
@@ -802,37 +655,25 @@ where
                 request_ids.iter().map(|id| format!("0x{:x}", id)).collect::<Vec<_>>().join(", ");
             tracing::info!("Fulfilling proof requests {}", request_ids_string);
 
-            let (_, market_url) = boundless_market.image_info().await?;
+            let (_, market_url) = client.boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor program from {}", market_url);
             let assessor_program = fetch_url(&market_url).await?;
-            let domain = boundless_market.eip712_domain().await?;
+            let domain = client.boundless_market.eip712_domain().await?;
 
-            let mut set_verifier =
-                SetVerifierService::new(args.config.set_verifier_address, provider.clone(), caller);
-
-            if let Some(tx_timeout) = args.config.tx_timeout {
-                set_verifier = set_verifier.with_timeout(tx_timeout);
-            }
-
-            let (_, set_builder_url) = set_verifier.image_info().await?;
+            let (_, set_builder_url) = client.set_verifier.image_info().await?;
             tracing::debug!("Fetching SetBuilder program from {}", set_builder_url);
             let set_builder_program = fetch_url(&set_builder_url).await?;
 
-            let prover = DefaultProver::new(set_builder_program, assessor_program, caller, domain)?;
-
-            let client = ClientBuilder::new()
-                .with_private_key(args.config.private_key.clone())
-                .with_rpc_url(args.config.rpc_url.clone())
-                .with_boundless_market_address(args.config.boundless_market_address)
-                .with_set_verifier_address(args.config.set_verifier_address)
-                .with_order_stream_url(order_stream_url.clone())
-                .with_timeout(args.config.tx_timeout)
-                .build()
-                .await?;
+            let prover = DefaultProver::new(
+                set_builder_program,
+                assessor_program,
+                client.boundless_market.caller(),
+                domain,
+            )?;
 
             let fetch_order_jobs = request_ids.iter().enumerate().map(|(i, request_id)| {
                 let client = client.clone();
-                let boundless_market = boundless_market.clone();
+                let boundless_market = client.boundless_market.clone();
                 async move {
                     let order = client
                         .fetch_order(
@@ -846,7 +687,7 @@ where
                     let sig: Bytes = order.signature.as_bytes().into();
                     order.request.verify_signature(
                         &sig,
-                        args.config.boundless_market_address,
+                        client.deployment.boundless_market_address,
                         boundless_market.get_chain_id().await?,
                     )?;
                     let is_locked = boundless_market.is_locked(*request_id).await?;
@@ -874,10 +715,14 @@ where
             let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
             let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
             tracing::debug!("Submitting root {} to SetVerifier", order_fulfilled.root);
-            set_verifier.submit_merkle_root(order_fulfilled.root, order_fulfilled.seal).await?;
+            client
+                .set_verifier
+                .submit_merkle_root(order_fulfilled.root, order_fulfilled.seal)
+                .await?;
             tracing::debug!("Successfully submitted root to SetVerifier");
 
-            match boundless_market
+            match client
+                .boundless_market
                 .price_and_fulfill_batch(
                     requests_to_price,
                     signatures,
@@ -897,17 +742,8 @@ where
                 }
             }
         }
-        ProvingCommands::Lock { request_id, request_digest, tx_hash, order_stream_url } => {
+        ProvingCommands::Lock { request_id, request_digest, tx_hash } => {
             tracing::info!("Locking proof request 0x{:x}", request_id);
-            let client = ClientBuilder::new()
-                .with_private_key(args.config.private_key.clone())
-                .with_rpc_url(args.config.rpc_url.clone())
-                .with_boundless_market_address(args.config.boundless_market_address)
-                .with_set_verifier_address(args.config.set_verifier_address)
-                .with_order_stream_url(order_stream_url.clone())
-                .with_timeout(args.config.tx_timeout)
-                .build()
-                .await?;
 
             let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
             tracing::debug!("Fetched order details: {:?}", order.request);
@@ -915,48 +751,247 @@ where
             let sig: Bytes = order.signature.as_bytes().into();
             order.request.verify_signature(
                 &sig,
-                args.config.boundless_market_address,
-                boundless_market.get_chain_id().await?,
+                client.deployment.boundless_market_address,
+                client.boundless_market.get_chain_id().await?,
             )?;
 
-            boundless_market.lock_request(&order.request, &sig, None).await?;
+            client.boundless_market.lock_request(&order.request, &sig, None).await?;
             tracing::info!("Successfully locked request 0x{:x}", request_id);
             Ok(())
+        }
+        ProvingCommands::Benchmark { request_ids, bonsai_api_url, bonsai_api_key } => {
+            benchmark(client, request_ids, bonsai_api_url, bonsai_api_key).await
         }
     }
 }
 
-/// Submit an offer and create a proof request
-async fn submit_offer<P, S>(
-    client: Client<P, S>,
-    signer: &impl Signer,
-    args: &SubmitOfferArgs,
-) -> Result<()>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-    S: StorageProvider + Clone,
-{
-    // Read the YAML offer file
-    let file = File::open(&args.yaml_offer)
-        .context(format!("Failed to open offer file at {:?}", args.yaml_offer))?;
-    let reader = BufReader::new(file);
-    let mut offer: Offer =
-        serde_yaml::from_reader(reader).context("failed to parse offer from YAML")?;
-
-    // If set to 0, override the offer bidding_start field with the current timestamp + 30 seconds.
-    if offer.biddingStart == 0 {
-        // Adding a delay to bidding start lets provers see and evaluate the request
-        // before the price starts to ramp up
-        offer = Offer { biddingStart: now_timestamp() + 30, ..offer };
+/// Execute a proof request using the RISC Zero zkVM executor and measure performance
+async fn benchmark(
+    client: StandardClient,
+    request_ids: &[U256],
+    bonsai_api_url: &Option<String>,
+    bonsai_api_key: &Option<String>,
+) -> Result<()> {
+    tracing::info!("Starting benchmark for {} requests", request_ids.len());
+    if request_ids.is_empty() {
+        bail!("No request IDs provided");
     }
 
-    // Resolve the program and input from command line arguments.
-    let program: Cow<'static, [u8]> = std::fs::read(&args.program)
-        .context(format!("Failed to read program file at {:?}", args.program))?
-        .into();
+    const DEFAULT_BENTO_API_URL: &str = "http://localhost:8081";
+    if let Some(url) = bonsai_api_url.as_ref() {
+        tracing::info!("Using Bonsai endpoint: {}", url);
+    } else {
+        tracing::info!("Defaulting to Default Bento endpoint: {}", DEFAULT_BENTO_API_URL);
+        std::env::set_var("BONSAI_API_URL", DEFAULT_BENTO_API_URL);
+    };
+    if bonsai_api_key.is_none() {
+        tracing::debug!("Assuming Bento, setting BONSAI_API_KEY to empty string");
+        std::env::set_var("BONSAI_API_KEY", "");
+    }
+    let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
+
+    // Track performance metrics across all runs
+    let mut worst_khz = f64::MAX;
+    let mut worst_time = 0.0;
+    let mut worst_cycles = 0.0;
+    let mut worst_request_id = U256::ZERO;
+
+    // Check if we can connect to PostgreSQL using environment variables
+    let pg_connection_available = std::env::var("POSTGRES_USER").is_ok()
+        && std::env::var("POSTGRES_PASSWORD").is_ok()
+        && std::env::var("POSTGRES_DB").is_ok();
+
+    let pg_pool = if pg_connection_available {
+        match create_pg_pool().await {
+            Ok(pool) => {
+                tracing::info!("Successfully connected to PostgreSQL database");
+                Some(pool)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to connect to PostgreSQL database: {}", e);
+                None
+            }
+        }
+    } else {
+        tracing::warn!(
+            "PostgreSQL environment variables not found, using client-side metrics only. \
+            This will be less accurate for smaller proofs."
+        );
+        None
+    };
+
+    for (idx, request_id) in request_ids.iter().enumerate() {
+        tracing::info!(
+            "Benchmarking request {}/{}: 0x{:x}",
+            idx + 1,
+            request_ids.len(),
+            request_id
+        );
+
+        let order = client.fetch_order(*request_id, None, None).await?;
+        let request = order.request;
+
+        tracing::debug!("Fetched request 0x{:x}", request_id);
+        tracing::debug!("Image URL: {}", request.imageUrl);
+
+        // Fetch ELF and input
+        tracing::debug!("Fetching ELF from {}", request.imageUrl);
+        let elf = fetch_url(&request.imageUrl).await?;
+
+        tracing::debug!("Processing input");
+        let input = match request.input.inputType {
+            RequestInputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
+            RequestInputType::Url => {
+                let input_url = std::str::from_utf8(&request.input.data)
+                    .context("Input URL is not valid UTF-8")?;
+                tracing::debug!("Fetching input from {}", input_url);
+                GuestEnv::decode(&fetch_url(input_url).await?)?.stdin
+            }
+            _ => bail!("Unsupported input type"),
+        };
+
+        // Upload ELF
+        let image_id = compute_image_id(&elf)?.to_string();
+        prover.upload_img(&image_id, elf).await.unwrap();
+        tracing::debug!("Uploaded ELF to {}", image_id);
+
+        // Upload input
+        let input_id =
+            prover.upload_input(input).await.context("Failed to upload set-builder input")?;
+        tracing::debug!("Uploaded input to {}", input_id);
+
+        let assumptions = vec![];
+
+        // Start timing
+        let start_time = std::time::Instant::now();
+
+        let proof_id =
+            prover.create_session(image_id, input_id, assumptions.clone(), false).await?;
+        tracing::debug!("Created session {}", proof_id.uuid);
+
+        let (stats, elapsed_time) = loop {
+            let status = proof_id.status(&prover).await?;
+
+            match status.status.as_ref() {
+                "RUNNING" => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    continue;
+                }
+                "SUCCEEDED" => {
+                    let Some(stats) = status.stats else {
+                        bail!("Bento failed to return proof stats in response");
+                    };
+                    break (stats, status.elapsed_time);
+                }
+                _ => {
+                    let err_msg = status.error_msg.unwrap_or_default();
+                    bail!("snark proving failed: {err_msg}");
+                }
+            }
+        };
+
+        // Try to get effective KHz from PostgreSQL if available
+        let (total_cycles, elapsed_secs) = if let Some(ref pool) = pg_pool {
+            let total_cycles_query = r#"
+                SELECT (output->>'total_cycles')::FLOAT8
+                FROM tasks
+                WHERE task_id = 'init' AND job_id = $1::uuid
+            "#;
+
+            let elapsed_secs_query = r#"
+                SELECT EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at)))::FLOAT8
+                FROM tasks
+                WHERE job_id = $1::uuid
+            "#;
+
+            let total_cycles: f64 =
+                sqlx::query_scalar(total_cycles_query).bind(&proof_id.uuid).fetch_one(pool).await?;
+
+            let elapsed_secs: f64 =
+                sqlx::query_scalar(elapsed_secs_query).bind(&proof_id.uuid).fetch_one(pool).await?;
+
+            (total_cycles, elapsed_secs)
+        } else {
+            // Calculate the hz based on the duration and total cycles as observed by the client
+            tracing::debug!("No PostgreSQL data found for job, using client-side calculation.");
+            let total_cycles: f64 = stats.total_cycles as f64;
+            let elapsed_secs = start_time.elapsed().as_secs_f64();
+            (total_cycles, elapsed_secs)
+        };
+
+        let khz = (total_cycles / 1000.0) / elapsed_secs;
+
+        tracing::info!("KHz: {:.2} proved in {:.2}s", khz, elapsed_secs);
+
+        if let Some(time) = elapsed_time {
+            tracing::debug!("Server side time: {:?}", time);
+        }
+
+        // Track worst-case performance
+        if khz < worst_khz {
+            worst_khz = khz;
+            worst_time = elapsed_secs;
+            worst_cycles = total_cycles;
+            worst_request_id = *request_id;
+        }
+    }
+
+    if worst_cycles < 1_000_000.0 {
+        tracing::warn!("Worst case performance proof is one with less than 1M cycles, \
+            which might lead to a lower khz than expected. Benchmark using a larger proof if possible.");
+    }
+
+    // Report worst-case performance
+    tracing::info!("Worst-case performance:");
+    tracing::info!("  Request ID: 0x{:x}", worst_request_id);
+    tracing::info!("  Performance: {:.2} KHz", worst_khz);
+    tracing::info!("  Time: {:.2} seconds", worst_time);
+    tracing::info!("  Cycles: {}", worst_cycles);
+
+    println!("It is recommended to update this entry in broker.toml:");
+    println!("peak_prove_khz = {:.0}\n", worst_khz.round());
+    println!("Note: setting a lower value does not limit the proving speed, but will reduce the \
+              total throughput of the orders locked by the broker. It is recommended to set a value \
+              lower than this recommmendation, and increase it over time to increase capacity.");
+
+    Ok(())
+}
+
+/// Create a PostgreSQL connection pool using environment variables
+async fn create_pg_pool() -> Result<sqlx::PgPool> {
+    let user = std::env::var("POSTGRES_USER").context("POSTGRES_USER not set")?;
+    let password = std::env::var("POSTGRES_PASSWORD").context("POSTGRES_PASSWORD not set")?;
+    let db = std::env::var("POSTGRES_DB").context("POSTGRES_DB not set")?;
+    let host = "127.0.0.1";
+    let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
+
+    let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
+
+    sqlx::PgPool::connect(&connection_string).await.context("Failed to connect to PostgreSQL")
+}
+
+/// Submit an offer and create a proof request
+async fn submit_offer(
+    client: StandardClient,
+    signer: &impl Signer,
+    args: &SubmitOfferArgs,
+) -> Result<()> {
+    let request = client.new_request();
+
+    // Resolve the program from command line arguments.
+    let request = match (args.program.path.clone(), args.program.url.clone()) {
+        (Some(path), None) => {
+            let program: Cow<'static, [u8]> = std::fs::read(&path)
+                .context(format!("Failed to read program file at {:?}", args.program))?
+                .into();
+            request.with_program(program)
+        }
+        (None, Some(url)) => request.with_program_url(url).map_err(|e| match e {}).unwrap(),
+        _ => bail!("Exactly one of program path and program-url args must be provided"),
+    };
 
     // Process input based on provided arguments
-    let input: Vec<u8> = match (&args.input.input, &args.input.input_file) {
+    let stdin: Vec<u8> = match (&args.input.input, &args.input.input_file) {
         (Some(input), None) => input.as_bytes().to_vec(),
         (None, Some(input_file)) => std::fs::read(input_file)
             .context(format!("Failed to read input file at {:?}", input_file))?,
@@ -964,81 +999,34 @@ where
     };
 
     // Prepare the input environment
-    let input_env = InputBuilder::new();
-    let encoded_input = if args.encode_input {
-        input_env.write(&input)?.build_vec()?
+    let env = if args.encode_input {
+        GuestEnv::builder().write(&stdin)?
     } else {
-        input_env.write_slice(&input).build_vec()?
+        GuestEnv::builder().write_slice(&stdin)
     };
-
-    // Resolve the predicate from the command line arguments.
-    let predicate: Predicate = match (&args.reqs.journal_digest, &args.reqs.journal_prefix) {
-        (Some(digest), None) => Predicate {
-            predicateType: PredicateType::DigestMatch,
-            data: Bytes::copy_from_slice(Digest::from_hex(digest)?.as_bytes()),
-        },
-        (None, Some(prefix)) => Predicate {
-            predicateType: PredicateType::PrefixMatch,
-            data: Bytes::copy_from_slice(prefix.as_bytes()),
-        },
-        _ => bail!("Exactly one of journal-digest or journal-prefix args must be provided"),
-    };
+    let request = request.with_env(env);
 
     // Configure callback if provided
-    let callback = match (&args.reqs.callback_address, &args.reqs.callback_gas_limit) {
-        (Some(addr), Some(gas_limit)) => Callback { addr: *addr, gasLimit: U96::from(*gas_limit) },
-        _ => Callback::default(),
-    };
-
-    // Compute the image_id, then upload the program
-    tracing::info!("Uploading image...");
-    let elf_url = client.upload_program(&program).await?;
-    let image_id = B256::from(<[u8; 32]>::from(risc0_zkvm::compute_image_id(&program)?));
-
-    // Upload the input or prepare inline input
-    tracing::info!("Preparing input...");
-    let requirements_input = match args.inline_input {
-        false => client.upload_input(&encoded_input).await?.into(),
-        true => Input::inline(encoded_input),
-    };
-
-    // Set request id
-    let id = match args.id {
-        Some(id) => id,
-        None => client.boundless_market.index_from_rand().await?,
-    };
-
-    // Construct the request from its individual parts.
-    let mut request = ProofRequest::new(
-        RequestId::new(client.caller(), id),
-        Requirements { imageId: image_id, predicate, callback, selector: UNSPECIFIED_SELECTOR },
-        elf_url,
-        requirements_input,
-        offer.clone(),
-    );
-
-    if args.reqs.proof_type == ProofType::Groth16 {
-        request.requirements = request.requirements.with_groth16_proof();
+    let mut requirements = RequirementParams::builder();
+    if let Some(address) = args.requirements.callback_address {
+        requirements.callback_address(address);
+        if let Some(gas_limit) = args.requirements.callback_gas_limit {
+            requirements.callback_gas_limit(gas_limit);
+        }
     }
+    match args.requirements.proof_type {
+        // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
+        // risc0-ethereum. Add a Selector::inclusion_latest() function to risc0-ethereum and use it
+        // here.
+        ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_6 as u32),
+        ProofType::Groth16 => requirements.selector(Selector::Groth16V2_0 as u32),
+        ProofType::Any => &mut requirements,
+        ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty),
+    };
+    let request = request.with_requirements(requirements);
 
-    tracing::debug!("Request details: {}", serde_json::to_string_pretty(&request)?);
-
-    // Run preflight check if not disabled
-    if !args.no_preflight {
-        tracing::info!("Running request preflight check");
-        let session_info = execute(&request).await?;
-        let journal = session_info.journal.bytes;
-        ensure!(
-            request.requirements.predicate.eval(&journal),
-            "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
-            hex::encode(&journal),
-            request.requirements.predicate.predicateType,
-            hex::encode(&request.requirements.predicate.data)
-        );
-        tracing::info!("Preflight check passed");
-    } else {
-        tracing::warn!("Skipping preflight check");
-    }
+    let request = client.build_request(request).await.context("failed to build proof request")?;
+    tracing::debug!("Request details: {}", serde_yaml::to_string(&request)?);
 
     // Submit the request
     let (request_id, expires_at) = if args.offchain {
@@ -1046,12 +1034,12 @@ where
         client.submit_request_offchain_with_signer(&request, signer).await?
     } else {
         tracing::info!("Submitting request onchain");
-        client.submit_request_with_signer(&request, signer).await?
+        client.submit_request_onchain_with_signer(&request, signer).await?
     };
 
     tracing::info!(
         "Submitted request 0x{request_id:x}, bidding starts at {}",
-        convert_timestamp(offer.biddingStart)
+        convert_timestamp(request.offer.biddingStart)
     );
 
     // Wait for fulfillment if requested
@@ -1077,14 +1065,10 @@ struct SubmitOptions {
     wait: bool,
     offchain: bool,
     preflight: bool,
-    proof_type: ProofType,
-    callback_address: Option<Address>,
-    callback_gas_limit: Option<u64>,
 }
 
 /// Submit a proof request from a YAML file
 async fn submit_request<P, S>(
-    id: u32,
     request_path: impl AsRef<Path>,
     client: Client<P, S>,
     signer: &impl Signer,
@@ -1098,38 +1082,21 @@ where
     let file = File::open(request_path.as_ref())
         .context(format!("Failed to open request file at {:?}", request_path.as_ref()))?;
     let reader = BufReader::new(file);
-    let mut request_yaml: ProofRequest =
+    let mut request: ProofRequest =
         serde_yaml::from_reader(reader).context("Failed to parse request from YAML")?;
 
+    // Fill in some of the request parameters, this command supports filling a few of the request
+    // parameters that new need to updated on every reqeust. Namely, ID and bidding start.
+    //
     // If set to 0, override the offer bidding_start field with the current timestamp + 30s
-    if request_yaml.offer.biddingStart == 0 {
+    if request.offer.biddingStart == 0 {
         // Adding a delay to bidding start lets provers see and evaluate the request
         // before the price starts to ramp up
-        request_yaml.offer = Offer { biddingStart: now_timestamp() + 30, ..request_yaml.offer };
+        request.offer = Offer { biddingStart: now_timestamp() + 30, ..request.offer };
     }
-
-    // Create a new request with the provided ID
-    let mut request = ProofRequest::new(
-        RequestId::new(client.caller(), id),
-        request_yaml.requirements.clone(),
-        &request_yaml.imageUrl,
-        request_yaml.input,
-        request_yaml.offer,
-    );
-
-    // Use the original request id if it was set
-    if request_yaml.id != U256::ZERO {
-        request.id = request_yaml.id;
-    }
-
-    if opts.proof_type == ProofType::Groth16 {
-        request.requirements = request.requirements.with_groth16_proof();
-    }
-
-    // Configure callback if provided
-    request.requirements.callback = match (opts.callback_address, opts.callback_gas_limit) {
-        (Some(addr), Some(gas_limit)) => Callback { addr, gasLimit: U96::from(gas_limit) },
-        _ => Callback::default(),
+    if request.id == U256::ZERO {
+        request.id = client.boundless_market.request_id_from_rand().await?;
+        tracing::info!("Assigned request ID {:x}", request.id);
     };
 
     // Run preflight check if enabled
@@ -1141,9 +1108,9 @@ where
         // Verify image ID if available
         if let Some(claim) = session_info.receipt_claim {
             ensure!(
-                claim.pre.digest().as_bytes() == request_yaml.requirements.imageId.as_slice(),
+                claim.pre.digest().as_bytes() == request.requirements.imageId.as_slice(),
                 "Image ID mismatch: requirements ({}) do not match the given program ({})",
-                hex::encode(request_yaml.requirements.imageId),
+                hex::encode(request.requirements.imageId),
                 hex::encode(claim.pre.digest().as_bytes())
             );
         } else {
@@ -1170,7 +1137,7 @@ where
         client.submit_request_offchain_with_signer(&request, signer).await?
     } else {
         tracing::info!("Submitting request onchain");
-        client.submit_request_with_signer(&request, signer).await?
+        client.submit_request_onchain_with_signer(&request, signer).await?
     };
 
     tracing::info!(
@@ -1202,21 +1169,20 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     let program = fetch_url(&request.imageUrl).await?;
 
     tracing::info!("Processing input");
-    let input = match request.input.inputType {
-        InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
-        InputType::Url => {
+    let env = match request.input.inputType {
+        RequestInputType::Inline => GuestEnv::decode(&request.input.data)?,
+        RequestInputType::Url => {
             let input_url =
                 std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
             tracing::info!("Fetching input from {}", input_url);
-            GuestEnv::decode(&fetch_url(input_url).await?)?.stdin
+            GuestEnv::decode(&fetch_url(input_url).await?)?
         }
         _ => bail!("Unsupported input type"),
     };
 
     tracing::info!("Executing program in zkVM");
     r0vm_is_installed()?;
-    let env = ExecutorEnv::builder().write_slice(&input).build()?;
-    default_executor().execute(env, &program)
+    default_executor().execute(env.try_into()?, &program)
 }
 
 fn r0vm_is_installed() -> Result<()> {
@@ -1235,49 +1201,57 @@ fn now_timestamp() -> u64 {
 }
 
 /// Handle config command
-async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<()> {
+async fn handle_config_command(args: &MainArgs) -> Result<()> {
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");
 
     // Show configuration
     println!("RPC URL: {}", args.config.rpc_url);
-    if show_sensitive {
-        println!("Private Key: <available but cannot be displayed>");
-    } else {
-        println!("Private Key: <hidden> (use --show-sensitive to reveal)");
-    }
     println!("Wallet Address: {}", args.config.private_key.address());
-    println!("Boundless Market Address: {}", args.config.boundless_market_address);
-    println!("Verifier Address: {}", args.config.verifier_address);
-    println!("Set Verifier Address: {}", args.config.set_verifier_address);
     if let Some(timeout) = args.config.tx_timeout {
         println!("Transaction Timeout: {} seconds", timeout.as_secs());
     } else {
         println!("Transaction Timeout: <not set>");
     }
     println!("Log Level: {:?}", args.config.log_level);
+    if let Some(ref deployment) = args.config.deployment {
+        println!("Using custom Boundless deployment");
+        println!("Chain ID: {:?}", deployment.chain_id);
+        println!("Boundless Market Address: {}", deployment.boundless_market_address);
+        println!("Verifier Address: {:?}", deployment.verifier_router_address);
+        println!("Set Verifier Address: {}", deployment.set_verifier_address);
+        println!("Order Stream URL: {:?}", deployment.order_stream_url);
+    }
 
     // Validate RPC connection
     println!("\n=== Environment Validation ===\n");
     print!("Testing RPC connection... ");
     let wallet = EthereumWallet::from(args.config.private_key.clone());
-    let provider = ProviderBuilder::new().wallet(wallet).on_http(args.config.rpc_url.clone());
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(args.config.rpc_url.clone());
 
-    let rpc_ok = match provider.get_chain_id().await {
+    let chain_id = match provider.get_chain_id().await {
         Ok(chain_id) => {
             println!("✅ Connected to chain ID: {}", chain_id);
-            true
+            chain_id
         }
         Err(e) => {
             println!("❌ Failed to connect: {}", e);
-            false
+            // Do not run remaining checks, which require an RPC connection.
+            return Ok(());
         }
+    };
+
+    let Some(deployment) =
+        args.config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+    else {
+        println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
+        return Ok(());
     };
 
     // Check market contract
     print!("Testing Boundless Market contract... ");
     let boundless_market = BoundlessMarketService::new(
-        args.config.boundless_market_address,
+        deployment.boundless_market_address,
         provider.clone(),
         args.config.private_key.address(),
     );
@@ -1296,7 +1270,7 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
     // Check set verifier contract
     print!("Testing Set Verifier contract... ");
     let set_verifier = SetVerifierService::new(
-        args.config.set_verifier_address,
+        deployment.set_verifier_address,
         provider.clone(),
         args.config.private_key.address(),
     );
@@ -1312,40 +1286,44 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
         }
     };
 
-    let verifier_parameters =
-        SetInclusionReceiptVerifierParameters { image_id: Digest::from_bytes(*image_id) };
-    let selector: [u8; 4] = verifier_parameters.digest().as_bytes()[0..4].try_into()?;
-
-    // Build the call data:
-    // 1. Append the function selector for getVerifier(bytes4) ("3cadf449")
-    // 2. Append the ABI encoding for the bytes4 parameter (padded to 32 bytes)
-    let mut call_data = Vec::new();
-    call_data.extend_from_slice(&hex::decode("3cadf449")?);
-    call_data.extend_from_slice(&FixedBytes::from(selector).abi_encode());
-
     // Create a transaction request with the call data
-    let tx = TransactionRequest {
-        to: Some(TxKind::Call(args.config.verifier_address)),
-        input: TransactionInput::new(call_data.into()),
-        ..Default::default()
-    };
+    if let Some(verifier_router_address) = deployment.verifier_router_address {
+        let verifier_parameters =
+            SetInclusionReceiptVerifierParameters { image_id: Digest::from_bytes(*image_id) };
+        let selector: [u8; 4] = verifier_parameters.digest().as_bytes()[0..4].try_into()?;
 
-    // Check verifier contract
-    print!("Testing VerifierRouter contract... ");
-    let verifier_ok = match provider.call(tx).await {
-        Ok(_) => {
-            println!("✅ Contract responds");
-            true
-        }
-        Err(e) => {
-            println!("❌ Contract error: {}", e);
-            false
-        }
-    };
+        // Build the call data:
+        // 1. Append the function selector for getVerifier(bytes4) ("3cadf449")
+        // 2. Append the ABI encoding for the bytes4 parameter (padded to 32 bytes)
+        let mut call_data = Vec::new();
+        call_data.extend_from_slice(&hex::decode("3cadf449")?);
+        call_data.extend_from_slice(&FixedBytes::from(selector).abi_encode());
+        let tx = TransactionRequest {
+            to: Some(TxKind::Call(verifier_router_address)),
+            input: TransactionInput::new(call_data.into()),
+            ..Default::default()
+        };
+
+        // Check verifier contract
+        print!("Testing VerifierRouter contract... ");
+        match provider.call(tx).await {
+            Ok(_) => {
+                println!("✅ Contract responds");
+                true
+            }
+            Err(e) => {
+                println!("❌ Contract error: {}", e);
+                false
+            }
+        };
+    } else {
+        // Verifier router is recommended, but not required for most operations.
+        println!("⚠️Verifier router address not configured");
+    }
 
     println!(
         "\nEnvironment Setup: {}",
-        if rpc_ok && market_ok && verifier_ok { "✅ Ready to use" } else { "❌ Issues detected" }
+        if market_ok { "✅ Ready to use" } else { "❌ Issues detected" }
     );
 
     Ok(())
@@ -1354,6 +1332,11 @@ async fn handle_config_command(args: &MainArgs, show_sensitive: bool) -> Result<
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
+
+    use alloy::primitives::aliases::U96;
+    use boundless_market::contracts::{
+        Predicate, PredicateType, RequestId, RequestInput, Requirements,
+    };
 
     use super::*;
 
@@ -1367,11 +1350,8 @@ mod tests {
         selector::is_groth16_selector,
     };
     use boundless_market_test_utils::{
-        create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx,
+        create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx, ECHO_ID, ECHO_PATH,
     };
-    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-    use guest_util::{ECHO_ID, ECHO_PATH};
     use order_stream::{run_from_parts, AppState, ConfigBuilder};
     use sqlx::PgPool;
     use tempfile::tempdir;
@@ -1387,7 +1367,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             format!("file://{ECHO_PATH}"),
-            Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
@@ -1412,15 +1392,7 @@ mod tests {
     {
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(
-            &anvil,
-            SET_BUILDER_ID,
-            format!("file://{SET_BUILDER_PATH}"),
-            ASSESSOR_GUEST_ID,
-            format!("file://{ASSESSOR_GUEST_PATH}"),
-        )
-        .await
-        .unwrap();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
 
         let private_key = match owner {
             AccountOwner::Customer => {
@@ -1436,9 +1408,7 @@ mod tests {
         let config = GlobalConfig {
             rpc_url: anvil.endpoint_url(),
             private_key,
-            boundless_market_address: ctx.boundless_market_address,
-            verifier_address: ctx.verifier_address,
-            set_verifier_address: ctx.set_verifier_address,
+            deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
@@ -1453,10 +1423,9 @@ mod tests {
         TestCtx<impl Provider + WalletProvider + Clone + 'static>,
         AnvilInstance,
         GlobalConfig,
-        Url,
         JoinHandle<()>,
     ) {
-        let (ctx, anvil, global_config) = setup_test_env(owner).await;
+        let (mut ctx, anvil, mut global_config) = setup_test_env(owner).await;
 
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
@@ -1468,7 +1437,7 @@ mod tests {
 
         let config = ConfigBuilder::default()
             .rpc_url(anvil.endpoint_url())
-            .market_address(ctx.boundless_market_address)
+            .market_address(ctx.deployment.boundless_market_address)
             .domain(domain)
             .build()
             .unwrap();
@@ -1480,7 +1449,11 @@ mod tests {
             run_from_parts(order_stream_clone, listener).await.unwrap();
         });
 
-        (ctx, anvil, global_config, order_stream_url, order_stream_handle)
+        // Add the order_stream_url to the deployment config.
+        ctx.deployment.order_stream_url = Some(order_stream_url.to_string().into());
+        global_config.deployment = Some(ctx.deployment.clone());
+
+        (ctx, anvil, global_config, order_stream_handle)
     }
 
     #[tokio::test]
@@ -1653,16 +1626,11 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: "../../request.yaml".to_string().into(),
-                id: None,
                 wait: false,
                 offchain: false,
-                order_stream_url: None,
                 no_preflight: false,
-                proof_type: ProofType::Any,
-                callback_address: None,
-                callback_gas_limit: None,
             })),
         };
         run(&args).await.unwrap();
@@ -1673,7 +1641,7 @@ mod tests {
     #[sqlx::test]
     #[traced_test]
     async fn test_submit_request_offchain(pool: PgPool) {
-        let (ctx, _anvil, config, order_stream_url, order_stream_handle) =
+        let (ctx, _anvil, config, order_stream_handle) =
             setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
 
         // Deposit funds into the market
@@ -1683,16 +1651,11 @@ mod tests {
         let args = MainArgs {
             config,
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: "../../request.yaml".to_string().into(),
-                id: None,
                 wait: false,
                 offchain: true,
-                order_stream_url: Some(order_stream_url),
                 no_preflight: true,
-                proof_type: ProofType::Any,
-                callback_address: None,
-                callback_gas_limit: None,
             })),
         };
         run(&args).await.unwrap();
@@ -1711,29 +1674,26 @@ mod tests {
         // Submit a request onchain
         let args = MainArgs {
             config,
-            command: Command::Request(Box::new(RequestCommands::SubmitOffer(SubmitOfferArgs {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
-                yaml_offer: "../../offer.yaml".to_string().into(),
-                id: None,
-                wait: false,
-                offchain: false,
-                order_stream_url: None,
-                no_preflight: true,
-                encode_input: false,
-                inline_input: true,
-                input: SubmitOfferInput {
-                    input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),
-                    input_file: None,
+            command: Command::Request(Box::new(RequestCommands::SubmitOffer(Box::new(
+                SubmitOfferArgs {
+                    storage_config: StorageProviderConfig::dev_mode(),
+                    id: None,
+                    wait: false,
+                    offchain: false,
+                    encode_input: false,
+                    input: SubmitOfferInput {
+                        input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),
+                        input_file: None,
+                    },
+                    program: SubmitOfferProgram { path: Some(PathBuf::from(ECHO_PATH)), url: None },
+                    requirements: SubmitOfferRequirements {
+                        callback_address: None,
+                        callback_gas_limit: None,
+                        proof_type: ProofType::Any,
+                    },
+                    offer_params: OfferParams::default(),
                 },
-                program: PathBuf::from(ECHO_PATH),
-                reqs: SubmitOfferRequirements {
-                    journal_digest: None,
-                    journal_prefix: Some(String::default()),
-                    callback_address: None,
-                    callback_gas_limit: None,
-                    proof_type: ProofType::Any,
-                },
-            }))),
+            )))),
         };
         run(&args).await.unwrap();
         assert!(logs_contain("Submitting request onchain"));
@@ -1789,7 +1749,11 @@ mod tests {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         let client_sig = request
-            .sign_request(&ctx.customer_signer, ctx.boundless_market_address, anvil.chain_id())
+            .sign_request(
+                &ctx.customer_signer,
+                ctx.deployment.boundless_market_address,
+                anvil.chain_id(),
+            )
             .await
             .unwrap();
 
@@ -1849,8 +1813,9 @@ mod tests {
 
         let request_id = request.id;
 
-        // Dump the request to a tmp file
-        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
 
@@ -1858,16 +1823,11 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
-                id: None,
                 wait: false,
                 offchain: false,
-                order_stream_url: None,
                 no_preflight: true,
-                proof_type: ProofType::Any,
-                callback_address: None,
-                callback_gas_limit: None,
             })),
         })
         .await
@@ -1881,7 +1841,6 @@ mod tests {
                 request_id: Some(request_id),
                 request_digest: None,
                 tx_hash: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -1892,9 +1851,7 @@ mod tests {
         let prover_config = GlobalConfig {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.prover_signer.clone(),
-            boundless_market_address: ctx.boundless_market_address,
-            verifier_address: ctx.verifier_address,
-            set_verifier_address: ctx.set_verifier_address,
+            deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
@@ -1906,7 +1863,6 @@ mod tests {
                 request_id,
                 request_digest: None,
                 tx_hash: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -1932,7 +1888,6 @@ mod tests {
                 request_ids: vec![request_id],
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -2004,7 +1959,6 @@ mod tests {
                 request_ids: request_ids.clone(),
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -2035,41 +1989,41 @@ mod tests {
     async fn test_callback() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
-        let request = generate_request(
+        let mut request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
             &ctx.customer_signer.address(),
         );
 
-        // Dump the request to a tmp file
-        let request_path = tempdir().unwrap().into_path().join("request.yaml");
-        let request_file = File::create(&request_path).unwrap();
-        serde_yaml::to_writer(request_file, &request).unwrap();
-
         // Deploy MockCallback contract
         let callback_address = deploy_mock_callback(
             &ctx.prover_provider,
-            ctx.verifier_address,
-            ctx.boundless_market_address,
+            ctx.deployment.verifier_router_address.unwrap(),
+            ctx.deployment.boundless_market_address,
             ECHO_ID,
             U256::ZERO,
         )
         .await
         .unwrap();
 
+        // Update the request with the callback address
+        request.requirements.callback.addr = callback_address;
+        request.requirements.callback.gasLimit = U96::from(100000);
+
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
+        let request_file = File::create(&request_path).unwrap();
+        serde_yaml::to_writer(request_file, &request).unwrap();
+
         // send the request onchain
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
-                id: None,
                 wait: false,
                 offchain: false,
-                order_stream_url: None,
                 no_preflight: true,
-                proof_type: ProofType::Any,
-                callback_address: Some(callback_address),
-                callback_gas_limit: Some(100000),
             })),
         })
         .await
@@ -2082,7 +2036,6 @@ mod tests {
                 request_ids: vec![request.id],
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -2100,13 +2053,18 @@ mod tests {
     async fn test_selector() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
-        let request = generate_request(
+        let mut request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
             &ctx.customer_signer.address(),
         );
 
-        // Dump the request to a tmp file
-        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        // Explicitly set the selector to a compatible value for the test
+        // In dev mode, instead of Groth16V2_0, use FakeReceipt
+        request.requirements.selector = FixedBytes::from(Selector::FakeReceipt as u32);
+
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
 
@@ -2114,16 +2072,11 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
-                id: None,
                 wait: false,
                 offchain: false,
-                order_stream_url: None,
                 no_preflight: true,
-                proof_type: ProofType::Groth16,
-                callback_address: None,
-                callback_gas_limit: None,
             })),
         })
         .await
@@ -2136,7 +2089,6 @@ mod tests {
                 request_ids: vec![request.id],
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: None,
             })),
         })
         .await
@@ -2153,7 +2105,7 @@ mod tests {
     #[traced_test]
     #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_proving_offchain(pool: PgPool) {
-        let (ctx, anvil, config, order_stream_url, order_stream_handle) =
+        let (ctx, anvil, config, order_stream_handle) =
             setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
 
         // Deposit funds into the market
@@ -2166,8 +2118,9 @@ mod tests {
 
         let request_id = request.id;
 
-        // Dump the request to a tmp file
-        let request_path = tempdir().unwrap().into_path().join("request.yaml");
+        // Dump the request to a tmp file; tmp is deleted on drop.
+        let tmp = tempdir().unwrap();
+        let request_path = tmp.path().join("request.yaml");
         let request_file = File::create(&request_path).unwrap();
         serde_yaml::to_writer(request_file, &request).unwrap();
 
@@ -2175,16 +2128,11 @@ mod tests {
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Some(StorageProviderConfig::dev_mode()),
+                storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
-                id: None,
                 wait: false,
                 offchain: true,
-                order_stream_url: Some(order_stream_url.clone()),
                 no_preflight: true,
-                proof_type: ProofType::Any,
-                callback_address: None,
-                callback_gas_limit: None,
             })),
         })
         .await
@@ -2198,7 +2146,6 @@ mod tests {
                 request_id: Some(request_id),
                 request_digest: None,
                 tx_hash: None,
-                order_stream_url: Some(order_stream_url.clone()),
             })),
         })
         .await
@@ -2209,9 +2156,7 @@ mod tests {
         let prover_config = GlobalConfig {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.prover_signer.clone(),
-            boundless_market_address: ctx.boundless_market_address,
-            verifier_address: ctx.verifier_address,
-            set_verifier_address: ctx.set_verifier_address,
+            deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
@@ -2223,7 +2168,6 @@ mod tests {
                 request_id,
                 request_digest: None,
                 tx_hash: None,
-                order_stream_url: Some(order_stream_url.clone()),
             })),
         })
         .await
@@ -2237,7 +2181,6 @@ mod tests {
                 request_ids: vec![request_id],
                 request_digests: None,
                 tx_hashes: None,
-                order_stream_url: Some(order_stream_url),
             })),
         })
         .await

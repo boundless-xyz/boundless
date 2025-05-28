@@ -1,9 +1,29 @@
 name: bento
+# Anchors:
+x-base-environment: &base-environment
+  DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
+  REDIS_URL: redis://${REDIS_HOST:-redis}:6379
+  S3_URL: http://${MINIO_HOST:-minio}:9000
+  S3_BUCKET: ${MINIO_BUCKET:-workflow}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
+  RUST_LOG: ${RUST_LOG:-info}
+  RUST_BACKTRACE: 1
+
+x-agent-common: &agent-common
+  image: risczero/risc0-bento-agent:stable
+  restart: always
+  depends_on:
+    - postgres
+    - redis
+    - minio
+  environment:
+    <<: *base-environment
 
 services:
   redis:
-    hostname: ${REDIS_HOST}
-    image: ${REDIS_IMG}
+    hostname: ${REDIS_HOST:-redis}
+    image: ${REDIS_IMG:-redis:7.2.5-alpine3.19}
     restart: always
     ports:
       - 6379:6379
@@ -11,24 +31,24 @@ services:
       - redis-data:/data
 
   postgres:
-    hostname: ${POSTGRES_HOST}
-    image: ${POSTGRES_IMG}
+    hostname: ${POSTGRES_HOST:-postgres}
+    image: ${POSTGRES_IMG:-postgres:16.3-bullseye}
     restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-taskdb}
+      POSTGRES_USER: ${POSTGRES_USER:-worker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     expose:
-      - '${POSTGRES_PORT}'
+      - '${POSTGRES_PORT:-5432}'
     ports:
-      - '${POSTGRES_PORT}:${POSTGRES_PORT}'
+      - '${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}'
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    command: -p ${POSTGRES_PORT}
+    command: -p ${POSTGRES_PORT:-5432}
 
   minio:
-    hostname: ${MINIO_HOST}
-    image: ${MINIO_IMG}
+    hostname: ${MINIO_HOST:-minio}
+    image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
     ports:
       - '9000:9000'
       - '9001:9001'
@@ -36,9 +56,9 @@ services:
       - minio-data:/data
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASS}
-      - MINIO_DEFAULT_BUCKETS=${MINIO_BUCKET}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASS:-password}
+      - MINIO_DEFAULT_BUCKETS=${MINIO_BUCKET:-workflow}
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -46,7 +66,7 @@ services:
       retries: 5
 
   grafana:
-    image: ${GRAFANA_IMG}
+    image: ${GRAFANA_IMG:-grafana/grafana:11.0.0}
     restart: unless-stopped
     ports:
      - '3000:3000'
@@ -54,11 +74,11 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_LOG_LEVEL=WARN
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASS=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-taskdb}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER:-worker}
+      - POSTGRES_PASS=${POSTGRES_PASSWORD:-password}
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
     volumes:
       - ./dockerfiles/grafana:/etc/grafana/provisioning/
@@ -71,92 +91,32 @@ services:
 
 
   exec_agent:
-    image: agent
+    <<: *agent-common
     runtime: nvidia
-    restart: always
-    depends_on:
-      - postgres
-      - redis
-      - minio
-
-    build:
-      context: .
-      dockerfile: dockerfiles/agent.dockerfile
-      # NOTE: we build a single image for all agents so specify the GPU flags here
-      # TODO: can we clean this up / make it more logical?
-      args:
-        NVCC_APPEND_FLAGS: "--gpu-architecture=compute_86 --gpu-code=compute_86,sm_86 --generate-code arch=compute_86,code=sm_86"
-        CUDA_OPT_LEVEL: 1
 
     mem_limit: 4G
     cpus: 4
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      REDIS_URL: redis://${REDIS_HOST}:6379
-      S3_URL: http://${MINIO_HOST}:9000
-      S3_BUCKET: ${MINIO_BUCKET}
-      # TODO: create a lower perm user on startup of minio to use for agents
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS}
-      RUST_LOG: ${RUST_LOG}
-      RUST_BACKTRACE: 1
-      RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2}
-      # Enable / disable along with gpu_*_agent*
+      <<: *base-environment
+      RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
       # JOIN_STREAM: 1
       # COPROC_STREAM: 1
-
-    entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE}
+    entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
 
   aux_agent:
-    image: agent
+    <<: *agent-common
     runtime: nvidia
-    pull_policy: never
-    restart: always
-    depends_on:
-      - postgres
-      - redis
-      - minio
-
     mem_limit: 256M
     cpus: 1
 
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      REDIS_URL: redis://${REDIS_HOST}:6379
-      S3_URL: http://${MINIO_HOST}:9000
-      S3_BUCKET: ${MINIO_BUCKET}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS}
-      RUST_LOG: ${RUST_LOG}
-      RUST_BACKTRACE: 1
-
-    # NOTE: if adding more aux workers, only one needs --monitor-requeue (for task reaping)
     entrypoint: /app/agent -t aux --monitor-requeue
 
-  gpu_prove_agent0: &gpu
-    image: agent
+  gpu_prove_agent0:
+    <<: *agent-common
     runtime: nvidia
-    pull_policy: never
-    restart: always
-    depends_on:
-      - postgres
-      - redis
-      - minio
-
     mem_limit: 4G
     cpus: 4
-
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      REDIS_URL: redis://${REDIS_HOST}:6379
-      S3_URL: http://${MINIO_HOST}:9000
-      S3_BUCKET: ${MINIO_BUCKET}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS}
-      RUST_LOG: ${RUST_LOG}
-      RUST_BACKTRACE: 1
-
     entrypoint: /app/agent -t prove
 
     # comment-out if running in CPU proving mode
@@ -170,8 +130,8 @@ services:
               capabilities: [gpu]
 
   # gpu_prove_agent1:
-  #   <<: *gpu
-
+  #   <<: *agent-common
+  #   runtime: nvidia
   #   deploy:
   #     resources:
   #       reservations:
@@ -182,41 +142,23 @@ services:
 
 
   # gpu_join_agent0:
-  #   <<: *gpu
+  #   <<: *agent-common
+  #   runtime: nvidia
   #   mem_limit: 2G
   #   cpus: 2
   #   entrypoint: /app/agent -t join
 
   # gpu_coproc_agent0:
-  #   <<: *gpu
+  #   <<: *agent-common
+  #   runtime: nvidia
   #   mem_limit: 2G
   #   cpus: 2
   #   entrypoint: /app/agent -t coproc
 
 
   snark_agent:
-    image: agent
+    <<: *agent-common
     runtime: nvidia
-
-    pull_policy: never
-
-    restart: always
-
-    depends_on:
-      - postgres
-      - redis
-      - minio
-
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      REDIS_URL: redis://${REDIS_HOST}:6379
-      S3_URL: http://${MINIO_HOST}:9000
-      S3_BUCKET: ${MINIO_BUCKET}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS}
-      RUST_LOG: ${RUST_LOG}
-      RUST_BACKTRACE: 1
-
     entrypoint: /app/agent -t snark
 
     ulimits:
@@ -225,26 +167,17 @@ services:
       stack: 90000000
 
   rest_api:
+    image: risczero/risc0-bento-rest-api:stable
     restart: always
     depends_on:
       - postgres
       - minio
 
-    build:
-      context: .
-      dockerfile: dockerfiles/rest_api.dockerfile
-
     mem_limit: 1G
     cpus: 1
 
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      S3_URL: http://${MINIO_HOST}:9000
-      S3_BUCKET: ${MINIO_BUCKET}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASS}
-      RUST_LOG: ${RUST_LOG}
-      RUST_BACKTRACE: 1
+      <<: *base-environment
 
     ports:
       - '8081:8081'

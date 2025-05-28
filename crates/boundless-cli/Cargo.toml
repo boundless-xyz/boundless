@@ -22,7 +22,6 @@ boundless-market = { workspace = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
-dotenvy = { workspace = true }
 futures = { version = "0.3" }
 hex = { workspace = true }
 libc = "0.2.159"
@@ -34,6 +33,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 shadow-rs = { version = "1.1", default-features = false }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
@@ -48,9 +48,6 @@ name = "boundless-ffi"
 [dev-dependencies]
 boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
-guest-util = { workspace = true }
 order-stream = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tempfile = { workspace = true }

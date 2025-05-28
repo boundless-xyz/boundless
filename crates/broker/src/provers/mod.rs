@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bonsai_sdk::SdkErr;
-use boundless_market::input::InputBuilder;
+use boundless_market::input::GuestEnv;
 use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -88,7 +88,7 @@ pub struct ProofResult {
 
 /// Encode inputs for Prover::upload_slice()
 pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Error> {
-    Ok(InputBuilder::new().write(input)?.stdin)
+    Ok(GuestEnv::builder().write(input)?.stdin)
 }
 
 #[async_trait]

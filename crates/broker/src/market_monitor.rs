@@ -19,16 +19,17 @@ use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService, IBoundlessMarket, RequestId, RequestStatus,
     },
-    order_stream_client::Client as OrderStreamClient,
+    order_stream_client::OrderStreamClient,
 };
 use futures_util::StreamExt;
+use tokio::sync::mpsc;
 
 use crate::{
     chain_monitor::ChainMonitorService,
-    db::DbError,
+    db::{DbError, DbObj},
     errors::{impl_coded_debug, CodedError},
     task::{RetryRes, RetryTask, SupervisorErr},
-    DbObj, FulfillmentType, Order,
+    FulfillmentType, OrderRequest,
 };
 use thiserror::Error;
 
@@ -36,18 +37,26 @@ const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
 
 #[derive(Error)]
 pub enum MarketMonitorErr {
-    #[error("{code} Event polling failed: {0}", code = self.code())]
+    #[error("{code} Event polling failed: {0:?}", code = self.code())]
     EventPollingErr(anyhow::Error),
 
-    #[error("{code} Unexpected error: {0}", code = self.code())]
+    #[error("{code} Log processing failed: {0:?}", code = self.code())]
+    LogProcessingFailed(anyhow::Error),
+
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
+
+    #[error("{code} Receiver dropped", code = self.code())]
+    ReceiverDropped,
 }
 
 impl CodedError for MarketMonitorErr {
     fn code(&self) -> &str {
         match self {
             MarketMonitorErr::EventPollingErr(_) => "[B-MM-501]",
+            MarketMonitorErr::LogProcessingFailed(_) => "[B-MM-502]",
             MarketMonitorErr::UnexpectedErr(_) => "[B-MM-500]",
+            MarketMonitorErr::ReceiverDropped => "[B-MM-502]",
         }
     }
 }
@@ -62,6 +71,7 @@ pub struct MarketMonitor<P> {
     chain_monitor: Arc<ChainMonitorService<P>>,
     prover_addr: Address,
     order_stream: Option<OrderStreamClient>,
+    new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
 }
 
 sol! {
@@ -77,6 +87,7 @@ impl<P> MarketMonitor<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         lookback_blocks: u64,
         market_addr: Address,
@@ -85,6 +96,7 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
         prover_addr: Address,
         order_stream: Option<OrderStreamClient>,
+        new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Self {
         Self {
             lookback_blocks,
@@ -94,6 +106,7 @@ where
             chain_monitor,
             prover_addr,
             order_stream,
+            new_order_tx,
         }
     }
 
@@ -125,8 +138,8 @@ where
         lookback_blocks: u64,
         market_addr: Address,
         provider: Arc<P>,
-        db: DbObj,
         chain_monitor: Arc<ChainMonitorService<P>>,
+        new_order_tx: &tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<u64, MarketMonitorErr> {
         let current_block = chain_monitor.current_block_number().await?;
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
@@ -173,19 +186,8 @@ where
                 .await
                 .context("Failed to get transaction by hash")?
                 .context("Missing transaction data")?;
-            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
+            let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input())
                 .context("Failed to decode calldata")?;
-            let order_exists = match db.order_exists_with_request_id(request_id).await {
-                Ok(val) => val,
-                Err(err) => {
-                    tracing::error!("Failed to check if order exists in db: {err:?}");
-                    continue;
-                }
-            };
-            // TODO(#162) Handle the case where multiple requests share an ID.
-            if order_exists {
-                continue;
-            }
 
             let req_status =
                 match market.get_status(request_id, Some(calldata.request.expires_at())).await {
@@ -211,24 +213,24 @@ where
             };
 
             tracing::info!(
-                "Found open order: {:x} with request status: {:?}, adding to database with fulfillment type: {:?}",
+                "Found open order: {:x} with request status: {:?}, preparing to process with fulfillment type: {:?}",
                 calldata.request.id,
                 req_status,
                 fulfillment_type
             );
-            if let Err(err) = db
-                .add_order(Order::new(
-                    calldata.request.clone(),
-                    calldata.clientSignature.clone(),
-                    fulfillment_type,
-                    market_addr,
-                    chain_id,
-                ))
+
+            let new_order = OrderRequest::new(
+                calldata.request.clone(),
+                calldata.clientSignature.clone(),
+                fulfillment_type,
+                market_addr,
+                chain_id,
+            );
+
+            new_order_tx
+                .send(Box::new(new_order))
                 .await
-            {
-                tracing::error!("Failed to insert order in to database: {err:?}");
-                continue;
-            }
+                .map_err(|_| MarketMonitorErr::ReceiverDropped)?;
             order_count += 1;
         }
 
@@ -240,7 +242,7 @@ where
     async fn monitor_orders(
         market_addr: Address,
         provider: Arc<P>,
-        db: DbObj,
+        new_order_tx: mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<(), MarketMonitorErr> {
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
 
@@ -267,15 +269,17 @@ where
                             provider.clone(),
                             market_addr,
                             chain_id,
-                            &db,
+                            &new_order_tx,
                         )
                         .await
                         {
-                            tracing::error!("Failed to process event log: {err:?}");
+                            let event_err = MarketMonitorErr::LogProcessingFailed(err);
+                            tracing::error!("Failed to process event log: {event_err:?}");
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch event log: {:?}", err);
+                        let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
+                        tracing::warn!("Failed to fetch event log: {event_err:?}");
                     }
                 }
             })
@@ -292,6 +296,7 @@ where
         prover_addr: Address,
         provider: Arc<P>,
         db: DbObj,
+        new_order_tx: mpsc::Sender<Box<OrderRequest>>,
         order_stream: Option<OrderStreamClient>,
     ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
@@ -337,9 +342,9 @@ where
                         if event.prover != prover_addr {
                             // Try to get from market first. If the request was submitted via the order stream, we will be unable to find it there.
                             // In that case we check the order stream.
-                            let mut order: Option<Order> = None;
+                            let mut order: Option<OrderRequest> = None;
                             if let Ok((proof_request, signature)) = market.get_submitted_request(event.requestId, None).await {
-                                order = Some(Order::new(
+                                order = Some(OrderRequest::new(
                                     proof_request,
                                     signature,
                                     FulfillmentType::FulfillAfterLockExpire,
@@ -350,7 +355,7 @@ where
                                 if let Ok(order_stream_order) = order_stream.fetch_order(event.requestId, None).await {
                                     let proof_request = order_stream_order.request;
                                     let signature = order_stream_order.signature;
-                                    order = Some(Order::new(
+                                    order = Some(OrderRequest::new(
                                         proof_request,
                                         signature.as_bytes().into(),
                                         FulfillmentType::FulfillAfterLockExpire,
@@ -360,25 +365,18 @@ where
                                 }
                             }
 
-                            if order.is_none() {
-                                tracing::warn!("Failed to get order from market or order stream for locked request {:x}. Unable to evaluate for fulfillment after lock expires.", event.requestId);
-                                return;
-                            }
-
-                            let order = order.unwrap();
-                            if let Err(e) = db.add_order(order.clone()).await {
-                                tracing::error!("Failed to add order {} to database with fulfillment type: {:?}: {e:?}", order.id(), FulfillmentType::FulfillAfterLockExpire);
+                            if let Some(order) = order {
+                                if let Err(e) = new_order_tx.send(Box::new(order)).await {
+                                    tracing::error!("Failed to send order locked by another prover, {:x}: {e:?}", event.requestId);
+                                }
                             } else {
-                                tracing::info!(
-                                    "Added order {:x} to database with fulfillment type: {:?}",
-                                    event.requestId,
-                                    FulfillmentType::FulfillAfterLockExpire
-                                );
+                                tracing::warn!("Failed to get order from market or order stream for locked request {:x}. Unable to evaluate for fulfillment after lock expires.", event.requestId);
                             }
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch RequestLocked event log: {:?}", err);
+                        let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
+                        tracing::warn!("Failed to fetch RequestLocked event log: {event_err:?}");
                     }
                 }
             })
@@ -431,7 +429,8 @@ where
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to fetch RequestFulfilled event log: {:?}", err);
+                        let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
+                        tracing::warn!("Failed to fetch RequestFulfilled event log: {event_err:?}");
                     }
                 }
             })
@@ -448,7 +447,7 @@ where
         provider: Arc<P>,
         market_addr: Address,
         chain_id: u64,
-        db: &DbObj,
+        new_order_tx: &tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<()> {
         tracing::info!("Detected new request {:x}", event.requestId);
 
@@ -456,7 +455,7 @@ where
         let tx_data =
             provider.get_transaction_by_hash(tx_hash).await?.context("Missing transaction data")?;
 
-        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input(), true)
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(tx_data.input())
             .context("Failed to decode calldata")?;
 
         // Check the request id flag to determine if the request is smart contract signed. If so we verify the
@@ -477,8 +476,7 @@ where
                 .call()
                 .await
             {
-                Ok(res) => {
-                    let magic_value = res.magicValue;
+                Ok(magic_value) => {
                     if magic_value != ERC1271_MAGIC_VALUE {
                         tracing::warn!("Invalid ERC1271 signature for request 0x{:x}, contract: {} returned magic value: 0x{:x}", calldata.request.id, request_id.addr, magic_value);
                         return Ok(());
@@ -499,27 +497,23 @@ where
             return Ok(()); // Return early without propagating the error if signature verification fails.
         }
 
-        if let Err(err) = db
-            .add_order(Order::new(
-                calldata.request.clone(),
-                calldata.clientSignature.clone(),
-                FulfillmentType::LockAndFulfill,
-                market_addr,
-                chain_id,
-            ))
-            .await
-        {
-            match err {
-                DbError::SqlUniqueViolation(_) => {
-                    tracing::warn!("Duplicate order detected {:x}: {err:?}", calldata.request.id);
-                }
-                _ => {
-                    tracing::error!(
-                        "Failed to add new order into DB {:x}: {err:?}",
-                        calldata.request.id
-                    );
-                }
-            }
+        let new_order = OrderRequest::new(
+            calldata.request.clone(),
+            calldata.clientSignature.clone(),
+            FulfillmentType::LockAndFulfill,
+            market_addr,
+            chain_id,
+        );
+
+        let order_id = new_order.request.id;
+        if let Err(e) = new_order_tx.send(Box::new(new_order)).await {
+            tracing::error!(
+                "Failed to send new on-chain order {:x} to OrderPicker: {}",
+                order_id,
+                e
+            );
+        } else {
+            tracing::debug!("Sent new on-chain order {:x} to OrderPicker via channel.", order_id);
         }
         Ok(())
     }
@@ -534,10 +528,11 @@ where
         let lookback_blocks = self.lookback_blocks;
         let market_addr = self.market_addr;
         let provider = self.provider.clone();
-        let db = self.db.clone();
-        let chain_monitor = self.chain_monitor.clone();
-        let order_stream = self.order_stream.clone();
         let prover_addr = self.prover_addr;
+        let chain_monitor = self.chain_monitor.clone();
+        let new_order_tx = self.new_order_tx.clone();
+        let db = self.db.clone();
+        let order_stream = self.order_stream.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up market monitor");
@@ -546,8 +541,8 @@ where
                 lookback_blocks,
                 market_addr,
                 provider.clone(),
-                db.clone(),
                 chain_monitor,
+                &new_order_tx,
             )
             .await
             .map_err(|err| {
@@ -556,7 +551,7 @@ where
             })?;
 
             tokio::select! {
-                Err(err) = Self::monitor_orders(market_addr, provider.clone(), db.clone()) => {
+                Err(err) = Self::monitor_orders(market_addr, provider.clone(), new_order_tx.clone()) => {
                     tracing::warn!("Monitor for new orders failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
@@ -564,7 +559,7 @@ where
                     tracing::warn!("Monitor for order fulfillments failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
-                Err(err) = Self::monitor_order_locks(market_addr, prover_addr, provider.clone(), db.clone(), order_stream.clone()) => {
+                Err(err) = Self::monitor_order_locks(market_addr, prover_addr, provider.clone(), db, new_order_tx, order_stream) => {
                     tracing::warn!("Monitor for order locks failed, restarting.");
                     Err(SupervisorErr::Recover(err))
                 }
@@ -588,17 +583,15 @@ mod tests {
     use boundless_market::{
         contracts::{
             boundless_market::BoundlessMarketService, hit_points::default_allowance,
-            AssessorReceipt, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-            Requirements,
+            AssessorReceipt, Offer, Predicate, PredicateType, ProofRequest, RequestInput,
+            RequestInputType, Requirements,
         },
-        input::InputBuilder,
+        input::GuestEnv,
     };
     use boundless_market_test_utils::{
-        create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx,
+        create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx, ASSESSOR_GUEST_ID,
+        ASSESSOR_GUEST_PATH, ECHO_ID,
     };
-    use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-    use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-    use guest_util::ECHO_ID;
     use risc0_zkvm::sha::Digest;
 
     #[tokio::test]
@@ -639,7 +632,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             imageUrl: "test".to_string(),
-            input: Input { inputType: InputType::Url, data: Default::default() },
+            input: RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             offer: Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(max_price),
@@ -661,12 +654,15 @@ mod tests {
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
 
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(16);
         let orders =
-            MarketMonitor::find_open_orders(2, market_address, provider, db, chain_monitor)
+            MarketMonitor::find_open_orders(2, market_address, provider, chain_monitor, &order_tx)
                 .await
                 .unwrap();
         assert_eq!(orders, 1);
+
+        order_rx.try_recv().unwrap();
+        assert!(order_rx.try_recv().is_err());
     }
 
     #[tokio::test]
@@ -685,9 +681,18 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn());
+        let (order_tx, _order_rx) = tokio::sync::mpsc::channel(16);
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let market_monitor =
-            MarketMonitor::new(1, Address::ZERO, provider, db, chain_monitor, Address::ZERO, None);
+        let market_monitor = MarketMonitor::new(
+            1,
+            Address::ZERO,
+            provider,
+            db,
+            chain_monitor,
+            Address::ZERO,
+            None,
+            order_tx,
+        );
 
         let block_time = market_monitor.get_block_time().await.unwrap();
         assert_eq!(block_time, 2);
@@ -699,15 +704,7 @@ mod tests {
         // Setup anvil
         let anvil = Anvil::new().spawn();
 
-        let ctx = create_test_ctx(
-            &anvil,
-            SET_BUILDER_ID,
-            format!("file://{SET_BUILDER_PATH}"),
-            ASSESSOR_GUEST_ID,
-            format!("file://{ASSESSOR_GUEST_PATH}"),
-        )
-        .await
-        .unwrap();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
 
         let eip712_domain = eip712_domain! {
             name: "IBoundlessMarket",
@@ -736,7 +733,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let inputs = tx_data.input();
-        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+        let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
         let request = calldata.request;
         let customer_sig = calldata.clientSignature;
@@ -786,7 +783,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://image_uri.null",
-            InputBuilder::new().build_inline().unwrap(),
+            GuestEnv::builder().build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

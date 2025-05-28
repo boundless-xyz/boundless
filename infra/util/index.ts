@@ -1,5 +1,21 @@
 export enum ChainId {
   SEPOLIA = "11155111",
+  BASE = "8453",
+}
+
+export const getChainId = (chainId: string): ChainId => {
+  if (chainId === "11155111") {
+    return ChainId.SEPOLIA;
+  }
+  if (chainId === "8453") {
+    return ChainId.BASE;
+  }
+  throw new Error(`Invalid chain ID: ${chainId}`);
+};
+
+export enum Stage {
+  STAGING = "staging",
+  PROD = "prod",
 }
 
 export const getEnvVar = (name: string) => {

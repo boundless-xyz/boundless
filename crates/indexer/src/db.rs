@@ -7,7 +7,7 @@ use std::{str::FromStr, sync::Arc};
 use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
-    AssessorReceipt, Fulfillment, InputType, PredicateType, ProofRequest,
+    AssessorReceipt, Fulfillment, PredicateType, ProofRequest, RequestInputType,
 };
 use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
@@ -33,10 +33,10 @@ impl TxMetadata {
 
 #[derive(Error, Debug)]
 pub enum DbError {
-    #[error("SQL error")]
+    #[error("SQL error {0:?}")]
     SqlErr(#[from] sqlx::Error),
 
-    #[error("SQL Migration error")]
+    #[error("SQL Migration error {0:?}")]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
     #[error("Invalid block number: {0}")]
@@ -54,13 +54,19 @@ pub trait IndexerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
 
+    async fn add_block(&self, block_numb: u64, block_timestamp: u64) -> Result<(), DbError>;
+    async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
+
     async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError>;
 
     async fn add_proof_request(
         &self,
         request_digest: B256,
         request: ProofRequest,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError>;
+
+    async fn has_proof_request(&self, request_digest: B256) -> Result<bool, DbError>;
 
     async fn add_assessor_receipt(
         &self,
@@ -154,7 +160,7 @@ pub type DbObj = Arc<dyn IndexerDb + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct AnyDb {
-    pool: AnyPool,
+    pub pool: AnyPool,
 }
 
 impl AnyDb {
@@ -173,6 +179,10 @@ impl AnyDb {
         sqlx::migrate!().run(&pool).await?;
 
         Ok(Self { pool })
+    }
+
+    pub fn pool(&self) -> &AnyPool {
+        &self.pool
     }
 }
 
@@ -210,6 +220,33 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
+    async fn add_block(&self, block_numb: u64, block_timestamp: u64) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO blocks (block_number, block_timestamp) VALUES ($1, $2)
+         ON CONFLICT (block_number) DO NOTHING",
+        )
+        .bind(block_numb as i64)
+        .bind(block_timestamp as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError> {
+        let result = sqlx::query("SELECT block_timestamp FROM blocks WHERE block_number = $1")
+            .bind(block_numb as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = result {
+            let block_timestamp: i64 = row.get(0);
+            Ok(Some(block_timestamp as u64))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError> {
         sqlx::query(
             "INSERT INTO transactions (
@@ -230,10 +267,20 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
+    async fn has_proof_request(&self, request_digest: B256) -> Result<bool, DbError> {
+        let result = sqlx::query("SELECT 1 FROM proof_requests WHERE request_digest = $1")
+            .bind(format!("{:x}", request_digest))
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(result.is_some())
+    }
+
     async fn add_proof_request(
         &self,
         request_digest: B256,
         request: ProofRequest,
+        metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         let predicate_type = match request.requirements.predicate.predicateType {
             PredicateType::DigestMatch => "DigestMatch",
@@ -241,8 +288,8 @@ impl IndexerDb for AnyDb {
             _ => return Err(DbError::BadTransaction("Invalid predicate type".to_string())),
         };
         let input_type = match request.input.inputType {
-            InputType::Inline => "Inline",
-            InputType::Url => "Url",
+            RequestInputType::Inline => "Inline",
+            RequestInputType::Url => "Url",
             _ => return Err(DbError::BadTransaction("Invalid input type".to_string())),
         };
 
@@ -265,8 +312,11 @@ impl IndexerDb for AnyDb {
                 bidding_start,
                 expires_at,
                 lock_end,
-                ramp_up_period
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                ramp_up_period,
+                tx_hash,
+                block_number,
+                block_timestamp
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             ON CONFLICT (request_digest) DO NOTHING",
         )
         .bind(format!("{:x}", request_digest))
@@ -287,6 +337,9 @@ impl IndexerDb for AnyDb {
         .bind((request.offer.biddingStart + request.offer.timeout as u64)  as i64)
         .bind((request.offer.biddingStart + request.offer.lockTimeout as u64)  as i64)
         .bind(request.offer.rampUpPeriod as i64)
+        .bind(format!("{:x}", metadata.tx_hash))
+        .bind(metadata.block_number as i64)
+        .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -479,9 +532,19 @@ impl IndexerDb for AnyDb {
         let result =
             sqlx::query("SELECT prover_address FROM request_locked_events WHERE request_id = $1")
                 .bind(format!("{:x}", request_id))
-                .fetch_one(&self.pool)
+                .fetch_optional(&self.pool)
                 .await?;
-        let prover_address: String = result.try_get("prover_address")?;
+        // TODO: Improve this
+        // If for some reason due to a gap in the db that is missing the associated locked request event,
+        // we set the prover address to zero.
+        let prover_address =
+            result.map(|row| row.try_get("prover_address")).transpose()?.unwrap_or_else(|| {
+                tracing::warn!(
+                    "Missing request locked event for slashed event for request id: {:x}",
+                    request_id
+                );
+                format!("{:x}", Address::ZERO)
+            });
         sqlx::query(
             "INSERT INTO prover_slashed_events (
                 request_id, 
@@ -659,8 +722,8 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment, Input, Offer, Predicate, PredicateType, ProofRequest,
-        RequestId, Requirements,
+        AssessorReceipt, Fulfillment, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+        RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
 
@@ -673,7 +736,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "https://image_url.dev",
-            Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
@@ -729,8 +792,8 @@ mod tests {
 
         let request_digest = B256::ZERO;
         let request = generate_request(0, &Address::ZERO);
-
-        db.add_proof_request(request_digest, request.clone()).await.unwrap();
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        db.add_proof_request(request_digest, request.clone(), &metadata).await.unwrap();
 
         // Verify proof request was added
         let result = sqlx::query("SELECT * FROM proof_requests WHERE request_digest = $1")
@@ -739,6 +802,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", request.id));
+    }
+
+    #[tokio::test]
+    async fn test_has_proof_request() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let request_digest = B256::ZERO;
+        let non_existent_digest = B256::from([1; 32]);
+        let request = generate_request(0, &Address::ZERO);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        // Initially, both digests should not exist
+        assert!(!db.has_proof_request(request_digest).await.unwrap());
+        assert!(!db.has_proof_request(non_existent_digest).await.unwrap());
+
+        // Add a proof request
+        db.add_proof_request(request_digest, request, &metadata).await.unwrap();
+
+        // Now the added request should exist, but the non-existent one should not
+        assert!(db.has_proof_request(request_digest).await.unwrap());
+        assert!(!db.has_proof_request(non_existent_digest).await.unwrap());
     }
 
     #[tokio::test]

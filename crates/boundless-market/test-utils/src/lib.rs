@@ -16,22 +16,25 @@ use alloy::{
     network::EthereumWallet,
     node_bindings::AnvilInstance,
     primitives::{Address, Bytes, FixedBytes},
-    providers::{ext::AnvilApi, Provider, ProviderBuilder, WalletProvider},
+    providers::{ext::AnvilApi, fillers::ChainIdFiller, Provider, ProviderBuilder, WalletProvider},
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
+    transports::http::reqwest::Url,
 };
 use alloy_primitives::{B256, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use anyhow::{Context, Ok, Result};
-use boundless_market::contracts::{
-    boundless_market::BoundlessMarketService,
-    bytecode::*,
-    hit_points::{default_allowance, HitPointsService},
-    AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
+use boundless_market::{
+    contracts::{
+        boundless_market::BoundlessMarketService,
+        bytecode::*,
+        hit_points::{default_allowance, HitPointsService},
+        AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
+    },
+    deployments::Deployment,
+    dynamic_gas_filler::DynamicGasFiller,
+    nonce_layer::NonceProvider,
 };
-use guest_assessor::ASSESSOR_GUEST_ID;
-use guest_set_builder::SET_BUILDER_ID;
-use guest_util::ECHO_ID;
 use risc0_aggregation::{
     merkle_path, merkle_root, GuestState, SetInclusionReceipt,
     SetInclusionReceiptVerifierParameters,
@@ -45,11 +48,22 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 
+// Export image IDs and paths publicly to ensure all dependants use the same ones.
+pub use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+pub use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
+pub use guest_util::{
+    ECHO_ELF, ECHO_ID, ECHO_PATH, IDENTITY_ELF, IDENTITY_ID, IDENTITY_PATH, LOOP_ELF, LOOP_ID,
+    LOOP_PATH,
+};
+
+/// Re-export of the boundless_market crate, which can be used to avoid dependency issues when
+/// writing tests in the boundless_market crate itself, where two version of boundless_market end
+/// up in the Cargo dependency tree due to the way cycle-breaking works.
+pub use boundless_market;
+
+#[non_exhaustive]
 pub struct TestCtx<P> {
-    pub verifier_address: Address,
-    pub set_verifier_address: Address,
-    pub hit_points_address: Address,
-    pub boundless_market_address: Address,
+    pub deployment: Deployment,
     pub prover_signer: PrivateKeySigner,
     pub customer_signer: PrivateKeySigner,
     pub prover_provider: P,
@@ -183,8 +197,7 @@ pub async fn deploy_mock_callback<P: Provider>(
 
 pub async fn get_mock_callback_count(provider: &impl Provider, address: Address) -> Result<U256> {
     let instance = MockCallback::MockCallbackInstance::new(address, provider);
-    let count = instance.getCallCount().call().await?;
-    Ok(count._0)
+    Ok(instance.getCallCount().call().await?)
 }
 
 pub async fn deploy_contracts(
@@ -265,36 +278,26 @@ pub async fn deploy_contracts(
 // with a RiscZeroGroth16Verifier otherwise.
 pub async fn create_test_ctx(
     anvil: &AnvilInstance,
-    set_builder_id: impl Into<Digest>,
-    set_builder_url: String,
-    assessor_guest_id: impl Into<Digest>,
-    assessor_guest_url: String,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
-    create_test_ctx_with_rpc_url(
-        anvil,
-        &anvil.endpoint(),
-        set_builder_id,
-        set_builder_url,
-        assessor_guest_id,
-        assessor_guest_url,
-    )
-    .await
+    create_test_ctx_with_rpc_url(anvil, &anvil.endpoint()).await
 }
 
 pub async fn create_test_ctx_with_rpc_url(
     anvil: &AnvilInstance,
     rpc_url: &str,
-    set_builder_id: impl Into<Digest>,
-    set_builder_url: String,
-    assessor_guest_id: impl Into<Digest>,
-    assessor_guest_url: String,
 ) -> Result<TestCtx<impl Provider + WalletProvider + Clone + 'static>> {
+    // NOTE: There may be use cases for making these configurable, but its not obviously the case.
+    let set_builder_id = Digest::from(SET_BUILDER_ID);
+    let set_builder_url = format!("file://{SET_BUILDER_PATH}");
+    let assessor_guest_id = Digest::from(ASSESSOR_GUEST_ID);
+    let assessor_guest_url = format!("file://{ASSESSOR_GUEST_PATH}");
+
     let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
         deploy_contracts(
             anvil,
-            set_builder_id.into(),
+            set_builder_id,
             set_builder_url,
-            assessor_guest_id.into(),
+            assessor_guest_id,
             assessor_guest_url,
         )
         .await
@@ -304,18 +307,37 @@ pub async fn create_test_ctx_with_rpc_url(
     let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
     let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
-    let prover_provider = ProviderBuilder::new()
-        .wallet(EthereumWallet::from(prover_signer.clone()))
-        .connect(rpc_url)
-        .await?;
-    let customer_provider = ProviderBuilder::new()
-        .wallet(EthereumWallet::from(customer_signer.clone()))
-        .connect(rpc_url)
-        .await?;
-    let verifier_provider = ProviderBuilder::new()
-        .wallet(EthereumWallet::from(verifier_signer.clone()))
-        .connect(rpc_url)
-        .await?;
+    let dynamic_gas_filler = DynamicGasFiller::new(
+        0.2,  // 20% increase of gas limit
+        0.05, // 5% increase of gas_price per pending transaction
+        2.0,  // 2x max gas multiplier
+        prover_signer.address(),
+    );
+    let base_prover_provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .filler(ChainIdFiller::default())
+        .filler(dynamic_gas_filler)
+        .connect_http(Url::parse(rpc_url).unwrap());
+    let prover_provider =
+        NonceProvider::new(base_prover_provider, EthereumWallet::from(prover_signer.clone()));
+
+    let dynamic_gas_filler = DynamicGasFiller::new(0.2, 0.05, 2.0, customer_signer.address());
+    let base_customer_provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .filler(ChainIdFiller::default())
+        .filler(dynamic_gas_filler)
+        .connect_http(Url::parse(rpc_url).unwrap());
+    let customer_provider =
+        NonceProvider::new(base_customer_provider, EthereumWallet::from(customer_signer.clone()));
+
+    let dynamic_gas_filler = DynamicGasFiller::new(0.2, 0.05, 2.0, verifier_signer.address());
+    let base_verifier_provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .filler(ChainIdFiller::default())
+        .filler(dynamic_gas_filler)
+        .connect_http(Url::parse(rpc_url).unwrap());
+    let verifier_provider =
+        NonceProvider::new(base_verifier_provider, EthereumWallet::from(verifier_signer.clone()));
 
     let prover_market = BoundlessMarketService::new(
         boundless_market_addr,
@@ -344,10 +366,13 @@ pub async fn create_test_ctx_with_rpc_url(
     hit_points_service.mint(prover_signer.address(), default_allowance()).await?;
 
     Ok(TestCtx {
-        verifier_address: verifier_addr,
-        set_verifier_address: set_verifier_addr,
-        hit_points_address: hit_points_addr,
-        boundless_market_address: boundless_market_addr,
+        deployment: Deployment::builder()
+            .chain_id(anvil.chain_id())
+            .boundless_market_address(boundless_market_addr)
+            .verifier_router_address(verifier_addr)
+            .set_verifier_address(set_verifier_addr)
+            .stake_token_address(hit_points_addr)
+            .build()?,
         prover_signer,
         customer_signer,
         prover_provider,

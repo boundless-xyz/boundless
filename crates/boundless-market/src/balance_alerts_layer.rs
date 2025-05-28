@@ -169,8 +169,10 @@ mod tests {
             error_threshold: Some(parse_ether("5").unwrap()),
         });
 
-        let provider =
-            ProviderBuilder::new().layer(balance_alerts_layer).wallet(wallet).on_client(client);
+        let provider = ProviderBuilder::new()
+            .layer(balance_alerts_layer)
+            .wallet(wallet)
+            .connect_client(client);
 
         burn_eth(&provider, parse_ether("0.5").unwrap()).await?;
         assert!(!logs_contain("< warning threshold")); // no log yet
@@ -198,8 +200,10 @@ mod tests {
             error_threshold: None,
         });
 
-        let provider =
-            ProviderBuilder::new().layer(balance_alerts_layer).wallet(wallet).on_client(client);
+        let provider = ProviderBuilder::new()
+            .layer(balance_alerts_layer)
+            .wallet(wallet)
+            .connect_client(client);
 
         // no warning or error logs should be emitted
         burn_eth(&provider, parse_ether("0.5").unwrap()).await?;

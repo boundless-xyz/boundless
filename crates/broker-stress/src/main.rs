@@ -19,17 +19,14 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Input, InputType, Offer, Predicate, PredicateType,
-        ProofRequest, RequestId, Requirements,
+        hit_points::default_allowance, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+        RequestInput, RequestInputType, Requirements,
     },
-    input::InputBuilder,
+    input::GuestEnv,
 };
-use boundless_market_test_utils::{create_test_ctx_with_rpc_url, TestCtx};
+use boundless_market_test_utils::{create_test_ctx_with_rpc_url, TestCtx, ECHO_ELF, ECHO_ID};
 use broker::test_utils::BrokerBuilder;
 use clap::Parser;
-use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::{ECHO_ELF, ECHO_ID};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use risc0_zkp::core::digest::Digest;
 use tempfile::NamedTempFile;
@@ -86,9 +83,9 @@ async fn request_spawner<P: Provider>(
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             program_url,
-            Input {
-                inputType: InputType::Inline,
-                data: InputBuilder::new()
+            RequestInput {
+                inputType: RequestInputType::Inline,
+                data: GuestEnv::builder()
                     .write_slice(&vec![0x41u8; r.random_range(1..32)])
                     .build_vec()
                     .unwrap()
@@ -164,16 +161,9 @@ async fn main() -> Result<()> {
 
     // Setup test context
     let ctx = Arc::new(
-        create_test_ctx_with_rpc_url(
-            &anvil,
-            &rpc_url,
-            SET_BUILDER_ID,
-            format!("file://{SET_BUILDER_PATH}"),
-            ASSESSOR_GUEST_ID,
-            format!("file://{ASSESSOR_GUEST_PATH}"),
-        )
-        .await
-        .context("Failed to create test context")?,
+        create_test_ctx_with_rpc_url(&anvil, &rpc_url)
+            .await
+            .context("Failed to create test context")?,
     );
     let (broker_task, _config_file) =
         spawn_broker(&ctx, Url::parse(&rpc_url).unwrap(), &args.database_url).await?;

@@ -32,6 +32,7 @@ jobs:
       - foundry
       - examples
       - docker
+      - infra
       - rust-pkg-check
       - docs-rs
 
@@ -46,7 +47,7 @@ jobs:
   rust:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
     needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
+    if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
     services:
       postgres:
         image: postgres:latest
@@ -106,15 +107,16 @@ jobs:
         run: cargo check --locked --all-targets
 
       - name: cargo doc
+        env:
+          RUSTFLAGS: "-Dwarnings"
+          RISC0_SKIP_BUILD: 1
         run: cargo doc --locked
 
-        # NOTE: We set boundless-order-generator/zeth to ensure the Zeth order generator at least passes cargo clippy.
-        # This flag is not set for build or test since building Zeth is quite slow.
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
-        run: cargo clippy --locked --all-targets -F boundless-order-generator/zeth
+        run: cargo clippy --locked --all-targets
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
@@ -272,7 +274,7 @@ jobs:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
   # Check that cargo publish can package the boundless-market crate
-  check-pusblish:
+  check-publish:
     runs-on: [ self-hosted, Linux, X64, prod, cpu ]
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
@@ -421,6 +423,38 @@ jobs:
       - name: docker compose build
         run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
 
+  infra:
+    runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    needs: files-changed
+    if: needs.files-changed.outputs.infra == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history
+
+      - name: Install Pulumi
+        uses: pulumi/setup-pulumi@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run build for changed packages
+        run: |
+          for file in $(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | grep "^infra/"); do
+            # Get the package directory (the directory containing package.json)
+            package_dir=$(dirname "$file")
+            if [ -f "$package_dir/package.json" ]; then
+              echo "Building package in $package_dir"
+              cd "$package_dir"
+              npm install
+              npm run build
+              cd -
+            fi
+          done
+
   files-changed:
     runs-on: ubuntu-latest
     outputs:
@@ -428,6 +462,7 @@ jobs:
       main:      ${{ steps.changes.outputs.main }}
       examples:  ${{ steps.changes.outputs.examples }}
       docs:      ${{ steps.changes.outputs.docs }}
+      infra:     ${{ steps.changes.outputs.infra }}
 
     steps:
       - name: checkout code
@@ -458,4 +493,7 @@ jobs:
               - 'crates/**'
               - 'contracts/**'
               - 'documentation/**'
+            # Changes to infrastructure code
+            infra:
+              - 'infra/**'
 

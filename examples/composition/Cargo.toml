@@ -9,23 +9,20 @@ edition = "2021"
 
 [workspace.dependencies]
 # Intra-workspace dependencies
-guest-assessor = { path = "../../crates/guest/assessor" }
 guest-util = { path = "../../crates/guest/util" }
 boundless-market = { path = "../../crates/boundless-market" }
 boundless-market-test-utils = { path = "../../crates/boundless-market/test-utils" }
 broker = { path = "../../crates/broker" }
 
 # risc0 monorepo dependencies.
-risc0-zkvm = { version = "2.0.1", default-features = false }
+risc0-zkvm = { version = "2.0.2", default-features = false }
 
 # risc0-ethereum dependencies.
-guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", tag = "aggregation-v0.6.0" }
-risc0-ethereum-contracts = { version = "2.0.2" }
+risc0-ethereum-contracts = "2.1"
 
-alloy = { version = "0.12" }
+alloy = { version = "0.15" }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env"] }
-dotenvy = "0.15"
 postcard = "1.0"
 test-log = { version = "0.2", features = ["trace"] }
 tokio = { version = "1" }

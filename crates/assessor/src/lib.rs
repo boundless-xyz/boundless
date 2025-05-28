@@ -16,7 +16,7 @@
 
 #![deny(missing_docs)]
 
-use alloy_primitives::{Address, Keccak256, PrimitiveSignature, SignatureError};
+use alloy_primitives::{Address, Keccak256, Signature, SignatureError};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use boundless_market::contracts::{EIP712DomainSaltless, ProofRequest, RequestError};
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
@@ -70,7 +70,7 @@ impl Fulfillment {
     /// Verifies the signature of the request.
     pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32], Error> {
         let hash = self.request.eip712_signing_hash(domain);
-        let signature = PrimitiveSignature::try_from(self.signature.as_slice())?;
+        let signature = Signature::try_from(self.signature.as_slice())?;
         // NOTE: This could be optimized by accepting the public key as input, checking it against
         // the address, and using it to verify the signature instead of recovering the
         // public key. It would save ~1M cycles.
@@ -170,8 +170,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest, RequestId,
-        Requirements,
+        eip712_domain, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
+        RequestInputType, Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -189,7 +189,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
             ),
             "test",
-            Input { inputType: InputType::Url, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
                 maxPrice: U256::from(10),

@@ -3,12 +3,16 @@ import * as aws from "@pulumi/aws";
 import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
 import { BasePipelineArgs } from "./base";
 
-interface ProverPipelineArgs extends BasePipelineArgs {}
+interface ProverPipelineArgs extends BasePipelineArgs { }
 
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "prover";
 // The branch that we should deploy from on push.
 const BRANCH_NAME = "main";
+// SSM Document Name for updating the EC2 Bento Prover
+const bentoBrokerInstanceIdStackOutputKey = "bentoBrokerInstanceId";
+const updateBentoBrokerPulumiOutputKey = "bentoBrokerUpdateCommandId";
+
 // The buildspec for the CodeBuild project that deploys our Pulumi stacks to the staging and prod accounts.
 // Note in pre-build we assume the deployment role for the given account before running pulumi commands, so
 // that we deploy to the target account.
@@ -41,6 +45,14 @@ const BUILD_SPEC = `
           - pulumi stack select $STACK_NAME
           - pulumi cancel --yes
           - pulumi up --yes
+      post_build:
+        commands:
+          - echo "Updating EC2 Bento Prover"
+          - export SSM_DOCUMENT_NAME=$(pulumi stack output ${updateBentoBrokerPulumiOutputKey})
+          - export INSTANCE_ID=$(pulumi stack output ${bentoBrokerInstanceIdStackOutputKey})
+          - echo "INSTANCE_ID $INSTANCE_ID"
+          - echo "SSM_DOCUMENT_NAME $SSM_DOCUMENT_NAME"
+          - aws ssm send-command --document-name $SSM_DOCUMENT_NAME --targets "Key=InstanceIds,Values=$INSTANCE_ID" --cloud-watch-output-config CloudWatchOutputEnabled=true
     `;
 
 export class ProverPipeline extends pulumi.ComponentResource {
@@ -57,7 +69,7 @@ export class ProverPipeline extends pulumi.ComponentResource {
       secretId: githubTokenSecret.id,
       secretString: githubToken,
     });
-    
+
     new aws.secretsmanager.SecretVersion(`${APP_NAME}-dockerTokenVersion`, {
       secretId: dockerTokenSecret.id,
       secretString: dockerToken,
@@ -83,9 +95,15 @@ export class ProverPipeline extends pulumi.ComponentResource {
       { dependsOn: [role] }
     );
 
-    const prodDeployment = new aws.codebuild.Project(
-      `${APP_NAME}-prod-build`,
-      this.codeBuildProjectArgs(APP_NAME, "prod", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+    const prodDeploymentEthSepolia = new aws.codebuild.Project(
+      `${APP_NAME}-prod-11155111-build`,
+      this.codeBuildProjectArgs(APP_NAME, "prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+      { dependsOn: [role] }
+    );
+
+    const prodDeploymentBaseMainnet = new aws.codebuild.Project(
+      `${APP_NAME}-prod-8453-build`,
+      this.codeBuildProjectArgs(APP_NAME, "prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
       { dependsOn: [role] }
     );
 
@@ -99,18 +117,18 @@ export class ProverPipeline extends pulumi.ComponentResource {
         {
           name: "Github",
           actions: [{
-              name: "Github",
-              category: "Source",
-              owner: "AWS",
-              provider: "CodeStarSourceConnection",
-              version: "1",
-              outputArtifacts: ["source_output"],
-              configuration: {
-                  ConnectionArn: connection.arn,
-                  FullRepositoryId: "boundless-xyz/boundless",
-                  BranchName: BRANCH_NAME,
-                  OutputArtifactFormat: "CODEBUILD_CLONE_REF"
-              },
+            name: "Github",
+            category: "Source",
+            owner: "AWS",
+            provider: "CodeStarSourceConnection",
+            version: "1",
+            outputArtifacts: ["source_output"],
+            configuration: {
+              ConnectionArn: connection.arn,
+              FullRepositoryId: "boundless-xyz/boundless",
+              BranchName: BRANCH_NAME,
+              OutputArtifactFormat: "CODEBUILD_CLONE_REF"
+            },
           }],
         },
         {
@@ -134,25 +152,39 @@ export class ProverPipeline extends pulumi.ComponentResource {
         {
           name: "DeployProduction",
           actions: [
-            { name: "ApproveDeployToProduction", 
-              category: "Approval", 
-              owner: "AWS", 
-              provider: "Manual", 
-              version: "1", 
+            {
+              name: "ApproveDeployToProduction",
+              category: "Approval",
+              owner: "AWS",
+              provider: "Manual",
+              version: "1",
               runOrder: 1,
               configuration: {}
             },
             {
-              name: "DeployProduction",
+              name: "DeployProductionEthSepolia",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
               runOrder: 2,
               configuration: {
-                ProjectName: prodDeployment.name
+                ProjectName: prodDeploymentEthSepolia.name
               },
-              outputArtifacts: ["production_output"],
+              outputArtifacts: ["production_output_eth_sepolia"],
+              inputArtifacts: ["source_output"],
+            },
+            {
+              name: "DeployProductionBaseMainnet",
+              category: "Build",
+              owner: "AWS",
+              provider: "CodeBuild",
+              version: "1",
+              runOrder: 2,
+              configuration: {
+                ProjectName: prodDeploymentBaseMainnet.name
+              },
+              outputArtifacts: ["production_output_base_mainnet"],
               inputArtifacts: ["source_output"],
             }
           ]
@@ -194,12 +226,12 @@ export class ProverPipeline extends pulumi.ComponentResource {
   }
 
   private codeBuildProjectArgs(
-    appName: string, 
-    stackName: string, 
-    role: aws.iam.Role, 
-    serviceAccountRoleArn: string, 
-    dockerUsername: string, 
-    dockerTokenSecret: aws.secretsmanager.Secret, 
+    appName: string,
+    stackName: string,
+    role: aws.iam.Role,
+    serviceAccountRoleArn: string,
+    dockerUsername: string,
+    dockerTokenSecret: aws.secretsmanager.Secret,
     githubTokenSecret: aws.secretsmanager.Secret
   ): aws.codebuild.ProjectArgs {
     return {
@@ -227,12 +259,12 @@ export class ProverPipeline extends pulumi.ComponentResource {
             type: "PLAINTEXT",
             value: appName
           },
-          { 
+          {
             name: "GITHUB_TOKEN",
             type: "SECRETS_MANAGER",
             value: githubTokenSecret.name
           },
-          { 
+          {
             name: "DOCKER_USERNAME",
             type: "PLAINTEXT",
             value: dockerUsername

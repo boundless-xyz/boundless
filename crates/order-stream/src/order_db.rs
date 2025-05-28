@@ -21,22 +21,22 @@ pub enum OrderDbErr {
     #[error("Missing env var {0}")]
     MissingEnv(&'static str),
 
-    #[error("Invalid DB_POOL_SIZE")]
+    #[error("Invalid DB_POOL_SIZE {0}")]
     InvalidPoolSize(#[from] std::num::ParseIntError),
 
     #[error("Address not found: {0}")]
     AddrNotFound(Address),
 
-    #[error("Migrations failed")]
+    #[error("Migrations failed {0}")]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
-    #[error("sqlx error")]
+    #[error("sqlx error {0}")]
     SqlErr(#[from] sqlx::Error),
 
     #[error("No rows effected when expected: {0}")]
     NoRows(&'static str),
 
-    #[error("Json serialization error")]
+    #[error("Json serialization error {0}")]
     JsonErr(#[from] serde_json::Error),
 }
 
@@ -261,8 +261,8 @@ impl OrderDb {
 mod tests {
     use alloy::{primitives::U256, signers::local::LocalSigner, sol_types::SolStruct};
     use boundless_market::contracts::{
-        eip712_domain, Input, InputType, Offer, Predicate, PredicateType, ProofRequest,
-        Requirements,
+        eip712_domain, Offer, Predicate, PredicateType, ProofRequest, RequestInput,
+        RequestInputType, Requirements,
     };
     use futures_util::StreamExt;
     use risc0_zkvm::sha::Digest;
@@ -280,7 +280,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             imageUrl: "test".to_string(),
-            input: Input { inputType: InputType::Url, data: Default::default() },
+            input: RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             offer: Offer {
                 minPrice: U256::from(0),
                 maxPrice: U256::from(1),

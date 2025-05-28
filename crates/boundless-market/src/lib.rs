@@ -23,36 +23,66 @@
 #[cfg(not(target_os = "zkvm"))]
 pub use alloy;
 
-#[cfg(not(target_os = "zkvm"))]
 /// A ProviderLayer module.
 ///
 /// It can be added to an alloy Provider to log warnings and errors
 /// when the balance of a given address falls below certain thresholds.
-pub mod balance_alerts_layer;
 #[cfg(not(target_os = "zkvm"))]
+pub mod balance_alerts_layer;
+
 /// Client module for interacting with the Boundless Market API.
+#[cfg(not(target_os = "zkvm"))]
 pub mod client;
+#[cfg(not(target_os = "zkvm"))]
+pub use client::{Client, StandardClient};
+
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
 #[cfg(not(target_os = "zkvm"))]
+/// Dynamic gas filler module.
+pub mod dynamic_gas_filler;
+#[cfg(not(target_os = "zkvm"))]
+pub use contracts::boundless_market::BoundlessMarketService;
+pub use contracts::{Offer, ProofRequest, RequestId, RequestInput, Requirements};
+
+/// Configs for deployments of the Boundless Market (e.g. contract addresses, URLs, etc).
+#[cfg(not(target_os = "zkvm"))]
+pub mod deployments;
+#[cfg(not(target_os = "zkvm"))]
+pub use deployments::Deployment;
+
 /// Input module for serializing input.
+#[cfg(not(target_os = "zkvm"))]
 pub mod input;
 #[cfg(not(target_os = "zkvm"))]
-/// Order stream client module for submitting requests off-chain.
-pub mod order_stream_client;
-#[cfg(not(target_os = "zkvm"))]
-/// Selector module implementing utility functions for supported selectors.
-pub mod selector;
-#[cfg(not(target_os = "zkvm"))]
-/// Storage module for interacting with the storage provider.
-pub mod storage;
+pub use input::{GuestEnv, GuestEnvBuilder};
 
-/// A very small utility function to get the current unix timestamp.
-// TODO(#379): Avoid drift relative to the chain's timestamps.
+/// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]
-pub(crate) fn now_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
+pub mod order_stream_client;
+
+#[cfg(not(target_os = "zkvm"))]
+/// A ProviderLayer module for managing nonces with semaphores.
+pub mod nonce_layer;
+#[cfg(not(target_os = "zkvm"))]
+pub use order_stream_client::OrderStreamClient;
+
+/// Module providing functionality to build requests.
+#[cfg(not(target_os = "zkvm"))]
+pub mod request_builder;
+
+/// Selector module implementing utility functions for supported selectors.
+#[cfg(not(target_os = "zkvm"))]
+pub mod selector;
+
+/// Storage module for interacting with the storage provider.
+#[cfg(not(target_os = "zkvm"))]
+pub mod storage;
+#[cfg(not(target_os = "zkvm"))]
+pub use storage::{StandardStorageProvider, StorageProvider, StorageProviderConfig};
+
+/// Utility functions and types used elsewhere.
+pub(crate) mod util;
+pub use util::NotProvided;
+#[cfg(not(target_os = "zkvm"))]
+pub use util::StandardRpcProvider;

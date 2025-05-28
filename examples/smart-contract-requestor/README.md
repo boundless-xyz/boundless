@@ -9,14 +9,14 @@ This is a useful pattern for enabling DAO-like entities to receive proofs to dri
 In this simple example, our Smart Contract Requestor agrees to pay for one proof of the Echo guest per day. For each day, it additionally requires that the input to the guest is an integer representing the number of days since the unix epoch.
 
 See `apps/src/main.rs` for logic for constructing the proof request.
-See `contracts/src/SmartContractClient.sol` for the client logic that validates the request and authorizes payment.
+See `contracts/src/SmartContractRequestor.sol` for the client logic that validates the request and authorizes payment.
 
 # How it works
 
 ### Entities
 
 - Request Builder
-  - Responsible for building the proof request and submitting it to the market. This is a fully permissionless role. Request builders are expected to be incentivized to fufill this role outside of the Boundless protocol.
+  - Responsible for building the proof request and submitting it to the market. This is a fully permissionless role. Request builders are expected to be incentivized to fulfill this role outside of the Boundless protocol.
 - Smart Contract Requestor
   - An ERC-1271 contract that contains the logic for authorizing a proof request, and has deposited funds to Boundless Market for fulfilling requests.
 - Provers

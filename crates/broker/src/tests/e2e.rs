@@ -13,16 +13,16 @@ use alloy::{
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, Input, Offer, Predicate, PredicateType,
-        ProofRequest, RequestId, Requirements,
+        hit_points::default_allowance, Callback, Offer, Predicate, PredicateType, ProofRequest,
+        RequestId, RequestInput, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
 };
-use boundless_market_test_utils::{create_test_ctx, deploy_mock_callback, get_mock_callback_count};
-use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::{ECHO_ELF, ECHO_ID};
+use boundless_market_test_utils::{
+    create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_GUEST_PATH, ECHO_ELF,
+    ECHO_ID, SET_BUILDER_PATH,
+};
 use risc0_zkvm::{is_dev_mode, sha::Digest};
 use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
@@ -51,7 +51,7 @@ fn generate_request(
         RequestId::new(*addr, id),
         requirements,
         image_url,
-        Input::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+        RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
         offer.unwrap_or(Offer {
             minPrice: parse_ether("0.02").unwrap(),
             maxPrice: parse_ether("0.04").unwrap(),
@@ -64,11 +64,11 @@ fn generate_request(
     )
 }
 
-async fn new_config(min_batch_size: u64) -> NamedTempFile {
+async fn new_config(min_batch_size: u32) -> NamedTempFile {
     new_config_with_min_deadline(min_batch_size, 100).await
 }
 
-async fn new_config_with_min_deadline(min_batch_size: u64, min_deadline: u64) -> NamedTempFile {
+async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> NamedTempFile {
     let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let mut config = Config::default();
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -119,6 +119,7 @@ fn broker_args(
         rpc_retry_max: 0,
         rpc_retry_backoff: 200,
         rpc_retry_cu: 1000,
+        log_json: false,
     }
 }
 
@@ -147,15 +148,7 @@ async fn simple_e2e() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -168,8 +161,8 @@ async fn simple_e2e() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -213,15 +206,7 @@ async fn simple_e2e_with_callback() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -233,8 +218,8 @@ async fn simple_e2e_with_callback() {
     // Deploy MockCallback contract
     let callback_address = deploy_mock_callback(
         &ctx.prover_provider,
-        ctx.verifier_address,
-        ctx.boundless_market_address,
+        ctx.deployment.verifier_router_address.expect("verifier_router_address should be set"),
+        ctx.deployment.boundless_market_address,
         ECHO_ID,
         U256::ZERO,
     )
@@ -247,8 +232,8 @@ async fn simple_e2e_with_callback() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -307,15 +292,7 @@ async fn e2e_fulfill_after_lock_expiry() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let locker_market = ctx.customer_market.clone();
     let locker_signer = ctx.customer_signer.clone();
@@ -331,8 +308,8 @@ async fn e2e_fulfill_after_lock_expiry() {
     let config = new_config_with_min_deadline(1, 0).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -386,15 +363,7 @@ async fn e2e_with_selector() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -407,8 +376,8 @@ async fn e2e_with_selector() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -456,15 +425,7 @@ async fn e2e_with_multiple_requests() {
     let anvil = Anvil::new().spawn();
 
     // Setup signers / providers
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover / customer balances
     ctx.prover_market
@@ -477,8 +438,8 @@ async fn e2e_with_multiple_requests() {
     let config = new_config(2).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.boundless_market_address,
-        ctx.set_verifier_address,
+        ctx.deployment.boundless_market_address,
+        ctx.deployment.set_verifier_address,
         anvil.endpoint_url(),
         ctx.prover_signer,
     );

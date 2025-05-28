@@ -21,14 +21,15 @@ use std::{
 
 use alloy::{
     hex::FromHex,
-    primitives::{Address, Bytes, PrimitiveSignature, U256},
+    primitives::{Address, Bytes, Signature, U256},
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{ensure, Context, Result};
-use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled};
+use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_market::{
     contracts::{eip712_domain, ProofRequest},
     order_stream_client::Order,
+    storage::fetch_url,
 };
 use clap::Parser;
 
@@ -74,14 +75,13 @@ async fn main() -> Result<()> {
         args.prover_address,
         domain.clone(),
     )?;
-    let request =
-        <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?, true)
-            .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
+    let request = <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?)
+        .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
     let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
     let order = Order {
         request,
         request_digest,
-        signature: PrimitiveSignature::try_from(
+        signature: Signature::try_from(
             Bytes::from_hex(args.signature.trim_start_matches("0x"))?.as_ref(),
         )?,
     };

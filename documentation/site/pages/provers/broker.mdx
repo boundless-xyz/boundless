@@ -89,6 +89,36 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 2024-10-23T14:37:43.375780Z  INFO bento_cli: Job done!
 ```
 
+### Benchmarking Bento
+
+First, start a bento cluster:
+
+```sh [Terminal]
+just bento
+
+# Or with an env file for configuration
+just bento .env.broker
+```
+
+Load environment variables for the target network:
+
+```sh [Terminal]
+# For example, if using an env file
+source <(just env broker)
+```
+
+Then, run the benchmark:
+
+```sh [Terminal]
+boundless-cli proving benchmark --request-ids <IDS>
+```
+
+where IDS is a comma-separated list of request IDs from the network or order stream configured.
+
+It is recommended to pick a few requests of varying sizes and programs, biased towards larger proofs for a more representative benchmark.
+
+To run programs manually, and for performance optimizations, see [performance optimizations](/provers/performance-optimization).
+
 ### Running the Broker service with bento
 
 Running a broker with `just` will also start the Bento cluster through docker compose.
@@ -140,12 +170,10 @@ Once your broker is running, there are a few methods to optimize the lock-in rat
 
 1. Decreasing the `mcycle_price` would tune your Broker to bid at lower prices for proofs.
 2. Increasing `lockin_priority_gas` expedites your market operations by consuming more gas which could help outrun other bidders.
-3. Adding known a `imageID` to `skip_preflight_ids` would reduce the delay of preflight/execution on a binary. This would allow you to beat other Brokers by submitting bids quicker.
 
 ### Tuning Service Settings
 
 The `[prover]` settings in `broker.toml` are used to configure the prover service and significantly impact the operation of the service. The most important configuration variable to monitor and iteratively tune is `txn_timeout`. This is the number of seconds to wait for a transaction to be confirmed before timing out. Therefore, if you see timeouts in your logs, `txn_timeout` can be increased to wait longer for transaction confirmations onchain.
-
 
 ## Debugging
 

@@ -13,12 +13,13 @@ Steel uses [revm] to generate an EVM execution environment, `EvmEnv` within the 
 <StripRustCodeComments>
 ```rust
 # use alloy::providers::ProviderBuilder;
-# use risc0_steel::{ethereum::EthEvmEnv};
+# use risc0_steel::{ethereum::{EthEvmEnv, ETH_SEPOLIA_CHAIN_SPEC}};
 # use url::Url;
 # async fn preflight(rpc_url: Url) -> Result<(), Box<dyn std::error::Error>> {
-# let provider = ProviderBuilder::new().on_http(rpc_url);
+# let provider = ProviderBuilder::new().connect_http(rpc_url);
 // Create an EVM environment from that provider
 let mut env = EthEvmEnv::builder()
+    .chain_spec(&ETH_SEPOLIA_CHAIN_SPEC)
     .provider(provider.clone())
     .block_number(20842508)
     .build()
@@ -33,11 +34,12 @@ This block is used for RPC queries (i.e. `getStorageAt`) during the `preflight` 
 <StripRustCodeComments>
 ```rust
 # use alloy::providers::ProviderBuilder;
-# use risc0_steel::{ethereum::EthEvmEnv};
+# use risc0_steel::{ethereum::{EthEvmEnv, ETH_SEPOLIA_CHAIN_SPEC}};
 # use url::Url;
 # async fn preflight(rpc_url: Url) -> Result<(), Box<dyn std::error::Error>> {
-# let provider = ProviderBuilder::new().on_http(rpc_url);
+# let provider = ProviderBuilder::new().connect_http(rpc_url);
 # let mut env = EthEvmEnv::builder()
+#    .chain_spec(&ETH_SEPOLIA_CHAIN_SPEC)
 #    .provider(provider.clone())
 #    .block_number(20842508)
 #    .build()
@@ -50,7 +52,7 @@ let evm_input = env.into_input().await?;
 
 During this `into_input` step, the preflight data is packed into a form that can be read and validated in the guest.
 
-Crucially, during the step, Steel will use the RPC call [eth\_getProof] for all accounts accessed during the preflight and the return data is combined into a sparse Merkle trie.
+Crucially, during the step, Steel will use the RPC call [eth_getProof] for all accounts accessed during the preflight and the return data is combined into a sparse Merkle trie.
 
 Within the guest, calling `into_env` checks that all Merkle tries are consistent, have the correct root and **computes the corresponding block hash.**
 
@@ -68,7 +70,7 @@ let contract: Address = env::read();
 let account: Address = env::read();
 
 // Converts the input into a `EvmEnv`
-let env = input.into_env().with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);
+let env = input.into_env(&ETH_SEPOLIA_CHAIN_SPEC);
 # }
 ```
 </StripRustCodeComments>
@@ -88,7 +90,7 @@ For the Steel commitment, it is this block hash, computed within the guest, that
 #    }
 # }
 # fn commitment(input: EthEvmInput, contract: Address) {
-# let evm_env = input.into_env().with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);
+# let evm_env = input.into_env(&ETH_SEPOLIA_CHAIN_SPEC);
     // Commit the block hash and number used when deriving `view_call_env` to the journal.
 let journal = Journal {
     commitment: evm_env.into_commitment(),

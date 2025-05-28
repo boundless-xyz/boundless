@@ -19,23 +19,17 @@ However, event data is **unusable onchain** by definition. Solidity cannot query
 
 Allowing smart contracts to *verifiably* query event data directly onchain significantly streamlines this workflow, unlocking previously impossible trustless applications.
 
-Steel Events enables smart contracts to verify and directly use Ethereum events onchain, eliminating the need for complex event middleware. Leveraging the same [blockhash trust anchor](http://TODO) and [Steel Commitments](http://TODO) scheme, Steel Events ensures provable event data inherits Steel's robust security guarantees, unlocking powerful new use cases:
+Steel Events enables smart contracts to verify and directly use Ethereum events onchain, eliminating the need for complex event middleware. Leveraging the same [blockhash trust anchor](/developers/steel/commitments#steels-trust-anchor-the-blockhash) and [Steel Commitments](/developers/steel/commitments) scheme, Steel Events ensures provable event data inherits Steel's robust security guarantees, unlocking powerful new use cases:
 
-- **Trustless On-Chain Reactions:** Execute complex logic based on verified aggregations or event patterns (e.g., swap volumes, user activity), without prohibitive gas costs.
-- **Secure Bridging of Off-Chain Logic:** Bring existing offchain analytics safely onchain, without modifying your smart contract logic or storage patterns.
-- **Cross-Contract Interaction via Events:** Enable Contract B to verifiably react to Contract A's events, even if A has no direct query API.
+- *Trustless On-Chain Reactions:* Execute complex logic based on verified aggregations or event patterns (e.g., swap volumes, user activity), without prohibitive gas costs.
+- *Secure Bridging of Off-Chain Logic:* Bring existing offchain analytics safely onchain, without modifying your smart contract logic or storage patterns.
+- *Cross-Contract Interaction via Events:* Enable Contract B to verifiably react to Contract A's events, even if A has no direct query API.
 
 This unlocks sophisticated, trustless interactions using Ethereum’s inexpensive event logs as secure, verifiable onchain inputs.
 
 ## How does Steel Events work?
 
-The Steel Events feature enables the developer to query events directly within their guest program. To enable the Steel Events feature, the feature flag “unstable-event” needs to be added to the `risc0-steel` dependency:
-
-```
-risc0-steel = { path = "../../crates/steel", features = ["unstable-event"] }
-```
-
-Once this feature flag is added, the guest program can specify the event to query using [alloy’s `sol!` Macro](https://alloy.rs/highlights/the-sol!-procedural-macro.html). For example, we can specify the signature for the ERC20 Transfer event:
+Steel event syntax allows the developer to query events directly within their guest program. The Steel guest program can specify the event to query using [alloy’s `sol!` Macro](https://alloy.rs/contract-interactions/using-sol!#using-the-sol-macro). For example, we can specify the signature for the ERC20 Transfer event:
 
 ```
 sol! {
@@ -53,7 +47,7 @@ To query all `Transfer` events in a single block for a specific token contract, 
 const CONTRACT: Address = address!("dAC17F958D2ee523a2206206994597C13D831ec7");
 ```
 
-This allows Steel in the host `preflight` call to populate the EVM environment, within the guest program, with the correct contract data. This EVM environment, in tandem with Merkle storage proofs, is used to verify all relevant data within the guest, and commit the data needed, to verify the blockhash onchain, to the journal. To read about this flow in detail, please refer to \[How Does Steel Work\](TODO).
+This allows Steel in the host `preflight` call to populate the EVM environment, within the guest program, with the correct contract data. This EVM environment, in tandem with Merkle storage proofs, is used to verify all relevant data within the guest, and commit the data needed, to verify the blockhash onchain, to the journal. To read about this flow in detail, please refer to [How Does Steel Work](/developers/steel/how-it-works).
 
 ### Guest Program
 
@@ -62,7 +56,7 @@ This allows Steel in the host `preflight` call to populate the EVM environment, 
 The guest program requires the usual Steel workflow:
 
 1. Read the input from the host environment: `let input: EthEvmInput = env::read();`
-2. Convert the input into an `EvmEnv` for execution, with the correct chain configuration: `let env = input.into_env().with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);`
+2. Convert the input into an `EvmEnv` for execution, with the correct chain configuration: `let env = input.into_env(&ETH_SEPOLIA_CHAIN_SPEC);`
 3. Save the blockhash for the block where we are querying the event: `let event_block_hash = env.header().seal();`
 
 After which, we are ready to query all `Transfer` events in a single block for the specified `CONTRACT`:
@@ -80,7 +74,7 @@ To grab the total USDT transferred across all the events in the pinned block, we
  let total_usdt = logs.iter().map(|log| log.data.value).sum::<U256>();
 ```
 
-And finally, we commit this sum, the \[commitment\](TODO) data, and the event block hash to the journal, ready for validation onchain:
+And finally, we commit this sum, the [commitment](/developers/steel/commitments) data, and the event block hash to the journal, ready for validation onchain:
 
 ```
 // This commits the sum of all USDT transfers in the current block into the journal.
@@ -118,7 +112,7 @@ let evm_input = env.into_input().await?;
 
 ## Running the Events Example
 
-To get started with events, you can use the \[Steel Events example\](https://github.com/risc0/risc0-ethereum/tree/main/examples/events):
+To get started with events, you can use the [Steel Events example](https://github.com/risc0/risc0-ethereum/tree/main/examples/events):
 
 ```
 git clone https://github.com/risc0/risc0-ethereum.git && cd risc0-ethereum/examples/events

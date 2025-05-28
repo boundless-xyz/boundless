@@ -25,12 +25,9 @@ use boundless_market::{
         hit_points::default_allowance, AssessorReceipt, IBoundlessMarket, Offer, Predicate,
         PredicateType, ProofRequest, RequestId, RequestStatus, Requirements,
     },
-    input::InputBuilder,
+    input::GuestEnv,
 };
-use boundless_market_test_utils::{create_test_ctx, mock_singleton, TestCtx};
-use guest_assessor::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-use guest_set_builder::{SET_BUILDER_ID, SET_BUILDER_PATH};
-use guest_util::ECHO_ID;
+use boundless_market_test_utils::{create_test_ctx, mock_singleton, TestCtx, ECHO_ID};
 use risc0_zkvm::sha::Digest;
 use tracing_test::traced_test;
 
@@ -49,7 +46,7 @@ async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         ),
         "http://image_uri.null",
-        InputBuilder::new().build_inline().unwrap(),
+        GuestEnv::builder().build_inline().unwrap(),
         Offer {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),
@@ -67,15 +64,7 @@ async fn test_deposit_withdraw() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Deposit prover balances
     ctx.prover_market.deposit(parse_ether("2").unwrap()).await.unwrap();
@@ -101,15 +90,7 @@ async fn test_deposit_withdraw_stake() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
-    let mut ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let mut ctx = create_test_ctx(&anvil).await.unwrap();
 
     let deposit = U256::from(10);
 
@@ -158,15 +139,7 @@ async fn test_submit_request() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let request = new_request(1, &ctx).await;
 
@@ -186,15 +159,7 @@ async fn test_e2e() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let eip712_domain = eip712_domain! {
         name: "IBoundlessMarket",
@@ -223,7 +188,7 @@ async fn test_e2e() {
         .unwrap()
         .unwrap();
     let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
     let request = calldata.request;
     let customer_sig = calldata.clientSignature;
@@ -268,16 +233,7 @@ async fn test_e2e() {
 async fn test_e2e_merged_submit_fulfill() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
-
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let eip712_domain = eip712_domain! {
         name: "IBoundlessMarket",
@@ -306,7 +262,7 @@ async fn test_e2e_merged_submit_fulfill() {
         .unwrap()
         .unwrap();
     let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
     let request = calldata.request;
     let customer_sig = calldata.clientSignature;
@@ -337,7 +293,7 @@ async fn test_e2e_merged_submit_fulfill() {
     // publish the committed root + fulfillments
     ctx.prover_market
         .submit_merkle_and_fulfill(
-            ctx.set_verifier_address,
+            ctx.deployment.set_verifier_address,
             root,
             set_verifier_seal,
             fulfillments.clone(),
@@ -358,15 +314,7 @@ async fn test_e2e_price_and_fulfill_batch() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let eip712_domain = eip712_domain! {
         name: "IBoundlessMarket",
@@ -393,7 +341,7 @@ async fn test_e2e_price_and_fulfill_batch() {
         .unwrap()
         .unwrap();
     let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
     let request = calldata.request;
     let customer_sig = calldata.clientSignature;
@@ -436,15 +384,7 @@ async fn test_e2e_no_payment() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
-    let ctx = create_test_ctx(
-        &anvil,
-        SET_BUILDER_ID,
-        format!("file://{SET_BUILDER_PATH}"),
-        ASSESSOR_GUEST_ID,
-        format!("file://{ASSESSOR_GUEST_PATH}"),
-    )
-    .await
-    .unwrap();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
 
     let eip712_domain = eip712_domain! {
         name: "IBoundlessMarket",
@@ -473,7 +413,7 @@ async fn test_e2e_no_payment() {
         .unwrap()
         .unwrap();
     let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs, true).unwrap();
+    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
 
     let request = calldata.request;
     let customer_sig = calldata.clientSignature;

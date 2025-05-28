@@ -33,16 +33,16 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ExecutorEnv, ProverOpts, Receipt, ReceiptClaim,
 };
-use url::Url;
 
 use boundless_market::{
     contracts::{
         AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
-        Fulfillment as BoundlessFulfillment, InputType,
+        Fulfillment as BoundlessFulfillment, RequestInputType,
     },
-    input::{GuestEnv, InputBuilder},
+    input::GuestEnv,
     order_stream_client::Order,
     selector::{is_groth16_selector, SupportedSelectors},
+    storage::fetch_url,
 };
 
 alloy::sol!(
@@ -85,35 +85,6 @@ impl OrderFulfilled {
 pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
     let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
     t.with_timezone(&Local)
-}
-
-/// Fetches the content of a URL.
-/// Supported URL schemes are `http`, `https`, and `file`.
-pub async fn fetch_url(url_str: &str) -> Result<Vec<u8>> {
-    tracing::debug!("Fetching URL: {}", url_str);
-    let url = Url::parse(url_str)?;
-
-    match url.scheme() {
-        "http" | "https" => fetch_http(&url).await,
-        "file" => fetch_file(&url).await,
-        _ => bail!("unsupported URL scheme: {}", url.scheme()),
-    }
-}
-
-async fn fetch_http(url: &Url) -> Result<Vec<u8>> {
-    let response = reqwest::get(url.as_str()).await?;
-    let status = response.status();
-    if !status.is_success() {
-        bail!("HTTP request failed with status: {}", status);
-    }
-
-    Ok(response.bytes().await?.to_vec())
-}
-
-async fn fetch_file(url: &Url) -> Result<Vec<u8>> {
-    let path = std::path::Path::new(url.path());
-    let data = tokio::fs::read(path).await?;
-    Ok(data)
 }
 
 /// The default prover implementation.
@@ -233,7 +204,7 @@ impl DefaultProver {
         let assessor_input =
             AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
 
-        let stdin = InputBuilder::new().write_frame(&assessor_input.encode()).stdin;
+        let stdin = GuestEnv::builder().write_frame(&assessor_input.encode()).stdin;
 
         self.prove(self.assessor_program.clone(), stdin, receipts, ProverOpts::succinct()).await
     }
@@ -250,8 +221,8 @@ impl DefaultProver {
             let request = order.request.clone();
             let order_program = fetch_url(&request.imageUrl).await?;
             let order_input: Vec<u8> = match request.input.inputType {
-                InputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
-                InputType::Url => {
+                RequestInputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
+                RequestInputType::Url => {
                     GuestEnv::decode(
                         &fetch_url(
                             std::str::from_utf8(&request.input.data)
@@ -310,7 +281,7 @@ impl DefaultProver {
         let assessor_image_id = compute_image_id(&self.assessor_program)?;
         let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal.clone());
         let assessor_receipt_journal: AssessorJournal =
-            AssessorJournal::abi_decode(&assessor_journal, true)?;
+            AssessorJournal::abi_decode(&assessor_journal)?;
 
         receipts.push(assessor_receipt);
         claims.push(assessor_claim.clone());
@@ -394,22 +365,20 @@ async fn compress_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
 mod tests {
     use super::*;
     use alloy::{
-        primitives::{FixedBytes, PrimitiveSignature},
+        primitives::{FixedBytes, Signature},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Input, Offer, Predicate, ProofRequest, RequestId, Requirements,
+        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         UNSPECIFIED_SELECTOR,
     };
-    use guest_assessor::ASSESSOR_GUEST_ELF;
-    use guest_set_builder::SET_BUILDER_ELF;
-    use guest_util::{ECHO_ID, ECHO_PATH};
+    use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
     use risc0_ethereum_contracts::selector::Selector;
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
         selector: Option<Selector>,
-    ) -> (ProofRequest, PrimitiveSignature) {
+    ) -> (ProofRequest, Signature) {
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
             Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
@@ -418,7 +387,7 @@ mod tests {
                     None => UNSPECIFIED_SELECTOR,
                 }),
             format!("file://{ECHO_PATH}"),
-            Input::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
+            RequestInput::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
             Offer::default(),
         );
 
