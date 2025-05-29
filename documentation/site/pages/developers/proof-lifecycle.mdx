@@ -40,7 +40,7 @@ This overview is aimed at app developers i.e., requestors, and therefore for sim
 
 The app developer begins their Boundless journey by writing an application for the zkVM in Rust. The zkVM provides a zero-knowledge proof of the correct execution of this program. A proof of execution is a receipt; it contains the output― the journal and the cryptographic proof - the seal. The seal is the cryptographic proof. In [zkVM terminology](https://dev.risczero.com/terminology#seal), the seal usually refers to a zk-STARK or SNARK. In Boundless, the seal is a Merkle inclusion proof into an aggregated proof.
 
-With a zkVM program ready, the app developer will require some way to carry out proving. This can be done [locally](https://dev.risczero.com/api/generating-proofs/local-proving), but requires significant hardware investment and maintenance long-term, especially to enable parallelized GPU proving The Boundless Market allows for anyone to request a proof, regardless of their hardware, they are known as requestors. Boundless handles the connection between requestors and provers i.e., people with dedicated and significant proving hardware, to facilitate proving in a decentralized and permissionless manner.
+With a zkVM program ready, the app developer will require some way to carry out proving. This can be done [locally](https://dev.risczero.com/api/generating-proofs/local-proving), but requires significant hardware investment and maintenance long-term, especially to enable parallelized GPU proving. The Boundless Market allows for anyone to request a proof, regardless of their hardware, they are known as requestors. Boundless handles the connection between requestors and provers i.e., people with dedicated and significant proving hardware, to facilitate proving in a decentralized and permissionless manner.
 
 > For more zkVM documentation, please see [Getting Started with the zkVM](https://dev.risczero.com/api/zkvm/quickstart).
 
@@ -170,7 +170,7 @@ The requestor can use this Merkle inclusion proof as an effective representation
 
 ### 5. The App Developer Retrieves Their Proof, to Use in Their Application
 
-When the prover fulfills their request, the requestor will (the app developer) will receive their proof.
+When the prover fulfills their request, the requestor (the app developer) will receive their proof.
 
 <StripRustCodeComments>
 ```rust
