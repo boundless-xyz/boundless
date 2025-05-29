@@ -1,17 +1,21 @@
 # Quick Start
 
-## Clone the Boundless repo
-
 :::warning[Warning]
 **Incentives for provers are not active for this phase.**
 :::
 
-To get started, first clone the Boundless monorepo on your proving machine, and switch to the release branch:
+## Clone the Boundless repo
+
+:::tip[Use Ubuntu 22.04]
+We recommend using Ubuntu 22.04 LTS for your proving node.
+:::
+
+To get started, first clone the Boundless monorepo on your proving machine, and switch to the [latest release](https://github.com/boundless-xyz/boundless/releases):
 
 ```sh
 git clone https://github.com/boundless-xyz/boundless
 cd boundless
-git checkout release-0.8
+git checkout release-0.9
 ```
 
 ## Setup Dependencies
@@ -31,21 +35,100 @@ For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating
 sudo ./scripts/setup.sh
 ```
 
-## Running Boundless
-
-The recommended place to start are the `just` commands. This script will run everything you need to start proving.
+## Running a test proof using Bento
 
 Boundless is comprised of two major components:
-1. **Bento** is the local proving infrastructure. Bento will take requests, prove them and return the result
-2. The **Broker** interacts with the Boundless market. Broker can submit or request proves from the market.
+1. *Bento* is the local proving infrastructure. Bento will take requests, prove them and return the result
+2. The *Broker* interacts with the Boundless market. Broker can submit or request proves from the market.
 
-To get started, run:
+To get started with a test proof on a new proving machine, you'll need to install the `bento_cli`:
+
+```sh [Terminal]
+cargo install --git https://github.com/risc0/risc0 bento-client --bin bento_cli
+```
+Once installed, you can run bento with:
+
+```sh [Terminal]
+just bento
+```
+
+This will spin up bento without the broker. You can check the logs at any time with:
+
+```sh [Terminal]
+just bento logs
+```
+
+To run the test proof:
+
+```sh [Terminal]
+RUST_LOG=info bento_cli -c 32
+```
+
+If everything works, you should see something like the following:
+
+![Bento CLI Test Proof Success](/test-proof.png)
+
+Before we move on, stop Bento with:
+
+```sh [Terminal]
+just bento down
+```
+
+## Running the Broker to prove on Boundless
+
+Before we start, we'll need to install the *Boundless CLI*, which is separate to the Bento CLI we installed earlier:
+
+```sh [Terminal]
+cargo install --locked boundless-cli
+```
+
+### Setup environment variables
+
+
+To set the `VERIFIER_ADDRESS`, `SET_VERIFIER_ADDRESS`, `BOUNDLESS_MARKET_ADDRESS` automatically for Ethereum Sepolia, run:
+
+```sh [Terminal]
+source <(just env testnet)
+```
+
+You'll need to set two more environment variables yourself:
+
+```sh [Terminal]
+export PRIVATE_KEY=""
+export RPC_URL=""
+```
+
+This is your wallet which will represent your prover on the market; make sure it has funds. For the RPC url, we recommend using [Alchemy](https://alchemy.com).
+
+### Deposit Stake to your Boundless Balance
+
+:::note[Note]
+* To apply for access to HP tokens and become a prover, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) with your details.
+* To read more about depositing funds to the market, and to learn about the hitpoints token, please see [Hitpoints (HP) Tokens](/provers/broker#hitpoints-hp-tokens).
+:::
+
+With the environment variables set, you can now deposit HP tokens as stake to your account balance:
+
+```sh [Terminal]
+boundless-cli account deposit-stake 100
+```
+
+### Start up your proving node
+
+You can now start broker (which runs both bento + broker i.e. the full proving stack!):
 
 ```sh [Terminal]
 just broker
 ```
 
-To stop all services, run:
+To check the proving logs, you can use:
+
+```sh [Terminal]
+just broker logs
+```
+### Stopping your proving node
+
+To stop broker, you can run:
 
 ```sh [Terminal]
 just broker down
@@ -57,17 +140,16 @@ Or remove all volumes and data from the service:
 just broker clean
 ```
 
----
+## Configuration
 
-And to run with a custom environment file:
+To run broker with a custom environment file:
 
 ```sh [Terminal]
 just broker up ./.env.broker
 just broker down ./.env.broker
 ```
 
-
-## Configuration
+### Compose.yml
 
 The `compose.yml` file defines all services within Bento. The Boundless repo includes a starter `compose.yml` which you can see [here](https://github.com/boundless-xyz/boundless/blob/main/compose.yml). For Broker configuration options, please see [Broker.toml](/provers/broker#settings-in-brokertoml).
 
@@ -86,46 +168,8 @@ Under the `exec_agent` service you can configure the segment size with the `--se
 Segment sizes are specified in powers-of-two (po2).
 In order to pick the right segment po2 for your GPU VRAM see [the performance optimization page](/provers/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
 
-## Sending a Test Proof to Bento
-
-### Bento CLI installation
-
-To install the latest CLI version:
-
-```sh [Terminal]
-cargo install --git https://github.com/risc0/risc0 bento-client --bin bento_cli
-```
-
-### Using the Bento CLI
-
-Once everything is up, you can send a test proof to Bento to see if everything works. There are two options for test proofs:
-
-1. The Bento CLI allows for a simple test vector with a specified cycle count via the `-c` flag:
-
-```sh [Terminal]
-RUST_LOG=info bento_cli -c 32
-```
-
-2. The Bento CLI also accepts [existing program and input files](/developers/tutorials/build):
-
-```sh [Terminal]
-RUST_LOG=info bento_cli -f ./crates/bento-client/method_name -i /tmp/input.bin
-```
-
-## Depositing Funds to the Market
-
-:::note[Note]
-* To apply for access to HP tokens and become a prover, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) with your details.
-* To read more about depositing funds to the market, and to learn about the hitpoints token, please see [Hitpoints (HP) Tokens](/provers/broker#hitpoints-hp-tokens).
-:::
-
-Once the proving stack is running, the next step is to deposit funds to the Boundless market contract. This is for the Broker to be able to cover staking during lock-in. Currently, this will require depositing special non-transferable hitpoints (HP) tokens which are sent to whitelisted provers.
-
-To deposit to the market, please follow the [Deposit Stake to Market](/provers/broker#deposit--balance) instructions.
-
 ## What next?
 
 Next, you'll need to tune your Broker's settings, please see [Broker Optimization](/provers/broker#broker-optimization). If you'd like to learn more about the technical design of Bento, please see the [Bento Technical Design Reference](/provers/bento).
-
 
 To see your prover market statistics, check out the [provers](https://explorer.beboundless.xyz/provers) page on the Boundless Explorer.
