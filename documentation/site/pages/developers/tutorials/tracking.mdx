@@ -1,0 +1,121 @@
+# Tracking Proof Requests
+
+This guide covers both [tracking a proof request programmatically](#programmatically) and using the [Boundless Explorer](#boundless-explorer).
+
+## Programmatically
+
+When you submit a proof request to Boundless, you can track its status programmatically using the Boundless client. This allows you to integrate request monitoring directly into your applications.
+
+### Basic Request Tracking
+
+Here's how to wait for a request to be fulfilled:
+
+```rust
+use boundless_market::{Client, StorageProviderConfig};
+use std::time::Duration;
+
+// Submit your request
+let (request_id, expires_at) = client.submit_onchain(request).await?;
+
+// Wait for the request to be fulfilled
+tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
+let (journal, seal) = client
+    .wait_for_request_fulfillment(
+        request_id,
+        Duration::from_secs(5), // check every 5 seconds
+        expires_at,
+    )
+    .await?;
+tracing::info!("Request {:x} fulfilled", request_id);
+```
+
+### How It Works
+
+The `wait_for_request_fulfillment` method:
+
+1. *Polls the request status* at the specified interval (e.g., every 5 seconds)
+2. *Checks for completion states*:
+   - `Fulfilled`: Request completed successfully - returns journal and seal
+   - `Expired`: Request timed out - returns an error
+   - Other states: Continues polling
+3. *Provides status updates* via logging during the wait
+
+### Request Status Types
+
+Boundless tracks these request states:
+
+- *Unknown*: Request may be open for bidding or not exist
+- *Locked*: A prover has committed to fulfilling the request
+- *Fulfilled*: Proof generation completed successfully
+- *Expired*: Request timed out before fulfillment
+
+### Error Handling
+
+When tracking requests, handle these potential outcomes:
+
+```rust
+match client.wait_for_request_fulfillment(request_id, check_interval, expires_at).await {
+    Ok((journal, seal)) => {
+        // Process the fulfilled proof
+        tracing::info!("Proof received with journal digest: {:?}", journal.digest());
+    }
+    Err(ClientError::MarketError(MarketError::RequestHasExpired(_))) => {
+        tracing::error!("Request expired before fulfillment");
+        // Handle expiration - maybe retry with different parameters
+    }
+    Err(e) => {
+        tracing::error!("Request tracking failed: {}", e);
+        // Handle other errors
+    }
+}
+```
+
+### Advanced Tracking
+
+For more control, you can manually check request status:
+
+```rust
+// Check status once
+let status = client.boundless_market.get_status(request_id, Some(expires_at)).await?;
+match status {
+    RequestStatus::Fulfilled => {
+        // Query the fulfillment event to get journal and seal
+        let (journal, seal) = client.boundless_market
+            .query_fulfilled_event(request_id, None, None)
+            .await?;
+    }
+    RequestStatus::Locked => {
+        tracing::info!("Request locked by a prover, awaiting fulfillment");
+    }
+    RequestStatus::Expired => {
+        tracing::warn!("Request has expired");
+    }
+    RequestStatus::Unknown => {
+        tracing::info!("Request is open for bidding");
+    }
+}
+```
+
+## Boundless Explorer
+
+### Getting Started
+
+The [Boundless Explorer](https://explorer.beboundless.xyz/) provides a straightforward web interface to monitor and analyze proof activity on the Boundless network.
+
+Developers can track live proof request statuses, analyze associated costs, review transaction details, and assess proof performance metrics. Provers can monitor active requests, track earnings, evaluate their efficiency, and benchmark performance against peers.
+
+![Boundless Explorer](/explorer.png)
+
+Access the explorer to:
+
+- Search through [Orders](https://explorer.beboundless.xyz/orders) and their current status.
+- Check the list of all [Boundless Requestors](https://explorer.beboundless.xyz/requestors).
+- Check the list of all [Boundless Provers](https://explorer.beboundless.xyz/provers).
+- View trends and analyze network patterns on the [Stats](https://explorer.beboundless.xyz/stats) page.
+
+### Need Help?
+
+- Join our [Discord community](https://discord.gg/aXRuD6spez)
+- Report issues via [GitHub](https://github.com/boundless-xyz/boundless)
+
+

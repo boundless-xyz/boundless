@@ -49,7 +49,7 @@ const DEVELOPERS_ITEMS = [
           },
           {
             text: "Tracking your Request",
-            link: "/developers/tutorials/explorer",
+            link: "/developers/tutorials/tracking",
           },
           {
             text: "Pricing a Request",
@@ -270,8 +270,12 @@ export function generateSitemap() {
 }
 
 export default defineConfig({
+  banner: '🎉 Boundless is launching on Base Mainnet for Mainnet Beta. See [Announcement](TODO) and [Base Deployments](/developers/smart-contracts/deployments). 🎉',
   logoUrl: "/logo.svg",
-  topNav: [{ text: "Boundless Explorer", link: "https://explorer.beboundless.xyz" }],
+  topNav: [
+    { text: "Explorer", link: "https://explorer.beboundless.xyz" },
+    { text: "Discord", link: "https://discord.gg/aXRuD6spez" }
+  ],
   font: {
     mono: {
       google: "Ubuntu Mono",
