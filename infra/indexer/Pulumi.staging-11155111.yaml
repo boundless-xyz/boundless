@@ -6,7 +6,7 @@ config:
   indexer:BOUNDLESS_ADDRESS: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
-  indexer:START_BLOCK: "8361293"
+  indexer:START_BLOCK: "8430932"
   indexer:ETH_RPC_URL:
     secure: v1:4pKxXVXfnrSPsGgZ:f4+sIlT5tyYGsvuH/qIWeycuGVqRgi4yUczU1iRUf5CjHSOA7d+o16mSwq++gDJ8GEPpkXi1RHP/DWU9HNKUTllP6iSfkyX0eT1kvwo06Im8ezIjBg==
   indexer:RDS_PASSWORD:

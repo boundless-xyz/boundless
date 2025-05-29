@@ -1282,8 +1282,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             deadline,
         };
         tracing::debug!("Permit: {:?}", permit);
-        let chain_id = self.get_chain_id().await?;
-        let sig = permit.sign(signer, token_address.into(), chain_id).await?.as_bytes();
+        let domain_separator = contract.DOMAIN_SEPARATOR().call().await?;
+        let sig = permit.sign(signer, domain_separator).await?.as_bytes();
         let r = B256::from_slice(&sig[..32]);
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
@@ -1343,6 +1343,35 @@ impl<P: Provider> BoundlessMarketService<P> {
             tracing::trace!("stake balance for {} is: {}", self.caller(), stake_balance);
         }
         Ok(())
+    }
+
+    /// Returns the stake token address used by the market.
+    pub async fn stake_token_address(&self) -> Result<Address, MarketError> {
+        tracing::trace!("Calling STAKE_TOKEN_CONTRACT()");
+        let address = self
+            .instance
+            .STAKE_TOKEN_CONTRACT()
+            .call()
+            .await
+            .context("STAKE_TOKEN_CONTRACT call failed")?
+            .0;
+        Ok(address.into())
+    }
+
+    /// Returns the stake token's symbol.
+    pub async fn stake_token_symbol(&self) -> Result<String, MarketError> {
+        let address = self.stake_token_address().await?;
+        let contract = IERC20::new(address, self.instance.provider());
+        let symbol = contract.symbol().call().await.context("Failed to get token symbol")?;
+        Ok(symbol)
+    }
+
+    /// Returns the stake token's decimals.
+    pub async fn stake_token_decimals(&self) -> Result<u8, MarketError> {
+        let address = self.stake_token_address().await?;
+        let contract = IERC20::new(address, self.instance.provider());
+        let decimals = contract.decimals().call().await.context("Failed to get token decimals")?;
+        Ok(decimals)
     }
 }
 
