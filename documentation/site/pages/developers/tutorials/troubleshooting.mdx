@@ -1,5 +1,9 @@
 # Troubleshooting a Request
 
+:::tip[Need Help?]
+Join our [Discord community](https://discord.gg/aXRuD6spez) and claim the developer role via [Guild.xyz](https://guild.xyz/boundless-xyz) to get access to the **#dev-support-forum** channel where you can ask questions and get help from the Boundless team and community.
+:::
+
 If you submitted a request, and it is stuck in an "Unknown" / "Submitted" state, there may be something that is preventing the provers from picking up your request.
 
 - The guest may be panicking or otherwise failing to complete the job.
@@ -18,3 +22,4 @@ RUST_LOG=info boundless-cli proving execute --request-id $REQUEST_ID
 - The timeout may be too short.
 - The bidding start block may be in the past, causing the request to immediately expire.
 - The program or input URLs may not be accessible to the prover.
+
