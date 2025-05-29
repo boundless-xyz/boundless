@@ -48,6 +48,10 @@ const DEVELOPERS_ITEMS = [
             link: "/developers/tutorials/request",
           },
           {
+            text: "Tracking your Request",
+            link: "/developers/tutorials/explorer",
+          },
+          {
             text: "Pricing a Request",
             link: "/developers/tutorials/pricing",
           },
