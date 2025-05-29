@@ -84,6 +84,10 @@ const DEVELOPERS_ITEMS = [
             text: "Callbacks",
             link: "/developers/tutorials/callbacks",
           },
+          {
+            text: "Migrating from Bonsai?",
+            link: "/developers/tutorials/bonsai",
+          },
         ],
       },
       {
