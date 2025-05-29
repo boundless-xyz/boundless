@@ -65,12 +65,20 @@ const DEVELOPERS_ITEMS = [
         text: "Tutorials",
         items: [
           {
-            text: "Proof Types",
-            link: "/developers/tutorials/proof-types",
+            text: "Callbacks",
+            link: "/developers/tutorials/callbacks",
+          },
+          {
+            text: "Migrating from Bonsai?",
+            link: "/developers/tutorials/bonsai",
           },
           {
             text: "Proof Composition",
             link: "/developers/tutorials/proof-composition",
+          },
+          {
+            text: "Proof Types",
+            link: "/developers/tutorials/proof-types",
           },
           {
             text: "Sensitive Inputs",
@@ -79,14 +87,6 @@ const DEVELOPERS_ITEMS = [
           {
             text: "Smart Contract Requestors",
             link: "/developers/tutorials/smart-contract-requestor",
-          },
-          {
-            text: "Callbacks",
-            link: "/developers/tutorials/callbacks",
-          },
-          {
-            text: "Migrating from Bonsai?",
-            link: "/developers/tutorials/bonsai",
           },
         ],
       },
