@@ -5,84 +5,60 @@ description: A practical guide for developers transitioning from Bonsai to Bound
 
 # Migrating from Bonsai?
 
-This guide helps developers understand the key differences between Bonsai and Boundless, and provides a clear path for adopting Boundless's decentralized proving protocol.
+## What happened to Bonsai?
 
-## Key Differences at a Glance
+Bonsai is no longer available for individual developers. Boundless is intended to be a replacement for all your proving needs. If you want to read about the differences between Bonsai and Boundless, please continue on this page. Otherwise, if you have a guest program ready and you are eager to get started, you can follow the [Request a Proof](/developers/tutorials/request) tutorial to create your first proof request.
 
-| Aspect | Bonsai | Boundless |
-|--------|--------|-----------|
-| **Setup** | 2 environment variables | Wallet + configuration |
-| **Proof Format** | Groth16 by default | Flexible (requires configuration) |
-| **Architecture** | Centralized service | Decentralized protocol |
-| **Integration** | Drop-in replacement | New integration required |
+Adopting Boundless means embracing decentralization; while the initial setup is more complex than Bonsai's  configuration, you gain access to verifiable compute through permissionless, sustainable proving protocol that aligns with Web3's core principles.
 
-## Why Adopt Boundless?
+## Key Differences
 
 While Bonsai offers simplicity through centralization, Boundless provides:
 
-- **No vendor lock-in**: Decentralized protocol with multiple provers
-- **Censorship resistance**: No single point of failure
-- **Long-term sustainability**: Community-driven protocol evolution
-- **Transparent pricing**: Market-driven proof costs
+- *No vendor lock-in*: Decentralized protocol with multiple provers
+- *Censorship resistance*: No single point of failure
+- *Long-term sustainability*: Community-driven protocol evolution
+- *Transparent pricing*: Market-driven proof costs
 
-## Integration Requirements
 
-### From Bonsai's Simple Setup
+| Aspect | Bonsai | Boundless |
+|--------|--------|-----------|
+| *Setup* | 2 environment variables (BONSAI_API_URL + BONSAI_API_KEY) | Wallet + Storage Provider  |
+| *Proof Format* | STARK/SNARK (Groth16) | Proof aggregated via SetVerifier |
+| *Proof Verification* | Via [receipt.verify](https://docs.rs/risc0-zkvm/latest/risc0_zkvm/struct.Receipt.html#method.verify) or [Verifier Contracts](/developers/smart-contracts/verifier-contracts) | [Verifier Contracts](/developers/smart-contracts/verifier-contracts)|
+| *Architecture* | Centralized service | Decentralized protocol |
+| *Integration* | Drop-in replacement to guest program | New integration required |
 
-```bash
-export BONSAI_API_KEY="YOUR_API_KEY"
-export BONSAI_API_URL="BONSAI_URL"
-RISC0_DEV_MODE=false forge test
-```
+## Getting Started
 
-### To Boundless's Protocol Integration
+### Setup
 
-1. **Wallet Setup**: Configure a developer wallet for on-chain transactions
-2. **Smart Contract Integration**: Deploy or interact with proof request contracts
-3. **Proof Retrieval**: Implement custom logic for monitoring and retrieving proofs
-4. **Error Handling**: Build resilience for decentralized network dynamics
+Before you get started, you'll need to set up:
 
-## Getting Started with Boundless
+- *Wallet*: Configure a developer wallet for on-chain transactions. For dev testing, something as simple as [metamask](https://metamask.io/en-GB) will do; make sure to create a new account for your dev testing to use with testnets. You'll also need some testnet funds before you can submit a request.
+- *Storage Provider*: You'll need to set up either IPFS or S3 for provers to be fulfill your requests. We recommend IPFS via the Pinata gateway, see further instructions [here](/developers/tutorials/request#storage-provider).
 
-### Essential Resources
+### Sending your first proof request
 
-1. **[Quick Start Guide](/developers/quick-start)**: Set up your first Boundless project
-2. **[Requesting a Proof Tutorial](/developers/tutorials/requesting-a-proof)**: Learn the proof request lifecycle
-3. **[Smart Contracts Guide](/developers/smart-contracts/)**: Understand Boundless contract interfaces
-4. **[Tooling Overview](/developers/tooling/)**: Explore available developer tools
-
-### Migration Considerations
-
-**This is not a drop-in replacement.** Transitioning to Boundless requires:
+Transitioning to Boundless requires:
 
 - Rearchitecting your proof request and retrieval flow
-- Implementing on-chain interactions
 - Managing proof fulfillment asynchronously
 - Handling potential proof request failures or delays
 
-## Example: Basic Proof Request
+The documentation listed below, along with the [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) and the [Boundless Examples](https://github.com/boundless-xyz/boundless/tree/main/examples), will help you get started in no time.
 
-Instead of Bonsai's API call, Boundless uses on-chain requests:
+1. *[Quick Start Guide](/developers/quick-start)*: Set up your first Boundless project and request your first proof with our example app, [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template).
+2. *[Request a Proof](/developers/tutorials/request)*: Go into more specifics when it comes to requesting a proof with request/offer configuration.
+3. *[Proof Tracking](/developers/tutorials/tracking)*: Implement monitoring of requests and retrieving proofs when they are finished
+4. *[Use a Proof](/developers/tutorials/use)*: Understand how to use a Boundless proof in your app.
+5. *[Boundless Tooling](/developers/tooling/sdk)*: Explore the SDK and CLI to configure your request flow to your specific needs.
 
-```solidity
-// Submit a proof request to Boundless
-boundlessMarket.requestProof{value: maxPrice}(
-    imageId,
-    input,
-    requirements
-);
-```
 
-See the [full tutorial](/developers/tutorials/requesting-a-proof) for complete implementation details.
+### Proof Verification
 
-## Support and Next Steps
+If you are verifying proofs onchain, Boundless proofs verify in exactly the same manner as proofs delivered via Bonsai, and via the same [Verifier Router contract](/developers/smart-contracts/verifier-contracts) you are used to using. There should be no upgrade required, unless you are using an old version of (i.e. 1.X.X) R0VM.
 
-1. **Start with the [Boundless Foundry Template](https://github.com/boundless-market/boundless-foundry-template)** for a working example
-2. **Join the [Discord](https://discord.gg/boundless)** for community support
-3. **Review [pricing mechanics](/developers/tutorials/how-does-pricing-work)** to understand costs
+## Need any migration help?
 
-## Summary
-
-Adopting Boundless means embracing decentralization over convenience. While the initial setup is more complex than Bonsai's two-line configuration, you gain access to a permissionless, sustainable proving protocol that aligns with blockchain's core principles.
-
-Ready to build? Start with our [Quick Start Guide →](/developers/quick-start)
+**Join the [Discord](https://discord.gg/aXRuD6spez)** and claim the dev role via [Guild.xyz](https://guild.xyz/boundless-xyz) to chat and ask questions in #dev-support-forum.
