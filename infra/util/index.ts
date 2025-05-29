@@ -1,6 +1,7 @@
 export enum ChainId {
   SEPOLIA = "11155111",
   BASE = "8453",
+  BASE_SEPOLIA = "84532",
 }
 
 export const getChainId = (chainId: string): ChainId => {
@@ -9,6 +10,9 @@ export const getChainId = (chainId: string): ChainId => {
   }
   if (chainId === "8453") {
     return ChainId.BASE;
+  }
+  if (chainId === "84532") {
+    return ChainId.BASE_SEPOLIA;
   }
   throw new Error(`Invalid chain ID: ${chainId}`);
 };

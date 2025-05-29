@@ -77,9 +77,15 @@ export class OrderStreamPipeline extends pulumi.ComponentResource {
       },
     });
 
-    const stagingDeployment = new aws.codebuild.Project(
-      `${APP_NAME}-staging-build`,
-      this.codeBuildProjectArgs(APP_NAME, "staging", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+    const stagingDeploymentEthSepolia = new aws.codebuild.Project(
+      `${APP_NAME}-staging-11155111-build`,
+      this.codeBuildProjectArgs(APP_NAME, "staging-11155111", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+      { dependsOn: [role] }
+    );
+
+    const stagingDeploymentBaseSepolia = new aws.codebuild.Project(
+      `${APP_NAME}-staging-84532-build`,
+      this.codeBuildProjectArgs(APP_NAME, "staging-84532", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
       { dependsOn: [role] }
     );
 
@@ -123,16 +129,34 @@ export class OrderStreamPipeline extends pulumi.ComponentResource {
           name: "DeployStaging",
           actions: [
             {
-              name: "DeployStaging",
+              name: "DeployStagingEthSepolia",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
               runOrder: 1,
               configuration: {
-                ProjectName: stagingDeployment.name
+                ProjectName: stagingDeploymentEthSepolia.name
               },
-              outputArtifacts: ["staging_output"],
+              outputArtifacts: ["staging_output_eth_sepolia"],
+              inputArtifacts: ["source_output"],
+            }
+          ]
+        },
+        {
+          name: "DeployStagingBaseSepolia",
+          actions: [
+            {
+              name: "DeployStagingBaseSepolia",
+              category: "Build",
+              owner: "AWS",
+              provider: "CodeBuild",
+              version: "1",
+              runOrder: 1,
+              configuration: {
+                ProjectName: stagingDeploymentBaseSepolia.name
+              },
+              outputArtifacts: ["staging_output_base_sepolia"],
               inputArtifacts: ["source_output"],
             }
           ]
