@@ -16,7 +16,7 @@ config:
   order-generator-base:MAX_PRICE_PER_MCYCLE: "0.000005"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL:
-    secure: v1:8mUOiisgQyR9K77g:FYz6FIfpozwElEON0hYgx5RCCQPJRnq+v9TidGGmgXSOBpzzCvINi/TvozipLmXgHsi7CB1e+DxsaKY5+oyOYbW6zPHkB4Ixg0voPmquGebdBYk+
+    secure: v1:Wlon5PkGVZvUMnwI:m/MrdoxwhsisR957jnQFc4cH58P9/hZCK9/VHt34eOVu9t4w0L42aTkboNHeP1f24PkJ8FM/G1v6G2IPxTuPfszNL+Mx2EDGiTOdrivy53Ad6mpyY1oglFMG7Q==
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
   order-generator-base:PINATA_JWT:
