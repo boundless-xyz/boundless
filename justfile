@@ -340,6 +340,14 @@ bento action="up" env_file="" compose_flags="" detached="true":
 
 # Run the broker service with a bento cluster for proving.
 broker action="up" env_file="" detached="true":
+    #!/usr/bin/env bash
+    # Check if broker.toml exists, if not create it from template
+    if [ ! -f broker.toml ]; then
+        echo "Creating broker.toml from template..."
+        cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
+        echo "broker.toml created successfully."
+    fi
+    
     just bento "{{action}}" "{{env_file}}" "--profile broker" "{{detached}}"
 
 # Run the setup script

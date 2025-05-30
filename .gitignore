@@ -22,6 +22,9 @@ deployment_secrets.toml
 !.env.localnet-template
 !.env.testnet
 
+# Ignore broker config file
+broker.toml
+
 # Cargo
 target/
 
