@@ -380,6 +380,31 @@ where
             }
         }
 
+        fn is_target_time_reached(order: &OrderRequest, current_block_timestamp: u64) -> bool {
+            // Note: this could use current timestamp, but avoiding cases where clock has drifted.
+            match order.target_timestamp {
+                Some(target_timestamp) => {
+                    if current_block_timestamp < target_timestamp {
+                        tracing::debug!(
+                            "Request {:x} target timestamp {} not yet reached (current: {}). Waiting.",
+                            order.request.id,
+                            target_timestamp,
+                            current_block_timestamp
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                }
+                None => {
+                    // Should not happen, just warning for safety as this condition is not strictly
+                    // enforced at compile time.
+                    tracing::warn!("Request {:x} has no target timestamp set", order.request.id);
+                    false
+                }
+            }
+        }
+
         for (_, order) in self.prove_cache.iter() {
             let is_fulfilled = self
                 .db
@@ -394,7 +419,7 @@ where
                 self.skip_order(&order, "was fulfilled by other").await;
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
                 self.skip_order(&order, "expired").await;
-            } else {
+            } else if is_target_time_reached(&order, current_block_timestamp) {
                 tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
                 candidate_orders.push(order);
             }
@@ -424,7 +449,7 @@ where
                 }
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
                 self.skip_order(&order, "insufficient deadline").await;
-            } else {
+            } else if is_target_time_reached(&order, current_block_timestamp) {
                 candidate_orders.push(order);
             }
         }
