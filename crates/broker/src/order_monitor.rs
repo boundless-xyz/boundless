@@ -1614,4 +1614,88 @@ mod tests {
 
         assert!(filtered_orders.is_empty());
     }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_target_timestamp_prevents_early_locking() {
+        let mut ctx = setup_test().await;
+        let current_timestamp = now_timestamp();
+        let future_timestamp = current_timestamp + 100; // 100 seconds in the future
+
+        // Create orders of both types and set them to be picked up at a future timestamp.
+        let mut lock_and_fulfill_order = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 200, 300)
+            .await;
+
+        lock_and_fulfill_order.target_timestamp = Some(future_timestamp);
+        let lock_and_fulfill_order_id = lock_and_fulfill_order.id();
+
+        ctx.monitor
+            .lock_and_prove_cache
+            .insert(lock_and_fulfill_order.id(), Arc::from(lock_and_fulfill_order))
+            .await;
+
+        let mut fulfill_after_expire_order = ctx
+            .create_test_order(
+                FulfillmentType::FulfillAfterLockExpire,
+                current_timestamp - 50,
+                10,
+                300,
+            )
+            .await;
+
+        fulfill_after_expire_order.target_timestamp = Some(future_timestamp);
+        let fulfill_after_expire_order_id = fulfill_after_expire_order.id();
+
+        // Simulate that this order was locked by another prover but the lock has now expired
+        ctx.db
+            .set_request_locked(
+                U256::from(fulfill_after_expire_order.request.id),
+                &Address::ZERO.to_string(),
+                current_timestamp - 50,
+            )
+            .await
+            .unwrap();
+
+        ctx.monitor
+            .prove_cache
+            .insert(fulfill_after_expire_order.id(), Arc::from(fulfill_after_expire_order))
+            .await;
+
+        // Call get_valid_orders with current timestamp - this should NOT return either order
+        // because their target_timestamp is in the future
+        let valid_orders = ctx.monitor.get_valid_orders(current_timestamp, 50).await.unwrap();
+
+        assert!(
+            valid_orders.is_empty(),
+            "Orders with future target_timestamp should not be valid yet, got {} orders",
+            valid_orders.len()
+        );
+
+        // Verify both orders are still in their respective caches and not skipped
+        let cached_lock_order =
+            ctx.monitor.lock_and_prove_cache.get(&lock_and_fulfill_order_id).await;
+        assert!(cached_lock_order.is_some(), "LockAndFulfill order should still be in cache");
+
+        let cached_prove_order = ctx.monitor.prove_cache.get(&fulfill_after_expire_order_id).await;
+        assert!(
+            cached_prove_order.is_some(),
+            "FulfillAfterLockExpire order should still be in cache"
+        );
+
+        // Now test with future timestamp - both orders should be valid
+        let valid_orders_in_future =
+            ctx.monitor.get_valid_orders(future_timestamp + 1, 50).await.unwrap();
+
+        assert_eq!(
+            valid_orders_in_future.len(),
+            2,
+            "Both orders should be valid when current time >= target_timestamp"
+        );
+
+        assert!(valid_orders_in_future.iter().any(|order| order.id() == lock_and_fulfill_order_id));
+        assert!(valid_orders_in_future
+            .iter()
+            .any(|order| order.id() == fulfill_after_expire_order_id));
+    }
 }
