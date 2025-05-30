@@ -142,12 +142,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
               },
               outputArtifacts: ["staging_output_eth_sepolia"],
               inputArtifacts: ["source_output"],
-            }
-          ]
-        },
-        {
-          name: "DeployStagingBaseSepolia",
-          actions: [
+            },
             {
               name: "DeployStagingBaseSepolia",
               category: "Build",
