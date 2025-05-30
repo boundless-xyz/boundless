@@ -40,10 +40,6 @@ export const getServiceNameV1 = (stackName: string, name: string, chainId?: Chai
   const prefix = isDev ? `${getEnvVar("DEV_NAME")}` : `${stackName}`;
   const suffix = chainId ? `-${chainId}` : "";
   const serviceName = `${prefix}-${name}${suffix}`;
-  // When creating S3 buckets using prefixName the max length is 37 characters.
-  if (serviceName.length > 37) {
-    throw new Error(`Service name ${serviceName} is too long`);
-  }
   return serviceName;
 };
 
