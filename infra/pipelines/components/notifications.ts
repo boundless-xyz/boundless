@@ -38,6 +38,7 @@ export class Notifications extends pulumi.ComponentResource {
         'arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess',
         'arn:aws:iam::aws:policy/AmazonQDeveloperAccess',
         'arn:aws:iam::aws:policy/AIOpsOperatorAccess',
+        'arn:aws:iam::aws:policy/AWSLambda_FullAccess',
       ],
     });
 
@@ -165,6 +166,34 @@ export class Notifications extends pulumi.ComponentResource {
           Resource: sqsDeadLetterQueue.arn,
         }],
       },
+    });
+
+    // Create an IAM Role for AWS Chatbot
+    const chatbotLogFetcherRole = new aws.iam.Role('chatbot-log-fetcher-role', {
+      assumeRolePolicy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: {
+              Service: 'lambda.amazonaws.com',
+            },
+            Action: 'sts:AssumeRole',
+          },
+        ],
+      },
+      managedPolicyArns: [
+        'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole',
+      ],
+    });
+
+    const chatbotLogFetcher = new aws.lambda.Function("chatbot-log-fetcher", {
+      handler: "index.handler",
+      runtime: "nodejs20.x",
+      role: chatbotLogFetcherRole.arn,
+      code: new pulumi.asset.AssetArchive({
+        '.': new pulumi.asset.FileArchive('./log-lambda/build'),
+      }),
     });
 
     // Create a Slack channel configuration for the alerts

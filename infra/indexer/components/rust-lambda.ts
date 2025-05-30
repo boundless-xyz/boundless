@@ -83,9 +83,17 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         throw new Error(`Build failed: zip file not found at ${zipFilePath}`);
     }
 
+    const logGroup = new aws.cloudwatch.LogGroup(`${name}-log-group`, {
+        name: `/aws/lambda/${name}`,
+    });
+
     // Create the Lambda function with all configuration options
     const lambdaArgs: aws.lambda.FunctionArgs = {
         code: new pulumi.asset.FileArchive(zipFilePath),
+        loggingConfig: {
+            logGroup: logGroup.name,
+            logFormat: 'json',
+        },
         handler: 'bootstrap',
         runtime: 'provided.al2023',
         role: options.role,
@@ -104,8 +112,11 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         };
     }
 
-    const lambda = new aws.lambda.Function(`${name}-lambda`, lambdaArgs, {});
-    const logGroupName = lambda.arn.apply(arn => `/aws/lambda/${arn.split(":").pop()}`);
+
+    const lambda = new aws.lambda.Function(`${name}-lambda`, lambdaArgs, {
+        dependsOn: [logGroup],
+    });
+    const logGroupName = logGroup.name;
 
     // Create the Lambda function
     return { lambda, logGroupName };
