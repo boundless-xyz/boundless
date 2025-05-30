@@ -277,7 +277,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         }, { parent: this });
 
         // Create IAM role for CI/CD to execute SSM commands
-        const updateInstanceRole = new aws.iam.Role(`${name}-update-instance-role`, {
+        const updateInstanceRole = new aws.iam.Role(`${name}-ssm-up-role`, {
             assumeRolePolicy: JSON.stringify({
                 Version: "2012-10-17",
                 Statement: [{

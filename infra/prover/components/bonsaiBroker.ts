@@ -163,7 +163,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
       forceDelete: true,
     });
 
-    const executionRole = new aws.iam.Role(`${serviceName}-ecs-execution-role`, {
+    const executionRole = new aws.iam.Role(`${serviceName}-ecsrole`, {
       assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
         Service: 'ecs-tasks.amazonaws.com',
       }),
