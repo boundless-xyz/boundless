@@ -44,7 +44,7 @@ use std::{
 };
 
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     primitives::{
         utils::{format_ether, parse_ether},
         Address, Bytes, FixedBytes, TxKind, B256, U256,
@@ -367,7 +367,7 @@ struct SubmitOfferRequirements {
     #[clap(long, requires = "callback_address")]
     callback_gas_limit: Option<u64>,
     /// Request a groth16 proof (i.e., a Groth16).
-    #[clap(long)]
+    #[clap(long, default_value = "any")]
     proof_type: ProofType,
 }
 
@@ -459,7 +459,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     };
 
     let client = Client::builder()
-        .with_private_key(args.config.private_key.clone())
+        .with_private_key(args.config.private_key.clone().map(EthereumWallet::from))
         .with_rpc_url(args.config.rpc_url.clone())
         .with_deployment(args.config.deployment.clone())
         .with_storage_provider_config(&storage_config)?
@@ -981,6 +981,9 @@ async fn submit_offer(
     // Resolve the program from command line arguments.
     let request = match (args.program.path.clone(), args.program.url.clone()) {
         (Some(path), None) => {
+            if client.storage_provider.is_none() {
+                bail!("A storage provider is required to upload programs.\nPlease provide a storage provider (see --help for options) or upload yiour program and set --program-url.")
+            }
             let program: Cow<'static, [u8]> = std::fs::read(&path)
                 .context(format!("Failed to read program file at {:?}", args.program))?
                 .into();
