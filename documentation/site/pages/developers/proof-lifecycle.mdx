@@ -100,8 +100,8 @@ struct ProofRequest {
   /// Requirements of the delivered proof. Specifies the program that must be run, and constrains
   /// value of the journal, specifying the statement that is requesting to be proven.
   Requirements requirements;
-  /// provers that are evaluating whether to bid on the request.
   /// A public URI where the program (image) can be downloaded. This URI will be accessed by
+  /// provers that are evaluating whether to bid on the request.
   string imageUrl;
   /// Input to be provided to the zkVM guest execution.
   Input input;
