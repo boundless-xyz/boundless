@@ -385,7 +385,7 @@ where
             match order.target_timestamp {
                 Some(target_timestamp) => {
                     if current_block_timestamp < target_timestamp {
-                        tracing::debug!(
+                        tracing::trace!(
                             "Request {:x} target timestamp {} not yet reached (current: {}). Waiting.",
                             order.request.id,
                             target_timestamp,
