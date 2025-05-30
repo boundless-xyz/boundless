@@ -4,7 +4,7 @@
 **Incentives for provers are not active for this phase.**
 :::
 
-## Clone the Boundless repo
+## Clone the Boundless Repo
 
 :::tip[Use Ubuntu 22.04]
 We recommend using Ubuntu 22.04 LTS for your proving node.
@@ -18,7 +18,7 @@ cd boundless
 git checkout release-0.9
 ```
 
-## Setup Dependencies
+## Install Dependencies
 
 :::tip[Tip]
 This stage can be skipped if you already have docker and docker-nvidia installed.
@@ -35,7 +35,7 @@ For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating
 sudo ./scripts/setup.sh
 ```
 
-## Running a test proof using Bento
+## Running a Test Proof
 
 Boundless is comprised of two major components:
 1. *Bento* is the local proving infrastructure. Bento will take requests, prove them and return the result
@@ -74,16 +74,23 @@ Before we move on, stop Bento with:
 just bento down
 ```
 
-## Running the Broker to prove on Boundless
+## Running the Broker
 
-Before we start, we'll need to install the *Boundless CLI*, which is separate to the Bento CLI we installed earlier:
+:::tip[Need technical support?]
+For technical support, please join the [Boundless Discord](https://discord.com/invite/boundlessxyz) and claim the prover role from [Guild.xyz](https://guild.xyz/boundless-xyz).
+:::
+
+We have checked that bento successfully generated a test proof. We are now ready to run the broker so that we can start proving on Boundless.
+
+### Install the Boundless CLI
+
+Before we start, we'll need to install the *Boundless CLI* (which is separate to the Bento CLI we installed earlier):
 
 ```sh [Terminal]
 cargo install --locked boundless-cli
 ```
 
-### Setup environment variables
-
+### Setup Environment Variables
 
 To set the `VERIFIER_ADDRESS`, `SET_VERIFIER_ADDRESS`, `BOUNDLESS_MARKET_ADDRESS` automatically for Ethereum Sepolia, run:
 
@@ -100,7 +107,7 @@ export RPC_URL=""
 
 This is your wallet which will represent your prover on the market; make sure it has funds. For the RPC url, we recommend using [Alchemy](https://alchemy.com).
 
-### Deposit Stake to your Boundless Balance
+### Deposit Stake
 
 :::note[Note]
 * To apply for access to HP tokens and become a prover, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) with your details.
@@ -113,11 +120,8 @@ With the environment variables set, you can now deposit HP tokens as stake to yo
 boundless-cli account deposit-stake 100
 ```
 
-### Start up your proving node
+### Start Broker
 
-:::tip[Need technical support?]
-For technical support, please join the [Boundless Discord](https://discord.com/invite/boundlessxyz) and claim the prover role from [Guild.xyz](https://guild.xyz/boundless-xyz).
-:::
 
 You can now start broker (which runs both bento + broker i.e. the full proving stack!):
 
@@ -130,7 +134,7 @@ To check the proving logs, you can use:
 ```sh [Terminal]
 just broker logs
 ```
-### Stopping your proving node
+### Stop Broker
 
 To stop broker, you can run:
 
@@ -145,6 +149,8 @@ just broker clean
 ```
 
 ## Configuration
+
+### Custom Environment
 
 To run broker with a custom environment file:
 
@@ -173,6 +179,11 @@ Segment sizes are specified in powers-of-two (po2).
 In order to pick the right segment po2 for your GPU VRAM see [the performance optimization page](/provers/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
 
 ## What next?
+
+:::tip[Need technical support?]
+For technical support, please join the [Boundless Discord](https://discord.com/invite/boundlessxyz) and claim the prover role from [Guild.xyz](https://guild.xyz/boundless-xyz).
+:::
+
 
 Next, you'll need to tune your Broker's settings, please see [Broker Optimization](/provers/broker#broker-optimization). If you'd like to learn more about the technical design of Bento, please see the [Bento Technical Design Reference](/provers/bento).
 
