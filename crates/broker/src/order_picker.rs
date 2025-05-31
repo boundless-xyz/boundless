@@ -426,7 +426,7 @@ where
                 ProverError::ProvingFailed(ref err_msg)
                     if err_msg.contains("Session limit exceeded") =>
                 {
-                    tracing::info!(
+                    tracing::debug!(
                         "Skipping order {request_id:x} due to session limit exceeded: {}",
                         err_msg
                     );
@@ -514,7 +514,7 @@ where
             / U256::from(proof_res.stats.total_cycles))
             * one_mill;
 
-        tracing::info!(
+        tracing::debug!(
             "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {} gas_cost: {}",
             format_ether(U256::from(order.request.offer.minPrice)),
             format_ether(U256::from(order.request.offer.maxPrice)),
@@ -527,7 +527,7 @@ where
 
         // Skip the order if it will never be worth it
         if mcycle_price_max < config_min_mcycle_price {
-            tracing::info!("Removing under priced order with request id {request_id:x}");
+            tracing::debug!("Removing under priced order with request id {request_id:x}");
             return Ok(Skip);
         }
 

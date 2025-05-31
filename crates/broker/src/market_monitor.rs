@@ -438,7 +438,7 @@ where
         chain_id: u64,
         new_order_tx: &tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<()> {
-        tracing::info!("Detected new request {:x}", event.requestId);
+        tracing::info!("Detected new on-chain request {:x}", event.requestId);
         // Check the request id flag to determine if the request is smart contract signed. If so we verify the
         // ERC1271 signature by calling isValidSignature on the smart contract client. Otherwise we verify the
         // the signature as an ECDSA signature.
@@ -480,15 +480,11 @@ where
             chain_id,
         );
 
-        let order_id = new_order.request.id;
+        let order_id = new_order.id();
         if let Err(e) = new_order_tx.send(Box::new(new_order)).await {
-            tracing::error!(
-                "Failed to send new on-chain order {:x} to OrderPicker: {}",
-                order_id,
-                e
-            );
+            tracing::error!("Failed to send new on-chain order {} to OrderPicker: {}", order_id, e);
         } else {
-            tracing::debug!("Sent new on-chain order {:x} to OrderPicker via channel.", order_id);
+            tracing::trace!("Sent new on-chain order {} to OrderPicker via channel.", order_id);
         }
         Ok(())
     }
