@@ -11,6 +11,7 @@ export class Notifications extends pulumi.ComponentResource {
       slackChannelId: pulumi.Output<string>;
       slackTeamId: pulumi.Output<string>;
       pagerdutyIntegrationUrl: pulumi.Output<string>;
+      ssoBaseUrl: string;
       opsAccountId: string;
     },
     opts?: pulumi.ComponentResourceOptions
@@ -194,6 +195,11 @@ export class Notifications extends pulumi.ComponentResource {
       code: new pulumi.asset.AssetArchive({
         '.': new pulumi.asset.FileArchive('./log-lambda/build'),
       }),
+      environment: {
+        variables: {
+          SSO_BASE_URL: args.ssoBaseUrl,
+        },
+      },
     });
 
     // Create a Slack channel configuration for the alerts

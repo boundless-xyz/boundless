@@ -73,6 +73,7 @@ const config = new pulumi.Config();
 const boundlessAlertsSlackId = config.requireSecret("BOUNDLESS_ALERTS_SLACK_ID");
 const workspaceSlackId = config.requireSecret("WORKSPACE_SLACK_ID");
 const pagerdutyIntegrationUrl = config.requireSecret("PAGERDUTY_INTEGRATION_URL");
+const ssoBaseUrl = config.require("SSO_BASE_URL");
 
 const notifications = new Notifications("notifications", {
   opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
@@ -84,6 +85,7 @@ const notifications = new Notifications("notifications", {
   slackChannelId: boundlessAlertsSlackId,
   slackTeamId: workspaceSlackId,
   pagerdutyIntegrationUrl,
+  ssoBaseUrl,
 });
 
 // The Docker and GH tokens are used to avoid rate limiting issues when building in the pipelines.

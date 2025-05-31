@@ -3,9 +3,9 @@ import { getChainName } from "../../../util";
 import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
 import { SERVICE_TO_LOG_GROUP_NAME } from "./logGroups";
 import { SERVICE_TO_QUERY_STRING_MAPPING } from "./logQueries";
-import { buildCloudWatchLogsInsightsUrl, encodeAwsConsoleUrl } from "./urls";
+import { encodeCloudWatchLogsInsightsUrl, encodeAwsConsoleUrl } from "./urls";
 
-const LOG_QUERY_MINS_BEFORE = 2;
+const LOG_QUERY_MINS_BEFORE = 1;
 const LOG_QUERY_MINS_AFTER = 1;
 
 type AlarmEvent = {
@@ -22,7 +22,11 @@ export const handler: Handler = async (event: AlarmEvent, context: Context): Pro
   console.log(JSON.stringify(event));
   console.log(JSON.stringify(context));
 
-  const response = await processAlarmEvent(process.env.SSO_BASE_URL!, new CloudWatchClient({ region: "us-west-2" }), event);
+  if (!process.env.SSO_BASE_URL) {
+    throw new Error('SSO_BASE_URL is not set');
+  }
+
+  const response = await processAlarmEvent(process.env.SSO_BASE_URL, new CloudWatchClient({ region: "us-west-2" }), event);
 
   return {
     statusCode: 200,
@@ -53,7 +57,7 @@ export const processAlarmEvent = async (ssoBaseUrl: string, client: CloudWatchCl
   const logGroupName = SERVICE_TO_LOG_GROUP_NAME(stage, chainId, service);
   const queryString = SERVICE_TO_QUERY_STRING_MAPPING(service, logGroupName, metricAlarmName);
 
-  const logsUrl = await buildCloudWatchLogsInsightsUrl({
+  const logsUrl = await encodeCloudWatchLogsInsightsUrl({
     region,
     logGroupName,
     startTime,

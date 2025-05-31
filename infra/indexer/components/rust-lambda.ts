@@ -84,7 +84,7 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
     }
 
     const logGroup = new aws.cloudwatch.LogGroup(`${name}-log-group`, {
-        name: `/aws/lambda/${name}`,
+        name: `${name}`,
     });
 
     // Create the Lambda function with all configuration options

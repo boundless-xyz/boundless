@@ -1,11 +1,11 @@
-export const SERVICE_TO_LOG_GROUP_NAME_MAPPING = (service: string): string => {
+const SERVICE_TO_LOG_GROUP_NAME_MAPPING = (service: string): string => {
   switch (service) {
     case 'bento-prover':
       return 'prod-11155111-bento-prover-11155111';
     case 'bonsai-prover':
       return 'prod-11155111-bonsai-prover-11155111';
     case 'monitor':
-      return '/aws/lambda/prod-11155111-monitor-11155111-monitor-lambda';
+      return 'prod-11155111-monitor-11155111-monitor-lambda';
     case 'indexer':
       return 'prod-11155111-indexer-11155111-service';
     case 'og-offchain':

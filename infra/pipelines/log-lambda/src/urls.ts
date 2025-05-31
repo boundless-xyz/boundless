@@ -7,13 +7,11 @@ interface CloudWatchLogsInsightsParams {
   accountId: string;
 }
 
-export const buildCloudWatchLogsInsightsUrl = async (params: CloudWatchLogsInsightsParams): Promise<string> => {
+export const encodeCloudWatchLogsInsightsUrl = async (params: CloudWatchLogsInsightsParams): Promise<string> => {
   const { region, logGroupName, startTime, endTime, queryString, accountId } = params;
 
-  // Format dates to ISO string and replace : with *3a
-  const formatDate = (date: Date) => date.toISOString().replace(/:/g, '*3a');
-
-  // Encode the query string to match CloudWatch's exact format
+  // Cloudwatch uses a custom URI encoding for its query strings.
+  const encodeDate = (date: Date) => date.toISOString().replace(/:/g, '*3a');
   const replacements: Record<string, string> = {
     '\n': '*0a',
     ' ': '*20',
@@ -30,7 +28,6 @@ export const buildCloudWatchLogsInsightsUrl = async (params: CloudWatchLogsInsig
     '*': '*2a'
   };
 
-  // Process the string character by character
   const encodedQuery = queryString.split('').map(char => {
     if (char === '\\') {
       return '*5c*5c';
@@ -39,9 +36,10 @@ export const buildCloudWatchLogsInsightsUrl = async (params: CloudWatchLogsInsig
   }).join('');
 
   const lang = queryString.includes('SELECT') ? 'SQL' : 'CWLI';
+
   const encodedQueryDetail = [
-    `end~'${formatDate(endTime)}`,
-    `start~'${formatDate(startTime)}`,
+    `end~'${encodeDate(endTime)}`,
+    `start~'${encodeDate(startTime)}`,
     `timeType~'ABSOLUTE`,
     `tz~'LOCAL`,
     `editorString~'${encodedQuery}`,
@@ -52,7 +50,7 @@ export const buildCloudWatchLogsInsightsUrl = async (params: CloudWatchLogsInsig
 
   const urlPrefix = encodeURIComponent(`https://console.aws.amazon.com/cloudwatch/home?region=${region}#logsV2:logs-insights`);
   const url = `${urlPrefix}$3FqueryDetail$3D~(${encodedQueryDetail})`;
-  console.log(url);
+  console.log("Cloudwatch Logs Insights URL:", url);
   return url;
 };
 
