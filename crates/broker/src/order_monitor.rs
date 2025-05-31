@@ -412,7 +412,7 @@ where
                 .await
                 .context("Failed to check if request is fulfilled")?;
             if is_fulfilled {
-                tracing::info!(
+                tracing::debug!(
                     "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
@@ -519,14 +519,12 @@ where
                             match err {
                                 OrderMonitorErr::UnexpectedError(inner) => {
                                     tracing::error!(
-                                        "Failed to lock order: {order_id} - {} - {inner:?}",
-                                        err.code()
+                                        "Failed to lock order: {order_id} - {inner:?}",
                                     );
                                 }
                                 _ => {
                                     tracing::warn!(
-                                        "Soft failed to lock request: {request_id} - {} - {err:?}",
-                                        err.code()
+                                        "Soft failed to lock request: {order_id} - {err:?}",
                                     );
                                 }
                             }
