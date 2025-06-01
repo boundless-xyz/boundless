@@ -90,8 +90,8 @@ impl OffchainMarketMonitor {
                         Err(OffchainMarketMonitorErr::ReceiverDropped)
                     } else {
                         tracing::trace!(
-                            "Sent new off-chain order {} to OrderPicker via channel.",
-                            new_order.id()
+                            "Sent new off-chain order {:x} to OrderPicker via channel.",
+                            order_data.id
                         );
                         Ok(())
                     }
