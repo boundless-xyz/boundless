@@ -90,6 +90,10 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
     // Create the Lambda function with all configuration options
     const lambdaArgs: aws.lambda.FunctionArgs = {
         code: new pulumi.asset.FileArchive(zipFilePath),
+        loggingConfig: {
+            logGroup: logGroup.name,
+            logFormat: 'JSON',
+        },
         handler: 'bootstrap',
         runtime: 'provided.al2023',
         loggingConfig: {
@@ -112,7 +116,9 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         };
     }
 
-    const lambda = new aws.lambda.Function(`${name}-lambda`, lambdaArgs, { dependsOn: [logGroup] });
+    const lambda = new aws.lambda.Function(`${name}-lambda`, lambdaArgs, {
+        dependsOn: [logGroup],
+    });
     const logGroupName = logGroup.name;
 
     // Create the Lambda function

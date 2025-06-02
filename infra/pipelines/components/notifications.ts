@@ -5,6 +5,7 @@ export class Notifications extends pulumi.ComponentResource {
   public slackSNSTopic: aws.sns.Topic;
   public slackSNSTopicStaging: aws.sns.Topic;
   public pagerdutySNSTopic: aws.sns.Topic;
+
   constructor(
     name: string,
     args: {
@@ -13,13 +14,15 @@ export class Notifications extends pulumi.ComponentResource {
       stagingSlackChannelId: pulumi.Output<string>;
       slackTeamId: pulumi.Output<string>;
       pagerdutyIntegrationUrl: pulumi.Output<string>;
+      ssoBaseUrl: string;
+      runbookUrl: string;
       opsAccountId: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
     super('pipelines:Notifications', name, args, opts);
 
-    const { serviceAccountIds, prodSlackChannelId: prodSlackChannelIdOutput, stagingSlackChannelId: stagingSlackChannelIdOutput, slackTeamId: slackTeamIdOutput, pagerdutyIntegrationUrl } = args;
+    const { serviceAccountIds, prodSlackChannelId: prodSlackChannelIdOutput, stagingSlackChannelId: stagingSlackChannelIdOutput, slackTeamId: slackTeamIdOutput, pagerdutyIntegrationUrl, ssoBaseUrl, runbookUrl } = args;
 
     // Create an IAM Role for AWS Chatbot
     const chatbotRole = new aws.iam.Role('chatbotRole', {
@@ -40,6 +43,7 @@ export class Notifications extends pulumi.ComponentResource {
         'arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess',
         'arn:aws:iam::aws:policy/AmazonQDeveloperAccess',
         'arn:aws:iam::aws:policy/AIOpsOperatorAccess',
+        'arn:aws:iam::aws:policy/AWSLambda_FullAccess',
       ],
     });
 
@@ -144,6 +148,71 @@ export class Notifications extends pulumi.ComponentResource {
         ],
       }));
 
+      const slackSnsTopicPolicyStaging = this.slackSNSTopicStaging.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+        statements: [
+          ...serviceAccountIds.map(serviceAccountId => ({
+            actions: [
+              "SNS:Publish",
+            ],
+            effect: "Allow",
+            principals: [{
+              type: "AWS",
+              identifiers: ["*"], // Restricted by the condition below.
+            }],
+            resources: [arn],
+            conditions: [{
+              test: "ArnLike",
+              variable: "aws:SourceArn",
+              values: [`arn:aws:cloudwatch:us-west-2:${serviceAccountId}:alarm:*`],
+            }],
+            sid: `Grant publish to account ${serviceAccountId}.`,
+          })),
+          {
+            actions: ["SNS:Publish"],
+            principals: [{
+              type: "Service",
+              identifiers: ["codestar-notifications.amazonaws.com"],
+            }],
+            resources: [arn],
+            sid: "Grant publish to codestar for deployment notifications",
+          },
+        ],
+      }));
+
+      // Create an IAM Role for AWS Chatbot
+      const chatbotLogFetcherRole = new aws.iam.Role('chatbot-log-fetcher-role', {
+        assumeRolePolicy: {
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Effect: 'Allow',
+              Principal: {
+                Service: 'lambda.amazonaws.com',
+              },
+              Action: 'sts:AssumeRole',
+            },
+          ],
+        },
+        managedPolicyArns: [
+          'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole',
+        ],
+      });
+
+      const chatbotLogFetcher = new aws.lambda.Function("chatbot-debugger", {
+        handler: "index.handler",
+        runtime: "nodejs20.x",
+        role: chatbotLogFetcherRole.arn,
+        code: new pulumi.asset.AssetArchive({
+          '.': new pulumi.asset.FileArchive('./log-lambda/build'),
+        }),
+        environment: {
+          variables: {
+            SSO_BASE_URL: ssoBaseUrl,
+            RUNBOOK_URL: runbookUrl,
+          },
+        },
+      });
+
       // Attach the policy to the SNS topic
       slackSnsTopicPolicy.apply(slackSnsTopicPolicy => {
         new aws.sns.TopicPolicy("service-accounts-slack-publish-policy", {
@@ -154,7 +223,7 @@ export class Notifications extends pulumi.ComponentResource {
         });
         new aws.sns.TopicPolicy("service-accounts-slack-publish-policy-staging", {
           arn: this.slackSNSTopicStaging.arn,
-          policy: slackSnsTopicPolicy.json,
+          policy: slackSnsTopicPolicyStaging.json,
         }, {
           parent: this,
         });
@@ -215,7 +284,8 @@ export class Notifications extends pulumi.ComponentResource {
             loggingLevel: "INFO",
           });
           return [prodSlackChannelConfiguration, stagingSlackChannelConfiguration];
-        });
+        }
+        );
 
       // Create an SNS topic for the pagerduty alerts
       this.pagerdutySNSTopic = new aws.sns.Topic("boundless-pagerduty-topic", {
@@ -279,3 +349,5 @@ export class Notifications extends pulumi.ComponentResource {
       });
     }
   }
+
+};
