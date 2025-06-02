@@ -1,6 +1,7 @@
 export enum ChainId {
   SEPOLIA = "11155111",
   BASE = "8453",
+  BASE_SEPOLIA = "84532",
 }
 
 export const getChainId = (chainId: string): ChainId => {
@@ -9,6 +10,9 @@ export const getChainId = (chainId: string): ChainId => {
   }
   if (chainId === "8453") {
     return ChainId.BASE;
+  }
+  if (chainId === "84532") {
+    return ChainId.BASE_SEPOLIA;
   }
   throw new Error(`Invalid chain ID: ${chainId}`);
 };
@@ -36,10 +40,6 @@ export const getServiceNameV1 = (stackName: string, name: string, chainId?: Chai
   const prefix = isDev ? `${getEnvVar("DEV_NAME")}` : `${stackName}`;
   const suffix = chainId ? `-${chainId}` : "";
   const serviceName = `${prefix}-${name}${suffix}`;
-  // When creating S3 buckets using prefixName the max length is 37 characters.
-  if (serviceName.length > 37) {
-    throw new Error(`Service name ${serviceName} is too long`);
-  }
   return serviceName;
 };
 
