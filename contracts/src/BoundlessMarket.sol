@@ -462,10 +462,10 @@ contract BoundlessMarket is
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
-        // If no fulfillment context was stored for this request digest (via priceRequest),
-        // then payment cannot be processed. This check also serves as a smart
-        // contract signature check, since signatures are validated when a
-        // request is priced.
+        // If no fulfillment context was stored for this request digest (via priceRequest), and it
+        // was not locked, then payment cannot be processed. This check also serves as a smart
+        // contract signature check, since signatures are validated when a request is priced or
+        // locked.
         //
         // NOTE: We check this before checking fulfillment status to maintain the invariant that
         // the transaction will revert if the delivered proof is not associated with a valid request.
