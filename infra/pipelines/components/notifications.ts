@@ -354,5 +354,4 @@ export class Notifications extends pulumi.ComponentResource {
       rawMessageDelivery: false,
     });
   }
-
-};
+}

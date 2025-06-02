@@ -8,7 +8,7 @@ config:
     secure: v1:54VKT47TarVCPEY3:TQqcCt78JE0Br3VDnr00NyGbgsHE0KECtp2IDyCM/lv6pi3x5B5NuzvyEXpjUXCHRI1SbPIFO6avkc5KRlTjZq642OOInrxKyXByTEoJgTTnuXVm8Q==
   order-generator-base:ORDER_STREAM_URL:
     secure: v1:Nksug5e5PpAKtzDk:P3z5UVGY5VRfA39rQeqgMN7PgkgW04KzOb1ENiYzGgF83PLCoC/W85n70tZBDPWyy+lTseCKm5Hcrx9gw/bdizuEhMjp1QV4vjDW+h36WKtfv5GQaw2ZSPhPcoXAdg==
-  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:BASE_STACK: organization/bootstrap/services-staging
   order-generator-base:BOUNDLESS_MARKET_ADDR: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
