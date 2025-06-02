@@ -16,7 +16,7 @@ use crate::{
 use alloy::{
     network::Ethereum,
     primitives::{
-        utils::{format_ether, parse_ether},
+        utils::{format_ether, parse_units},
         Address, U256,
     },
     providers::{Provider, WalletProvider},
@@ -139,6 +139,7 @@ where
         prover_addr: Address,
         market_addr: Address,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
+        stake_token_decimals: u8,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -155,19 +156,18 @@ where
         }
         {
             let config = config.lock_all()?;
+
             market = market.with_stake_balance_alert(
                 &config
                     .market
                     .stake_balance_warn_threshold
                     .as_ref()
-                    .map(|s| parse_ether(s))
-                    .transpose()?,
+                    .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
                 &config
                     .market
                     .stake_balance_error_threshold
                     .as_ref()
-                    .map(|s| parse_ether(s))
-                    .transpose()?,
+                    .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
             );
         }
         let monitor = Self {
@@ -1057,7 +1057,11 @@ mod tests {
 
         // Deposit ETH into the contract for the prover to use when locking orders
         // Using 10 ETH to ensure plenty of funds for tests
-        market_service.deposit(parse_ether("10.0").unwrap()).await.unwrap();
+        let stake_token_decimals = market_service.stake_token_decimals().await.unwrap();
+        market_service
+            .deposit(parse_units("10.0", stake_token_decimals).unwrap().into())
+            .await
+            .unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -1084,6 +1088,7 @@ mod tests {
             signer.address(),
             market_address,
             priced_order_rx,
+            stake_token_decimals,
         )
         .unwrap();
 
