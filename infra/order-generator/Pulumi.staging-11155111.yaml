@@ -20,7 +20,7 @@ config:
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:INTERVAL: "300"
   order-generator-base:LOCK_STAKE_RAW: "500000"
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.001"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0000005"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:JwMshDYyGPxsESiX:SY8Ye0Yf4BUg2vHfUa0kzK+KV1hUXFBLBdMgDGsIfNosmLjwXkm1+vombjLfhzJQg+/7AFLsKUgHdteI7grj+abG6ty2365BG+claz92m1pKXc+2lJ8ot3B/bghgM5na2s/K1De2p7BEXiIHHQ==
