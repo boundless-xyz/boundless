@@ -153,9 +153,11 @@ block_deadline_buffer_secs = 120
 txn_timeout = 45
 # Use the single TXN submission that batches submit_merkle / fulfill_batch into
 #
-# A single transaction. Requires the `submitRootAndFulfillBatch` method
+# A single transaction. Requires the `submitRootAndFulfill` method
 # be present on the deployed contract
 single_txn_fulfill = true
+# Whether to withdraw from the prover balance when fulfilling
+withdraw = false
 # Polling time, in milliseconds
 #
 # The time between polls for new orders to aggregate and how often to check for batch finalize

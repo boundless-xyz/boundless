@@ -137,7 +137,7 @@ contract DeploymentTest is Test {
         );
     }
 
-    function testPriceAndFulfillBatch() external {
+    function testPriceAndFulfill() external {
         Client testProver = createClientContract("PROVER");
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
@@ -177,14 +177,14 @@ contract DeploymentTest is Test {
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id);
 
-        boundlessMarket.priceAndFulfillBatch(
+        boundlessMarket.priceAndFulfill(
             requests, clientSignatures, result.fills, result.assessorReceipt
         );
         Fulfillment memory fill = result.fills[0];
         assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
     }
 
-    function testPriceAndFulfillBatchWithSelector() external {
+    function testPriceAndFulfillWithSelector() external {
         Client testProver = createClientContract("PROVER");
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
@@ -227,7 +227,7 @@ contract DeploymentTest is Test {
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id);
 
-        boundlessMarket.priceAndFulfillBatch(
+        boundlessMarket.priceAndFulfill(
             requests, clientSignatures, result.fills, result.assessorReceipt
         );
         Fulfillment memory fill = result.fills[0];

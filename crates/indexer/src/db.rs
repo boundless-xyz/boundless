@@ -282,6 +282,7 @@ impl IndexerDb for AnyDb {
         request: ProofRequest,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         let predicate_type = match request.requirements.predicate.predicateType {
             PredicateType::DigestMatch => "DigestMatch",
             PredicateType::PrefixMatch => "PrefixMatch",
@@ -378,6 +379,7 @@ impl IndexerDb for AnyDb {
         prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO fulfillments (
                 request_digest,
@@ -472,6 +474,7 @@ impl IndexerDb for AnyDb {
         request_id: U256,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO proof_delivered_events (
                 request_digest,
@@ -499,6 +502,7 @@ impl IndexerDb for AnyDb {
         request_id: U256,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO request_fulfilled_events (
                 request_digest,

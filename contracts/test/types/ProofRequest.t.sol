@@ -22,7 +22,7 @@ import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 contract ProofRequestTestContract {
     mapping(address => Account) accounts;
 
-    function validate(ProofRequest calldata request) external view returns (uint64, uint64) {
+    function validate(ProofRequest calldata request) external pure returns (uint64, uint64) {
         return request.validate();
     }
 
@@ -137,31 +137,6 @@ contract ProofRequestTest is Test {
         request.offer.timeout = type(uint32).max;
 
         vm.expectRevert(IBoundlessMarket.InvalidRequest.selector);
-        requestContract.validate(request);
-    }
-
-    function testValidateExpired() public {
-        ProofRequest memory request = defaultProofRequest;
-        request.offer.rampUpPeriod = 5;
-        request.offer.lockTimeout = 5;
-        request.offer.timeout = 10;
-
-        vm.warp(request.offer.biddingStart);
-        requestContract.validate(request);
-
-        vm.warp(request.offer.lockDeadline());
-        requestContract.validate(request);
-
-        vm.warp(request.offer.lockDeadline() + 1);
-        requestContract.validate(request);
-
-        vm.warp(request.offer.deadline());
-        requestContract.validate(request);
-
-        vm.warp(request.offer.deadline() + 1);
-        vm.expectRevert(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id, request.offer.deadline())
-        );
         requestContract.validate(request);
     }
 }

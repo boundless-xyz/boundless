@@ -5,23 +5,21 @@
 use std::{cmp::min, collections::HashMap, sync::Arc};
 
 use alloy::{
-    consensus::Transaction,
     eips::BlockNumberOrTag,
     network::{Ethereum, TransactionResponse},
-    primitives::{Address, Bytes, B256},
+    primitives::{Address, B256},
     providers::{
         fillers::{ChainIdFiller, FillProvider, JoinFill},
         Identity, Provider, ProviderBuilder, RootProvider,
     },
     rpc::types::Log,
     signers::local::PrivateKeySigner,
-    sol_types::SolCall,
     transports::{RpcError, TransportErrorKind},
 };
 use anyhow::{anyhow, Context};
 use boundless_market::contracts::{
-    boundless_market::{decode_calldata, BoundlessMarketService, MarketError},
-    EIP712DomainSaltless, IBoundlessMarket,
+    boundless_market::{BoundlessMarketService, MarketError},
+    EIP712DomainSaltless,
 };
 use db::{AnyDb, DbError, DbObj, TxMetadata};
 use thiserror::Error;
@@ -65,8 +63,8 @@ pub struct IndexerService<P> {
     pub db: DbObj,
     pub domain: EIP712DomainSaltless,
     pub config: IndexerServiceConfig,
-    // Mapping from transaction hash to (from, block number, block timestamp, tx input)
-    pub cache: HashMap<B256, (TxMetadata, Bytes)>,
+    // Mapping from transaction hash to TxMetadata
+    pub cache: HashMap<B256, TxMetadata>,
 }
 
 #[derive(Clone)]
@@ -226,32 +224,27 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, input) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
 
             tracing::debug!(
                 "Processing request submitted event for request: 0x{:x} [block: {}, timestamp: {}]",
-                log.requestId,
+                event.requestId,
                 metadata.block_number,
                 metadata.block_timestamp
             );
 
-            let request = IBoundlessMarket::submitRequestCall::abi_decode(&input)
-                .context(anyhow!(
-                    "abi decode failure for request submitted event of tx: {}",
-                    hex::encode(metadata.tx_hash)
-                ))?
-                .request;
+            let request = event.request.clone();
 
             let request_digest = request
                 .signing_hash(self.domain.verifying_contract, self.domain.chain_id)
                 .context(anyhow!(
                     "Failed to compute request digest for request: 0x{:x}",
-                    log.requestId
+                    event.requestId
                 ))?;
 
             self.db.add_proof_request(request_digest, request, &metadata).await?;
-            self.db.add_request_submitted_event(request_digest, log.requestId, &metadata).await?;
+            self.db.add_request_submitted_event(request_digest, event.requestId, &metadata).await?;
         }
 
         Ok(())
@@ -278,37 +271,32 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, input) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing request locked event for request: 0x{:x} [block: {}, timestamp: {}]",
-                log.requestId,
+                event.requestId,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            let request = IBoundlessMarket::lockRequestCall::abi_decode(&input)
-                .context(anyhow!(
-                    "abi decode failure for request locked event of tx: {}",
-                    hex::encode(metadata.tx_hash)
-                ))?
-                .request;
+            let request = event.request.clone();
 
             let request_digest = request
                 .signing_hash(self.domain.verifying_contract, self.domain.chain_id)
                 .context(anyhow!(
                     "Failed to compute request digest for request: 0x{:x}",
-                    log.requestId
+                    event.requestId
                 ))?;
 
             // We add the request here also to cover requests that were submitted off-chain,
             // which we currently don't index at submission time.
             let request_exists = self.db.has_proof_request(request_digest).await?;
             if !request_exists {
-                tracing::debug!("Detected request locked for unseen request. Likely submitted off-chain: 0x{:x}", log.requestId);
+                tracing::debug!("Detected request locked for unseen request. Likely submitted off-chain: 0x{:x}", event.requestId);
                 self.db.add_proof_request(request_digest, request, &metadata).await?;
             }
             self.db
-                .add_request_locked_event(request_digest, log.requestId, log.prover, &metadata)
+                .add_request_locked_event(request_digest, event.requestId, event.prover, &metadata)
                 .await?;
         }
 
@@ -336,24 +324,23 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, input) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing proof delivered event for request: 0x{:x} [block: {}, timestamp: {}]",
-                log.requestId,
+                event.requestId,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            let (fills, assessor_receipt) = decode_calldata(&input).context(anyhow!(
-                "abi decode failure for proof delivered event of tx: {}",
-                hex::encode(metadata.tx_hash)
-            ))?;
 
-            self.db.add_assessor_receipt(assessor_receipt.clone(), &metadata).await?;
-            for fill in fills {
-                self.db.add_proof_delivered_event(fill.requestDigest, fill.id, &metadata).await?;
-                self.db.add_fulfillment(fill, assessor_receipt.prover, &metadata).await?;
-            }
+            self.db
+                .add_proof_delivered_event(
+                    event.fulfillment.requestDigest,
+                    event.requestId,
+                    &metadata,
+                )
+                .await?;
+            self.db.add_fulfillment(event.fulfillment, event.prover, &metadata).await?;
         }
 
         Ok(())
@@ -380,22 +367,21 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, input) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing fulfilled event for request: 0x{:x} [block: {}, timestamp: {}]",
-                log.requestId,
+                event.requestId,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-
-            let (fills, _) = decode_calldata(&input).context(anyhow!(
-                "abi decode failure for fulfilled event of tx: {}",
-                hex::encode(metadata.tx_hash)
-            ))?;
-            for fill in fills {
-                self.db.add_request_fulfilled_event(fill.requestDigest, fill.id, &metadata).await?;
-            }
+            self.db
+                .add_request_fulfilled_event(
+                    event.fulfillment.requestDigest,
+                    event.requestId,
+                    &metadata,
+                )
+                .await?;
         }
 
         Ok(())
@@ -422,20 +408,20 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, _) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing slashed event for request: 0x{:x} [block: {}, timestamp: {}]",
-                log.requestId,
+                event.requestId,
                 metadata.block_number,
                 metadata.block_timestamp
             );
             self.db
                 .add_prover_slashed_event(
-                    log.requestId,
-                    log.stakeBurned,
-                    log.stakeTransferred,
-                    log.stakeRecipient,
+                    event.requestId,
+                    event.stakeBurned,
+                    event.stakeTransferred,
+                    event.stakeRecipient,
                     &metadata,
                 )
                 .await?;
@@ -465,15 +451,15 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, _) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
-                log.account,
+                event.account,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_deposit_event(log.account, log.value, &metadata).await?;
+            self.db.add_deposit_event(event.account, event.value, &metadata).await?;
         }
 
         Ok(())
@@ -500,15 +486,15 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, _) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
-                log.account,
+                event.account,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_withdrawal_event(log.account, log.value, &metadata).await?;
+            self.db.add_withdrawal_event(event.account, event.value, &metadata).await?;
         }
 
         Ok(())
@@ -535,15 +521,15 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, _) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing stake deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
-                log.account,
+                event.account,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_stake_deposit_event(log.account, log.value, &metadata).await?;
+            self.db.add_stake_deposit_event(event.account, event.value, &metadata).await?;
         }
 
         Ok(())
@@ -570,15 +556,15 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, _) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing stake withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
-                log.account,
+                event.account,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_stake_withdrawal_event(log.account, log.value, &metadata).await?;
+            self.db.add_stake_withdrawal_event(event.account, event.value, &metadata).await?;
         }
 
         Ok(())
@@ -605,20 +591,20 @@ where
             to_block
         );
 
-        for (log, log_data) in logs {
-            let (metadata, _) = self.fetch_tx(log_data).await?;
+        for (event, log_data) in logs {
+            let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
                 "Processing callback failed event for request: 0x{:x} [block: {}, timestamp: {}]",
-                log.requestId,
+                event.requestId,
                 metadata.block_number,
                 metadata.block_timestamp
             );
 
             self.db
                 .add_callback_failed_event(
-                    log.requestId,
-                    log.callback,
-                    log.error.to_vec(),
+                    event.requestId,
+                    event.callback,
+                    event.error.to_vec(),
                     &metadata,
                 )
                 .await?;
@@ -657,16 +643,16 @@ where
         self.cache.clear();
     }
 
-    // Fetch (and cache) metadata and input for a tx
+    // Fetch (and cache) metadata for a tx
     // Check if the transaction is already in the cache
-    // If it is, use the cached tx metadata and tx_input
+    // If it is, use the cached tx metadata
     // Otherwise, fetch the transaction from the provider and cache it
     // This is to avoid making multiple calls to the provider for the same transaction
     // as delivery events may be emitted in a batch
-    async fn fetch_tx(&mut self, log: Log) -> Result<(TxMetadata, Bytes), ServiceError> {
+    async fn fetch_tx_metadata(&mut self, log: Log) -> Result<TxMetadata, ServiceError> {
         let tx_hash = log.transaction_hash.context("Transaction hash not found")?;
-        if let Some((meta, input)) = self.cache.get(&tx_hash) {
-            return Ok((meta.clone(), input.clone()));
+        if let Some(meta) = self.cache.get(&tx_hash) {
+            return Ok(meta.clone());
         }
         let tx = self
             .boundless_market
@@ -679,9 +665,8 @@ where
         let ts =
             if let Some(ts) = log.block_timestamp { ts } else { self.block_timestamp(bn).await? };
         let meta = TxMetadata::new(tx_hash, tx.from(), bn, ts);
-        let input = tx.input().clone();
-        self.cache.insert(tx_hash, (meta.clone(), input.clone()));
-        Ok((meta, input))
+        self.cache.insert(tx_hash, meta.clone());
+        Ok(meta)
     }
 
     // Return the last processed block from the DB is > 0;

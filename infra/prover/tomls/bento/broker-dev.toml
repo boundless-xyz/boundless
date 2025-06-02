@@ -33,5 +33,6 @@ min_batch_size = 1
 block_deadline_buffer_secs = 120
 txn_timeout = 75
 single_txn_fulfill = true
+withdraw = true
 max_submission_attempts = 2
 # batch_poll_time_ms = 500

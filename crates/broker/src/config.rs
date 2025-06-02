@@ -295,10 +295,13 @@ pub struct BatcherConfig {
     pub batch_poll_time_ms: Option<u64>,
     /// Use the single TXN submission that batches submit_merkle / fulfill_batch into
     ///
-    /// A single transaction. Requires the `submitRootAndFulfillBatch` method
+    /// A single transaction. Requires the `submitRootAndFulfill` method
     /// be present on the deployed contract
     #[serde(default)]
     pub single_txn_fulfill: bool,
+    /// Whether to withdraw from the prover balance when fulfilling
+    #[serde(default)]
+    pub withdraw: bool,
     /// Number of attempts to make to submit a batch before abandoning
     #[serde(default = "defaults::max_submission_attempts")]
     pub max_submission_attempts: u32,
@@ -315,6 +318,7 @@ impl Default for BatcherConfig {
             txn_timeout: None,
             batch_poll_time_ms: Some(1000),
             single_txn_fulfill: false,
+            withdraw: false,
             max_submission_attempts: defaults::max_submission_attempts(),
         }
     }
@@ -544,7 +548,8 @@ batch_size = 3
 block_deadline_buffer_secs = 120
 txn_timeout = 45
 batch_poll_time_ms = 1200
-single_txn_fulfill = true"#;
+single_txn_fulfill = true
+withdraw = true"#;
 
     const BAD_CONFIG: &str = r#"
 [market]
@@ -643,6 +648,7 @@ error = ?"#;
             assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
             assert_eq!(config.batcher.min_batch_size, Some(3));
             assert!(config.batcher.single_txn_fulfill);
+            assert!(config.batcher.withdraw);
         }
         tracing::debug!("closing...");
     }

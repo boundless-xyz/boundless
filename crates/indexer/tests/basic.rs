@@ -15,7 +15,8 @@ use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::test_utils::TestDb;
 use boundless_market::{
     contracts::{
-        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
+        boundless_market::FulfillmentTx, Offer, Predicate, PredicateType, ProofRequest, RequestId,
+        RequestInput, Requirements,
     },
     order_stream_client::Order,
 };
@@ -128,12 +129,13 @@ async fn test_e2e() {
     let order_fulfilled =
         OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
     ctx.prover_market
-        .submit_merkle_and_fulfill(
-            ctx.deployment.set_verifier_address,
-            order_fulfilled.root,
-            order_fulfilled.seal,
-            order_fulfilled.fills,
-            order_fulfilled.assessorReceipt,
+        .fulfill(
+            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                .with_submit_root(
+                    ctx.deployment.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
         )
         .await
         .unwrap();
@@ -339,16 +341,13 @@ async fn test_monitoring() {
         .unwrap();
     let order_fulfilled =
         OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
-    ctx.prover_market
-        .submit_merkle_and_fulfill(
+    let fulfillment = FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+        .with_submit_root(
             ctx.deployment.set_verifier_address,
             order_fulfilled.root,
             order_fulfilled.seal,
-            order_fulfilled.fills,
-            order_fulfilled.assessorReceipt,
-        )
-        .await
-        .unwrap();
+        );
+    ctx.prover_market.fulfill(fulfillment).await.unwrap();
 
     // Wait for the events to be indexed
     tokio::time::sleep(Duration::from_secs(2)).await;
