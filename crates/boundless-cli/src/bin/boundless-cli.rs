@@ -12,27 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The Boundless CLI is a command-line interface for interacting with the Boundless market.
+//! The Boundless CLI is a command-line interface for interacting with Boundless.
 //!
-//! # Environment Variables
+//! # Examples
 //!
-//! The CLI relies on the following environment variables:
+//! ```sh
+//! RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
+//! boundless-cli account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
+//! ```
 //!
-//! Required variables:
-//! - `PRIVATE_KEY`: Private key for your Ethereum wallet
-//! - `BOUNDLESS_MARKET_ADDRESS`: Address of the Boundless market contract
-//! - `VERIFIER_ADDRESS`: Address of the VerifierRouter contract
-//! - `SET_VERIFIER_ADDRESS`: Address of the Set Verifier contract
+//! ```sh
+//! RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
+//! PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000000 \
+//! boundless-cli request submit-offer --wait --input "hello" \
+//! --program-url http://dweb.link/ipfs/bafkreido62tz2uyieb3s6wmixwmg43hqybga2ztmdhimv7njuulf3yug4e
+//! ```
+//! 
+//! # Required options
 //!
-//! Optional variables:
-//! - `RPC_URL`: URL of the Ethereum RPC endpoint (default: http://localhost:8545)
-//! - `TX_TIMEOUT`: Transaction timeout in seconds
-//! - `LOG_LEVEL`: Log level (error, warn, info, debug, trace; default: info)
-//! - `ORDER_STREAM_URL`: URL of the order stream service (for offchain requests)
+//! An Ethereum RPC URL is required via the `RPC_URL` environment variable or the `--rpc-url`
+//! flag. You can use a public RPC endpoint for most operations, but it is best to use an RPC
+//! endpoint that supports events (e.g. Alchemy or Infura).
 //!
-//! You can set these variables by:
-//! 1. Running `source .env.localnet` if using the provided environment file
-//! 2. Exporting them directly in your shell: `export PRIVATE_KEY=1234...`
+//! Sending, fulfilling, and slashing requests requires a signer provided via the `PRIVATE_KEY`
+//! environment variable or `--private-key`. This CLI only supports in-memory private keys as of
+//! this version. Full signer support is available in the SDK.
 
 use std::{
     borrow::Cow,
