@@ -33,6 +33,8 @@ interface OrderGeneratorArgs {
   warnBalanceBelow?: string;
   errorBalanceBelow?: string;
   txTimeout: string;
+  lockTimeout?: string;
+  timeout?: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -176,6 +178,12 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.inputMaxMCycles) {
       ogArgs.push(`--input-max-mcycles ${args.inputMaxMCycles}`);
+    }
+    if (args.lockTimeout) {
+      ogArgs.push(`--lock-timeout ${args.lockTimeout}`);
+    }
+    if (args.timeout) {
+      ogArgs.push(`--timeout ${args.timeout}`);
     }
 
     const service = new awsx.ecs.FargateService(

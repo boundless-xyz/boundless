@@ -61,8 +61,7 @@ impl OffchainMarketMonitor {
         new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<(), OffchainMarketMonitorErr> {
         tracing::debug!("Connecting to off-chain market: {}", client.base_url);
-        let socket =
-            client.connect_async(signer).await.context("Failed to connect to offchain market")?;
+        let socket = client.connect_async(signer).await.map_err(OffchainMarketMonitorErr::WebSocketErr)?;
 
         let stream = order_stream(socket);
         tracing::info!("Subscribed to offchain Order stream");

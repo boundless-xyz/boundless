@@ -20,21 +20,26 @@ config:
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:INTERVAL: "300"
   order-generator-base:LOCK_STAKE_RAW: "100000000000000000" # 0.1 ETH
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0075"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-base:RAMP_UP: "600"
-  order-generator-base:LOCK_TIMEOUT: "900"
-  order-generator-base:TIMEOUT: "1800"
-  order-generator-base:SECONDS_PER_MCYCLE: "60"
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:JwMshDYyGPxsESiX:SY8Ye0Yf4BUg2vHfUa0kzK+KV1hUXFBLBdMgDGsIfNosmLjwXkm1+vombjLfhzJQg+/7AFLsKUgHdteI7grj+abG6ty2365BG+claz92m1pKXc+2lJ8ot3B/bghgM5na2s/K1De2p7BEXiIHHQ==
   order-generator-base:TX_TIMEOUT: "120"
+  order-generator-offchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-offchain:RAMP_UP: "300"
+  order-generator-offchain:LOCK_TIMEOUT: "900"
+  order-generator-offchain:TIMEOUT: "1500"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "0"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:/PAo8IW1iSC4PfVa:j+e1NmKVKprC8cRWBPmmQ5GT9O4ppUeU2VYFdpPiZDZHHCW6GCrTbHO+1BWu1rinjCT1lppKhzXhxBXlVabTVdwPOfjYZO7lF4g+dQjqq5U=
   order-generator-offchain:AUTO_DEPOSIT: "15"
-  order-generator-offchain:WARN_BALANCE_BELOW: "50"
-  order-generator-offchain:ERROR_BALANCE_BELOW: "25"
-  order-generator-onchain:WARN_BALANCE_BELOW: "50"
-  order-generator-onchain:ERROR_BALANCE_BELOW: "25"
+  order-generator-offchain:WARN_BALANCE_BELOW: "35"
+  order-generator-offchain:ERROR_BALANCE_BELOW: "15"
+  order-generator-onchain:WARN_BALANCE_BELOW: "35"
+  order-generator-onchain:ERROR_BALANCE_BELOW: "15"
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:mCtZDPI169gCEzCS:fs7WOQUknWQ3SgRy1tJWLzSqrm0DFlDyBlOy0FvCr+qPgOPpdedminnQHR4Em1kBoJteJ0H1iUKfNsaE0NUZOk3RAmCdGtsnu/QiYkHQAiQ=
+  order-generator-onchain:RAMP_UP: "600"
+  order-generator-onchain:LOCK_TIMEOUT: "900"
+  order-generator-onchain:TIMEOUT: "1800"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "15"

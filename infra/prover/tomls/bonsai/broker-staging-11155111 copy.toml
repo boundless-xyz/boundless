@@ -1,13 +1,13 @@
 [market]
 mcycle_price = "0.000001"
 mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
-peak_prove_khz = 150
+peak_prove_khz = 5000
 min_deadline = 200
 lookback_blocks = 100
 max_stake = "0.5"
 max_file_size = 50_000_000
 max_mcycle_limit = 8_000
-max_concurrent_proofs = 5
+max_concurrent_locks = 2
 balance_warn_threshold = "5"
 balance_error_threshold = "1"
 stake_balance_warn_threshold = "5"
@@ -33,5 +33,6 @@ min_batch_size = 1
 block_deadline_buffer_secs = 120
 txn_timeout = 75
 single_txn_fulfill = true
+withdraw = true
 max_submission_attempts = 2
 # batch_poll_time_ms = 500
