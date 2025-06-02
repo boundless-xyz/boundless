@@ -469,10 +469,13 @@ contract BoundlessMarket is
         //
         // NOTE: We check this before checking fulfillment status to maintain the invariant that
         // the transaction will revert if the delivered proof is not associated with a valid request.
-        if (!context.valid) {
+        if (!context.valid && lock.requestDigest != fill.requestDigest) {
             revert RequestIsNotPriced(id);
         }
 
+        // NOTE: Because we proceed above if the context is valid OR the request digest matches the
+        // lock, the price may not actually be set. If it is not set, it will be zero, which is
+        // correct in the case that this is a request with an expired lock.
         uint96 price = context.price;
         // NOTE: If the prover is paid, the fulfilled flag must be set.
         if (lock.isProverPaid()) {
