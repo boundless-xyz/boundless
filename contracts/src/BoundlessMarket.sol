@@ -469,6 +469,7 @@ contract BoundlessMarket is
         //
         // NOTE: We check this before checking fulfillment status to maintain the invariant that
         // the transaction will revert if the delivered proof is not associated with a valid request.
+        // DO NOT MERGE: Handle case where the request was locked, but it now full expired.
         if (!context.valid && lock.requestDigest != fill.requestDigest) {
             revert RequestIsNotPriced(id);
         }
