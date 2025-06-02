@@ -37,6 +37,10 @@ sudo ./scripts/setup.sh
 
 ## Running a Test Proof
 
+:::tip[See all just commands]
+We make use of [just](https://github.com/casey/just?tab=readme-ov-file#just) to make running complex commands easier. To see available `just` commands for Boundless, run `just` within the root `boundless/` folder.
+:::
+
 Boundless is comprised of two major components:
 1. *Bento* is the local proving infrastructure. Bento will take requests, prove them and return the result
 2. The *Broker* interacts with the Boundless market. Broker can submit or request proves from the market.
@@ -67,12 +71,6 @@ RUST_LOG=info bento_cli -c 32
 If everything works, you should see something like the following:
 
 ![Bento CLI Test Proof Success](/test-proof.png)
-
-Before we move on, stop Bento with:
-
-```sh [Terminal]
-just bento down
-```
 
 ## Running the Broker
 
@@ -122,7 +120,6 @@ boundless-cli account deposit-stake 100
 
 ### Start Broker
 
-
 You can now start broker (which runs both bento + broker i.e. the full proving stack!):
 
 ```sh [Terminal]
@@ -148,9 +145,17 @@ Or remove all volumes and data from the service:
 just broker clean
 ```
 
-## Configuration
+## Configuring Broker
 
 ### Custom Environment
+
+Instead of passing environment variables for each shell session as we did above, you can set them in `.env.broker`. There is an [.env.broker-template](https://github.com/boundless-xyz/boundless/blob/main/.env.broker-template) available for you to get started:
+
+```sh [Terminal]
+cp .env.broker-template .env.broker
+```
+
+After which, you can use a text editor to adjust the environment variables as required.
 
 To run broker with a custom environment file:
 
@@ -159,24 +164,107 @@ just broker up ./.env.broker
 just broker down ./.env.broker
 ```
 
-### Compose.yml
+### Broker.toml
 
-The `compose.yml` file defines all services within Bento. The Boundless repo includes a starter `compose.yml` which you can see [here](https://github.com/boundless-xyz/boundless/blob/main/compose.yml). For Broker configuration options, please see [Broker.toml](/provers/broker#settings-in-brokertoml).
+Broker can be configured using the [Broker.toml](https://github.com/boundless-xyz/boundless/blob/main/broker.toml) configuration file.
 
-### Multi GPU
+For example, to adjust the maximum number of proofs that can be processed at once, you can set:
 
-In `compose.yml`, you can configure the number of GPU's via adding new `gpu_agent<I>` and changing the `device_ids` to map to specific physical GPUs (if on a single host, multi-GPU config).
+```toml [boundless/Broker.toml]
+# Maximum number of concurrent proofs that can be processed at once
+max_concurrent_proofs = 2 # change "2"
+```
+
+To see all Broker.toml configuration settings, please see [Broker Configuration & Operation/Settings in Broker.toml](/provers/broker#settings-in-brokertoml).
 
 ### Multi Host
 
-Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host. See the `.env.broker-template` HOST configuration options [here](https://github.com/boundless-xyz/boundless/blob/main/.env.broker-template) to adjust them.
+Services can be run on other hosts, as long as the IP addresses for things link PostgreSQL / Redis / MinIO are updated on the remote host.
+
+See the `.env.broker-template` HOST configuration options [here](https://github.com/boundless-xyz/boundless/blob/main/.env.broker-template) to adjust them.
+
+## Configuring Bento
+
+The `compose.yml` file defines all services within Bento. The Boundless repo includes a starter `compose.yml` which you can see [here](https://github.com/boundless-xyz/boundless/blob/main/compose.yml).
+
+### Multi GPU
+
+Under the `exec_agent` service in `compose.yml`, the default configuration utilises a single GPU:
+
+```yml [compose.yml]
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          device_ids: ['0']
+          capabilities: [gpu]
+
+# gpu_prove_agent1:
+#   <<: *agent-common
+#   runtime: nvidia
+#   deploy:
+#     resources:
+#       reservations:
+#         devices:
+#           - driver: nvidia
+#             device_ids: ['1']
+#             capabilities: [gpu]
+```
+
+To add a second GPU, first check your GPUs are recognised with:
+
+```sh [Terminal]
+nvidia-smi -L
+```
+which should output something like:
+
+```sh
+GPU 0: NVIDIA GeForce RTX 3090 (UUID: GPU-abcde123-4567-8901-2345-abcdef678901)
+GPU 1: NVIDIA GeForce RTX 3090 (UUID: GPU-fedcb987-6543-2109-8765-abcdef123456)
+```
+
+We can see that GPU 1 is listed with the device ID of `1`. To add this GPU, uncomment `gpu_prove_agent1` from `compose.yml`:
+
+```yml [compose.yml]
+gpu_prove_agent1: # [!code hl]
+  <<: *agent-common
+  runtime: nvidia
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ['1'] # [!code hl]
+            capabilities: [gpu]
+```
+
+For 3 or more GPUs, add the corresponding `gpu_prove_agentX` where `X` matches the device ID of each GPU, making sure that the `device_ids` field is populated with a matching `X`: `['X']`.
 
 ### Segment Size
 
-Under the `exec_agent` service you can configure the segment size with the `--segment-po2` flag. Bigger segments are preferable for performance but do impact the proving systems conjectured security bits slightly.
+Under the `exec_agent` service in `compose.yml` you can configure the segment size; it defaults to 21:
 
-Segment sizes are specified in powers-of-two (po2).
-In order to pick the right segment po2 for your GPU VRAM see [the performance optimization page](/provers/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
+```yml [compose.yml]
+exec_agent:
+  <<: *agent-common
+  runtime: nvidia
+
+  mem_limit: 4G
+  cpus: 4
+
+  environment:
+    <<: *base-environment
+    RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
+    entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} # [!code hl]
+```
+
+`SEGMENT_SIZE` is specified in powers-of-two (po2). Larger segment sizes are preferable for performance, but require more GPU VRAM. To pick the right `SEGMENT_SIZE` for your GPU VRAM, see [the performance optimization page](/provers/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
+
+:::note[Segment Sizes + Security]
+Larger `SEGMENT_SIZE` values also impact the proving systems conjectured security bits slightly (see [RISC Zero - Cryptographic Security Model](https://dev.risczero.com/api/security-model#how-secure-are-the-stark-provers)).
+:::
+
 
 ## What next?
 
@@ -184,8 +272,9 @@ In order to pick the right segment po2 for your GPU VRAM see [the performance op
 For technical support, please join the [Boundless Discord](https://discord.com/invite/boundlessxyz) and claim the prover role from [Guild.xyz](https://guild.xyz/boundless-xyz).
 :::
 
+Next, you'll need to tune your Broker's settings, please see [Broker Optimization](/provers/broker#broker-optimization).
 
-Next, you'll need to tune your Broker's settings, please see [Broker Optimization](/provers/broker#broker-optimization). If you'd like to learn more about the technical design of Bento, please see the [Bento Technical Design Reference](/provers/bento).
+If you'd like to learn more about the technical design of Bento, please see the [Bento Technical Design](/provers/bento).
 
 To see your prover market statistics, check out the [provers](https://explorer.beboundless.xyz/provers) page on the Boundless Explorer.
 
