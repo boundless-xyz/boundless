@@ -1,3 +1,5 @@
+import { stringify } from "jsurl";
+
 interface CloudWatchLogsInsightsParams {
   region: string;
   logGroupName: string;
@@ -10,46 +12,22 @@ interface CloudWatchLogsInsightsParams {
 export const encodeCloudWatchLogsInsightsUrl = async (params: CloudWatchLogsInsightsParams): Promise<string> => {
   const { region, logGroupName, startTime, endTime, queryString, accountId } = params;
 
-  // Cloudwatch uses a custom URI encoding for its query strings.
-  const encodeDate = (date: Date) => date.toISOString().replace(/:/g, '*3a');
-  const replacements: Record<string, string> = {
-    '\n': '*0a',
-    ' ': '*20',
-    '(': '*28',
-    ')': '*29',
-    ',': '*2c',
-    "'": '*27',
-    '`': '*60',
-    '%': '*25',
-    '\\': '*5c',
-    '[': '*5b',
-    ']': '*5d',
-    ';': '*3b',
-    '*': '*2a'
-  };
-
-  const encodedQuery = queryString.split('').map(char => {
-    if (char === '\\') {
-      return '*5c*5c';
-    }
-    return replacements[char] || char;
-  }).join('');
-
   const lang = queryString.includes('SELECT') ? 'SQL' : 'CWLI';
 
-  const encodedQueryDetail = [
-    `end~'${encodeDate(endTime)}`,
-    `start~'${encodeDate(startTime)}`,
-    `timeType~'ABSOLUTE`,
-    `tz~'LOCAL`,
-    `editorString~'${encodedQuery}`,
-    // `queryId~'${crypto.randomUUID()}`,
-    `source~(~'arn*3aaws*3alogs*3a${region}*3a${accountId}*3alog-group*3a${logGroupName})`,
-    `lang~'${lang}`
-  ].join('~');
+  const queryMap = {
+    editorString: queryString,
+    end: endTime.toISOString(),
+    source: `arn:aws:logs:${region}:${accountId}:log-group:${logGroupName}`,
+    start: startTime.toISOString(),
+    timeType: 'ABSOLUTE',
+    tz: 'LOCAL',
+    queryId: crypto.randomUUID(),
+    lang: lang
+  };
 
+  const encodedQueryDetail2 = stringify(queryMap);
   const urlPrefix = encodeURIComponent(`https://console.aws.amazon.com/cloudwatch/home?region=${region}#logsV2:logs-insights`);
-  const url = `${urlPrefix}$3FqueryDetail$3D~(${encodedQueryDetail})`;
+  const url = `${urlPrefix}$3FqueryDetail$3D${encodedQueryDetail2}`;
   console.log("Cloudwatch Logs Insights URL:", url);
   return url;
 };

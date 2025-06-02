@@ -1,10 +1,12 @@
 export const SERVICE_TO_QUERY_STRING_MAPPING = (service: string, logGroup: string, metricAlarmName: string) => {
   switch (service) {
     case 'bento-prover':
+      // Note we have to escape two backslashes in the query string. In
+      // CW it should look like: regexp_replace(log, '\\x1b\\[[0-9;]*[mK]', '') AS msg
       return `
 SELECT
   \`@timestamp\`,
-  regexp_replace(log, '\\x1b\\[[0-9;]*[mK]', '') AS msg
+  regexp_replace(log, '\\\\x1b\\\\[[0-9;]*[mK]', '') AS msg
 FROM \`${logGroup}\`
 --WHERE
 -- msg LIKE '%order_picker%' -- Filter to services
@@ -12,12 +14,13 @@ FROM \`${logGroup}\`
 ORDER BY \`@timestamp\` ASC -- Note this uses the timestamps that Cloudwatch received the log at, not the original timestamp
 `.trim();
     case 'bonsai-prover':
-      return `
-parse @message /Z\s+(?<log_level>[A-Z]+)\s+(?<service>.+?):\s+(?<message>.+)/
+      const a = `
+parse @message /Z\\s+(?<log_level>[A-Z]+)\\s+(?<service>.+?):\\s+(?<message>.+)/
 | display @timestamp, log_level, service, message
 # | filter service like 'proving' and log_level like 'ERROR'
 | sort @timestamp asc
 `.trim();
+      return a;
     case 'monitor':
       return `
 fields @timestamp, level, fields.metric_time as PublishToCloudwatchTime, fields.message as msg, fields.requests as requests

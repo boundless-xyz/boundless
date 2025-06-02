@@ -8,7 +8,7 @@
     "sourceMap": true,
     "types": ["node", "jest"],
     "skipLibCheck": true,
-//    "rootDir": "src"
+    "rootDir": "src"
   },
   "include": ["src/"],
   "exclude": ["node_modules", "build"]

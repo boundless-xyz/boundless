@@ -1,12 +1,24 @@
 import { Context, Handler } from "aws-lambda";
-import { getChainName } from "../../../util";
 import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
-import { SERVICE_TO_LOG_GROUP_NAME } from "./logGroups";
+import { getLogGroupName } from "./logGroups";
 import { SERVICE_TO_QUERY_STRING_MAPPING } from "./logQueries";
 import { encodeCloudWatchLogsInsightsUrl, encodeAwsConsoleUrl } from "./urls";
 
-const LOG_QUERY_MINS_BEFORE = 1;
+const LOG_QUERY_MINS_BEFORE = 2;
 const LOG_QUERY_MINS_AFTER = 1;
+
+export const getChainName = (chainId: string): string => {
+  if (chainId === "11155111") {
+    return "Ethereum Sepolia";
+  }
+  if (chainId === "8453") {
+    return "Base Mainnet";
+  }
+  if (chainId === "84532") {
+    return "Base Sepolia";
+  }
+  return ``;
+};
 
 type AlarmEvent = {
   alarmArn: string;
@@ -19,14 +31,13 @@ type AlarmEvent = {
 }
 
 export const handler: Handler = async (event: AlarmEvent, context: Context): Promise<any> => {
-  console.log(JSON.stringify(event));
-  console.log(JSON.stringify(context));
+  console.log('Received event', { event, context });
 
   if (!process.env.SSO_BASE_URL) {
     throw new Error('SSO_BASE_URL is not set');
   }
 
-  const response = await processAlarmEvent(process.env.SSO_BASE_URL, new CloudWatchClient({ region: "us-west-2" }), event);
+  const response = await processAlarmEvent(process.env.SSO_BASE_URL, process.env.RUNBOOK_URL, new CloudWatchClient({ region: "us-west-2" }), event);
 
   return {
     statusCode: 200,
@@ -34,19 +45,35 @@ export const handler: Handler = async (event: AlarmEvent, context: Context): Pro
   };
 };
 
-export const processAlarmEvent = async (ssoBaseUrl: string, client: CloudWatchClient, event: AlarmEvent): Promise<string> => {
+export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, client: CloudWatchClient, event: AlarmEvent): Promise<string> => {
   const { alarmArn, alarmDescription, timestamp, metricAlarmName } = event;
 
   // Process metric alarm name to get stage, chain id, service name.
-  // Assumes format: <stage>-<chainId>-<service>-<chainId>
-  // e.g. prod-11155111-bento-prover-11155111
-  const regex = /^([^-]+)-(\d+)-(.+?)-\2-/;
-  const match = metricAlarmName.match(regex);
-  if (!match) {
-    throw new Error(`Invalid metric alarm name format: ${metricAlarmName}`);
-  }
+  // Supports two formats:
+  // 1. <stage>-<chainId>-<service>-<chainId>
+  //    e.g. prod-11155111-bento-prover-11155111
+  //    e.g. staging-11155111-og-onchain-11155111-log-fatal-SEV2
+  // 2. <stage>-<service>-<chainId>-<description>-<severity>
+  //    e.g. staging-monitor-11155111-requests_number_from_0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3-SEV2
+  const format1Regex = /^([^-]+)-(\d+)-(.+?)-\2/;
+  const format2Regex = /^([^-]+)-(.+?)-(\d+)-.+$/;
 
-  const [, stage, chainId, service] = match;
+  let stage: string;
+  let chainId: string;
+  let service: string;
+
+  const format1Match = metricAlarmName.match(format1Regex);
+  if (format1Match) {
+    [, stage, chainId, service] = format1Match;
+  } else {
+    const format2Match = metricAlarmName.match(format2Regex);
+    if (!format2Match) {
+      throw new Error(`Unable to parse metric alarm name: ${metricAlarmName} to extract stage, service, and chainId`);
+    }
+    [, stage, service, chainId] = format2Match;
+  }
+  console.log(`Parsed stage: ${stage}, chainId: ${chainId}, service: ${service}`);
+
   const accountId = alarmArn.split(':')[4];
   const region = alarmArn.split(':')[3];
   const chainName = getChainName(chainId);
@@ -54,7 +81,7 @@ export const processAlarmEvent = async (ssoBaseUrl: string, client: CloudWatchCl
   const endTime = new Date(alarmTime.getTime() + LOG_QUERY_MINS_AFTER * 60 * 1000);
   const startTime = new Date(alarmTime.getTime() - LOG_QUERY_MINS_BEFORE * 60 * 1000);
 
-  const logGroupName = SERVICE_TO_LOG_GROUP_NAME(stage, chainId, service);
+  const logGroupName = getLogGroupName(stage, chainId, service);
   const queryString = SERVICE_TO_QUERY_STRING_MAPPING(service, logGroupName, metricAlarmName);
 
   const logsUrl = await encodeCloudWatchLogsInsightsUrl({
@@ -73,12 +100,22 @@ export const processAlarmEvent = async (ssoBaseUrl: string, client: CloudWatchCl
     destination: logsUrl
   });
 
-  return `
-*Stage:* ${stage}
-*Chain ID:* ${chainName} (${chainId})
-*Service:* ${service}
-*Alarm Description:* ${alarmDescription}
-*Alarm Time:* ${alarmTime.toISOString()}
-*Logs:* ${url}
+  const response = `
+<${url}|🔎🔎🔎*View Logs*🔎🔎🔎>
+
+*🏢 Stage:* ${stage}
+
+*⛓️ Chain ID:* ${chainId} ${chainName ? `(${chainName})` : ''}
+
+*🚚 Service:* ${service}
+
+*📝 Description:* ${alarmDescription}
+
+*📅 Time:* ${alarmTime.toISOString()} (UTC)
+
+<${runbookUrl}|📘📘📘*View Runbook*📘📘📘>
 `;
+
+  console.log(`Returning: ${response}`);
+  return response;
 }

@@ -1,4 +1,4 @@
-const SERVICE_TO_LOG_GROUP_NAME_MAPPING = (service: string): string => {
+const logGroupMapping = (service: string): string => {
   switch (service) {
     case 'bento-prover':
       return 'prod-11155111-bento-prover-11155111';
@@ -20,13 +20,13 @@ const SERVICE_TO_LOG_GROUP_NAME_MAPPING = (service: string): string => {
   }
 }
 
-export const SERVICE_TO_LOG_GROUP_NAME = (stage: string, chainId: string, service: string) => {
-  let logGroupName = SERVICE_TO_LOG_GROUP_NAME_MAPPING(service);
+export const getLogGroupName = (stage: string, chainId: string, service: string) => {
+  let logGroupName = logGroupMapping(service);
   if (!logGroupName) {
     throw new Error(`No log group name found for service: ${service}`);
   }
-  logGroupName = logGroupName.replace('11155111', chainId);
-  logGroupName = logGroupName.replace('prod', stage);
+  logGroupName = logGroupName.replace(/11155111/g, chainId);
+  logGroupName = logGroupName.replace(/prod/g, stage);
   console.log(`Log group name for ${stage} and chainId ${chainId} and service ${service}: ${logGroupName}`);
   return logGroupName;
 } 

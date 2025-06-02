@@ -12,13 +12,14 @@ export class Notifications extends pulumi.ComponentResource {
       slackTeamId: pulumi.Output<string>;
       pagerdutyIntegrationUrl: pulumi.Output<string>;
       ssoBaseUrl: string;
+      runbookUrl: string;
       opsAccountId: string;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
     super('pipelines:Notifications', name, args, opts);
 
-    const { serviceAccountIds, slackChannelId: slackChannelIdOutput, slackTeamId: slackTeamIdOutput, pagerdutyIntegrationUrl } = args;
+    const { serviceAccountIds, slackChannelId: slackChannelIdOutput, slackTeamId: slackTeamIdOutput, pagerdutyIntegrationUrl, ssoBaseUrl, runbookUrl } = args;
 
     // Create an IAM Role for AWS Chatbot
     const chatbotRole = new aws.iam.Role('chatbotRole', {
@@ -188,7 +189,7 @@ export class Notifications extends pulumi.ComponentResource {
       ],
     });
 
-    const chatbotLogFetcher = new aws.lambda.Function("chatbot-log-fetcher", {
+    const chatbotLogFetcher = new aws.lambda.Function("chatbot-debugger", {
       handler: "index.handler",
       runtime: "nodejs20.x",
       role: chatbotLogFetcherRole.arn,
@@ -197,7 +198,8 @@ export class Notifications extends pulumi.ComponentResource {
       }),
       environment: {
         variables: {
-          SSO_BASE_URL: args.ssoBaseUrl,
+          SSO_BASE_URL: ssoBaseUrl,
+          RUNBOOK_URL: runbookUrl,
         },
       },
     });

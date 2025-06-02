@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "tsc --build",
+    "build": "esbuild src/index.ts --bundle --minify --sourcemap --platform=node --target=es2020 --outfile=build/index.js",
     "clean": "tsc --build --clean",
     "test": "jest",
     "test:watch": "jest --watch"
@@ -13,13 +13,16 @@
   "description": "",
   "devDependencies": {
     "@types/aws-lambda": "^8.10.149",
-    "@types/jest": "^29.5.12",
+    "@types/jest": "^29.5.14",
+    "@types/jsurl": "^0.1.2",
     "@types/node": "^22.15.23",
+    "esbuild": "^0.25.5",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.2",
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudwatch": "^3.817.0"
+    "@aws-sdk/client-cloudwatch": "^3.817.0",
+    "jsurl": "^0.1.5"
   }
 }
