@@ -58,6 +58,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
 
     const stackName = pulumi.getStack();
     const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
+    const isStaging = stackName.includes('staging');
 
     // If we're in prod and have a domain, create a cert
     let cert: aws.acm.Certificate | undefined;
@@ -187,7 +188,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       },
       // This should be slightly greater than the order-steam configured ping/pong time
       idleTimeout: orderStreamPingTime + orderStreamPingTime * 0.2,
-    }, { protect: true });
+    }, { protect: isStaging ? false : true });
 
     const orderStreamSecGroup = new aws.ec2.SecurityGroup(`${serviceName}-sg`, {
       name: `${serviceName}-sg`,
@@ -264,7 +265,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       dbSubnetGroupName: dbSubnets.name,
       vpcSecurityGroupIds: [rdsSecurityGroup.id],
       storageType: 'gp3',
-    }, { protect: true });
+    }, { protect: isStaging ? false : true });
 
     const webAcl = new aws.wafv2.WebAcl(`${serviceName}-acl`, {
       defaultAction: {

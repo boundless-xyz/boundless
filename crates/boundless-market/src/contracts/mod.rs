@@ -675,8 +675,8 @@ impl Offer {
         Self { lockTimeout: lock_timeout, ..self }
     }
 
-    /// Sets the offer ramp-up period as seconds from the bidding start before the price
-    /// starts to increase until the maximum price.
+    /// Sets the duration (in seconds) during which the auction price increases linearly
+    /// from the minimum to the maximum price. After this period, the price remains at maximum.
     pub fn with_ramp_up_period(self, ramp_up_period: u32) -> Self {
         Self { rampUpPeriod: ramp_up_period, ..self }
     }
