@@ -11,7 +11,7 @@
         "@pulumi/pulumi": "^3.113.0"
     },
     "scripts": {
-        "build": "cd log-lambda && npm run install && npm run build",
+        "build": "cd log-lambda && npm install && npm run build",
         "test": "cd log-lambda && npm run test"
     }
 }
