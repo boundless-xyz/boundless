@@ -192,12 +192,13 @@ export S3_SECRET_KEY="abcdef..."
 export S3_BUCKET="bucket-name..."
 export S3_URL="https://bucket-url..."
 export AWS_REGION="us-east-1"
-Once these are set, this will automatically use the specified [AWS S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/creating-buckets-s3.html) for storage of programs and inputs.
 ```
+
+Once these are set, this will automatically use the specified [AWS S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/creating-buckets-s3.html) for storage of programs and inputs.
 
 #### No Storage Provider
 
-A perfectly valid option for `StorageProvider` is `None`; if you don't set any relevant environment variables for IPFS/S3, it won't use a storage provider to upload programs or inputs at runtime. This means you will need to upload you program ahead of time, and provide the public URL. For the inputs, you can also pass them inline (i.e. in the transaction) if they are small enough. Otherwise, you can upload inputs ahead of time as well.
+A perfectly valid option for `StorageProvider` is `None`; if you don't set any relevant environment variables for IPFS/S3, it won't use a storage provider to upload programs or inputs at runtime. This means you will need to upload your program ahead of time, and provide the public URL. For the inputs, you can also pass them inline (i.e. in the transaction) if they are small enough. Otherwise, you can upload inputs ahead of time as well.
 
 ### Uploading Programs
 
@@ -240,7 +241,7 @@ If you already have the `program_url`, you do not need to upload the program aga
 
 #### Automagically
 
-If you are working in a monorepo, you can take advantage of [risc0-build](https://docs.rs/risc0-build/latest/risc0_build/) which automatically builds and exposes the ELF for the guest. The counter example uses this method:
+If you are working in a monorepo (i.e. your zkVM host/guest is in the same repo), you can take advantage of [risc0-build](https://docs.rs/risc0-build/latest/risc0_build/) which automatically builds and exposes the ELF for the guest. The counter example uses this method:
 
 <StripRustCodeComments>
 ```rust
