@@ -3,10 +3,10 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGwxtZQaXmuKc6n1f
 config:
   aws:region: us-west-2
   base-prover:DOCKER_DIR: "../../"
-  base-prover:SET_VERIFIER_ADDR: 0xad2c6335191EA71Ffe2045A8d54b93A851ceca77
-  base-prover:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
+  base-prover:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64
+  base-prover:BOUNDLESS_MARKET_ADDR: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
   base-prover:ORDER_STREAM_URL:
-    secure: v1:vFbwPj9LyBtHmeEa:QUPhb7T6oHXwEhydaXIOIw/dttiHus9nlpl2HarpY08/kPTM7APec8dnCWrSLJqmiUC/URv5swvFuoKg38nVQwNGR9N16uAHkZIODjadW1uKchEysg==
+    secure: v1:oQ8oamf0p1U35C+r:/N9gplcGVbjZ35rDdI1+F2SAXFg6u8HPjPos1hc1citamlHoVIZ4VMCc1AWYrwUCclgMcwJ9GTAQ+/tX6hYxw738CBNKIaUTQOLs3TV+iXSIIJzgU5TtwLJZKHfQtg==
   base-prover:DOCKER_TAG: latest
   base-prover:CHAIN_ID: "11155111"
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging.toml
@@ -26,4 +26,4 @@ config:
   bento-prover:SEGMENT_SIZE: "19"
   bento-prover:PRIVATE_KEY:
     secure: v1:AahxbrDObsEuAjpx:YDw8lqLxNq1CDhvIn4DEDvNn2JVoH79A0nFbTXbPeJb24omW13zK0u13GeCEH7XYEqdKfeRnv1rVkEVB7anoeUzXvhdSp3z5frKi14D1YJo=
-  bento-prover:LOG_JSON: true
+  bento-prover:LOG_JSON: "true"

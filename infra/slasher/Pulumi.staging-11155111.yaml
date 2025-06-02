@@ -4,7 +4,7 @@ config:
   slasher:PRIVATE_KEY:
     secure: v1:3efkipLM4idAlwaJ:zL3IFTwgobXL0/UB8myW8kA9QZlXJTkRLUQ6O40/jbF6VDQ1gTEFP2oOpzCuCjsR+3ZiaYHzJSe3AB0Ej6bIahODR0llzAF+RpzcB/tmz2U=
   slasher:BASE_STACK: organization/bootstrap/services-staging
-  slasher:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
+  slasher:BOUNDLESS_MARKET_ADDR: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
   slasher:DOCKER_DIR: ../../
   slasher:DOCKER_TAG: latest
   slasher:INTERVAL: "60"
