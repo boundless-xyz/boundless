@@ -13,7 +13,7 @@ config:
   order-generator-base:LOCK_STAKE_RAW: "500000"
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0000005"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL:
     secure: v1:Wlon5PkGVZvUMnwI:m/MrdoxwhsisR957jnQFc4cH58P9/hZCK9/VHt34eOVu9t4w0L42aTkboNHeP1f24PkJ8FM/G1v6G2IPxTuPfszNL+Mx2EDGiTOdrivy53Ad6mpyY1oglFMG7Q==
@@ -21,12 +21,16 @@ config:
   order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
   order-generator-base:PINATA_JWT:
     secure: v1:dP87d5538XiDzOmu:18XjRUp2WpHKkvxuR18ktRTRTLKtzW67/6b5M+LQKd9pjv0Srcnl6IRy++crVH/OxjzlmPRLkkc1Nu7eKRxaq7NTxV1arhdXbjDV9T6Y13fq0m3pFxedvGb5A+VKG+lz0c7dXs+wMKDeuyB/CFUcUepJlZrJZ4M4ZlSa2U0JGESHH5tO2TMoAMi5uI/DcMpr1SoLnJ2fB1CUE7ETMWD9G/C/MfjbH9FaiCHX3Y1gB79f6OMZ7qcVJmsP0Sa2ahJBv/i2p4FMOaBuN5vMxUjKxqHjQNu/nQ8Z0YcdqRb1/+6f/Nym/n/1pgr+dwdXwSN2wu0APNIMaQeCbUpdRqxUOMph8Mq/vRTbD95+y/5znJEUpV1cr3cCcOAhctiT3I7teIN9a0O6Bw/lHoKIKWTfeKC16ARar94YxkngrZY6eoIzGrZGad+6fkdWL2MKCmAneGns5FeRAlvmR16rN+MhHMFveKUo0lTxsoQsz6ylQzk5egv+M/xvSD19b2mrKlCQeUYh++4pRY2aD0xlc4OES3+7MsaOvgtMF65tKu/uz/jEyBgdUEL+eDC+JKH/E2EFyUB7Lg5Vh7rBFYqecBf+B6xxpO1uETmPB784bWoEfuF0mVkNWW7G/06/RUAiWkm+77i4oOlhOa4sMqwPZY7n4t9gpcG+6y1yT8E2kQhySS7mbpcq6qstD268q5+IHUo3F9f+ACl4YxpvsvJpkMNCfp8qsyNtuo4G2/4oAa7wryQrZqtjrrZpZfRghyu3hdMo1SG6FWd8Lmw+h/vWXdDUzOAbSNccRMXq27wA6UAG0vstYasWhQAdIqC/fqKsJhcqrXCAXpXtp/FmWTcE9HpOWCFHDf+6S0a2lEGtiSRDARzyiIVh1N2rU8ygc74fC5Sjaz29jbBeyPq1vzeAyKCyAKfF3oEMmVmU
-  order-generator-base:RAMP_UP: "900"
-  order-generator-base:SECONDS_PER_MCYCLE: "15"
   order-generator-base:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
-  order-generator-base:TIMEOUT: "1800"
   order-generator-base:TX_TIMEOUT: "120"
+  # Offchain order generator is configured to send small orders that must be locked/fulfilled within 30 mins
+  # We use these orders as canaries to monitor the health of the system
+  order-generator-offchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-offchain:RAMP_UP: "300"
+  order-generator-offchain:LOCK_TIMEOUT: "900"
+  order-generator-offchain:TIMEOUT: "1500"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "0"
   order-generator-offchain:AUTO_DEPOSIT: "0.015"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:n58NIHgSf5klFBbr:xg1KrvaMAIZ3KIb2mf8nkA6FY1ZrzM5uf/Q5/WWXlEaSzySyuwn1j15gRUmo++jBJLRhkkXlwenRdtJ4MmgSvXjiYMxtKAZ9Crvpe++MIr4=
@@ -38,4 +42,9 @@ config:
     secure: v1:l7VxeHg7biKm04S/:lHwAuRJjTgRYLpOaN5vYniYo/KcjlhdpX0tJouFtEJAly6OfvrmFohsId/emPmXTGfcfyK1yyYqVBWVA7Wla66w1R8EkJecSVJF0Hq9pzmQ=
   order-generator-base:ETH_RPC_URL:
     secure: v1:U51hk6t6d7Mi05pv:A0q78nRERlmBrPVvWtQQHgl7KoD//KGAMnOP0x+rCEHU0rwyBdvnmFVy02sTEusTUcNTOGWuizqvcAOK/2s9tCZuqitNzl2Q0sR+MsJG5POV0cdnfG0=
-  order-generator-offchain:INPUT_MAX_MCYCLES: "10"
+  # Onchain order generator is configured to send larger orders that must be locked/fulfilled within 1 hour
+  # Mostly used to send load to the market, but also monitored as a canary.
+  order-generator-onchain:RAMP_UP: "600"
+  order-generator-onchain:LOCK_TIMEOUT: "900"
+  order-generator-onchain:TIMEOUT: "1800"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "15"
