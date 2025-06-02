@@ -162,6 +162,10 @@ cargo build --bin broker --release
 just broker down
 ```
 
+:::warning[Warning]
+If running the broker on a network, there may be locked proofs that have not been fulfilled yet. Follow the [Safe Upgrade Steps](#safe-upgrade-steps) to ensure a clean shutdown and/or upgrade process.
+:::
+
 ## Safe Upgrade Steps
 
 :::warning[Breaking Changes]
