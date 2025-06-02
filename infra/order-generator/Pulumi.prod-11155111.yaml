@@ -18,7 +18,7 @@ config:
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:INTERVAL: "300"
   order-generator-base:LOCK_STAKE_RAW: "500000" # 0.1 ETH
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.001"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://eth-sepolia.beboundless.xyz
   order-generator-base:GH_TOKEN_SECRET:
