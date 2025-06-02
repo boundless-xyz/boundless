@@ -1,5 +1,5 @@
 [market]
-mcycle_price = "0.00001"
+mcycle_price = "0.0000005"
 mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
 peak_prove_khz = 5000
 min_deadline = 200

@@ -13,7 +13,7 @@ config:
   order-generator-base:LOCK_STAKE_RAW: "500000"
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.000005"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0000005"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL:
     secure: v1:Wlon5PkGVZvUMnwI:m/MrdoxwhsisR957jnQFc4cH58P9/hZCK9/VHt34eOVu9t4w0L42aTkboNHeP1f24PkJ8FM/G1v6G2IPxTuPfszNL+Mx2EDGiTOdrivy53Ad6mpyY1oglFMG7Q==
