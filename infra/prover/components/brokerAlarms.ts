@@ -88,11 +88,20 @@ export const createProverAlarms = (
   // Don't match on INTERNAL_ERROR which is sometimes returned by our dependencies e.g. Bonsai on retryable errors.
   createErrorCodeAlarm('ERROR -"[B-" -"INTERNAL_ERROR"', 'error-without-code', Severity.SEV2);
 
-  // Alarms for low balances
-  createErrorCodeAlarm('WARN "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV2);
-  createErrorCodeAlarm('WARN "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV2);
-  createErrorCodeAlarm('ERROR "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV1);
-  createErrorCodeAlarm('ERROR "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV1);
+  // Alarms for low balances. Once breached, the log continues on every tx, so we use a 6 hour period 
+  // to prevent noise from the alarm being triggered multiple times.
+  createErrorCodeAlarm('WARN "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV2, {
+    threshold: 1,
+  }, { period: 21600 });
+  createErrorCodeAlarm('WARN "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV2, {
+    threshold: 1,
+  }, { period: 21600 });
+  createErrorCodeAlarm('ERROR "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV1, {
+    threshold: 1,
+  }, { period: 21600 });
+  createErrorCodeAlarm('ERROR "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV1, {
+    threshold: 1,
+  }, { period: 21600 });
 
   // Alarms at the supervisor level
   //
