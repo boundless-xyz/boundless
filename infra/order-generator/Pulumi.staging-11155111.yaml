@@ -19,7 +19,7 @@ config:
   order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:INTERVAL: "300"
-  order-generator-base:LOCK_STAKE_RAW: "100000000000000000" # 0.1 ETH
+  order-generator-base:LOCK_STAKE_RAW: "500000"
   order-generator-base:MAX_PRICE_PER_MCYCLE: "0.001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:GH_TOKEN_SECRET:
