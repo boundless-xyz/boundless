@@ -7,34 +7,43 @@ config:
   order-generator-base:ETH_RPC_URL:
     secure: v1:54VKT47TarVCPEY3:TQqcCt78JE0Br3VDnr00NyGbgsHE0KECtp2IDyCM/lv6pi3x5B5NuzvyEXpjUXCHRI1SbPIFO6avkc5KRlTjZq642OOInrxKyXByTEoJgTTnuXVm8Q==
   order-generator-base:ORDER_STREAM_URL:
-    secure: v1:+5dxEU6iX85SMPrl:leEoJCPf57OO9LNagQuBXDEJVvLw+nTIRu5LixJ9Efhhi917Z+F9Qgz0I7ps7uGDiyobcMv2gYj56C4nYAkSMC2gsHI5cMQ5xEf58oe0dcRzYD+U
-  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+    secure: v1:Nksug5e5PpAKtzDk:P3z5UVGY5VRfA39rQeqgMN7PgkgW04KzOb1ENiYzGgF83PLCoC/W85n70tZBDPWyy+lTseCKm5Hcrx9gw/bdizuEhMjp1QV4vjDW+h36WKtfv5GQaw2ZSPhPcoXAdg==
+  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:BASE_STACK: organization/bootstrap/services-staging
-  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
-  order-generator-base:SET_VERIFIER_ADDR: 0xEf0A93B2310d52358F1eCA0C946aD7D25596e7dd
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
+  order-generator-base:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:LOG_LEVEL: info
   order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:INTERVAL: "300"
-  order-generator-base:LOCK_STAKE_RAW: "100000000000000000" # 0.1 ETH
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0075"
+  order-generator-base:LOCK_STAKE_RAW: "500000"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-base:RAMP_UP: "600"
-  order-generator-base:LOCK_TIMEOUT: "900"
-  order-generator-base:TIMEOUT: "1800"
-  order-generator-base:SECONDS_PER_MCYCLE: "60"
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:JwMshDYyGPxsESiX:SY8Ye0Yf4BUg2vHfUa0kzK+KV1hUXFBLBdMgDGsIfNosmLjwXkm1+vombjLfhzJQg+/7AFLsKUgHdteI7grj+abG6ty2365BG+claz92m1pKXc+2lJ8ot3B/bghgM5na2s/K1De2p7BEXiIHHQ==
   order-generator-base:TX_TIMEOUT: "120"
+  # Offchain order generator is configured to send small orders that must be locked/fulfilled within 30 mins
+  # We use these orders as canaries to monitor the health of the system
+  order-generator-offchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-offchain:RAMP_UP: "300"
+  order-generator-offchain:LOCK_TIMEOUT: "900"
+  order-generator-offchain:TIMEOUT: "1500"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "0"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:/PAo8IW1iSC4PfVa:j+e1NmKVKprC8cRWBPmmQ5GT9O4ppUeU2VYFdpPiZDZHHCW6GCrTbHO+1BWu1rinjCT1lppKhzXhxBXlVabTVdwPOfjYZO7lF4g+dQjqq5U=
   order-generator-offchain:AUTO_DEPOSIT: "15"
-  order-generator-offchain:WARN_BALANCE_BELOW: "50"
-  order-generator-offchain:ERROR_BALANCE_BELOW: "25"
-  order-generator-onchain:WARN_BALANCE_BELOW: "50"
-  order-generator-onchain:ERROR_BALANCE_BELOW: "25"
+  order-generator-offchain:WARN_BALANCE_BELOW: "35"
+  order-generator-offchain:ERROR_BALANCE_BELOW: "15"
+  order-generator-onchain:WARN_BALANCE_BELOW: "35"
+  order-generator-onchain:ERROR_BALANCE_BELOW: "15"
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:mCtZDPI169gCEzCS:fs7WOQUknWQ3SgRy1tJWLzSqrm0DFlDyBlOy0FvCr+qPgOPpdedminnQHR4Em1kBoJteJ0H1iUKfNsaE0NUZOk3RAmCdGtsnu/QiYkHQAiQ=
+  # Onchain order generator is configured to send larger orders that must be locked/fulfilled within 1 hour
+  # Mostly used to send load to the market, but also monitored as a canary.
+  order-generator-onchain:RAMP_UP: "600"
+  order-generator-onchain:LOCK_TIMEOUT: "900"
+  order-generator-onchain:TIMEOUT: "1800"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "15"

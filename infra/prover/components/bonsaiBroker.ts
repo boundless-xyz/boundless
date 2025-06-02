@@ -93,7 +93,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
       });
 
     const brokerS3Bucket = new aws.s3.Bucket(serviceName, {
-      bucketPrefix: serviceName,
+      bucketPrefix: serviceName.substring(0, 35), // Restrict to max length of the bucket prefix
       tags: {
         Name: serviceName,
       },
@@ -163,7 +163,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
       forceDelete: true,
     });
 
-    const executionRole = new aws.iam.Role(`${serviceName}-ecs-execution-role`, {
+    const executionRole = new aws.iam.Role(`${serviceName}-ecsrole`, {
       assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
         Service: 'ecs-tasks.amazonaws.com',
       }),

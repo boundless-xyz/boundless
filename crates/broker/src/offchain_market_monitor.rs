@@ -3,7 +3,7 @@
 // All rights reserved.
 
 use alloy::signers::{local::PrivateKeySigner, Signer};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use boundless_market::order_stream_client::{order_stream, OrderStreamClient};
 use futures::TryStreamExt;
 use futures_util::StreamExt;
@@ -62,7 +62,7 @@ impl OffchainMarketMonitor {
     ) -> Result<(), OffchainMarketMonitorErr> {
         tracing::debug!("Connecting to off-chain market: {}", client.base_url);
         let socket =
-            client.connect_async(signer).await.context("Failed to connect to offchain market")?;
+            client.connect_async(signer).await.map_err(OffchainMarketMonitorErr::WebSocketErr)?;
 
         let stream = order_stream(socket);
         tracing::info!("Subscribed to offchain Order stream");
@@ -89,7 +89,7 @@ impl OffchainMarketMonitor {
                         tracing::error!("Failed to send new order to broker: {}", e);
                         Err(OffchainMarketMonitorErr::ReceiverDropped)
                     } else {
-                        tracing::debug!(
+                        tracing::trace!(
                             "Sent new off-chain order {:x} to OrderPicker via channel.",
                             order_data.id
                         );

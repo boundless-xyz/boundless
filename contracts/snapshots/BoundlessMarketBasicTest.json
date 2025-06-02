@@ -1,13 +1,13 @@
 {
   "ERC20 approve: required for depositStake": "45966",
-  "bytecode size implementation": "23771",
+  "bytecode size implementation": "23783",
   "bytecode size proxy": "89",
   "deposit: first ever deposit": "50920",
   "deposit: second deposit": "33820",
-  "depositStake: 1 HP (tops up market account)": "59488",
-  "depositStake: full (drains testProver account)": "49888",
-  "depositStakeWithPermit: 1 HP (tops up market account)": "72377",
-  "depositStakeWithPermit: full (drains testProver account)": "72368",
+  "depositStake: 1 HP (tops up market account)": "59400",
+  "depositStake: full (drains testProver account)": "49800",
+  "depositStakeWithPermit: 1 HP (tops up market account)": "72272",
+  "depositStakeWithPermit: full (drains testProver account)": "72262",
   "fulfill: a batch of 8": "381426",
   "fulfill: a locked request": "87678",
   "fulfill: a locked request (locked via prover signature)": "87678",
@@ -24,8 +24,8 @@
   "priceAndFulfill: a single request that was not locked": "108206",
   "priceAndFulfill: a single request that was not locked fulfilled by prover not in allow-list": "108206",
   "priceAndFulfill: fulfill already fulfilled was locked request": "101922",
-  "slash: base case": "81430",
-  "slash: fulfilled request after lock deadline": "62995",
+  "slash: base case": "99082",
+  "slash: fulfilled request after lock deadline": "80647",
   "submitRequest: with maxPrice ether": "51904",
   "submitRequest: without ether": "45061",
   "submitRootAndFulfill: a batch of 2 requests": "163312",
@@ -37,6 +37,6 @@
   "submitRootAndPriceAndFulfill: a single request that was not locked fulfilled by prover not in allow-list": "140556",
   "withdraw: 1 ether": "40314",
   "withdraw: full balance": "40326",
-  "withdrawStake: 1 HP balance": "68819",
-  "withdrawStake: full balance": "51815"
+  "withdrawStake: 1 HP balance": "68743",
+  "withdrawStake: full balance": "51739"
 }

@@ -77,7 +77,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         });
 
         const brokerS3Bucket = new aws.s3.Bucket(serviceName, {
-            bucketPrefix: serviceName,
+            bucketPrefix: serviceName.substring(0, 35), // Restrict to max length of the bucket prefix
             tags: {
                 Name: serviceName,
             },
@@ -277,7 +277,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         }, { parent: this });
 
         // Create IAM role for CI/CD to execute SSM commands
-        const updateInstanceRole = new aws.iam.Role(`${name}-update-instance-role`, {
+        const updateInstanceRole = new aws.iam.Role(`${name}-ssm-up-role`, {
             assumeRolePolicy: JSON.stringify({
                 Version: "2012-10-17",
                 Statement: [{

@@ -43,6 +43,10 @@ type ChainStageAlarmConfig = {
 
 
 export const alarmConfig: ChainStageAlarms = {
+  [ChainId.BASE_SEPOLIA]: {
+    [Stage.STAGING]: undefined,
+    [Stage.PROD]: undefined,
+  },
   [ChainId.BASE]: {
     [Stage.STAGING]: undefined, // No staging env for Base mainnet.
     [Stage.PROD]: {
@@ -265,7 +269,7 @@ export const alarmConfig: ChainStageAlarms = {
       }
     }
   },
-  [ChainId.SEPOLIA]: {
+  [ChainId.ETH_SEPOLIA]: {
     [Stage.STAGING]: {
       clients: [
         {

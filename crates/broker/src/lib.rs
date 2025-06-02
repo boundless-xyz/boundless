@@ -639,6 +639,14 @@ where
         });
 
         let prover_addr = self.args.private_key.address();
+        let stake_token_decimals = BoundlessMarketService::new(
+            self.args.boundless_market_address,
+            self.provider.clone(),
+            Address::ZERO,
+        )
+        .stake_token_decimals()
+        .await
+        .context("Failed to get stake token decimals. Possible RPC error.")?;
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
             self.provider.clone(),
@@ -648,6 +656,7 @@ where
             prover_addr,
             self.args.boundless_market_address,
             pricing_rx,
+            stake_token_decimals,
         )?);
         let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {

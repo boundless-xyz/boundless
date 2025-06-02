@@ -3,20 +3,20 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGwxtZQaXmuKc6n1f
 config:
   aws:region: us-west-2
   base-prover:DOCKER_DIR: "../../"
-  base-prover:SET_VERIFIER_ADDR: 0xad2c6335191EA71Ffe2045A8d54b93A851ceca77
-  base-prover:BOUNDLESS_MARKET_ADDR: 0x2d124b86179F0De2d5B7A75E4dcD7e35a3363B16
+  base-prover:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64
+  base-prover:BOUNDLESS_MARKET_ADDR: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
   base-prover:ORDER_STREAM_URL:
-    secure: v1:vFbwPj9LyBtHmeEa:QUPhb7T6oHXwEhydaXIOIw/dttiHus9nlpl2HarpY08/kPTM7APec8dnCWrSLJqmiUC/URv5swvFuoKg38nVQwNGR9N16uAHkZIODjadW1uKchEysg==
+    secure: v1:oQ8oamf0p1U35C+r:/N9gplcGVbjZ35rDdI1+F2SAXFg6u8HPjPos1hc1citamlHoVIZ4VMCc1AWYrwUCclgMcwJ9GTAQ+/tX6hYxw738CBNKIaUTQOLs3TV+iXSIIJzgU5TtwLJZKHfQtg==
   base-prover:DOCKER_TAG: latest
   base-prover:CHAIN_ID: "11155111"
-  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging.toml
-  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-staging.toml
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging-11155111.toml
+  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-staging-11155111.toml
   base-prover:BASE_STACK: organization/bootstrap/services-staging
   base-prover:ETH_RPC_URL:
     secure: v1:dhUzhqsAztLcg1Qo:V6FO/xF0hNJxQ4graaNzf2AuW5fZLQ9mk9SFgfQWyYUf+De3V6yGf0a3p5hApClpwaTnZcnhRaEb/fofbm0J6zWNE0SvZdULYq6u3iVqxUcgE5oX9g==
   base-prover:GH_TOKEN_SECRET:
     secure: v1:uKW8SunjoJPWAf4l:GS38MomZJucbvxMfnp4PqigyTT4X7W9inHFdb53FOAXzhlpwIgL5fMURRviScfJaxE2l8chc+VALgMIywDoNFsc7kEvU8G/QerwZ1SWYhlLuu4w1IRi9sgrWGDhQmz62fSMYeNuNaaZG2LdZew==
-  base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   bonsai-prover:PRIVATE_KEY:
     secure: v1:XeT00OsvvQdg9y4K:jjqy1PfadM1Zo6XwgwI4Z0NmwDYA4akd3HvpD1BKQFt6YqB2QS8l03uccezLX3uFRy67UecCwDYVlP4bG+Np1ClK2O/Wm0h5n2En5XlaslU=
@@ -26,4 +26,4 @@ config:
   bento-prover:SEGMENT_SIZE: "19"
   bento-prover:PRIVATE_KEY:
     secure: v1:AahxbrDObsEuAjpx:YDw8lqLxNq1CDhvIn4DEDvNn2JVoH79A0nFbTXbPeJb24omW13zK0u13GeCEH7XYEqdKfeRnv1rVkEVB7anoeUzXvhdSp3z5frKi14D1YJo=
-  bento-prover:LOG_JSON: true
+  bento-prover:LOG_JSON: "true"
