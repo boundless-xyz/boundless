@@ -44,14 +44,14 @@ use std::{
 };
 
 use alloy::{
-    network::{Ethereum, EthereumWallet},
+    network::Ethereum,
     primitives::{
         utils::{format_ether, parse_ether},
         Address, Bytes, FixedBytes, TxKind, B256, U256,
     },
-    providers::{network::EthereumWallet, Provider, ProviderBuilder},
+    providers::{Provider, ProviderBuilder},
     rpc::types::{TransactionInput, TransactionRequest},
-    signers::{local::PrivateKeySigner, Signer},
+    signers::local::PrivateKeySigner,
     sol_types::SolValue,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
@@ -108,6 +108,7 @@ enum Command {
 #[derive(Subcommand, Clone, Debug)]
 enum OpsCommands {
     /// Slash a prover for a given request
+    // REQUIRES PRIVATE KEY
     Slash {
         /// The proof request identifier
         request_id: U256,
@@ -379,15 +380,15 @@ struct GlobalConfig {
     rpc_url: Url,
 
     /// Private key of the wallet (without 0x prefix)
-    #[clap(long, env = "PRIVATE_KEY", hide_env_values = true)]
-    private_key: PrivateKeySigner,
+    #[clap(long, env = "PRIVATE_KEY", global = true, hide_env_values = true)]
+    private_key: Option<PrivateKeySigner>,
 
     /// Ethereum transaction timeout in seconds.
-    #[clap(long, env = "TX_TIMEOUT", value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
+    #[clap(long, env = "TX_TIMEOUT", global = true, value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
     tx_timeout: Option<Duration>,
 
     /// Log level (error, warn, info, debug, trace)
-    #[clap(long, env = "LOG_LEVEL", default_value = "info")]
+    #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
     log_level: LevelFilter,
 
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
@@ -459,19 +460,18 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     };
 
     let client = Client::builder()
-        .with_private_key(args.config.private_key.clone().map(EthereumWallet::from))
+        .with_signer(args.config.private_key.clone())
         .with_rpc_url(args.config.rpc_url.clone())
         .with_deployment(args.config.deployment.clone())
         .with_storage_provider_config(&storage_config)?
         .with_timeout(args.config.tx_timeout)
         .build()
-        .await?;
+        .await
+        .context("Failed to build Boundless client")?;
 
     match &args.command {
-        Command::Account(account_cmd) => {
-            handle_account_command(account_cmd, client, args.config.private_key.clone()).await
-        }
-        Command::Request(request_cmd) => handle_request_command(request_cmd, args, client).await,
+        Command::Account(account_cmd) => handle_account_command(account_cmd, client).await,
+        Command::Request(request_cmd) => handle_request_command(request_cmd, client).await,
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, client).await,
         Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
         Command::Config {} => unreachable!(),
@@ -491,19 +491,17 @@ async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result
 }
 
 /// Handle account-related commands
-async fn handle_account_command(
-    cmd: &AccountCommands,
-    client: StandardClient,
-    private_key: PrivateKeySigner,
-) -> Result<()> {
+async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -> Result<()> {
     match cmd {
         AccountCommands::Deposit { amount } => {
+            // REQUIRES PRIVATE KEY
             tracing::info!("Depositing {} ETH into the market", format_ether(*amount));
             client.boundless_market.deposit(*amount).await?;
             tracing::info!("Successfully deposited {} ETH into the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Withdraw { amount } => {
+            // REQUIRES PRIVATE KEY
             tracing::info!("Withdrawing {} ETH from the market", format_ether(*amount));
             client.boundless_market.withdraw(*amount).await?;
             tracing::info!("Successfully withdrew {} ETH from the market", format_ether(*amount));
@@ -517,8 +515,13 @@ async fn handle_account_command(
             Ok(())
         }
         AccountCommands::DepositStake { amount } => {
+            // REQUIRES PRIVATE KEY
             tracing::info!("Depositing {} HP as stake", format_ether(*amount));
-            match client.boundless_market.deposit_stake_with_permit(*amount, &private_key).await {
+            match client
+                .boundless_market
+                .deposit_stake_with_permit(*amount, &client.signer.unwrap())
+                .await
+            {
                 Ok(_) => {
                     tracing::info!("Successfully deposited {} HP as stake", format_ether(*amount));
                     Ok(())
@@ -536,12 +539,14 @@ async fn handle_account_command(
             }
         }
         AccountCommands::WithdrawStake { amount } => {
+            // REQUIRES PRIVATE KEY
             tracing::info!("Withdrawing {} HP from stake", format_ether(*amount));
             client.boundless_market.withdraw_stake(*amount).await?;
             tracing::info!("Successfully withdrew {} HP from stake", format_ether(*amount));
             Ok(())
         }
         AccountCommands::StakeBalance { address } => {
+            // REQUIRES PRIVATE KEY
             let addr = address.unwrap_or(client.boundless_market.caller());
             tracing::info!("Checking stake balance for address {}", addr);
             let balance = client.boundless_market.balance_of_stake(addr).await?;
@@ -552,23 +557,20 @@ async fn handle_account_command(
 }
 
 /// Handle request-related commands
-async fn handle_request_command(
-    cmd: &RequestCommands,
-    args: &MainArgs,
-    client: StandardClient,
-) -> Result<()> {
+async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -> Result<()> {
     match cmd {
         RequestCommands::SubmitOffer(offer_args) => {
+            // REQUIRES PRIVATE KEY
             tracing::info!("Submitting new proof request with offer");
-            submit_offer(client, &args.config.private_key, offer_args).await
+            submit_offer(client, offer_args).await
         }
         RequestCommands::Submit { yaml_request, wait, offchain, no_preflight, .. } => {
+            // REQUIRES PRIVATE KEY
             tracing::info!("Submitting proof request from YAML file");
 
             submit_request(
                 yaml_request,
                 client,
-                &args.config.private_key,
                 SubmitOptions { wait: *wait, offchain: *offchain, preflight: !*no_preflight },
             )
             .await
@@ -642,6 +644,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             Ok(())
         }
         ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes } => {
+            // REQUIRES PRIVATE KEY
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
             {
@@ -743,6 +746,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             }
         }
         ProvingCommands::Lock { request_id, request_digest, tx_hash } => {
+            // REQUIRES PRIVATE KEY
             tracing::info!("Locking proof request 0x{:x}", request_id);
 
             let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
@@ -971,11 +975,7 @@ async fn create_pg_pool() -> Result<sqlx::PgPool> {
 }
 
 /// Submit an offer and create a proof request
-async fn submit_offer(
-    client: StandardClient,
-    signer: &impl Signer,
-    args: &SubmitOfferArgs,
-) -> Result<()> {
+async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<()> {
     let request = client.new_request();
 
     // Resolve the program from command line arguments.
@@ -1034,10 +1034,10 @@ async fn submit_offer(
     // Submit the request
     let (request_id, expires_at) = if args.offchain {
         tracing::info!("Submitting request offchain");
-        client.submit_request_offchain_with_signer(&request, signer).await?
+        client.submit_request_offchain(&request).await?
     } else {
         tracing::info!("Submitting request onchain");
-        client.submit_request_onchain_with_signer(&request, signer).await?
+        client.submit_request_onchain(&request).await?
     };
 
     tracing::info!(
@@ -1074,7 +1074,6 @@ struct SubmitOptions {
 async fn submit_request<P, S>(
     request_path: impl AsRef<Path>,
     client: Client<P, S>,
-    signer: &impl Signer,
     opts: SubmitOptions,
 ) -> Result<()>
 where
@@ -1137,10 +1136,10 @@ where
     // Submit the request
     let (request_id, expires_at) = if opts.offchain {
         tracing::info!("Submitting request offchain");
-        client.submit_request_offchain_with_signer(&request, signer).await?
+        client.submit_request_offchain(&request).await?
     } else {
         tracing::info!("Submitting request onchain");
-        client.submit_request_onchain_with_signer(&request, signer).await?
+        client.submit_request_onchain(&request).await?
     };
 
     tracing::info!(
@@ -1210,7 +1209,14 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
 
     // Show configuration
     println!("RPC URL: {}", args.config.rpc_url);
-    println!("Wallet Address: {}", args.config.private_key.address());
+    println!(
+        "Wallet Address: {}",
+        args.config
+            .private_key
+            .as_ref()
+            .map(|sk| sk.address().to_string())
+            .unwrap_or("[no wallet provided]".to_string())
+    );
     if let Some(timeout) = args.config.tx_timeout {
         println!("Transaction Timeout: {} seconds", timeout.as_secs());
     } else {
@@ -1229,8 +1235,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
     // Validate RPC connection
     println!("\n=== Environment Validation ===\n");
     print!("Testing RPC connection... ");
-    let wallet = EthereumWallet::from(args.config.private_key.clone());
-    let provider = ProviderBuilder::new().wallet(wallet).connect_http(args.config.rpc_url.clone());
+    let provider = ProviderBuilder::new().connect_http(args.config.rpc_url.clone());
 
     let chain_id = match provider.get_chain_id().await {
         Ok(chain_id) => {
@@ -1256,7 +1261,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
     let boundless_market = BoundlessMarketService::new(
         deployment.boundless_market_address,
         provider.clone(),
-        args.config.private_key.address(),
+        Address::ZERO,
     );
 
     let market_ok = match boundless_market.get_chain_id().await {
@@ -1272,11 +1277,8 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
 
     // Check set verifier contract
     print!("Testing Set Verifier contract... ");
-    let set_verifier = SetVerifierService::new(
-        deployment.set_verifier_address,
-        provider.clone(),
-        args.config.private_key.address(),
-    );
+    let set_verifier =
+        SetVerifierService::new(deployment.set_verifier_address, provider.clone(), Address::ZERO);
 
     let (image_id, _) = match set_verifier.image_info().await {
         Ok(image_info) => {

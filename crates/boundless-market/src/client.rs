@@ -15,9 +15,9 @@
 use std::time::Duration;
 
 use alloy::{
-    network::{Ethereum, EthereumWallet},
+    network::{Ethereum, EthereumWallet, TxSigner},
     primitives::{Address, Bytes, U256},
-    providers::{fillers::ChainIdFiller, Provider, ProviderBuilder},
+    providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, Signer},
 };
 use alloy_primitives::{Signature, B256};
@@ -47,7 +47,7 @@ use crate::{
         StandardStorageProvider, StandardStorageProviderError, StorageProvider,
         StorageProviderConfig,
     },
-    util::{NotProvided, StandardRpcProvider},
+    util::NotProvided,
 };
 
 /// Builder for the [Client] with standard implementations for the required components.
@@ -55,7 +55,6 @@ use crate::{
 pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     deployment: Option<Deployment>,
     rpc_url: Option<Url>,
-    wallet: Option<EthereumWallet>,
     signer: Option<Si>,
     storage_provider: Option<St>,
     tx_timeout: Option<std::time::Duration>,
@@ -75,7 +74,6 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
         Self {
             deployment: None,
             rpc_url: None,
-            wallet: None,
             signer: None,
             storage_provider: None,
             tx_timeout: None,
@@ -99,33 +97,41 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Build the client
     pub async fn build(
         self,
-    ) -> Result<Client<StandardRpcProvider, St, StandardRequestBuilder<StandardRpcProvider, St>, Si>>
+    ) -> Result<Client<DynProvider, St, StandardRequestBuilder<DynProvider, St>, Si>>
     where
         St: Clone,
-        Si: Clone,
+        Si: TxSigner<Signature> + Send + Sync + Clone + 'static,
     {
         let rpc_url = self.rpc_url.context("rpc_url is not set on ClientBuilder")?;
-        let wallet = self.wallet.context("wallet is not set on ClientBuilder")?;
 
-        let wallet_default_signer = wallet.default_signer().address();
+        let signer_address =
+            self.signer.as_ref().map(|signer| signer.address()).unwrap_or(Address::ZERO);
+        let provider = match self.signer.clone() {
+            Some(signer) => {
+                let dynamic_gas_filler = DynamicGasFiller::new(
+                    0.2,  // 20% increase of gas limit
+                    0.05, // 5% increase of gas_price per pending transaction
+                    2.0,  // 2x max gas multiplier
+                    signer.address(),
+                );
 
-        let dynamic_gas_filler = DynamicGasFiller::new(
-            0.2,  // 20% increase of gas limit
-            0.05, // 5% increase of gas_price per pending transaction
-            2.0,  // 2x max gas multiplier
-            wallet_default_signer,
-        );
-
-        // Connect the RPC provider.
-        let base_provider = ProviderBuilder::new()
-            .disable_recommended_fillers()
-            .filler(ChainIdFiller::default())
-            .filler(dynamic_gas_filler)
-            .layer(BalanceAlertLayer::new(self.balance_alerts.unwrap_or_default()))
-            .connect(rpc_url.as_str())
-            .await
-            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
-        let provider = NonceProvider::new(base_provider, wallet.clone());
+                // Connect the RPC provider.
+                let base_provider = ProviderBuilder::new()
+                    .disable_recommended_fillers()
+                    .filler(ChainIdFiller::default())
+                    .filler(dynamic_gas_filler)
+                    .layer(BalanceAlertLayer::new(self.balance_alerts.unwrap_or_default()))
+                    .connect(rpc_url.as_str())
+                    .await
+                    .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+                NonceProvider::new(base_provider, EthereumWallet::from(signer)).erased()
+            }
+            None => ProviderBuilder::new()
+                .connect(rpc_url.as_str())
+                .await
+                .with_context(|| format!("failed to connect provider to {rpc_url}"))?
+                .erased(),
+        };
 
         // Resolve the deployment information.
         let chain_id =
@@ -144,12 +150,12 @@ impl<St, Si> ClientBuilder<St, Si> {
         let boundless_market = BoundlessMarketService::new(
             deployment.boundless_market_address,
             provider.clone(),
-            wallet_default_signer,
+            signer_address,
         );
         let set_verifier = SetVerifierService::new(
             deployment.set_verifier_address,
             provider.clone(),
-            wallet_default_signer,
+            signer_address,
         );
 
         // Build the order stream client, if a URL was provided.
@@ -210,16 +216,14 @@ impl<St, Si> ClientBuilder<St, Si> {
         Self { rpc_url: Some(rpc_url), ..self }
     }
 
-    /// Set the private key
+    /// Set the signer from the given private key.
     pub fn with_private_key(
         self,
         private_key: impl Into<PrivateKeySigner>,
     ) -> ClientBuilder<St, PrivateKeySigner> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
-        let private_key_signer = private_key.into();
         ClientBuilder {
-            wallet: Some(EthereumWallet::from(private_key_signer.clone())),
-            signer: Some(private_key_signer),
+            signer: Some(private_key.into()),
             deployment: self.deployment,
             storage_provider: self.storage_provider,
             rpc_url: self.rpc_url,
@@ -232,9 +236,24 @@ impl<St, Si> ClientBuilder<St, Si> {
         }
     }
 
-    /// Set the wallet
-    pub fn with_wallet(self, wallet: impl Into<Option<EthereumWallet>>) -> Self {
-        Self { wallet: wallet.into(), ..self }
+    /// Set the signer and wallet.
+    pub fn with_signer<Zi>(self, signer: impl Into<Option<Zi>>) -> ClientBuilder<St, Zi>
+    where
+        Zi: Signer + Clone + TxSigner<Signature> + Send + Sync + 'static,
+    {
+        // NOTE: We can't use the ..self syntax here because return is not Self.
+        ClientBuilder {
+            signer: signer.into(),
+            deployment: self.deployment,
+            storage_provider: self.storage_provider,
+            rpc_url: self.rpc_url,
+            tx_timeout: self.tx_timeout,
+            balance_alerts: self.balance_alerts,
+            offer_layer_config: self.offer_layer_config,
+            storage_layer_config: self.storage_layer_config,
+            request_id_layer_config: self.request_id_layer_config,
+            request_finalizer_config: self.request_finalizer_config,
+        }
     }
 
     /// Set the transaction timeout in seconds
@@ -259,7 +278,6 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_provider,
             deployment: self.deployment,
             rpc_url: self.rpc_url,
-            wallet: self.wallet,
             signer: self.signer,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
@@ -352,7 +370,7 @@ impl<St, Si> ClientBuilder<St, Si> {
 #[non_exhaustive]
 /// Client for interacting with the boundless market.
 pub struct Client<
-    P = StandardRpcProvider,
+    P = DynProvider,
     St = StandardStorageProvider,
     R = StandardRequestBuilder,
     Si = PrivateKeySigner,
@@ -383,9 +401,9 @@ pub struct Client<
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
 pub type StandardClient = Client<
-    StandardRpcProvider,
+    DynProvider,
     StandardStorageProvider,
-    StandardRequestBuilder<StandardRpcProvider>,
+    StandardRequestBuilder<DynProvider>,
     PrivateKeySigner,
 >;
 
