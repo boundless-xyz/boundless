@@ -25,6 +25,8 @@ config:
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:JwMshDYyGPxsESiX:SY8Ye0Yf4BUg2vHfUa0kzK+KV1hUXFBLBdMgDGsIfNosmLjwXkm1+vombjLfhzJQg+/7AFLsKUgHdteI7grj+abG6ty2365BG+claz92m1pKXc+2lJ8ot3B/bghgM5na2s/K1De2p7BEXiIHHQ==
   order-generator-base:TX_TIMEOUT: "120"
+  # Offchain order generator is configured to send small orders that must be locked/fulfilled within 30 mins
+  # We use these orders as canaries to monitor the health of the system
   order-generator-offchain:INPUT_MAX_MCYCLES: "10"
   order-generator-offchain:RAMP_UP: "300"
   order-generator-offchain:LOCK_TIMEOUT: "900"
@@ -39,6 +41,8 @@ config:
   order-generator-onchain:ERROR_BALANCE_BELOW: "15"
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:mCtZDPI169gCEzCS:fs7WOQUknWQ3SgRy1tJWLzSqrm0DFlDyBlOy0FvCr+qPgOPpdedminnQHR4Em1kBoJteJ0H1iUKfNsaE0NUZOk3RAmCdGtsnu/QiYkHQAiQ=
+  # Onchain order generator is configured to send larger orders that must be locked/fulfilled within 1 hour
+  # Mostly used to send load to the market, but also monitored as a canary.
   order-generator-onchain:RAMP_UP: "600"
   order-generator-onchain:LOCK_TIMEOUT: "900"
   order-generator-onchain:TIMEOUT: "1800"

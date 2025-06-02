@@ -25,6 +25,8 @@ config:
   order-generator-base:SET_VERIFIER_ADDR: 0xa8DB64c92c5E113984C790dDA91789132114BAda
   #order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   order-generator-base:TX_TIMEOUT: "90"
+  # Offchain order generator is configured to send small orders that must be locked/fulfilled within 30 mins
+  # We use these orders as canaries to monitor the health of the system
   order-generator-offchain:INPUT_MAX_MCYCLES: "10"
   order-generator-offchain:RAMP_UP: "300"
   order-generator-offchain:LOCK_TIMEOUT: "900"
@@ -39,6 +41,8 @@ config:
     secure: v1:/VtYD3aNdYBoGYNY:Zf9aAMkbScrZ1/sZVbYPM8pHT6v5afTGybLg4XCvGdONvP4/e9qtNnhSeSdNjUBJv6KSKdBwUNWHN65RlxpwqVYbL+XceV7DYd8sBlZy4f4=
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:eK1UASw3bSRPU8ed:Vzu/ysmaB8pwHrXhbmiBaHtdwNQ44J6FRfvPCEn30lMvT8qjZIPESen9iAV9ajr37T2Crf4UlYW4pINu96Jamm6djA5yI2poxPBmAoTcvH4=
+  # Onchain order generator is configured to send larger orders that must be locked/fulfilled within 1 hour
+  # Mostly used to send load to the market, but also monitored as a canary.
   order-generator-onchain:RAMP_UP: "600"
   order-generator-onchain:LOCK_TIMEOUT: "900"
   order-generator-onchain:TIMEOUT: "1800"
