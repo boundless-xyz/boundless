@@ -127,7 +127,7 @@ The requirements of the proof specify the exact program that must be run (identi
 
 After a proof request is broadcast, a reverse Dutch auction runs according to the parameters specified by the offer.
 
-From the moment the request is broadcast to the start of bidding, the auction price is the minimum specified in the offer. During the ramp-up period, the price is increased linearly up to the maximum price. After the ramp-up period the price stays at the max price until the request expires. At any time, a prover can submit a bid, accepting the current price and winning the auction. Because the price only increases, the first bid is the best price for the requestor.
+From the moment the request is broadcast, the auction price is the set at the minimum price specified in the offer. During the ramp-up period, the price is increased linearly up to the maximum price. After the ramp-up period, the price stays at the max price until the request expires. At any time, a prover can submit a bid, accepting the current price and winning the auction. Because the price only increases, the first bid is the best price for the requestor.
 
 When the prover submits their bid, the auction ends and they "lock" the request. Once a request is locked, only that prover can be paid for submitting a proof. This ensures that the prover will not waste their compute resources, as they know no other prover can take the request instead. By increasing market efficiency, this lowers prices.
 
