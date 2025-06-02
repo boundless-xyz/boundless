@@ -269,7 +269,7 @@ export const alarmConfig: ChainStageAlarms = {
       }
     }
   },
-  [ChainId.SEPOLIA]: {
+  [ChainId.ETH_SEPOLIA]: {
     [Stage.STAGING]: {
       clients: [
         {
