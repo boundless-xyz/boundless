@@ -3,7 +3,7 @@
 // All rights reserved.
 
 use alloy::signers::{local::PrivateKeySigner, Signer};
-use anyhow::{Context, Result};
+use anyhow::{Result};
 use boundless_market::order_stream_client::{order_stream, OrderStreamClient};
 use futures::TryStreamExt;
 use futures_util::StreamExt;
