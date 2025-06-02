@@ -92,7 +92,7 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         code: new pulumi.asset.FileArchive(zipFilePath),
         loggingConfig: {
             logGroup: logGroup.name,
-            logFormat: 'json',
+            logFormat: 'JSON',
         },
         handler: 'bootstrap',
         runtime: 'provided.al2023',
