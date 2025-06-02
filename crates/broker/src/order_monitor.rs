@@ -682,7 +682,8 @@ where
             let proof_time_seconds = total_commited_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
             let mut prover_available_at = started_proving_at + proof_time_seconds;
             if prover_available_at < now {
-                tracing::warn!("Proofs are behind what is estimated from peak_prove_khz config. Consider lowering this value to avoid overlocking orders.");
+                let seconds_behind = now - prover_available_at;
+                tracing::warn!("Proofs are behind what is estimated from peak_prove_khz config by {} seconds. Consider lowering this value to avoid overlocking orders.", seconds_behind);
                 prover_available_at = now;
             }
             tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available in {} seconds", 
