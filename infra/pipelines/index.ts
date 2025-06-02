@@ -71,6 +71,7 @@ const codePipelineSharedResources = new CodePipelineSharedResources("codePipelin
 
 const config = new pulumi.Config();
 const boundlessAlertsSlackId = config.requireSecret("BOUNDLESS_ALERTS_SLACK_ID");
+const boundlessAlertsStagingSlackId = config.requireSecret("BOUNDLESS_ALERTS_STAGING_SLACK_ID");
 const workspaceSlackId = config.requireSecret("WORKSPACE_SLACK_ID");
 const pagerdutyIntegrationUrl = config.requireSecret("PAGERDUTY_INTEGRATION_URL");
 const ssoBaseUrl = config.require("SSO_BASE_URL");
@@ -83,7 +84,8 @@ const notifications = new Notifications("notifications", {
     BOUNDLESS_STAGING_ACCOUNT_ID,
     BOUNDLESS_PROD_ACCOUNT_ID,
   ],
-  slackChannelId: boundlessAlertsSlackId,
+  prodSlackChannelId: boundlessAlertsSlackId,
+  stagingSlackChannelId: boundlessAlertsStagingSlackId,
   slackTeamId: workspaceSlackId,
   pagerdutyIntegrationUrl,
   ssoBaseUrl,

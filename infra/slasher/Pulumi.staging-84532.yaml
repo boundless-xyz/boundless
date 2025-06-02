@@ -16,7 +16,7 @@ config:
     secure: v1:qgIVlKJ3fukXedve:d4bbxiRV7c33gqUukvOdNb2i2k7gHVB6S0EH855bq2SZVKHTxyDKB2sSy/53UEUfAH0FprNs7oKoshYaTALfUhgpUHJ/I8uQz3aLMbdOQQA=
   slasher:RETRIES: "5"
   slasher:SKIP_ADDRESSES: ""
-  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   slasher:TX_TIMEOUT: "120"
   slasher:WARN_BALANCE_BELOW: "0.01"
   slasher:ETH_RPC_URL:

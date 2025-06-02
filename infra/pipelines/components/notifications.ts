@@ -3,12 +3,15 @@ import * as pulumi from '@pulumi/pulumi';
 
 export class Notifications extends pulumi.ComponentResource {
   public slackSNSTopic: aws.sns.Topic;
+  public slackSNSTopicStaging: aws.sns.Topic;
   public pagerdutySNSTopic: aws.sns.Topic;
+
   constructor(
     name: string,
     args: {
       serviceAccountIds: string[];
-      slackChannelId: pulumi.Output<string>;
+      prodSlackChannelId: pulumi.Output<string>;
+      stagingSlackChannelId: pulumi.Output<string>;
       slackTeamId: pulumi.Output<string>;
       pagerdutyIntegrationUrl: pulumi.Output<string>;
       ssoBaseUrl: string;
@@ -19,7 +22,15 @@ export class Notifications extends pulumi.ComponentResource {
   ) {
     super('pipelines:Notifications', name, args, opts);
 
-    const { serviceAccountIds, slackChannelId: slackChannelIdOutput, slackTeamId: slackTeamIdOutput, pagerdutyIntegrationUrl, ssoBaseUrl, runbookUrl } = args;
+    const {
+      serviceAccountIds,
+      prodSlackChannelId: prodSlackChannelIdOutput,
+      stagingSlackChannelId: stagingSlackChannelIdOutput,
+      slackTeamId: slackTeamIdOutput,
+      pagerdutyIntegrationUrl,
+      ssoBaseUrl,
+      runbookUrl
+    } = args;
 
     // Create an IAM Role for AWS Chatbot
     const chatbotRole = new aws.iam.Role('chatbotRole', {
@@ -96,6 +107,20 @@ export class Notifications extends pulumi.ComponentResource {
       sqsSuccessFeedbackSampleRate: 100,
     } as aws.sns.TopicArgs);
 
+    // Create an SNS topic for the slack alerts
+    this.slackSNSTopicStaging = new aws.sns.Topic("boundless-alerts-topic-staging", {
+      name: "boundless-alerts-topic-staging",
+      applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackSampleRate: 100,
+      httpFailureFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackSampleRate: 100,
+      sqsFailureFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackSampleRate: 100,
+    } as aws.sns.TopicArgs);
+
     // Create a policy that allows the service accounts to publish to the SNS topic
     // https://repost.aws/knowledge-center/cloudwatch-cross-account-sns
     const slackSnsTopicPolicy = this.slackSNSTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
@@ -129,10 +154,51 @@ export class Notifications extends pulumi.ComponentResource {
       ],
     }));
 
+    const slackSnsTopicPolicyStaging = this.slackSNSTopicStaging.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+      statements: [
+        ...serviceAccountIds.map(serviceAccountId => ({
+          actions: [
+            "SNS:Publish",
+          ],
+          effect: "Allow",
+          principals: [{
+            type: "AWS",
+            identifiers: ["*"], // Restricted by the condition below.
+          }],
+          resources: [arn],
+          conditions: [{
+            test: "ArnLike",
+            variable: "aws:SourceArn",
+            values: [`arn:aws:cloudwatch:us-west-2:${serviceAccountId}:alarm:*`],
+          }],
+          sid: `Grant publish to account ${serviceAccountId}.`,
+        })),
+        {
+          actions: ["SNS:Publish"],
+          principals: [{
+            type: "Service",
+            identifiers: ["codestar-notifications.amazonaws.com"],
+          }],
+          resources: [arn],
+          sid: "Grant publish to codestar for deployment notifications",
+        },
+      ],
+    }));
+
     // Attach the policy to the SNS topic
-    new aws.sns.TopicPolicy("service-accounts-slack-publish-policy", {
-      arn: this.slackSNSTopic.arn,
-      policy: slackSnsTopicPolicy.apply(slackSnsTopicPolicy => slackSnsTopicPolicy.json),
+    slackSnsTopicPolicy.apply(slackSnsTopicPolicy => {
+      new aws.sns.TopicPolicy("service-accounts-slack-publish-policy", {
+        arn: this.slackSNSTopic.arn,
+        policy: slackSnsTopicPolicy.json,
+      }, {
+        parent: this,
+      });
+      new aws.sns.TopicPolicy("service-accounts-slack-publish-policy-staging", {
+        arn: this.slackSNSTopicStaging.arn,
+        policy: slackSnsTopicPolicyStaging.json,
+      }, {
+        parent: this,
+      });
     });
 
     // Create a dead letter queue for the Slack channel subscription.
@@ -205,15 +271,27 @@ export class Notifications extends pulumi.ComponentResource {
     });
 
     // Create a Slack channel configuration for the alerts
-    let slackChannelConfiguration = pulumi.all([slackChannelIdOutput, slackTeamIdOutput])
-      .apply(([slackChannelId, slackTeamId]) => new aws.chatbot.SlackChannelConfiguration("boundless-alerts", {
-        configurationName: "boundless-alerts",
-        iamRoleArn: chatbotRole.arn,
-        slackChannelId: slackChannelId,
-        slackTeamId: slackTeamId,
-        snsTopicArns: [this.slackSNSTopic.arn],
-        loggingLevel: "INFO",
-      }));
+    let slackChannelConfigurations = pulumi.all([prodSlackChannelIdOutput, stagingSlackChannelIdOutput, slackTeamIdOutput])
+      .apply(([prodSlackChannelId, stagingSlackChannelId, slackTeamId]) => {
+        const prodSlackChannelConfiguration = new aws.chatbot.SlackChannelConfiguration("boundless-alerts", {
+          configurationName: "boundless-alerts",
+          iamRoleArn: chatbotRole.arn,
+          slackChannelId: prodSlackChannelId,
+          slackTeamId: slackTeamId,
+          snsTopicArns: [this.slackSNSTopic.arn],
+          loggingLevel: "INFO",
+        });
+        const stagingSlackChannelConfiguration = new aws.chatbot.SlackChannelConfiguration("boundless-alerts-staging", {
+          configurationName: "boundless-alerts-staging",
+          iamRoleArn: chatbotRole.arn,
+          slackChannelId: stagingSlackChannelId,
+          slackTeamId: slackTeamId,
+          snsTopicArns: [this.slackSNSTopicStaging.arn],
+          loggingLevel: "INFO",
+        });
+        return [prodSlackChannelConfiguration, stagingSlackChannelConfiguration];
+      }
+      );
 
     // Create an SNS topic for the pagerduty alerts
     this.pagerdutySNSTopic = new aws.sns.Topic("boundless-pagerduty-topic", {
