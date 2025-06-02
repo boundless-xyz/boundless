@@ -94,7 +94,7 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         runtime: 'provided.al2023',
         loggingConfig: {
             logGroup: logGroup.name,
-            logFormat: 'json',
+            logFormat: 'JSON',
         },
         role: options.role,
         memorySize: options.memorySize || 128,
