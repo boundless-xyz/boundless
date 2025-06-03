@@ -13,6 +13,6 @@ config:
   order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-stream:RDS_PASSWORD:
     secure: v1:qHEyfr5Q3wEfUOeO:NDS2F6HX+nDSarihmgf12PEzTjzMLh5CdFI4aiP89+u1kA==
-  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   order-stream:ETH_RPC_URL:
     secure: v1:CKecrkFxtLtPCVIv:dmvMXHj5f1NKUp9SxH9C+ln6V01XU6T6v3zhEEEV/5vdq4iYaqBEXV0NX0qHs4xCdyxL8DaTWIN/VU3EPClq8Q//2uwzXaiCbN5fCe96vNm1fYE68n4=
