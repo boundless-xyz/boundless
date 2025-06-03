@@ -13,7 +13,7 @@ config:
   indexer:RDS_PASSWORD:
     secure: v1:Ul6V0mmxRnAHO0A8:H968QHLa65Lcr7d202/EnXLj5CiBehBVxiW7PVWEC9ihDA==
   indexer:RUST_LOG: indexer_monitor=debug
-  indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   indexer:START_BLOCK: "26392313"
   indexer:ETH_RPC_URL:
     secure: v1:tnFFQhm/61xdbkqS:GhyzuNZcx6ybMZAomqU9cvxfOm/jc1nCiBj33LdpPLyu1QBzrmQMOp7wd9alQBEAhSlfFChmw7nNXqTepUUzivD45WicNJdU/A8PWg2osXWTbnLdRis=

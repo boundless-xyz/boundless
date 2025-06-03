@@ -22,7 +22,7 @@ where
     }
 
     let mut last_error = None;
-    for attempt in 0..retry_count {
+    for attempt in 0..=retry_count {
         match operation().await {
             Ok(result) => return Ok(result),
             Err(err) => {
@@ -43,7 +43,7 @@ where
     }
 
     tracing::warn!(
-        "Operation [{}] failed after {} attempts, returning last error: {:?}",
+        "Operation [{}] failed after {} retries, returning last error: {:?}",
         function_name,
         retry_count,
         last_error
@@ -70,7 +70,7 @@ where
     }
 
     let mut last_error = None;
-    for attempt in 0..retry_count {
+    for attempt in 0..=retry_count {
         match operation().await {
             Ok(result) => return Ok(result),
             Err(err) => {
@@ -99,7 +99,7 @@ where
     }
 
     tracing::warn!(
-        "Operation [{}] failed after {} attempts, returning last error: {:?}",
+        "Operation [{}] failed after {} retries, returning last error: {:?}",
         function_name,
         retry_count,
         last_error
@@ -138,6 +138,37 @@ mod tests {
                 let counter = counter_clone.clone();
                 async move {
                     let current = counter.fetch_add(1, Ordering::SeqCst);
+                    if current == 0 || current == 1 {
+                        Err("Attempt failed")
+                    } else {
+                        Ok(current)
+                    }
+                }
+            },
+            "test operation",
+        )
+        .await;
+
+        assert_eq!(result.unwrap(), 2);
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
+        assert!(logs_contain(
+            "Operation [test operation] failed: \"Attempt failed\", starting retry 1/2"
+        ));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_retry_single_attempt() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let result = retry(
+            1,
+            0,
+            || {
+                let counter = counter_clone.clone();
+                async move {
+                    let current = counter.fetch_add(1, Ordering::SeqCst);
                     if current == 0 {
                         Err("First attempt failed")
                     } else {
@@ -152,7 +183,7 @@ mod tests {
         assert_eq!(result.unwrap(), 1);
         assert_eq!(counter.load(Ordering::SeqCst), 2);
         assert!(logs_contain(
-            "Operation [test operation] failed: \"First attempt failed\", starting retry 1/2"
+            "Operation [test operation] failed: \"First attempt failed\", starting retry 1/1"
         ));
     }
 
@@ -177,7 +208,7 @@ mod tests {
         .await;
 
         assert!(result.is_err());
-        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
         assert!(logs_contain(
             "Operation [test operation] failed: \"Always fails\", starting retry 1/2"
         ));
