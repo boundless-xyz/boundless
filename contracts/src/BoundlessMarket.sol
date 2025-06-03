@@ -323,6 +323,7 @@ contract BoundlessMarket is
             // in _fulfillAndPay for more details. This check could potentially be optimized, as it
             // is duplicated in _fulfillAndPay.
             FulfillmentContext memory context = FulfillmentContextLibrary.load(fill.requestDigest);
+            // DO NOT MERGE: This is now wrong, since we could reach here with an expired lock
             if (context.expired) {
                 continue;
             }
