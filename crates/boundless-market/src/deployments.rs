@@ -40,7 +40,7 @@ pub struct Deployment {
     /// Address of the [RiscZeroVerifierRouter] contract.
     ///
     /// The verifier router implements [IRiscZeroVerifier]. Each network has a canonical router,
-    /// that is deployed by the core team. You can additionall deploy and manage your own verifier
+    /// that is deployed by the core team. You can additionally deploy and manage your own verifier
     /// instead. See the [Boundless docs for more details].
     ///
     /// [RiscZeroVerifierRouter]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroVerifierRouter.sol
@@ -83,6 +83,7 @@ impl Deployment {
     pub const fn from_chain(chain: NamedChain) -> Option<Deployment> {
         match chain {
             NamedChain::Sepolia => Some(SEPOLIA),
+            NamedChain::Base => Some(BASE),
             _ => None,
         }
     }
@@ -103,4 +104,14 @@ pub const SEPOLIA: Deployment = Deployment {
     set_verifier_address: address!("0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"),
     stake_token_address: Some(address!("0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9")),
     order_stream_url: Some(Cow::Borrowed("https://eth-sepolia.beboundless.xyz")),
+};
+
+/// [Deployment] for the Base mainnet.
+pub const BASE: Deployment = Deployment {
+    chain_id: Some(NamedChain::Base as u64),
+    boundless_market_address: address!("0x581C7e8018f0888364c698f97F64eB069723131F"),
+    verifier_router_address: Some(address!("0x95345209e34a7043ac5D92e82a35b63FFa088A20")),
+    set_verifier_address: address!("0xa8DB64c92c5E113984C790dDA91789132114BAda"),
+    stake_token_address: Some(address!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")),
+    order_stream_url: Some(Cow::Borrowed("https://base-mainnet.beboundless.xyz")),
 };

@@ -16,7 +16,7 @@ use crate::{
 use alloy::{
     network::Ethereum,
     primitives::{
-        utils::{format_ether, parse_ether},
+        utils::{format_ether, parse_units},
         Address, U256,
     },
     providers::{Provider, WalletProvider},
@@ -139,6 +139,7 @@ where
         prover_addr: Address,
         market_addr: Address,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
+        stake_token_decimals: u8,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -155,19 +156,18 @@ where
         }
         {
             let config = config.lock_all()?;
+
             market = market.with_stake_balance_alert(
                 &config
                     .market
                     .stake_balance_warn_threshold
                     .as_ref()
-                    .map(|s| parse_ether(s))
-                    .transpose()?,
+                    .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
                 &config
                     .market
                     .stake_balance_error_threshold
                     .as_ref()
-                    .map(|s| parse_ether(s))
-                    .transpose()?,
+                    .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
             );
         }
         let monitor = Self {
@@ -380,6 +380,31 @@ where
             }
         }
 
+        fn is_target_time_reached(order: &OrderRequest, current_block_timestamp: u64) -> bool {
+            // Note: this could use current timestamp, but avoiding cases where clock has drifted.
+            match order.target_timestamp {
+                Some(target_timestamp) => {
+                    if current_block_timestamp < target_timestamp {
+                        tracing::trace!(
+                            "Request {:x} target timestamp {} not yet reached (current: {}). Waiting.",
+                            order.request.id,
+                            target_timestamp,
+                            current_block_timestamp
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                }
+                None => {
+                    // Should not happen, just warning for safety as this condition is not strictly
+                    // enforced at compile time.
+                    tracing::warn!("Request {:x} has no target timestamp set", order.request.id);
+                    false
+                }
+            }
+        }
+
         for (_, order) in self.prove_cache.iter() {
             let is_fulfilled = self
                 .db
@@ -387,14 +412,14 @@ where
                 .await
                 .context("Failed to check if request is fulfilled")?;
             if is_fulfilled {
-                tracing::info!(
+                tracing::debug!(
                     "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
                 self.skip_order(&order, "was fulfilled by other").await;
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
                 self.skip_order(&order, "expired").await;
-            } else {
+            } else if is_target_time_reached(&order, current_block_timestamp) {
                 tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
                 candidate_orders.push(order);
             }
@@ -424,7 +449,7 @@ where
                 }
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
                 self.skip_order(&order, "insufficient deadline").await;
-            } else {
+            } else if is_target_time_reached(&order, current_block_timestamp) {
                 candidate_orders.push(order);
             }
         }
@@ -494,14 +519,12 @@ where
                             match err {
                                 OrderMonitorErr::UnexpectedError(inner) => {
                                     tracing::error!(
-                                        "Failed to lock order: {order_id} - {} - {inner:?}",
-                                        err.code()
+                                        "Failed to lock order: {order_id} - {inner:?}",
                                     );
                                 }
                                 _ => {
                                     tracing::warn!(
-                                        "Soft failed to lock request: {request_id} - {} - {err:?}",
-                                        err.code()
+                                        "Soft failed to lock request: {order_id} - {err:?}",
                                     );
                                 }
                             }
@@ -1032,7 +1055,11 @@ mod tests {
 
         // Deposit ETH into the contract for the prover to use when locking orders
         // Using 10 ETH to ensure plenty of funds for tests
-        market_service.deposit(parse_ether("10.0").unwrap()).await.unwrap();
+        let stake_token_decimals = market_service.stake_token_decimals().await.unwrap();
+        market_service
+            .deposit(parse_units("10.0", stake_token_decimals).unwrap().into())
+            .await
+            .unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
@@ -1059,6 +1086,7 @@ mod tests {
             signer.address(),
             market_address,
             priced_order_rx,
+            stake_token_decimals,
         )
         .unwrap();
 
@@ -1613,5 +1641,89 @@ mod tests {
             .unwrap();
 
         assert!(filtered_orders.is_empty());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_target_timestamp_prevents_early_locking() {
+        let mut ctx = setup_test().await;
+        let current_timestamp = now_timestamp();
+        let future_timestamp = current_timestamp + 100; // 100 seconds in the future
+
+        // Create orders of both types and set them to be picked up at a future timestamp.
+        let mut lock_and_fulfill_order = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 200, 300)
+            .await;
+
+        lock_and_fulfill_order.target_timestamp = Some(future_timestamp);
+        let lock_and_fulfill_order_id = lock_and_fulfill_order.id();
+
+        ctx.monitor
+            .lock_and_prove_cache
+            .insert(lock_and_fulfill_order.id(), Arc::from(lock_and_fulfill_order))
+            .await;
+
+        let mut fulfill_after_expire_order = ctx
+            .create_test_order(
+                FulfillmentType::FulfillAfterLockExpire,
+                current_timestamp - 50,
+                10,
+                300,
+            )
+            .await;
+
+        fulfill_after_expire_order.target_timestamp = Some(future_timestamp);
+        let fulfill_after_expire_order_id = fulfill_after_expire_order.id();
+
+        // Simulate that this order was locked by another prover but the lock has now expired
+        ctx.db
+            .set_request_locked(
+                U256::from(fulfill_after_expire_order.request.id),
+                &Address::ZERO.to_string(),
+                current_timestamp - 50,
+            )
+            .await
+            .unwrap();
+
+        ctx.monitor
+            .prove_cache
+            .insert(fulfill_after_expire_order.id(), Arc::from(fulfill_after_expire_order))
+            .await;
+
+        // Call get_valid_orders with current timestamp - this should NOT return either order
+        // because their target_timestamp is in the future
+        let valid_orders = ctx.monitor.get_valid_orders(current_timestamp, 50).await.unwrap();
+
+        assert!(
+            valid_orders.is_empty(),
+            "Orders with future target_timestamp should not be valid yet, got {} orders",
+            valid_orders.len()
+        );
+
+        // Verify both orders are still in their respective caches and not skipped
+        let cached_lock_order =
+            ctx.monitor.lock_and_prove_cache.get(&lock_and_fulfill_order_id).await;
+        assert!(cached_lock_order.is_some(), "LockAndFulfill order should still be in cache");
+
+        let cached_prove_order = ctx.monitor.prove_cache.get(&fulfill_after_expire_order_id).await;
+        assert!(
+            cached_prove_order.is_some(),
+            "FulfillAfterLockExpire order should still be in cache"
+        );
+
+        // Now test with future timestamp - both orders should be valid
+        let valid_orders_in_future =
+            ctx.monitor.get_valid_orders(future_timestamp + 1, 50).await.unwrap();
+
+        assert_eq!(
+            valid_orders_in_future.len(),
+            2,
+            "Both orders should be valid when current time >= target_timestamp"
+        );
+
+        assert!(valid_orders_in_future.iter().any(|order| order.id() == lock_and_fulfill_order_id));
+        assert!(valid_orders_in_future
+            .iter()
+            .any(|order| order.id() == fulfill_after_expire_order_id));
     }
 }

@@ -1,0 +1,23 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAG4+8GtlqFHJRiu3dW2joKxAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM50C/dA0fSKV3ujr5AgEQgDvmtNs8/dik6fYs9IEeBqLExmqUpvnKPZEcll3af+vKH+zH0Jivw40It1JT2YgAmPbWmab2RptGKdn04w==
+config:
+  slasher:BASE_STACK: organization/bootstrap/services-staging
+  slasher:BOUNDLESS_MARKET_ADDR: 0xAD0Bd6C436658aF457736d7224a87d2EF56365C8
+  slasher:CHAIN_ID: "84532"
+  slasher:DOCKER_DIR: ../../
+  slasher:DOCKER_TAG: latest
+  slasher:ERROR_BALANCE_BELOW: "0.005"
+  slasher:GH_TOKEN_SECRET:
+    secure: v1:9g9Sp39djW9TygNZ:uG9kdAhcOpIicR7wC4EWpSUm2kl9sixsVCR4X5ecSMxX9pwQahtMPgZg7cLcY14SXP4ng3om+vnHkOVwCpEy/XtB9BwmwEtkeAZBDaxZr2V4/moBimuoVHW6GOYsJguwf9aGcKktpYKocrP4cg==
+  slasher:INTERVAL: "60"
+  slasher:LOG_LEVEL: debug,boundless_slasher=trace,alloy_transport_http=info,hyper_util=info
+  slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  slasher:PRIVATE_KEY:
+    secure: v1:qgIVlKJ3fukXedve:d4bbxiRV7c33gqUukvOdNb2i2k7gHVB6S0EH855bq2SZVKHTxyDKB2sSy/53UEUfAH0FprNs7oKoshYaTALfUhgpUHJ/I8uQz3aLMbdOQQA=
+  slasher:RETRIES: "5"
+  slasher:SKIP_ADDRESSES: ""
+  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
+  slasher:TX_TIMEOUT: "120"
+  slasher:WARN_BALANCE_BELOW: "0.01"
+  slasher:ETH_RPC_URL:
+    secure: v1:m7/7wqEId4yMbQPA:yC0U25Qf3H9Eyj79LDWw1e1NbjVGEzrUdFw+PpVGyC4i/uG4NkJssCQQ/W7ECYqSpovlfJFwLUfDkKBPDTOJTN6nVgOPTEynsoFKwsRXFUTo0GyhvHM=

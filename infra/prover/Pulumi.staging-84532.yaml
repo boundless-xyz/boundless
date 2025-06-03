@@ -1,0 +1,29 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFBOmVFAJdafPuNEQ5z3I41AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMUhj8YYs2P58OqNDqAgEQgDvzwmF3jK19PtWBkseg1Hod/3zKRQbnMjNz04RX0fiAda0gToKwh5AH1aTFxznHfvAHkgmGrsuhOz8gXg==
+config:
+  aws:region: us-west-2
+  base-prover:BASE_STACK: organization/bootstrap/services-staging
+  base-prover:BOUNDLESS_MARKET_ADDR: 0xAD0Bd6C436658aF457736d7224a87d2EF56365C8
+  base-prover:CHAIN_ID: "84532"
+  base-prover:DOCKER_DIR: ../../
+  base-prover:DOCKER_TAG: latest
+  base-prover:GH_TOKEN_SECRET:
+    secure: v1:Y0I052+ahr7wE7BI:GnBxizvT5DU+lb+8FoS4kUTlItTMA86PNmweDR8tnc3S+b73bYbxD39EwwIowdaRIdVaFLbxa1GlQW4IcTu54af5LIbPSfjGoMQe6l2HhP6OGCqF1q4J3j+aLt4oLWY/P38mnEisjV1Eq0QNBQ==
+  base-prover:ORDER_STREAM_URL:
+    secure: v1:gGVKC5nURV8B7WCT:Iuh9MHELYYxsdS2+2Ioe6YDJKc+MceTwL1qKr5Ptay9dfzBYm9HgJlKVdWq9adsdqojtGXwX6DIVjos4b8EO/JTEznqPTy0LAO/RYMyPLgtxs3EGfEwel5Rviw==
+  base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging-84532.toml
+  bento-prover:LOG_JSON: "true"
+  bento-prover:PRIVATE_KEY:
+    secure: v1:6uvbeNaGFy6wzY6Q:4KGqT9RSLeVuyBepH46x0B1wiUnc5asmd1lZ0sne7rb3VJS/l8InD6fSgxT5rSJEuvYP9NClDfUS2eIvfjAxJez21quUe7+gcpeRzMnst+E=
+  bento-prover:SEGMENT_SIZE: "19"
+  bonsai-prover:BONSAI_API_KEY:
+    secure: v1:cZpknU6oltAsmv8O:x8dpXxq9xfQheC7onUV+wFpLU0YWJeUuZ127MwIyYbS2TxDYT9i0Hkr1EfrM0WM00djvZjX0GOc=
+  bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
+  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-staging-84532.toml
+  bonsai-prover:PRIVATE_KEY:
+    secure: v1:eydlW6NUpvgUPd6L:YM+qVMA+XBeRg46NHgz7zjyTn1bnQ/PrFqzjAxHxr5Yy3JUEb5J9SMlpBF6tW0az+SRA3MRPuwI0FKb6CRAFBfLskN66yC4h8Aqf61fUqxI=
+  base-prover:ETH_RPC_URL:
+    secure: v1:x3Idh+3ZFFJ8oLCY:MLnUx5x8YQWsv2UPQ4SVIxvgkumPHXdnAF+p+lW5AG6Sv+sM+YYMfkDOxO5zCKi981W32P6y4emY2Nv3F58mr/RQk+wxXGUJj8L0NCUhy3zcKViOuhM=
