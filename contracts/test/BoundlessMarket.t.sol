@@ -2151,8 +2151,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Fulfillment[] memory fills = new Fulfillment[](1);
         fills[0] = fill;
 
-        // Fulfill should revert as the request is not priced, and pricing is where signatures are checked.
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
+        // Fulfill should succeed even though the lock has expired when the request matches what was locked.
         boundlessMarket.fulfill(fills, assessorReceipt);
 
         ProofRequest[] memory requests = new ProofRequest[](1);
@@ -2160,6 +2159,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory clientSignatures = new bytes[](1);
         clientSignatures[0] = invalidClientSignature;
         // Fulfill should revert during the signature check during pricing, since the signature is invalid.
+        // NOTE: This should revert, even though we know the request was signed previously because
+        // of signature validation during the lock operation, because the signature in this call is
+        // invalid. As a principle, all data in a message must be validated, even if the data given
+        // is superfluous.
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidSignature.selector));
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
 
@@ -3539,6 +3542,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(requestB, APP_JOURNAL, testProverAddress);
         Fulfillment[] memory fills = new Fulfillment[](1);
         fills[0] = fill;
+
+        // Since the request being fulfilled is distinct from the one that was locked, the
+        // transaction should revert if the request is not priced before fulfillment.
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, requestB.id));
+        boundlessMarket.fulfill(fills, assessorReceipt);
 
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(requestB.id, testProverAddress, fill);

@@ -470,14 +470,18 @@ contract BoundlessMarket is
         // NOTE: We check this before checking fulfillment status to maintain the invariant that
         // the transaction will revert if the delivered proof is not associated with a valid request.
         // DO NOT MERGE: Handle case where the request was locked, but it now full expired.
-        if (!context.valid && lock.requestDigest != fill.requestDigest) {
+        uint96 price;
+        if (context.valid) {
+            price = context.price;
+        } else if (lock.requestDigest == fill.requestDigest && block.timestamp <= lock.deadline()) {
+            price = 0;
+        } else {
             revert RequestIsNotPriced(id);
         }
 
         // NOTE: Because we proceed above if the context is valid OR the request digest matches the
         // lock, the price may not actually be set. If it is not set, it will be zero, which is
         // correct in the case that this is a request with an expired lock.
-        uint96 price = context.price;
         // NOTE: If the prover is paid, the fulfilled flag must be set.
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
@@ -495,7 +499,7 @@ contract BoundlessMarket is
         //
         // Note that although they have the same ID, the locked request and the fulfilled request
         // could be different. If the request fulfilled is the same as the one locked, the
-        // `context.price` will be zero and the entire fee on the lock will be returned to the client.
+        // price will be zero and the entire fee on the lock will be returned to the client.
         Account storage clientAccount = accounts[client];
 
         // If the request has the same id, but is different to the request that was locked, the fulfillment
