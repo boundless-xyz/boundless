@@ -93,6 +93,10 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         loggingConfig: {
             logGroup: logGroup.name,
             logFormat: 'JSON',
+            // This is the minimum log level that will be forwarded to Cloudwatch. 
+            // Logging is still ultimately controlled by the RUST_LOG environment variable.
+            applicationLogLevel: 'TRACE',
+            systemLogLevel: 'INFO'
         },
         handler: 'bootstrap',
         runtime: 'provided.al2023',

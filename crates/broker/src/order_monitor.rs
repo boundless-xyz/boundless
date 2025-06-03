@@ -76,7 +76,7 @@ impl CodedError for OrderMonitorErr {
 enum Capacity {
     /// There are orders that have been picked for proving but not fulfilled yet.
     /// Number indicates available slots.
-    Proving(u32),
+    Available(u32),
     /// There is no concurrent lock limit.
     Unlimited,
 }
@@ -86,7 +86,7 @@ impl Capacity {
     /// [MAX_PROVING_BATCH_SIZE] to limit number of proving tasks spawned at once.
     fn request_capacity(&self, request: u32) -> u32 {
         match self {
-            Capacity::Proving(capacity) => {
+            Capacity::Available(capacity) => {
                 if request > *capacity {
                     std::cmp::min(*capacity, MAX_PROVING_BATCH_SIZE)
                 } else {
@@ -308,7 +308,7 @@ where
         Self::log_capacity(previous_capacity_log, committed_orders, max).await;
 
         let available_slots = max.saturating_sub(committed_orders_count);
-        Ok(Capacity::Proving(available_slots))
+        Ok(Capacity::Available(available_slots))
     }
 
     async fn log_capacity(
@@ -462,12 +462,9 @@ where
             return Ok(Vec::new());
         }
 
-        tracing::info!(
-            "After filtering invalid orders, found total of {} valid orders to proceed to locking and/or proving", 
-            candidate_orders.len()
-        );
         tracing::debug!(
-            "Final orders ready for locking and/or proving after filtering: {}",
+            "Valid orders that reached target timestamp; ready for locking/proving, num: {}, ids: {}",
+            candidate_orders.len(),
             candidate_orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(", ")
         );
 
@@ -489,10 +486,12 @@ where
             orders
                 .iter()
                 .map(|order| format!(
-                    "{} [Lock expires at: {}, Expires at: {}]",
+                    "{} [Lock expires at: {} ({} seconds from now), Expires at: {} ({} seconds from now)]",
                     order.id(),
                     order.request.lock_expires_at(),
-                    order.request.expires_at()
+                    order.request.lock_expires_at().saturating_sub(now_timestamp()),
+                    order.request.expires_at(),
+                    order.request.expires_at().saturating_sub(now_timestamp())
                 ))
                 .collect::<Vec<_>>()
         );
@@ -506,7 +505,7 @@ where
                     let request_id = order.request.id;
                     match self.lock_order(order).await {
                         Ok(lock_price) => {
-                            tracing::info!("Locked request: {request_id}");
+                            tracing::info!("Locked request: 0x{:x}", request_id);
                             if let Err(err) = self.db.insert_accepted_request(order, lock_price).await {
                                 tracing::error!(
                                     "FATAL STAKE AT RISK: {} failed to move from locking -> proving status {}",
@@ -602,7 +601,7 @@ where
             .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"));
 
         tracing::info!(
-            "Current number of orders ready for locking and/or proving: {}. Total capacity available based on max_concurrent_proofs: {capacity:?}, Capacity granted this iteration: {capacity_granted:?}",
+            "Num orders ready for locking and/or proving: {}. Total capacity available: {capacity:?}, Capacity granted: {capacity_granted:?}",
             num_orders
         );
 
@@ -663,9 +662,9 @@ where
         let mut remaining_balance_wei = available_balance_wei - committed_cost_wei;
 
         // Apply peak khz limit if specified
+        let num_commited_orders = committed_orders.len();
         if peak_prove_khz.is_some() && !orders_truncated.is_empty() {
             let peak_prove_khz = peak_prove_khz.unwrap();
-            let num_commited_orders = committed_orders.len();
             let total_commited_cycles =
                 committed_orders.iter().map(|order| order.total_cycles.unwrap()).sum::<u64>();
 
@@ -771,8 +770,9 @@ where
         }
 
         tracing::info!(
-            "Started with {} orders ready to be locked and/or proven. After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
+            "Started with {} orders ready to be locked and/or proven. Already commited to {} orders. After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
             num_orders,
+            num_commited_orders,
             if let Some(max_concurrent_proofs) = max_concurrent_proofs {
                 max_concurrent_proofs.to_string()
             } else {
@@ -857,7 +857,7 @@ where
                             )
                             .await?;
 
-                        tracing::debug!("After processing block {}[timestamp {}], we will now start locking and/or proving {} orders.",
+                        tracing::trace!("After processing block {}[timestamp {}], we will now start locking and/or proving {} orders.",
                             block_number,
                             block_timestamp,
                             final_orders.len(),
@@ -1167,7 +1167,7 @@ mod tests {
 
     #[test]
     fn test_capacity_proving() {
-        let capacity = Capacity::Proving(50);
+        let capacity = Capacity::Available(50);
         assert_eq!(capacity.request_capacity(0), 0);
         assert_eq!(capacity.request_capacity(4), 4);
         assert_eq!(capacity.request_capacity(10), MAX_PROVING_BATCH_SIZE);

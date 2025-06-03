@@ -130,7 +130,7 @@ impl ProvingService {
                     .await
                     .context("Failed to prove customer proof STARK order")?;
 
-                tracing::debug!("Order {order_id} proof id: {proof_id}");
+                tracing::debug!("Order {order_id} being proved,proof id: {proof_id}");
 
                 self.db.set_order_proof_id(&order_id, &proof_id).await.with_context(|| {
                     format!("Failed to set order {order_id} proof id: {}", proof_id)
