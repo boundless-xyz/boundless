@@ -85,11 +85,12 @@ impl ReaperTask {
         };
 
         loop {
+            // Wait to run the reaper on startup to allow other tasks to start.
+            tokio::time::sleep(Duration::from_secs(interval.into())).await;
+
             if let Err(err) = self.check_expired_orders().await {
                 warn!("Error checking expired orders: {}", err);
             }
-
-            tokio::time::sleep(Duration::from_secs(interval.into())).await;
         }
     }
 }
