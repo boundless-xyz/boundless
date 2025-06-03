@@ -400,7 +400,7 @@ where
             let config = self.config.lock_all().context("Failed to read config")?;
             config.market.allow_skip_mcycle_limit_addresses.clone()
         };
-        
+
         let mut skip_mcycle_limit = false;
         let client_addr = order.request.client_address();
         if let Some(allow_addresses) = allow_skip_mcycle_limit_addresses {
@@ -1500,9 +1500,10 @@ mod tests {
             config.load_write().unwrap().market.max_mcycle_limit = Some(exec_limit);
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
-        
-        ctx.picker.config.load_write().as_mut().unwrap().market.allow_skip_mcycle_limit_addresses = Some(vec![ctx.provider.default_signer_address()]);
-        
+
+        ctx.picker.config.load_write().as_mut().unwrap().market.allow_skip_mcycle_limit_addresses =
+            Some(vec![ctx.provider.default_signer_address()]);
+
         // First order from allowed address - should skip mcycle limit
         let order = ctx.generate_next_order(Default::default()).await;
         let request_id = order.request.id;
@@ -1517,7 +1518,8 @@ mod tests {
         )));
 
         // Second order from a different address - should have mcycle limit enforced
-        let mut order2 = ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
+        let mut order2 =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
         // Set a different client address
         order2.request.id = RequestId::new(Address::ZERO, 2).into();
         let request2_id = order2.request.id;
@@ -1531,7 +1533,8 @@ mod tests {
         )));
         assert!(logs_contain(&format!(
             "Starting preflight execution of 2 exec limit {} cycles (~{} mcycles)",
-            exec_limit * 1_000_000, exec_limit
+            exec_limit * 1_000_000,
+            exec_limit
         )));
     }
 }
