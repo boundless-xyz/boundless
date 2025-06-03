@@ -337,6 +337,7 @@ impl Prover for Bonsai {
         assumptions: Vec<String>,
     ) -> Result<ProofResult, ProverError> {
         let proof_id = self.prove_stark(image_id, input_id, assumptions).await?;
+        tracing::debug!("Created session for prove stark: {proof_id}");
         self.wait_for_stark(&proof_id).await
     }
 

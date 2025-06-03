@@ -54,6 +54,13 @@ fields @timestamp, @message
 # | filter @message like 'ERROR'
 | sort @timestamp asc
 `.trim();
+    case 'order-slasher':
+      return `
+fields @timestamp, level, fields.message
+| filter target like 'slasher'
+# | filter @message like 'ERROR'
+| sort @timestamp asc
+`.trim();
     default:
       return `
 fields @timestamp, @message
