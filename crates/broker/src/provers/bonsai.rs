@@ -341,8 +341,8 @@ impl Prover for Bonsai {
     }
 
     async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
-        let proof_id = SessionId::new(proof_id.into());
         tracing::debug!("Waiting for stark proof {} to complete", proof_id);
+        let proof_id = SessionId::new(proof_id.into());
 
         let poller = StatusPoller {
             poll_sleep_ms: self.status_poll_ms,
