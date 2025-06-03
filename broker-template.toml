@@ -23,7 +23,7 @@ peak_prove_khz = 100
 # Optional max cycles (in mcycles)
 #
 # Orders over this max_cycles will be skipped after preflight
-#max_mcycle_limit = 50_000
+max_mcycle_limit = 8000
 # Max journal size in bytes
 #
 # Orders that produce a journal larger than this size in preflight will be skipped. Since journals
