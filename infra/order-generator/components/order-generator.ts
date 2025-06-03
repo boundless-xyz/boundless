@@ -18,10 +18,10 @@ interface OrderGeneratorArgs {
   pinataGateway: string;
   interval: string;
   lockStakeRaw: string;
-  rampUp: string;
+  rampUp?: string;
   minPricePerMCycle: string;
   maxPricePerMCycle: string;
-  secondsPerMCycle: string;
+  secondsPerMCycle?: string;
   inputMaxMCycles?: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
@@ -33,6 +33,8 @@ interface OrderGeneratorArgs {
   warnBalanceBelow?: string;
   errorBalanceBelow?: string;
   txTimeout: string;
+  lockTimeout?: string;
+  timeout?: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -159,10 +161,8 @@ export class OrderGenerator extends pulumi.ComponentResource {
       `--min ${args.minPricePerMCycle}`,
       `--max ${args.maxPricePerMCycle}`,
       `--lock-stake-raw ${args.lockStakeRaw}`,
-      `--ramp-up ${args.rampUp}`,
       `--set-verifier-address ${args.setVerifierAddr}`,
       `--boundless-market-address ${args.boundlessMarketAddr}`,
-      `--seconds-per-mcycle ${args.secondsPerMCycle}`,
       `--tx-timeout ${args.txTimeout}`
     ]
     if (offchainConfig) {
@@ -176,6 +176,18 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.inputMaxMCycles) {
       ogArgs.push(`--input-max-mcycles ${args.inputMaxMCycles}`);
+    }
+    if (args.lockTimeout) {
+      ogArgs.push(`--lock-timeout ${args.lockTimeout}`);
+    }
+    if (args.timeout) {
+      ogArgs.push(`--timeout ${args.timeout}`);
+    }
+    if (args.rampUp) {
+      ogArgs.push(`--ramp-up ${args.rampUp}`);
+    }
+    if (args.secondsPerMCycle) {
+      ogArgs.push(`--seconds-per-mcycle ${args.secondsPerMCycle}`);
     }
 
     const service = new awsx.ecs.FargateService(

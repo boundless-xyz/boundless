@@ -11,7 +11,7 @@ config:
   slasher:LOG_LEVEL: "debug,boundless_slasher=trace,alloy_transport_http=info,hyper_util=info"
   slasher:RETRIES: "5"
   slasher:SKIP_ADDRESSES: ""
-  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   slasher:GH_TOKEN_SECRET:
     secure: v1:ax6tdJIF/DIXguKN:AOrpjbk/vEfTIF7ShLmdQbfAoy2ZTHxHJYGv48NFMlfd2HtCqmKpsZACv1Tw3wnZxt+qhjFaCah6G981Cxi8QRGsEkyunQp6QEi/RvsXQT4FGiVY/kzM4HyCDDD402x/COrClodmIL1cWVGXbQ==
   slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
