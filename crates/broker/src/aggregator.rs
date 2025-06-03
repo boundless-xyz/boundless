@@ -137,7 +137,8 @@ impl AggregatorService {
             .await
             .context("Failed to prove set-builder")?;
         tracing::debug!(
-            "completed proving of set-builder cycles: {} time: {}",
+            "Set-builder proof complete, proof id: {} cycles: {} time: {}",
+            proof_res.id,
             proof_res.stats.total_cycles,
             proof_res.elapsed_time
         );
@@ -215,7 +216,8 @@ impl AggregatorService {
             .context("Failed to prove assesor stark")?;
 
         tracing::debug!(
-            "Assessor proof completed, count: {} cycles: {} time: {}",
+            "Assessor proof completed, proof id: {} count: {} cycles: {} time: {}",
+            proof_res.id,
             order_count,
             proof_res.stats.total_cycles,
             proof_res.elapsed_time
@@ -443,7 +445,7 @@ impl AggregatorService {
             .chain(assessor_proof_id.iter().cloned())
             .collect();
 
-        tracing::debug!("Running set builder for {batch_id} with proofs {:x?}", proof_ids);
+        tracing::debug!("Running set builder for batch {batch_id} with proofs {:x?}", proof_ids);
         let aggregation_state = self
             .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize)
             .await
