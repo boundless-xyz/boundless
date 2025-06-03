@@ -47,6 +47,7 @@ pub(crate) mod order_monitor;
 pub(crate) mod order_picker;
 pub(crate) mod provers;
 pub(crate) mod proving;
+pub(crate) mod reaper;
 pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
@@ -692,6 +693,17 @@ where
                 .spawn()
                 .await
                 .context("Failed to start aggregator service")?;
+            Ok(())
+        });
+
+        // Start the ReaperTask to check for expired committed orders
+        let reaper = Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone()));
+        let cloned_config = config.clone();
+        supervisor_tasks.spawn(async move {
+            Supervisor::new(reaper, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start reaper service")?;
             Ok(())
         });
 
