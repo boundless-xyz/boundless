@@ -24,6 +24,7 @@
   "priceAndFulfill: a single request that was not locked": "108469",
   "priceAndFulfill: a single request that was not locked fulfilled by prover not in allow-list": "108469",
   "priceAndFulfill: fulfill already fulfilled was locked request": "102184",
+  "slash: base case": "99082",
   "slash: fulfilled request after lock deadline": "80647",
   "submitRequest: with maxPrice ether": "51904",
   "submitRequest: without ether": "45061",

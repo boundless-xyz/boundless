@@ -1555,16 +1555,28 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Fulfillment[] memory fills = new Fulfillment[](1);
         fills[0] = fill;
 
-        // Try both fulfillment paths.
+        // Try the priceAndFulfill path.
         bytes[] memory paymentErrors =
             boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         assert(
             keccak256(paymentErrors[0])
                 == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id))
         );
+        expectRequestNotFulfilled(fill.id);
 
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, request.id));
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        // Client is out 1 eth until slash is called.
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(0 ether);
+        testProver.expectStakeBalanceChange(-1 ether);
+        expectMarketBalanceUnchanged();
+
+        // Try the fulfill path as well. Should be the same results.
+        paymentErrors = boundlessMarket.fulfill(fills, assessorReceipt);
+        assert(
+            keccak256(paymentErrors[0])
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id))
+        );
+        expectRequestNotFulfilled(fill.id);
 
         // Client is out 1 eth until slash is called.
         client.expectBalanceChange(-1 ether);
@@ -2827,7 +2839,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestA.id));
             boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         } else {
-            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector));
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestA.id));
             boundlessMarket.fulfill(fills, assessorReceipt);
         }
 
