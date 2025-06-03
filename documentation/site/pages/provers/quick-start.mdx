@@ -108,11 +108,10 @@ This is your wallet which will represent your prover on the market; make sure it
 ### Deposit Stake
 
 :::note[Note]
-* To apply for access to HP tokens and become a prover, please fill out this [form](https://docs.google.com/forms/d/e/1FAIpQLScr5B3TZfzLKIb0Hk6oqiMMXdRh4cwpTlczi_zGqdwabvbrfw/viewform) with your details.
-* To read more about depositing funds to the market, and to learn about the hitpoints token, please see [Hitpoints (HP) Tokens](/provers/broker#hitpoints-hp-tokens).
+* To read more about depositing funds to the market, please see [Deposit / Balance](/provers/broker#deposit--balance).
 :::
 
-With the environment variables set, you can now deposit HP tokens as stake to your account balance:
+With the environment variables set, you can now deposit USDC tokens as stake to your account balance:
 
 ```sh [Terminal]
 boundless-cli account deposit-stake 100
@@ -199,17 +198,6 @@ deploy:
         - driver: nvidia
           device_ids: ['0']
           capabilities: [gpu]
-
-# gpu_prove_agent1:
-#   <<: *agent-common
-#   runtime: nvidia
-#   deploy:
-#     resources:
-#       reservations:
-#         devices:
-#           - driver: nvidia
-#             device_ids: ['1']
-#             capabilities: [gpu]
 ```
 
 To add a second GPU, first check your GPUs are recognised with:
@@ -243,7 +231,17 @@ For 3 or more GPUs, add the corresponding `gpu_prove_agentX` where `X` matches t
 
 ### Segment Size
 
-Under the `exec_agent` service in `compose.yml` you can configure the segment size; it defaults to 21:
+:::note[Segment Sizes + Security]
+Larger `SEGMENT_SIZE` values also impact the proving systems conjectured security bits slightly (see [RISC Zero - Cryptographic Security Model](https://dev.risczero.com/api/security-model#how-secure-are-the-stark-provers)).
+:::
+
+`SEGMENT_SIZE` is specified in powers-of-two (po2). Larger segment sizes are preferable for performance, but require more GPU VRAM. To pick the right `SEGMENT_SIZE` for your GPU VRAM, see [the performance optimization page](/provers/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
+
+#### Setting SEGMENT_SIZE
+
+The recommended way to change the segment size is to set the environment variable `SEGMENT_SIZE`, before running broker, to your specified value. This can be done through the [.env.broker](/provers/quick-start#custom-environment) file.
+
+You can also configure the `SEGMENT_SIZE` in `compose.yml` under the `exec_agent` service; it defaults to 21:
 
 ```yml [compose.yml]
 exec_agent:
@@ -258,13 +256,6 @@ exec_agent:
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
     entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} # [!code hl]
 ```
-
-`SEGMENT_SIZE` is specified in powers-of-two (po2). Larger segment sizes are preferable for performance, but require more GPU VRAM. To pick the right `SEGMENT_SIZE` for your GPU VRAM, see [the performance optimization page](/provers/performance-optimization#finding-the-maximum-segment_size-for-gpu-vram).
-
-:::note[Segment Sizes + Security]
-Larger `SEGMENT_SIZE` values also impact the proving systems conjectured security bits slightly (see [RISC Zero - Cryptographic Security Model](https://dev.risczero.com/api/security-model#how-secure-are-the-stark-provers)).
-:::
-
 
 ## What next?
 
