@@ -130,7 +130,7 @@ impl ProvingService {
                     .await
                     .context("Failed to prove customer proof STARK order")?;
 
-                tracing::debug!("Order {order_id} proof id: {proof_id}");
+                tracing::debug!("Order {order_id} being proved, proof id: {proof_id}");
 
                 self.db.set_order_proof_id(&order_id, &proof_id).await.with_context(|| {
                     format!("Failed to set order {order_id} proof id: {}", proof_id)
@@ -200,10 +200,7 @@ impl ProvingService {
                     proof_retry_count
                 );
 
-                if let Err(inner_err) = self.db.set_order_failure(&order_id, "Proving failed").await
-                {
-                    tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
-                }
+                handle_order_failure(&self.db, &order_id, "Proving failed").await;
             }
         }
     }
@@ -213,19 +210,19 @@ impl ProvingService {
             self.db.get_active_proofs().await.context("Failed to get active proofs")?;
 
         tracing::info!("Found {} proofs currently proving", current_proofs.len());
+        let now = crate::now_timestamp();
         for order in current_proofs {
             let order_id = order.id();
+            if order.expire_timestamp.unwrap() < now {
+                tracing::warn!("Order {} had expired on proving task start", order_id);
+                handle_order_failure(&self.db, &order_id, "Order expired on startup").await;
+            }
             let prove_serv = self.clone();
 
             if order.proof_id.is_none() {
                 tracing::error!("Order in status Proving missing proof_id: {order_id}");
-                if let Err(inner_err) = prove_serv
-                    .db
-                    .set_order_failure(&order_id, "Proving status missing proof_id")
-                    .await
-                {
-                    tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
-                }
+                handle_order_failure(&prove_serv.db, &order_id, "Proving status missing proof_id")
+                    .await;
                 continue;
             }
 
@@ -275,6 +272,12 @@ impl RetryTask for ProvingService {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
         })
+    }
+}
+
+async fn handle_order_failure(db: &DbObj, order_id: &str, failure_reason: &'static str) {
+    if let Err(inner_err) = db.set_order_failure(order_id, failure_reason).await {
+        tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
     }
 }
 

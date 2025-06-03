@@ -152,6 +152,81 @@ cargo build --bin broker --release
 just broker down
 ```
 
+:::warning[Warning]
+If running the broker on a network, there may be locked proofs that have not been fulfilled yet. Follow the [Safe Upgrade Steps](#safe-upgrade-steps) to ensure shutdown and/or restart without loss of stake.
+:::
+
+## Safe Upgrade Steps
+
+:::warning[Breaking Changes]
+There can be subtle breaking changes between releases that may affect your broker's state. Following these upgrade steps helps minimize issues from state breaking changes.
+:::
+
+When upgrading your Boundless broker to a new version, follow these steps to ensure a safe migration:
+
+::::steps
+
+##### Set the broker to stop accepting new orders
+
+Edit your `broker.toml` configuration file and set the maximum concurrent locks to 0:
+
+```toml [broker.toml]
+max_concurrent_proofs = 0
+```
+
+This prevents the broker from locking new orders while you prepare for the upgrade.
+
+:::note[Bind Mount Issue]
+If the bind mount drops and the file update is not reflected in the broker, you can try to modify the file in docker compose, for example:
+
+```sh [Terminal]
+docker compose exec broker sh -c 'sed "s/^[[:space:]]*#*[[:space:]]*max_concurrent_proofs[[:space:]]*=[[:space:]]*[0-9]*/max_concurrent_proofs = 0/" /app/broker.toml > /tmp/broker_temp.toml && cp /tmp/broker_temp.toml /app/broker.toml'
+```
+:::
+
+##### Wait for in-progress orders to complete
+
+Monitor your broker logs (or the [Boundless Explorer](https://explorer.beboundless.xyz)) to ensure all currently locked orders are completed. This may take some time depending on the state of the committed orders.
+
+##### Stop the broker and optionally clean the database
+
+```sh [Terminal]
+just broker clean
+
+# Or stop the broker without clearing volumes
+just broker down
+```
+
+:::note[Database Cleanup]
+While it is generally not necessary to clear volumes unless specifically noted in release, it is recommended to avoid any potential state breaking changes.
+:::
+
+##### Update to the new version
+
+See [releases](https://github.com/boundless-xyz/boundless/releases) for latest tag to use.
+
+```sh [Terminal]
+git checkout <new_version_tag>
+# Example: git checkout v0.9.0
+```
+
+##### Start the broker with the new version
+
+```sh [Terminal]
+just broker
+```
+
+##### Reset the max_concurrent_proofs configuration
+
+Once the broker is running successfully with the new version, edit your `broker.toml` to restore normal operation:
+
+```toml [broker.toml]
+max_concurrent_proofs = <your_previous_value>
+# Example: max_concurrent_proofs = 4
+```
+
+::::
+
 ## Broker Optimization
 
 ### Increasing Lock-in Rate
@@ -190,5 +265,7 @@ SELECT id FROM batches WHERE data->>'orders' LIKE '%"TARGET_ORDER_ID"%';
 UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = YOUR_BATCH_ID_FROM_STEP_2;
 -- Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
 ```
+
+::::
 
 
