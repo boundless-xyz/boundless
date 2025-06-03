@@ -1,15 +1,22 @@
 ---
-title: Migrating from Bonsai?
+title: Migrating from Bonsai
 description: A practical guide for developers transitioning from Bonsai to Boundless
 ---
 
-# Migrating from Bonsai?
+# Migrating from Bonsai
 
 ## What happened to Bonsai?
 
-Bonsai is no longer available for individual developers. Boundless is intended to be a replacement for all your proving needs. If you want to read about the differences between Bonsai and Boundless, please continue on this page. Otherwise, if you have a guest program ready and you are eager to get started, you can follow the [Request a Proof](/developers/tutorials/request) tutorial to create your first proof request.
+Bonsai is no longer available for individual developers. Boundless is intended to be a replacement for all your proving needs. If you want to read about the differences between Bonsai and Boundless, please continue on this page. Otherwise, if you have a guest program ready and you are eager to get started, you can follow the [Request a Proof](/developers/tutorials/request) tutorial to create your first proof request on Boundless.
 
 Adopting Boundless means embracing decentralization; while the initial setup is more complex than Bonsai's  configuration, you gain access to verifiable compute through a highly available, permissionless and self-sustaining proving protocol that aligns with Web3's core principles.
+
+## Key Benefits
+
+- Native proof aggregation amortizes the onchain gas costs for proof verification across the entire Boundless network; you won't have to worry about paying high gas costs for proof verification in your app.
+- Strong cryptoeconomic guarantees (through prover slashing and automatic retry logic) on the delivery time of proofs, which is highly configurable via the request [Offer](/developers/tutorials/pricing) parameters.
+- The [Smart Contract Requestor](/developers/tutorials/smart-contract-requestor) and [Callback](/developers/tutorials/callbacks) features eliminate the need to build (often extensive) offchain infrastructure for both proof requess and proof delivery.
+- Build up your app's community by integrating with the industry's only fully open source multi-GPU proving stack.
 
 ## Key Differences
 
@@ -20,11 +27,11 @@ While Bonsai offers simplicity through centralization, Boundless provides:
 - *Long-term sustainability*: Community-driven protocol evolution
 - *Transparent pricing*: Market-driven proof costs
 
-
 | Aspect | Bonsai | Boundless |
 |--------|--------|-----------|
 | *Setup* | 2 environment variables (BONSAI_API_URL + BONSAI_API_KEY) | Wallet + Storage Provider  |
 | *Proof Format* | STARK/SNARK (Groth16) | Proof aggregated via SetVerifier |
+| *Proof Delivery* | Directly to host program (Offchain) | Onchain |
 | *Proof Verification* | Via [receipt.verify](https://docs.rs/risc0-zkvm/latest/risc0_zkvm/struct.Receipt.html#method.verify) or [Verifier Contracts](/developers/smart-contracts/verifier-contracts) | [Verifier Contracts](/developers/smart-contracts/verifier-contracts)|
 | *Architecture* | Centralized service | Decentralized protocol |
 | *Integration* | Drop-in replacement to guest program | New integration required |

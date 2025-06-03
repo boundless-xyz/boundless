@@ -69,16 +69,16 @@ const DEVELOPERS_ITEMS = [
             link: "/developers/tutorials/callbacks",
           },
           {
-            text: "Migrating from Bonsai?",
-            link: "/developers/tutorials/bonsai",
-          },
-          {
             text: "Proof Composition",
             link: "/developers/tutorials/proof-composition",
           },
           {
             text: "Proof Types",
             link: "/developers/tutorials/proof-types",
+          },
+          {
+            text: "Migrating from Bonsai",
+            link: "/developers/tutorials/bonsai",
           },
           {
             text: "Sensitive Inputs",
@@ -111,12 +111,12 @@ const DEVELOPERS_ITEMS = [
             link: "/developers/smart-contracts/reference",
           },
           {
-            text: "Verifier Contracts",
-            link: "/developers/smart-contracts/verifier-contracts",
-          },
-          {
             text: "Chains & Deployments",
             link: "/developers/smart-contracts/deployments",
+          },
+          {
+            text: "Verifier Contracts",
+            link: "/developers/smart-contracts/verifier-contracts",
           },
         ],
       },
