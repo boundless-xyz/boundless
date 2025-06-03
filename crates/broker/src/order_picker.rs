@@ -1493,15 +1493,17 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn skip_mcycle_limit_for_allowed_address() {
+        let exec_limit = 1000;
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
-            config.load_write().unwrap().market.max_mcycle_limit = Some(1000);
+            config.load_write().unwrap().market.max_mcycle_limit = Some(exec_limit);
         }
         let ctx = TestCtxBuilder::default().with_config(config).build().await;
         
         ctx.picker.config.load_write().as_mut().unwrap().market.allow_skip_mcycle_limit_addresses = Some(vec![ctx.provider.default_signer_address()]);
         
+        // First order from allowed address - should skip mcycle limit
         let order = ctx.generate_next_order(Default::default()).await;
         let request_id = order.request.id;
 
@@ -1512,6 +1514,24 @@ mod tests {
         assert!(logs_contain(&format!(
             "Order with request id {request_id:x} exec limit skipped due to client {} being part of allow_skip_mcycle_limit_addresses.",
             ctx.provider.default_signer_address()
+        )));
+
+        // Second order from a different address - should have mcycle limit enforced
+        let mut order2 = ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
+        // Set a different client address
+        order2.request.id = RequestId::new(Address::ZERO, 2).into();
+        let request2_id = order2.request.id;
+
+        let locked = ctx.picker.price_order_and_update_state(order2).await;
+        assert!(locked);
+
+        // Check logs for the expected message about setting exec limit to max_mcycle_limit
+        assert!(logs_contain(&format!(
+            "Order with request id {request2_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit"
+        )));
+        assert!(logs_contain(&format!(
+            "Starting preflight execution of 2 exec limit {} cycles (~{} mcycles)",
+            exec_limit * 1_000_000, exec_limit
         )));
     }
 }
