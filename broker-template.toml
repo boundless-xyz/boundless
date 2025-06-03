@@ -10,6 +10,10 @@ mcycle_price = "0.0000005"
 # Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
 # order when paid in staking tokens, as is the case for orders with an expired lock.
 mcycle_price_stake_token = "0.0001"
+# Optional allow list for addresses that can bypass the mcycle limit
+#
+# If enabled, all requests from clients in the allow list will skip the configured mcycle limit.
+allow_skip_mcycle_limit_addresses = ["0x48268bE6235A23eb7b67356469362869D5d0293f"]
 # Estimated peak performance of the proving cluster, in kHz.
 #
 # Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
