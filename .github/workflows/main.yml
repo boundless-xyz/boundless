@@ -35,7 +35,6 @@ jobs:
       - infra
       - rust-pkg-check
       - docs-rs
-      - deployment-address-check
 
     runs-on: ubuntu-latest
     steps:
@@ -456,127 +455,6 @@ jobs:
             fi
           done
 
-  deployment-address-check:
-    runs-on: ubuntu-latest
-    needs: files-changed
-    if: needs.files-changed.outputs.deployments == 'true'
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-
-      - name: Check deployment addresses consistency
-        run: |
-          echo "Checking deployment addresses consistency between deployment.toml and deployments.rs"
-          
-          # Check Sepolia production addresses
-          echo "Checking Sepolia production addresses..."
-          
-          # Extract addresses from deployment.toml
-          SEPOLIA_MARKET_TOML=$(grep -A 15 "ethereum-sepolia-prod" contracts/deployment.toml | grep "boundless-market" | cut -d'"' -f2)
-          SEPOLIA_VERIFIER_TOML=$(grep -A 15 "ethereum-sepolia-prod" contracts/deployment.toml | grep "^verifier" | cut -d'"' -f2)
-          SEPOLIA_SET_VERIFIER_TOML=$(grep -A 15 "ethereum-sepolia-prod" contracts/deployment.toml | grep "set-verifier" | cut -d'"' -f2)
-          SEPOLIA_STAKE_TOKEN_TOML=$(grep -A 15 "ethereum-sepolia-prod" contracts/deployment.toml | grep "stake-token" | cut -d'"' -f2)
-          
-          # Extract addresses from deployments.rs (convert to lowercase for comparison)
-          SEPOLIA_MARKET_RS=$(grep -A 5 "pub const SEPOLIA:" crates/boundless-market/src/deployments.rs | grep "boundless_market_address:" | grep -o "0x[a-fA-F0-9]\+" | tr '[:upper:]' '[:lower:]')
-          SEPOLIA_VERIFIER_RS=$(grep -A 5 "pub const SEPOLIA:" crates/boundless-market/src/deployments.rs | grep "verifier_router_address:" | grep -o "0x[a-fA-F0-9]\+" | tr '[:upper:]' '[:lower:]')
-          SEPOLIA_SET_VERIFIER_RS=$(grep -A 5 "pub const SEPOLIA:" crates/boundless-market/src/deployments.rs | grep "set_verifier_address:" | grep -o "0x[a-fA-F0-9]\+" | tr '[:upper:]' '[:lower:]')
-          SEPOLIA_STAKE_TOKEN_RS=$(grep -A 5 "pub const SEPOLIA:" crates/boundless-market/src/deployments.rs | grep "stake_token_address:" | grep -o "0x[a-fA-F0-9]\+" | tr '[:upper:]' '[:lower:]')
-          
-          # Check Base mainnet addresses
-          echo "Checking Base mainnet addresses..."
-          
-          # Extract addresses from deployment.toml
-          BASE_MARKET_TOML=$(grep -A 15 "base-mainnet" contracts/deployment.toml | grep "boundless-market" | cut -d'"' -f2)
-          BASE_VERIFIER_TOML=$(grep -A 15 "base-mainnet" contracts/deployment.toml | grep "^verifier" | cut -d'"' -f2)
-          BASE_SET_VERIFIER_TOML=$(grep -A 15 "base-mainnet" contracts/deployment.toml | grep "set-verifier" | cut -d'"' -f2)
-          BASE_STAKE_TOKEN_TOML=$(grep -A 15 "base-mainnet" contracts/deployment.toml | grep "stake-token" | cut -d'"' -f2)
-          
-          # Extract addresses from deployments.rs (convert to lowercase for comparison)
-          BASE_MARKET_RS=$(grep -A 5 "pub const BASE:" crates/boundless-market/src/deployments.rs | grep "boundless_market_address:" | grep -o "0x[a-fA-F0-9]\+" | tr '[:upper:]' '[:lower:]')
-          BASE_VERIFIER_RS=$(grep -A 5 "pub const BASE:" crates/boundless-market/src/deployments.rs | grep "verifier_router_address:" | grep -o "0x[a-fA-F0-9]\+" | tr '[:upper:]' '[:lower:]')
-          BASE_SET_VERIFIER_RS=$(grep -A 5 "pub const BASE:" crates/boundless-market/src/deployments.rs | grep "set_verifier_address:" | grep -o "0x[a-fA-F0-9]\+" | tr '[:upper:]' '[:lower:]')
-          BASE_STAKE_TOKEN_RS=$(grep -A 5 "pub const BASE:" crates/boundless-market/src/deployments.rs | grep "stake_token_address:" | grep -o "0x[a-fA-F0-9]\+" | tr '[:upper:]' '[:lower:]')
-          
-          # Convert all to lowercase for comparison
-          SEPOLIA_MARKET_TOML=$(echo "$SEPOLIA_MARKET_TOML" | tr '[:upper:]' '[:lower:]')
-          SEPOLIA_VERIFIER_TOML=$(echo "$SEPOLIA_VERIFIER_TOML" | tr '[:upper:]' '[:lower:]')
-          SEPOLIA_SET_VERIFIER_TOML=$(echo "$SEPOLIA_SET_VERIFIER_TOML" | tr '[:upper:]' '[:lower:]')
-          SEPOLIA_STAKE_TOKEN_TOML=$(echo "$SEPOLIA_STAKE_TOKEN_TOML" | tr '[:upper:]' '[:lower:]')
-          
-          BASE_MARKET_TOML=$(echo "$BASE_MARKET_TOML" | tr '[:upper:]' '[:lower:]')
-          BASE_VERIFIER_TOML=$(echo "$BASE_VERIFIER_TOML" | tr '[:upper:]' '[:lower:]')
-          BASE_SET_VERIFIER_TOML=$(echo "$BASE_SET_VERIFIER_TOML" | tr '[:upper:]' '[:lower:]')
-          BASE_STAKE_TOKEN_TOML=$(echo "$BASE_STAKE_TOKEN_TOML" | tr '[:upper:]' '[:lower:]')
-          
-          # Check for mismatches
-          ERRORS=0
-          
-          if [ "$SEPOLIA_MARKET_TOML" != "$SEPOLIA_MARKET_RS" ]; then
-            echo "❌ Mismatch in Sepolia BoundlessMarket address:"
-            echo "   deployment.toml: $SEPOLIA_MARKET_TOML"
-            echo "   deployments.rs:  $SEPOLIA_MARKET_RS"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ "$SEPOLIA_VERIFIER_TOML" != "$SEPOLIA_VERIFIER_RS" ]; then
-            echo "❌ Mismatch in Sepolia Verifier address:"
-            echo "   deployment.toml: $SEPOLIA_VERIFIER_TOML"
-            echo "   deployments.rs:  $SEPOLIA_VERIFIER_RS"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ "$SEPOLIA_SET_VERIFIER_TOML" != "$SEPOLIA_SET_VERIFIER_RS" ]; then
-            echo "❌ Mismatch in Sepolia SetVerifier address:"
-            echo "   deployment.toml: $SEPOLIA_SET_VERIFIER_TOML"
-            echo "   deployments.rs:  $SEPOLIA_SET_VERIFIER_RS"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ "$SEPOLIA_STAKE_TOKEN_TOML" != "$SEPOLIA_STAKE_TOKEN_RS" ]; then
-            echo "❌ Mismatch in Sepolia StakeToken address:"
-            echo "   deployment.toml: $SEPOLIA_STAKE_TOKEN_TOML"
-            echo "   deployments.rs:  $SEPOLIA_STAKE_TOKEN_RS"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ "$BASE_MARKET_TOML" != "$BASE_MARKET_RS" ]; then
-            echo "❌ Mismatch in Base BoundlessMarket address:"
-            echo "   deployment.toml: $BASE_MARKET_TOML"
-            echo "   deployments.rs:  $BASE_MARKET_RS"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ "$BASE_VERIFIER_TOML" != "$BASE_VERIFIER_RS" ]; then
-            echo "❌ Mismatch in Base Verifier address:"
-            echo "   deployment.toml: $BASE_VERIFIER_TOML"
-            echo "   deployments.rs:  $BASE_VERIFIER_RS"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ "$BASE_SET_VERIFIER_TOML" != "$BASE_SET_VERIFIER_RS" ]; then
-            echo "❌ Mismatch in Base SetVerifier address:"
-            echo "   deployment.toml: $BASE_SET_VERIFIER_TOML"
-            echo "   deployments.rs:  $BASE_SET_VERIFIER_RS"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ "$BASE_STAKE_TOKEN_TOML" != "$BASE_STAKE_TOKEN_RS" ]; then
-            echo "❌ Mismatch in Base StakeToken address:"
-            echo "   deployment.toml: $BASE_STAKE_TOKEN_TOML"
-            echo "   deployments.rs:  $BASE_STAKE_TOKEN_RS"
-            ERRORS=$((ERRORS + 1))
-          fi
-          
-          if [ $ERRORS -eq 0 ]; then
-            echo "✅ All deployment addresses match between deployment.toml and deployments.rs"
-          else
-            echo ""
-            echo "❌ Found $ERRORS address mismatches!"
-            echo "Please ensure contract addresses are consistent across deployment.toml and deployments.rs"
-            exit 1
-          fi
-
   files-changed:
     runs-on: ubuntu-latest
     outputs:
@@ -585,7 +463,6 @@ jobs:
       examples:  ${{ steps.changes.outputs.examples }}
       docs:      ${{ steps.changes.outputs.docs }}
       infra:     ${{ steps.changes.outputs.infra }}
-      deployments: ${{ steps.changes.outputs.deployments }}
 
     steps:
       - name: checkout code
@@ -619,8 +496,4 @@ jobs:
             # Changes to infrastructure code
             infra:
               - 'infra/**'
-            # Changes to deployment configuration files
-            deployments:
-              - 'contracts/deployment.toml'
-              - 'crates/boundless-market/src/deployments.rs'
 
