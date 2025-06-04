@@ -410,6 +410,8 @@ struct MainArgs {
     config: GlobalConfig,
 }
 
+/// Return true if the subcommand requires a private key.
+// NOTE: It does not appear this is possible with clap natively
 fn private_key_required(cmd: &Command) -> bool {
     match cmd {
         Command::Ops(cmd) => match cmd.deref() {
