@@ -316,7 +316,7 @@ contract BoundlessMarket is
 
         uint256 callbacksLength = assessorReceipt.callbacks.length;
         for (uint256 i = 0; i < callbacksLength; i++) {
-            AssessorCallback memory callback = assessorReceipt.callbacks[i];
+            AssessorCallback calldata callback = assessorReceipt.callbacks[i];
             Fulfillment calldata fill = fills[callback.index];
 
             // Skip the callback if this fulfillment is related to an unlocked request. See the note
