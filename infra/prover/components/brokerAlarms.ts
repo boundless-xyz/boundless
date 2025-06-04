@@ -92,16 +92,16 @@ export const createProverAlarms = (
   // to prevent noise from the alarm being triggered multiple times.
   createErrorCodeAlarm('WARN "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV2, {
     threshold: 1,
-  }, { period: 21600 });
+  }, { period: 3600 });
   createErrorCodeAlarm('WARN "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV2, {
     threshold: 1,
-  }, { period: 21600 });
+  }, { period: 3600 });
   createErrorCodeAlarm('ERROR "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV1, {
     threshold: 1,
-  }, { period: 21600 });
+  }, { period: 3600 });
   createErrorCodeAlarm('ERROR "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV1, {
     threshold: 1,
-  }, { period: 21600 });
+  }, { period: 3600 });
 
   // Alarms at the supervisor level
   //
