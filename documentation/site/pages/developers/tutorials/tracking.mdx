@@ -1,3 +1,5 @@
+import { StripRustCodeComments } from "../../../components/strip-rust-code-comments";
+
 # Tracking Proof Requests
 
 This guide covers both [tracking a proof request programmatically](#programmatically) and using the [Boundless Explorer](#boundless-explorer).
@@ -10,11 +12,17 @@ When you submit a proof request to Boundless, you can track its status programma
 
 Here's how to wait for a request to be fulfilled:
 
+<StripRustCodeComments>
 ```rust
-use boundless_market::{Client, StorageProviderConfig};
-use std::time::Duration;
+# use boundless_market::{Client, StorageProviderConfig};
+# use std::time::Duration;
 
 // Submit your request
+let request = client.new_request()
+    .with_program(program)
+    .with_stdin(input)
+    .with_offer(offer_params);
+
 let (request_id, expires_at) = client.submit_onchain(request).await?;
 
 // Wait for the request to be fulfilled
@@ -28,6 +36,7 @@ let (journal, seal) = client
     .await?;
 tracing::info!("Request {:x} fulfilled", request_id);
 ```
+</StripRustCodeComments>
 
 ### How It Works
 
@@ -53,7 +62,11 @@ Boundless tracks these request states:
 
 When tracking requests, handle these potential outcomes:
 
+<StripRustCodeComments>
 ```rust
+# use boundless_market::client::ClientError;
+# use boundless_market::contracts::boundless_market::MarketError;
+
 match client.wait_for_request_fulfillment(request_id, check_interval, expires_at).await {
     Ok((journal, seal)) => {
         // Process the fulfilled proof
@@ -69,12 +82,16 @@ match client.wait_for_request_fulfillment(request_id, check_interval, expires_at
     }
 }
 ```
+</StripRustCodeComments>
 
 ### Advanced Tracking
 
 For more control, you can manually check request status:
 
+<StripRustCodeComments>
 ```rust
+# use boundless_market::contracts::RequestStatus;
+
 // Check status once
 let status = client.boundless_market.get_status(request_id, Some(expires_at)).await?;
 match status {
@@ -95,6 +112,7 @@ match status {
     }
 }
 ```
+</StripRustCodeComments>
 
 ## Boundless Explorer
 
