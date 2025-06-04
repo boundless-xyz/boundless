@@ -84,6 +84,7 @@ impl Deployment {
         match chain {
             NamedChain::Sepolia => Some(SEPOLIA),
             NamedChain::Base => Some(BASE),
+            NamedChain::BaseSepolia => Some(BASE_SEPOLIA),
             _ => None,
         }
     }
@@ -114,4 +115,14 @@ pub const BASE: Deployment = Deployment {
     set_verifier_address: address!("0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"),
     stake_token_address: Some(address!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")),
     order_stream_url: Some(Cow::Borrowed("https://base-mainnet.beboundless.xyz")),
+};
+
+/// [Deployment] for the Base Sepolia.
+pub const BASE_SEPOLIA: Deployment = Deployment {
+    chain_id: Some(NamedChain::Base as u64),
+    boundless_market_address: address!("0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"),
+    verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
+    set_verifier_address: address!("0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"),
+    stake_token_address: Some(address!("0x036CbD53842c5426634e7929541eC2318f3dCF7e")),
+    order_stream_url: Some(Cow::Borrowed("https://base-sepolia.beboundless.xyz")),
 };

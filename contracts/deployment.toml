@@ -88,8 +88,31 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.base-sepolia]
-name = "Base Sepolia"
+[chains.base-sepolia-prod]
+name = "Base Sepolia [prod]"
+id = 84532
+etherscan-url = "https://sepolia.basescan.org/"
+version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
+
+# Accounts
+admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+
+# Contracts
+verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
+# deployed at block 26646012
+boundless-market = "0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"
+stake-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+
+# Guests info
+deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
+assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+
+###
+
+[chains.base-sepolia-staging]
+name = "Base Sepolia [staging]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
 version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
