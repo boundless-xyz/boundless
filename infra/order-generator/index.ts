@@ -35,10 +35,8 @@ export = () => {
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const interval = baseConfig.require('INTERVAL');
   const lockStakeRaw = baseConfig.require('LOCK_STAKE_RAW');
-  const rampUp = baseConfig.require('RAMP_UP');
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
-  const secondsPerMCycle = baseConfig.require('SECONDS_PER_MCYCLE');
   const txTimeout = baseConfig.require('TX_TIMEOUT');
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
@@ -115,6 +113,10 @@ export = () => {
   const offchainErrorBalanceBelow = offchainConfig.get('ERROR_BALANCE_BELOW');
   const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
   const offchainInputMaxMCycles = offchainConfig.get('INPUT_MAX_MCYCLES');
+  const offchainRampUp = offchainConfig.get('RAMP_UP');
+  const offchainLockTimeout = offchainConfig.get('LOCK_TIMEOUT');
+  const offchainTimeout = offchainConfig.get('TIMEOUT');
+  const offchainSecondsPerMCycle = offchainConfig.get('SECONDS_PER_MCYCLE');
   new OrderGenerator('offchain', {
     chainId,
     stackName,
@@ -134,15 +136,17 @@ export = () => {
     pinataGateway,
     interval,
     lockStakeRaw,
-    rampUp,
     minPricePerMCycle,
     maxPricePerMCycle,
-    secondsPerMCycle,
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArns: alertsTopicArns,
     txTimeout,
     inputMaxMCycles: offchainInputMaxMCycles,
+    rampUp: offchainRampUp,
+    lockTimeout: offchainLockTimeout,
+    timeout: offchainTimeout,
+    secondsPerMCycle: offchainSecondsPerMCycle,
   });
 
   const onchainConfig = new pulumi.Config("order-generator-onchain");
@@ -150,6 +154,10 @@ export = () => {
   const onchainErrorBalanceBelow = onchainConfig.get('ERROR_BALANCE_BELOW');
   const onchainPrivateKey = isDev ? pulumi.output(getEnvVar("ONCHAIN_PRIVATE_KEY")) : onchainConfig.requireSecret('PRIVATE_KEY');
   const onchainInputMaxMCycles = onchainConfig.get('INPUT_MAX_MCYCLES');
+  const onchainRampUp = onchainConfig.get('RAMP_UP');
+  const onchainLockTimeout = onchainConfig.get('LOCK_TIMEOUT');
+  const onchainTimeout = onchainConfig.get('TIMEOUT');
+  const onchainSecondsPerMCycle = onchainConfig.get('SECONDS_PER_MCYCLE');
   new OrderGenerator('onchain', {
     chainId,
     stackName,
@@ -165,14 +173,16 @@ export = () => {
     pinataGateway,
     interval,
     lockStakeRaw,
-    rampUp,
+    rampUp: onchainRampUp,
     inputMaxMCycles: onchainInputMaxMCycles,
     minPricePerMCycle,
     maxPricePerMCycle,
-    secondsPerMCycle,
+    secondsPerMCycle: onchainSecondsPerMCycle,
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArns: alertsTopicArns,
     txTimeout,
+    lockTimeout: onchainLockTimeout,
+    timeout: onchainTimeout,
   });
 };

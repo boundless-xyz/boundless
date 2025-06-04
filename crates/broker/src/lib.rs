@@ -47,6 +47,7 @@ pub(crate) mod order_monitor;
 pub(crate) mod order_picker;
 pub(crate) mod provers;
 pub(crate) mod proving;
+pub(crate) mod reaper;
 pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
@@ -639,6 +640,14 @@ where
         });
 
         let prover_addr = self.args.private_key.address();
+        let stake_token_decimals = BoundlessMarketService::new(
+            self.args.boundless_market_address,
+            self.provider.clone(),
+            Address::ZERO,
+        )
+        .stake_token_decimals()
+        .await
+        .context("Failed to get stake token decimals. Possible RPC error.")?;
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
             self.provider.clone(),
@@ -648,6 +657,7 @@ where
             prover_addr,
             self.args.boundless_market_address,
             pricing_rx,
+            stake_token_decimals,
         )?);
         let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
@@ -683,6 +693,17 @@ where
                 .spawn()
                 .await
                 .context("Failed to start aggregator service")?;
+            Ok(())
+        });
+
+        // Start the ReaperTask to check for expired committed orders
+        let reaper = Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone()));
+        let cloned_config = config.clone();
+        supervisor_tasks.spawn(async move {
+            Supervisor::new(reaper, cloned_config)
+                .spawn()
+                .await
+                .context("Failed to start reaper service")?;
             Ok(())
         });
 

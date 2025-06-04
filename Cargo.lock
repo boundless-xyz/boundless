@@ -2512,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.1.0",
@@ -2530,7 +2530,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-bench"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2558,7 +2558,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-cli"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2593,7 +2593,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-indexer"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2618,7 +2618,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2663,7 +2663,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market-test-utils"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.1.0",
@@ -2681,7 +2681,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2701,7 +2701,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2725,7 +2725,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2779,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -3711,7 +3711,7 @@ dependencies = [
 
 [[package]]
 name = "doc-test"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.1.0",
@@ -4578,7 +4578,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -4596,7 +4596,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5226,7 +5226,7 @@ checksum = "4ee796ad498c8d9a1d68e477df8f754ed784ef875de1414ebdaf169f70a6a784"
 
 [[package]]
 name = "indexer-monitor"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -6556,7 +6556,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "alloy",
  "anyhow",

@@ -396,8 +396,25 @@ where
             return Ok(Skip);
         }
 
+        let allow_skip_mcycle_limit_addresses = {
+            let config = self.config.lock_all().context("Failed to read config")?;
+            config.market.allow_skip_mcycle_limit_addresses.clone()
+        };
+
+        let mut skip_mcycle_limit = false;
+        let client_addr = order.request.client_address();
+        if let Some(allow_addresses) = allow_skip_mcycle_limit_addresses {
+            if allow_addresses.contains(&client_addr) {
+                skip_mcycle_limit = true;
+            }
+        }
+
+        // If the order is from an allowed address, skip the mcycle limit
         // If a max_mcycle_limit is configured, override the exec limit if the order is over that limit
-        if let Some(config_mcycle_limit) = max_mcycle_limit {
+        if skip_mcycle_limit {
+            exec_limit_cycles = u64::MAX;
+            tracing::info!("Order with request id {request_id:x} exec limit skipped due to client {} being part of allow_skip_mcycle_limit_addresses.", client_addr);
+        } else if let Some(config_mcycle_limit) = max_mcycle_limit {
             let config_cycle_limit = config_mcycle_limit * 1_000_000;
             if exec_limit_cycles >= config_cycle_limit {
                 tracing::info!("Order with request id {request_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit");
@@ -426,7 +443,7 @@ where
                 ProverError::ProvingFailed(ref err_msg)
                     if err_msg.contains("Session limit exceeded") =>
                 {
-                    tracing::info!(
+                    tracing::debug!(
                         "Skipping order {request_id:x} due to session limit exceeded: {}",
                         err_msg
                     );
@@ -514,7 +531,7 @@ where
             / U256::from(proof_res.stats.total_cycles))
             * one_mill;
 
-        tracing::info!(
+        tracing::debug!(
             "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {} gas_cost: {}",
             format_ether(U256::from(order.request.offer.minPrice)),
             format_ether(U256::from(order.request.offer.maxPrice)),
@@ -527,7 +544,7 @@ where
 
         // Skip the order if it will never be worth it
         if mcycle_price_max < config_min_mcycle_price {
-            tracing::info!("Removing under priced order with request id {request_id:x}");
+            tracing::debug!("Removing under priced order with request id {request_id:x}");
             return Ok(Skip);
         }
 
@@ -1471,5 +1488,53 @@ mod tests {
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_mcycle_limit_for_allowed_address() {
+        let exec_limit = 1000;
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.max_mcycle_limit = Some(exec_limit);
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        ctx.picker.config.load_write().as_mut().unwrap().market.allow_skip_mcycle_limit_addresses =
+            Some(vec![ctx.provider.default_signer_address()]);
+
+        // First order from allowed address - should skip mcycle limit
+        let order = ctx.generate_next_order(Default::default()).await;
+        let request_id = order.request.id;
+
+        let locked = ctx.picker.price_order_and_update_state(order).await;
+        assert!(locked);
+
+        // Check logs for the expected message about skipping mcycle limit
+        assert!(logs_contain(&format!(
+            "Order with request id {request_id:x} exec limit skipped due to client {} being part of allow_skip_mcycle_limit_addresses.",
+            ctx.provider.default_signer_address()
+        )));
+
+        // Second order from a different address - should have mcycle limit enforced
+        let mut order2 =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
+        // Set a different client address
+        order2.request.id = RequestId::new(Address::ZERO, 2).into();
+        let request2_id = order2.request.id;
+
+        let locked = ctx.picker.price_order_and_update_state(order2).await;
+        assert!(locked);
+
+        // Check logs for the expected message about setting exec limit to max_mcycle_limit
+        assert!(logs_contain(&format!(
+            "Order with request id {request2_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit"
+        )));
+        assert!(logs_contain(&format!(
+            "Starting preflight execution of 2 exec limit {} cycles (~{} mcycles)",
+            exec_limit * 1_000_000,
+            exec_limit
+        )));
     }
 }

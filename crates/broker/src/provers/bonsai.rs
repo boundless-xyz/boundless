@@ -337,10 +337,12 @@ impl Prover for Bonsai {
         assumptions: Vec<String>,
     ) -> Result<ProofResult, ProverError> {
         let proof_id = self.prove_stark(image_id, input_id, assumptions).await?;
+        tracing::debug!("Created session for prove stark: {proof_id}");
         self.wait_for_stark(&proof_id).await
     }
 
     async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
+        tracing::debug!("Waiting for stark proof {} to complete", proof_id);
         let proof_id = SessionId::new(proof_id.into());
 
         let poller = StatusPoller {

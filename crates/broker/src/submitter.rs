@@ -6,15 +6,15 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{utils::format_ether, Address, Bytes, B256, U256},
+    primitives::{utils::format_ether, Address, B256, U256},
     providers::{Provider, WalletProvider},
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, Context, Result};
 use boundless_market::{
     contracts::{
-        boundless_market::{BoundlessMarketService, MarketError},
-        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment, ProofRequest,
+        boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
+        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
     },
     selector::is_groth16_selector,
 };
@@ -44,6 +44,9 @@ pub enum SubmitterErr {
     #[error("{code} Failed to confirm transaction: {0}", code = self.code())]
     TxnConfirmationError(MarketError),
 
+    // TODO: As of PR #703, has no sources. We need to parse PaymentRequirementsFailed events to
+    // reenable this error reporting.
+    #[allow(dead_code)]
     #[error("{code} Request expired before submission: {0}", code = self.code())]
     RequestExpiredBeforeSubmission(MarketError),
 
@@ -209,7 +212,7 @@ where
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
 
         let mut fulfillments = vec![];
-        let mut requests_to_price: Vec<(ProofRequest, Bytes)> = vec![];
+        let mut requests_to_price: Vec<UnlockedRequest> = vec![];
 
         struct OrderPrice {
             price: U256,
@@ -236,7 +239,8 @@ where
 
                 let mut stake_reward = U256::ZERO;
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
-                    requests_to_price.push((order_request.clone(), client_sig.clone()));
+                    requests_to_price
+                        .push(UnlockedRequest::new(order_request.clone(), client_sig.clone()));
                     stake_reward = order_request.offer.stake_reward_if_locked_and_not_fulfilled();
                 }
 
@@ -334,41 +338,24 @@ where
         let assessor_seal =
             assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
 
-        let mut single_txn_fulfill = {
-            let config = self.config.lock_all().context("Failed to read config")?;
-            config.batcher.single_txn_fulfill
-        };
-
-        if !requests_to_price.is_empty() && single_txn_fulfill {
-            tracing::warn!("Single txn fulfill is enabled but we are fulfilling requests that were not locked. Overriding single txn fulfill to false.");
-            single_txn_fulfill = false;
-        }
-
         let assessor_receipt = AssessorReceipt {
             seal: assessor_seal.into(),
             selectors: assessor_journal.selectors,
             prover: self.prover_address,
             callbacks: assessor_journal.callbacks,
         };
+
+        let (single_txn_fulfill, withdraw) = {
+            let config = self.config.lock_all().context("Failed to read config")?;
+            (config.batcher.single_txn_fulfill, config.batcher.withdraw)
+        };
+
+        let mut fulfillment_tx = FulfillmentTx::new(fulfillments.clone(), assessor_receipt)
+            .with_withdraw(withdraw)
+            .with_unlocked_requests(requests_to_price);
         if single_txn_fulfill {
-            if let Err(err) = self
-                .market
-                .submit_merkle_and_fulfill(
-                    self.set_verifier_addr,
-                    root,
-                    batch_seal.into(),
-                    fulfillments.clone(),
-                    assessor_receipt,
-                )
-                .await
-            {
-                let order_ids: Vec<&str> = fulfillments
-                    .iter()
-                    .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
-                    .collect();
-                tracing::warn!("Failed to submit merkle and fulfill for orders: {order_ids:?}");
-                self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
-            }
+            fulfillment_tx =
+                fulfillment_tx.with_submit_root(self.set_verifier_addr, root, batch_seal.into());
         } else {
             let contains_root = match self.set_verifier.contains_root(root).await {
                 Ok(res) => res,
@@ -410,46 +397,13 @@ where
             } else {
                 tracing::info!("Contract already contains root, skipping to fulfillment");
             }
+        };
 
-            if !requests_to_price.is_empty() {
-                let (requests, client_sigs): (Vec<ProofRequest>, Vec<Bytes>) =
-                    requests_to_price.into_iter().unzip();
-                tracing::info!(
-                    "Fulfilling {} requests, and pricing {} requests using priceAndFulfillBatch",
-                    fulfillments.len(),
-                    requests.len()
-                );
-                if let Err(err) = self
-                    .market
-                    .price_and_fulfill_batch(
-                        requests,
-                        client_sigs,
-                        fulfillments.clone(),
-                        assessor_receipt,
-                        None,
-                    )
-                    .await
-                {
-                    let order_ids: Vec<&str> = fulfillments
-                        .iter()
-                        .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
-                        .collect();
-                    tracing::warn!("Failed to price and fulfill batch for orders: {order_ids:?}");
-                    self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
-                }
-            } else {
-                tracing::info!("Fulfilling {} requests using fulfillBatch", fulfillments.len());
-                if let Err(err) =
-                    self.market.fulfill_batch(fulfillments.clone(), assessor_receipt).await
-                {
-                    let order_ids: Vec<&str> = fulfillments
-                        .iter()
-                        .map(|f| *fulfillment_to_order_id.get(&f.id).unwrap())
-                        .collect();
-                    tracing::warn!("Failed to fulfill batch for orders: {order_ids:?}");
-                    self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
-                }
-            }
+        if let Err(err) = self.market.fulfill(fulfillment_tx).await {
+            let order_ids: Vec<&str> =
+                fulfillments.iter().map(|f| *fulfillment_to_order_id.get(&f.id).unwrap()).collect();
+            tracing::warn!("Failed to fulfill batch for orders: {order_ids:?}");
+            self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
         }
 
         for fulfillment in fulfillments.iter() {
@@ -491,10 +445,6 @@ where
                     fulfillment.id
                 );
             }
-        }
-
-        if err.to_string().contains("RequestIsExpiredOrNotPriced") {
-            return Err(SubmitterErr::RequestExpiredBeforeSubmission(err));
         }
 
         if let MarketError::TxnConfirmationError(_) = &err {

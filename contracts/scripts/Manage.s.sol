@@ -17,7 +17,6 @@ import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
-import {HitPoints} from "../src/HitPoints.sol";
 
 /// @notice Base contract for the scripts below, providing common context and functions.
 contract RiscZeroManagementScript is Script {
@@ -33,28 +32,6 @@ contract RiscZeroManagementScript is Script {
             vm.rememberKey(deployerKey);
         }
         return deployer;
-    }
-}
-
-/// @notice Deployment script for the HitPoints deployment.
-/// @dev Use the following environment variable to control the deployment:
-///     * BOUNDLESS_MARKET_OWNER owner of the HitPoints contract
-///
-/// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract DeployHitPoints is RiscZeroManagementScript {
-    function run() external {
-        address marketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
-        console2.log("marketOwner:", marketOwner);
-
-        vm.startBroadcast(deployerAddress());
-        bytes32 salt = bytes32(0);
-        // Deploy the HitPoints contract
-        address stakeTokenAddress = address(new HitPoints{salt: salt}(marketOwner));
-        HitPoints(stakeTokenAddress).grantMinterRole(marketOwner);
-        vm.stopBroadcast();
-
-        console2.log("Deployed stake-token contract (HitPoints) at %s", stakeTokenAddress);
     }
 }
 
@@ -96,9 +73,6 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
                 newImplementation, abi.encodeCall(BoundlessMarket.initialize, (marketOwner, assessorGuestUrl))
             )
         );
-
-        // Add the market address in the authorized list of the stake-token contract
-        HitPoints(stakeToken).grantAuthorizedTransferRole(marketAddress);
 
         vm.stopBroadcast();
 

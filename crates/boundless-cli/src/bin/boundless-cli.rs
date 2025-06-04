@@ -27,7 +27,7 @@
 //! boundless-cli request submit-offer --wait --input "hello" \
 //! --program-url http://dweb.link/ipfs/bafkreido62tz2uyieb3s6wmixwmg43hqybga2ztmdhimv7njuulf3yug4e
 //! ```
-//! 
+//!
 //! # Required options
 //!
 //! An Ethereum RPC URL is required via the `RPC_URL` environment variable or the `--rpc-url`
@@ -50,7 +50,7 @@ use std::{
 use alloy::{
     network::Ethereum,
     primitives::{
-        utils::{format_ether, parse_ether},
+        utils::{format_ether, format_units, parse_ether, parse_units},
         Address, Bytes, FixedBytes, TxKind, B256, U256,
     },
     providers::{Provider, ProviderBuilder},
@@ -76,7 +76,8 @@ use url::Url;
 
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, Offer, ProofRequest, RequestInputType, Selector,
+        boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
+        Offer, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -141,19 +142,13 @@ enum AccountCommands {
     },
     /// Deposit stake funds into the market
     DepositStake {
-        /// Amount in HP to deposit.
-        ///
-        /// e.g. 10 is uint256(10 * 10**18).
-        #[clap(value_parser = parse_ether)]
-        amount: U256,
+        /// Amount to deposit in HP or USDC based on the chain ID.
+        amount: String,
     },
     /// Withdraw stake funds from the market
     WithdrawStake {
-        /// Amount in HP to withdraw.
-        ///
-        /// e.g. 10 is uint256(10 * 10**18).
-        #[clap(value_parser = parse_ether)]
-        amount: U256,
+        /// Amount to withdraw in HP or USDC based on the chain ID.
+        amount: String,
     },
     /// Check the stake balance of an account in the market
     StakeBalance {
@@ -283,6 +278,10 @@ enum ProvingCommands {
         /// If provided, must have the same length and order as request_ids.
         #[arg(long, value_delimiter = ',')]
         tx_hashes: Option<Vec<B256>>,
+
+        /// Withdraw the funds after fulfilling the requests
+        #[arg(long, default_value = "false")]
+        withdraw: bool,
     },
 
     /// Lock a request in the market
@@ -519,22 +518,26 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             Ok(())
         }
         AccountCommands::DepositStake { amount } => {
-            // REQUIRES PRIVATE KEY
-            tracing::info!("Depositing {} HP as stake", format_ether(*amount));
+            let symbol = client.boundless_market.stake_token_symbol().await?;
+            let decimals = client.boundless_market.stake_token_decimals().await?;
+            let parsed_amount = parse_units(amount, decimals)
+                .map_err(|e| anyhow!("Failed to parse amount: {}", e))?
+                .into();
+            tracing::info!("Depositing {amount} {symbol} as stake");
             match client
                 .boundless_market
-                .deposit_stake_with_permit(*amount, &client.signer.unwrap())
+                .deposit_stake_with_permit(parsed_amount, &client.signer.unwrap())
                 .await
             {
                 Ok(_) => {
-                    tracing::info!("Successfully deposited {} HP as stake", format_ether(*amount));
+                    tracing::info!("Successfully deposited {amount} {symbol} as stake");
                     Ok(())
                 }
                 Err(e) => {
                     if e.to_string().contains("TRANSFER_FROM_FAILED") {
                         let addr = client.boundless_market.caller();
                         Err(anyhow!(
-                            "Failed to deposit stake: Ensure your address ({}) has funds on the HP contract", addr
+                            "Failed to deposit stake: Ensure your address ({}) has funds on the {symbol} contract", addr
                         ))
                     } else {
                         Err(anyhow!("Failed to deposit stake: {}", e))
@@ -544,17 +547,26 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
         }
         AccountCommands::WithdrawStake { amount } => {
             // REQUIRES PRIVATE KEY
-            tracing::info!("Withdrawing {} HP from stake", format_ether(*amount));
-            client.boundless_market.withdraw_stake(*amount).await?;
-            tracing::info!("Successfully withdrew {} HP from stake", format_ether(*amount));
+            let symbol = client.boundless_market.stake_token_symbol().await?;
+            let decimals = client.boundless_market.stake_token_decimals().await?;
+            let parsed_amount = parse_units(amount, decimals)
+                .map_err(|e| anyhow!("Failed to parse amount: {}", e))?
+                .into();
+            tracing::info!("Withdrawing {amount} {symbol} from stake");
+            client.boundless_market.withdraw_stake(parsed_amount).await?;
+            tracing::info!("Successfully withdrew {amount} {symbol} from stake");
             Ok(())
         }
         AccountCommands::StakeBalance { address } => {
             // REQUIRES PRIVATE KEY
+            let symbol = client.boundless_market.stake_token_symbol().await?;
+            let decimals = client.boundless_market.stake_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
             tracing::info!("Checking stake balance for address {}", addr);
             let balance = client.boundless_market.balance_of_stake(addr).await?;
-            tracing::info!("Stake balance for address {}: {} HP", addr, format_ether(balance));
+            let balance = format_units(balance, decimals)
+                .map_err(|e| anyhow!("Failed to format stake balance: {}", e))?;
+            tracing::info!("Stake balance for address {}: {} {}", addr, balance, symbol);
             Ok(())
         }
     }
@@ -647,7 +659,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             tracing::debug!("Journal: {:?}", journal);
             Ok(())
         }
-        ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes } => {
+        ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes, withdraw } => {
             // REQUIRES PRIVATE KEY
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
@@ -704,8 +716,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
 
             let results = futures::future::join_all(fetch_order_jobs).await;
             let mut orders = Vec::new();
-            let mut signatures = Vec::new();
-            let mut requests_to_price = Vec::new();
+            let mut unlocked_requests = Vec::new();
 
             for result in results {
                 let (order, sig, is_locked) = result?;
@@ -713,32 +724,25 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
                 // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
                 // and empty if the request is locked.
                 if !is_locked {
-                    requests_to_price.push(order.request.clone());
+                    unlocked_requests.push(UnlockedRequest::new(order.request.clone(), sig));
                 }
                 orders.push(order);
-                signatures.push(sig);
             }
 
             let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
             let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
-            tracing::debug!("Submitting root {} to SetVerifier", order_fulfilled.root);
-            client
-                .set_verifier
-                .submit_merkle_root(order_fulfilled.root, order_fulfilled.seal)
-                .await?;
-            tracing::debug!("Successfully submitted root to SetVerifier");
+            let boundless_market = client.boundless_market.clone();
 
-            match client
-                .boundless_market
-                .price_and_fulfill_batch(
-                    requests_to_price,
-                    signatures,
-                    order_fulfilled.fills,
-                    order_fulfilled.assessorReceipt,
-                    None,
-                )
-                .await
-            {
+            let fulfillment_tx =
+                FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                    .with_submit_root(
+                        client.deployment.set_verifier_address,
+                        order_fulfilled.root,
+                        order_fulfilled.seal,
+                    )
+                    .with_unlocked_requests(unlocked_requests)
+                    .with_withdraw(*withdraw);
+            match boundless_market.fulfill(fulfillment_tx).await {
                 Ok(_) => {
                     tracing::info!("Successfully fulfilled requests {}", request_ids_string);
                     Ok(())
@@ -1327,7 +1331,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
         };
     } else {
         // Verifier router is recommended, but not required for most operations.
-        println!("⚠️Verifier router address not configured");
+        println!("⚠️ Verifier router address not configured");
     }
 
     println!(
@@ -1549,18 +1553,18 @@ mod tests {
         let mut args = MainArgs {
             config,
             command: Command::Account(Box::new(AccountCommands::DepositStake {
-                amount: default_allowance(),
+                amount: format_ether(default_allowance()),
             })),
         };
 
         run(&args).await.unwrap();
         assert!(logs_contain(&format!(
             "Depositing {} HP as stake",
-            format_units(default_allowance(), "ether").unwrap()
+            format_ether(default_allowance())
         )));
         assert!(logs_contain(&format!(
             "Successfully deposited {} HP as stake",
-            format_units(default_allowance(), "ether").unwrap()
+            format_ether(default_allowance())
         )));
 
         let balance =
@@ -1582,17 +1586,17 @@ mod tests {
         )));
 
         args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
-            amount: default_allowance(),
+            amount: format_ether(default_allowance()),
         }));
 
         run(&args).await.unwrap();
         assert!(logs_contain(&format!(
             "Withdrawing {} HP from stake",
-            format_units(default_allowance(), "ether").unwrap()
+            format_ether(default_allowance())
         )));
         assert!(logs_contain(&format!(
             "Successfully withdrew {} HP from stake",
-            format_units(default_allowance(), "ether").unwrap()
+            format_ether(default_allowance())
         )));
 
         let balance =
@@ -1608,7 +1612,7 @@ mod tests {
         let mut args = MainArgs {
             config,
             command: Command::Account(Box::new(AccountCommands::DepositStake {
-                amount: default_allowance(),
+                amount: format_ether(default_allowance()),
             })),
         };
 
@@ -1619,7 +1623,7 @@ mod tests {
         )));
 
         args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
-            amount: default_allowance(),
+            amount: format_ether(default_allowance()),
         }));
 
         let err = run(&args).await.unwrap_err();
@@ -1897,6 +1901,7 @@ mod tests {
                 request_ids: vec![request_id],
                 request_digests: None,
                 tx_hashes: None,
+                withdraw: false,
             })),
         })
         .await
@@ -1968,6 +1973,7 @@ mod tests {
                 request_ids: request_ids.clone(),
                 request_digests: None,
                 tx_hashes: None,
+                withdraw: false,
             })),
         })
         .await
@@ -2045,6 +2051,7 @@ mod tests {
                 request_ids: vec![request.id],
                 request_digests: None,
                 tx_hashes: None,
+                withdraw: false,
             })),
         })
         .await
@@ -2098,6 +2105,7 @@ mod tests {
                 request_ids: vec![request.id],
                 request_digests: None,
                 tx_hashes: None,
+                withdraw: false,
             })),
         })
         .await
@@ -2190,12 +2198,17 @@ mod tests {
                 request_ids: vec![request_id],
                 request_digests: None,
                 tx_hashes: None,
+                withdraw: true,
             })),
         })
         .await
         .unwrap();
 
         assert!(logs_contain(&format!("Successfully fulfilled requests 0x{:x}", request.id)));
+
+        // test the automated withdraw
+        let balance = ctx.prover_market.balance_of(ctx.prover_signer.address()).await.unwrap();
+        assert_eq!(balance, U256::from(0));
 
         // Clean up
         order_stream_handle.abort();

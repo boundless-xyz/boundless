@@ -328,6 +328,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             pending_tx.tx_hash(),
             request.id
         );
+
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         // Look for the logs for submitting the transaction.
@@ -418,8 +419,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         }
 
         tracing::trace!("Sending tx {}", format!("{:?}", call));
-
         let pending_tx = call.send().await?;
+
         let tx_hash = *pending_tx.tx_hash();
         tracing::trace!("Broadcasting lock request tx {}", tx_hash);
 
@@ -562,78 +563,71 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(log.inner.data)
     }
 
-    /// Fulfill a request by delivering the proof for the application.
-    ///
-    /// Upon proof verification, the prover is paid as long as the requirements are met, including:
-    ///
-    /// * Seal for the assessor proof is valid, verifying that the order's requirements are met.
-    /// * The order has not expired.
-    /// * The order is not locked by a different prover.
-    /// * A prover has not been paid for the job already.
-    /// * If not locked, the client has sufficient funds.
-    pub async fn fulfill(
-        &self,
-        fulfillment: &Fulfillment,
-        assessor_fill: AssessorReceipt,
-    ) -> Result<(), MarketError> {
-        tracing::trace!("Calling fulfill({:x?},{:x?})", fulfillment, assessor_fill);
-        let call = self.instance.fulfill(fulfillment.clone(), assessor_fill).from(self.caller);
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+    /// Submits a `FulfillmentTx`.
+    pub async fn fulfill(&self, tx: FulfillmentTx) -> Result<(), MarketError> {
+        let FulfillmentTx { root, unlocked_requests, fulfillments, assessor_receipt, withdraw } =
+            tx;
+        let price = !unlocked_requests.is_empty();
 
-        let receipt = self.get_receipt_with_retry(pending_tx).await?;
-
-        tracing::info!(
-            "Submitted proof for request {:x}: {:x}",
-            fulfillment.id,
-            receipt.transaction_hash
-        );
-
-        Ok(())
-    }
-
-    /// Fulfill a request by delivering the proof for the application and withdraw from the prover balance.
-    ///
-    /// Upon proof verification, the prover is paid as long as the requirements are met, including:
-    ///
-    /// * Seal for the assessor proof is valid, verifying that the order's requirements are met.
-    /// * The order has not expired.
-    /// * The order is not locked by a different prover.
-    /// * A prover has not been paid for the job already.
-    /// * If not locked, the client has sufficient funds.
-    pub async fn fulfill_and_withdraw(
-        &self,
-        fulfillment: &Fulfillment,
-        assessor_fill: AssessorReceipt,
-    ) -> Result<(), MarketError> {
-        tracing::trace!("Calling fulfillAndWithdraw({:x?},{:x?})", fulfillment, assessor_fill);
-        let call =
-            self.instance.fulfillAndWithdraw(fulfillment.clone(), assessor_fill).from(self.caller);
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-
-        let receipt = self.get_receipt_with_retry(pending_tx).await?;
-
-        tracing::info!(
-            "Submitted proof for request {:x}: {:x}",
-            fulfillment.id,
-            receipt.transaction_hash
-        );
-
-        Ok(())
+        match root {
+            None => match (price, withdraw) {
+                (false, false) => self._fulfill(fulfillments, assessor_receipt).await,
+                (false, true) => self.fulfill_and_withdraw(fulfillments, assessor_receipt).await,
+                (true, false) => {
+                    self.price_and_fulfill(unlocked_requests, fulfillments, assessor_receipt, None)
+                        .await
+                }
+                (true, true) => {
+                    self.price_and_fulfill_and_withdraw(
+                        unlocked_requests,
+                        fulfillments,
+                        assessor_receipt,
+                        None,
+                    )
+                    .await
+                }
+            },
+            Some(root) => match (price, withdraw) {
+                (false, false) => {
+                    self.submit_root_and_fulfill(root, fulfillments, assessor_receipt).await
+                }
+                (false, true) => {
+                    self.submit_root_and_fulfill_and_withdraw(root, fulfillments, assessor_receipt)
+                        .await
+                }
+                (true, false) => {
+                    self.submit_root_and_price_fulfill(
+                        root,
+                        unlocked_requests,
+                        fulfillments,
+                        assessor_receipt,
+                    )
+                    .await
+                }
+                (true, true) => {
+                    self.submit_root_and_price_fulfill_and_withdraw(
+                        root,
+                        unlocked_requests,
+                        fulfillments,
+                        assessor_receipt,
+                    )
+                    .await
+                }
+            },
+        }
     }
 
     /// Fulfill a batch of requests by delivering the proof for each application.
     ///
     /// See [BoundlessMarketService::fulfill] for more details.
-    pub async fn fulfill_batch(
+    async fn _fulfill(
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
     ) -> Result<(), MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
-        tracing::trace!("Calling fulfillBatch({fulfillments:?}, {assessor_fill:?})");
-        let call = self.instance.fulfillBatch(fulfillments, assessor_fill).from(self.caller);
+        tracing::trace!("Calling fulfill({fulfillments:?}, {assessor_fill:?})");
+        let call = self.instance.fulfill(fulfillments, assessor_fill).from(self.caller);
         tracing::trace!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -648,18 +642,17 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// Fulfill a batch of requests by delivering the proof for each application and withdraw from the prover balance.
     ///
     /// See [BoundlessMarketService::fulfill] for more details.
-    pub async fn fulfill_batch_and_withdraw(
+    async fn fulfill_and_withdraw(
         &self,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
     ) -> Result<(), MarketError> {
         let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
-        tracing::trace!("Calling fulfillBatchAndWithdraw({fulfillments:?}, {assessor_fill:?})");
-        let call =
-            self.instance.fulfillBatchAndWithdraw(fulfillments, assessor_fill).from(self.caller);
+        tracing::trace!("Calling fulfillAndWithdraw({fulfillments:?}, {assessor_fill:?})");
+        let call = self.instance.fulfillAndWithdraw(fulfillments, assessor_fill).from(self.caller);
         tracing::trace!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
-        tracing::trace!("Broadcasting tx {}", pending_tx.tx_hash());
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
@@ -668,48 +661,25 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
-    /// Combined function to submit a new merkle root to the set-verifier and call `fulfillBatch`.
+    /// Combined function to submit a new merkle root to the set-verifier and call `fulfill`.
     /// Useful to reduce the transaction count for fulfillments
-    pub async fn submit_merkle_and_fulfill(
+    async fn submit_root_and_fulfill(
         &self,
-        verifier_address: Address,
-        root: B256,
-        seal: Bytes,
+        root: Root,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
     ) -> Result<(), MarketError> {
-        tracing::trace!("Calling submitRootAndFulfillBatch({root:?}, {seal:x}, {fulfillments:?}, {assessor_fill:?})");
+        tracing::trace!(
+            "Calling submitRootAndFulfill({:?}, {:x}, {fulfillments:?}, {assessor_fill:?})",
+            root.root,
+            root.seal
+        );
         let call = self
             .instance
-            .submitRootAndFulfillBatch(verifier_address, root, seal, fulfillments, assessor_fill)
-            .from(self.caller);
-        tracing::trace!("Calldata: {}", call.calldata());
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
-
-        tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
-
-        Ok(())
-    }
-
-    /// Combined function to submit a new merkle root to the set-verifier and call `fulfillBatchAndWithdraw`.
-    /// Useful to reduce the transaction count for fulfillments
-    pub async fn submit_merkle_and_fulfill_and_withdraw(
-        &self,
-        verifier_address: Address,
-        root: B256,
-        seal: Bytes,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
-    ) -> Result<(), MarketError> {
-        tracing::trace!("Calling submitRootAndFulfillBatchAndWithdraw({root:?}, {seal:x}, {fulfillments:?}, {assessor_fill:?})");
-        let call = self
-            .instance
-            .submitRootAndFulfillBatchAndWithdraw(
-                verifier_address,
-                root,
-                seal,
+            .submitRootAndFulfill(
+                root.verifier_address,
+                root.root,
+                root.seal,
                 fulfillments,
                 assessor_fill,
             )
@@ -724,22 +694,52 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
-    /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatch`.
+    /// Combined function to submit a new merkle root to the set-verifier and call `fulfillAndWithdraw`.
+    /// Useful to reduce the transaction count for fulfillments
+    async fn submit_root_and_fulfill_and_withdraw(
+        &self,
+        root: Root,
+        fulfillments: Vec<Fulfillment>,
+        assessor_fill: AssessorReceipt,
+    ) -> Result<(), MarketError> {
+        tracing::trace!("Calling submitRootAndFulfillAndWithdraw({:?}, {:x}, {fulfillments:?}, {assessor_fill:?})", root.root, root.seal);
+        let call = self
+            .instance
+            .submitRootAndFulfillAndWithdraw(
+                root.verifier_address,
+                root.root,
+                root.seal,
+                fulfillments,
+                assessor_fill,
+            )
+            .from(self.caller);
+        tracing::trace!("Calldata: {}", call.calldata());
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
+
+        tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
+
+        Ok(())
+    }
+
+    /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfill`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
-    pub async fn price_and_fulfill_batch(
+    async fn price_and_fulfill(
         &self,
-        requests: Vec<ProofRequest>,
-        client_sigs: Vec<Bytes>,
+        unlocked_requests: Vec<UnlockedRequest>,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
-        tracing::trace!("Calling priceAndFulfillBatch({fulfillments:?}, {assessor_fill:?})");
+        tracing::trace!("Calling priceAndFulfill({fulfillments:?}, {assessor_fill:?})");
 
+        let (requests, client_sigs): (Vec<_>, Vec<_>) =
+            unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
         let mut call = self
             .instance
-            .priceAndFulfillBatch(requests, client_sigs, fulfillments, assessor_fill)
+            .priceAndFulfill(requests, client_sigs, fulfillments, assessor_fill)
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
 
@@ -766,24 +766,23 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
-    /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillBatchAndWithdraw`.
+    /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillAndWithdraw`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
-    pub async fn price_and_fulfill_batch_and_withdraw(
+    async fn price_and_fulfill_and_withdraw(
         &self,
-        requests: Vec<ProofRequest>,
-        client_sigs: Vec<Bytes>,
+        unlocked_requests: Vec<UnlockedRequest>,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
         priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
-        tracing::trace!(
-            "Calling priceAndFulfillBatchAndWithdraw({fulfillments:?}, {assessor_fill:?})"
-        );
+        tracing::trace!("Calling priceAndFulfillAndWithdraw({fulfillments:?}, {assessor_fill:?})");
 
+        let (requests, client_sigs): (Vec<_>, Vec<_>) =
+            unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
         let mut call = self
             .instance
-            .priceAndFulfillBatchAndWithdraw(requests, client_sigs, fulfillments, assessor_fill)
+            .priceAndFulfillAndWithdraw(requests, client_sigs, fulfillments, assessor_fill)
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
 
@@ -806,6 +805,82 @@ impl<P: Provider> BoundlessMarketService<P> {
         let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Fulfilled proof for batch {}", tx_receipt.transaction_hash);
+
+        Ok(())
+    }
+
+    /// Combined function to submit a new merkle root to the set-verifier and call `priceAndfulfill`.
+    /// Useful to reduce the transaction count for fulfillments
+    async fn submit_root_and_price_fulfill(
+        &self,
+        root: Root,
+        unlocked_requests: Vec<UnlockedRequest>,
+        fulfillments: Vec<Fulfillment>,
+        assessor_fill: AssessorReceipt,
+    ) -> Result<(), MarketError> {
+        let (requests, client_sigs): (Vec<_>, Vec<_>) =
+            unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
+        tracing::trace!("Calling submitRootAndPriceAndFulfill({:?}, {:x}, {:?}, {:?}, {fulfillments:?}, {assessor_fill:?})", root.root, root.seal, requests, client_sigs);
+        let call = self
+            .instance
+            .submitRootAndPriceAndFulfill(
+                root.verifier_address,
+                root.root,
+                root.seal,
+                requests,
+                client_sigs,
+                fulfillments,
+                assessor_fill,
+            )
+            .from(self.caller);
+        tracing::trace!("Calldata: {}", call.calldata());
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        let tx_receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
+
+        Ok(())
+    }
+
+    /// Combined function to submit a new merkle root to the set-verifier and call `priceAndFulfillAndWithdraw`.
+    /// Useful to reduce the transaction count for fulfillments
+    async fn submit_root_and_price_fulfill_and_withdraw(
+        &self,
+        root: Root,
+        unlocked_requests: Vec<UnlockedRequest>,
+        fulfillments: Vec<Fulfillment>,
+        assessor_fill: AssessorReceipt,
+    ) -> Result<(), MarketError> {
+        let (requests, client_sigs): (Vec<_>, Vec<_>) =
+            unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
+        tracing::trace!("Calling submitRootAndPriceAndFulfillAndWithdraw({:?}, {:x}, {:?}, {:?}, {fulfillments:?}, {assessor_fill:?})", root.root, root.seal, requests, client_sigs);
+        let call = self
+            .instance
+            .submitRootAndPriceAndFulfillAndWithdraw(
+                root.verifier_address,
+                root.root,
+                root.seal,
+                requests,
+                client_sigs,
+                fulfillments,
+                assessor_fill,
+            )
+            .from(self.caller);
+        tracing::trace!("Calldata: {}", call.calldata());
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
+        let tx_receipt = pending_tx
+            .with_timeout(Some(self.timeout))
+            .get_receipt()
+            .await
+            .context("failed to confirm tx")?;
+
+        tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
         Ok(())
     }
@@ -924,22 +999,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             // Query the logs for the event
             let logs = event_filter.query().await?;
 
-            if let Some((_, data)) = logs.first() {
-                // get the calldata inputs
-                let tx_data = self
-                    .instance
-                    .provider()
-                    .get_transaction_by_hash(data.transaction_hash.context("tx hash is none")?)
-                    .await
-                    .context("Failed to get transaction")?
-                    .context("Transaction not found")?;
-                let inputs = tx_data.input();
-                let (fills, _) = decode_calldata(inputs).context("Failed to decode calldata")?;
-                for fill in fills {
-                    if fill.id == request_id {
-                        return Ok((fill.journal.clone(), fill.seal.clone()));
-                    }
-                }
+            if let Some((event, _)) = logs.first() {
+                return Ok((event.fulfillment.journal.clone(), event.fulfillment.seal.clone()));
             }
 
             // Move the upper_block down for the next iteration
@@ -990,19 +1051,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             // Query the logs for the event
             let logs = event_filter.query().await?;
 
-            if let Some((_, data)) = logs.first() {
-                // get the calldata inputs
-                let tx_data = self
-                    .instance
-                    .provider()
-                    .get_transaction_by_hash(data.transaction_hash.context("tx hash is none")?)
-                    .await
-                    .context("Failed to get transaction")?
-                    .context("Transaction not found")?;
-                let inputs = tx_data.input();
-                let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs)
-                    .context("Failed to decode input")?;
-                return Ok((calldata.request, calldata.clientSignature));
+            if let Some((event, _)) = logs.first() {
+                return Ok((event.request.clone(), event.clientSignature.clone()));
             }
 
             // Move the upper_block down for the next iteration
@@ -1232,8 +1282,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             deadline,
         };
         tracing::debug!("Permit: {:?}", permit);
-        let chain_id = self.get_chain_id().await?;
-        let sig = permit.sign(signer, token_address.into(), chain_id).await?.as_bytes();
+        let domain_separator = contract.DOMAIN_SEPARATOR().call().await?;
+        let sig = permit.sign(signer, domain_separator).await?.as_bytes();
         let r = B256::from_slice(&sig[..32]);
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
@@ -1293,6 +1343,35 @@ impl<P: Provider> BoundlessMarketService<P> {
             tracing::trace!("stake balance for {} is: {}", self.caller(), stake_balance);
         }
         Ok(())
+    }
+
+    /// Returns the stake token address used by the market.
+    pub async fn stake_token_address(&self) -> Result<Address, MarketError> {
+        tracing::trace!("Calling STAKE_TOKEN_CONTRACT()");
+        let address = self
+            .instance
+            .STAKE_TOKEN_CONTRACT()
+            .call()
+            .await
+            .context("STAKE_TOKEN_CONTRACT call failed")?
+            .0;
+        Ok(address.into())
+    }
+
+    /// Returns the stake token's symbol.
+    pub async fn stake_token_symbol(&self) -> Result<String, MarketError> {
+        let address = self.stake_token_address().await?;
+        let contract = IERC20::new(address, self.instance.provider());
+        let symbol = contract.symbol().call().await.context("Failed to get token symbol")?;
+        Ok(symbol)
+    }
+
+    /// Returns the stake token's decimals.
+    pub async fn stake_token_decimals(&self) -> Result<u8, MarketError> {
+        let address = self.stake_token_address().await?;
+        let contract = IERC20::new(address, self.instance.provider());
+        let decimals = contract.decimals().call().await.context("Failed to get token decimals")?;
+        Ok(decimals)
     }
 }
 
@@ -1365,59 +1444,94 @@ impl Offer {
     }
 }
 
-/// Decodes the given calldata into a vector of Fulfillment objects.
-pub fn decode_calldata(data: &Bytes) -> Result<(Vec<Fulfillment>, AssessorReceipt)> {
-    if let Ok(call) = IBoundlessMarket::submitRootAndFulfillBatchCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
+#[derive(Debug, Clone)]
+/// Represents the parameters for submitting a Merkle Root.
+pub struct Root {
+    /// The address of the set verifier contract.
+    pub verifier_address: Address,
+    /// The Merkle root of the proof.
+    pub root: B256,
+    /// The seal of the proof.
+    pub seal: Bytes,
+}
+
+#[derive(Debug, Clone)]
+/// Represents the parameters for pricing an unlocked request.
+pub struct UnlockedRequest {
+    /// The unlocked request to be priced.
+    pub request: ProofRequest,
+    /// The client signature for the request.
+    pub client_sig: Bytes,
+}
+
+impl UnlockedRequest {
+    /// Creates a new instance of the `UnlockedRequest` struct.
+    pub fn new(request: ProofRequest, client_sig: Bytes) -> Self {
+        Self { request, client_sig }
     }
-    if let Ok(call) = IBoundlessMarket::submitRootAndFulfillBatchAndWithdrawCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::fulfillCall::abi_decode(data) {
-        return Ok((vec![call.fill], call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::fulfillBatchCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::fulfillAndWithdrawCall::abi_decode(data) {
-        return Ok((vec![call.fill], call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::fulfillBatchAndWithdrawCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillCall::abi_decode(data) {
-        return Ok((vec![call.fill], call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillAndWithdrawCall::abi_decode(data) {
-        return Ok((vec![call.fill], call.assessorReceipt));
-    }
-    if let Ok(call) = IBoundlessMarket::priceAndFulfillBatchAndWithdrawCall::abi_decode(data) {
-        return Ok((call.fills, call.assessorReceipt));
+}
+
+#[derive(Clone)]
+#[non_exhaustive]
+/// Struct for creating a fulfillment transaction request.
+///
+/// The `root` can be `None` if the caller does not want to submit a new Merkle root as part of the transaction.
+/// The `unlocked_requests` field is used to price the requests.
+/// The `withdraw` field indicates whether the prover should withdraw their balance after fulfilling the requests.
+pub struct FulfillmentTx {
+    /// The parameters for submitting a Merkle Root
+    pub root: Option<Root>,
+    /// The list of unlocked requests.
+    pub unlocked_requests: Vec<UnlockedRequest>,
+    /// The fulfillments to be submitted
+    pub fulfillments: Vec<Fulfillment>,
+    /// The assessor receipt
+    pub assessor_receipt: AssessorReceipt,
+    /// Whether to withdraw the fee
+    pub withdraw: bool,
+}
+
+impl FulfillmentTx {
+    /// Creates a new instance of the `Fulfill` struct.
+    pub fn new(fulfillments: Vec<Fulfillment>, assessor_receipt: AssessorReceipt) -> Self {
+        Self {
+            root: None,
+            unlocked_requests: Vec::new(),
+            fulfillments,
+            assessor_receipt,
+            withdraw: false,
+        }
     }
 
-    Err(anyhow!(
-        "Failed to decode calldata with selector {} as any fulfillment call",
-        hex::encode(&data[0..4])
-    ))
+    /// Sets the parameters for submitting a Merkle Root.
+    pub fn with_submit_root(self, verifier_address: Address, root: B256, seal: Bytes) -> Self {
+        Self { root: Some(Root { verifier_address, root, seal }), ..self }
+    }
+
+    /// Adds an unlocked request to be priced to the transaction.
+    pub fn with_unlocked_request(self, unlocked_request: UnlockedRequest) -> Self {
+        let mut requests = self.unlocked_requests;
+        requests.push(unlocked_request);
+        Self { unlocked_requests: requests, ..self }
+    }
+
+    /// Adds a list of unlocked requests to be priced to the transaction.
+    pub fn with_unlocked_requests(self, unlocked_requests: Vec<UnlockedRequest>) -> Self {
+        let mut requests = self.unlocked_requests;
+        requests.extend(unlocked_requests);
+        Self { unlocked_requests: requests, ..self }
+    }
+
+    /// Sets whether to withdraw the fee.
+    pub fn with_withdraw(self, withdraw: bool) -> Self {
+        Self { withdraw, ..self }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::decode_calldata;
-    use crate::{
-        contracts::{
-            AssessorReceipt, Fulfillment, IBoundlessMarket, Offer, Predicate, PredicateType,
-            ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
-        },
-        util::now_timestamp,
-    };
-    use alloy::primitives::{aliases::U160, utils::parse_ether, Address, Bytes, B256, U256};
-    use alloy_sol_types::SolCall;
-    use risc0_zkvm::sha::Digest;
-
+    use crate::contracts::Offer;
+    use alloy::primitives::{utils::parse_ether, U256};
     fn ether(value: &str) -> U256 {
         parse_ether(value).unwrap()
     }
@@ -1470,115 +1584,5 @@ mod tests {
 
         // Price cannot exceed maxPrice
         assert!(offer.time_at_price(ether("3")).is_err());
-    }
-
-    #[test]
-    fn test_decode_calldata() {
-        let request = ProofRequest::new(
-            RequestId::new(Address::ZERO, 0),
-            Requirements::new(
-                Digest::ZERO,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
-            "http:s//image.dev.null",
-            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
-            Offer {
-                minPrice: U256::from(1),
-                maxPrice: U256::from(4),
-                biddingStart: now_timestamp(),
-                timeout: 100,
-                rampUpPeriod: 1,
-                lockTimeout: 100,
-                lockStake: U256::from(10),
-            },
-        );
-
-        let fill = Fulfillment {
-            id: U256::default(),
-            requestDigest: B256::default(),
-            imageId: B256::default(),
-            journal: Bytes::from(vec![1, 2, 3]),
-            seal: Bytes::from(vec![1, 2, 3]),
-        };
-        let assessor_receipt = AssessorReceipt {
-            seal: Bytes::from(vec![1, 2, 3]),
-            selectors: vec![],
-            prover: Address::from(U160::from(1)),
-            callbacks: vec![],
-        };
-
-        let call = IBoundlessMarket::submitRootAndFulfillBatchCall {
-            setVerifier: Address::default(),
-            root: B256::default(),
-            seal: Bytes::default(),
-            fills: vec![fill.clone()],
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::submitRootAndFulfillBatchAndWithdrawCall {
-            setVerifier: Address::default(),
-            root: B256::default(),
-            seal: Bytes::default(),
-            fills: vec![fill.clone()],
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::fulfillCall {
-            fill: fill.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::fulfillBatchCall {
-            fills: vec![fill.clone()],
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::fulfillAndWithdrawCall {
-            fill: fill.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::fulfillBatchAndWithdrawCall {
-            fills: vec![fill.clone()],
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::priceAndFulfillCall {
-            request: request.clone(),
-            clientSignature: Bytes::default(),
-            fill: fill.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::priceAndFulfillBatchCall {
-            requests: vec![request.clone()],
-            clientSignatures: vec![Bytes::default()],
-            fills: vec![fill.clone()],
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::priceAndFulfillAndWithdrawCall {
-            request: request.clone(),
-            clientSignature: Bytes::default(),
-            fill: fill.clone(),
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
-
-        let call = IBoundlessMarket::priceAndFulfillBatchAndWithdrawCall {
-            requests: vec![request.clone()],
-            clientSignatures: vec![Bytes::default()],
-            fills: vec![fill.clone()],
-            assessorReceipt: assessor_receipt.clone(),
-        };
-        decode_calldata(&call.abi_encode().into()).unwrap();
     }
 }

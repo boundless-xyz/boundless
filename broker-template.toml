@@ -4,12 +4,16 @@
 # This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
 # execution took, as calculated by running the request in preflight. This is one of the inputs to
 # decide the minimum price to accept for a request.
-mcycle_price = "0.00001"
+mcycle_price = "0.0000005"
 # Mega-cycle price, denominated in the Boundless staking token.
 #
 # Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
 # order when paid in staking tokens, as is the case for orders with an expired lock.
 mcycle_price_stake_token = "0.0001"
+# Optional allow list for addresses that can bypass the mcycle limit
+#
+# If enabled, all requests from clients in the allow list will skip the configured mcycle limit.
+allow_skip_mcycle_limit_addresses = ["0x48268bE6235A23eb7b67356469362869D5d0293f"]
 # Estimated peak performance of the proving cluster, in kHz.
 #
 # Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
@@ -19,7 +23,7 @@ peak_prove_khz = 100
 # Optional max cycles (in mcycles)
 #
 # Orders over this max_cycles will be skipped after preflight
-#max_mcycle_limit = 1000
+max_mcycle_limit = 8000
 # Max journal size in bytes
 #
 # Orders that produce a journal larger than this size in preflight will be skipped. Since journals
@@ -127,6 +131,17 @@ proof_retry_sleep_ms = 500
 #set_builder_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
 # Assessor ELF path
 #assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
+# Interval for checking expired committed orders (in seconds)
+#
+# This is the interval at which the ReaperTask will check for expired orders and mark them as failed.
+# If not set, it defaults to 60 seconds.
+#reaper_interval_secs = 60
+# Grace period before marking expired orders as failed (in seconds)
+#
+# This provides a buffer time after an order expires before the reaper marks it as failed.
+# This helps prevent race conditions with the aggregator that might be processing the order.
+# If not set, it defaults to 30 seconds.
+# reaper_grace_period_secs = 30
 
 [batcher]
 # Max batch duration before publishing (in seconds)
@@ -142,9 +157,11 @@ block_deadline_buffer_secs = 120
 txn_timeout = 45
 # Use the single TXN submission that batches submit_merkle / fulfill_batch into
 #
-# A single transaction. Requires the `submitRootAndFulfillBatch` method
+# A single transaction. Requires the `submitRootAndFulfill` method
 # be present on the deployed contract
 single_txn_fulfill = true
+# Whether to withdraw from the prover balance when fulfilling
+withdraw = false
 # Polling time, in milliseconds
 #
 # The time between polls for new orders to aggregate and how often to check for batch finalize

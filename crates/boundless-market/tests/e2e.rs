@@ -13,17 +13,17 @@
 // limitations under the License.
 
 use alloy::{
-    consensus::Transaction,
     node_bindings::Anvil,
     primitives::{aliases::U160, utils::parse_ether, Address, U256},
     providers::Provider,
     sol_types::eip712_domain,
 };
-use alloy_sol_types::SolCall;
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, AssessorReceipt, IBoundlessMarket, Offer, Predicate,
-        PredicateType, ProofRequest, RequestId, RequestStatus, Requirements,
+        boundless_market::{FulfillmentTx, UnlockedRequest},
+        hit_points::default_allowance,
+        AssessorReceipt, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestStatus,
+        Requirements,
     },
     input::GuestEnv,
 };
@@ -177,28 +177,16 @@ async fn test_e2e() {
     // fetch logs to retrieve the customer signature from the event
     let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
-    let (_, log) = logs.first().unwrap();
-    let tx_hash = log.transaction_hash.unwrap();
-    let tx_data = ctx
-        .customer_market
-        .instance()
-        .provider()
-        .get_transaction_by_hash(tx_hash)
-        .await
-        .unwrap()
-        .unwrap();
-    let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
-
-    let request = calldata.request;
-    let customer_sig = calldata.clientSignature;
+    let (event, _) = logs.first().unwrap();
+    let request = &event.request;
+    let customer_sig = &event.clientSignature;
 
     // Deposit prover balances
     let deposit = default_allowance();
     ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(&request, &customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -207,7 +195,7 @@ async fn test_e2e() {
 
     // mock the fulfillment
     let (root, set_verifier_seal, fulfillment, assessor_seal) =
-        mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
+        mock_singleton(request, eip712_domain, ctx.prover_signer.address());
 
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -219,7 +207,10 @@ async fn test_e2e() {
         callbacks: vec![],
     };
     // fulfill the request
-    ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
+    ctx.prover_market
+        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .await
+        .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve journal and seal from the fulfilled request
@@ -251,28 +242,16 @@ async fn test_e2e_merged_submit_fulfill() {
     // fetch logs to retrieve the customer signature from the event
     let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
-    let (_, log) = logs.first().unwrap();
-    let tx_hash = log.transaction_hash.unwrap();
-    let tx_data = ctx
-        .customer_market
-        .instance()
-        .provider()
-        .get_transaction_by_hash(tx_hash)
-        .await
-        .unwrap()
-        .unwrap();
-    let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
-
-    let request = calldata.request;
-    let customer_sig = calldata.clientSignature;
+    let (event, _) = logs.first().unwrap();
+    let request = &event.request;
+    let customer_sig = &event.clientSignature;
 
     // Deposit prover balances
     let deposit = default_allowance();
     ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(&request, &customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -281,7 +260,7 @@ async fn test_e2e_merged_submit_fulfill() {
 
     // mock the fulfillment
     let (root, set_verifier_seal, fulfillment, assessor_seal) =
-        mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
+        mock_singleton(request, eip712_domain, ctx.prover_signer.address());
 
     let fulfillments = vec![fulfillment];
     let assessor_fill = AssessorReceipt {
@@ -292,13 +271,11 @@ async fn test_e2e_merged_submit_fulfill() {
     };
     // publish the committed root + fulfillments
     ctx.prover_market
-        .submit_merkle_and_fulfill(
+        .fulfill(FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone()).with_submit_root(
             ctx.deployment.set_verifier_address,
             root,
             set_verifier_seal,
-            fulfillments.clone(),
-            assessor_fill,
-        )
+        ))
         .await
         .unwrap();
 
@@ -330,25 +307,13 @@ async fn test_e2e_price_and_fulfill_batch() {
     // fetch logs to retrieve the customer signature from the event
     let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
-    let (_, log) = logs.first().unwrap();
-    let tx_hash = log.transaction_hash.unwrap();
-    let tx_data = ctx
-        .customer_market
-        .instance()
-        .provider()
-        .get_transaction_by_hash(tx_hash)
-        .await
-        .unwrap()
-        .unwrap();
-    let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
-
-    let request = calldata.request;
-    let customer_sig = calldata.clientSignature;
+    let (event, _) = logs.first().unwrap();
+    let request = &event.request;
+    let customer_sig = &event.clientSignature;
 
     // mock the fulfillment
     let (root, set_verifier_seal, fulfillment, assessor_seal) =
-        mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
+        mock_singleton(request, eip712_domain, ctx.prover_signer.address());
 
     let fulfillments = vec![fulfillment];
     let assessor_fill = AssessorReceipt {
@@ -357,17 +322,13 @@ async fn test_e2e_price_and_fulfill_batch() {
         prover: ctx.prover_signer.address(),
         callbacks: vec![],
     };
-    // publish the committed root
-    ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
     // Price and fulfill the request
     ctx.prover_market
-        .price_and_fulfill_batch(
-            vec![request],
-            vec![customer_sig],
-            fulfillments.clone(),
-            assessor_fill,
-            None,
+        .fulfill(
+            FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone())
+                .with_submit_root(ctx.deployment.set_verifier_address, root, set_verifier_seal)
+                .with_unlocked_request(UnlockedRequest::new(request.clone(), customer_sig.clone())),
         )
         .await
         .unwrap();
@@ -402,28 +363,16 @@ async fn test_e2e_no_payment() {
     // fetch logs to retrieve the customer signature from the event
     let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
 
-    let (_, log) = logs.first().unwrap();
-    let tx_hash = log.transaction_hash.unwrap();
-    let tx_data = ctx
-        .customer_market
-        .instance()
-        .provider()
-        .get_transaction_by_hash(tx_hash)
-        .await
-        .unwrap()
-        .unwrap();
-    let inputs = tx_data.input();
-    let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs).unwrap();
-
-    let request = calldata.request;
-    let customer_sig = calldata.clientSignature;
+    let (event, _) = logs.first().unwrap();
+    let request = &event.request;
+    let customer_sig = &event.clientSignature;
 
     // Deposit prover balances
     let deposit = default_allowance();
     ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(&request, &customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -435,7 +384,7 @@ async fn test_e2e_no_payment() {
         // mock the fulfillment, using the wrong prover address. Address::from(3) arbitrary.
         let some_other_address = Address::from(U160::from(3));
         let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(&request, eip712_domain.clone(), some_other_address);
+            mock_singleton(request, eip712_domain.clone(), some_other_address);
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -449,7 +398,10 @@ async fn test_e2e_no_payment() {
 
         let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         // fulfill the request.
-        ctx.prover_market.fulfill(&fulfillment, assessor_fill.clone()).await.unwrap();
+        ctx.prover_market
+            .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+            .await
+            .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
         let balance_after = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         assert!(balance_before == balance_after);
@@ -464,7 +416,7 @@ async fn test_e2e_no_payment() {
 
     // mock the fulfillment, this time using the right prover address.
     let (root, set_verifier_seal, fulfillment, assessor_seal) =
-        mock_singleton(&request, eip712_domain, ctx.prover_signer.address());
+        mock_singleton(request, eip712_domain, ctx.prover_signer.address());
 
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -477,7 +429,10 @@ async fn test_e2e_no_payment() {
     };
 
     // fulfill the request, this time getting paid.
-    ctx.prover_market.fulfill(&fulfillment, assessor_fill).await.unwrap();
+    ctx.prover_market
+        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .await
+        .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve journal and seal from the fulfilled request
