@@ -397,12 +397,20 @@ contract BoundlessMarket is
                 emit PaymentRequirementsFailed(paymentError);
                 return (paymentError, true);
             }
-        } else if (locked && lock.requestDigest == fill.requestDigest) {
-            // Request was validated in lockRequest, check the expiration on the lock.
-            if (lock.deadline() < block.timestamp) {
-                paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
-                emit PaymentRequirementsFailed(paymentError);
-                return (paymentError, true);
+        } else if (locked) {
+            if (lock.requestDigest == fill.requestDigest) {
+                // Request was validated in lockRequest, check the expiration on the lock.
+                if (lock.deadline() < block.timestamp) {
+                    paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
+                    emit PaymentRequirementsFailed(paymentError);
+                    return (paymentError, true);
+                }
+            } else {
+                revert InvalidRequestFulfillment({
+                    requestId: id,
+                    provided: fill.requestDigest,
+                    locked: lock.requestDigest
+                });
             }
         } else {
             // Request is not validated by either price or lock step. We cannot determine the that

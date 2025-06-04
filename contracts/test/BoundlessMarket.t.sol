@@ -2839,7 +2839,18 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestA.id));
             boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         } else {
-            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestA.id));
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    IBoundlessMarket.InvalidRequestFulfillment.selector,
+                    requestA.id,
+                    MessageHashUtils.toTypedDataHash(
+                        boundlessMarket.eip712DomainSeparator(), ProofRequestLibrary.eip712Digest(requestB)
+                    ),
+                    MessageHashUtils.toTypedDataHash(
+                        boundlessMarket.eip712DomainSeparator(), ProofRequestLibrary.eip712Digest(requestA)
+                    )
+                )
+            );
             boundlessMarket.fulfill(fills, assessorReceipt);
         }
 
@@ -3545,8 +3556,19 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         // Since the request being fulfilled is distinct from the one that was locked, the
-        // transaction should revert if the request is not priced before fulfillment.
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestB.id));
+        // transaction should revert.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IBoundlessMarket.InvalidRequestFulfillment.selector,
+                requestA.id,
+                MessageHashUtils.toTypedDataHash(
+                    boundlessMarket.eip712DomainSeparator(), ProofRequestLibrary.eip712Digest(requestB)
+                ),
+                MessageHashUtils.toTypedDataHash(
+                    boundlessMarket.eip712DomainSeparator(), ProofRequestLibrary.eip712Digest(requestA)
+                )
+            )
+        );
         boundlessMarket.fulfill(fills, assessorReceipt);
 
         vm.expectEmit(true, true, true, true);
