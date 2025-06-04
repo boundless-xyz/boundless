@@ -101,6 +101,12 @@ export class SlasherPipeline extends pulumi.ComponentResource {
       { dependsOn: [role] }
     );
 
+    const prodDeploymentBaseSepolia = new aws.codebuild.Project(
+      `${APP_NAME}-prod-84532-build`,
+      this.codeBuildProjectArgs(APP_NAME, "prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+      { dependsOn: [role] }
+    );
+
     const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
       pipelineType: "V2",
       artifactStores: [{
@@ -182,12 +188,25 @@ export class SlasherPipeline extends pulumi.ComponentResource {
               inputArtifacts: ["source_output"],
             },
             {
-              name: "DeployProductionBaseMainnet",
+              name: "DeployProductionBaseSepolia",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
               runOrder: 2,
+              configuration: {
+                ProjectName: prodDeploymentBaseSepolia.name
+              },
+              outputArtifacts: ["production_output_base_sepolia"],
+              inputArtifacts: ["source_output"],
+            },
+            {
+              name: "DeployProductionBaseMainnet",
+              category: "Build",
+              owner: "AWS",
+              provider: "CodeBuild",
+              version: "1",
+              runOrder: 3,
               configuration: {
                 ProjectName: prodDeploymentBaseMainnet.name
               },
