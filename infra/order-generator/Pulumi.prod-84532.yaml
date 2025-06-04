@@ -15,8 +15,7 @@ config:
   order-generator-base:LOG_LEVEL: info
   order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-base:ORDER_STREAM_URL:
-    secure: v1:lj8IGBRUOmBivVyf:QnFbE2NGSMo2F+Ini1G3pXZsBBBob1JunUBKD/iOS8RNC+7kUyCi3M6cnOmvqwaOv5p9QRUboMuYTI7B4DSSAiWEQtcL7dU1oav5BL5EcCFNgk8LKPgV9l+meQ==
+  order-generator-base:ORDER_STREAM_URL: https://base-sepolia.beboundless.xyz
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
   order-generator-base:PINATA_JWT:

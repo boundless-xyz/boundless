@@ -9,12 +9,11 @@ config:
   base-prover:DOCKER_TAG: latest
   base-prover:GH_TOKEN_SECRET:
     secure: v1:fuBRWh0KEZMVQKPE:W+VP3poj3spVe6QyavTAnLwRMY6DPZ8sPfCmcWp27wi98Z2eGbbPiX8uL4qhy/4SFaShpMePWG3nQLS6hFLQerPFmhl62/JSt5Tnuust/sWvuUw1/qAKp3SqBUBqxfJfEBTYJRr4VflBt1lehw==
-  base-prover:ORDER_STREAM_URL:
-    secure: v1:TeIKNcJBNdHeIwlo:pYhDCHC0kViAKDaR4gEJPxAqmSOP8EwBfmqrYL3PiDDiTD6E0PQvxp7o4utbWBI+gFwUvtxBAWwR72x2kLXVOLEjw3XVSg1O3vTqWCwoAKSupSD5fQaR3yWbAQ==
+  base-prover:ORDER_STREAM_URL: https://base-sepolia.beboundless.xyz
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
-  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging-84532.toml
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-84532.toml
   bento-prover:LOG_JSON: "true"
   bento-prover:PRIVATE_KEY:
     secure: v1:U3A04k9+r+v/nv60:glZpEfPmQcvLOtJ0GAVXTHksqKsvcfoW22+fSrnD3jaERJjXMknbv8kjEybsSbePr5AKM7NV71kEjFV5PJbZiUWGxbkllaHE0Pz0FcaXQKU=
@@ -22,7 +21,7 @@ config:
   bonsai-prover:BONSAI_API_KEY:
     secure: v1:TQceOMB2gkPHTQti:86X5QenfekfTYjsHsNnlz4SbHc/IoLbZRtL8pHSX7UQu1JfvH0d/cv1wMApBAMphMhnvMJNKD8Q=
   bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
-  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-staging-84532.toml
+  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-prod-84532.toml
   bonsai-prover:PRIVATE_KEY:
     secure: v1:WMkGdLo929YT4aZU:I+3FDCDbb3hgz5YMmAAMbyzV2wJ7DjGvQ7fOMOXfkV4WnjW7VFnfUXGJ6WQDdPMFOQMmkyr6w6BrWOTZ5MeSBUVCtZpfEkWTyysU7xGWa/k=
   prover:ETH_RPC_URL:
