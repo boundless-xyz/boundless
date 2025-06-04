@@ -4,6 +4,7 @@ config:
   aws:region: us-west-2
   order-stream:BASE_STACK: organization/bootstrap/services-prod
   order-stream:BOUNDLESS_ADDRESS: 0xAD0Bd6C436658aF457736d7224a87d2EF56365C8
+  order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:CHAIN_ID: "84532"
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
