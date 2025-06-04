@@ -7,7 +7,7 @@ config:
   slasher:GH_TOKEN_SECRET:
     secure: v1:LWw6xJq7+fGdFQaZ:pv9S88lVxuzI4kJu6D4p0qBkPI/qidMIt6kK7IDUrYBUKTCdqKbv7HEkSPE8ycIq/eEe2jm1m4Wcsj+n8s8bQFQ5V76RyYcUMeSgeB/MmFrrBO3KcDDHQ/cjWCvmNkqHJQv2vvgJ2oV0E7P9xA==
   slasher:BASE_STACK: "organization/bootstrap/services-prod"
-  slasher:BOUNDLESS_MARKET_ADDR: "0x581C7e8018f0888364c698f97F64eB069723131F"
+  slasher:BOUNDLESS_MARKET_ADDR: "0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"
   slasher:DOCKER_DIR: "../../"
   slasher:DOCKER_TAG: "latest"
   slasher:INTERVAL: "60"
