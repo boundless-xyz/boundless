@@ -382,10 +382,7 @@ impl OrderStreamClient {
 ///     let socket = client.connect_async(signer).await.unwrap();
 ///     let mut order_stream = order_stream(socket);
 ///     while let Some(order) = order_stream.next().await {
-///         match order {
-///             Ok(order) => println!("Received order: {:?}", order),
-///             Err(err) => eprintln!("Error: {}", err),
-///         }
+///         println!("Received order: {:?}", order)
 ///     }
 /// }
 /// ```
