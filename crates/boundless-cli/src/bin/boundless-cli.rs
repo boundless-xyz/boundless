@@ -114,7 +114,6 @@ enum Command {
 #[derive(Subcommand, Clone, Debug)]
 enum OpsCommands {
     /// Slash a prover for a given request
-    // REQUIRES PRIVATE KEY
     Slash {
         /// The proof request identifier
         request_id: U256,
@@ -529,14 +528,12 @@ async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result
 async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -> Result<()> {
     match cmd {
         AccountCommands::Deposit { amount } => {
-            // REQUIRES PRIVATE KEY
             tracing::info!("Depositing {} ETH into the market", format_ether(*amount));
             client.boundless_market.deposit(*amount).await?;
             tracing::info!("Successfully deposited {} ETH into the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Withdraw { amount } => {
-            // REQUIRES PRIVATE KEY
             tracing::info!("Withdrawing {} ETH from the market", format_ether(*amount));
             client.boundless_market.withdraw(*amount).await?;
             tracing::info!("Successfully withdrew {} ETH from the market", format_ether(*amount));
@@ -578,7 +575,6 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             }
         }
         AccountCommands::WithdrawStake { amount } => {
-            // REQUIRES PRIVATE KEY
             let symbol = client.boundless_market.stake_token_symbol().await?;
             let decimals = client.boundless_market.stake_token_decimals().await?;
             let parsed_amount = parse_units(amount, decimals)
@@ -590,7 +586,6 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             Ok(())
         }
         AccountCommands::StakeBalance { address } => {
-            // REQUIRES PRIVATE KEY
             let symbol = client.boundless_market.stake_token_symbol().await?;
             let decimals = client.boundless_market.stake_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
@@ -608,12 +603,10 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
 async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -> Result<()> {
     match cmd {
         RequestCommands::SubmitOffer(offer_args) => {
-            // REQUIRES PRIVATE KEY
             tracing::info!("Submitting new proof request with offer");
             submit_offer(client, offer_args).await
         }
         RequestCommands::Submit { yaml_request, wait, offchain, no_preflight, .. } => {
-            // REQUIRES PRIVATE KEY
             tracing::info!("Submitting proof request from YAML file");
 
             submit_request(
@@ -692,7 +685,6 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             Ok(())
         }
         ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes, withdraw } => {
-            // REQUIRES PRIVATE KEY
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
             {
@@ -786,7 +778,6 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             }
         }
         ProvingCommands::Lock { request_id, request_digest, tx_hash } => {
-            // REQUIRES PRIVATE KEY
             tracing::info!("Locking proof request 0x{:x}", request_id);
 
             let order = client.fetch_order(*request_id, *tx_hash, *request_digest).await?;
