@@ -43,6 +43,7 @@ use std::{
     fs::File,
     io::BufReader,
     num::ParseIntError,
+    ops::Deref,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -409,6 +410,36 @@ struct MainArgs {
     config: GlobalConfig,
 }
 
+fn private_key_required(cmd: &Command) -> bool {
+    match cmd {
+        Command::Ops(cmd) => match cmd.deref() {
+            OpsCommands::Slash { .. } => true,
+        },
+        Command::Config { .. } => false,
+        Command::Account(cmd) => match cmd.deref() {
+            AccountCommands::Balance { .. } => false,
+            AccountCommands::Deposit { .. } => true,
+            AccountCommands::DepositStake { .. } => true,
+            AccountCommands::StakeBalance { .. } => false,
+            AccountCommands::Withdraw { .. } => true,
+            AccountCommands::WithdrawStake { .. } => true,
+        },
+        Command::Request(cmd) => match cmd.deref() {
+            RequestCommands::GetProof { .. } => false,
+            RequestCommands::Status { .. } => false,
+            RequestCommands::Submit { .. } => true,
+            RequestCommands::SubmitOffer { .. } => true,
+            RequestCommands::VerifyProof { .. } => false,
+        },
+        Command::Proving(cmd) => match cmd.deref() {
+            ProvingCommands::Benchmark { .. } => false,
+            ProvingCommands::Execute { .. } => false,
+            ProvingCommands::Fulfill { .. } => true,
+            ProvingCommands::Lock { .. } => true,
+        },
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = match MainArgs::try_parse() {
@@ -424,13 +455,6 @@ async fn main() -> Result<()> {
                 err.print()?;
                 return Ok(());
             }
-            if err.kind() == clap::error::ErrorKind::MissingRequiredArgument {
-                eprintln!("\nThe Boundless CLI requires certain configuration values, which can be provided either:");
-                eprintln!("1. As environment variables (PRIVATE_KEY, BOUNDLESS_MARKET_ADDRESS, VERIFIER_ADDRESS, SET_VERIFIER_ADDRESS)");
-                eprintln!("2. As command-line arguments (--private-key <KEY> --boundless-market-address <ADDR>  --verifier-address <ADDR> --set-verifier-address <ADDR>)");
-                eprintln!();
-            }
-
             return Err(err.into());
         }
     };
@@ -448,6 +472,12 @@ async fn main() -> Result<()> {
 }
 
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
+    if private_key_required(&args.command) && args.config.private_key.is_none() {
+        eprintln!("A private key is required to run this subcommand");
+        eprintln!("Please provide a private key with --private-key or the PRIVATE_KEY environment variable");
+        bail!("Private key required");
+    }
+
     // If the config command is being run, don't create a client.
     if let Command::Config {} = &args.command {
         return handle_config_command(args).await;
