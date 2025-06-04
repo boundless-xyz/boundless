@@ -319,4 +319,11 @@ export const createProverAlarms = (
   createErrorCodeAlarm('"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV1, {
     threshold: 3,
   }, { period: 300 });
+
+  //
+  // Reaper
+  //
+
+  // Any expired committed orders by the broker found triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-REAP-100]"', 'reaper-expired-orders-found', Severity.SEV2);
 }
