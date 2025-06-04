@@ -55,7 +55,7 @@ mod defaults {
     }
 
     pub const fn reaper_grace_period_secs() -> u32 {
-        30
+        240
     }
 }
 /// All configuration related to markets mechanics
