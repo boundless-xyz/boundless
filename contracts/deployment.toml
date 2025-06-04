@@ -23,22 +23,22 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 name = "Ethereum Sepolia [production]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
-version = "v0.7.0"
+version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-set-verifier = "0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"
-# deployed at block 8137095
-boundless-market = "0x006b92674E2A8d397884e293969f8eCD9f615f4C"
-stake-token = "0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9"
+set-verifier = "0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64"
+# deployed at block 8476627
+boundless-market = "0x13337C76fE2d1750246B68781ecEe164643b98Ec"
+stake-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
 
 # Guests info
-deployment-commit = "04ee417aa0cac149a0962125e44e899acb3122f4" # v0.7.0
-assessor-image-id = "0x9b914519efb6109de0507a63d5f32e8695bbe0efda1ec152df6fde5eb030a73b"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeif5523ugt54zotjpiqhaeiu4fhz2wrvcwa7m35vqmqahnhjxsvrky"
+deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
+assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
 
 ###
 
@@ -46,7 +46,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeif5523ugt54zotjpiq
 name = "Ethereum Sepolia [staging]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
-version = "v0.10.0"
+version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
@@ -69,22 +69,22 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 name = "Base Mainnet"
 id = 8453
 etherscan-url = "https://basescan.org/"
-version = "v0.9.0-rc.1"
+version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 
 # Contracts
-verifier = "0x95345209e34a7043ac5D92e82a35b63FFa088A20"
-set-verifier = "0xa8DB64c92c5E113984C790dDA91789132114BAda"
-# deployed at block 
-boundless-market = "0x581C7e8018f0888364c698f97F64eB069723131F"
+verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
+# deployed at block 31134603
+boundless-market = "0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"
 stake-token = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 # Guests info
-deployment-commit = "435e8c40aa832f2bac98ba54a809431e9f120ea7" # v0.9.0 main
-assessor-image-id = "0x9b914519efb6109de0507a63d5f32e8695bbe0efda1ec152df6fde5eb030a73b"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeif5523ugt54zotjpiqhaeiu4fhz2wrvcwa7m35vqmqahnhjxsvrky"
+deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
+assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
 
 ###
 
@@ -92,7 +92,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeif5523ugt54zotjpiq
 name = "Base Sepolia"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
-version = "v0.10.0"
+version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"

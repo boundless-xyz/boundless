@@ -99,19 +99,19 @@ impl Deployment {
 /// [Deployment] for the Sepolia testnet.
 pub const SEPOLIA: Deployment = Deployment {
     chain_id: Some(NamedChain::Sepolia as u64),
-    boundless_market_address: address!("0x006b92674E2A8d397884e293969f8eCD9f615f4C"),
+    boundless_market_address: address!("0x13337C76fE2d1750246B68781ecEe164643b98Ec"),
     verifier_router_address: Some(address!("0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187")),
-    set_verifier_address: address!("0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"),
-    stake_token_address: Some(address!("0xe5321cF13B07Bf6f6dD621E85E45C8e28adedCc9")),
+    set_verifier_address: address!("0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64"),
+    stake_token_address: Some(address!("0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238")),
     order_stream_url: Some(Cow::Borrowed("https://eth-sepolia.beboundless.xyz")),
 };
 
 /// [Deployment] for the Base mainnet.
 pub const BASE: Deployment = Deployment {
     chain_id: Some(NamedChain::Base as u64),
-    boundless_market_address: address!("0x581C7e8018f0888364c698f97F64eB069723131F"),
-    verifier_router_address: Some(address!("0x95345209e34a7043ac5D92e82a35b63FFa088A20")),
-    set_verifier_address: address!("0xa8DB64c92c5E113984C790dDA91789132114BAda"),
+    boundless_market_address: address!("0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"),
+    verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
+    set_verifier_address: address!("0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"),
     stake_token_address: Some(address!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")),
     order_stream_url: Some(Cow::Borrowed("https://base-mainnet.beboundless.xyz")),
 };
