@@ -307,28 +307,35 @@ contract BoundlessMarket is
 
         paymentError = new bytes[](fills.length);
 
+        // Create reverse lookup index for fills to any associated callback.
+        uint256[] memory fillToCallbackIndexPlusOne = new uint256[](fills.length);
+        uint256 callbacksLength = assessorReceipt.callbacks.length;
+        for (uint256 i = 0; i < callbacksLength; i++) {
+            AssessorCallback calldata callback = assessorReceipt.callbacks[i];
+            // Add one to the index such that zero indicates no callback.
+            fillToCallbackIndexPlusOne[callback.index] = i + 1;
+        }
+
         // NOTE: It could be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            paymentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
-        }
-
-        uint256 callbacksLength = assessorReceipt.callbacks.length;
-        for (uint256 i = 0; i < callbacksLength; i++) {
-            AssessorCallback calldata callback = assessorReceipt.callbacks[i];
-            Fulfillment calldata fill = fills[callback.index];
+            Fulfillment calldata fill = fills[i];
+            bool expired;
+            (paymentError[i], expired) = _fulfillAndPay(fill, assessorReceipt.prover);
 
             // Skip the callback if this fulfillment is related to an unlocked request. See the note
             // in _fulfillAndPay for more details. This check could potentially be optimized, as it
             // is duplicated in _fulfillAndPay.
-            FulfillmentContext memory context = FulfillmentContextLibrary.load(fill.requestDigest);
-            // DO NOT MERGE: This is now wrong, since we could reach here with an expired lock
-            if (context.expired) {
+            if (expired) {
                 continue;
             }
 
-            _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+            uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
+            if (callbackIndexPlusOne > 0) {
+                AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
+                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+            }
         }
     }
 
@@ -360,7 +367,10 @@ contract BoundlessMarket is
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address prover) internal returns (bytes memory paymentError) {
+    function _fulfillAndPay(Fulfillment calldata fill, address prover)
+        internal
+        returns (bytes memory paymentError, bool expired)
+    {
         RequestId id = fill.id;
         (address client, uint32 idx) = id.clientAndIndex();
         Account storage clientAccount = accounts[client];
@@ -385,14 +395,14 @@ contract BoundlessMarket is
             if (context.expired) {
                 paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
                 emit PaymentRequirementsFailed(paymentError);
-                return paymentError;
+                return (paymentError, true);
             }
         } else if (locked && lock.requestDigest == fill.requestDigest) {
             // Request was validated in lockRequest, check the expiration on the lock.
             if (lock.deadline() < block.timestamp) {
                 paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
                 emit PaymentRequirementsFailed(paymentError);
-                return paymentError;
+                return (paymentError, true);
             }
         } else {
             // Request is not validated by either price or lock step. We cannot determine the that
