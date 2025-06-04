@@ -142,21 +142,27 @@ interface IBoundlessMarket {
 
     /// @notice Error when unable to complete request because of insufficient balance.
     /// @param account The account with insufficient balance.
+    /// @dev selector 0x897f6c58
     error InsufficientBalance(address account);
 
     /// @notice Error when a signature did not pass verification checks.
+    /// @dev selector 0x8baa579f
     error InvalidSignature();
 
     /// @notice Error when a request is malformed or internally inconsistent.
+    /// @dev selector 0x41abc801
     error InvalidRequest();
 
     /// @notice Error when transfer of funds to an external address fails.
+    /// @dev selector 0x90b8ec18
     error TransferFailed();
 
     /// @notice Error when providing a seal with a different selector than required.
+    /// @dev selector 0xb8b38d4c
     error SelectorMismatch(bytes4 required, bytes4 provided);
 
     /// @notice Error when the batch size exceeds the limit.
+    /// @dev selector efc954a6
     error BatchSizeExceedsLimit(uint256 batchSize, uint256 limit);
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
