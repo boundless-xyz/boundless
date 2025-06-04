@@ -460,8 +460,8 @@ contract BoundlessMarket is
 
         // At this point the request has been fulfilled. The remaining logic determines whether
         // payment should be sent and to whom.
-        // While the request is locked, only the locker is eligible for payment.
-        if (lock.prover != assessorProver) {
+        // While the request is locked, only the locker is eligible for payment, and only for the request that was locked.
+        if (lock.prover != assessorProver || lock.requestDigest != fill.requestDigest) {
             return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
         }
         requestLocks[id].setProverPaidBeforeLockDeadline();
