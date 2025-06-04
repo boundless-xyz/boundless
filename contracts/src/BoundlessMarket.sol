@@ -399,7 +399,7 @@ contract BoundlessMarket is
             }
         } else if (locked) {
             if (lock.requestDigest == fill.requestDigest) {
-                // Request was validated in lockRequest, check the expiration on the lock.
+                // Request was validated in lockRequest, check whether the request is fully expired.
                 if (lock.deadline() < block.timestamp) {
                     paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
                     emit PaymentRequirementsFailed(paymentError);
