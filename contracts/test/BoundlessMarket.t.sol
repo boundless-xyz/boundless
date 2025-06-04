@@ -2809,9 +2809,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory requestB = client.request(1, offerB);
         bytes memory clientSignatureA = client.sign(requestA);
 
-        client.snapshotBalance();
-        testProver.snapshotBalance();
-
         // Lock-in request A.
         if (lockinMethod == LockRequestMethod.LockRequest) {
             vm.prank(testProverAddress);
@@ -2822,23 +2819,29 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             );
         }
 
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
         // Attempt to fill request B.
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+        (Fulfillment memory fillB, AssessorReceipt memory assessorReceiptB) =
             createFillAndSubmitRoot(requestB, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        Fulfillment[] memory fillsB = new Fulfillment[](1);
+        fillsB[0] = fillB;
 
         if (lockinMethod == LockRequestMethod.None) {
             // Annoying boilerplate for creating singleton lists.
-            // Here we price with request A and try to fill with request B.
-            ProofRequest[] memory requests = new ProofRequest[](1);
-            requests[0] = requestA;
+            // Here we price/lock with request A and try to fill with request B.
+            ProofRequest[] memory requestsA = new ProofRequest[](1);
+            requestsA[0] = requestA;
             bytes[] memory clientSignatures = new bytes[](1);
             clientSignatures[0] = clientSignatureA;
 
             vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestA.id));
-            boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+            boundlessMarket.priceAndFulfill(requestsA, clientSignatures, fillsB, assessorReceiptB);
+
+            expectRequestNotFulfilled(fillB.id);
         } else {
+            // Attempting to fulfill request B should revert, since it has never been seen onchain.
             vm.expectRevert(
                 abi.encodeWithSelector(
                     IBoundlessMarket.InvalidRequestFulfillment.selector,
@@ -2851,19 +2854,28 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                     )
                 )
             );
-            boundlessMarket.fulfill(fills, assessorReceipt);
+            boundlessMarket.fulfill(fillsB, assessorReceiptB);
+            expectRequestNotFulfilled(fillB.id);
+
+            // Attempting to price and fulfill with request B should return a
+            // payment error since request A is still locked.
+            ProofRequest[] memory requestsB = new ProofRequest[](1);
+            requestsB[0] = requestB;
+            bytes[] memory clientSignatures = new bytes[](1);
+            clientSignatures[0] = client.sign(requestB);
+
+            bytes[] memory paymentErrors =
+                boundlessMarket.priceAndFulfill(requestsB, clientSignatures, fillsB, assessorReceiptB);
+            assert(
+                keccak256(paymentErrors[0])
+                    == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, requestB.id))
+            );
+            expectRequestFulfilled(fillB.id);
         }
 
-        // Check that the request ID is not marked as fulfilled.
-        expectRequestNotFulfilled(fill.id);
-
-        if (lockinMethod == LockRequestMethod.None) {
-            client.expectBalanceChange(0 ether);
-            testProver.expectBalanceChange(0 ether);
-        } else {
-            client.expectBalanceChange(-1 ether);
-            testProver.expectStakeBalanceChange(-1 ether);
-        }
+        // No balance changes should have occurred after lockin.
+        client.expectBalanceChange(0 ether);
+        testProver.expectBalanceChange(0 ether);
         expectMarketBalanceUnchanged();
     }
 

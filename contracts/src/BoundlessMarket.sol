@@ -435,7 +435,7 @@ contract BoundlessMarket is
                     emit RequestFulfilled(id, prover, fill);
                 }
                 if (lock.lockDeadline >= block.timestamp) {
-                    paymentError = _payLocked(lock, id, prover);
+                    paymentError = _payLocked(lock, id, fill.requestDigest, prover);
                 } else {
                     // NOTE: If the request is not priced, the context will be all zeroes. We will have
                     // only reached this point if the request digest matches the lock, which is expired.
@@ -456,14 +456,14 @@ contract BoundlessMarket is
     /// @notice For a request that is currently locked. Transfers payment if eligible.
     /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
     /// If the request is currently locked, only the prover can fulfill it and receive payment
-    function _payLocked(RequestLock memory lock, RequestId id, address assessorProver)
+    function _payLocked(RequestLock memory lock, RequestId id, bytes32 requestDigest, address assessorProver)
         internal
         returns (bytes memory paymentError)
     {
         // At this point the request has been fulfilled. The remaining logic determines whether
         // payment should be sent and to whom.
-        // While the request is locked, only the locker is eligible for payment.
-        if (lock.prover != assessorProver) {
+        // While the request is locked, only the locker is eligible for payment, and only for the request that was locked.
+        if (lock.prover != assessorProver || lock.requestDigest != requestDigest) {
             return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
         }
         requestLocks[id].setProverPaidBeforeLockDeadline();
@@ -480,13 +480,10 @@ contract BoundlessMarket is
     /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
     /// If the request was locked, and now the lock has expired, and the request as a whole has not expired,
     /// anyone can fulfill it and receive payment.
-    function _payWasLocked(
-        RequestLock memory lock,
-        RequestId id,
-        address client,
-        uint96 price,
-        address assessorProver
-    ) internal returns (bytes memory paymentError) {
+    function _payWasLocked(RequestLock memory lock, RequestId id, address client, uint96 price, address assessorProver)
+        internal
+        returns (bytes memory paymentError)
+    {
         // Deduct any additionally owned funds from client account. The client was already charged
         // for the price at lock time once when the request was locked. We only need to charge any
         // additional price for the difference between the price of the fulfilled request, at the
