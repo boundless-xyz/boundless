@@ -405,7 +405,7 @@ contract BoundlessMarket is
                 return (paymentError, true);
             }
         } else {
-            // Request is not validated by either price or lock step. We cannot determine the that
+            // Request is not validated by either price or lock step. We cannot determine that the
             // request is authentic, so we revert.
             // NOTE: We could loosen this slightly, only reverting when the id indicates this is a
             // smart-contract authorized request. However, we'd need to handle the fact that we
