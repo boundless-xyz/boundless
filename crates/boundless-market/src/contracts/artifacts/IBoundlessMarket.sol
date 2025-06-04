@@ -99,7 +99,7 @@ interface IBoundlessMarket {
     /// @param requestId The ID of the request.
     error RequestIsLocked(RequestId requestId);
 
-    /// @notice Error when a request is not priced when it was required to be.
+    /// @notice Error when a request is not locked or priced during a fulfillment.
     /// Either locking the request, or calling the `IBoundlessMarket.priceRequest` function
     /// in the same transaction will satisfy this requirement.
     /// @param requestId The ID of the request.
@@ -131,6 +131,15 @@ interface IBoundlessMarket {
     /// @param requestId The ID of the request.
     /// @param deadline The deadline of the request.
     error RequestIsNotExpired(RequestId requestId, uint64 deadline);
+
+    /// @notice Error when request being fulfilled doesn't match the request that was locked.
+    /// @dev This can happen if a client signs multiple requests with the same ID (i.e. multiple
+    /// versions of the same request) and a prover locks one version but then tries to call fulfill
+    /// using a different version.
+    /// @param requestId The ID of the request.
+    /// @param provided The provided fingerprint.
+    /// @param locked The locked fingerprint.
+    error InvalidRequestFulfillment(RequestId requestId, bytes32 provided, bytes32 locked);
 
     /// @notice Error when unable to complete request because of insufficient balance.
     /// @param account The account with insufficient balance.

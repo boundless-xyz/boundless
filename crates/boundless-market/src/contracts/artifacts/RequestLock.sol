@@ -68,6 +68,9 @@ library RequestLockLibrary {
     function setProverPaidAfterLockDeadline(RequestLock storage requestLock, address prover) internal {
         requestLock.prover = prover;
         requestLock.requestLockFlags |= PROVER_PAID_AFTER_LOCK_FLAG;
+        // We don't zero out slot 1 as stake information is required for slashing.
+        // Zero out slot 2 for gas refund.
+        clearSlot2(requestLock);
     }
 
     function setSlashed(RequestLock storage requestLock) internal {
@@ -107,6 +110,13 @@ library RequestLockLibrary {
     /// @return True if the request is slashed, false otherwise.
     function isSlashed(RequestLock memory requestLock) internal pure returns (bool) {
         return requestLock.requestLockFlags & SLASHED_FLAG != 0;
+    }
+
+    function clearSlot2(RequestLock storage requestLock) private {
+        assembly {
+            let num := add(requestLock.slot, 2)
+            sstore(num, 0)
+        }
     }
 
     function clearSlot1And2(RequestLock storage requestLock) private {
