@@ -426,13 +426,22 @@ contract BoundlessMarket is
         // delivered proof (e.g. the first time `ProofDelivered` fires and the first time the
         // callback is called) the fulfilled flag is set.
         if (locked) {
-            if (lock.lockDeadline >= block.timestamp) {
-                paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill, fulfilled, prover);
+            // NOTE: If the prover is paid, the fulfilled flag must be set.
+            if (lock.isProverPaid()) {
+                paymentError = abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
             } else {
-                // NOTE: If the request is not priced, the context will be all zeroes. We will have
-                // only reached this point if the request digest matches the lock, which is expired.
-                // In this case, the price will be zero, which is correct.
-                paymentError = _fulfillAndPayWasLocked(lock, id, client, idx, context.price, fill, fulfilled, prover);
+                if (!fulfilled) {
+                    accounts[client].setRequestFulfilled(idx);
+                    emit RequestFulfilled(id, prover, fill);
+                }
+                if (lock.lockDeadline >= block.timestamp) {
+                    paymentError = _payLocked(lock, id, prover);
+                } else {
+                    // NOTE: If the request is not priced, the context will be all zeroes. We will have
+                    // only reached this point if the request digest matches the lock, which is expired.
+                    // In this case, the price will be zero, which is correct.
+                    paymentError = _payWasLocked(lock, id, client, context.price, prover);
+                }
             }
         } else {
             paymentError = _fulfillAndPayNeverLocked(id, client, idx, context.price, fill, fulfilled, prover);
@@ -444,28 +453,13 @@ contract BoundlessMarket is
         emit ProofDelivered(fill.id, prover, fill);
     }
 
-    /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.
+    /// @notice For a request that is currently locked. Transfers payment if eligible.
     /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
     /// If the request is currently locked, only the prover can fulfill it and receive payment
-    function _fulfillAndPayLocked(
-        RequestLock memory lock,
-        RequestId id,
-        address client,
-        uint32 idx,
-        Fulfillment calldata fill,
-        bool fulfilled,
-        address assessorProver
-    ) internal returns (bytes memory paymentError) {
-        // NOTE: If the prover is paid, the fulfilled flag must be set.
-        if (lock.isProverPaid()) {
-            return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
-        }
-
-        if (!fulfilled) {
-            accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
-        }
-
+    function _payLocked(RequestLock memory lock, RequestId id, address assessorProver)
+        internal
+        returns (bytes memory paymentError)
+    {
         // At this point the request has been fulfilled. The remaining logic determines whether
         // payment should be sent and to whom.
         // While the request is locked, only the locker is eligible for payment.
@@ -482,31 +476,17 @@ contract BoundlessMarket is
         accounts[assessorProver].stakeBalance += lock.stake;
     }
 
-    /// @notice For a request that was locked, and now the lock has expired. Marks the request as fulfilled,
-    /// and transfers payment if eligible.
+    /// @notice For a request that was locked, and now the lock has expired. Transfers payment if eligible.
     /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
     /// If the request was locked, and now the lock has expired, and the request as a whole has not expired,
     /// anyone can fulfill it and receive payment.
-    function _fulfillAndPayWasLocked(
+    function _payWasLocked(
         RequestLock memory lock,
         RequestId id,
         address client,
-        uint32 idx,
         uint96 price,
-        Fulfillment calldata fill,
-        bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
-        // NOTE: If the prover is paid, the fulfilled flag must be set.
-        if (lock.isProverPaid()) {
-            return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
-        }
-
-        if (!fulfilled) {
-            accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
-        }
-
         // Deduct any additionally owned funds from client account. The client was already charged
         // for the price at lock time once when the request was locked. We only need to charge any
         // additional price for the difference between the price of the fulfilled request, at the
