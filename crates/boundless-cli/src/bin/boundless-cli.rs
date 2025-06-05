@@ -1013,7 +1013,7 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
     let request = match (args.program.path.clone(), args.program.url.clone()) {
         (Some(path), None) => {
             if client.storage_provider.is_none() {
-                bail!("A storage provider is required to upload programs.\nPlease provide a storage provider (see --help for options) or upload yiour program and set --program-url.")
+                bail!("A storage provider is required to upload programs.\nPlease provide a storage provider (see --help for options) or upload your program and set --program-url.")
             }
             let program: Cow<'static, [u8]> = std::fs::read(&path)
                 .context(format!("Failed to read program file at {:?}", args.program))?
