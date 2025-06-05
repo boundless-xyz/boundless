@@ -15,7 +15,7 @@ config:
     secure: v1:6whQz1QLemakPyhf:HLLVSfo4o60VV3oSXINo0LDRxBFKMbka9V9O7Cbj+o6Pyw==
   order-stream:CHAIN_ID: "8453"
   order-stream:ALB_DOMAIN: base-mainnet.beboundless.xyz
-  #order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
-  #order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-stream:GH_TOKEN_SECRET:
     secure: v1:D52HhU0chwlCKf7T:bbm1yRhbfYUjBns0Hbrcab6q6B32kxAnLyw2zGgyqGIYFPHDXk6JwCy0jnSpAFTQ5I35R3lU+uNkYkYaQPZys5YwC/cJAcQSZNwbYI6IN83Gs1k/jC5ILtsw9QnHaoCJ8Z7Rim+SZLpR6eLXLA==

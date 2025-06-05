@@ -254,7 +254,7 @@ where
                         let prover_addr_str =
                             self.prover_addr.to_string().to_lowercase().replace("0x", "");
                         if e.to_string().contains("InsufficientBalance") {
-                            if e.to_string().contains(&prover_addr_str) {
+                            if e.to_string().to_lowercase().contains(&prover_addr_str) {
                                 OrderMonitorErr::InsufficientBalance
                             } else {
                                 OrderMonitorErr::LockTxFailed(format!(
@@ -262,11 +262,19 @@ where
                                     e
                                 ))
                             }
+                        } else if e.to_string().contains("RequestIsLocked") {
+                            OrderMonitorErr::AlreadyLocked
                         } else {
                             OrderMonitorErr::UnexpectedError(e)
                         }
                     }
-                    _ => OrderMonitorErr::UnexpectedError(e.into()),
+                    _ => {
+                        if e.to_string().contains("RequestIsLocked") {
+                            OrderMonitorErr::AlreadyLocked
+                        } else {
+                            OrderMonitorErr::UnexpectedError(e.into())
+                        }
+                    }
                 }
             })?;
 
