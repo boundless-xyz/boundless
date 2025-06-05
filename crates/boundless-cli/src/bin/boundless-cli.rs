@@ -112,14 +112,6 @@ enum Command {
     Config {},
 
     /// Print shell completions (e.g. for bash or zsh) to stdout.
-    ///
-    /// Bash:
-    ///
-    /// boundless-cli completions bash >> ~/.local/share/bash-completion/completions/boundless-cli
-    ///
-    /// Zsh:
-    ///
-    /// boundless-cli completions zsh > ~/.zfunc/_boundless-cli
     Completions { shell: Shell },
 }
 
