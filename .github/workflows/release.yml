@@ -60,11 +60,17 @@ jobs:
         run: cargo install boundless-cli --path crates/boundless-cli --locked
 
       - name: forge test
-        run: forge test -vvv --fork-url="$RPC_URL"
         env:
           CHAIN_KEY: ${{ github.event.inputs.chain_key }}
           FOUNDRY_PROFILE: deployment-test
-          RPC_URL: https://ethereum-sepolia-rpc.publicnode.com
+          RPC_URL: >-
+            ${{ github.event.inputs.chain_key == 'ethereum-sepolia-prod' && 'https://ethereum-sepolia-rpc.publicnode.com' ||
+                github.event.inputs.chain_key == 'ethereum-sepolia-staging' && 'https://ethereum-sepolia-rpc.publicnode.com' ||
+                github.event.inputs.chain_key == 'base-sepolia-prod' && 'https://base-sepolia.drpc.org' ||
+                github.event.inputs.chain_key == 'base-sepolia-staging' && 'https://base-sepolia.drpc.org' ||
+                github.event.inputs.chain_key == 'base-mainnet' && 'https://base.drpc.org' }}
+        run: forge test -vvv --fork-url="$RPC_URL"
+
 
       - name: sccache stats
         run: sccache --show-stats
