@@ -541,6 +541,9 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
         }
         AccountCommands::Balance { address } => {
             let addr = address.unwrap_or(client.boundless_market.caller());
+            if addr == Address::ZERO {
+                bail!("No address specified for balance query. Please provide an address or a private key.")
+            }
             tracing::info!("Checking balance for address {}", addr);
             let balance = client.boundless_market.balance_of(addr).await?;
             tracing::info!("Balance for address {}: {} ETH", addr, format_ether(balance));
@@ -589,6 +592,9 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             let symbol = client.boundless_market.stake_token_symbol().await?;
             let decimals = client.boundless_market.stake_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
+            if addr == Address::ZERO {
+                bail!("No address specified for stake balance query. Please provide an address or a private key.")
+            }
             tracing::info!("Checking stake balance for address {}", addr);
             let balance = client.boundless_market.balance_of_stake(addr).await?;
             let balance = format_units(balance, decimals)
