@@ -48,6 +48,10 @@ const DEVELOPERS_ITEMS = [
             link: "/developers/tutorials/request",
           },
           {
+            text: "Tracking your Request",
+            link: "/developers/tutorials/tracking",
+          },
+          {
             text: "Pricing a Request",
             link: "/developers/tutorials/pricing",
           },
@@ -270,8 +274,12 @@ export function generateSitemap() {
 }
 
 export default defineConfig({
+  banner: '🎉 Boundless is launching on Base for Mainnet Beta 🎉 Join the [Discord](https://discord.com/invite/boundlessxyz) and [claim the Dev role](https://guild.xyz/boundless-xyz) 🎉',
   logoUrl: "/logo.svg",
-  topNav: [{ text: "Boundless Explorer", link: "https://explorer.beboundless.xyz" }],
+  topNav: [
+    { text: "Explorer", link: "https://explorer.beboundless.xyz" },
+    { text: "Discord", link: "https://discord.gg/aXRuD6spez" }
+  ],
   font: {
     mono: {
       google: "Ubuntu Mono",
