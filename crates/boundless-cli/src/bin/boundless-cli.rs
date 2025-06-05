@@ -1443,7 +1443,7 @@ mod tests {
 
         let config = GlobalConfig {
             rpc_url: anvil.endpoint_url(),
-            private_key,
+            private_key: Some(private_key),
             deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
@@ -1886,7 +1886,7 @@ mod tests {
 
         let prover_config = GlobalConfig {
             rpc_url: anvil.endpoint_url(),
-            private_key: ctx.prover_signer.clone(),
+            private_key: Some(ctx.prover_signer.clone()),
             deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
@@ -2195,7 +2195,7 @@ mod tests {
 
         let prover_config = GlobalConfig {
             rpc_url: anvil.endpoint_url(),
-            private_key: ctx.prover_signer.clone(),
+            private_key: Some(ctx.prover_signer.clone()),
             deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
