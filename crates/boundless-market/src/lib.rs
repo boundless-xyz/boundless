@@ -84,5 +84,3 @@ pub use storage::{StandardStorageProvider, StorageProvider, StorageProviderConfi
 /// Utility functions and types used elsewhere.
 pub(crate) mod util;
 pub use util::NotProvided;
-#[cfg(not(target_os = "zkvm"))]
-pub use util::StandardRpcProvider;

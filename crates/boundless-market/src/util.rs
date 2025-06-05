@@ -12,16 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(not(target_os = "zkvm"))]
-use crate::{
-    balance_alerts_layer::BalanceAlertProvider, dynamic_gas_filler::DynamicGasFiller,
-    nonce_layer::NonceProvider,
-};
-#[cfg(not(target_os = "zkvm"))]
-use alloy::providers::fillers::{ChainIdFiller, JoinFill};
-#[cfg(not(target_os = "zkvm"))]
-use alloy::providers::{Identity, RootProvider};
-
 /// Type used in the [Client] and [StandardRequestBuilder] to indicate that the component in question is not provided.
 ///
 /// Note that this in an [uninhabited type] and cannot be instantiated. When used as
@@ -32,14 +22,6 @@ use alloy::providers::{Identity, RootProvider};
 /// [Client]: crate::client::Client
 #[derive(Copy, Clone, Debug)]
 pub enum NotProvided {}
-
-/// Alias for the [alloy] RPC provider used by the [StandardClient][crate::client::StandardClient]
-/// and [StandardRequestBuilder][crate::request_builder::StandardRequestBuilder]
-#[cfg(not(target_os = "zkvm"))]
-pub type StandardRpcProvider = NonceProvider<
-    JoinFill<JoinFill<Identity, ChainIdFiller>, DynamicGasFiller>,
-    BalanceAlertProvider<RootProvider>,
->;
 
 /// A very small utility function to get the current unix timestamp.
 // TODO(#379): Avoid drift relative to the chain's timestamps.
