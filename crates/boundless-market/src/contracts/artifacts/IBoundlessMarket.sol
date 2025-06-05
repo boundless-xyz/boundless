@@ -97,67 +97,72 @@ interface IBoundlessMarket {
 
     /// @notice Error when a request is locked when it was not required to be.
     /// @param requestId The ID of the request.
+    /// @dev selector 0xa9057651
     error RequestIsLocked(RequestId requestId);
 
     /// @notice Error when a request is not locked or priced during a fulfillment.
     /// Either locking the request, or calling the `IBoundlessMarket.priceRequest` function
     /// in the same transaction will satisfy this requirement.
     /// @param requestId The ID of the request.
+    /// @dev selector 0xc274d3e3
     error RequestIsNotLockedOrPriced(RequestId requestId);
 
     /// @notice Error when a request is not locked when it was required to be.
     /// @param requestId The ID of the request.
+    /// @dev selector d2be005d
     error RequestIsNotLocked(RequestId requestId);
 
     /// @notice Error when a request is fulfilled when it was not required to be.
     /// @param requestId The ID of the request.
+    /// @dev selector 0x1cfdeebb
     error RequestIsFulfilled(RequestId requestId);
 
     /// @notice Error when a request is slashed when it was not required to be.
     /// @param requestId The ID of the request.
+    /// @dev selector 0x64620c9a
     error RequestIsSlashed(RequestId requestId);
 
     /// @notice Error when a request lock is no longer valid, as the lock deadline has passed.
     /// @param requestId The ID of the request.
     /// @param lockDeadline The lock deadline of the request.
+    /// @dev selector 0xcfe6a8fd
     error RequestLockIsExpired(RequestId requestId, uint64 lockDeadline);
 
     /// @notice Error when a request is no longer valid, as the deadline has passed.
     /// @param requestId The ID of the request.
     /// @param deadline The deadline of the request.
+    /// @dev selector 0x873fd26b
     error RequestIsExpired(RequestId requestId, uint64 deadline);
 
     /// @notice Error when a request is still valid, as the deadline has yet to pass.
     /// @param requestId The ID of the request.
     /// @param deadline The deadline of the request.
+    /// @dev selector 0x79c66ab0
     error RequestIsNotExpired(RequestId requestId, uint64 deadline);
-
-    /// @notice Error when request being fulfilled doesn't match the request that was locked.
-    /// @dev This can happen if a client signs multiple requests with the same ID (i.e. multiple
-    /// versions of the same request) and a prover locks one version but then tries to call fulfill
-    /// using a different version.
-    /// @param requestId The ID of the request.
-    /// @param provided The provided fingerprint.
-    /// @param locked The locked fingerprint.
-    error InvalidRequestFulfillment(RequestId requestId, bytes32 provided, bytes32 locked);
 
     /// @notice Error when unable to complete request because of insufficient balance.
     /// @param account The account with insufficient balance.
+    /// @dev selector 0x897f6c58
     error InsufficientBalance(address account);
 
     /// @notice Error when a signature did not pass verification checks.
+    /// @dev selector 0x8baa579f
     error InvalidSignature();
 
     /// @notice Error when a request is malformed or internally inconsistent.
+    /// @dev selector 0x41abc801
     error InvalidRequest();
 
     /// @notice Error when transfer of funds to an external address fails.
+    /// @dev selector 0x90b8ec18
     error TransferFailed();
 
     /// @notice Error when providing a seal with a different selector than required.
+    /// @dev selector 0xb8b38d4c
     error SelectorMismatch(bytes4 required, bytes4 provided);
 
     /// @notice Error when the batch size exceeds the limit.
+    /// @dev selector efc954a6
     error BatchSizeExceedsLimit(uint256 batchSize, uint256 limit);
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
