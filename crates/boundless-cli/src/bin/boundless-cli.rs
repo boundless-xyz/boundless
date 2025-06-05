@@ -450,6 +450,7 @@ fn private_key_required(cmd: &Command) -> bool {
             ProvingCommands::Fulfill { .. } => true,
             ProvingCommands::Lock { .. } => true,
         },
+        Completions::Completions { .. } => false,
     }
 }
 
