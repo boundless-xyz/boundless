@@ -217,6 +217,14 @@ services:
       RPC_URL: ${RPC_URL}
       ORDER_STREAM_URL:
 
+      # TODO these env vars are temporary for handling cancellations. These should be removed when
+      # updated.
+      POSTGRES_HOST:
+      POSTGRES_DB:
+      POSTGRES_PORT:
+      POSTGRES_USER:
+      POSTGRES_PASS:
+
     entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --set-verifier-address ${SET_VERIFIER_ADDRESS} --boundless-market-address ${BOUNDLESS_MARKET_ADDRESS} --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
 volumes:
