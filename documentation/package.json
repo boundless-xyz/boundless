@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "prebuild": "run-p generate-link-previews generate-smart-contracts-docs",
-    "build": "vocs build",
+    "build": "vocs build && bun ./scripts/reindex.ts",
     "dev": "vocs dev",
     "check-links": "bun ./scripts/check-links.ts",
     "check-markdown": "remark . --quiet",
