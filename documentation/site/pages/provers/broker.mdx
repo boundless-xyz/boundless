@@ -81,20 +81,19 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 
 ### Benchmarking Bento
 
-First, start a bento cluster:
-
-```sh [Terminal]
-just bento
-
-# Or with an env file for configuration
-just bento .env.broker
-```
-
 Load environment variables for the target network:
 
 ```sh [Terminal]
-# For example, if using an env file
-source <(just env broker)
+# For example, to benchmark an order on testnet
+source <(just env testnet)
+
+# Load any other relevant env variables here, specifically `RPC_URL` and postgres env (if not default)
+```
+
+Start a bento cluster:
+
+```sh [Terminal]
+just bento
 ```
 
 Then, run the benchmark:
