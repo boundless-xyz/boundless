@@ -855,27 +855,15 @@ async fn benchmark(
     let mut worst_request_id = U256::ZERO;
 
     // Check if we can connect to PostgreSQL using environment variables
-    let pg_connection_available = std::env::var("POSTGRES_USER").is_ok()
-        && std::env::var("POSTGRES_PASSWORD").is_ok()
-        && std::env::var("POSTGRES_DB").is_ok();
-
-    let pg_pool = if pg_connection_available {
-        match create_pg_pool().await {
-            Ok(pool) => {
-                tracing::info!("Successfully connected to PostgreSQL database");
-                Some(pool)
-            }
-            Err(e) => {
-                tracing::warn!("Failed to connect to PostgreSQL database: {}", e);
-                None
-            }
+    let pg_pool = match create_pg_pool().await {
+        Ok(pool) => {
+            tracing::info!("Successfully connected to PostgreSQL database");
+            Some(pool)
         }
-    } else {
-        tracing::warn!(
-            "PostgreSQL environment variables not found, using client-side metrics only. \
-            This will be less accurate for smaller proofs."
-        );
-        None
+        Err(e) => {
+            tracing::warn!("Failed to connect to PostgreSQL database: {}", e);
+            None
+        }
     };
 
     for (idx, request_id) in request_ids.iter().enumerate() {
