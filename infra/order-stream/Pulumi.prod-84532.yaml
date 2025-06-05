@@ -7,13 +7,16 @@ config:
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:CHAIN_ID: "84532"
   order-stream:DOCKER_DIR: ../../
-  order-stream:DISABLE_CERT: true
+  order-stream:DISABLE_CERT: "true"
   order-stream:DOCKER_TAG: latest
   order-stream:MIN_BALANCE_RAW: "5000000"
   order-stream:ORDER_STREAM_PING_TIME: "100"
   order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-stream:RDS_PASSWORD:
     secure: v1:yYCKKgoPmB+laxMf:31lshzROk8GSqKSqfG3Myk5ULYuh0+3XHoYZpHBXunsIAQ==
+  order-stream:ALB_DOMAIN: base-sepolia.beboundless.xyz
   order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   order-stream:ETH_RPC_URL:
     secure: v1:ogzxPFpom2i3SXXM:wJp1GdDMDPPrIvh5YAZgRCGSpZhEuKMrvVX26UVCMvFInjbTwSyqV0/tAVLQcY2+SSz2npMHxP+vrwBDXeSQVdhKboFVepZ71X3EpNAXLzzQdNHAaxk=
+  order-stream:GH_TOKEN_SECRET:
+    secure: v1:B/cVPgf/vdUsn9kp:BH/zDWgPQXv1mp7eMOPOF516CSRJquPhqIXPywO8K1eOtHvZXmkpDbPxTEVyOR+/zrLIdEbfhnrHcOFY4/UvMppg7hcyhLUOD9uZGGz0hFu2QRtgSi+GB+Y9tAp9U50353gTrjnvH6osd76nhQ==
