@@ -20,7 +20,6 @@ use crate::{
     impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils::cancel_proof_and_fail_order,
     AggregationState, Batch, BatchStatus,
 };
 use thiserror::Error;
@@ -421,14 +420,15 @@ impl AggregatorService {
                     "[B-AGG-600] Order {} has expired during aggregation, marking as failed",
                     order.order_id
                 );
-                cancel_proof_and_fail_order(
-                    &self.prover,
-                    &self.db,
-                    &order.proof_id,
-                    &order.order_id,
-                    "Expired before aggregation",
-                )
-                .await;
+
+                if let Err(err) =
+                    self.db.set_order_failure(&order.order_id, "Expired before aggregation").await
+                {
+                    tracing::error!(
+                        "Failed to set order {} as failed before aggregation: {err}",
+                        order.order_id,
+                    );
+                }
             } else {
                 valid_orders.push(order);
             }
