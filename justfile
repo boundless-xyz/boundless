@@ -69,7 +69,7 @@ test-db action="setup":
     fi
 
 # Run all formatting and linting checks
-check: check-links check-license check-format check-clippy check-docs
+check: check-links check-license check-format check-clippy check-docs check-deployments
 
 # Check links in markdown files
 check-links:
@@ -79,6 +79,11 @@ check-links:
 # Check licenses
 check-license:
     @python license-check.py
+
+# Check deployments addresses
+check-deployments:
+    @echo "Checking deployment addresses..."
+    @python deployments-check.py
 
 # Check code formatting
 check-format:
