@@ -106,6 +106,12 @@ export class IndexerPipeline extends pulumi.ComponentResource {
       { dependsOn: [role] }
     );
 
+    const prodDeploymentBaseSepolia = new aws.codebuild.Project(
+      `${APP_NAME}-prod-84532-build`,
+      this.codeBuildProjectArgs(APP_NAME, "prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+      { dependsOn: [role] }
+    );
+
     const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
       pipelineType: "V2",
       artifactStores: [{
@@ -165,7 +171,7 @@ export class IndexerPipeline extends pulumi.ComponentResource {
           name: "DeployProduction",
           actions: [
             {
-              name: "ApproveDeployToProduction",
+              name: "ApproveDeployToProductionWave1",
               category: "Approval",
               owner: "AWS",
               provider: "Manual",
@@ -174,12 +180,34 @@ export class IndexerPipeline extends pulumi.ComponentResource {
               configuration: {}
             },
             {
-              name: "DeployProductionEthSepolia",
+              name: "DeployProductionBaseSepolia",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
               runOrder: 2,
+              configuration: {
+                ProjectName: prodDeploymentBaseSepolia.name
+              },
+              outputArtifacts: ["production_output_base_sepolia"],
+              inputArtifacts: ["source_output"],
+            },
+            {
+              name: "ApproveDeployToProductionWave2",
+              category: "Approval",
+              owner: "AWS",
+              provider: "Manual",
+              version: "1",
+              runOrder: 3,
+              configuration: {}
+            },
+            {
+              name: "DeployProductionEthSepolia",
+              category: "Build",
+              owner: "AWS",
+              provider: "CodeBuild",
+              version: "1",
+              runOrder: 4,
               configuration: {
                 ProjectName: prodDeploymentEthSepolia.name
               },
@@ -192,7 +220,7 @@ export class IndexerPipeline extends pulumi.ComponentResource {
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 2,
+              runOrder: 4,
               configuration: {
                 ProjectName: prodDeploymentBaseMainnet.name
               },
