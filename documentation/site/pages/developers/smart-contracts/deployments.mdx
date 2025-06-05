@@ -2,13 +2,14 @@
 
 ## Mainnets
 
-### Base Mainnet
+### Base
 
 | Contract Name            | Contract Address                                                                                                                            |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BoundlessMarket`        | `TODO` |
-| `SetVerifier`            | `TODO` |
-| `RiscZeroVerifierRouter` | `TODO` |
+| `BoundlessMarket`        | `0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8` [(basescan)](https://basescan.org/address/0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8)|
+| `RiscZeroVerifierRouter` | `0x0b144e07a0826182b6b59788c34b32bfa86fb711` [(basescan)](https://basescan.org/address/0x0b144e07a0826182b6b59788c34b32bfa86fb711) |
+| `SetVerifier`            | `0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760` [(basescan)](https://basescan.org/address/0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760)|
+| `StakeToken`            | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` [(basescan)](https://basescan.org/address/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)|
 
 ## Testnets
 
@@ -20,21 +21,34 @@ These addresses may change at any time!
 
 | Contract Name            | Contract Address                                                                                                                            |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BoundlessMarket`        | `TODO` |
-| `SetVerifier`            | `TODO` |
-| `RiscZeroVerifierRouter` | `TODO` |
+| `BoundlessMarket`        | `0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b` [(basescan)](https://sepolia.basescan.org/address/0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b)|
+| `RiscZeroVerifierRouter` | `0x0b144e07a0826182b6b59788c34b32bfa86fb711` [(basescan)](https://sepolia.basescan.org/address/0x0b144e07a0826182b6b59788c34b32bfa86fb711)|
+| `SetVerifier`            | `0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760` [(basescan)](https://sepolia.basescan.org/address/0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760) |
+| `StakeToken`            | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` [(basescan)](https://sepolia.basescan.org/address/0x036CbD53842c5426634e7929541eC2318f3dCF7e) |
 
 ### Ethereum Sepolia
 
 | Contract Name            | Contract Address                                                                                                                            |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BoundlessMarket`        | `0x006b92674E2A8d397884e293969f8eCD9f615f4C` [(etherscan)](https://sepolia.etherscan.io/address/0x006b92674E2A8d397884e293969f8eCD9f615f4C) |
-| `SetVerifier`            | `0xad2c6335191EA71Ffe2045A8d54b93A851ceca77` [(etherscan)](https://sepolia.etherscan.io/address/0xad2c6335191EA71Ffe2045A8d54b93A851ceca77) |
+| `BoundlessMarket`        | `0x13337C76fE2d1750246B68781ecEe164643b98Ec` [(etherscan)](https://sepolia.etherscan.io/address/0x13337C76fE2d1750246B68781ecEe164643b98Ec) |
 | `RiscZeroVerifierRouter` | `0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187` [(etherscan)](https://sepolia.etherscan.io/address/0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187) |
+| `SetVerifier`            | `0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64` [(etherscan)](https://sepolia.etherscan.io/address/0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64) |
+| `StakeToken`            | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` [(etherscan)](https://sepolia.etherscan.io/address/0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238) |
 
 ## Order Stream
 
 The Order Stream is a service that relays your requests to provers offchain.
 When a request is [submitted to the order stream](/developers/tutorials/request#6-submit-a-request), is is broadcast to all provers.
 
-On Ethereum Sepolia, the order stream is hosted `https://eth-sepolia.beboundless.xyz`.
+### Mainnets
+
+| Network          | Order Stream URL                              |
+| ---------------- | --------------------------------------------- |
+| Base Mainnet     | `https://base-mainnet.beboundless.xyz`        |
+
+### Testnets
+
+| Network          | Order Stream URL                              |
+| ---------------- | --------------------------------------------- |
+| Ethereum Sepolia | `https://eth-sepolia.beboundless.xyz`         |
+| Base Sepolia     | `https://base-sepolia.beboundless.xyz`        |
