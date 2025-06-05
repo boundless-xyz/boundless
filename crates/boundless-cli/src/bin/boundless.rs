@@ -931,7 +931,7 @@ async fn benchmark(
                 }
                 _ => {
                     let err_msg = status.error_msg.unwrap_or_default();
-                    bail!("snark proving failed: {err_msg}");
+                    bail!("stark proving failed: {err_msg}");
                 }
             }
         };

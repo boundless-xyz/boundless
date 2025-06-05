@@ -390,7 +390,7 @@ impl Prover for Bonsai {
                             }
                         };
                         if let Err(e) =
-                            sqlx::query("UPDATE jobs SET state = 'failed' WHERE id = $1")
+                            sqlx::query("UPDATE jobs SET state = 'failed' WHERE id = $1::uuid")
                                 .bind(proof_id)
                                 .execute(&mut *tx)
                                 .await
@@ -402,7 +402,7 @@ impl Prover for Bonsai {
                             )));
                         }
 
-                        if let Err(e) = sqlx::query("DELETE FROM task_deps WHERE job_id = $1")
+                        if let Err(e) = sqlx::query("DELETE FROM task_deps WHERE job_id = $1::uuid")
                             .bind(proof_id)
                             .execute(&mut *tx)
                             .await
@@ -414,7 +414,7 @@ impl Prover for Bonsai {
                             )));
                         }
 
-                        if let Err(e) = sqlx::query("DELETE FROM tasks WHERE job_id = $1")
+                        if let Err(e) = sqlx::query("DELETE FROM tasks WHERE job_id = $1::uuid")
                             .bind(proof_id)
                             .execute(&mut *tx)
                             .await
