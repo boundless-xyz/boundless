@@ -307,27 +307,35 @@ contract BoundlessMarket is
 
         paymentError = new bytes[](fills.length);
 
+        // Create reverse lookup index for fills to any associated callback.
+        uint256[] memory fillToCallbackIndexPlusOne = new uint256[](fills.length);
+        uint256 callbacksLength = assessorReceipt.callbacks.length;
+        for (uint256 i = 0; i < callbacksLength; i++) {
+            AssessorCallback calldata callback = assessorReceipt.callbacks[i];
+            // Add one to the index such that zero indicates no callback.
+            fillToCallbackIndexPlusOne[callback.index] = i + 1;
+        }
+
         // NOTE: It could be slightly more efficient to keep balances and request flags in memory until a single
         // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
         // this savings is marginal, and will be outweighed by complicated memory management if not careful.
         for (uint256 i = 0; i < fills.length; i++) {
-            paymentError[i] = _fulfillAndPay(fills[i], assessorReceipt.prover);
-        }
-
-        uint256 callbacksLength = assessorReceipt.callbacks.length;
-        for (uint256 i = 0; i < callbacksLength; i++) {
-            AssessorCallback memory callback = assessorReceipt.callbacks[i];
-            Fulfillment calldata fill = fills[callback.index];
+            Fulfillment calldata fill = fills[i];
+            bool expired;
+            (paymentError[i], expired) = _fulfillAndPay(fill, assessorReceipt.prover);
 
             // Skip the callback if this fulfillment is related to an unlocked request. See the note
             // in _fulfillAndPay for more details. This check could potentially be optimized, as it
             // is duplicated in _fulfillAndPay.
-            FulfillmentContext memory context = FulfillmentContextLibrary.load(fill.requestDigest);
-            if (context.expired) {
+            if (expired) {
                 continue;
             }
 
-            _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+            uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
+            if (callbackIndexPlusOne > 0) {
+                AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
+                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+            }
         }
     }
 
@@ -359,27 +367,50 @@ contract BoundlessMarket is
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address prover) internal returns (bytes memory paymentError) {
+    function _fulfillAndPay(Fulfillment calldata fill, address prover)
+        internal
+        returns (bytes memory paymentError, bool expired)
+    {
         RequestId id = fill.id;
         (address client, uint32 idx) = id.clientAndIndex();
         Account storage clientAccount = accounts[client];
         (bool locked, bool fulfilled) = clientAccount.requestFlags(idx);
 
-        // Before other processing logic, check whether the request is marked as expired, from
-        // execution of the price request function. We do not emit the ProofDelivered event, and we
-        // do not issue a callback. This makes interpretation of the ProofDelivered events simpler,
-        // as they cannot be emitted for an expired request.
-        //
-        // Note that this will be true if and only if the request with the given digest is both
-        // valid (i.e. signed and internally consistent) and expired. If the request has not been
-        // priced (e.g. it is currently locked, and so a call to priceRequest was not required; or
-        // the request is invalid) then this bit will not be set. If request is not locked, and
-        // the valid bit is not set, the fulfillAndPayX functions will revert.
+        // Fetch the lock and fulfillment information.
+        // NOTE: The `lock` should only be used in code paths where locked is true.
+        RequestLock memory lock;
+        if (locked) {
+            lock = requestLocks[id];
+        }
         FulfillmentContext memory context = FulfillmentContextLibrary.load(fill.requestDigest);
-        if (context.expired) {
-            paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
-            emit PaymentRequirementsFailed(paymentError);
-            return paymentError;
+
+        // First, check whether the request is known to be a valid signed request, and whether it is
+        // expired. If the request cannot be authenticated, revert.
+        //
+        // In the expired case, we return early here. We do not emit the ProofDelivered event, and
+        // we do not issue a callback. This makes interpretation of the ProofDelivered events
+        // simpler, as they cannot be emitted for an expired request.
+        if (context.valid) {
+            // Request has been validated in priceRequest, check the reported expiration.
+            if (context.expired) {
+                paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
+                emit PaymentRequirementsFailed(paymentError);
+                return (paymentError, true);
+            }
+        } else if (locked && lock.requestDigest == fill.requestDigest) {
+            // Request was validated in lockRequest, check whether the request is fully expired.
+            if (lock.deadline() < block.timestamp) {
+                paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
+                emit PaymentRequirementsFailed(paymentError);
+                return (paymentError, true);
+            }
+        } else {
+            // Request is not validated by either price or lock step. We cannot determine that the
+            // request is authentic, so we revert.
+            // NOTE: We could loosen this slightly, only reverting when the id indicates this is a
+            // smart-contract authorized request. However, we'd need to handle the fact that we
+            // don't have a FulfillmentContext on this code path.
+            revert RequestIsNotLockedOrPriced(id);
         }
 
         // NOTE: Every code path past this point must ensure the `fulfilled` flag is set, or
@@ -387,14 +418,16 @@ contract BoundlessMarket is
         // delivered proof (e.g. the first time `ProofDelivered` fires and the first time the
         // callback is called) the fulfilled flag is set.
         if (locked) {
-            RequestLock memory lock = requestLocks[id];
             if (lock.lockDeadline >= block.timestamp) {
                 paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill, fulfilled, prover);
             } else {
-                paymentError = _fulfillAndPayWasLocked(lock, context, id, client, idx, fill, fulfilled, prover);
+                // NOTE: If the request is not priced, the context will be all zeroes. We will have
+                // only reached this point if the request digest matches the lock, which is expired.
+                // In this case, the price will be zero, which is correct.
+                paymentError = _fulfillAndPayWasLocked(lock, id, client, idx, context.price, fill, fulfilled, prover);
             }
         } else {
-            paymentError = _fulfillAndPayNeverLocked(context, id, client, idx, fill, fulfilled, prover);
+            paymentError = _fulfillAndPayNeverLocked(id, client, idx, context.price, fill, fulfilled, prover);
         }
 
         if (paymentError.length > 0) {
@@ -415,12 +448,6 @@ contract BoundlessMarket is
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
-        // NOTE: We check this before checking fulfillment status to maintain the invariant that
-        // the transaction will revert if the delivered proof is not associated with a valid request.
-        if (lock.requestDigest != fill.requestDigest) {
-            revert InvalidRequestFulfillment({requestId: id, provided: fill.requestDigest, locked: lock.requestDigest});
-        }
-
         // NOTE: If the prover is paid, the fulfilled flag must be set.
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
@@ -433,8 +460,8 @@ contract BoundlessMarket is
 
         // At this point the request has been fulfilled. The remaining logic determines whether
         // payment should be sent and to whom.
-        // While the request is locked, only the locker is eligible for payment.
-        if (lock.prover != assessorProver) {
+        // While the request is locked, only the locker is eligible for payment, and only for the request that was locked.
+        if (lock.prover != assessorProver || lock.requestDigest != fill.requestDigest) {
             return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
         }
         requestLocks[id].setProverPaidBeforeLockDeadline();
@@ -454,26 +481,14 @@ contract BoundlessMarket is
     /// anyone can fulfill it and receive payment.
     function _fulfillAndPayWasLocked(
         RequestLock memory lock,
-        FulfillmentContext memory context,
         RequestId id,
         address client,
         uint32 idx,
+        uint96 price,
         Fulfillment calldata fill,
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
-        // If no fulfillment context was stored for this request digest (via priceRequest),
-        // then payment cannot be processed. This check also serves as a smart
-        // contract signature check, since signatures are validated when a
-        // request is priced.
-        //
-        // NOTE: We check this before checking fulfillment status to maintain the invariant that
-        // the transaction will revert if the delivered proof is not associated with a valid request.
-        if (!context.valid) {
-            revert RequestIsNotPriced(id);
-        }
-
-        uint96 price = context.price;
         // NOTE: If the prover is paid, the fulfilled flag must be set.
         if (lock.isProverPaid()) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
@@ -491,7 +506,7 @@ contract BoundlessMarket is
         //
         // Note that although they have the same ID, the locked request and the fulfilled request
         // could be different. If the request fulfilled is the same as the one locked, the
-        // `context.price` will be zero and the entire fee on the lock will be returned to the client.
+        // price will be zero and the entire fee on the lock will be returned to the client.
         Account storage clientAccount = accounts[client];
 
         // If the request has the same id, but is different to the request that was locked, the fulfillment
@@ -523,29 +538,17 @@ contract BoundlessMarket is
     /// @dev If a never locked request is fulfilled, but client has not enough funds to cover the payment, no
     /// payment can ever be rendered for this order in the future.
     function _fulfillAndPayNeverLocked(
-        FulfillmentContext memory context,
         RequestId id,
         address client,
         uint32 idx,
+        uint96 price,
         Fulfillment calldata fill,
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
-        // If no fulfillment context was stored for this request digest (via priceRequest),
-        // then payment cannot be processed. This check also serves as a smart
-        // contract signature check, since signatures are validated when a
-        // request is priced.
-        //
-        // NOTE: We check this before checking fulfillment status to maintain the invariant that
-        // the transaction will revert if the delivered proof is not associated with a valid request.
-        if (!context.valid) {
-            revert RequestIsNotPriced(id);
-        }
-
-        uint96 price = context.price;
-
-        // When never locked, the fulfilled flag _does_ indicate that payment has already been transferred,
-        // so we return early here.
+        // When never locked, the fulfilled flag _does_ indicate that we alrady attempted to
+        // transfer payment (which will only fail in the InsufficientBalance case below) so we
+        // return early here.
         if (fulfilled) {
             return abi.encodeWithSelector(RequestIsFulfilled.selector, RequestId.unwrap(id));
         }
@@ -555,6 +558,8 @@ contract BoundlessMarket is
         emit RequestFulfilled(id, assessorProver, fill);
 
         // Deduct the funds from client account.
+        // NOTE: In the case of InsufficientBalance, the payment can never be transferred in the
+        // future. This is a simplifying choice.
         if (clientAccount.balance < price) {
             return abi.encodeWithSelector(InsufficientBalance.selector, client);
         }
