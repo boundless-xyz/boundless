@@ -547,7 +547,7 @@ impl RequestParams {
         let mut requirements = self.requirements;
         requirements.selector = match risc0_zkvm::is_dev_mode() {
             true => Some((Selector::FakeReceipt as u32).into()),
-            false => Some((Selector::Groth16V2_0 as u32).into()),
+            false => Some((Selector::Groth16V2_1 as u32).into()),
         };
         Self { requirements, ..self }
     }

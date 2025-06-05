@@ -1082,7 +1082,7 @@ mod tests {
             .await;
 
         // set a Groth16 selector
-        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_0 as u32);
+        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_1 as u32);
         let request_id = order.request.id;
 
         let _request_id =

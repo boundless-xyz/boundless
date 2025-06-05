@@ -90,12 +90,11 @@ jobs:
         with:
           version: ${{ env.FOUNDRY_VERSION }}
 
-      - name: install cargo-sort
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+      - name: Install cargo-sort
+        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
         with:
           crate: cargo-sort
-          version: "=1.0.9"
-          locked: true
+          version: "1.0"
 
       - name: cargo Sort
         run: cargo sort --workspace --check
@@ -372,13 +371,12 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: install cargo-sort
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+      
+      - name: Install cargo-sort
+        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
         with:
           crate: cargo-sort
-          version: "=1.0.9"
-          locked: true
+          version: "1.0"
 
       - name: cargo Sort
         run: cargo sort --workspace --check
