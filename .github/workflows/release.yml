@@ -66,9 +66,9 @@ jobs:
           RPC_URL: >-
             ${{ github.event.inputs.chain_key == 'ethereum-sepolia-prod' && 'https://ethereum-sepolia-rpc.publicnode.com' ||
                 github.event.inputs.chain_key == 'ethereum-sepolia-staging' && 'https://ethereum-sepolia-rpc.publicnode.com' ||
-                github.event.inputs.chain_key == 'base-sepolia-prod' && 'https://base-sepolia.drpc.org' ||
-                github.event.inputs.chain_key == 'base-sepolia-staging' && 'https://base-sepolia.drpc.org' ||
-                github.event.inputs.chain_key == 'base-mainnet' && 'https://base.drpc.org' }}
+                github.event.inputs.chain_key == 'base-sepolia-prod' && 'https://base-sepolia-rpc.publicnode.com' ||
+                github.event.inputs.chain_key == 'base-sepolia-staging' && 'https://base-sepolia-rpc.publicnode.com' ||
+                github.event.inputs.chain_key == 'base-mainnet' && 'https://base-rpc.publicnode.com' }}
         run: forge test -vvv --fork-url="$RPC_URL"
 
 
