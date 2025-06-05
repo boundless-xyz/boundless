@@ -28,6 +28,15 @@ env:
 jobs:
   deployment:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
+    env:
+    RPC_MAP: |
+      {
+        "ethereum-sepolia-prod": "https://ethereum-sepolia-rpc.publicnode.com",
+        "ethereum-sepolia-staging": "https://ethereum-sepolia-rpc.publicnode.com",
+        "base-sepolia-prod": "https://base-sepolia-rpc.publicnode.com",
+        "base-sepolia-staging": "https://base-sepolia-rpc.publicnode.com",
+        "base-mainnet": "https://base-rpc.publicnode.com"
+      }
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -63,12 +72,7 @@ jobs:
         env:
           CHAIN_KEY: ${{ github.event.inputs.chain_key }}
           FOUNDRY_PROFILE: deployment-test
-          RPC_URL: >-
-            ${{ github.event.inputs.chain_key == 'ethereum-sepolia-prod' && 'https://ethereum-sepolia-rpc.publicnode.com' ||
-                github.event.inputs.chain_key == 'ethereum-sepolia-staging' && 'https://ethereum-sepolia-rpc.publicnode.com' ||
-                github.event.inputs.chain_key == 'base-sepolia-prod' && 'https://base-sepolia-rpc.publicnode.com' ||
-                github.event.inputs.chain_key == 'base-sepolia-staging' && 'https://base-sepolia-rpc.publicnode.com' ||
-                github.event.inputs.chain_key == 'base-mainnet' && 'https://base-rpc.publicnode.com' }}
+          RPC_URL: ${{ fromJson(env.RPC_MAP)[github.event.inputs.chain_key] }}
         run: forge test -vvv --fork-url="$RPC_URL"
 
 
