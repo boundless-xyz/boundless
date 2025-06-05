@@ -1555,16 +1555,28 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Fulfillment[] memory fills = new Fulfillment[](1);
         fills[0] = fill;
 
-        // Try both fulfillment paths.
+        // Try the priceAndFulfill path.
         bytes[] memory paymentErrors =
             boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         assert(
             keccak256(paymentErrors[0])
                 == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id))
         );
+        expectRequestNotFulfilled(fill.id);
 
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        // Client is out 1 eth until slash is called.
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(0 ether);
+        testProver.expectStakeBalanceChange(-1 ether);
+        expectMarketBalanceUnchanged();
+
+        // Try the fulfill path as well. Should be the same results.
+        paymentErrors = boundlessMarket.fulfill(fills, assessorReceipt);
+        assert(
+            keccak256(paymentErrors[0])
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id))
+        );
+        expectRequestNotFulfilled(fill.id);
 
         // Client is out 1 eth until slash is called.
         client.expectBalanceChange(-1 ether);
@@ -2151,8 +2163,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         Fulfillment[] memory fills = new Fulfillment[](1);
         fills[0] = fill;
 
-        // Fulfill should revert as the request is not priced, and pricing is where signatures are checked.
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
+        // Fulfill should succeed even though the lock has expired when the request matches what was locked.
         boundlessMarket.fulfill(fills, assessorReceipt);
 
         ProofRequest[] memory requests = new ProofRequest[](1);
@@ -2160,6 +2171,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory clientSignatures = new bytes[](1);
         clientSignatures[0] = invalidClientSignature;
         // Fulfill should revert during the signature check during pricing, since the signature is invalid.
+        // NOTE: This should revert, even though we know the request was signed previously because
+        // of signature validation during the lock operation, because the signature in this call is
+        // invalid. As a principle, all data in a message must be validated, even if the data given
+        // is superfluous.
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidSignature.selector));
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
 
@@ -2216,7 +2231,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         // Attempt to fulfill a request without locking or pricing it.
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, request.id));
         boundlessMarket.fulfill(fills, assessorReceipt);
 
         expectMarketBalanceUnchanged();
@@ -2252,7 +2267,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         );
         expectRequestNotFulfilled(fill.id);
 
-        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, request.id));
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, request.id));
         boundlessMarket.fulfill(fills, assessorReceipt);
 
         expectRequestNotFulfilled(fill.id);
@@ -2794,9 +2809,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory requestB = client.request(1, offerB);
         bytes memory clientSignatureA = client.sign(requestA);
 
-        client.snapshotBalance();
-        testProver.snapshotBalance();
-
         // Lock-in request A.
         if (lockinMethod == LockRequestMethod.LockRequest) {
             vm.prank(testProverAddress);
@@ -2807,48 +2819,52 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             );
         }
 
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
         // Attempt to fill request B.
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+        (Fulfillment memory fillB, AssessorReceipt memory assessorReceiptB) =
             createFillAndSubmitRoot(requestB, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        Fulfillment[] memory fillsB = new Fulfillment[](1);
+        fillsB[0] = fillB;
 
         if (lockinMethod == LockRequestMethod.None) {
             // Annoying boilerplate for creating singleton lists.
-            // Here we price with request A and try to fill with request B.
-            ProofRequest[] memory requests = new ProofRequest[](1);
-            requests[0] = requestA;
+            // Here we price/lock with request A and try to fill with request B.
+            ProofRequest[] memory requestsA = new ProofRequest[](1);
+            requestsA[0] = requestA;
             bytes[] memory clientSignatures = new bytes[](1);
             clientSignatures[0] = clientSignatureA;
 
-            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotPriced.selector, requestA.id));
-            boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestA.id));
+            boundlessMarket.priceAndFulfill(requestsA, clientSignatures, fillsB, assessorReceiptB);
+
+            expectRequestNotFulfilled(fillB.id);
         } else {
-            vm.expectRevert(
-                abi.encodeWithSelector(
-                    IBoundlessMarket.InvalidRequestFulfillment.selector,
-                    requestA.id,
-                    MessageHashUtils.toTypedDataHash(
-                        boundlessMarket.eip712DomainSeparator(), ProofRequestLibrary.eip712Digest(requestB)
-                    ),
-                    MessageHashUtils.toTypedDataHash(
-                        boundlessMarket.eip712DomainSeparator(), ProofRequestLibrary.eip712Digest(requestA)
-                    )
-                )
+            // Attempting to fulfill request B should revert, since it has never been seen onchain.
+            vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestA.id));
+            boundlessMarket.fulfill(fillsB, assessorReceiptB);
+            expectRequestNotFulfilled(fillB.id);
+
+            // Attempting to price and fulfill with request B should return a
+            // payment error since request A is still locked.
+            ProofRequest[] memory requestsB = new ProofRequest[](1);
+            requestsB[0] = requestB;
+            bytes[] memory clientSignatures = new bytes[](1);
+            clientSignatures[0] = client.sign(requestB);
+
+            bytes[] memory paymentErrors =
+                boundlessMarket.priceAndFulfill(requestsB, clientSignatures, fillsB, assessorReceiptB);
+            assert(
+                keccak256(paymentErrors[0])
+                    == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, requestB.id))
             );
-            boundlessMarket.fulfill(fills, assessorReceipt);
+            expectRequestFulfilled(fillB.id);
         }
 
-        // Check that the request ID is not marked as fulfilled.
-        expectRequestNotFulfilled(fill.id);
-
-        if (lockinMethod == LockRequestMethod.None) {
-            client.expectBalanceChange(0 ether);
-            testProver.expectBalanceChange(0 ether);
-        } else {
-            client.expectBalanceChange(-1 ether);
-            testProver.expectStakeBalanceChange(-1 ether);
-        }
+        // No balance changes should have occurred after lockin.
+        client.expectBalanceChange(0 ether);
+        testProver.expectBalanceChange(0 ether);
         expectMarketBalanceUnchanged();
     }
 
@@ -3539,6 +3555,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             createFillAndSubmitRoot(requestB, APP_JOURNAL, testProverAddress);
         Fulfillment[] memory fills = new Fulfillment[](1);
         fills[0] = fill;
+
+        // Since the request being fulfilled is distinct from the one that was locked, the
+        // transaction should revert if the request is not priced before fulfillment.
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestB.id));
+        boundlessMarket.fulfill(fills, assessorReceipt);
 
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(requestB.id, testProverAddress, fill);

@@ -535,7 +535,7 @@ async fn handle_account_command(
                     if e.to_string().contains("TRANSFER_FROM_FAILED") {
                         let addr = client.boundless_market.caller();
                         Err(anyhow!(
-                            "Failed to deposit stake: Ensure your address ({}) has funds on the HP contract", addr
+                            "Failed to deposit stake: Ensure your address ({}) has funds on the {symbol} contract", addr
                         ))
                     } else {
                         Err(anyhow!("Failed to deposit stake: {}", e))

@@ -518,12 +518,14 @@ where
                             match err {
                                 OrderMonitorErr::UnexpectedError(inner) => {
                                     tracing::error!(
-                                        "Failed to lock order: {order_id} - {inner:?}",
+                                        "Failed to lock order: {order_id} - {} - {inner:?}",
+                                        err.code()
                                     );
                                 }
                                 _ => {
                                     tracing::warn!(
-                                        "Soft failed to lock request: {order_id} - {err:?}",
+                                        "Soft failed to lock request: {order_id} - {} - {err:?}",
+                                        err.code()
                                     );
                                 }
                             }
