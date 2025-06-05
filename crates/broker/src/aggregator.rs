@@ -417,7 +417,7 @@ impl AggregatorService {
         for order in orders {
             if order.expiration < current_time {
                 tracing::warn!(
-                    "Order {} has expired during aggregation, marking as failed",
+                    "[B-AGG-600] Order {} has expired during aggregation, marking as failed",
                     order.order_id
                 );
                 if let Err(err) =

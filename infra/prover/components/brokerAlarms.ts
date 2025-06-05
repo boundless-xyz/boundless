@@ -283,6 +283,11 @@ export const createProverAlarms = (
     threshold: 3,
   }, { period: 300 });
 
+  // An edge case to expire in the aggregator, also indicates that a slashed order.
+  createErrorCodeAlarm('"[B-AGG-600]"', 'aggregator-order-expired', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 3600 });
+
   //
   // Proving engine
   //
