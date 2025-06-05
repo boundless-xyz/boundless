@@ -62,8 +62,8 @@ use alloy::{
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
-use clap::{Args, Parser, Subcommand, CommandFactory};
-use clap_complete::aot::{Shell};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
@@ -111,7 +111,7 @@ enum Command {
     /// Display configuration and environment variables
     Config {},
 
-    /// Print shell completions (e.g. for bash or zsh) to stdout. 
+    /// Print shell completions (e.g. for bash or zsh) to stdout.
     ///
     /// Bash:
     ///
@@ -498,9 +498,14 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     }
     if let Command::Completions { shell } = &args.command {
         // TODO: Because of where this is, running the completions command requires an RPC_URL to
-        // be set. We should address this, but its also not a major issue. 
-        clap_complete::generate(*shell, &mut MainArgs::command(), "boundless-cli", &mut std::io::stdout());
-        return Ok(())
+        // be set. We should address this, but its also not a major issue.
+        clap_complete::generate(
+            *shell,
+            &mut MainArgs::command(),
+            "boundless-cli",
+            &mut std::io::stdout(),
+        );
+        return Ok(());
     }
 
     let storage_config = match args.command {
