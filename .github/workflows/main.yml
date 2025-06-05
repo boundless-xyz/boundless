@@ -77,14 +77,17 @@ jobs:
           python-version: "3.10"
 
       - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      
       - uses: risc0/risc0/.github/actions/sccache@352dea62857ba57331053cd0986a12c1a4708732
         with:
           key: ${{ matrix.os }}-${{ matrix.feature }}
+      
       - uses: ./.github/actions/cargo-risczero-install
         with:
           ref: ${{ env.RISC0_MONOREPO_REF }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
           features: ${{ matrix.feature }}
+      
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
