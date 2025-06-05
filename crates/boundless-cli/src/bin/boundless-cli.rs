@@ -57,7 +57,8 @@ use alloy::{
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, CommandFactory};
+use clap_complete::aot::{Shell};
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
@@ -104,6 +105,17 @@ enum Command {
 
     /// Display configuration and environment variables
     Config {},
+
+    /// Print shell completions (e.g. for bash or zsh) to stdout. 
+    ///
+    /// Bash:
+    ///
+    /// rustup completions bash >> ~/.local/share/bash-completion/completions/boundless-cli
+    ///
+    /// Zsh:
+    ///
+    /// boundless-cli completions zsh > ~/.zfunc/_boundless-cli
+    Completions { shell: Shell },
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -447,6 +459,10 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     if let Command::Config {} = &args.command {
         return handle_config_command(args).await;
     }
+    if let Command::Completions { shell } = &args.command {
+        clap_complete::generate(*shell, &mut MainArgs::command(), "boundless-cli", &mut std::io::stdout());
+        return Ok(())
+    }
 
     let storage_config = match args.command {
         Command::Request(ref req_cmd) => match **req_cmd {
@@ -474,6 +490,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, args, client).await,
         Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
         Command::Config {} => unreachable!(),
+        Command::Completions { .. } => unreachable!(),
     }
 }
 
