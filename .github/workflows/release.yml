@@ -29,14 +29,14 @@ jobs:
   deployment:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
     env:
-    RPC_MAP: |
-      {
-        "ethereum-sepolia-prod": "https://ethereum-sepolia-rpc.publicnode.com",
-        "ethereum-sepolia-staging": "https://ethereum-sepolia-rpc.publicnode.com",
-        "base-sepolia-prod": "https://base-sepolia-rpc.publicnode.com",
-        "base-sepolia-staging": "https://base-sepolia-rpc.publicnode.com",
-        "base-mainnet": "https://base-rpc.publicnode.com"
-      }
+      RPC_MAP: |
+        {
+          "ethereum-sepolia-prod": "https://ethereum-sepolia-rpc.publicnode.com",
+          "ethereum-sepolia-staging": "https://ethereum-sepolia-rpc.publicnode.com",
+          "base-sepolia-prod": "https://base-sepolia-rpc.publicnode.com",
+          "base-sepolia-staging": "https://base-sepolia-rpc.publicnode.com",
+          "base-mainnet": "https://base-rpc.publicnode.com"
+        }
     steps:
       - name: checkout code
         uses: actions/checkout@v4
