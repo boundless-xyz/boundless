@@ -10,6 +10,7 @@ use bonsai_sdk::{
     SdkErr,
 };
 use risc0_zkvm::Receipt;
+use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
 use crate::{config::ProverConf, futures_retry::retry_only};
@@ -18,12 +19,19 @@ use crate::{
     futures_retry::retry,
 };
 
+#[derive(Debug, Clone, Copy)]
+enum ProverType {
+    Bonsai,
+    Bento,
+}
+
 pub struct Bonsai {
     client: BonsaiClient,
     req_retry_sleep_ms: u64,
     req_retry_count: u64,
     status_poll_ms: u64,
     status_poll_retry_count: u64,
+    prover_type: ProverType,
 }
 
 impl Bonsai {
@@ -45,12 +53,15 @@ impl Bonsai {
             )
         };
 
+        let prover_type = if api_key.is_empty() { ProverType::Bento } else { ProverType::Bonsai };
+
         Ok(Self {
             client: BonsaiClient::from_parts(api_url.into(), api_key.into(), &risc0_ver)?,
             req_retry_sleep_ms,
             req_retry_count,
             status_poll_ms,
             status_poll_retry_count,
+            prover_type,
         })
     }
 
@@ -353,6 +364,91 @@ impl Prover for Bonsai {
         poller.poll_with_retries_session_id(&proof_id, &self.client).await
     }
 
+    async fn cancel_stark(&self, proof_id: &str) -> Result<(), ProverError> {
+        // TODO this is a temporary workaround to cancel a job in Bento. This should be implemented
+        // and migrated to use just the Bonsai API in future versions.
+        match self.prover_type {
+            ProverType::Bonsai => {
+                tracing::debug!("Cancelling Bonsai stark session {}", proof_id);
+                let session_id = SessionId::new(proof_id.into());
+                session_id.stop(&self.client).await?;
+                Ok(())
+            }
+            ProverType::Bento => {
+                tracing::debug!("Cancelling Bento job {}", proof_id);
+                // Create postgres connection for Bento cancellation
+                match create_pg_pool().await {
+                    Ok(pool) => {
+                        let mut tx: Transaction<'_, Postgres> = match pool.begin().await {
+                            Ok(tx) => tx,
+                            Err(e) => {
+                                tracing::error!("Failed to begin transaction: {}", e);
+                                return Err(ProverError::ProvingFailed(format!(
+                                    "Failed to begin transaction: {}",
+                                    e
+                                )));
+                            }
+                        };
+                        if let Err(e) =
+                            sqlx::query("UPDATE jobs SET state = 'failed' WHERE id = $1")
+                                .bind(proof_id)
+                                .execute(&mut *tx)
+                                .await
+                        {
+                            tracing::error!("Failed to update job state: {}", e);
+                            return Err(ProverError::ProvingFailed(format!(
+                                "Failed to update job: {}",
+                                e
+                            )));
+                        }
+
+                        if let Err(e) = sqlx::query("DELETE FROM task_deps WHERE job_id = $1")
+                            .bind(proof_id)
+                            .execute(&mut *tx)
+                            .await
+                        {
+                            tracing::error!("Failed to delete task dependencies: {}", e);
+                            return Err(ProverError::ProvingFailed(format!(
+                                "Failed to delete task deps: {}",
+                                e
+                            )));
+                        }
+
+                        if let Err(e) = sqlx::query("DELETE FROM tasks WHERE job_id = $1")
+                            .bind(proof_id)
+                            .execute(&mut *tx)
+                            .await
+                        {
+                            tracing::error!("Failed to delete tasks: {}", e);
+                            return Err(ProverError::ProvingFailed(format!(
+                                "Failed to delete tasks: {}",
+                                e
+                            )));
+                        }
+
+                        if let Err(e) = tx.commit().await {
+                            tracing::error!("Failed to commit transaction: {}", e);
+                            return Err(ProverError::ProvingFailed(format!(
+                                "Failed to commit transaction: {}",
+                                e
+                            )));
+                        }
+
+                        tracing::info!("Successfully cancelled Bento job {}", proof_id);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to connect to PostgreSQL: {}", e);
+                        Err(ProverError::ProvingFailed(format!(
+                            "Failed to connect to postgres: {}",
+                            e
+                        )))
+                    }
+                }
+            }
+        }
+    }
+
     async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
         let session_id = SessionId { uuid: proof_id.into() };
         let receipt = self
@@ -412,4 +508,22 @@ impl Prover for Bonsai {
 
         Ok(Some(receipt_buf))
     }
+}
+
+async fn create_pg_pool() -> Result<sqlx::PgPool, sqlx::Error> {
+    let user = std::env::var("POSTGRES_USER").unwrap_or_else(|_| "worker".to_string());
+    let password = std::env::var("POSTGRES_PASSWORD").unwrap_or_else(|_| "password".to_string());
+    let db = std::env::var("POSTGRES_DB").unwrap_or_else(|_| "taskdb".to_string());
+    let host = match std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "postgres".to_string()) {
+        host if host != "postgres" => host,
+        // Use local connection for postgres, as "postgres" not compatible with docker
+        _ => "127.0.0.1".to_string(),
+    };
+
+    let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
+
+    let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
+
+    let pool = sqlx::PgPool::connect(&connection_string).await?;
+    Ok(pool)
 }

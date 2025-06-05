@@ -13,6 +13,8 @@ use crate::{
     db::{DbError, DbObj},
     errors::CodedError,
     task::{RetryRes, RetryTask, SupervisorErr},
+    provers::ProverObj,
+    utils::cancel_proof_and_fail_order,
 };
 
 #[derive(Error, Debug)]
@@ -41,11 +43,12 @@ impl CodedError for ReaperError {
 pub struct ReaperTask {
     db: DbObj,
     config: ConfigLock,
+    prover: ProverObj,
 }
 
 impl ReaperTask {
-    pub fn new(db: DbObj, config: ConfigLock) -> Self {
-        Self { db, config }
+    pub fn new(db: DbObj, config: ConfigLock, prover: ProverObj) -> Self {
+        Self { db, config, prover }
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
@@ -63,13 +66,23 @@ impl ReaperTask {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
 
-                match self.db.set_order_failure(&order_id, "Order expired").await {
-                    Ok(()) => {
-                        warn!("Order {} has expired, marked as failed", order_id);
-                    }
-                    Err(err) => {
-                        error!("Failed to update status for expired order {}: {}", order_id, err);
-                        return Err(ReaperError::UpdateFailed(err.into()));
+                if let Some(proof_id) = &order.proof_id {
+                    cancel_proof_and_fail_order(
+                        &self.prover,
+                        &self.db,
+                        proof_id,
+                        &order_id,
+                        "Order expired in reaper"
+                    ).await;
+                } else {
+                    match self.db.set_order_failure(&order_id, "Order expired").await {
+                        Ok(()) => {
+                            warn!("Order {} has expired, marked as failed", order_id);
+                        }
+                        Err(err) => {
+                            error!("Failed to update status for expired order {}: {}", order_id, err);
+                            return Err(ReaperError::UpdateFailed(err.into()));
+                        }
                     }
                 }
             }
@@ -113,7 +126,7 @@ impl RetryTask for ReaperTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, now_timestamp, FulfillmentType, Order, OrderStatus};
+    use crate::{db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus};
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
         Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
@@ -175,7 +188,8 @@ mod tests {
     async fn test_check_expired_orders_no_expired() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let reaper = ReaperTask::new(db.clone(), config);
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let reaper = ReaperTask::new(db.clone(), config, prover);
 
         let current_time = now_timestamp();
         let future_time = current_time + 100;
@@ -210,7 +224,8 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
-        let reaper = ReaperTask::new(db.clone(), config);
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let reaper = ReaperTask::new(db.clone(), config, prover);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -260,7 +275,8 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
-        let reaper = ReaperTask::new(db.clone(), config);
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let reaper = ReaperTask::new(db.clone(), config, prover);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;

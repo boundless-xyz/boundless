@@ -297,6 +297,18 @@ impl Prover for DefaultProver {
         Err(ProverError::ProvingFailed(format!("timeout after {:?}", POLL_INTERVAL * MAX_ATTEMPTS)))
     }
 
+    async fn cancel_stark(&self, proof_id: &str) -> Result<(), ProverError> {
+        let mut proofs = self.state.proofs.write().await;
+        let proof_data = proofs
+            .get_mut(proof_id)
+            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
+        
+        proof_data.status = Status::Failed;
+        proof_data.error_msg = "Cancelled".to_string();
+        
+        Ok(())
+    }
+
     async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs
@@ -491,5 +503,28 @@ mod tests {
 
         let journal_err = prover.get_journal(nonexistent_id).await;
         assert!(matches!(journal_err, Err(ProverError::NotFound(_))));
+    }
+
+    #[test]
+    async fn test_cancel_stark() {
+        let prover = DefaultProver::new();
+
+        // Upload test data
+        let input_data = b"Hello, World!".to_vec();
+        let input_id = prover.upload_input(input_data.clone()).await.unwrap();
+        let image_id = Digest::from(ECHO_ID).to_string();
+        prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
+
+        // Start a STARK proof
+        let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();
+
+        // Cancel the proof
+        prover.cancel_stark(&proof_id).await.unwrap();
+
+        // Try to wait for the proof - should fail with "Cancelled" error
+        let result = prover.wait_for_stark(&proof_id).await;
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Cancelled"));
     }
 }

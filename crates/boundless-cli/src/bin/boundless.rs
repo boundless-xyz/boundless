@@ -1016,16 +1016,22 @@ async fn benchmark(
 }
 
 /// Create a PostgreSQL connection pool using environment variables
-async fn create_pg_pool() -> Result<sqlx::PgPool> {
-    let user = std::env::var("POSTGRES_USER").context("POSTGRES_USER not set")?;
-    let password = std::env::var("POSTGRES_PASSWORD").context("POSTGRES_PASSWORD not set")?;
-    let db = std::env::var("POSTGRES_DB").context("POSTGRES_DB not set")?;
-    let host = "127.0.0.1";
+async fn create_pg_pool() -> Result<sqlx::PgPool, sqlx::Error> {
+    let user = std::env::var("POSTGRES_USER").unwrap_or_else(|_| "worker".to_string());
+    let password = std::env::var("POSTGRES_PASSWORD").unwrap_or_else(|_| "password".to_string());
+    let db = std::env::var("POSTGRES_DB").unwrap_or_else(|_| "taskdb".to_string());
+    let host = match std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "postgres".to_string()) {
+        host if host != "postgres" => host,
+        // Use local connection for postgres, as "postgres" not compatible with docker
+        _ => "127.0.0.1".to_string(),
+    };
+
     let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
 
     let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
 
-    sqlx::PgPool::connect(&connection_string).await.context("Failed to connect to PostgreSQL")
+    let pool = sqlx::PgPool::connect(&connection_string).await?;
+    Ok(pool)
 }
 
 /// Submit an offer and create a proof request

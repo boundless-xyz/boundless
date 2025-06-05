@@ -123,6 +123,7 @@ pub trait Prover {
         self.wait_for_stark(&proof_id).await
     }
     async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError>;
+    async fn cancel_stark(&self, proof_id: &str) -> Result<(), ProverError>;
     async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError>;
     async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
     async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;

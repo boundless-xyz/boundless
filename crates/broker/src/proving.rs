@@ -12,6 +12,7 @@ use crate::{
     impl_coded_debug,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
+    utils::cancel_proof_and_fail_order,
     Order, OrderStatus,
 };
 use anyhow::{Context, Result};
@@ -161,6 +162,10 @@ impl ProvingService {
         let order_status = match tokio::time::timeout(timeout_duration, monitor_task).await {
             Ok(result) => result.context("Monitoring proof failed")?,
             Err(_) => {
+                tracing::debug!("Proving timed out for order {}, cancelling proof {}", order_id, proof_id);
+                if let Err(err) = self.prover.cancel_stark(&proof_id).await {
+                    tracing::warn!("Failed to cancel proof {} for timed out order {}: {}", proof_id, order_id, err);
+                }
                 return Err(anyhow::anyhow!("Proving timed out"));
             }
         };
@@ -215,7 +220,17 @@ impl ProvingService {
             let order_id = order.id();
             if order.expire_timestamp.unwrap() < now {
                 tracing::warn!("Order {} had expired on proving task start", order_id);
-                handle_order_failure(&self.db, &order_id, "Order expired on startup").await;
+                if let Some(proof_id) = &order.proof_id {
+                    cancel_proof_and_fail_order(
+                        &self.prover,
+                        &self.db,
+                        proof_id,
+                        &order_id,
+                        "Order expired on startup"
+                    ).await;
+                } else {
+                    handle_order_failure(&self.db, &order_id, "Order expired on startup").await;
+                }
             }
             let prove_serv = self.clone();
 
