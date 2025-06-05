@@ -4,11 +4,11 @@ If you submitted a request, and it is stuck in an "Unknown" / "Submitted" state,
 
 - The guest may be panicking or otherwise failing to complete the job.
   - Pre-flight your request locally before sending it.
-  - The `boundless-cli` does this by default, and the execution step in the Foundry template also accomplishes this.
+  - The `boundless` CLI does this by default, and the execution step in the Foundry template also accomplishes this.
   - If your request is submitted onchain, you can use the following command to execute it locally. If it succeeds, this is not the issue.
 
 ```sh [Terminal]
-RUST_LOG=info boundless-cli proving execute --request-id $REQUEST_ID
+RUST_LOG=info boundless proving execute --request-id $REQUEST_ID
 ```
 
 - The offer price may be too low for the size of the job.

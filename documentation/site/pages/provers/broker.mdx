@@ -32,7 +32,7 @@ export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 source <(just env testnet)
 
 # Example: 'account deposit-stake 100'
-boundless-cli account deposit-stake <USDC_TO_DEPOSIT>
+boundless account deposit-stake <USDC_TO_DEPOSIT>
 ```
 
 #### Check Current Stake Balance
@@ -42,7 +42,7 @@ export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 source <(just env testnet)
 
-boundless-cli account stake-balance [wallet_address]
+boundless account stake-balance [wallet_address]
 ```
 
 You can omit the `PRIVATE_KEY` environment variable here and specify your `wallet_address` as a optional parameter to the `balance` command, i.e., `account balance 0x000....`
@@ -100,7 +100,7 @@ source <(just env broker)
 Then, run the benchmark:
 
 ```sh [Terminal]
-boundless-cli proving benchmark --request-ids <IDS>
+boundless proving benchmark --request-ids <IDS>
 ```
 
 where IDS is a comma-separated list of request IDs from the network or order stream configured.

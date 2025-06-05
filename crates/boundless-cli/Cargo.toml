@@ -41,7 +41,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 
 [[bin]]
-name = "boundless-cli"
+name = "boundless"
 
 [[bin]]
 name = "boundless-ffi"
