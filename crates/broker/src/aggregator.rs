@@ -421,14 +421,14 @@ impl AggregatorService {
                     "[B-AGG-600] Order {} has expired during aggregation, marking as failed",
                     order.order_id
                 );
-                
                 cancel_proof_and_fail_order(
                     &self.prover,
                     &self.db,
                     &order.proof_id,
                     &order.order_id,
-                    "Expired before aggregation"
-                ).await;
+                    "Expired before aggregation",
+                )
+                .await;
             } else {
                 valid_orders.push(order);
             }

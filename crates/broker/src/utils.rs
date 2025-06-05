@@ -15,7 +15,7 @@ use crate::{config::ConfigLock, OrderRequest};
 pub const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
 /// Cancel a proof and mark the order as failed
-/// 
+///
 /// This utility function combines the common pattern of canceling a stark proof
 /// and marking the associated order as failed.
 pub async fn cancel_proof_and_fail_order(
@@ -27,12 +27,17 @@ pub async fn cancel_proof_and_fail_order(
 ) {
     tracing::debug!("Cancelling proof {} for order {}", proof_id, order_id);
     if let Err(err) = prover.cancel_stark(proof_id).await {
-        tracing::warn!("Failed to cancel proof {} for order {}: {}", proof_id, order_id, err);
+        tracing::warn!(
+            "[B-UTL-001] Failed to cancel proof {proof_id} with reason: {failure_reason} for order {order_id}: {err}",
+        );
     }
-    
-    // TODO perhaps wait to set failure until the proof is cancelled
+
+    // TODO in the case of a failure to cancel, the estimated capacity will be incorrect. Still
+    // setting the order as failed to avoid infinite loops of cancellations.
     if let Err(err) = db.set_order_failure(order_id, failure_reason).await {
-        tracing::error!("Failed to mark order {} as failed: {}", order_id, err);
+        tracing::error!(
+            "Failed to set order {order_id} as failed for reason {failure_reason}: {err}",
+        );
     }
 }
 
