@@ -31,6 +31,9 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       albDomain?: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
       bypassAddrs: string;
+      // If true, we don't add the cert to the load balancer. Used during initial cert creation.
+      // to avoid adding the cert to the load balancer before the cert is ready.
+      disableCert: boolean;
       boundlessAlertsTopicArns?: string[];
     },
     opts?: pulumi.ComponentResourceOptions
@@ -54,6 +57,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       ethRpcUrl,
       bypassAddrs,
       boundlessAlertsTopicArns,
+      disableCert,
     } = args;
 
     const stackName = pulumi.getStack();
@@ -152,7 +156,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       port: 80,
       protocol: 'HTTP',
     }];
-    if (cert && albDomain && certValidation) {
+    if (cert && albDomain && certValidation && !disableCert) {
       listeners.push({
         port: 443,
         protocol: 'HTTPS',
