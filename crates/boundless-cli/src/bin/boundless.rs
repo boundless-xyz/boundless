@@ -1018,8 +1018,7 @@ async fn create_pg_pool() -> Result<sqlx::PgPool, sqlx::Error> {
 
     let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
 
-    let pool = sqlx::PgPool::connect(&connection_string).await?;
-    Ok(pool)
+    sqlx::PgPool::connect(&connection_string).await
 }
 
 /// Submit an offer and create a proof request
