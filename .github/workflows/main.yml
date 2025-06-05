@@ -335,15 +335,13 @@ jobs:
             feature: cuda
             device: nvidia_rtx_4000_ada
             nvcc_arch: sm_89
-    needs: files-changed
-    if: needs.files-changed.outputs.examples == 'true'
-    strategy:
-      matrix:
         workspace:
           - examples/counter
           - examples/smart-contract-requestor
           - examples/counter-with-callback
           - examples/composition
+    needs: files-changed
+    if: needs.files-changed.outputs.examples == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
