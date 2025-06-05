@@ -50,11 +50,13 @@ def main():
     networks = {
         'ethereum-sepolia-prod': '### Ethereum Sepolia',
         'base-mainnet': '### Base Mainnet',
+        'base-sepolia-prod': '### Base Sepolia'
     }
 
     rs_network_keys = {
         'ethereum-sepolia-prod': 'SEPOLIA',
-        'base-mainnet': 'BASE'
+        'base-mainnet': 'BASE',
+        'base-sepolia-prod': 'BASE'_SEPOLIA
     }
 
     for toml_key, docs_key in networks.items():
