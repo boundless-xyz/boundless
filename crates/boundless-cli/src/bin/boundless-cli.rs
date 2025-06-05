@@ -115,7 +115,7 @@ enum Command {
     ///
     /// Bash:
     ///
-    /// rustup completions bash >> ~/.local/share/bash-completion/completions/boundless-cli
+    /// boundless-cli completions bash >> ~/.local/share/bash-completion/completions/boundless-cli
     ///
     /// Zsh:
     ///
