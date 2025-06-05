@@ -68,7 +68,7 @@ jobs:
       - name: cargo install boundless-cli
         run: cargo install boundless-cli --path crates/boundless-cli --locked
 
-      - name: forge test
+      - name: forge deployment test
         env:
           CHAIN_KEY: ${{ github.event.inputs.chain_key }}
           FOUNDRY_PROFILE: deployment-test
