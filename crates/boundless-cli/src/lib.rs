@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The Boundless CLI is a command-line interface for interacting with the Boundless Market API.
+//! The Boundless CLI is a command-line interface for interacting with Boundless.
 
 #![deny(missing_docs)]
 

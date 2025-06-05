@@ -398,12 +398,12 @@ struct GlobalConfig {
     #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
     log_level: LevelFilter,
 
-    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    #[clap(flatten, next_help_heading = "Boundless Deployment")]
     deployment: Option<Deployment>,
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for the Boundless market", long_about = None)]
+#[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for Boundless", long_about = None)]
 struct MainArgs {
     /// Subcommand to run
     #[command(subcommand)]
