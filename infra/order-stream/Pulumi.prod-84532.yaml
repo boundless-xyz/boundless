@@ -7,6 +7,7 @@ config:
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:CHAIN_ID: "84532"
   order-stream:DOCKER_DIR: ../../
+  order-stream:DISABLE_CERT: true
   order-stream:DOCKER_TAG: latest
   order-stream:MIN_BALANCE_RAW: "5000000"
   order-stream:ORDER_STREAM_PING_TIME: "100"
