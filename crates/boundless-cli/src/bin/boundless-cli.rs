@@ -497,6 +497,8 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         return handle_config_command(args).await;
     }
     if let Command::Completions { shell } = &args.command {
+        // TODO: Because of where this is, running the completions command requires an RPC_URL to
+        // be set. We should address this, but its also not a major issue. 
         clap_complete::generate(*shell, &mut MainArgs::command(), "boundless-cli", &mut std::io::stdout());
         return Ok(())
     }
