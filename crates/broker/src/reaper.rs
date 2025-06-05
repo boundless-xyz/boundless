@@ -209,6 +209,7 @@ mod tests {
     async fn test_expired_orders() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
+        config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let reaper = ReaperTask::new(db.clone(), config);
 
         let current_time = now_timestamp();
@@ -258,6 +259,7 @@ mod tests {
     async fn test_check_expired_orders_all_committed_statuses() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
+        config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let reaper = ReaperTask::new(db.clone(), config);
 
         let current_time = now_timestamp();
