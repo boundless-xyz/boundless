@@ -28,7 +28,7 @@ import {RequestLock} from "../src/types/RequestLock.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
 import {ConfigLoader, DeploymentConfig} from "../scripts/Config.s.sol";
-import {IHitPoints} from "../src/HitPoints.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 bytes32 constant APP_IMAGE_ID = 0x53cb4210cf2f5bf059e3a4f7bcbb8e21ddc5c11a690fd79e87947f9fec5522a3;
@@ -45,7 +45,7 @@ contract DeploymentTest is Test {
     IRiscZeroVerifier internal verifier;
     IRiscZeroSetVerifier internal setVerifier;
     IBoundlessMarket internal boundlessMarket;
-    IHitPoints internal stakeToken;
+    IERC20 internal stakeToken;
 
     mapping(uint256 => Client) internal clients;
 
@@ -94,7 +94,7 @@ contract DeploymentTest is Test {
         verifier = IRiscZeroVerifier(deployment.verifier);
         setVerifier = IRiscZeroSetVerifier(deployment.setVerifier);
         boundlessMarket = IBoundlessMarket(deployment.boundlessMarket);
-        stakeToken = IHitPoints(deployment.stakeToken);
+        stakeToken = IERC20(deployment.stakeToken);
     }
 
     function testAdminIsSet() external view {
@@ -173,9 +173,9 @@ contract DeploymentTest is Test {
         setVerifier.submitMerkleRoot(result.root, result.seal);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id);
+        emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), result.fills[0]);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id);
+        emit IBoundlessMarket.ProofDelivered(request.id, address(testProver), result.fills[0]);
 
         boundlessMarket.priceAndFulfill(
             requests, clientSignatures, result.fills, result.assessorReceipt
@@ -223,9 +223,9 @@ contract DeploymentTest is Test {
         setVerifier.submitMerkleRoot(result.root, result.seal);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id);
+        emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), result.fills[0]);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id);
+        emit IBoundlessMarket.ProofDelivered(request.id, address(testProver), result.fills[0]);
 
         boundlessMarket.priceAndFulfill(
             requests, clientSignatures, result.fills, result.assessorReceipt
