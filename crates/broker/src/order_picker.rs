@@ -34,7 +34,7 @@ use tokio::sync::{mpsc, Mutex, Semaphore};
 use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 
 /// Maximum number of orders to concurrently work on pricing. Used to limit pricing tasks spawned.
-const MAX_PRICING_BATCH_SIZE: u32 = 10;
+const MAX_PRICING_BATCH_SIZE: u32 = 4;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -338,9 +338,9 @@ where
             return Ok(Skip);
         }
 
-        let max_mcycle_limit = {
+        let (max_mcycle_limit, peak_prove_khz) = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            config.market.max_mcycle_limit
+            (config.market.max_mcycle_limit, config.market.peak_prove_khz)
         };
 
         // TODO: Move URI handling like this into the prover impls
@@ -413,13 +413,38 @@ where
         // If a max_mcycle_limit is configured, override the exec limit if the order is over that limit
         if skip_mcycle_limit {
             exec_limit_cycles = u64::MAX;
-            tracing::info!("Order with request id {request_id:x} exec limit skipped due to client {} being part of allow_skip_mcycle_limit_addresses.", client_addr);
+            tracing::debug!("Order with request id {request_id:x} exec limit skipped due to client {} being part of allow_skip_mcycle_limit_addresses.", client_addr);
         } else if let Some(config_mcycle_limit) = max_mcycle_limit {
-            let config_cycle_limit = config_mcycle_limit * 1_000_000;
+            let config_cycle_limit = config_mcycle_limit.saturating_mul(1_000_000);
             if exec_limit_cycles >= config_cycle_limit {
-                tracing::info!("Order with request id {request_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit");
+                tracing::debug!("Order with request id {request_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit");
                 exec_limit_cycles = config_cycle_limit;
             }
+        }
+
+        // Cap the exec limit based on the peak prove khz and the time until expiration.
+        if let Some(peak_prove_khz) = peak_prove_khz {
+            let deadline_cycle_limit = {
+                let time_until_expiration = expiration.saturating_sub(now);
+
+                calculate_max_cycles_for_time(peak_prove_khz, time_until_expiration)
+            };
+
+            if exec_limit_cycles > deadline_cycle_limit {
+                tracing::debug!(
+                    "Order with request id {request_id:x} exec limit {} cycles restricted by deadline to {} cycles (time limit)",
+                    exec_limit_cycles,
+                    deadline_cycle_limit
+                );
+                exec_limit_cycles = deadline_cycle_limit;
+            }
+        }
+
+        if exec_limit_cycles == 0 {
+            tracing::debug!(
+                "Order with request id {request_id:x} has no time left to prove within deadline, skipping"
+            );
+            return Ok(Skip);
         }
 
         tracing::debug!(
@@ -718,6 +743,12 @@ where
             }
         })
     }
+}
+
+/// Returns the maximum cycles that can be proven within a given time period
+/// based on the proving rate provided, in khz.
+fn calculate_max_cycles_for_time(prove_khz: u64, time_seconds: u64) -> u64 {
+    (prove_khz.saturating_mul(1_000)).saturating_mul(time_seconds)
 }
 
 #[cfg(test)]
@@ -1293,10 +1324,6 @@ mod tests {
         assert_eq!(priced_order.unwrap().id(), new_order_id);
     }
 
-    // TODO: Test
-    // need to test the non-ASAP path for pricing, aka picking a timestamp ahead in time to make sure
-    // that price calculator is working correctly.
-
     #[tokio::test]
     #[traced_test]
     async fn cannot_overcommit_stake() {
@@ -1536,5 +1563,40 @@ mod tests {
             exec_limit * 1_000_000,
             exec_limit
         )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_deadline_exec_limit_and_peak_prove_khz() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.peak_prove_khz = Some(1);
+            config.load_write().unwrap().market.min_deadline = 10;
+        }
+        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                min_price: parse_ether("10").unwrap(),
+                max_price: parse_ether("10").unwrap(),
+                ..Default::default()
+            })
+            .await;
+        order.request.offer.biddingStart = now_timestamp();
+        order.request.offer.lockTimeout = 150;
+        order.request.offer.timeout = 300;
+
+        let request_id = order.request.id;
+        let _submit_result =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await;
+
+        let locked = ctx.picker.price_order_and_update_state(order).await;
+        assert!(locked);
+
+        let expected_log_pattern = format!("Order with request id {request_id:x} exec limit");
+        assert!(logs_contain(&expected_log_pattern));
+        assert!(logs_contain("cycles restricted by deadline to"));
+        assert!(logs_contain("150000 cycles (time limit)"));
     }
 }

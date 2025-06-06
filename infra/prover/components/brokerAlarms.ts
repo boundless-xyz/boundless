@@ -283,6 +283,11 @@ export const createProverAlarms = (
     threshold: 3,
   }, { period: 300 });
 
+  // An edge case to expire in the aggregator, also indicates that a slashed order.
+  createErrorCodeAlarm('"[B-AGG-600]"', 'aggregator-order-expired', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 3600 });
+
   //
   // Proving engine
   //
@@ -326,4 +331,11 @@ export const createProverAlarms = (
 
   // Any expired committed orders by the broker found triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-REAP-100]"', 'reaper-expired-orders-found', Severity.SEV2);
+
+  //
+  // Utils
+  //
+  // Any 1 failed to cancel proof triggers a SEV2 alarm. This can cause cascading failures with
+  // capacity estimation.
+  createErrorCodeAlarm('"[B-UTL-001]"', 'failed-to-cancel-proof', Severity.SEV2);
 }

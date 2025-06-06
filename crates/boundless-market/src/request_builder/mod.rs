@@ -19,7 +19,10 @@ use std::{
     future::Future,
 };
 
-use alloy::{network::Ethereum, providers::Provider};
+use alloy::{
+    network::Ethereum,
+    providers::{DynProvider, Provider},
+};
 use derive_builder::Builder;
 use risc0_ethereum_contracts::selector::Selector;
 use risc0_zkvm::{Digest, Journal};
@@ -29,7 +32,7 @@ use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
     storage::{StandardStorageProvider, StorageProvider},
-    util::{NotProvided, StandardRpcProvider},
+    util::NotProvided,
 };
 mod preflight_layer;
 mod storage_layer;
@@ -165,7 +168,7 @@ where
 /// the input for the next.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<P = StandardRpcProvider, S = StandardStorageProvider> {
+pub struct StandardRequestBuilder<P = DynProvider, S = StandardStorageProvider> {
     /// Handles uploading and preparing program and input data.
     #[builder(setter(into))]
     pub storage_layer: StorageLayer<S>,
@@ -625,8 +628,11 @@ mod tests {
     use std::sync::Arc;
 
     use alloy::{
-        network::TransactionBuilder, node_bindings::Anvil, primitives::Address,
-        providers::Provider, rpc::types::TransactionRequest,
+        network::TransactionBuilder,
+        node_bindings::Anvil,
+        primitives::Address,
+        providers::{DynProvider, Provider},
+        rpc::types::TransactionRequest,
     };
     use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
     use tracing_test::traced_test;
@@ -646,7 +652,7 @@ mod tests {
         input::GuestEnv,
         storage::{fetch_url, MockStorageProvider, StorageProvider},
         util::NotProvided,
-        StandardRpcProvider, StandardStorageProvider,
+        StandardStorageProvider,
     };
     use alloy_primitives::U256;
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
@@ -982,5 +988,5 @@ mod tests {
     trait AssertSend: Send {}
 
     // The StandardRequestBuilder must be Send such that a Client can be sent between threads.
-    impl AssertSend for StandardRequestBuilder<StandardRpcProvider, StandardStorageProvider> {}
+    impl AssertSend for StandardRequestBuilder<DynProvider, StandardStorageProvider> {}
 }
