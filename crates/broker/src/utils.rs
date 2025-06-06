@@ -25,11 +25,12 @@ pub async fn cancel_proof_and_fail_order(
     failure_reason: &'static str,
 ) {
     let order_id = order.id();
-    if matches!(order.status, OrderStatus::Proving) {
-        let proof_id = order.proof_id.as_ref().unwrap();
-        tracing::debug!("Cancelling proof {} for order {}", proof_id, order_id);
-        if let Err(err) = prover.cancel_stark(proof_id).await {
-            tracing::warn!("[B-UTL-001] Failed to cancel proof {proof_id} with reason: {failure_reason} for order {order_id}: {err}");
+    if let Some(proof_id) = order.proof_id.as_ref() {
+        if matches!(order.status, OrderStatus::Proving) {
+            tracing::debug!("Cancelling proof {} for order {}", proof_id, order_id);
+            if let Err(err) = prover.cancel_stark(proof_id).await {
+                tracing::warn!("[B-UTL-001] Failed to cancel proof {proof_id} with reason: {failure_reason} for order {order_id}: {err}");
+            }
         }
     }
 
