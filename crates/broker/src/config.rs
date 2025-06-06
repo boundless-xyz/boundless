@@ -46,6 +46,11 @@ mod defaults {
         250_000
     }
 
+    pub const fn additional_proof_cycles() -> u64 {
+        // 2 mcycles for assessor + 270k cycles for set builder by default
+        2_000_000 + 270_000
+    }
+
     pub const fn max_submission_attempts() -> u32 {
         2
     }
@@ -141,6 +146,11 @@ pub struct MarketConf {
     /// conservative default will be used.
     #[serde(default = "defaults::groth16_verify_gas_estimate")]
     pub groth16_verify_gas_estimate: u64,
+    /// Additional cycles to be proven for each order.
+    ///
+    /// This is currently the sum of the cycles for the assessor and set builder.
+    #[serde(default = "defaults::additional_proof_cycles")]
+    pub additional_proof_cycles: u64,
     /// Optional balance warning threshold (in native token)
     ///
     /// If the submitter balance drops below this the broker will issue warning logs
@@ -190,6 +200,7 @@ impl Default for MarketConf {
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
+            additional_proof_cycles: defaults::additional_proof_cycles(),
             balance_warn_threshold: None,
             balance_error_threshold: None,
             stake_balance_warn_threshold: None,

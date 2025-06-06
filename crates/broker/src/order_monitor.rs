@@ -110,6 +110,15 @@ impl<K: std::hash::Hash + Eq, V: std::borrow::Borrow<OrderRequest>> Expiry<K, V>
     }
 }
 
+#[derive(Default)]
+struct OrderMonitorConfig {
+    min_deadline: u64,
+    peak_prove_khz: Option<u64>,
+    max_concurrent_proofs: Option<u32>,
+    additional_proof_cycles: u64,
+    batch_buffer_time_secs: u64,
+}
+
 #[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
@@ -578,14 +587,14 @@ where
     async fn apply_capacity_limits(
         &self,
         orders: Vec<Arc<OrderRequest>>,
-        max_concurrent_proofs: Option<u32>,
-        peak_prove_khz: Option<u64>,
+        config: &OrderMonitorConfig,
         previous_capacity_log: &mut String,
     ) -> Result<Vec<Arc<OrderRequest>>> {
         let num_orders = orders.len();
         // Get our current capacity for proving orders given our config and the number of orders that are currently committed to be proven + fulfilled.
-        let capacity =
-            self.get_proving_order_capacity(max_concurrent_proofs, previous_capacity_log).await?;
+        let capacity = self
+            .get_proving_order_capacity(config.max_concurrent_proofs, previous_capacity_log)
+            .await?;
         let capacity_granted = capacity
             .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"));
 
@@ -652,10 +661,12 @@ where
 
         // Apply peak khz limit if specified
         let num_commited_orders = committed_orders.len();
-        if peak_prove_khz.is_some() && !orders_truncated.is_empty() {
-            let peak_prove_khz = peak_prove_khz.unwrap();
-            let total_commited_cycles =
-                committed_orders.iter().map(|order| order.total_cycles.unwrap()).sum::<u64>();
+        if config.peak_prove_khz.is_some() && !orders_truncated.is_empty() {
+            let peak_prove_khz = config.peak_prove_khz.unwrap();
+            let total_commited_cycles = committed_orders
+                .iter()
+                .map(|order| order.total_cycles.unwrap() + config.additional_proof_cycles)
+                .sum::<u64>();
 
             let now = now_timestamp();
             // Estimate the time the prover will be available given our current committed orders.
@@ -699,15 +710,17 @@ where
                     continue;
                 }
 
-                if order.total_cycles.is_none() {
+                let Some(order_cycles) = order.total_cycles else {
                     tracing::warn!("Order 0x{:x} has no total cycles, preflight was skipped? Not considering for peak khz limit", order.request.id);
                     final_orders.push(order);
                     remaining_balance_wei -= order_cost_wei;
                     continue;
-                }
+                };
 
-                let proof_time_seconds =
-                    order.total_cycles.unwrap().div_ceil(1_000).div_ceil(peak_prove_khz);
+                // Calculate total cycles including application proof, assessor, and set builder estimates
+                let total_cycles = order_cycles + config.additional_proof_cycles;
+
+                let proof_time_seconds = total_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
                 let completion_time = prover_available_at + proof_time_seconds;
                 let expiration = match order.fulfillment_type {
                     FulfillmentType::LockAndFulfill => order.request.lock_expires_at(),
@@ -715,9 +728,10 @@ where
                     _ => panic!("Unsupported fulfillment type: {:?}", order.fulfillment_type),
                 };
 
-                if completion_time > expiration {
+                if completion_time + config.batch_buffer_time_secs > expiration {
                     // If the order cannot be completed before its expiration, skip it permanently.
                     // Otherwise, we keep the order for the next iteration as capacity may free up in the future.
+
                     if now + proof_time_seconds > expiration {
                         tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
                             order.request.id,
@@ -732,9 +746,9 @@ where
                         tracing::debug!("Given current commited orders and capacity, order 0x{:x} cannot be completed before its expiration. Not skipping as capacity may free up before it expires.", order.request.id);
                     }
                     continue;
-                } else {
-                    tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
-                }
+                } 
+                    
+                tracing::debug!("Order {} estimated to take {} seconds (including assessor + set builder), and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
 
                 final_orders.push(order);
                 prover_available_at = completion_time;
@@ -766,12 +780,12 @@ where
             "Started with {} orders ready to be locked and/or proven. Already commited to {} orders. After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
             num_orders,
             num_commited_orders,
-            if let Some(max_concurrent_proofs) = max_concurrent_proofs {
+            if let Some(max_concurrent_proofs) = config.max_concurrent_proofs {
                 max_concurrent_proofs.to_string()
             } else {
                 "unlimited".to_string()
             },
-            if let Some(peak_prove_khz) = peak_prove_khz {
+            if let Some(peak_prove_khz) = config.peak_prove_khz {
                 peak_prove_khz.to_string()
             } else {
                 "unlimited".to_string()
@@ -817,17 +831,19 @@ where
                             "Order monitor processing block {block_number} at timestamp {block_timestamp}"
                         );
 
-                        let (min_deadline, peak_prove_khz, max_concurrent_proofs) = {
+                        let monitor_config = {
                             let config = self.config.lock_all().context("Failed to read config")?;
-                            (
-                                config.market.min_deadline,
-                                config.market.peak_prove_khz,
-                                config.market.max_concurrent_proofs,
-                            )
+                            OrderMonitorConfig {
+                                min_deadline: config.market.min_deadline,
+                                peak_prove_khz: config.market.peak_prove_khz,
+                                max_concurrent_proofs: config.market.max_concurrent_proofs,
+                                additional_proof_cycles: config.market.additional_proof_cycles,
+                                batch_buffer_time_secs: config.batcher.block_deadline_buffer_secs,
+                            }
                         };
 
                         // Get orders that are valid and ready for locking/proving, skipping orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
-                        let mut valid_orders = self.get_valid_orders(block_timestamp, min_deadline).await?;
+                        let mut valid_orders = self.get_valid_orders(block_timestamp, monitor_config.min_deadline).await?;
 
                         if valid_orders.is_empty() {
                             tracing::trace!(
@@ -844,8 +860,7 @@ where
                         let final_orders = self
                             .apply_capacity_limits(
                                 valid_orders,
-                                max_concurrent_proofs,
-                                peak_prove_khz,
+                                &monitor_config,
                                 &mut previous_capacity_debug_log,
                             )
                             .await?;
@@ -1335,7 +1350,11 @@ mod tests {
         // Process all orders with unlimited capacity
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders.clone(), None, None, &mut String::new())
+            .apply_capacity_limits(
+                orders.clone(),
+                &OrderMonitorConfig::default(),
+                &mut String::new(),
+            )
             .await
             .unwrap();
         let result = ctx.monitor.lock_and_prove_orders(&filtered_orders).await;
@@ -1389,7 +1408,11 @@ mod tests {
         // Process orders with limited capacity
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders, Some(3), None, &mut String::new())
+            .apply_capacity_limits(
+                orders,
+                &OrderMonitorConfig { max_concurrent_proofs: Some(3), ..Default::default() },
+                &mut String::new(),
+            )
             .await
             .unwrap();
         ctx.monitor.lock_and_prove_orders(&filtered_orders).await.unwrap();
@@ -1443,7 +1466,11 @@ mod tests {
 
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders, None, Some(100), &mut String::new())
+            .apply_capacity_limits(
+                orders,
+                &OrderMonitorConfig { peak_prove_khz: Some(100), ..Default::default() },
+                &mut String::new(),
+            )
             .await
             .unwrap();
 
@@ -1483,7 +1510,11 @@ mod tests {
 
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(candidate_orders, None, Some(1), &mut String::new())
+            .apply_capacity_limits(
+                candidate_orders,
+                &OrderMonitorConfig { peak_prove_khz: Some(1), ..Default::default() },
+                &mut String::new(),
+            )
             .await
             .unwrap();
 
@@ -1527,7 +1558,7 @@ mod tests {
         let orders = vec![Arc::from(lock_and_fulfill_order), Arc::from(fulfill_only_order)];
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders, None, None, &mut String::new())
+            .apply_capacity_limits(orders, &OrderMonitorConfig::default(), &mut String::new())
             .await
             .unwrap();
         let result = ctx.monitor.lock_and_prove_orders(&filtered_orders).await;
@@ -1568,7 +1599,11 @@ mod tests {
 
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders, None, Some(100), &mut String::new())
+            .apply_capacity_limits(
+                orders,
+                &OrderMonitorConfig { peak_prove_khz: Some(100), ..Default::default() },
+                &mut String::new(),
+            )
             .await
             .unwrap();
 
@@ -1599,7 +1634,11 @@ mod tests {
         // Should be able to have enough gas for 1 lock and fulfill
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders.clone(), None, None, &mut String::new())
+            .apply_capacity_limits(
+                orders.clone(),
+                &OrderMonitorConfig::default(),
+                &mut String::new(),
+            )
             .await
             .unwrap();
         assert_eq!(filtered_orders.len(), 1);
@@ -1611,7 +1650,11 @@ mod tests {
         // Should still only be able to have enough gas for 1 lock and fulfill
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders.clone(), None, None, &mut String::new())
+            .apply_capacity_limits(
+                orders.clone(),
+                &OrderMonitorConfig::default(),
+                &mut String::new(),
+            )
             .await
             .unwrap();
         assert_eq!(filtered_orders.len(), 1);
@@ -1630,7 +1673,7 @@ mod tests {
         // Process the order - with insufficient balance for committed orders
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders, None, None, &mut String::new())
+            .apply_capacity_limits(orders, &OrderMonitorConfig::default(), &mut String::new())
             .await
             .unwrap();
 
