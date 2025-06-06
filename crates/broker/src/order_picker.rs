@@ -2,7 +2,7 @@
 //
 // All rights reserved.
 
-use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -31,56 +31,12 @@ use boundless_market::{
     selector::SupportedSelectors,
 };
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio::sync::{mpsc, Mutex};
+use tokio::task::JoinSet;
 
 use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
-
-/// Manages dynamic capacity adjustments for a semaphore based on configuration changes
-#[derive(Debug)]
-struct SemaphoreCapacityManager {
-    semaphore: Arc<Semaphore>,
-    current_capacity: usize,
-}
-
-impl SemaphoreCapacityManager {
-    fn new(initial_capacity: usize) -> Self {
-        Self {
-            semaphore: Arc::new(Semaphore::new(initial_capacity)),
-            current_capacity: initial_capacity,
-        }
-    }
-
-    /// Updates the semaphore capacity if it has changed, logging the adjustment
-    async fn update_capacity(&mut self, new_capacity: usize) {
-        match new_capacity.cmp(&self.current_capacity) {
-            Ordering::Greater => {
-                let increase = new_capacity - self.current_capacity;
-                self.semaphore.add_permits(increase);
-                self.current_capacity = new_capacity;
-                tracing::debug!("Pricing capacity increased to {}", self.current_capacity);
-            }
-            Ordering::Less => {
-                let surplus = self.current_capacity - new_capacity;
-                // Reserve + forget to drop capacity
-                self.semaphore
-                    .acquire_many(surplus as u32)
-                    .await
-                    .expect("semaphore closed")
-                    .forget();
-                self.current_capacity = new_capacity;
-                tracing::debug!("Pricing capacity decreased to {}", self.current_capacity);
-            }
-            Ordering::Equal => {}
-        }
-    }
-
-    /// Returns a clone of the semaphore for acquiring permits
-    fn semaphore(&self) -> Arc<Semaphore> {
-        self.semaphore.clone()
-    }
-}
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -755,7 +711,6 @@ where
         Box::pin(async move {
             tracing::info!("Starting order picking monitor");
 
-            // Initialize semaphore with current config value
             let read_capacity = || -> Result<usize, Self::Error> {
                 let cfg = picker.config.lock_all().map_err(|err| {
                     OrderPickerErr::UnexpectedErr(anyhow::anyhow!("Failed to read config: {err}"))
@@ -763,42 +718,54 @@ where
                 Ok(cfg.market.max_pricing_batch_size as usize)
             };
 
-            let initial_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
-            let mut capacity_manager = SemaphoreCapacityManager::new(initial_capacity);
-
+            let mut current_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
+            let mut tasks: JoinSet<()> = JoinSet::new();
             let mut rx = picker.new_order_rx.lock().await;
             let mut last_capacity_check = Instant::now();
+            let mut pending_orders: VecDeque<Box<OrderRequest>> = VecDeque::new();
 
             loop {
-                let order = rx.recv().await.ok_or_else(|| {
-                    SupervisorErr::Fault(OrderPickerErr::UnexpectedErr(anyhow::anyhow!(
-                        "Order channel closed unexpectedly"
-                    )))
-                })?;
+                tokio::select! {
+                    // This channel is cancellation safe, so it's fine to use in the select!
+                    order = rx.recv() => {
+                        let order = order.ok_or_else(|| {
+                            SupervisorErr::Fault(OrderPickerErr::UnexpectedErr(anyhow::anyhow!(
+                                "Order channel closed unexpectedly"
+                            )))
+                        })?;
 
-                // Only check capacity if the interval has passed
-                if last_capacity_check.elapsed() >= MIN_CAPACITY_CHECK_INTERVAL {
-                    let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
-                    capacity_manager.update_capacity(new_capacity).await;
-                    last_capacity_check = Instant::now();
+                        // Only check capacity if the interval has passed
+                        if last_capacity_check.elapsed() >= MIN_CAPACITY_CHECK_INTERVAL {
+                            let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
+                            if new_capacity != current_capacity {
+                                tracing::debug!("Pricing capacity changed from {} to {}", current_capacity, new_capacity);
+                                current_capacity = new_capacity;
+                            }
+                            last_capacity_check = Instant::now();
+                        }
+
+                        pending_orders.push_back(order);
+                    }
+                    _ = tasks.join_next(), if !tasks.is_empty() => {
+                        tracing::trace!("Pricing task completed ({} remaining)", tasks.len());
+                    }
                 }
 
-                let permit =
-                    capacity_manager.semaphore().acquire_owned().await.expect("semaphore closed");
-
-                let picker_clone = picker.clone();
-                tokio::spawn(async move {
-                    let _p = permit;
-
-                    // Process the order - permit is automatically released when dropped
-                    let order_id = order.id();
-                    let result = picker_clone.price_order_and_update_state(order).await;
-                    if result {
-                        tracing::debug!("Successfully processed order: {}", order_id);
-                    } else {
-                        tracing::debug!("Order was not processed: {}", order_id);
+                // Process pending orders if we have capacity
+                while !pending_orders.is_empty() && tasks.len() < current_capacity {
+                    if let Some(order) = pending_orders.pop_front() {
+                        let picker_clone = picker.clone();
+                        tasks.spawn(async move {
+                            let order_id = order.id();
+                            let result = picker_clone.price_order_and_update_state(order).await;
+                            if result {
+                                tracing::debug!("Successfully processed order: {}", order_id);
+                            } else {
+                                tracing::debug!("Order was not processed: {}", order_id);
+                            }
+                        });
                     }
-                });
+                }
             }
         })
     }
@@ -1690,7 +1657,7 @@ mod tests {
             cfg.market.max_pricing_batch_size = 1;
         }
 
-        // Send another order to trigger capacity increase check
+        // Send another order to trigger capacity check
         let order2 =
             ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
         ctx.new_order_tx.send(order2).await.unwrap();
@@ -1699,124 +1666,8 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv()).await.unwrap();
 
         // Check logs for capacity changes
-        assert!(logs_contain("Pricing capacity decreased to 1"));
+        assert!(logs_contain("Pricing capacity changed from 2 to 1"));
 
         picker_task.abort();
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_semaphore_capacity_manager_increase() {
-        let mut manager = SemaphoreCapacityManager::new(2);
-        assert_eq!(manager.current_capacity, 2);
-
-        manager.update_capacity(5).await;
-        assert_eq!(manager.current_capacity, 5);
-        assert!(logs_contain("Pricing capacity increased to 5"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_semaphore_capacity_manager_decrease() {
-        let mut manager = SemaphoreCapacityManager::new(5);
-        assert_eq!(manager.current_capacity, 5);
-
-        manager.update_capacity(2).await;
-        assert_eq!(manager.current_capacity, 2);
-        assert!(logs_contain("Pricing capacity decreased to 2"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_semaphore_capacity_manager_no_change() {
-        let mut manager = SemaphoreCapacityManager::new(3);
-        assert_eq!(manager.current_capacity, 3);
-
-        manager.update_capacity(3).await;
-        assert_eq!(manager.current_capacity, 3);
-        // Should not log anything for no change
-        assert!(!logs_contain("Pricing capacity increased"));
-        assert!(!logs_contain("Pricing capacity decreased"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_semaphore_capacity_manager_decrease_with_permits_in_use() {
-        let manager = SemaphoreCapacityManager::new(5);
-
-        // Acquire all 5 permits
-        let _permit1 = manager.semaphore().try_acquire_owned().unwrap();
-        let _permit2 = manager.semaphore().try_acquire_owned().unwrap();
-        let permit3 = manager.semaphore().try_acquire_owned().unwrap();
-        let permit4 = manager.semaphore().try_acquire_owned().unwrap();
-        let permit5 = manager.semaphore().try_acquire_owned().unwrap();
-
-        // Verify no more permits available
-        assert!(manager.semaphore().try_acquire_owned().is_err());
-
-        // Try to decrease capacity from 5 to 2 - this requires removing 3 permits
-        // But all permits are in use, so acquire_many will wait
-        let update_task = {
-            let semaphore = manager.semaphore();
-            let current_capacity = manager.current_capacity;
-            tokio::spawn(async move {
-                let mut test_manager = SemaphoreCapacityManager { semaphore, current_capacity };
-                test_manager.update_capacity(2).await;
-                test_manager.current_capacity
-            })
-        };
-
-        // Give the task time to start and reach the blocking acquire_many call
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        // The update should not complete yet because acquire_many is waiting
-        assert!(!update_task.is_finished());
-
-        // Release 3 permits to allow acquire_many to complete
-        drop(permit3);
-        drop(permit4);
-        drop(permit5);
-
-        // Now the update should complete
-        let capacity = tokio::time::timeout(tokio::time::Duration::from_secs(5), update_task)
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(capacity, 2);
-        assert!(logs_contain("Pricing capacity decreased to 2"));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_semaphore_capacity_manager_permits() {
-        let mut manager = SemaphoreCapacityManager::new(2);
-
-        // Acquire both permits
-        let permit1 = manager.semaphore().try_acquire_owned().unwrap();
-        let permit2 = manager.semaphore().try_acquire_owned().unwrap();
-
-        // No more permits should be available
-        assert!(manager.semaphore().try_acquire_owned().is_err());
-
-        // Increase capacity
-        manager.update_capacity(3).await;
-
-        // Now one more permit should be available
-        let permit3 = manager.semaphore().try_acquire_owned().unwrap();
-        assert!(manager.semaphore().try_acquire_owned().is_err());
-
-        // Release one permit
-        drop(permit1);
-
-        // Decrease capacity back to 2
-        manager.update_capacity(2).await;
-
-        // Even though we released a permit, capacity decrease should consume it
-        assert!(manager.semaphore().try_acquire_owned().is_err());
-
-        // Clean up
-        drop(permit2);
-        drop(permit3);
     }
 }
