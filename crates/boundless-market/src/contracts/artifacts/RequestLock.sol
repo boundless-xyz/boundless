@@ -118,20 +118,4 @@ library RequestLockLibrary {
             sstore(num, 0)
         }
     }
-
-    function clearSlot2(RequestLock storage requestLock) private {
-        assembly {
-            let num := add(requestLock.slot, 2)
-            sstore(num, 0)
-        }
-    }
-
-    function clearSlot1And2(RequestLock storage requestLock) private {
-        assembly {
-            let num := add(requestLock.slot, 1)
-            sstore(num, 0)
-            num := add(num, 1)
-            sstore(num, 0)
-        }
-    }
 }
