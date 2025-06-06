@@ -1111,6 +1111,36 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn get_orders(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        // Create and add multiple orders
+        let mut order1 = create_order();
+        order1.request.id = U256::from(1);
+        let mut order2 = create_order();
+        order2.request.id = U256::from(2);
+        let mut order3 = create_order();
+        order3.request.id = U256::from(3);
+        db.add_order(&order1).await.unwrap();
+        db.add_order(&order2).await.unwrap();
+        db.add_order(&order3).await.unwrap();
+
+        // Fetch by IDs
+        let ids = vec![order1.id(), order2.id(), order3.id()];
+        let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        let orders = db.get_orders(&id_refs).await.unwrap();
+        assert_eq!(orders.len(), 3);
+        let returned_ids: Vec<String> = orders.iter().map(|o| o.id()).collect();
+        assert!(returned_ids.contains(&order1.id()));
+        assert!(returned_ids.contains(&order2.id()));
+        assert!(returned_ids.contains(&order3.id()));
+
+        // Test empty input returns empty vec
+        let empty: Vec<&str> = vec![];
+        let orders = db.get_orders(&empty).await.unwrap();
+        assert!(orders.is_empty());
+    }
+
+    #[sqlx::test]
     async fn get_submission_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let mut order = create_order();

@@ -31,7 +31,7 @@ use crate::{
     now_timestamp,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
-    Batch, FulfillmentType,
+    Batch, FulfillmentType, Order,
 };
 use thiserror::Error;
 
@@ -189,24 +189,21 @@ where
         let orders = self
             .db
             .get_orders(&order_ids)
-            .await
-            .map_err(|e| SubmitterErr::UnexpectedErr(anyhow!("Failed to get orders: {e:?}")))?;
+            .await.context("Failed to get orders")?;
         let expired_orders = orders
             .iter()
             .filter(|order| -> bool {
                 match order.fulfillment_type {
-                    FulfillmentType::LockAndFulfill => order.request.lock_expires_at() > now,
-                    FulfillmentType::FulfillAfterLockExpire => order.request.expires_at() > now,
-                    FulfillmentType::FulfillWithoutLocking => order.request.expires_at() > now,
+                    FulfillmentType::LockAndFulfill => order.request.lock_expires_at() < now,
+                    FulfillmentType::FulfillAfterLockExpire => order.request.expires_at() < now,
+                    FulfillmentType::FulfillWithoutLocking => order.request.expires_at() < now,
                 }
             })
             .collect::<Vec<_>>();
         if expired_orders.len() == orders.len() {
-            return self.handle_expired_requests_error(batch_id, &order_ids).await;
+            return self.handle_expired_requests_error(batch_id, orders).await;
         } else if !expired_orders.is_empty() {
-            let expired_order_ids =
-                expired_orders.iter().map(|order| order.id()).collect::<Vec<_>>();
-            tracing::warn!("Some orders in batch {batch_id} are expired ({:?}). Batch will still be submitted. {:?}", expired_order_ids.clone(), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_order_ids));
+            tracing::warn!("Some orders in batch {batch_id} are expired ({}). Batch will still be submitted. {:?}", expired_orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_orders.iter().map(|order| order.id()).collect()));
         }
 
         // Collect the needed parts for the new merkle root:
@@ -461,20 +458,19 @@ where
     async fn handle_expired_requests_error(
         &self,
         batch_id: usize,
-        order_ids: &[&str],
+        orders: Vec<Order>,
     ) -> Result<(), SubmitterErr> {
-        tracing::warn!("All orders in batch {batch_id} are expired ({:?}). Batch will not be submitted, and all orders will be marked as failed.", order_ids);
-        for order_id in order_ids {
-            if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
+        tracing::warn!("All orders in batch {batch_id} are expired ({}). Batch will not be submitted, and all orders will be marked as failed.", &orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "));
+        for order in orders.clone() {
+            if let Err(db_err) = self.db.set_order_failure(order.id().as_str(), "Failed to submit batch").await
             {
                 tracing::error!(
-                    "Failed to set order failure during proof submission: {order_id} {db_err:?}"
+                    "Failed to set order failure during proof submission: {} {db_err:?}", 
+                    order.id()
                 );
             }
         }
-        Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(
-            order_ids.iter().map(|id| id.to_string()).collect(),
-        ))
+        Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(orders.iter().map(|order| format!("{order}")).collect()))
     }
 
     async fn handle_fulfillment_error(

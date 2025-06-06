@@ -328,18 +328,7 @@ where
         let request_id_and_status = commited_orders
             .iter()
             .map(|order| {
-                (
-                    format!("0x{:x}", order.request.id),
-                    order.status,
-                    order.fulfillment_type,
-                    format!(
-                        "Lock Expire: {} [{} seconds from now], Request Expire: {} [{} seconds from now]",
-                        order.request.lock_expires_at(),
-                        order.request.lock_expires_at().saturating_sub(now_timestamp()),
-                        order.request.expires_at(),
-                        order.request.expires_at().saturating_sub(now_timestamp())
-                    ),
-                )
+                format!("[{:?}]: {order}", order.status)
             })
             .collect::<Vec<_>>();
 
@@ -492,18 +481,8 @@ where
         });
 
         tracing::debug!(
-            "Orders ready for proving, prioritized. Before applying capacity limits: {:?}",
-            orders
-                .iter()
-                .map(|order| format!(
-                    "{} [Lock expires at: {} ({} seconds from now), Expires at: {} ({} seconds from now)]",
-                    order.id(),
-                    order.request.lock_expires_at(),
-                    order.request.lock_expires_at().saturating_sub(now_timestamp()),
-                    order.request.expires_at(),
-                    order.request.expires_at().saturating_sub(now_timestamp())
-                ))
-                .collect::<Vec<_>>()
+            "Orders ready for proving, prioritized. Before applying capacity limits: {}",
+            orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", ")
         );
     }
 
