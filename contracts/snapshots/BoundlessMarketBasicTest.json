@@ -1,6 +1,6 @@
 {
   "ERC20 approve: required for depositStake": "45966",
-  "bytecode size implementation": "24388",
+  "bytecode size implementation": "24381",
   "bytecode size proxy": "89",
   "deposit: first ever deposit": "50920",
   "deposit: second deposit": "33820",
@@ -24,8 +24,8 @@
   "priceAndFulfill: a single request that was not locked": "108760",
   "priceAndFulfill: a single request that was not locked fulfilled by prover not in allow-list": "108760",
   "priceAndFulfill: fulfill already fulfilled was locked request": "102475",
-  "slash: base case": "99082",
-  "slash: fulfilled request after lock deadline": "78647",
+  "slash: base case": "100967",
+  "slash: fulfilled request after lock deadline": "80532",
   "submitRequest: with maxPrice ether": "51904",
   "submitRequest: without ether": "45061",
   "submitRootAndFulfill: a batch of 2 requests": "168676",

@@ -3210,9 +3210,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     // Test slashing in the scenario where a request is fulfilled by another prover after the lock expires.
     // but before the request as a whole has expired.
-    function testSlashWasLockedRequestFulfilledByOtherProver() public {
+    function testSlashWasLockedRequestFulfilledByOtherProver() public returns (ProofRequest memory, Client, Client, Client) {
         snapshotMarketStakeTreasuryBalance();
-        (ProofRequest memory request, , , Client otherProver) =
+        (ProofRequest memory request, Client client, Client locker, Client otherProver) =
             testFulfillWasLockedRequestByOtherProver();
         vm.warp(request.offer.deadline() + 1);
         otherProver.snapshotStakeBalance();
@@ -3239,6 +3239,50 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         expectMarketStakeTreasuryBalanceChange(0);
         expectMarketBalanceUnchanged();
+
+        return (request, client, locker, otherProver);
+    }
+
+    // In this case the lock expires, the request is fulfilled by another prover, the request is slashed,
+    // and then finally the locker tries to fulfill the request.
+    //
+    // In this case the request has fully expired, so the proof should NOT be delivered,
+    // however we should not revert (as this allows partial fulfillment of other requests in the batch).
+    function testSlashWasLockedRequestFulfilledByOtherProverFulfillAfterRequestExpired() public {
+        (ProofRequest memory request, Client client, Client locker,) =
+            testSlashWasLockedRequestFulfilledByOtherProver();
+        vm.warp(request.offer.deadline() + 1);
+
+        ProofRequest[] memory requests = new ProofRequest[](1);
+        requests[0] = request;
+        bytes memory clientSignature = client.sign(request);
+        bytes[] memory clientSignatures = new bytes[](1);
+        clientSignatures[0] = clientSignature;
+
+        // Advance the chain ahead to simulate the request expiration.
+        vm.warp(request.offer.deadline() + 1);
+
+        // The locker should have no balance change.
+        // Now the locker tries to fulfill the request.
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, locker.addr());
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = fill;
+
+        // In this case the request has fully expired, so the proof should NOT be delivered,
+        // however we should not revert (as this allows partial fulfillment of other requests in the batch)
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id)
+        );
+
+        // The fulfillment should not revert, as we support multiple proofs being delivered for a single request.
+        bytes[] memory paymentErrors =
+            boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        assert(
+            keccak256(paymentErrors[0])
+                == keccak256(abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id))
+        );
     }
 
     // Test slashing in the scenario where a request is fulfilled by the locker after the lock expires.

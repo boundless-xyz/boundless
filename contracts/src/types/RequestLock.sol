@@ -75,9 +75,9 @@ library RequestLockLibrary {
 
     function setSlashed(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags |= SLASHED_FLAG;
-        // Zero out slots 1-2 for gas refund. Slot 2 may have already been zeroed out
-        // in the case where the request ended up being fulfilled after the lock deadline.
-        clearSlot1And2(requestLock);
+        // Zero out slots 1 for gas refund. Slot 2 is required to support partial fulfillment after
+        // the request has expired.
+        clearSlot1(requestLock);
     }
 
     /// @notice Returns true if the request was fulfilled by the locker
