@@ -483,6 +483,12 @@ impl AggregatorService {
                     format!("Failed to prove assessor with orders {:x?}", assessor_order_ids)
                 })?;
 
+            tracing::debug!(
+                "Assessor proof complete for batch {batch_id} with orders {:x?}, proof id: {}",
+                assessor_order_ids,
+                assessor_proof_id
+            );
+
             Some(assessor_proof_id)
         } else {
             None
@@ -495,13 +501,21 @@ impl AggregatorService {
             .chain(assessor_proof_id.iter().cloned())
             .collect();
 
-        tracing::debug!("Running set builder for batch {batch_id} with proofs {:x?}", proof_ids);
+        tracing::debug!(
+            "Running set builder for batch {batch_id} of orders {:x?} and proofs {:x?}",
+            batch.orders,
+            proof_ids
+        );
         let aggregation_state = self
             .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize)
             .await
             .context("Failed to prove set builder for batch {batch_id}")?;
 
-        tracing::debug!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
+        tracing::debug!(
+            "Completed aggregation into batch {batch_id} of orders {:x?} and proofs {:x?}",
+            batch.orders,
+            proof_ids
+        );
 
         self.db
             .update_batch(

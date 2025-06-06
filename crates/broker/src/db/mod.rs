@@ -121,6 +121,7 @@ pub trait BrokerDb {
         lock_price: U256,
     ) -> Result<Order, DbError>;
     async fn get_order(&self, id: &str) -> Result<Option<Order>, DbError>;
+    async fn get_orders(&self, ids: &[&str]) -> Result<Vec<Order>, DbError>;
     async fn get_submission_order(
         &self,
         id: &str,
@@ -329,6 +330,21 @@ impl BrokerDb for SqliteDb {
             .await?;
 
         Ok(order.map(|x| x.data))
+    }
+
+    async fn get_orders(&self, ids: &[&str]) -> Result<Vec<Order>, DbError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ");
+        let query = format!("SELECT * FROM orders WHERE id IN ({})", placeholders);
+
+        let mut q = sqlx::query_as::<_, DbOrder>(&query);
+        for id in ids {
+            q = q.bind(id);
+        }
+        let orders = q.fetch_all(&self.pool).await?;
+        Ok(orders.into_iter().map(|x| x.data).collect())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]

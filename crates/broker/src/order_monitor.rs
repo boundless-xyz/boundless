@@ -333,9 +333,11 @@ where
                     order.status,
                     order.fulfillment_type,
                     format!(
-                        "Lock Expire: {}, Request Expire: {}",
+                        "Lock Expire: {} [{} seconds from now], Request Expire: {} [{} seconds from now]",
                         order.request.lock_expires_at(),
-                        order.request.expires_at()
+                        order.request.lock_expires_at().saturating_sub(now_timestamp()),
+                        order.request.expires_at(),
+                        order.request.expires_at().saturating_sub(now_timestamp())
                     ),
                 )
             })
@@ -739,16 +741,20 @@ where
                 tracing::debug!("Order {} estimated to take {} seconds, and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
 
                 if completion_time > expiration {
-                    tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
-                        order.request.id,
-                        expiration,
-                        proof_time_seconds,
-                        completion_time
-                    );
+                    // If the order cannot be completed before its expiration, skip it permanently.
+                    // Otherwise, will retry including the order as capacity may free up in the future.
                     if now + proof_time_seconds > expiration {
+                        tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
+                            order.request.id,
+                            expiration,
+                            proof_time_seconds,
+                            completion_time
+                        );
                         // If the order cannot be completed regardless of other orders, skip it
                         // permanently. Otherwise, will retry including the order.
                         self.skip_order(&order, "cannot be completed before expiration").await;
+                    } else {
+                        tracing::debug!("Given current commited orders and capacity, order 0x{:x} cannot be completed before its expiration. Not skipping as capacity may free up before it expires.", order.request.id);
                     }
                     continue;
                 }
