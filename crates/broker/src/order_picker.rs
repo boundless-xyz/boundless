@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::{
     chain_monitor::ChainMonitorService,
@@ -721,7 +721,7 @@ where
             let mut current_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
             let mut tasks: JoinSet<()> = JoinSet::new();
             let mut rx = picker.new_order_rx.lock().await;
-            let mut last_capacity_check = Instant::now();
+            let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
             let mut pending_orders: VecDeque<Box<OrderRequest>> = VecDeque::new();
 
             loop {
@@ -734,20 +734,18 @@ where
                             )))
                         })?;
 
-                        // Only check capacity if the interval has passed
-                        if last_capacity_check.elapsed() >= MIN_CAPACITY_CHECK_INTERVAL {
-                            let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
-                            if new_capacity != current_capacity {
-                                tracing::debug!("Pricing capacity changed from {} to {}", current_capacity, new_capacity);
-                                current_capacity = new_capacity;
-                            }
-                            last_capacity_check = Instant::now();
-                        }
-
                         pending_orders.push_back(order);
                     }
                     _ = tasks.join_next(), if !tasks.is_empty() => {
                         tracing::trace!("Pricing task completed ({} remaining)", tasks.len());
+                    }
+                    _ = capacity_check_interval.tick() => {
+                        // Check capacity on an interval for capacity changes in config
+                        let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
+                        if new_capacity != current_capacity {
+                            tracing::debug!("Pricing capacity changed from {} to {}", current_capacity, new_capacity);
+                            current_capacity = new_capacity;
+                        }
                     }
                 }
 
