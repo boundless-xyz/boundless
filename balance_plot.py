@@ -8,6 +8,7 @@ from datetime import datetime
 
 def fetch_balances(rpc_url, address, duration, interval):
     web3 = Web3(Web3.HTTPProvider(rpc_url))
+    address = web3.to_checksum_address(address)
     latest_block_number = web3.eth.block_number
     latest_block = web3.eth.get_block(latest_block_number)
     latest_block_timestamp = latest_block.timestamp
