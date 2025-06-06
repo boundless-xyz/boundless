@@ -327,9 +327,7 @@ where
         let committed_orders_count: u32 = commited_orders.len().try_into().unwrap();
         let request_id_and_status = commited_orders
             .iter()
-            .map(|order| {
-                format!("[{:?}]: {order}", order.status)
-            })
+            .map(|order| format!("[{:?}]: {order}", order.status))
             .collect::<Vec<_>>();
 
         let capacity_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
@@ -482,7 +480,7 @@ where
 
         tracing::debug!(
             "Orders ready for proving, prioritized. Before applying capacity limits: {}",
-            orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", ")
+            orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
         );
     }
 
@@ -716,7 +714,6 @@ where
                     FulfillmentType::FulfillAfterLockExpire => order.request.expires_at(),
                     _ => panic!("Unsupported fulfillment type: {:?}", order.fulfillment_type),
                 };
-
 
                 if completion_time > expiration {
                     // If the order cannot be completed before its expiration, skip it permanently.

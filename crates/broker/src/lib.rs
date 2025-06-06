@@ -790,7 +790,10 @@ fn format_expiries(request: &ProofRequest) -> String {
     } else {
         format!("{} seconds ago", expires_at_delta.abs())
     };
-    format!("lock expires at {} ({}), expires at {} ({})", lock_expires_at, lock_expires_delta_str, expires_at, expires_at_delta_str)
+    format!(
+        "lock expires at {} ({}), expires at {} ({})",
+        lock_expires_at, lock_expires_delta_str, expires_at, expires_at_delta_str
+    )
 }
 
 #[cfg(feature = "test-utils")]

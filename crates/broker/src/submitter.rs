@@ -186,25 +186,16 @@ where
         // Can happen if we overcommitted to work and proving took longer than expected.
         let now = now_timestamp();
         let order_ids = batch.orders.iter().map(|order| order.as_str()).collect::<Vec<_>>();
-        let orders = self
-            .db
-            .get_orders(&order_ids)
-            .await.context("Failed to get orders")?;
+        let orders = self.db.get_orders(&order_ids).await.context("Failed to get orders")?;
         let expired_orders = orders
             .iter()
-            .filter(|order| -> bool {
-                match order.fulfillment_type {
-                    FulfillmentType::LockAndFulfill => order.request.lock_expires_at() < now,
-                    FulfillmentType::FulfillAfterLockExpire => order.request.expires_at() < now,
-                    FulfillmentType::FulfillWithoutLocking => order.request.expires_at() < now,
-                }
-            })
+            .filter(|order| order.expire_timestamp.unwrap() < now)
             .collect::<Vec<_>>();
         if expired_orders.len() == orders.len() {
             return self.handle_expired_requests_error(batch_id, orders).await;
         } else if !expired_orders.is_empty() {
             // Still submit, since we support partial fulfillment.
-            tracing::warn!("Some orders in batch {batch_id} are expired ({}). Batch will still be submitted. {:?}", expired_orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_orders.iter().map(|order| order.id()).collect()));
+            tracing::warn!("Some orders in batch {batch_id} are expired ({}). Batch will still be submitted. {:?}", expired_orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_orders.iter().map(|order| order.id()).collect()));
         }
 
         // Collect the needed parts for the new merkle root:
@@ -463,15 +454,18 @@ where
     ) -> Result<(), SubmitterErr> {
         tracing::warn!("All orders in batch {batch_id} are expired ({}). Batch will not be submitted, and all orders will be marked as failed.", &orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "));
         for order in orders.clone() {
-            if let Err(db_err) = self.db.set_order_failure(order.id().as_str(), "Failed to submit batch").await
+            if let Err(db_err) =
+                self.db.set_order_failure(order.id().as_str(), "Failed to submit batch").await
             {
                 tracing::error!(
-                    "Failed to set order failure during proof submission: {} {db_err:?}", 
+                    "Failed to set order failure during proof submission: {} {db_err:?}",
                     order.id()
                 );
             }
         }
-        Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(orders.iter().map(|order| format!("{order}")).collect()))
+        Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(
+            orders.iter().map(|order| format!("{order}")).collect(),
+        ))
     }
 
     async fn handle_fulfillment_error(
