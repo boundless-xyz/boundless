@@ -276,7 +276,7 @@ impl std::fmt::Display for OrderRequest {
 /// details. Those also result in separate Order objects being created.
 ///
 /// See the id() method for more details on how Orders are identified.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct Order {
     /// Address of the boundless market contract. Stored as it is required to compute the order id.
     boundless_market_address: Address,

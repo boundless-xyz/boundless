@@ -721,7 +721,7 @@ where
 
                 if completion_time > expiration {
                     // If the order cannot be completed before its expiration, skip it permanently.
-                    // Otherwise, will retry including the order as capacity may free up in the future.
+                    // Otherwise, we keep the order for the next iteration as capacity may free up in the future.
                     if now + proof_time_seconds > expiration {
                         tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
                             order.request.id,

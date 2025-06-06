@@ -183,7 +183,7 @@ where
         }
 
         // Check that at least one order in the batch is not expired before submitting on chain.
-        // Can happen if we overcommitted to work, and proving took longer than expected.
+        // Can happen if we overcommitted to work and proving took longer than expected.
         let now = now_timestamp();
         let order_ids = batch.orders.iter().map(|order| order.as_str()).collect::<Vec<_>>();
         let orders = self
@@ -203,6 +203,7 @@ where
         if expired_orders.len() == orders.len() {
             return self.handle_expired_requests_error(batch_id, orders).await;
         } else if !expired_orders.is_empty() {
+            // Still submit, since we support partial fulfillment.
             tracing::warn!("Some orders in batch {batch_id} are expired ({}). Batch will still be submitted. {:?}", expired_orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_orders.iter().map(|order| order.id()).collect()));
         }
 

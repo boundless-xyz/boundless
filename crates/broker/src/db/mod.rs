@@ -1113,7 +1113,6 @@ mod tests {
     #[sqlx::test]
     async fn get_orders(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        // Create and add multiple orders
         let mut order1 = create_order();
         order1.request.id = U256::from(1);
         let mut order2 = create_order();
@@ -1124,7 +1123,6 @@ mod tests {
         db.add_order(&order2).await.unwrap();
         db.add_order(&order3).await.unwrap();
 
-        // Fetch by IDs
         let ids = vec![order1.id(), order2.id(), order3.id()];
         let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
         let orders = db.get_orders(&id_refs).await.unwrap();
