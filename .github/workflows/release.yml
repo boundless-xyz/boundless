@@ -28,6 +28,15 @@ env:
 jobs:
   deployment:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
+    env:
+      RPC_MAP: |
+        {
+          "ethereum-sepolia-prod": "https://ethereum-sepolia-rpc.publicnode.com",
+          "ethereum-sepolia-staging": "https://ethereum-sepolia-rpc.publicnode.com",
+          "base-sepolia-prod": "https://base-sepolia-rpc.publicnode.com",
+          "base-sepolia-staging": "https://base-sepolia-rpc.publicnode.com",
+          "base-mainnet": "https://base-rpc.publicnode.com"
+        }
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -59,12 +68,13 @@ jobs:
       - name: cargo install boundless-cli
         run: cargo install boundless-cli --path crates/boundless-cli --locked
 
-      - name: forge test
-        run: forge test -vvv --fork-url="$RPC_URL"
+      - name: forge deployment test
         env:
           CHAIN_KEY: ${{ github.event.inputs.chain_key }}
           FOUNDRY_PROFILE: deployment-test
-          RPC_URL: https://ethereum-sepolia-rpc.publicnode.com
+          RPC_URL: ${{ fromJson(env.RPC_MAP)[github.event.inputs.chain_key] }}
+        run: forge test -vvv --fork-url="$RPC_URL"
+
 
       - name: sccache stats
         run: sccache --show-stats

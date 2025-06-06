@@ -33,4 +33,4 @@ offer:
     rampUpPeriod: 300
     timeout: 3600 # 1 hor
     lockTimeout: 2700 # 45 minutes
-    lockStake: 100000000000000000 # 0.1 HP tokens (set between 0 and 100)
+    lockStake: 100000 # 0.1 USDC
