@@ -23,7 +23,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 name = "Ethereum Sepolia [production]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
-version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
+version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
@@ -46,7 +46,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 name = "Ethereum Sepolia [staging]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
-version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
+version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
@@ -69,7 +69,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 name = "Base Mainnet"
 id = 8453
 etherscan-url = "https://basescan.org/"
-version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
+version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
@@ -92,7 +92,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 name = "Base Sepolia [prod]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
-version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
+version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
@@ -115,7 +115,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 name = "Base Sepolia [staging]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
-version = "v0.10.0" # 034349bb4dcd9d877d728265113821e1d39330a0
+version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
 admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
