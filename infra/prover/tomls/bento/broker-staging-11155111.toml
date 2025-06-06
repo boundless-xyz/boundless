@@ -36,3 +36,4 @@ txn_timeout = 75
 single_txn_fulfill = true
 max_submission_attempts = 2
 # batch_poll_time_ms = 500
+withdraw = true

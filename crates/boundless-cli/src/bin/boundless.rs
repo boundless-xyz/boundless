@@ -18,13 +18,13 @@
 //!
 //! ```sh
 //! RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
-//! boundless-cli account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
+//! boundless account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
 //! ```
 //!
 //! ```sh
 //! RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
 //! PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000000 \
-//! boundless-cli request submit-offer --wait --input "hello" \
+//! boundless request submit-offer --wait --input "hello" \
 //! --program-url http://dweb.link/ipfs/bafkreido62tz2uyieb3s6wmixwmg43hqybga2ztmdhimv7njuulf3yug4e
 //! ```
 //!
@@ -62,7 +62,8 @@ use alloy::{
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
@@ -109,6 +110,9 @@ enum Command {
 
     /// Display configuration and environment variables
     Config {},
+
+    /// Print shell completions (e.g. for bash or zsh) to stdout.
+    Completions { shell: Shell },
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -394,12 +398,12 @@ struct GlobalConfig {
     #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
     log_level: LevelFilter,
 
-    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    #[clap(flatten, next_help_heading = "Boundless Deployment")]
     deployment: Option<Deployment>,
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for the Boundless market", long_about = None)]
+#[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for Boundless", long_about = None)]
 struct MainArgs {
     /// Subcommand to run
     #[command(subcommand)]
@@ -438,6 +442,7 @@ fn private_key_required(cmd: &Command) -> bool {
             ProvingCommands::Fulfill { .. } => true,
             ProvingCommands::Lock { .. } => true,
         },
+        Command::Completions { .. } => false,
     }
 }
 
@@ -483,6 +488,17 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     if let Command::Config {} = &args.command {
         return handle_config_command(args).await;
     }
+    if let Command::Completions { shell } = &args.command {
+        // TODO: Because of where this is, running the completions command requires an RPC_URL to
+        // be set. We should address this, but its also not a major issue.
+        clap_complete::generate(
+            *shell,
+            &mut MainArgs::command(),
+            "boundless",
+            &mut std::io::stdout(),
+        );
+        return Ok(());
+    }
 
     let storage_config = match args.command {
         Command::Request(ref req_cmd) => match **req_cmd {
@@ -509,6 +525,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, client).await,
         Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
         Command::Config {} => unreachable!(),
+        Command::Completions { .. } => unreachable!(),
     }
 }
 
@@ -838,27 +855,15 @@ async fn benchmark(
     let mut worst_request_id = U256::ZERO;
 
     // Check if we can connect to PostgreSQL using environment variables
-    let pg_connection_available = std::env::var("POSTGRES_USER").is_ok()
-        && std::env::var("POSTGRES_PASSWORD").is_ok()
-        && std::env::var("POSTGRES_DB").is_ok();
-
-    let pg_pool = if pg_connection_available {
-        match create_pg_pool().await {
-            Ok(pool) => {
-                tracing::info!("Successfully connected to PostgreSQL database");
-                Some(pool)
-            }
-            Err(e) => {
-                tracing::warn!("Failed to connect to PostgreSQL database: {}", e);
-                None
-            }
+    let pg_pool = match create_pg_pool().await {
+        Ok(pool) => {
+            tracing::info!("Successfully connected to PostgreSQL database");
+            Some(pool)
         }
-    } else {
-        tracing::warn!(
-            "PostgreSQL environment variables not found, using client-side metrics only. \
-            This will be less accurate for smaller proofs."
-        );
-        None
+        Err(e) => {
+            tracing::warn!("Failed to connect to PostgreSQL database: {}", e);
+            None
+        }
     };
 
     for (idx, request_id) in request_ids.iter().enumerate() {
@@ -926,7 +931,7 @@ async fn benchmark(
                 }
                 _ => {
                     let err_msg = status.error_msg.unwrap_or_default();
-                    bail!("snark proving failed: {err_msg}");
+                    bail!("stark proving failed: {err_msg}");
                 }
             }
         };
@@ -999,16 +1004,21 @@ async fn benchmark(
 }
 
 /// Create a PostgreSQL connection pool using environment variables
-async fn create_pg_pool() -> Result<sqlx::PgPool> {
-    let user = std::env::var("POSTGRES_USER").context("POSTGRES_USER not set")?;
-    let password = std::env::var("POSTGRES_PASSWORD").context("POSTGRES_PASSWORD not set")?;
-    let db = std::env::var("POSTGRES_DB").context("POSTGRES_DB not set")?;
-    let host = "127.0.0.1";
+async fn create_pg_pool() -> Result<sqlx::PgPool, sqlx::Error> {
+    let user = std::env::var("POSTGRES_USER").unwrap_or_else(|_| "worker".to_string());
+    let password = std::env::var("POSTGRES_PASSWORD").unwrap_or_else(|_| "password".to_string());
+    let db = std::env::var("POSTGRES_DB").unwrap_or_else(|_| "taskdb".to_string());
+    let host = match std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "postgres".to_string()) {
+        host if host != "postgres" => host,
+        // Use local connection for postgres, as "postgres" not compatible with docker
+        _ => "127.0.0.1".to_string(),
+    };
+
     let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
 
     let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
 
-    sqlx::PgPool::connect(&connection_string).await.context("Failed to connect to PostgreSQL")
+    sqlx::PgPool::connect(&connection_string).await
 }
 
 /// Submit an offer and create a proof request
