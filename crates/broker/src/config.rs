@@ -62,6 +62,10 @@ mod defaults {
     pub const fn reaper_grace_period_secs() -> u32 {
         240
     }
+
+    pub const fn max_pricing_batch_size() -> u32 {
+        4
+    }
 }
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
@@ -176,6 +180,11 @@ pub struct MarketConf {
     ///
     /// If not set, files will be re-downloaded every time
     pub cache_dir: Option<PathBuf>,
+    /// Maximum number of orders to concurrently work on pricing
+    ///
+    /// Used to limit pricing tasks spawned to prevent overwhelming the system
+    #[serde(default = "defaults::max_pricing_batch_size")]
+    pub max_pricing_batch_size: u32,
 }
 
 impl Default for MarketConf {
@@ -207,6 +216,7 @@ impl Default for MarketConf {
             stake_balance_error_threshold: None,
             max_concurrent_proofs: None,
             cache_dir: None,
+            max_pricing_batch_size: defaults::max_pricing_batch_size(),
         }
     }
 }
