@@ -162,9 +162,18 @@ impl ProvingService {
         let order_status = match tokio::time::timeout(timeout_duration, monitor_task).await {
             Ok(result) => result.context("Monitoring proof failed")?,
             Err(_) => {
-                tracing::debug!("Proving timed out for order {}, cancelling proof {}", order_id, proof_id);
+                tracing::debug!(
+                    "Proving timed out for order {}, cancelling proof {}",
+                    order_id,
+                    proof_id
+                );
                 if let Err(err) = self.prover.cancel_stark(&proof_id).await {
-                    tracing::warn!("Failed to cancel proof {} for timed out order {}: {}", proof_id, order_id, err);
+                    tracing::warn!(
+                        "Failed to cancel proof {} for timed out order {}: {}",
+                        proof_id,
+                        order_id,
+                        err
+                    );
                 }
                 return Err(anyhow::anyhow!("Proving timed out"));
             }
@@ -226,8 +235,9 @@ impl ProvingService {
                         &self.db,
                         proof_id,
                         &order_id,
-                        "Order expired on startup"
-                    ).await;
+                        "Order expired on startup",
+                    )
+                    .await;
                 } else {
                     handle_order_failure(&self.db, &order_id, "Order expired on startup").await;
                 }

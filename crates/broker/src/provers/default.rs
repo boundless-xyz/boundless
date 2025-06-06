@@ -302,10 +302,10 @@ impl Prover for DefaultProver {
         let proof_data = proofs
             .get_mut(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
-        
+
         proof_data.status = Status::Failed;
         proof_data.error_msg = "Cancelled".to_string();
-        
+
         Ok(())
     }
 

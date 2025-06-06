@@ -12,8 +12,8 @@ use crate::{
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
     errors::CodedError,
-    task::{RetryRes, RetryTask, SupervisorErr},
     provers::ProverObj,
+    task::{RetryRes, RetryTask, SupervisorErr},
     utils::cancel_proof_and_fail_order,
 };
 
@@ -72,15 +72,19 @@ impl ReaperTask {
                         &self.db,
                         proof_id,
                         &order_id,
-                        "Order expired in reaper"
-                    ).await;
+                        "Order expired in reaper",
+                    )
+                    .await;
                 } else {
                     match self.db.set_order_failure(&order_id, "Order expired").await {
                         Ok(()) => {
                             warn!("Order {} has expired, marked as failed", order_id);
                         }
                         Err(err) => {
-                            error!("Failed to update status for expired order {}: {}", order_id, err);
+                            error!(
+                                "Failed to update status for expired order {}: {}",
+                                order_id, err
+                            );
                             return Err(ReaperError::UpdateFailed(err.into()));
                         }
                     }
@@ -126,7 +130,9 @@ impl RetryTask for ReaperTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus};
+    use crate::{
+        db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus,
+    };
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
         Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,

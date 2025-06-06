@@ -697,7 +697,8 @@ where
         });
 
         // Start the ReaperTask to check for expired committed orders
-        let reaper = Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
+        let reaper =
+            Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
         let cloned_config = config.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(reaper, cloned_config)
