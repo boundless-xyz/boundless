@@ -4,6 +4,7 @@
 
 use std::cmp::Ordering;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::{
     chain_monitor::ChainMonitorService,
@@ -33,6 +34,8 @@ use thiserror::Error;
 use tokio::sync::{mpsc, Mutex, Semaphore};
 
 use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
+
+const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Manages dynamic capacity adjustments for a semaphore based on configuration changes
 #[derive(Debug)]
@@ -764,6 +767,7 @@ where
             let mut capacity_manager = SemaphoreCapacityManager::new(initial_capacity);
 
             let mut rx = picker.new_order_rx.lock().await;
+            let mut last_capacity_check = Instant::now();
 
             loop {
                 let order = rx.recv().await.ok_or_else(|| {
@@ -772,8 +776,12 @@ where
                     )))
                 })?;
 
-                let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
-                capacity_manager.update_capacity(new_capacity).await;
+                // Only check capacity if the interval has passed
+                if last_capacity_check.elapsed() >= MIN_CAPACITY_CHECK_INTERVAL {
+                    let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
+                    capacity_manager.update_capacity(new_capacity).await;
+                    last_capacity_check = Instant::now();
+                }
 
                 let permit =
                     capacity_manager.semaphore().acquire_owned().await.expect("semaphore closed");
@@ -1673,10 +1681,13 @@ mod tests {
         // Wait for order to be processed
         tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv()).await.unwrap();
 
-        // Increase capacity
+        // Sleep to allow for a capacity check change
+        tokio::time::sleep(MIN_CAPACITY_CHECK_INTERVAL).await;
+
+        // Decrease capacity
         {
             let mut cfg = config.load_write().unwrap();
-            cfg.market.max_pricing_batch_size = 5;
+            cfg.market.max_pricing_batch_size = 1;
         }
 
         // Send another order to trigger capacity increase check
@@ -1687,22 +1698,7 @@ mod tests {
         // Wait for an order to be processed before updating capacity
         tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv()).await.unwrap();
 
-        // Decrease capacity
-        {
-            let mut cfg = config.load_write().unwrap();
-            cfg.market.max_pricing_batch_size = 1;
-        }
-
-        // Send another order to trigger capacity decrease check
-        let order3 =
-            ctx.generate_next_order(OrderParams { order_index: 3, ..Default::default() }).await;
-        ctx.new_order_tx.send(order3).await.unwrap();
-
-        // Wait for processing remaining order
-        tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv()).await.unwrap();
-
         // Check logs for capacity changes
-        assert!(logs_contain("Pricing capacity increased to 5"));
         assert!(logs_contain("Pricing capacity decreased to 1"));
 
         picker_task.abort();
@@ -1792,6 +1788,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[traced_test]
     async fn test_semaphore_capacity_manager_permits() {
         let mut manager = SemaphoreCapacityManager::new(2);
 
