@@ -89,19 +89,26 @@ services:
       - redis
       - minio
 
-
-  exec_agent:
+  exec_agent0:
     <<: *agent-common
-    runtime: nvidia
 
     mem_limit: 4G
-    cpus: 4
+    cpus: 3
 
     environment:
       <<: *base-environment
       RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-      # JOIN_STREAM: 1
-      # COPROC_STREAM: 1
+    entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+
+  exec_agent1:
+    <<: *agent-common
+
+    mem_limit: 4G
+    cpus: 3
+
+    environment:
+      <<: *base-environment
+      RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
     entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
 
   aux_agent:
@@ -128,33 +135,6 @@ services:
               # TODO: how to scale this with N gpus?
               device_ids: ['0']
               capabilities: [gpu]
-
-  # gpu_prove_agent1:
-  #   <<: *agent-common
-  #   runtime: nvidia
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - driver: nvidia
-  #             device_ids: ['1']
-  #             capabilities: [gpu]
-
-
-  # gpu_join_agent0:
-  #   <<: *agent-common
-  #   runtime: nvidia
-  #   mem_limit: 2G
-  #   cpus: 2
-  #   entrypoint: /app/agent -t join
-
-  # gpu_coproc_agent0:
-  #   <<: *agent-common
-  #   runtime: nvidia
-  #   mem_limit: 2G
-  #   cpus: 2
-  #   entrypoint: /app/agent -t coproc
-
 
   snark_agent:
     <<: *agent-common
