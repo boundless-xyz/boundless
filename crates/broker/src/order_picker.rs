@@ -1655,6 +1655,9 @@ mod tests {
             cfg.market.max_pricing_batch_size = 1;
         }
 
+        // Wait a bit more for the interval timer to fire and detect the change
+        tokio::time::sleep(MIN_CAPACITY_CHECK_INTERVAL + Duration::from_millis(100)).await;
+
         // Send another order to trigger capacity check
         let order2 =
             ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
