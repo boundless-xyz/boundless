@@ -1626,7 +1626,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_capacity_increase_and_decrease() {
+    async fn test_capacity_change() {
         let config = ConfigLock::default();
         {
             let mut cfg = config.load_write().unwrap();
