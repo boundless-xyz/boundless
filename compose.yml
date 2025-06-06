@@ -198,6 +198,8 @@ services:
     mem_limit: 2G
     cpus: 2
 
+    stop_grace_period: 5m  # Give broker 5 minutes to shut down gracefully
+
     volumes:
       - type: bind
         source: ./broker.toml

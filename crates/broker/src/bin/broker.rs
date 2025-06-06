@@ -18,25 +18,33 @@ use boundless_market::{
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing::Subscriber;
+use std::boxed::Box;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
     let config = Config::load(&args.config_file).await?;
 
-    if args.log_json {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .with_span_events(FmtSpan::CLOSE)
-            .with_ansi(false)
-            .json()
-            .init();
+    // Build the subscriber and keep the guard alive
+    let subscriber: Box<dyn Subscriber + Send + Sync> = if args.log_json {
+        Box::new(
+            tracing_subscriber::fmt()
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .with_span_events(FmtSpan::CLOSE)
+                .with_ansi(false)
+                .json()
+                .finish(),
+        )
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .with_span_events(FmtSpan::CLOSE)
-            .init();
-    }
+        Box::new(
+            tracing_subscriber::fmt()
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .with_span_events(FmtSpan::CLOSE)
+                .finish(),
+        )
+    };
+    tracing::subscriber::set_global_default(subscriber)?;
 
     let wallet = EthereumWallet::from(args.private_key.clone());
 
@@ -94,6 +102,7 @@ async fn main() -> Result<()> {
 
     let broker = Broker::new(args, provider).await?;
 
+    // Await broker shutdown before returning from main
     broker.start_service().await.context("Broker service failed")?;
 
     Ok(())

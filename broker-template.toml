@@ -4,12 +4,12 @@
 # This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
 # execution took, as calculated by running the request in preflight. This is one of the inputs to
 # decide the minimum price to accept for a request.
-mcycle_price = "0.0000005"
+mcycle_price = "0.000000000005"
 # Mega-cycle price, denominated in the Boundless staking token.
 #
 # Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
 # order when paid in staking tokens, as is the case for orders with an expired lock.
-mcycle_price_stake_token = "0.0001"
+mcycle_price_stake_token = "0.00000000000"
 # Optional allow list for addresses that can bypass the mcycle limit
 #
 # If enabled, all requests from clients in the allow list will skip the configured mcycle limit.
@@ -19,7 +19,7 @@ allow_skip_mcycle_limit_addresses = ["0x48268bE6235A23eb7b67356469362869D5d0293f
 # Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
 # can be derived from benchmarking using Bento CLI or from data based on fulfilling market orders.
 # For more information, see https://docs.beboundless.xyz/provers/broker#benchmarking-bento
-peak_prove_khz = 100
+peak_prove_khz = 300
 # Optional max cycles (in mcycles)
 #
 # Orders over this max_cycles will be skipped after preflight
@@ -154,7 +154,7 @@ min_batch_size = 1
 # to flush the batch. This should be approximately snark_proving_time * 2
 block_deadline_buffer_secs = 120
 # Timeout, in seconds for transaction confirmations
-txn_timeout = 45
+txn_timeout = 90
 # Use the single TXN submission that batches submit_merkle / fulfill_batch into
 #
 # A single transaction. Requires the `submitRootAndFulfill` method

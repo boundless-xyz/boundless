@@ -3,6 +3,7 @@
 // All rights reserved.
 
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::storage::create_uri_handler;
 use alloy::{
@@ -726,35 +727,111 @@ where
             Ok(())
         });
 
-        // Monitor the different supervisor tasks
-        while let Some(res) = supervisor_tasks.join_next().await {
-            let status = match res {
-                Err(join_err) if join_err.is_cancelled() => {
-                    tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
-                    continue;
+        // Monitor the different supervisor tasks and handle shutdown
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler");
+        let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+            .expect("Failed to install SIGINT handler");
+        loop {
+            tracing::info!("Waiting for supervisor tasks to complete...");
+            tokio::select! {
+                // Handle supervisor task results
+                Some(res) = supervisor_tasks.join_next() => {
+                    let status = match res {
+                        Err(join_err) if join_err.is_cancelled() => {
+                            tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
+                            continue;
+                        }
+                        Err(join_err) => {
+                            tracing::error!("Tokio task exited with error status: {join_err:?}");
+                            anyhow::bail!("Task exited with error status: {join_err:?}")
+                        }
+                        Ok(status) => status,
+                    };
+                    match status {
+                        Err(err) => {
+                            tracing::error!("Task exited with error status: {err:?}");
+                            anyhow::bail!("Task exited with error status: {err:?}")
+                        }
+                        Ok(()) => {
+                            tracing::info!("Task exited with ok status");
+                        }
+                    }
                 }
-                Err(join_err) => {
-                    tracing::error!("Tokio task exited with error status: {join_err:?}");
-                    // TODO(#BM-470): Here, we should be using a cancellation token to signal to all
-                    // the tasks under this supervisor that they should exit, then set a timer (e.g.
-                    // for 30) to give them time to gracefully shut down.
-                    anyhow::bail!("Task exited with error status: {join_err:?}")
+                // Handle shutdown signals
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("\nReceived CTRL+C, starting graceful shutdown...");
+                    tracing::info!("\nReceived CTRL+C, starting graceful shutdown...");
+                    break;
                 }
-                Ok(status) => status,
-            };
-            match status {
-                Err(err) => {
-                    tracing::error!("Task exited with error status: {err:?}");
-                    // TODO(#BM-470): Here, we should be using a cancellation token to signal to all
-                    // the tasks under this supervisor that they should exit, then set a timer (e.g.
-                    // for 30) to give them time to gracefully shut down.
-                    anyhow::bail!("Task exited with error status: {err:?}")
+                _ = sigterm.recv() => {
+                    eprintln!("\nReceived SIGTERM, starting graceful shutdown...");
+                    tracing::info!("\nReceived SIGTERM, starting graceful shutdown...");
+                    break;
                 }
-                Ok(()) => {
-                    tracing::info!("Task exited with ok status");
+                _ = sigint.recv() => {
+                    eprintln!("\nReceived SIGINT, starting graceful shutdown...");
+                    tracing::info!("\nReceived SIGINT, starting graceful shutdown...");
+                    break;
                 }
             }
         }
+
+        // Begin graceful shutdown. 
+        // Stop accepting new work by limitting max concurrent proofs to 0, then wait for committed
+        // in-progress work to complete.
+        let _guard = tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .finish(),
+        );
+        self.config_watcher.config.load_write()?.market.max_concurrent_proofs = Some(0);
+        const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 120; // 1 minute grace period
+        const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+
+        let start_time = std::time::Instant::now();
+        let grace_period = std::time::Duration::from_secs(SHUTDOWN_GRACE_PERIOD_SECS as u64);
+
+        while start_time.elapsed() < grace_period {
+            let in_progress_orders = self.db.get_committed_orders().await?;
+            if in_progress_orders.is_empty() {
+                tracing::info!("No in-progress orders found, shutting down...");
+                eprintln!("No in-progress orders found, shutting down...");
+                break;
+            }
+
+            eprintln!("EWaiting for {} in-progress orders to complete...\n{}",
+                in_progress_orders.len(),
+                in_progress_orders.iter().map(|order| {
+                    let request_id = order.request.id;
+                    let status = order.status;
+                    format!("Order 0x{:x} - {:?}", request_id, status)
+                }).collect::<Vec<_>>().join("\n"));
+            tracing::info!(
+                "Waiting for {} in-progress orders to complete...\n{}",
+                in_progress_orders.len(),
+                in_progress_orders.iter().map(|order| {
+                    let request_id = order.request.id;
+                    let status = order.status;
+                    format!("Order 0x{:x} - {:?}", request_id, status)
+                }).collect::<Vec<_>>().join("\n")
+            );
+            tokio::time::sleep(SLEEP_DURATION).await;
+        }
+
+        if start_time.elapsed() >= grace_period {
+            tracing::warn!("Shutdown timed out after {} seconds. Some work may not have completed.", SHUTDOWN_GRACE_PERIOD_SECS);
+            // Log final state
+            let in_progress_orders = self.db.get_committed_orders().await?;
+            tracing::warn!(
+                "Final state: {} in-progress orders",
+                in_progress_orders.len()
+            );
+        }
+
+        // 3. Shutdown is complete
+        tracing::info!("Shutdown complete");
+        eprintln!("EShutdown complete");
 
         Ok(())
     }

@@ -417,7 +417,7 @@ where
         } else if let Some(config_mcycle_limit) = max_mcycle_limit {
             let config_cycle_limit = config_mcycle_limit * 1_000_000;
             if exec_limit_cycles >= config_cycle_limit {
-                tracing::info!("Order with request id {request_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit");
+                tracing::info!("Order with request id {request_id:x} exec limit computed from max price {} exceeds config max_mcycle_limit {}, setting exec limit to max_mcycle_limit", exec_limit_cycles / 1_000_000, config_mcycle_limit);
                 exec_limit_cycles = config_cycle_limit;
             }
         }
@@ -603,8 +603,10 @@ where
         // Skip the order if it will never be worth it
         if mcycle_price_in_stake_tokens < config_min_mcycle_price_stake_tokens {
             tracing::info!(
-                "Removing under priced order (slashed stake reward too low) {}",
-                order.id()
+                "Removing under priced order (slashed stake reward too low) {} (stake price {} < config min stake price {})",
+                order.id(),
+                format_ether(mcycle_price_in_stake_tokens),
+                format_ether(config_min_mcycle_price_stake_tokens)
             );
             return Ok(Skip);
         }
@@ -1442,8 +1444,8 @@ mod tests {
             order.request.offer.biddingStart + order.request.offer.timeout as u64;
 
         let expected_log = format!(
-            "Setting order {} to prove after lock expiry at {}",
-            order_id, expected_target_timestamp
+            "Setting order {} to prove after lock expiry at {} ({} seconds from now)",
+            order_id, expected_target_timestamp, expected_target_timestamp.saturating_sub(now_timestamp())
         );
         assert!(ctx.picker.price_order_and_update_state(order).await);
 
