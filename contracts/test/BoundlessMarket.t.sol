@@ -2132,11 +2132,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // Scenario when a prover locks a request, fails to deliver it within the lock expiry,
     // another prover fulfills the request, and then the locker tries to fulfill the request
     // before the request as a whole has expired. A proof should still be delivered and no revert
-    // should occur, since we support multiple proofs being delivered for a single request. No 
+    // should occur, since we support multiple proofs being delivered for a single request. No
     // balance changes should occur.
     function testFulfillWasLockedRequestLockerFulfillAfterAnotherProverFulfill() public {
-        (ProofRequest memory request, Client client, Client locker,) =
-            testFulfillWasLockedRequestByOtherProver();
+        (ProofRequest memory request, Client client, Client locker,) = testFulfillWasLockedRequestByOtherProver();
 
         locker.snapshotBalance();
         locker.snapshotStakeBalance();
@@ -2185,8 +2184,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // In this case the request has fully expired, so the proof should NOT be delivered,
     // however we should not revert (as this allows partial fulfillment of other requests in the batch).
     function testFulfillWasLockedRequestLockerFulfillAfterAnotherProverFulfillAndRequestExpired() public {
-        (ProofRequest memory request, Client client, Client locker,) =
-            testFulfillWasLockedRequestByOtherProver();
+        (ProofRequest memory request, Client client, Client locker,) = testFulfillWasLockedRequestByOtherProver();
 
         locker.snapshotBalance();
         locker.snapshotStakeBalance();
@@ -3210,7 +3208,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     // Test slashing in the scenario where a request is fulfilled by another prover after the lock expires.
     // but before the request as a whole has expired.
-    function testSlashWasLockedRequestFulfilledByOtherProver() public returns (ProofRequest memory, Client, Client, Client) {
+    function testSlashWasLockedRequestFulfilledByOtherProver()
+        public
+        returns (ProofRequest memory, Client, Client, Client)
+    {
         snapshotMarketStakeTreasuryBalance();
         (ProofRequest memory request, Client client, Client locker, Client otherProver) =
             testFulfillWasLockedRequestByOtherProver();
@@ -3249,8 +3250,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // In this case the request has fully expired, so the proof should NOT be delivered,
     // however we should not revert (as this allows partial fulfillment of other requests in the batch).
     function testSlashWasLockedRequestFulfilledByOtherProverFulfillAfterRequestExpired() public {
-        (ProofRequest memory request, Client client, Client locker,) =
-            testSlashWasLockedRequestFulfilledByOtherProver();
+        (ProofRequest memory request, Client client, Client locker,) = testSlashWasLockedRequestFulfilledByOtherProver();
         vm.warp(request.offer.deadline() + 1);
 
         ProofRequest[] memory requests = new ProofRequest[](1);
