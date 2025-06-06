@@ -229,18 +229,13 @@ impl ProvingService {
             let order_id = order.id();
             if order.expire_timestamp.unwrap() < now {
                 tracing::warn!("Order {} had expired on proving task start", order_id);
-                if let Some(proof_id) = &order.proof_id {
-                    cancel_proof_and_fail_order(
-                        &self.prover,
-                        &self.db,
-                        proof_id,
-                        &order_id,
-                        "Order expired on startup",
-                    )
-                    .await;
-                } else {
-                    handle_order_failure(&self.db, &order_id, "Order expired on startup").await;
-                }
+                cancel_proof_and_fail_order(
+                    &self.prover,
+                    &self.db,
+                    &order,
+                    "Order expired on startup",
+                )
+                .await;
             }
             let prove_serv = self.clone();
 
