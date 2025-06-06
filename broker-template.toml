@@ -102,7 +102,7 @@ stake_balance_error_threshold = "5"
 
 [prover]
 # Optional config, if using bonsai set the zkVM version here
-bonsai_r0_zkvm_ver = "2.0.0"
+bonsai_r0_zkvm_ver = "2.1.0"
 # Number of retries to poll for proving status.
 #
 # Provides a little durability for transient failures.
