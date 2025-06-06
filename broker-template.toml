@@ -49,6 +49,10 @@ max_file_size = 50_000_000
 #
 # Maximum number of concurrent proofs that can be processed at once
 max_concurrent_proofs = 2
+# Maximum number of orders to concurrently work on pricing
+#
+# Used to limit pricing tasks spawned to prevent overwhelming the system
+#max_pricing_batch_size = 4
 # Max critical task retries on recoverable failures.
 #
 # The broker service has a number of subtasks. Some are considered critical. If a task fails, it
