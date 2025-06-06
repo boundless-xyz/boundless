@@ -187,10 +187,8 @@ where
         let now = now_timestamp();
         let order_ids = batch.orders.iter().map(|order| order.as_str()).collect::<Vec<_>>();
         let orders = self.db.get_orders(&order_ids).await.context("Failed to get orders")?;
-        let expired_orders = orders
-            .iter()
-            .filter(|order| order.expire_timestamp.unwrap() < now)
-            .collect::<Vec<_>>();
+        let expired_orders =
+            orders.iter().filter(|order| order.expire_timestamp.unwrap() < now).collect::<Vec<_>>();
         if expired_orders.len() == orders.len() {
             return self.handle_expired_requests_error(batch_id, orders).await;
         } else if !expired_orders.is_empty() {
