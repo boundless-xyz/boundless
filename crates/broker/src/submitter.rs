@@ -28,9 +28,10 @@ use risc0_zkvm::{
 use crate::{
     config::ConfigLock,
     db::DbObj,
+    now_timestamp,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
-    Batch, FulfillmentType,
+    Batch, FulfillmentType, Order,
 };
 use thiserror::Error;
 
@@ -44,11 +45,11 @@ pub enum SubmitterErr {
     #[error("{code} Failed to confirm transaction: {0}", code = self.code())]
     TxnConfirmationError(MarketError),
 
-    // TODO: As of PR #703, has no sources. We need to parse PaymentRequirementsFailed events to
-    // reenable this error reporting.
-    #[allow(dead_code)]
-    #[error("{code} Request expired before submission: {0}", code = self.code())]
-    RequestExpiredBeforeSubmission(MarketError),
+    #[error("{code} All requests expired before submission: {0:?}", code = self.code())]
+    AllRequestsExpiredBeforeSubmission(Vec<String>),
+
+    #[error("{code} Some requests expired before submission: {0:?}", code = self.code())]
+    SomeRequestsExpiredBeforeSubmission(Vec<String>),
 
     #[error("{code} Market error: {0}", code = self.code())]
     MarketError(#[from] MarketError),
@@ -61,7 +62,8 @@ impl CodedError for SubmitterErr {
     fn code(&self) -> &str {
         match self {
             SubmitterErr::UnexpectedErr(_) => "[B-SUB-500]",
-            SubmitterErr::RequestExpiredBeforeSubmission(_) => "[B-SUB-001]",
+            SubmitterErr::AllRequestsExpiredBeforeSubmission(_) => "[B-SUB-001]",
+            SubmitterErr::SomeRequestsExpiredBeforeSubmission(_) => "[B-SUB-005]",
             SubmitterErr::MarketError(_) => "[B-SUB-002]",
             SubmitterErr::BatchSubmissionFailed(_) => "[B-SUB-003]",
             SubmitterErr::TxnConfirmationError(_) => "[B-SUB-004]",
@@ -178,6 +180,20 @@ where
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Cannot submit guest state that is not finalized"
             )));
+        }
+
+        // Check that at least one order in the batch is not expired before submitting on chain.
+        // Can happen if we overcommitted to work and proving took longer than expected.
+        let now = now_timestamp();
+        let order_ids = batch.orders.iter().map(|order| order.as_str()).collect::<Vec<_>>();
+        let orders = self.db.get_orders(&order_ids).await.context("Failed to get orders")?;
+        let expired_orders =
+            orders.iter().filter(|order| order.expire_timestamp.unwrap() < now).collect::<Vec<_>>();
+        if expired_orders.len() == orders.len() {
+            return self.handle_expired_requests_error(batch_id, orders).await;
+        } else if !expired_orders.is_empty() {
+            // Still submit, since we support partial fulfillment.
+            tracing::warn!("Some orders in batch {batch_id} are expired ({}). Batch will still be submitted. {:?}", expired_orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_orders.iter().map(|order| order.id()).collect()));
         }
 
         // Collect the needed parts for the new merkle root:
@@ -427,6 +443,27 @@ where
         }
 
         Ok(())
+    }
+
+    async fn handle_expired_requests_error(
+        &self,
+        batch_id: usize,
+        orders: Vec<Order>,
+    ) -> Result<(), SubmitterErr> {
+        tracing::warn!("All orders in batch {batch_id} are expired ({}). Batch will not be submitted, and all orders will be marked as failed.", &orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "));
+        for order in orders.clone() {
+            if let Err(db_err) =
+                self.db.set_order_failure(order.id().as_str(), "Failed to submit batch").await
+            {
+                tracing::error!(
+                    "Failed to set order failure during proof submission: {} {db_err:?}",
+                    order.id()
+                );
+            }
+        }
+        Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(
+            orders.iter().map(|order| format!("{order}")).collect(),
+        ))
     }
 
     async fn handle_fulfillment_error(

@@ -336,18 +336,7 @@ where
         let committed_orders_count: u32 = commited_orders.len().try_into().unwrap();
         let request_id_and_status = commited_orders
             .iter()
-            .map(|order| {
-                (
-                    format!("0x{:x}", order.request.id),
-                    order.status,
-                    order.fulfillment_type,
-                    format!(
-                        "Lock Expire: {}, Request Expire: {}",
-                        order.request.lock_expires_at(),
-                        order.request.expires_at()
-                    ),
-                )
-            })
+            .map(|order| format!("[{:?}]: {order}", order.status))
             .collect::<Vec<_>>();
 
         let capacity_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
@@ -499,18 +488,8 @@ where
         });
 
         tracing::debug!(
-            "Orders ready for proving, prioritized. Before applying capacity limits: {:?}",
-            orders
-                .iter()
-                .map(|order| format!(
-                    "{} [Lock expires at: {} ({} seconds from now), Expires at: {} ({} seconds from now)]",
-                    order.id(),
-                    order.request.lock_expires_at(),
-                    order.request.lock_expires_at().saturating_sub(now_timestamp()),
-                    order.request.expires_at(),
-                    order.request.expires_at().saturating_sub(now_timestamp())
-                ))
-                .collect::<Vec<_>>()
+            "Orders ready for proving, prioritized. Before applying capacity limits: {}",
+            orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
         );
     }
 
@@ -749,22 +728,27 @@ where
                     _ => panic!("Unsupported fulfillment type: {:?}", order.fulfillment_type),
                 };
 
-                tracing::debug!("Order {} estimated to take {} seconds (including assessor + set builder), and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
-
                 if completion_time + config.batch_buffer_time_secs > expiration {
-                    tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
-                        order.request.id,
-                        expiration,
-                        proof_time_seconds,
-                        completion_time
-                    );
+                    // If the order cannot be completed before its expiration, skip it permanently.
+                    // Otherwise, we keep the order for the next iteration as capacity may free up in the future.
+
                     if now + proof_time_seconds > expiration {
+                        tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
+                            order.request.id,
+                            expiration,
+                            proof_time_seconds,
+                            completion_time
+                        );
                         // If the order cannot be completed regardless of other orders, skip it
                         // permanently. Otherwise, will retry including the order.
                         self.skip_order(&order, "cannot be completed before expiration").await;
+                    } else {
+                        tracing::debug!("Given current commited orders and capacity, order 0x{:x} cannot be completed before its expiration. Not skipping as capacity may free up before it expires.", order.request.id);
                     }
                     continue;
                 }
+
+                tracing::debug!("Order {} estimated to take {} seconds (including assessor + set builder), and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
 
                 final_orders.push(order);
                 prover_available_at = completion_time;
