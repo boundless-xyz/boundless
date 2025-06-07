@@ -17,9 +17,9 @@ use boundless_market::{
 };
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
-use tracing_subscriber::fmt::format::FmtSpan;
-use tracing::Subscriber;
 use std::boxed::Box;
+use tracing::Subscriber;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
 async fn main() -> Result<()> {

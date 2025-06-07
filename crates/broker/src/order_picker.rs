@@ -1472,7 +1472,9 @@ mod tests {
 
         let expected_log = format!(
             "Setting order {} to prove after lock expiry at {} ({} seconds from now)",
-            order_id, expected_target_timestamp, expected_target_timestamp.saturating_sub(now_timestamp())
+            order_id,
+            expected_target_timestamp,
+            expected_target_timestamp.saturating_sub(now_timestamp())
         );
         assert!(ctx.picker.price_order_and_update_state(order).await);
 

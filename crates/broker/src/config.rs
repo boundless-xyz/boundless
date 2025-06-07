@@ -354,7 +354,9 @@ pub struct Config {
 impl Config {
     /// Load the config from disk
     pub async fn load(path: &Path) -> Result<Self> {
-        let data = fs::read_to_string(path).await.context(format!("Failed to read config file from {path:?}"))?;
+        let data = fs::read_to_string(path)
+            .await
+            .context(format!("Failed to read config file from {path:?}"))?;
         toml::from_str(&data).context(format!("Failed to parse toml file from {path:?}"))
     }
 

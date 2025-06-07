@@ -2,8 +2,8 @@
 //
 // All rights reserved.
 
-use std::{path::PathBuf, sync::Arc, time::SystemTime};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
 use crate::storage::create_uri_handler;
 use alloy::{
@@ -778,62 +778,53 @@ where
             }
         }
 
-        // Begin graceful shutdown. 
-        // Stop accepting new work by limitting max concurrent proofs to 0, then wait for committed
-        // in-progress work to complete.
-        let _guard = tracing::subscriber::set_default(
-            tracing_subscriber::fmt()
-                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-                .finish(),
-        );
-        self.config_watcher.config.load_write()?.market.max_concurrent_proofs = Some(0);
-        const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 120; // 1 minute grace period
-        const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+        self.shutdown().await?;
 
+        Ok(())
+    }
+
+    async fn shutdown(&self) -> Result<(), anyhow::Error> {
+        self.config_watcher.config.load_write()?.market.max_concurrent_proofs = Some(0);
+        
+        const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 120;
+        const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
+        
         let start_time = std::time::Instant::now();
         let grace_period = std::time::Duration::from_secs(SHUTDOWN_GRACE_PERIOD_SECS as u64);
-
+        let mut last_log = "".to_string();
         while start_time.elapsed() < grace_period {
             let in_progress_orders = self.db.get_committed_orders().await?;
             if in_progress_orders.is_empty() {
-                tracing::info!("No in-progress orders found, shutting down...");
                 eprintln!("No in-progress orders found, shutting down...");
                 break;
             }
 
-            eprintln!("EWaiting for {} in-progress orders to complete...\n{}",
-                in_progress_orders.len(),
-                in_progress_orders.iter().map(|order| {
-                    let request_id = order.request.id;
-                    let status = order.status;
-                    format!("Order 0x{:x} - {:?}", request_id, status)
-                }).collect::<Vec<_>>().join("\n"));
-            tracing::info!(
+            let new_log = format!(
                 "Waiting for {} in-progress orders to complete...\n{}",
                 in_progress_orders.len(),
-                in_progress_orders.iter().map(|order| {
-                    let request_id = order.request.id;
-                    let status = order.status;
-                    format!("Order 0x{:x} - {:?}", request_id, status)
-                }).collect::<Vec<_>>().join("\n")
+                in_progress_orders
+                    .iter()
+                    .map(|order| {
+                        format!("[{:?}] {}", order.status, order)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
             );
+
+            if new_log != last_log {
+                eprintln!("{}", new_log);   
+                last_log = new_log;
+            }
+
             tokio::time::sleep(SLEEP_DURATION).await;
         }
 
         if start_time.elapsed() >= grace_period {
-            tracing::warn!("Shutdown timed out after {} seconds. Some work may not have completed.", SHUTDOWN_GRACE_PERIOD_SECS);
-            // Log final state
             let in_progress_orders = self.db.get_committed_orders().await?;
-            tracing::warn!(
-                "Final state: {} in-progress orders",
-                in_progress_orders.len()
-            );
+            eprintln!("Shutdown timed out after {} seconds. Exiting with {} in-progress orders: {}", SHUTDOWN_GRACE_PERIOD_SECS, in_progress_orders.len(), in_progress_orders.iter().map(|order| format!("[{:?}] {}", order.status, order)).collect::<Vec<_>>().join("\n"));
+        } else {
+            eprintln!("Shutdown complete");
         }
-
-        // 3. Shutdown is complete
-        tracing::info!("Shutdown complete");
-        eprintln!("EShutdown complete");
-
         Ok(())
     }
 }

@@ -168,6 +168,12 @@ services:
     restart: always
     depends_on:
       - rest_api
+      - redis
+      - gpu_prove_agent0
+      - exec_agent0
+      - exec_agent1
+      - aux_agent
+      - snark_agent
 
     profiles: [broker]
 
