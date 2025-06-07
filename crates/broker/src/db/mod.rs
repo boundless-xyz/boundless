@@ -1123,7 +1123,7 @@ mod tests {
         db.add_order(&order2).await.unwrap();
         db.add_order(&order3).await.unwrap();
 
-        let ids = vec![order1.id(), order2.id(), order3.id()];
+        let ids = [order1.id(), order2.id(), order3.id()];
         let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
         let orders = db.get_orders(&id_refs).await.unwrap();
         assert_eq!(orders.len(), 3);
