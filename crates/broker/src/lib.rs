@@ -259,7 +259,12 @@ impl OrderRequest {
 
 impl std::fmt::Display for OrderRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} [{}]", self.id(), format_expiries(&self.request))
+        let total_mcycles = if self.total_cycles.is_some() {
+            format!(" ({} mcycles)", self.total_cycles.unwrap() / 1_000_000)
+        } else {
+            "".to_string()
+        };
+        write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
 }
 
@@ -343,7 +348,12 @@ impl Order {
 
 impl std::fmt::Display for Order {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} [{}]", self.id(), format_expiries(&self.request))
+        let total_mcycles = if self.total_cycles.is_some() {
+            format!(" ({} mcycles)", self.total_cycles.unwrap() / 1_000_000)
+        } else {
+            "".to_string()
+        };
+        write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
 }
 
