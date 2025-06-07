@@ -543,12 +543,12 @@ impl Requirements {
     ///
     /// This will set the selector to the appropriate value based on the current environment.
     /// In dev mode, the selector will be set to `FakeReceipt`, otherwise it will be set
-    /// to `Groth16V2_0`.
+    /// to `Groth16V2_1`.
     #[cfg(not(target_os = "zkvm"))]
     pub fn with_groth16_proof(self) -> Self {
         match risc0_zkvm::is_dev_mode() {
             true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
-            false => Self { selector: FixedBytes::from(Selector::Groth16V2_0 as u32), ..self },
+            false => Self { selector: FixedBytes::from(Selector::Groth16V2_1 as u32), ..self },
         }
     }
 }

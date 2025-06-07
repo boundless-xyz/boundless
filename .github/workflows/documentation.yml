@@ -5,6 +5,9 @@ on:
     paths:
       - "documentation/**"
 
+env:
+  FOUNDRY_VERSION: v1.2.2
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -36,10 +39,10 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Install foundry
+      - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: ${{ env.FOUNDRY_VERSION }}
 
       - name: Run CI checks & build
         env:
