@@ -306,8 +306,6 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          # Full history is required by license-check.py
-          fetch-depth: 0
           submodules: recursive
 
       - name: Login to Docker Hub

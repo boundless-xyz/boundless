@@ -140,8 +140,8 @@ proof_retry_sleep_ms = 500
 #
 # This provides a buffer time after an order expires before the reaper marks it as failed.
 # This helps prevent race conditions with the aggregator that might be processing the order.
-# If not set, it defaults to 30 seconds.
-# reaper_grace_period_secs = 30
+# If not set, it defaults to 4 minutes.
+# reaper_grace_period_secs = 240
 
 [batcher]
 # Max batch duration before publishing (in seconds)
