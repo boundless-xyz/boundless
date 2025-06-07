@@ -58,9 +58,9 @@ jobs:
         with:
           version: ${{ env.FOUNDRY_VERSION }}
 
-      - uses: risc0/risc0/.github/actions/rustup@0f60032dce731863eba197c8494bdf455445c4af
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
       
-      - uses: risc0/risc0/.github/actions/sccache@0f60032dce731863eba197c8494bdf455445c4af
+      - uses: risc0/risc0/.github/actions/sccache@352dea62857ba57331053cd0986a12c1a4708732
         with:
           key: ${{ matrix.os }}-${{ matrix.feature }}
 
