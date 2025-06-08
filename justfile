@@ -312,7 +312,9 @@ bento action="up" env_file="" compose_flags="" detached="true":
         fi
         
         docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG
-        echo "Docker Compose services have been started."
+        if [ "{{detached}}" != "true" ]; then
+            echo "Docker Compose services have been started."
+        fi
     elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services"
         if docker compose {{compose_flags}} $ENV_FILE_ARG down; then

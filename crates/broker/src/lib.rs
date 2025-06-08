@@ -442,6 +442,7 @@ where
             config.prover.set_builder_guest_path.clone()
         };
 
+        tracing::debug!("Uploading set builder image: {}", image_url_str);
         self.fetch_and_upload_image(prover, image_id, image_url_str, path)
             .await
             .context("uploading set builder image")?;
@@ -463,6 +464,7 @@ where
             config.prover.assessor_set_guest_path.clone()
         };
 
+        tracing::debug!("Uploading assessor image: {}", image_url_str);
         self.fetch_and_upload_image(prover, image_id, image_url_str, path)
             .await
             .context("uploading assessor image")?;
