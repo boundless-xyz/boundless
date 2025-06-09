@@ -1811,7 +1811,7 @@ mod tests {
 
         // Lock the request
         ctx.prover_market
-            .lock_request(&request, client_sig, None)
+            .lock_request(&request, client_sig.as_bytes().to_vec(), None)
             .await
             .unwrap();
 

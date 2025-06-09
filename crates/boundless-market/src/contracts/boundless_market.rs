@@ -346,8 +346,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<U256, MarketError> {
         tracing::trace!("Calling submitRequest({:x?})", request);
         tracing::debug!("Sending request ID {:x}", request.id);
-        let call =
-            self.instance.submitRequest(request.clone(), signature.into()).from(self.caller);
+        let call = self.instance.submitRequest(request.clone(), signature.into()).from(self.caller);
         let pending_tx = call.send().await?;
         tracing::debug!(
             "Broadcasting tx {:x} with request ID {:x}",
@@ -1507,8 +1506,16 @@ impl FulfillmentTx {
     }
 
     /// Sets the parameters for submitting a Merkle Root.
-    pub fn with_submit_root(self, verifier_address: impl Into<Address>, root: B256, seal: impl Into<Bytes>) -> Self {
-        Self { root: Some(Root { verifier_address: verifier_address.into(), root, seal: seal.into() }), ..self }
+    pub fn with_submit_root(
+        self,
+        verifier_address: impl Into<Address>,
+        root: B256,
+        seal: impl Into<Bytes>,
+    ) -> Self {
+        Self {
+            root: Some(Root { verifier_address: verifier_address.into(), root, seal: seal.into() }),
+            ..self
+        }
     }
 
     /// Adds an unlocked request to be priced to the transaction.
