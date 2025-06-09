@@ -357,7 +357,6 @@ async fn e2e_fulfill_after_lock_expiry() {
 
 #[tokio::test]
 #[traced_test]
-#[ignore = "runs a proof; requires BONSAI if RISC0_DEV_MODE=FALSE"]
 async fn e2e_with_selector() {
     // Setup anvil
     let anvil = Anvil::new().spawn();

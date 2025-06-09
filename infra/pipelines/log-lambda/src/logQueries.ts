@@ -9,14 +9,14 @@ SELECT
   regexp_replace(log, '\\\\x1b\\\\[[0-9;]*[mK]', '') AS msg
 FROM \`${logGroup}\`
 --WHERE
--- msg LIKE '%order_picker%' -- Filter to services
--- AND msg LIKE '%ERROR%' -- Only see error logs
+-- log LIKE '%order_picker%' -- Filter to services
+-- AND log LIKE '%ERROR%' -- Only see error logs
 ORDER BY \`@timestamp\` ASC -- Note this uses the timestamps that Cloudwatch received the log at, not the original timestamp
 `.trim();
     case 'bonsai-prover':
       const a = `
 parse @message /Z\\s+(?<log_level>[A-Z]+)\\s+(?<service>.+?):\\s+(?<message>.+)/
-| display @timestamp, log_level, service, message
+| display @timestamp, log_level, service, coalesce(message, @message)
 # | filter service like 'proving' and log_level like 'ERROR'
 | sort @timestamp asc
 `.trim();
