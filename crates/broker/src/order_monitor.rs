@@ -232,7 +232,7 @@ where
         );
         let lock_block = self
             .market
-            .lock_request(&order.request, &order.client_sig, conf_priority_gas)
+            .lock_request(&order.request, order.client_sig.clone(), conf_priority_gas)
             .await
             .map_err(|e| -> OrderMonitorErr {
                 match e {

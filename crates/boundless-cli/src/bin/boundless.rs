@@ -813,7 +813,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
                 client.boundless_market.get_chain_id().await?,
             )?;
 
-            client.boundless_market.lock_request(&order.request, &sig, None).await?;
+            client.boundless_market.lock_request(&order.request, sig, None).await?;
             tracing::info!("Successfully locked request 0x{:x}", request_id);
             Ok(())
         }
@@ -1811,7 +1811,7 @@ mod tests {
 
         // Lock the request
         ctx.prover_market
-            .lock_request(&request, &Bytes::copy_from_slice(&client_sig.as_bytes()), None)
+            .lock_request(&request, client_sig, None)
             .await
             .unwrap();
 

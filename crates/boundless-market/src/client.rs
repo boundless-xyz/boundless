@@ -731,7 +731,7 @@ where
     pub async fn submit_request_onchain_with_signature(
         &self,
         request: &ProofRequest,
-        signature: &Bytes,
+        signature: impl Into<Bytes>,
     ) -> Result<(U256, u64), ClientError> {
         let request = request.clone();
         request.validate()?;
