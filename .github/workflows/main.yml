@@ -339,6 +339,8 @@ jobs:
           - examples/composition
     needs: files-changed
     if: needs.files-changed.outputs.examples == 'true'
+    env:
+      NVCC_APPEND_FLAGS: -arch=sm_89
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -352,9 +354,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_CI_USER }}
           password: ${{ secrets.DOCKERHUB_CI_PAT }}
 
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
       - uses: risc0/risc0/.github/actions/cuda@352dea62857ba57331053cd0986a12c1a4708732
       - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
-      - uses: risc0/risc0/.github/actions/sccache@352dea62857ba57331053cd0986a12c1a4708732
+
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
