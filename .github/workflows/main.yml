@@ -328,12 +328,13 @@ jobs:
       - run: cargo publish -p boundless-market --dry-run
 
   examples:
-    runs-on: [ self-hosted, cluster, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, cluster, "${{ matrix.os }}", "${{ matrix.arch }}", "${{ matrix.device }}" ]
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: Linux
+            arch: X64
             feature: cuda
             device: nvidia_rtx_4000_ada
             nvcc_arch: sm_89
