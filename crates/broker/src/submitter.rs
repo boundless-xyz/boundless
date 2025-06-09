@@ -377,7 +377,7 @@ where
             .with_unlocked_requests(requests_to_price);
         if single_txn_fulfill {
             fulfillment_tx =
-                fulfillment_tx.with_submit_root(self.set_verifier_addr, root, batch_seal.into());
+                fulfillment_tx.with_submit_root(self.set_verifier_addr, root, batch_seal);
         } else {
             let contains_root = match self.set_verifier.contains_root(root).await {
                 Ok(res) => res,

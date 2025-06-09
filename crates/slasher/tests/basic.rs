@@ -109,7 +109,7 @@ async fn test_basic_usage() {
 
     // Do the operations that should trigger the slash
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
 
     // Wait for the slash event with timeout
     tokio::select! {
@@ -181,7 +181,7 @@ async fn test_slash_fulfilled() {
 
     // Do the operations that should trigger the slash
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.prover_market.lock_request(&request, &client_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
     let domain = ctx.customer_market.eip712_domain().await.unwrap();
     let order = Order::new(
         request.clone(),

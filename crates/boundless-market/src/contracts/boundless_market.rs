@@ -294,7 +294,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn balance_of(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
         let account = account.into();
         tracing::trace!("Calling balanceOf({account})");
-        let balance = self.instance.balanceOf(account.into()).call().await?;
+        let balance = self.instance.balanceOf(account).call().await?;
 
         Ok(balance)
     }
