@@ -328,15 +328,10 @@ jobs:
       - run: cargo publish -p boundless-market --dry-run
 
   examples:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, Linux, X64, prod, cuda, g6.4xlarge ]
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: Linux
-            feature: cuda
-            device: nvidia_rtx_4000_ada
-            nvcc_arch: sm_89
         workspace:
           - examples/counter
           - examples/smart-contract-requestor
@@ -344,8 +339,6 @@ jobs:
           - examples/composition
     needs: files-changed
     if: needs.files-changed.outputs.examples == 'true'
-    env:
-      NVCC_APPEND_FLAGS: -arch=${{ matrix.nvcc_arch }}
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -359,12 +352,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_CI_USER }}
           password: ${{ secrets.DOCKERHUB_CI_PAT }}
 
-      - if: matrix.feature == 'cuda'
         uses: risc0/risc0/.github/actions/cuda@352dea62857ba57331053cd0986a12c1a4708732
       - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
       - uses: risc0/risc0/.github/actions/sccache@352dea62857ba57331053cd0986a12c1a4708732
-        with:
-          key: ${{ matrix.os }}-${{ matrix.feature }}
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
