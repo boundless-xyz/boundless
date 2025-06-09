@@ -46,7 +46,7 @@ jobs:
         run: exit 1
 
   rust:
-    runs-on: [ self-hosted, cluster, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -328,7 +328,7 @@ jobs:
       - run: cargo publish -p boundless-market --dry-run
 
   examples:
-    runs-on: [ self-hosted, cluster, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       fail-fast: false
       matrix:
