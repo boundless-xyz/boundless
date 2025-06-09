@@ -28,7 +28,7 @@ use risc0_zkvm::{
 use crate::{
     config::ConfigLock,
     db::DbObj,
-    now_timestamp,
+    impl_coded_debug, now_timestamp,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType, Order,
@@ -37,10 +37,13 @@ use thiserror::Error;
 
 use crate::errors::CodedError;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum SubmitterErr {
-    #[error("{code} Batch submission failed: {0}", code = self.code())]
-    BatchSubmissionFailed(String),
+    #[error("{code} Batch submission failed: {0:?}", code = self.code())]
+    BatchSubmissionFailed(Vec<Self>),
+
+    #[error("{code} Batch submission failed due to timeouts: {0:?}", code = self.code())]
+    BatchSubmissionFailedTimeouts(Vec<Self>),
 
     #[error("{code} Failed to confirm transaction: {0}", code = self.code())]
     TxnConfirmationError(MarketError),
@@ -58,6 +61,8 @@ pub enum SubmitterErr {
     UnexpectedErr(#[from] anyhow::Error),
 }
 
+impl_coded_debug!(SubmitterErr);
+
 impl CodedError for SubmitterErr {
     fn code(&self) -> &str {
         match self {
@@ -65,8 +70,9 @@ impl CodedError for SubmitterErr {
             SubmitterErr::AllRequestsExpiredBeforeSubmission(_) => "[B-SUB-001]",
             SubmitterErr::SomeRequestsExpiredBeforeSubmission(_) => "[B-SUB-005]",
             SubmitterErr::MarketError(_) => "[B-SUB-002]",
-            SubmitterErr::BatchSubmissionFailed(_) => "[B-SUB-003]",
-            SubmitterErr::TxnConfirmationError(_) => "[B-SUB-004]",
+            SubmitterErr::BatchSubmissionFailed(_) => "[B-SUB-004]",
+            SubmitterErr::BatchSubmissionFailedTimeouts(_) => "[B-SUB-003]",
+            SubmitterErr::TxnConfirmationError(_) => "[B-SUB-006]",
         }
     }
 }
@@ -536,7 +542,11 @@ where
                 "Failed to set batch failure in db: {batch_id} - {err:?}"
             )));
         }
-        Err(SubmitterErr::BatchSubmissionFailed(format!("{errors:?}")))
+        if errors.iter().all(|e| matches!(e, SubmitterErr::TxnConfirmationError(_))) {
+            Err(SubmitterErr::BatchSubmissionFailedTimeouts(errors))
+        } else {
+            Err(SubmitterErr::BatchSubmissionFailed(errors))
+        }
     }
 }
 
@@ -555,7 +565,8 @@ where
                 if let Err(err) = result {
                     // Only restart the service on unexpected errors.
                     match err {
-                        SubmitterErr::BatchSubmissionFailed(_) => {
+                        SubmitterErr::BatchSubmissionFailed(_)
+                        | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
                             tracing::error!("Batch submission failed: {err:?}");
                         }
                         _ => {
