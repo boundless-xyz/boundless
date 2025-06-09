@@ -696,7 +696,7 @@ mod tests {
 
         let (event, _) = logs.first().unwrap();
         let request = &event.request;
-        let customer_sig = &event.clientSignature;
+        let customer_sig = event.clientSignature.clone();
 
         // Deposit prover balances
         let deposit = default_allowance();

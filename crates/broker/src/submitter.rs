@@ -824,7 +824,7 @@ mod tests {
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
-        market.lock_request(&order.request, &client_sig.into(), None).await.unwrap();
+        market.lock_request(&order.request, client_sig.to_vec(), None).await.unwrap();
 
         let submitter = Submitter::new(
             db.clone(),
