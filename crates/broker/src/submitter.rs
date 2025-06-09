@@ -565,7 +565,8 @@ where
                 if let Err(err) = result {
                     // Only restart the service on unexpected errors.
                     match err {
-                        SubmitterErr::BatchSubmissionFailed(_) | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
+                        SubmitterErr::BatchSubmissionFailed(_)
+                        | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
                             tracing::error!("Batch submission failed: {err:?}");
                         }
                         _ => {
