@@ -715,7 +715,7 @@ where
                 let cfg = picker.config.lock_all().map_err(|err| {
                     OrderPickerErr::UnexpectedErr(anyhow::anyhow!("Failed to read config: {err}"))
                 })?;
-                Ok(cfg.market.max_concurrent_order_pricing as usize)
+                Ok(cfg.market.max_concurrent_preflights as usize)
             };
 
             let mut current_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
@@ -1632,7 +1632,7 @@ mod tests {
         {
             let mut cfg = config.load_write().unwrap();
             cfg.market.mcycle_price = "0.0000001".into();
-            cfg.market.max_concurrent_order_pricing = 2;
+            cfg.market.max_concurrent_preflights = 2;
         }
         let mut ctx = TestCtxBuilder::default().with_config(config.clone()).build().await;
 
@@ -1653,7 +1653,7 @@ mod tests {
         // Decrease capacity
         {
             let mut cfg = config.load_write().unwrap();
-            cfg.market.max_concurrent_order_pricing = 1;
+            cfg.market.max_concurrent_preflights = 1;
         }
 
         // Wait a bit more for the interval timer to fire and detect the change

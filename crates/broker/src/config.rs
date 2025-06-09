@@ -63,7 +63,7 @@ mod defaults {
         240
     }
 
-    pub const fn max_concurrent_order_pricing() -> u32 {
+    pub const fn max_concurrent_preflights() -> u32 {
         4
     }
 }
@@ -183,8 +183,8 @@ pub struct MarketConf {
     /// Maximum number of orders to concurrently work on pricing
     ///
     /// Used to limit pricing tasks spawned to prevent overwhelming the system
-    #[serde(default = "defaults::max_concurrent_order_pricing")]
-    pub max_concurrent_order_pricing: u32,
+    #[serde(default = "defaults::max_concurrent_preflights")]
+    pub max_concurrent_preflights: u32,
 }
 
 impl Default for MarketConf {
@@ -216,7 +216,7 @@ impl Default for MarketConf {
             stake_balance_error_threshold: None,
             max_concurrent_proofs: None,
             cache_dir: None,
-            max_concurrent_order_pricing: defaults::max_concurrent_order_pricing(),
+            max_concurrent_preflights: defaults::max_concurrent_preflights(),
         }
     }
 }

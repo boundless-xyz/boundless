@@ -52,7 +52,7 @@ max_concurrent_proofs = 2
 # Maximum number of orders to concurrently work on pricing
 #
 # Used to limit pricing tasks spawned to prevent overwhelming the system
-#max_concurrent_order_pricing = 4
+#max_concurrent_preflights = 4
 # Max critical task retries on recoverable failures.
 #
 # The broker service has a number of subtasks. Some are considered critical. If a task fails, it
