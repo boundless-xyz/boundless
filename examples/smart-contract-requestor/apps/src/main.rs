@@ -104,7 +104,7 @@ async fn run(args: Args) -> Result<()> {
     let request = client.build_request(request).await?;
     let signature: Bytes = request.abi_encode().into();
     let (request_id, expires_at) =
-        client.submit_request_onchain_with_signature(&request, &signature).await?;
+        client.submit_request_onchain_with_signature(&request, signature).await?;
     tracing::info!("Request {:x} submitted", request_id);
 
     // Wait for the request to be fulfilled by the market. The market will return the journal and seal.
