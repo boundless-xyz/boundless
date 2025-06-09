@@ -26,11 +26,11 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.85.0
   RISC0_CRATE_VERSION: "2.1.0"
-  FOUNDRY_VERSION: v1.2.2
+  FOUNDRY_VERSION: v1.0.0
 
 jobs:
   deployment:
-    runs-on: [ self-hosted, cluster, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
