@@ -341,9 +341,13 @@ where
 
         let capacity_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
 
-        // Note: we don't compare previous to capacity_log as it contains timestamps which cause it to always change. 
+        // Note: we don't compare previous to capacity_log as it contains timestamps which cause it to always change.
         // We only want to log if status or num orders changes.
-        let cur_orders_by_status  = commited_orders.iter().map(|order| format!("{:?}-{}", order.status, order.id())).collect::<Vec<_>>().join(",");
+        let cur_orders_by_status = commited_orders
+            .iter()
+            .map(|order| format!("{:?}-{}", order.status, order.id()))
+            .collect::<Vec<_>>()
+            .join(",");
         if *prev_orders_by_status != cur_orders_by_status {
             tracing::info!("{}", capacity_log);
             *prev_orders_by_status = cur_orders_by_status;
