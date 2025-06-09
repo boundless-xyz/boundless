@@ -28,7 +28,7 @@ use risc0_zkvm::{
 use crate::{
     config::ConfigLock,
     db::DbObj,
-    now_timestamp,
+    impl_coded_debug, now_timestamp,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType, Order,
@@ -37,10 +37,10 @@ use thiserror::Error;
 
 use crate::errors::CodedError;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum SubmitterErr {
-    #[error("{code} Batch submission failed: {0}", code = self.code())]
-    BatchSubmissionFailed(String),
+    #[error("{code} Batch submission failed: {0:?}", code = self.code())]
+    BatchSubmissionFailed(Vec<Self>),
 
     #[error("{code} Failed to confirm transaction: {0}", code = self.code())]
     TxnConfirmationError(MarketError),
@@ -58,6 +58,8 @@ pub enum SubmitterErr {
     UnexpectedErr(#[from] anyhow::Error),
 }
 
+impl_coded_debug!(SubmitterErr);
+
 impl CodedError for SubmitterErr {
     fn code(&self) -> &str {
         match self {
@@ -65,8 +67,16 @@ impl CodedError for SubmitterErr {
             SubmitterErr::AllRequestsExpiredBeforeSubmission(_) => "[B-SUB-001]",
             SubmitterErr::SomeRequestsExpiredBeforeSubmission(_) => "[B-SUB-005]",
             SubmitterErr::MarketError(_) => "[B-SUB-002]",
-            SubmitterErr::BatchSubmissionFailed(_) => "[B-SUB-003]",
-            SubmitterErr::TxnConfirmationError(_) => "[B-SUB-004]",
+            SubmitterErr::BatchSubmissionFailed(submitter_errs) => {
+                // If all errors are txn confirmation errors, then we use a separate code to enable custom alerting.
+                if submitter_errs.iter().all(|e| matches!(e, SubmitterErr::TxnConfirmationError(_)))
+                {
+                    "[B-SUB-003]"
+                } else {
+                    "[B-SUB-004]"
+                }
+            }
+            SubmitterErr::TxnConfirmationError(_) => "[B-SUB-006]",
         }
     }
 }
@@ -536,7 +546,7 @@ where
                 "Failed to set batch failure in db: {batch_id} - {err:?}"
             )));
         }
-        Err(SubmitterErr::BatchSubmissionFailed(format!("{errors:?}")))
+        Err(SubmitterErr::BatchSubmissionFailed(errors))
     }
 }
 
