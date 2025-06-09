@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, time::Duration};
+use std::{future::Future, time::Duration, str::FromStr};
 
 use alloy::{
     network::{Ethereum, EthereumWallet, TxSigner},
     primitives::{Address, Bytes, U256},
     providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder},
-    signers::{local::PrivateKeySigner, Signer},
+    signers::{local::{PrivateKeySigner, LocalSignerError}, Signer},
 };
 use alloy_primitives::{Signature, B256};
 use alloy_sol_types::SolStruct;
@@ -264,23 +264,32 @@ impl<St, Si> ClientBuilder<St, Si> {
     }
 
     /// Set the signer from the given private key.
+    /// ```rust
+    /// # use boundless_market::Client;
+    /// use alloy::signers::local::PrivateKeySigner;
+    ///
+    /// Client::builder().with_private_key(PrivateKeySigner::random());
+    /// ```
     pub fn with_private_key(
         self,
         private_key: impl Into<PrivateKeySigner>,
     ) -> ClientBuilder<St, PrivateKeySigner> {
-        // NOTE: We can't use the ..self syntax here because return is not Self.
-        ClientBuilder {
-            signer: Some(private_key.into()),
-            deployment: self.deployment,
-            storage_provider: self.storage_provider,
-            rpc_url: self.rpc_url,
-            tx_timeout: self.tx_timeout,
-            balance_alerts: self.balance_alerts,
-            offer_layer_config: self.offer_layer_config,
-            storage_layer_config: self.storage_layer_config,
-            request_id_layer_config: self.request_id_layer_config,
-            request_finalizer_config: self.request_finalizer_config,
-        }
+        self.with_signer(private_key.into())
+    }
+
+    /// Set the signer from the given private key as a string.
+    /// ```rust
+    /// # use boundless_market::Client;
+    ///
+    /// Client::builder().with_private_key_str(
+    ///     "0x1cee2499e12204c2ed600d780a22a67b3c5fff3310d984cca1f24983d565265c"
+    /// ).unwrap();
+    /// ```
+    pub fn with_private_key_str(
+        self,
+        private_key: impl AsRef<str>,
+    ) -> Result<ClientBuilder<St, PrivateKeySigner>, LocalSignerError> {
+        Ok(self.with_signer(PrivateKeySigner::from_str(private_key.as_ref())?))
     }
 
     /// Set the signer and wallet.
