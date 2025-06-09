@@ -734,6 +734,7 @@ where
                             )))
                         })?;
 
+                        tracing::debug!("Queued order {} to be priced", order.id());
                         pending_orders.push_back(order);
                     }
                     _ = tasks.join_next(), if !tasks.is_empty() => {
