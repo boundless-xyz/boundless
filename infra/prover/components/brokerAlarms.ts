@@ -314,13 +314,13 @@ export const createProverAlarms = (
   // Any 1 request expired before submission triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2);
 
-  // 2 failures to submit a batch within 1 hour due to timeouts in the submitter triggers a SEV2 alarm.
+  // 2 failures to submit a batch within 2 hours due to timeouts in the submitter triggers a SEV2 alarm.
   // This may indicate a misconfiguration of the tx timeout config.
   createErrorCodeAlarm('"[B-SUB-003]"', 'submitter-batch-submission-txn-timeout', Severity.SEV2, {
     threshold: 2,
-  }, { period: 3600 });
+  }, { period: 7200 });
 
-  // 2 failures to submit a batch within 1 hour in the submitter triggers a SEV2 alarm.
+  // 2 failures to submit a batch within 1 hour for any reason in the submitter triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-004]"', 'submitter-batch-submission-failure', Severity.SEV2, {
     threshold: 2,
   }, { period: 3600 });
