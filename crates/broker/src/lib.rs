@@ -2,7 +2,6 @@
 //
 // All rights reserved.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
 use crate::storage::create_uri_handler;
@@ -803,10 +802,10 @@ where
 
     async fn shutdown(&self) -> Result<(), anyhow::Error> {
         self.config_watcher.config.load_write()?.market.max_concurrent_proofs = Some(0);
-        
+
         const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 120;
         const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
-        
+
         let start_time = std::time::Instant::now();
         let grace_period = std::time::Duration::from_secs(SHUTDOWN_GRACE_PERIOD_SECS as u64);
         let mut last_log = "".to_string();
@@ -822,15 +821,13 @@ where
                 in_progress_orders.len(),
                 in_progress_orders
                     .iter()
-                    .map(|order| {
-                        format!("[{:?}] {}", order.status, order)
-                    })
+                    .map(|order| { format!("[{:?}] {}", order.status, order) })
                     .collect::<Vec<_>>()
                     .join("\n")
             );
 
             if new_log != last_log {
-                eprintln!("{}", new_log);   
+                eprintln!("{}", new_log);
                 last_log = new_log;
             }
 
@@ -839,7 +836,16 @@ where
 
         if start_time.elapsed() >= grace_period {
             let in_progress_orders = self.db.get_committed_orders().await?;
-            eprintln!("Shutdown timed out after {} seconds. Exiting with {} in-progress orders: {}", SHUTDOWN_GRACE_PERIOD_SECS, in_progress_orders.len(), in_progress_orders.iter().map(|order| format!("[{:?}] {}", order.status, order)).collect::<Vec<_>>().join("\n"));
+            eprintln!(
+                "Shutdown timed out after {} seconds. Exiting with {} in-progress orders: {}",
+                SHUTDOWN_GRACE_PERIOD_SECS,
+                in_progress_orders.len(),
+                in_progress_orders
+                    .iter()
+                    .map(|order| format!("[{:?}] {}", order.status, order))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
         } else {
             eprintln!("Shutdown complete");
         }
