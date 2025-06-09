@@ -190,13 +190,13 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
 
 impl<P: Provider> BoundlessMarketService<P> {
     /// Creates a new Boundless market service.
-    pub fn new(address: Address, provider: P, caller: Address) -> Self {
-        let instance = IBoundlessMarket::new(address, provider);
+    pub fn new(address: impl Into<Address>, provider: P, caller: impl Into<Address>) -> Self {
+        let instance = IBoundlessMarket::new(address.into(), provider);
 
         Self {
             instance,
             chain_id: AtomicU64::new(0),
-            caller,
+            caller: caller.into(),
             timeout: TXN_CONFIRM_TIMEOUT,
             event_query_config: EventQueryConfig::default(),
             balance_alert_config: StakeBalanceAlertConfig::default(),
@@ -291,9 +291,10 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Returns the balance, in Wei, of the given account.
-    pub async fn balance_of(&self, account: Address) -> Result<U256, MarketError> {
+    pub async fn balance_of(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
+        let account = account.into();
         tracing::trace!("Calling balanceOf({account})");
-        let balance = self.instance.balanceOf(account).call().await?;
+        let balance = self.instance.balanceOf(account.into()).call().await?;
 
         Ok(balance)
     }
@@ -454,7 +455,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         &self,
         request: &ProofRequest,
         client_sig: impl Into<Bytes>,
-        prover_address: Address,
         prover_sig: impl Into<Bytes>,
         _priority_gas: Option<u128>,
     ) -> Result<u64, MarketError> {
@@ -468,10 +468,9 @@ impl<P: Provider> BoundlessMarketService<P> {
         let client_sig_bytes = client_sig.into();
         let prover_sig_bytes = prover_sig.into();
         tracing::trace!(
-            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?}, {:x?})",
+            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?})",
             request,
             client_sig_bytes,
-            prover_address,
             prover_sig_bytes
         );
 
@@ -1320,7 +1319,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Returns the deposited balance, in HP, of the given account.
-    pub async fn balance_of_stake(&self, account: Address) -> Result<U256, MarketError> {
+    pub async fn balance_of_stake(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
+        let account = account.into();
         tracing::trace!("Calling balanceOfStake({})", account);
         let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?;
         Ok(balance)
@@ -1507,8 +1507,8 @@ impl FulfillmentTx {
     }
 
     /// Sets the parameters for submitting a Merkle Root.
-    pub fn with_submit_root(self, verifier_address: Address, root: B256, seal: impl Into<Bytes>) -> Self {
-        Self { root: Some(Root { verifier_address, root, seal: seal.into() }), ..self }
+    pub fn with_submit_root(self, verifier_address: impl Into<Address>, root: B256, seal: impl Into<Bytes>) -> Self {
+        Self { root: Some(Root { verifier_address: verifier_address.into(), root, seal: seal.into() }), ..self }
     }
 
     /// Adds an unlocked request to be priced to the transaction.
