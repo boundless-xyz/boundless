@@ -461,17 +461,18 @@ impl AggregatorService {
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
-        groth16_proofs: &[AggregationOrder],
+        new_groth16_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<String> {
+        let all_orders: Vec<String> = batch
+            .orders
+            .iter()
+            .chain(new_proofs.iter().map(|p| &p.order_id))
+            .chain(new_groth16_proofs.iter().map(|p| &p.order_id))
+            .cloned()
+            .collect();
         let assessor_proof_id = if finalize {
-            let assessor_order_ids: Vec<String> = batch
-                .orders
-                .iter()
-                .chain(new_proofs.iter().map(|p| &p.order_id))
-                .chain(groth16_proofs.iter().map(|p| &p.order_id))
-                .cloned()
-                .collect();
+            let assessor_order_ids: Vec<String> = all_orders.clone();
 
             tracing::debug!(
                 "Running assessor for batch {batch_id} with orders {:x?}",
@@ -482,6 +483,12 @@ impl AggregatorService {
                 self.prove_assessor(&assessor_order_ids).await.with_context(|| {
                     format!("Failed to prove assessor with orders {:x?}", assessor_order_ids)
                 })?;
+
+            tracing::debug!(
+                "Assessor proof complete for batch {batch_id} with orders {:x?}, proof id: {}",
+                assessor_order_ids,
+                assessor_proof_id
+            );
 
             Some(assessor_proof_id)
         } else {
@@ -495,19 +502,27 @@ impl AggregatorService {
             .chain(assessor_proof_id.iter().cloned())
             .collect();
 
-        tracing::debug!("Running set builder for batch {batch_id} with proofs {:x?}", proof_ids);
+        tracing::debug!(
+            "Running set builder for batch {batch_id} of orders {:x?} and proofs {:x?}",
+            all_orders,
+            proof_ids
+        );
         let aggregation_state = self
             .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize)
             .await
             .context("Failed to prove set builder for batch {batch_id}")?;
 
-        tracing::debug!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
+        tracing::debug!(
+            "Completed aggregation into batch {batch_id} of orders {:x?} and proofs {:x?}",
+            all_orders,
+            proof_ids
+        );
 
         self.db
             .update_batch(
                 batch_id,
                 &aggregation_state,
-                &[new_proofs, groth16_proofs].concat(),
+                &[new_proofs, new_groth16_proofs].concat(),
                 assessor_proof_id,
             )
             .await

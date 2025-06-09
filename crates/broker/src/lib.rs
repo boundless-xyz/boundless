@@ -257,6 +257,17 @@ impl OrderRequest {
     }
 }
 
+impl std::fmt::Display for OrderRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let total_mcycles = if self.total_cycles.is_some() {
+            format!(" ({} mcycles)", self.total_cycles.unwrap() / 1_000_000)
+        } else {
+            "".to_string()
+        };
+        write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
+    }
+}
+
 /// An Order represents a proof request and a specific method of fulfillment.
 ///
 /// Requests can be fulfilled in multiple ways, for example by locking then fulfilling them,
@@ -270,7 +281,7 @@ impl OrderRequest {
 /// details. Those also result in separate Order objects being created.
 ///
 /// See the id() method for more details on how Orders are identified.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct Order {
     /// Address of the boundless market contract. Stored as it is required to compute the order id.
     boundless_market_address: Address,
@@ -337,7 +348,12 @@ impl Order {
 
 impl std::fmt::Display for Order {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id())
+        let total_mcycles = if self.total_cycles.is_some() {
+            format!(" ({} mcycles)", self.total_cycles.unwrap() / 1_000_000)
+        } else {
+            "".to_string()
+        };
+        write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
 }
 
@@ -765,6 +781,29 @@ where
 // TODO(#379): Avoid drift relative to the chain's timestamps.
 pub(crate) fn now_timestamp() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+}
+
+// Utility function to format the expiries of a request in a human readable format
+fn format_expiries(request: &ProofRequest) -> String {
+    let now: i64 = now_timestamp().try_into().unwrap();
+    let lock_expires_at: i64 = request.lock_expires_at().try_into().unwrap();
+    let lock_expires_delta = lock_expires_at - now;
+    let lock_expires_delta_str = if lock_expires_delta > 0 {
+        format!("{} seconds from now", lock_expires_delta)
+    } else {
+        format!("{} seconds ago", lock_expires_delta.abs())
+    };
+    let expires_at: i64 = request.expires_at().try_into().unwrap();
+    let expires_at_delta = expires_at - now;
+    let expires_at_delta_str = if expires_at_delta > 0 {
+        format!("{} seconds from now", expires_at_delta)
+    } else {
+        format!("{} seconds ago", expires_at_delta.abs())
+    };
+    format!(
+        "lock expires at {} ({}), expires at {} ({})",
+        lock_expires_at, lock_expires_delta_str, expires_at, expires_at_delta_str
+    )
 }
 
 #[cfg(feature = "test-utils")]

@@ -308,7 +308,7 @@ where
     async fn get_proving_order_capacity(
         &self,
         max_concurrent_proofs: Option<u32>,
-        previous_capacity_log: &mut String,
+        prev_orders_by_status: &mut String,
     ) -> Result<Capacity, OrderMonitorErr> {
         if max_concurrent_proofs.is_none() {
             return Ok(Capacity::Unlimited);
@@ -322,39 +322,35 @@ where
             .map_err(|e| OrderMonitorErr::UnexpectedError(e.into()))?;
         let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
 
-        Self::log_capacity(previous_capacity_log, committed_orders, max).await;
+        Self::log_capacity(prev_orders_by_status, committed_orders, max).await;
 
         let available_slots = max.saturating_sub(committed_orders_count);
         Ok(Capacity::Available(available_slots))
     }
 
     async fn log_capacity(
-        previous_capacity_log: &mut String,
+        prev_orders_by_status: &mut String,
         commited_orders: Vec<Order>,
         max: u32,
     ) {
         let committed_orders_count: u32 = commited_orders.len().try_into().unwrap();
         let request_id_and_status = commited_orders
             .iter()
-            .map(|order| {
-                (
-                    format!("0x{:x}", order.request.id),
-                    order.status,
-                    order.fulfillment_type,
-                    format!(
-                        "Lock Expire: {}, Request Expire: {}",
-                        order.request.lock_expires_at(),
-                        order.request.expires_at()
-                    ),
-                )
-            })
+            .map(|order| format!("[{:?}]: {order}", order.status))
             .collect::<Vec<_>>();
 
         let capacity_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
 
-        if *previous_capacity_log != capacity_log {
+        // Note: we don't compare previous to capacity_log as it contains timestamps which cause it to always change.
+        // We only want to log if status or num orders changes.
+        let cur_orders_by_status = commited_orders
+            .iter()
+            .map(|order| format!("{:?}-{}", order.status, order.id()))
+            .collect::<Vec<_>>()
+            .join(",");
+        if *prev_orders_by_status != cur_orders_by_status {
             tracing::info!("{}", capacity_log);
-            *previous_capacity_log = capacity_log;
+            *prev_orders_by_status = cur_orders_by_status;
         }
     }
 
@@ -499,18 +495,8 @@ where
         });
 
         tracing::debug!(
-            "Orders ready for proving, prioritized. Before applying capacity limits: {:?}",
-            orders
-                .iter()
-                .map(|order| format!(
-                    "{} [Lock expires at: {} ({} seconds from now), Expires at: {} ({} seconds from now)]",
-                    order.id(),
-                    order.request.lock_expires_at(),
-                    order.request.lock_expires_at().saturating_sub(now_timestamp()),
-                    order.request.expires_at(),
-                    order.request.expires_at().saturating_sub(now_timestamp())
-                ))
-                .collect::<Vec<_>>()
+            "Orders ready for proving, prioritized. Before applying capacity limits: {}",
+            orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
         );
     }
 
@@ -609,12 +595,12 @@ where
         &self,
         orders: Vec<Arc<OrderRequest>>,
         config: &OrderMonitorConfig,
-        previous_capacity_log: &mut String,
+        prev_orders_by_status: &mut String,
     ) -> Result<Vec<Arc<OrderRequest>>> {
         let num_orders = orders.len();
         // Get our current capacity for proving orders given our config and the number of orders that are currently committed to be proven + fulfilled.
         let capacity = self
-            .get_proving_order_capacity(config.max_concurrent_proofs, previous_capacity_log)
+            .get_proving_order_capacity(config.max_concurrent_proofs, prev_orders_by_status)
             .await?;
         let capacity_granted = capacity
             .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"));
@@ -749,22 +735,27 @@ where
                     _ => panic!("Unsupported fulfillment type: {:?}", order.fulfillment_type),
                 };
 
-                tracing::debug!("Order {} estimated to take {} seconds (including assessor + set builder), and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
-
                 if completion_time + config.batch_buffer_time_secs > expiration {
-                    tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
-                        order.request.id,
-                        expiration,
-                        proof_time_seconds,
-                        completion_time
-                    );
+                    // If the order cannot be completed before its expiration, skip it permanently.
+                    // Otherwise, we keep the order for the next iteration as capacity may free up in the future.
+
                     if now + proof_time_seconds > expiration {
+                        tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
+                            order.request.id,
+                            expiration,
+                            proof_time_seconds,
+                            completion_time
+                        );
                         // If the order cannot be completed regardless of other orders, skip it
                         // permanently. Otherwise, will retry including the order.
                         self.skip_order(&order, "cannot be completed before expiration").await;
+                    } else {
+                        tracing::debug!("Given current commited orders and capacity, order 0x{:x} cannot be completed before its expiration. Not skipping as capacity may free up before it expires.", order.request.id);
                     }
                     continue;
                 }
+
+                tracing::debug!("Order {} estimated to take {} seconds (including assessor + set builder), and would be completed at {} ({} seconds from now). It expires at {} ({} seconds from now)", order.id(), proof_time_seconds, completion_time, completion_time.saturating_sub(now_timestamp()), expiration, expiration.saturating_sub(now_timestamp()));
 
                 final_orders.push(order);
                 prover_available_at = completion_time;
@@ -823,7 +814,7 @@ where
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut new_orders = self.priced_order_rx.lock().await;
-        let mut previous_capacity_debug_log = String::new();
+        let mut prev_orders_by_status = String::new();
 
         loop {
             tokio::select! {
@@ -877,7 +868,7 @@ where
                             .apply_capacity_limits(
                                 valid_orders,
                                 &monitor_config,
-                                &mut previous_capacity_debug_log,
+                                &mut prev_orders_by_status,
                             )
                             .await?;
 
