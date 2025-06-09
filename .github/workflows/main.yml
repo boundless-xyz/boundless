@@ -344,6 +344,8 @@ jobs:
           - examples/composition
     needs: files-changed
     if: needs.files-changed.outputs.examples == 'true'
+    env:
+      NVCC_APPEND_FLAGS: -arch=${{ matrix.nvcc_arch }}
     steps:
       - name: checkout code
         uses: actions/checkout@v4
