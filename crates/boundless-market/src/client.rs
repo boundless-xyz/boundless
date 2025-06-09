@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, time::Duration, str::FromStr};
+use std::{future::Future, str::FromStr, time::Duration};
 
 use alloy::{
     network::{Ethereum, EthereumWallet, TxSigner},
     primitives::{Address, Bytes, U256},
     providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder},
-    signers::{local::{PrivateKeySigner, LocalSignerError}, Signer},
+    signers::{
+        local::{LocalSignerError, PrivateKeySigner},
+        Signer,
+    },
 };
 use alloy_primitives::{Signature, B256};
 use alloy_sol_types::SolStruct;
