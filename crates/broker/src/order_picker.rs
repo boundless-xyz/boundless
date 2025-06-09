@@ -1194,67 +1194,66 @@ mod tests {
         )));
     }
 
-    // TODO: Re-enable this test once the gas cost estimation in the test is improved as currently fails on CI.
-    // #[tokio::test]
-    // #[traced_test]
-    // async fn skip_price_less_than_gas_costs_smart_contract_signature() {
-    //     let config = ConfigLock::default();
-    //     {
-    //         config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
-    //     }
-    //     let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs_smart_contract_signature() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
 
-    //     // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-    //     let min_price = parse_ether("0.0013").unwrap();
-    //     let max_price = parse_ether("0.0013").unwrap();
+        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
+        let min_price = parse_ether("0.0013").unwrap();
+        let max_price = parse_ether("0.0013").unwrap();
 
-    //     // Order should have high enough price with the default selector.
-    //     let order = ctx
-    //         .generate_next_order(OrderParams {
-    //             order_index: 1,
-    //             min_price,
-    //             max_price,
-    //             ..Default::default()
-    //         })
-    //         .await;
+        // Order should have high enough price with the default selector.
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
 
-    //     let _request_id =
-    //         ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-    //     let locked = ctx.picker.price_order_and_update_state(order).await;
-    //     assert!(locked);
+        let locked = ctx.picker.price_order_and_update_state(order).await;
+        assert!(locked);
 
-    //     let priced = ctx.priced_orders_rx.try_recv().unwrap();
-    //     assert_eq!(priced.target_timestamp, Some(0));
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.target_timestamp, Some(0));
 
-    //     // Order does not have high enough price when groth16 is used.
-    //     let mut order = ctx
-    //         .generate_next_order(OrderParams {
-    //             order_index: 2,
-    //             min_price,
-    //             max_price,
-    //             ..Default::default()
-    //         })
-    //         .await;
+        // Order does not have high enough price when groth16 is used.
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
 
-    //     order.request.id =
-    //         RequestId::try_from(order.request.id).unwrap().set_smart_contract_signed_flag().into();
-    //     let request_id = order.request.id;
+        order.request.id =
+            RequestId::try_from(order.request.id).unwrap().set_smart_contract_signed_flag().into();
+        let request_id = order.request.id;
 
-    //     let _request_id =
-    //         ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-    //     let order_id = order.id();
-    //     let locked = ctx.picker.price_order_and_update_state(order).await;
-    //     assert!(!locked);
+        let order_id = order.id();
+        let locked = ctx.picker.price_order_and_update_state(order).await;
+        assert!(!locked);
 
-    //     let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-    //     assert_eq!(db_order.status, OrderStatus::Skipped);
+        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
 
-    //     assert!(logs_contain(&format!(
-    //         "Estimated gas cost to lock and fulfill request {request_id:x}:"
-    //     )));
-    // }
+        assert!(logs_contain(&format!(
+            "Estimated gas cost to lock and fulfill request {request_id:x}:"
+        )));
+    }
 
     #[tokio::test]
     #[traced_test]
