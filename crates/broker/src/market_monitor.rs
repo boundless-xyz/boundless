@@ -438,7 +438,7 @@ where
         chain_id: u64,
         new_order_tx: &tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<()> {
-        tracing::info!("Detected new on-chain request {:x}", event.requestId);
+        tracing::info!("Detected new on-chain request 0x{:x}", event.requestId);
         // Check the request id flag to determine if the request is smart contract signed. If so we verify the
         // ERC1271 signature by calling isValidSignature on the smart contract client. Otherwise we verify the
         // the signature as an ECDSA signature.

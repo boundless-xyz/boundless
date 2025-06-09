@@ -66,27 +66,20 @@ impl ReaperTask {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
 
-                if let Some(proof_id) = &order.proof_id {
-                    cancel_proof_and_fail_order(
-                        &self.prover,
-                        &self.db,
-                        proof_id,
-                        &order_id,
-                        "Order expired in reaper",
-                    )
-                    .await;
-                } else {
-                    match self.db.set_order_failure(&order_id, "Order expired").await {
-                        Ok(()) => {
-                            warn!("Order {} has expired, marked as failed", order_id);
-                        }
-                        Err(err) => {
-                            error!(
-                                "Failed to update status for expired order {}: {}",
-                                order_id, err
-                            );
-                            return Err(ReaperError::UpdateFailed(err.into()));
-                        }
+                cancel_proof_and_fail_order(
+                    &self.prover,
+                    &self.db,
+                    &order,
+                    "Order expired in reaper",
+                )
+                .await;
+                match self.db.set_order_failure(&order_id, "Order expired").await {
+                    Ok(()) => {
+                        warn!("Order {} has expired, marked as failed", order_id);
+                    }
+                    Err(err) => {
+                        error!("Failed to update status for expired order {}: {}", order_id, err);
+                        return Err(ReaperError::UpdateFailed(err.into()));
                     }
                 }
             }

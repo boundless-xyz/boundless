@@ -461,17 +461,18 @@ impl AggregatorService {
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
-        groth16_proofs: &[AggregationOrder],
+        new_groth16_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<String> {
+        let all_orders: Vec<String> = batch
+            .orders
+            .iter()
+            .chain(new_proofs.iter().map(|p| &p.order_id))
+            .chain(new_groth16_proofs.iter().map(|p| &p.order_id))
+            .cloned()
+            .collect();
         let assessor_proof_id = if finalize {
-            let assessor_order_ids: Vec<String> = batch
-                .orders
-                .iter()
-                .chain(new_proofs.iter().map(|p| &p.order_id))
-                .chain(groth16_proofs.iter().map(|p| &p.order_id))
-                .cloned()
-                .collect();
+            let assessor_order_ids: Vec<String> = all_orders.clone();
 
             tracing::debug!(
                 "Running assessor for batch {batch_id} with orders {:x?}",
@@ -503,7 +504,7 @@ impl AggregatorService {
 
         tracing::debug!(
             "Running set builder for batch {batch_id} of orders {:x?} and proofs {:x?}",
-            batch.orders,
+            all_orders,
             proof_ids
         );
         let aggregation_state = self
@@ -513,7 +514,7 @@ impl AggregatorService {
 
         tracing::debug!(
             "Completed aggregation into batch {batch_id} of orders {:x?} and proofs {:x?}",
-            batch.orders,
+            all_orders,
             proof_ids
         );
 
@@ -521,7 +522,7 @@ impl AggregatorService {
             .update_batch(
                 batch_id,
                 &aggregation_state,
-                &[new_proofs, groth16_proofs].concat(),
+                &[new_proofs, new_groth16_proofs].concat(),
                 assessor_proof_id,
             )
             .await

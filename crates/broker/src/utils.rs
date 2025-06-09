@@ -9,7 +9,7 @@ use boundless_market::{
     selector::{ProofType, SupportedSelectors},
 };
 
-use crate::{config::ConfigLock, OrderRequest};
+use crate::{config::ConfigLock, Order, OrderRequest, OrderStatus};
 
 /// Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
 pub const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
@@ -21,20 +21,22 @@ pub const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 pub async fn cancel_proof_and_fail_order(
     prover: &crate::provers::ProverObj,
     db: &crate::db::DbObj,
-    proof_id: &str,
-    order_id: &str,
+    order: &Order,
     failure_reason: &'static str,
 ) {
-    tracing::debug!("Cancelling proof {} for order {}", proof_id, order_id);
-    if let Err(err) = prover.cancel_stark(proof_id).await {
-        tracing::warn!(
-            "[B-UTL-001] Failed to cancel proof {proof_id} with reason: {failure_reason} for order {order_id}: {err}",
-        );
+    let order_id = order.id();
+    if let Some(proof_id) = order.proof_id.as_ref() {
+        if matches!(order.status, OrderStatus::Proving) {
+            tracing::debug!("Cancelling proof {} for order {}", proof_id, order_id);
+            if let Err(err) = prover.cancel_stark(proof_id).await {
+                tracing::warn!("[B-UTL-001] Failed to cancel proof {proof_id} with reason: {failure_reason} for order {order_id}: {err}");
+            }
+        }
     }
 
     // TODO in the case of a failure to cancel, the estimated capacity will be incorrect. Still
     // setting the order as failed to avoid infinite loops of cancellations.
-    if let Err(err) = db.set_order_failure(order_id, failure_reason).await {
+    if let Err(err) = db.set_order_failure(&order_id, failure_reason).await {
         tracing::error!(
             "Failed to set order {order_id} as failed for reason {failure_reason}: {err}",
         );

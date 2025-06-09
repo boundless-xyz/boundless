@@ -47,3 +47,4 @@ config:
   order-generator-onchain:LOCK_TIMEOUT: "900"
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:SECONDS_PER_MCYCLE: "15"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "500"

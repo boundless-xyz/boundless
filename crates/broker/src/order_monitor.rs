@@ -308,7 +308,7 @@ where
     async fn get_proving_order_capacity(
         &self,
         max_concurrent_proofs: Option<u32>,
-        previous_capacity_log: &mut String,
+        prev_orders_by_status: &mut String,
     ) -> Result<Capacity, OrderMonitorErr> {
         if max_concurrent_proofs.is_none() {
             return Ok(Capacity::Unlimited);
@@ -322,14 +322,14 @@ where
             .map_err(|e| OrderMonitorErr::UnexpectedError(e.into()))?;
         let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
 
-        Self::log_capacity(previous_capacity_log, committed_orders, max).await;
+        Self::log_capacity(prev_orders_by_status, committed_orders, max).await;
 
         let available_slots = max.saturating_sub(committed_orders_count);
         Ok(Capacity::Available(available_slots))
     }
 
     async fn log_capacity(
-        previous_capacity_log: &mut String,
+        prev_orders_by_status: &mut String,
         commited_orders: Vec<Order>,
         max: u32,
     ) {
@@ -341,9 +341,16 @@ where
 
         let capacity_log = format!("Current num committed orders: {committed_orders_count}. Maximum commitment: {max}. Committed orders: {request_id_and_status:?}");
 
-        if *previous_capacity_log != capacity_log {
+        // Note: we don't compare previous to capacity_log as it contains timestamps which cause it to always change.
+        // We only want to log if status or num orders changes.
+        let cur_orders_by_status = commited_orders
+            .iter()
+            .map(|order| format!("{:?}-{}", order.status, order.id()))
+            .collect::<Vec<_>>()
+            .join(",");
+        if *prev_orders_by_status != cur_orders_by_status {
             tracing::info!("{}", capacity_log);
-            *previous_capacity_log = capacity_log;
+            *prev_orders_by_status = cur_orders_by_status;
         }
     }
 
@@ -588,12 +595,12 @@ where
         &self,
         orders: Vec<Arc<OrderRequest>>,
         config: &OrderMonitorConfig,
-        previous_capacity_log: &mut String,
+        prev_orders_by_status: &mut String,
     ) -> Result<Vec<Arc<OrderRequest>>> {
         let num_orders = orders.len();
         // Get our current capacity for proving orders given our config and the number of orders that are currently committed to be proven + fulfilled.
         let capacity = self
-            .get_proving_order_capacity(config.max_concurrent_proofs, previous_capacity_log)
+            .get_proving_order_capacity(config.max_concurrent_proofs, prev_orders_by_status)
             .await?;
         let capacity_granted = capacity
             .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"));
@@ -807,7 +814,7 @@ where
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut new_orders = self.priced_order_rx.lock().await;
-        let mut previous_capacity_debug_log = String::new();
+        let mut prev_orders_by_status = String::new();
 
         loop {
             tokio::select! {
@@ -861,7 +868,7 @@ where
                             .apply_capacity_limits(
                                 valid_orders,
                                 &monitor_config,
-                                &mut previous_capacity_debug_log,
+                                &mut prev_orders_by_status,
                             )
                             .await?;
 
