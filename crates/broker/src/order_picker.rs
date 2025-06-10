@@ -742,17 +742,9 @@ where
             loop {
                 tokio::select! {
                     // This channel is cancellation safe, so it's fine to use in the select!
-                    order = rx.recv() => {
-                        match order {
-                            Some(order) => {
-                                tracing::debug!("Queued order {} to be priced", order.id());
-                                pending_orders.push_back(order);
-                            }
-                            None => {
-                                tracing::info!("Order channel closed. Shutting down gracefully.");
-                                break;
-                            }
-                        }
+                    Some(order) = rx.recv() => {
+                        tracing::debug!("Queued order {} to be priced", order.id());
+                        pending_orders.push_back(order);
                     }
                     _ = tasks.join_next(), if !tasks.is_empty() => {
                         tracing::trace!("Pricing task completed ({} remaining)", tasks.len());
