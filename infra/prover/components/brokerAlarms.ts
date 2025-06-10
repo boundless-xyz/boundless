@@ -301,28 +301,39 @@ export const createProverAlarms = (
   //
   // Two cases in an hour where all requests in a batch expired before submission triggers a SEV2 alarm.
   // Typically this is due to proving/aggregating/submitting taking longer than expected.
+  // Note this gets logged multiple times per batch submission due to retries, so we use a higher threshold.
   createErrorCodeAlarm('"[B-SUB-001]"', 'submitter-requests-expired-before-submission', Severity.SEV2, {
-    threshold: 2,
+    threshold: 4,
   }, { period: 3600 }, "All requests in a batch expired before submission twice in an hour");
 
   // Two cases where some requests in a batch expired before submission triggers a SEV2 alarm.
   // Typically this is due to proving/aggregating/submitting taking longer than expected.
+  // Note this gets logged multiple times per batch submission due to retries, so we use a higher threshold.
   createErrorCodeAlarm('"[B-SUB-005]"', 'submitter-some-requests-expired-before-submission', Severity.SEV2, {
-    threshold: 2,
+    threshold: 4,
   }, { period: 3600 }, "Some requests in a batch expired before submission twice in an hour");
 
   // Any 1 request expired before submission triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2);
 
-  // 2 failures to submit a batch within 1 hour in the submitter triggers a SEV2 alarm.
-  createErrorCodeAlarm('"[B-SUB-003]"', 'submitter-batch-submission-failure', Severity.SEV2, {
+  // 4 failures to submit a batch within 2 hours due to timeouts in the submitter triggers a SEV2 alarm.
+  // This may indicate a misconfiguration of the tx timeout config.
+  // Note this gets logged multiple times per batch submission due to retries, so we use a higher threshold.
+  createErrorCodeAlarm('"[B-SUB-003]"', 'submitter-batch-submission-txn-timeout', Severity.SEV2, {
+    threshold: 4,
+  }, { period: 7200 });
+
+  // 2 failures to submit a batch within 1 hour for any reason in the submitter triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-SUB-004]"', 'submitter-batch-submission-failure', Severity.SEV2, {
     threshold: 2,
   }, { period: 3600 });
 
-  // 3 txn confirmation errors within 1 hour in the submitter triggers a SEV2 alarm. 
+  // 5 individual txn confirmation errors within 1 hour in the submitter triggers a SEV2 alarm. 
+  // Note, we retry on individual txn confirmation errors, so this does not necessarily indicate
+  // the batch was not submitted.
   // This may indicate a misconfiguration of the tx timeout config.
-  createErrorCodeAlarm('"[B-SUB-004]"', 'submitter-txn-confirmation-error', Severity.SEV2, {
-    threshold: 3,
+  createErrorCodeAlarm('"[B-SUB-006]"', 'submitter-txn-confirmation-error', Severity.SEV2, {
+    threshold: 5,
   }, { period: 3600 });
 
   // Any 1 unexpected error in the submitter triggers a SEV2 alarm.

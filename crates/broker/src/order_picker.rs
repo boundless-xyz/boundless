@@ -2,7 +2,9 @@
 //
 // All rights reserved.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::{
     chain_monitor::ChainMonitorService,
@@ -29,12 +31,12 @@ use boundless_market::{
     selector::SupportedSelectors,
 };
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio::sync::{mpsc, Mutex};
+use tokio::task::JoinSet;
 
 use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 
-/// Maximum number of orders to concurrently work on pricing. Used to limit pricing tasks spawned.
-const MAX_PRICING_BATCH_SIZE: u32 = 4;
+const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -704,42 +706,65 @@ where
 {
     type Error = OrderPickerErr;
     fn spawn(&self) -> RetryRes<Self::Error> {
-        let picker_copy = self.clone();
+        let picker = self.clone();
 
         Box::pin(async move {
             tracing::info!("Starting order picking monitor");
-            let pricing_semaphore = Arc::new(Semaphore::new(MAX_PRICING_BATCH_SIZE as usize));
 
-            // This should be the only task holding the lock, so it is just locked while the service
-            // is running.
-            let mut rx = picker_copy.new_order_rx.lock().await;
+            let read_capacity = || -> Result<usize, Self::Error> {
+                let cfg = picker.config.lock_all().map_err(|err| {
+                    OrderPickerErr::UnexpectedErr(anyhow::anyhow!("Failed to read config: {err}"))
+                })?;
+                Ok(cfg.market.max_concurrent_preflights as usize)
+            };
+
+            let mut current_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
+            let mut tasks: JoinSet<()> = JoinSet::new();
+            let mut rx = picker.new_order_rx.lock().await;
+            let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
+            let mut pending_orders: VecDeque<Box<OrderRequest>> = VecDeque::new();
 
             loop {
-                // Wait for a new order from the channel - lock the mutex only when receiving
-                let order = rx.recv().await.ok_or_else(|| {
-                    // This should be unrecoverable if the sender is dropped.
-                    SupervisorErr::Fault(OrderPickerErr::UnexpectedErr(anyhow::anyhow!(
-                        "Order channel closed unexpectedly"
-                    )))
-                })?;
+                tokio::select! {
+                    // This channel is cancellation safe, so it's fine to use in the select!
+                    order = rx.recv() => {
+                        let order = order.ok_or_else(|| {
+                            SupervisorErr::Fault(OrderPickerErr::UnexpectedErr(anyhow::anyhow!(
+                                "Order channel closed unexpectedly"
+                            )))
+                        })?;
 
-                let picker_clone = picker_copy.clone();
-                let semaphore = pricing_semaphore.clone();
-
-                // Spawn a task to process the order
-                tokio::spawn(async move {
-                    // Acquire a permit from the semaphore (will wait if at capacity)
-                    let _permit = semaphore.acquire().await.expect("Semaphore was closed");
-
-                    // Process the order - permit is automatically released when dropped
-                    let order_id = order.id();
-                    let result = picker_clone.price_order_and_update_state(order).await;
-                    if result {
-                        tracing::debug!("Successfully processed order: {}", order_id);
-                    } else {
-                        tracing::debug!("Order was not processed: {}", order_id);
+                        tracing::debug!("Queued order {} to be priced", order.id());
+                        pending_orders.push_back(order);
                     }
-                });
+                    _ = tasks.join_next(), if !tasks.is_empty() => {
+                        tracing::trace!("Pricing task completed ({} remaining)", tasks.len());
+                    }
+                    _ = capacity_check_interval.tick() => {
+                        // Check capacity on an interval for capacity changes in config
+                        let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
+                        if new_capacity != current_capacity {
+                            tracing::debug!("Pricing capacity changed from {} to {}", current_capacity, new_capacity);
+                            current_capacity = new_capacity;
+                        }
+                    }
+                }
+
+                // Process pending orders if we have capacity
+                while !pending_orders.is_empty() && tasks.len() < current_capacity {
+                    if let Some(order) = pending_orders.pop_front() {
+                        let picker_clone = picker.clone();
+                        tasks.spawn(async move {
+                            let order_id = order.id();
+                            let result = picker_clone.price_order_and_update_state(order).await;
+                            if result {
+                                tracing::debug!("Successfully processed order: {}", order_id);
+                            } else {
+                                tracing::debug!("Order was not processed: {}", order_id);
+                            }
+                        });
+                    }
+                }
             }
         })
     }
@@ -1598,5 +1623,53 @@ mod tests {
         assert!(logs_contain(&expected_log_pattern));
         assert!(logs_contain("cycles restricted by deadline to"));
         assert!(logs_contain("150000 cycles (time limit)"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_capacity_change() {
+        let config = ConfigLock::default();
+        {
+            let mut cfg = config.load_write().unwrap();
+            cfg.market.mcycle_price = "0.0000001".into();
+            cfg.market.max_concurrent_preflights = 2;
+        }
+        let mut ctx = TestCtxBuilder::default().with_config(config.clone()).build().await;
+
+        // Start the order picker task
+        let picker_task = tokio::spawn(ctx.picker.spawn());
+
+        // Send an initial order to trigger the capacity check
+        let order1 =
+            ctx.generate_next_order(OrderParams { order_index: 1, ..Default::default() }).await;
+        ctx.new_order_tx.send(order1).await.unwrap();
+
+        // Wait for order to be processed
+        tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv()).await.unwrap();
+
+        // Sleep to allow for a capacity check change
+        tokio::time::sleep(MIN_CAPACITY_CHECK_INTERVAL).await;
+
+        // Decrease capacity
+        {
+            let mut cfg = config.load_write().unwrap();
+            cfg.market.max_concurrent_preflights = 1;
+        }
+
+        // Wait a bit more for the interval timer to fire and detect the change
+        tokio::time::sleep(MIN_CAPACITY_CHECK_INTERVAL + Duration::from_millis(100)).await;
+
+        // Send another order to trigger capacity check
+        let order2 =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
+        ctx.new_order_tx.send(order2).await.unwrap();
+
+        // Wait for an order to be processed before updating capacity
+        tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv()).await.unwrap();
+
+        // Check logs for capacity changes
+        assert!(logs_contain("Pricing capacity changed from 2 to 1"));
+
+        picker_task.abort();
     }
 }

@@ -1,5 +1,5 @@
 # Variables
-DEFAULT_DATABASE_URL := "postgres://postgres:password@localhost:5432/postgres"
+DEFAULT_DATABASE_URL := "postgres://postgres:password@localhost:5433/postgres"
 DATABASE_URL := env_var_or_default("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 LOGS_DIR := "logs"
@@ -54,7 +54,7 @@ test-db action="setup":
         docker run -d \
             --name postgres-test \
             -e POSTGRES_PASSWORD=password \
-            -p 5432:5432 \
+            -p 5433:5432 \
             postgres:latest
         # Wait for PostgreSQL to be ready
         sleep 3
@@ -162,7 +162,7 @@ localnet action="up": check-deps
     # Localnet-specific variables
     ANVIL_PORT="8545"
     ANVIL_BLOCK_TIME="2"
-    RISC0_DEV_MODE="1"
+    RISC0_DEV_MODE="${RISC0_DEV_MODE:-1}"
     CHAIN_KEY="anvil"
     RUST_LOG="info,broker=debug,boundless_market=debug,order_stream=debug"
     # This key is a prefunded address for the anvil test configuration (index 0)
@@ -183,8 +183,8 @@ localnet action="up": check-deps
         echo "Building contracts..."
         forge build || { echo "Failed to build contracts"; just localnet down; exit 1; }
         echo "Building Rust project..."
-        cargo build --bin broker || { echo "Failed to build broker binary"; just localnet down; exit 1; }
         cargo build --bin order_stream || { echo "Failed to build order-stream binary"; just localnet down; exit 1; }
+        cargo build --bin boundless || { echo "Failed to build boundless CLI binary"; just localnet down; exit 1; }
         # Check if Anvil is already running
         if nc -z localhost $ANVIL_PORT; then
             echo "Anvil is already running on port $ANVIL_PORT. Reusing existing instance."
@@ -207,16 +207,21 @@ localnet action="up": check-deps
         echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS"
         echo "Updating .env.localnet file..."
         # Update the environment variables in .env.localnet
-        sed -i.bak "s/^VERIFIER_ADDRESS=.*/VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
-        sed -i.bak "s/^SET_VERIFIER_ADDRESS=.*/SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
-        sed -i.bak "s/^BOUNDLESS_MARKET_ADDRESS=.*/BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
-        sed -i.bak "s/^HIT_POINTS_ADDRESS=.*/HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet
+        sed -i.bak "s/^export VERIFIER_ADDRESS=.*/export VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
+        sed -i.bak "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
+        sed -i.bak "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
+        sed -i.bak "s/^export HIT_POINTS_ADDRESS=.*/export HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
+        
+        # Mint stake to the address in the localnet template wallet
+        DEFAULT_PRIVATE_KEY="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
+        DEFAULT_ADDRESS="0x90F79bf6EB2c4f870365E785982E1f101E93b906"
+        
         echo "Minting HP for prover address."
         cast send --private-key $DEPLOYER_PRIVATE_KEY \
             --rpc-url http://localhost:$ANVIL_PORT \
-            $HIT_POINTS_ADDRESS "mint(address, uint256)" $ADMIN_ADDRESS $DEPOSIT_AMOUNT
+            $HIT_POINTS_ADDRESS "mint(address, uint256)" $DEFAULT_ADDRESS $DEPOSIT_AMOUNT
 
         # Start order stream server
         just test-db setup
@@ -225,18 +230,24 @@ localnet action="up": check-deps
             --min-balance-raw 0 \
             --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
             --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
-        echo "Starting broker..."
-        RISC0_DEV_MODE=$RISC0_DEV_MODE RUST_LOG=$RUST_LOG ./target/debug/broker \
-            --private-key $PRIVATE_KEY \
-            --boundless-market-address $BOUNDLESS_MARKET_ADDRESS \
-            --set-verifier-address $SET_VERIFIER_ADDRESS \
-            --rpc-url http://localhost:$ANVIL_PORT \
-            --order-stream-url http://localhost:8585 \
-            --deposit-amount $DEPOSIT_AMOUNT > {{LOGS_DIR}}/broker.txt 2>&1 & echo $! >> {{PID_FILE}}
-        # Wait 5 seconds and see if that broker is still running, or if it has crashed.
-        sleep 5 && kill -0 $(tail -n1 {{PID_FILE}})
-        echo "Localnet is running!"
+        
+        echo "Depositing stake using boundless CLI..."
+        RPC_URL=http://localhost:$ANVIL_PORT \
+        PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
+        BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
+        SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
+        VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
+        ./target/debug/boundless account deposit-stake 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
+        
+        echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
+        if [ ! -f broker.toml ]; then
+            echo "Creating broker.toml from template..."
+            cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
+            echo "broker.toml created successfully."
+        fi
         echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
+        echo "To start the broker manually, run:"
+        echo "source .env.localnet && cargo run --bin broker"
     elif [ "{{action}}" = "down" ]; then
         if [ -f {{PID_FILE}} ]; then
             while read pid; do
@@ -312,7 +323,9 @@ bento action="up" env_file="" compose_flags="" detached="true":
         fi
         
         docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG
-        echo "Docker Compose services have been started."
+        if [ "{{detached}}" != "true" ]; then
+            echo "Docker Compose services have been started."
+        fi
     elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services"
         if docker compose {{compose_flags}} $ENV_FILE_ARG down; then

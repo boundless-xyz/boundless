@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFQnk96iZHiItdiUZ
 config:
   aws:region: us-west-2
   order-stream:BASE_STACK: organization/bootstrap/services-prod
-  order-stream:BOUNDLESS_ADDRESS: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
+  order-stream:BOUNDLESS_ADDRESS: 0x13337C76fE2d1750246B68781ecEe164643b98Ec
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest

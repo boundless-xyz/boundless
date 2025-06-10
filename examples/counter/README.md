@@ -93,6 +93,9 @@ If you have [`just` installed](https://github.com/casey/just), then the followin
 # In this directory, examples/counter
 RISC0_DEV_MODE=1 just localnet up
 source ../../.env.localnet
+
+# Start a broker to accept orders
+RUST_LOG=info cargo run --bin broker
 ```
 
 By setting the `RISC0_DEV_MODE` env variable, the market will be deployed to use a mock verifier, and the prover will generate fake proofs.
@@ -101,6 +104,9 @@ Additionally, the app will default to using the local file system for programs a
 Deploy your application to the local devnet:
 
 ```bash
+# Source env if running in separate terminal window
+source ../../.env.localnet
+
 forge script contracts/scripts/Deploy.s.sol --rpc-url ${RPC_URL:?} --broadcast -vv
 ```
 
