@@ -33,6 +33,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 
 /// Hard limit on the number of orders to concurrently kick off proving work for.
 const MAX_PROVING_BATCH_SIZE: u32 = 10;
@@ -804,7 +805,10 @@ where
         Ok(final_orders)
     }
 
-    pub async fn start_monitor(self) -> Result<(), OrderMonitorErr> {
+    pub async fn start_monitor(
+        self,
+        cancel_token: CancellationToken,
+    ) -> Result<(), OrderMonitorErr> {
         let mut last_block = 0;
         let mut first_block = 0;
         let mut interval = tokio::time::interval_at(
@@ -884,8 +888,13 @@ where
                         }
                     }
                 }
+                _ = cancel_token.cancelled() => {
+                    tracing::debug!("Order monitor received cancellation");
+                    break;
+                }
             }
         }
+        Ok(())
     }
 
     // Called when a new order result is received from the channel
@@ -914,11 +923,11 @@ where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     type Error = OrderMonitorErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let monitor_clone = self.clone();
         Box::pin(async move {
             tracing::info!("Starting order monitor");
-            monitor_clone.start_monitor().await.map_err(SupervisorErr::Recover)?;
+            monitor_clone.start_monitor(cancel_token).await.map_err(SupervisorErr::Recover)?;
             Ok(())
         })
     }
@@ -1088,7 +1097,7 @@ mod tests {
         let block_time = 2;
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
+        tokio::spawn(chain_monitor.spawn(Default::default()));
 
         // Create required channels for tests
         let (priced_order_tx, priced_order_rx) = mpsc::channel(16);
@@ -1127,7 +1136,7 @@ mod tests {
         // A JoinSet automatically aborts all its tasks when dropped
         let mut tasks = JoinSet::new();
         // Spawn the monitor
-        tasks.spawn(async move { monitor.start_monitor().await });
+        tasks.spawn(async move { monitor.start_monitor(Default::default()).await });
 
         tokio::select! {
             result = f => result,

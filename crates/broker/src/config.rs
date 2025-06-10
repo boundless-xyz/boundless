@@ -412,6 +412,7 @@ impl ConfigLock {
         self.config.read().map_err(|_| ConfigErr::LockFailed)
     }
 
+    #[cfg(test)]
     pub fn load_write(&self) -> Result<std::sync::RwLockWriteGuard<Config>, ConfigErr> {
         self.config.write().map_err(|_| ConfigErr::LockFailed)
     }

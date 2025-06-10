@@ -23,6 +23,7 @@ use crate::{
     AggregationState, Batch, BatchStatus,
 };
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum AggregatorErr {
@@ -595,12 +596,17 @@ impl AggregatorService {
 
 impl RetryTask for AggregatorService {
     type Error = AggregatorErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let mut self_clone = self.clone();
 
         Box::pin(async move {
             tracing::debug!("Starting Aggregator service");
             loop {
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Aggregator service received cancellation");
+                    break;
+                }
+
                 let conf_poll_time_ms = {
                     let config = self_clone
                         .config
@@ -614,6 +620,8 @@ impl RetryTask for AggregatorService {
                 self_clone.aggregate().await.map_err(SupervisorErr::Recover)?;
                 tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
             }
+
+            Ok(())
         })
     }
 }
@@ -682,7 +690,7 @@ mod tests {
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        let _handle = tokio::spawn(chain_monitor.spawn());
+        let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
         let chain_id = provider.get_chain_id().await.unwrap();
         let set_builder_id = Digest::from(SET_BUILDER_ID);
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
@@ -844,7 +852,7 @@ mod tests {
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        let _handle = tokio::spawn(chain_monitor.spawn());
+        let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
         let set_builder_id = Digest::from(SET_BUILDER_ID);
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
@@ -1131,7 +1139,7 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
 
-        let _handle = tokio::spawn(chain_monitor.spawn());
+        let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
         let set_builder_id = Digest::from(SET_BUILDER_ID);
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
@@ -1253,7 +1261,7 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
 
-        let _handle = tokio::spawn(chain_monitor.spawn());
+        let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
         let set_builder_id = Digest::from(SET_BUILDER_ID);
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
