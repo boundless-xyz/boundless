@@ -796,15 +796,15 @@ where
                 }
                 // Handle shutdown signals
                 _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("\nReceived CTRL+C, starting graceful shutdown...");
+                    tracing::info!("Received CTRL+C, starting graceful shutdown...");
                     break;
                 }
                 _ = sigterm.recv() => {
-                    tracing::info!("\nReceived SIGTERM, starting graceful shutdown...");
+                    tracing::info!("Received SIGTERM, starting graceful shutdown...");
                     break;
                 }
                 _ = sigint.recv() => {
-                    tracing::info!("\nReceived SIGINT, starting graceful shutdown...");
+                    tracing::info!("Received SIGINT, starting graceful shutdown...");
                     break;
                 }
             }
