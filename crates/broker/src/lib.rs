@@ -545,8 +545,7 @@ where
         // Critical task, as is relied on to query current chain state
         let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(cloned_chain_monitor, cloned_config)
-                .with_cancel_token(cancel_token)
+            Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start chain monitor")?;
@@ -582,8 +581,7 @@ where
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(market_monitor, cloned_config)
-                .with_cancel_token(cancel_token)
+            Supervisor::new(market_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start market monitor")?;
@@ -601,8 +599,7 @@ where
             let cloned_config = config.clone();
             let cancel_token = non_critical_cancel_token.clone();
             supervisor_tasks.spawn(async move {
-                Supervisor::new(offchain_market_monitor, cloned_config)
-                    .with_cancel_token(cancel_token)
+                Supervisor::new(offchain_market_monitor, cloned_config, cancel_token)
                     .spawn()
                     .await
                     .context("Failed to start offchain market monitor")?;
@@ -650,8 +647,7 @@ where
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(order_picker, cloned_config)
-                .with_cancel_token(cancel_token)
+            Supervisor::new(order_picker, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start order picker")?;
@@ -667,8 +663,7 @@ where
         let cloned_config = config.clone();
         let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(proving_service, cloned_config)
-                .with_cancel_token(cancel_token)
+            Supervisor::new(proving_service, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start proving service")?;
@@ -698,8 +693,7 @@ where
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(order_monitor, cloned_config)
-                .with_cancel_token(cancel_token)
+            Supervisor::new(order_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start order monitor")?;
@@ -727,9 +721,8 @@ where
         let cloned_config = config.clone();
         let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(aggregator, cloned_config)
+            Supervisor::new(aggregator, cloned_config, cancel_token)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start aggregator service")?;
@@ -743,8 +736,7 @@ where
         // Using critical cancel token to ensure no stuck expired jobs on shutdown
         let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(reaper, cloned_config)
-                .with_cancel_token(cancel_token)
+            Supervisor::new(reaper, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start reaper service")?;
@@ -763,9 +755,8 @@ where
         let cloned_config = config.clone();
         let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(submitter, cloned_config)
+            Supervisor::new(submitter, cloned_config, cancel_token)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start submitter service")?;

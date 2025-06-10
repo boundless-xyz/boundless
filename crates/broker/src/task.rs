@@ -96,24 +96,13 @@ where
     T::Error: Send + Sync + 'static,
 {
     /// Create a new supervisor with a single task
-    pub fn new(task: Arc<T>, config: ConfigLock) -> Self {
-        Self {
-            task,
-            retry_policy: RetryPolicy::default(),
-            config,
-            cancel_token: CancellationToken::new(),
-        }
+    pub fn new(task: Arc<T>, config: ConfigLock, cancel_token: CancellationToken) -> Self {
+        Self { task, retry_policy: RetryPolicy::default(), config, cancel_token }
     }
 
     /// Configure the retry policy
     pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
         self.retry_policy = retry_policy;
-        self
-    }
-
-    /// Set the cancellation token for this supervisor
-    pub fn with_cancel_token(mut self, cancel_token: CancellationToken) -> Self {
-        self.cancel_token = cancel_token;
         self
     }
 
@@ -374,7 +363,8 @@ mod tests {
         let task = Arc::new(TestTask::new());
         task.tx(0).await.unwrap();
 
-        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default()).spawn();
+        let supervisor_task =
+            Supervisor::new(task.clone(), ConfigLock::default(), CancellationToken::new()).spawn();
 
         task.tx(0).await.unwrap();
         task.tx(0).await.unwrap();
@@ -392,7 +382,8 @@ mod tests {
         let task = Arc::new(TestTask::new());
         task.tx(0).await.unwrap();
 
-        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default()).spawn();
+        let supervisor_task =
+            Supervisor::new(task.clone(), ConfigLock::default(), CancellationToken::new()).spawn();
 
         task.tx(3).await.unwrap();
         task.close();
@@ -407,7 +398,7 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.max_critical_task_retries = Some(3);
 
-        let supervisor_task = Supervisor::new(task.clone(), config)
+        let supervisor_task = Supervisor::new(task.clone(), config, CancellationToken::new())
             .with_retry_policy(RetryPolicy {
                 delay: std::time::Duration::from_millis(10),
                 backoff_multiplier: 2.0,
@@ -437,9 +428,8 @@ mod tests {
         let task = Arc::new(TestTask::new());
         let cancel_token = CancellationToken::new();
 
-        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default())
-            .with_cancel_token(cancel_token.clone())
-            .spawn();
+        let supervisor_task =
+            Supervisor::new(task.clone(), ConfigLock::default(), cancel_token.clone()).spawn();
 
         task.tx(0).await.unwrap();
         task.tx(0).await.unwrap();
