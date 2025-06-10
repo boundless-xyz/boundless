@@ -138,10 +138,22 @@ where
         }
     }
 
-    async fn price_order_and_update_state(&self, mut order: Box<OrderRequest>) -> bool {
+    async fn price_order_and_update_state(
+        &self,
+        mut order: Box<OrderRequest>,
+        cancel_token: CancellationToken,
+    ) -> bool {
         let order_id = order.id();
         let f = || async {
-            match self.price_order(&mut order).await {
+            let pricing_result = tokio::select! {
+                result = self.price_order(&mut order) => result,
+                _ = cancel_token.cancelled() => {
+                    tracing::debug!("Order pricing cancelled during pricing for order {order_id}");
+                    return Ok(false);
+                }
+            };
+
+            match pricing_result {
                 Ok(Lock { total_cycles, target_timestamp_secs, expiry_secs }) => {
                     order.total_cycles = Some(total_cycles);
                     order.target_timestamp = Some(target_timestamp_secs);
@@ -731,14 +743,16 @@ where
                 tokio::select! {
                     // This channel is cancellation safe, so it's fine to use in the select!
                     order = rx.recv() => {
-                        let order = order.ok_or_else(|| {
-                            SupervisorErr::Fault(OrderPickerErr::UnexpectedErr(anyhow::anyhow!(
-                                "Order channel closed unexpectedly"
-                            )))
-                        })?;
-
-                        tracing::debug!("Queued order {} to be priced", order.id());
-                        pending_orders.push_back(order);
+                        match order {
+                            Some(order) => {
+                                tracing::debug!("Queued order {} to be priced", order.id());
+                                pending_orders.push_back(order);
+                            }
+                            None => {
+                                tracing::info!("Order channel closed. Shutting down gracefully.");
+                                break;
+                            }
+                        }
                     }
                     _ = tasks.join_next(), if !tasks.is_empty() => {
                         tracing::trace!("Pricing task completed ({} remaining)", tasks.len());
@@ -753,8 +767,9 @@ where
                     }
                     _ = cancel_token.cancelled() => {
                         tracing::debug!("Order picker received cancellation, shutting down gracefully");
-                        // Abort remaining tasks
-                        tasks.abort_all();
+
+                        // Wait for all pricing tasks to be cancelled gracefully
+                        while tasks.join_next().await.is_some() {}
                         break;
                     }
                 }
@@ -763,9 +778,12 @@ where
                 while !pending_orders.is_empty() && tasks.len() < current_capacity {
                     if let Some(order) = pending_orders.pop_front() {
                         let picker_clone = picker.clone();
+                        let task_cancel_token = cancel_token.child_token();
                         tasks.spawn(async move {
                             let order_id = order.id();
-                            let result = picker_clone.price_order_and_update_state(order).await;
+                            let result = picker_clone
+                                .price_order_and_update_state(order, task_cancel_token)
+                                .await;
                             if result {
                                 tracing::debug!("Successfully processed order: {}", order_id);
                             } else {
@@ -1012,7 +1030,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
         let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
@@ -1037,7 +1055,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
@@ -1064,7 +1082,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
@@ -1095,7 +1113,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
@@ -1132,7 +1150,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
         assert_eq!(priced.target_timestamp, Some(0));
@@ -1155,7 +1173,7 @@ mod tests {
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
         let order_id = order.id();
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
@@ -1191,7 +1209,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
@@ -1218,7 +1236,7 @@ mod tests {
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
         let order_id = order.id();
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
@@ -1255,7 +1273,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
@@ -1279,7 +1297,7 @@ mod tests {
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
         let order_id = order.id();
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
@@ -1306,7 +1324,7 @@ mod tests {
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
         let order_id = order.id();
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
@@ -1381,7 +1399,7 @@ mod tests {
             .generate_next_order(OrderParams { lock_stake: U256::from(100), ..Default::default() })
             .await;
         let order1_id = order.id();
-        assert!(ctx.picker.price_order_and_update_state(order).await);
+        assert!(ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
         assert_eq!(priced.id(), order1_id);
 
@@ -1392,7 +1410,7 @@ mod tests {
             })
             .await;
         let order_id = order.id();
-        assert!(!ctx.picker.price_order_and_update_state(order).await);
+        assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
         assert!(logs_contain("Insufficient available stake to lock order"));
         assert_eq!(
             ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
@@ -1406,7 +1424,7 @@ mod tests {
             })
             .await;
         let order_id = order.id();
-        assert!(!ctx.picker.price_order_and_update_state(order).await);
+        assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
         // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient stake
         assert_eq!(
@@ -1429,7 +1447,7 @@ mod tests {
         let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
         // Simulate order being locked
@@ -1441,7 +1459,7 @@ mod tests {
         // add another order
         let order =
             ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
         let order = ctx.priced_orders_rx.try_recv().unwrap();
         ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
@@ -1466,7 +1484,7 @@ mod tests {
         let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
 
         let order_id = order.id();
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
         assert_eq!(
@@ -1509,7 +1527,7 @@ mod tests {
             expected_target_timestamp,
             expected_target_timestamp.saturating_sub(now_timestamp())
         );
-        assert!(ctx.picker.price_order_and_update_state(order).await);
+        assert!(ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
         assert!(logs_contain(&expected_log));
 
@@ -1540,7 +1558,7 @@ mod tests {
 
         let request_id = order.request.id;
 
-        assert!(!ctx.picker.price_order_and_update_state(order).await);
+        assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
         // Since we know the stake reward is constant, and we know our min_mycle_price_stake_token
         // the execution limit check tells us if the order is profitable or not, since it computes the max number
@@ -1572,7 +1590,7 @@ mod tests {
         let order = ctx.generate_next_order(Default::default()).await;
         let request_id = order.request.id;
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
         // Check logs for the expected message about skipping mcycle limit
@@ -1588,7 +1606,8 @@ mod tests {
         order2.request.id = RequestId::new(Address::ZERO, 2).into();
         let request2_id = order2.request.id;
 
-        let locked = ctx.picker.price_order_and_update_state(order2).await;
+        let locked =
+            ctx.picker.price_order_and_update_state(order2, CancellationToken::new()).await;
         assert!(locked);
 
         // Check logs for the expected message about setting exec limit to max_mcycle_limit
@@ -1628,7 +1647,7 @@ mod tests {
         let _submit_result =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await;
 
-        let locked = ctx.picker.price_order_and_update_state(order).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
         let expected_log_pattern = format!("Order with request id {request_id:x} exec limit");
