@@ -807,17 +807,14 @@ where
                 }
                 // Handle shutdown signals
                 _ = tokio::signal::ctrl_c() => {
-                    eprintln!("\nReceived CTRL+C, starting graceful shutdown...");
                     tracing::info!("\nReceived CTRL+C, starting graceful shutdown...");
                     break;
                 }
                 _ = sigterm.recv() => {
-                    eprintln!("\nReceived SIGTERM, starting graceful shutdown...");
                     tracing::info!("\nReceived SIGTERM, starting graceful shutdown...");
                     break;
                 }
                 _ = sigint.recv() => {
-                    eprintln!("\nReceived SIGINT, starting graceful shutdown...");
                     tracing::info!("\nReceived SIGINT, starting graceful shutdown...");
                     break;
                 }
@@ -857,8 +854,6 @@ where
         while start_time.elapsed() < grace_period {
             let in_progress_orders = self.db.get_committed_orders().await?;
             if in_progress_orders.is_empty() {
-                eprintln!("No in-progress orders found, cancelling critical tasks...");
-                tracing::info!("No in-progress orders found, cancelling critical tasks...");
                 break;
             }
 
@@ -873,7 +868,7 @@ where
             );
 
             if new_log != last_log {
-                eprintln!("{}", new_log);
+                tracing::info!("{}", new_log);
                 last_log = new_log;
             }
 
@@ -886,7 +881,7 @@ where
 
         if start_time.elapsed() >= grace_period {
             let in_progress_orders = self.db.get_committed_orders().await?;
-            eprintln!(
+            tracing::info!(
                 "Shutdown timed out after {} seconds. Exiting with {} in-progress orders: {}",
                 SHUTDOWN_GRACE_PERIOD_SECS,
                 in_progress_orders.len(),
@@ -897,7 +892,7 @@ where
                     .join("\n")
             );
         } else {
-            eprintln!("Shutdown complete");
+            tracing::info!("Shutdown complete");
         }
         Ok(())
     }
