@@ -20,6 +20,15 @@ x-agent-common: &agent-common
   environment:
     <<: *base-environment
 
+x-exec-agent-common: &exec-agent-common
+  <<: *agent-common
+  mem_limit: 4G
+  cpus: 3
+  environment:
+    <<: *base-environment
+    RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
+  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+
 services:
   redis:
     hostname: ${REDIS_HOST:-redis}
@@ -90,26 +99,10 @@ services:
       - minio
 
   exec_agent0:
-    <<: *agent-common
-
-    mem_limit: 4G
-    cpus: 3
-
-    environment:
-      <<: *base-environment
-      RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-    entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+    <<: *exec-agent-common
 
   exec_agent1:
-    <<: *agent-common
-
-    mem_limit: 4G
-    cpus: 3
-
-    environment:
-      <<: *base-environment
-      RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-    entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+    <<: *exec-agent-common
 
   aux_agent:
     <<: *agent-common
@@ -191,10 +184,13 @@ services:
         source: ./broker.toml
         target: /app/broker.toml
       - broker-data:/db/
-      # uncomment for local testing of broker in compose
+      # Uncomment when using locally built set-builder and assessor guest programs
       # - type: bind
-      #   source: ./target/
-      #   target: /target/
+      #   source: ./target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+      #   target: /target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+      # - type: bind
+      #   source: ./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+      #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
 
     network_mode: host
 
