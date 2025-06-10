@@ -658,7 +658,6 @@ where
             Ok(())
         });
 
-        // CRITICAL TASK: Proving service handles committed orders
         let proving_service = Arc::new(
             proving::ProvingService::new(self.db.clone(), prover.clone(), config.clone())
                 .await
@@ -710,7 +709,6 @@ where
         let set_builder_img_id = self.fetch_and_upload_set_builder_image(&prover).await?;
         let assessor_img_id = self.fetch_and_upload_assessor_image(&prover).await?;
 
-        // CRITICAL TASK: Aggregator handles committed orders
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
                 self.db.clone(),
@@ -822,15 +820,10 @@ where
         }
 
         // Phase 1: Cancel non-critical tasks immediately to stop taking new work
-        tracing::info!(
-            "Phase 1: Cancelling non-critical tasks (order discovery, picking, monitoring)..."
-        );
+        tracing::info!("Cancelling non-critical tasks (order discovery, picking, monitoring)...");
         non_critical_cancel_token.cancel();
 
         // Phase 2: Wait for committed orders to complete, then cancel critical tasks
-        tracing::info!(
-            "Phase 2: Waiting for committed orders to complete before cancelling critical tasks..."
-        );
         self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
 
         Ok(())
