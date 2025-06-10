@@ -293,11 +293,11 @@ impl AggregatorService {
             (Some(batch_size), Some(max_concurrent)) if batch_size > max_concurrent => {
                 tracing::warn!(
                     "Configured min_batch_size ({}) exceeds max_concurrent_proofs ({}). \
-                     Setting min_batch_size to max_concurrent_proofs.",
+                    Update the config value to be less than or equal to the max_concurrent_proofs value.",
                     batch_size,
                     max_concurrent
                 );
-                Some(max_concurrent)
+                Some(batch_size)
             }
             (batch_size, _) => batch_size,
         };
