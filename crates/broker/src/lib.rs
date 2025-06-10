@@ -824,11 +824,6 @@ where
         &self,
         critical_cancel_token: CancellationToken,
     ) -> Result<(), anyhow::Error> {
-        // Stop accepting new proofs by setting max concurrent proofs to 0
-        // This will be overwritten by any config updates, and is not strictly necessary given
-        // we cancel tasks that source orders, but is modified to avoid unnecessary order commits.
-        self.config_watcher.config.load_write()?.market.max_concurrent_proofs = Some(0);
-
         // 2 hour max to shutdown time, to avoid indefinite shutdown time.
         const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 2 * 60 * 60;
         const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
