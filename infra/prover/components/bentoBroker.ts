@@ -397,6 +397,28 @@ cat > /opt/aws/amazon-cloudwatch-agent/bin/config.json << 'EOF'
         "metrics_collection_interval": 60,
         "run_as_user": "root"
     },
+    "metrics": {
+        "namespace": "Boundless/Services/${name}",
+        "metrics_collected": {
+            "nvidia_gpu": {
+                "measurement": [
+                    "utilization_gpu",
+                    "memory_total",
+                    "memory_used",
+                    "memory_free"
+                ]
+            },
+	        "mem": {
+                "measurement": [
+                    "mem_used_percent",
+                    "mem_available",
+                    "mem_free",
+                    "mem_total"
+                ]
+            }
+        },
+        "aggregation_dimensions": [[]]
+    },
     "logs": {
         "logs_collected": {
             "files": {
@@ -605,6 +627,79 @@ reboot
         const alarmActions = boundlessAlertsTopicArns ?? [];
 
         createProverAlarms(serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions);
+
+        this.instance.id.apply((instanceId) => {
+            new aws.cloudwatch.MetricAlarm(`${serviceName}-cpu-util-${Severity.SEV2}`, {
+                name: `${serviceName}-cpu-util-${Severity.SEV2}`,
+                metricName: "CPUUtilization",
+                namespace: "AWS/EC2",
+                statistic: "Maximum",
+                dimensions: {
+                    InstanceId: instanceId
+                },
+                period: 60,
+                evaluationPeriods: 20,
+                datapointsToAlarm: 20,
+                threshold: 99,
+                comparisonOperator: "GreaterThanThreshold",
+                alarmDescription: `CPU utilization is greater than 99% for 20 consecutive minutes. ${Severity.SEV2}`,
+                alarmActions: alarmActions,
+            });
+        });
+
+        new aws.cloudwatch.MetricAlarm(`${serviceName}-memory-util-${Severity.SEV2}`, {
+            name: `${serviceName}-memory-util-${Severity.SEV2}`,
+            comparisonOperator: 'GreaterThanOrEqualToThreshold',
+            metricName: 'mem_used_percent',
+            namespace: `Boundless/Services/${name}`,
+            period: 60,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            statistic: 'Maximum',
+            threshold: 80,
+            alarmDescription: `Memory utilization is greater than 80% for 20 consecutive minutes. ${Severity.SEV2}`,
+            alarmActions: alarmActions,
+        });
+
+        new aws.cloudwatch.MetricAlarm(`${serviceName}-gpu-memory-util-${Severity.SEV2}`, {
+            name: `${serviceName}-gpu-memory-util-${Severity.SEV2}`,
+            metricQueries: [
+                {
+                    id: "e1",
+                    label: "GPU memory utilization",
+                    returnData: true,
+                    expression: "100*(m1/m2)"
+                },
+                {
+                    id: "m1",
+                    returnData: false,
+                    metric: {
+                        namespace: `Boundless/Services/${name}`,
+                        metricName: "nvidia_smi_memory_used",
+                        period: 60,
+                        stat: "Maximum"
+                    }
+                },
+                {
+                    id: "m2",
+                    returnData: false,
+                    metric: {
+                        namespace: `Boundless/Services/${name}`,
+                        metricName: "nvidia_smi_memory_total",
+                        period: 60,
+                        stat: "Maximum"
+                    }
+                }
+            ],
+            threshold: 95,
+            comparisonOperator: 'GreaterThanOrEqualToThreshold',
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            treatMissingData: 'notBreaching',
+            alarmDescription: `GPU memory utilization is greater than 95% for 20 consecutive minutes. ${Severity.SEV2}`,
+            actionsEnabled: true,
+            alarmActions,
+        });
 
         this.updateCommandArn = updateDocument.arn;
         this.updateCommandId = updateDocument.id;
