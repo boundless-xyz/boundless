@@ -563,30 +563,29 @@ where
         Box::pin(async move {
             tracing::info!("Starting Submitter service");
             loop {
-                tokio::select! {
-                    result = obj_clone.process_next_batch() => {
-                        if let Err(err) = result {
-                            // Only restart the service on unexpected errors.
-                            match err {
-                                SubmitterErr::BatchSubmissionFailed(_)
-                                | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
-                                    tracing::error!("Batch submission failed: {err:?}");
-                                }
-                                _ => {
-                                    tracing::error!("Submitter service failed: {err:?}");
-                                    return Err(SupervisorErr::Recover(err));
-                                }
-                            }
-                        }
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Submitter service received cancellation");
+                    break;
+                }
 
-                        // TODO: configuration
-                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                    }
-                    _ = cancel_token.cancelled() => {
-                        tracing::info!("Submitter service received cancellation, shutting down gracefully");
-                        break;
+                // Process batch without interruption
+                let result = obj_clone.process_next_batch().await;
+                if let Err(err) = result {
+                    // Only restart the service on unexpected errors.
+                    match err {
+                        SubmitterErr::BatchSubmissionFailed(_)
+                        | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
+                            tracing::error!("Batch submission failed: {err:?}");
+                        }
+                        _ => {
+                            tracing::error!("Submitter service failed: {err:?}");
+                            return Err(SupervisorErr::Recover(err));
+                        }
                     }
                 }
+
+                // TODO: configuration
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
             Ok(())
         })

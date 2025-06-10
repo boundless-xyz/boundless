@@ -805,7 +805,10 @@ where
         Ok(final_orders)
     }
 
-    pub async fn start_monitor(self) -> Result<(), OrderMonitorErr> {
+    pub async fn start_monitor(
+        self,
+        cancel_token: CancellationToken,
+    ) -> Result<(), OrderMonitorErr> {
         let mut last_block = 0;
         let mut first_block = 0;
         let mut interval = tokio::time::interval_at(
@@ -885,8 +888,13 @@ where
                         }
                     }
                 }
+                _ = cancel_token.cancelled() => {
+                    tracing::debug!("Order monitor received cancellation");
+                    break;
+                }
             }
         }
+        Ok(())
     }
 
     // Called when a new order result is received from the channel
@@ -919,14 +927,7 @@ where
         let monitor_clone = self.clone();
         Box::pin(async move {
             tracing::info!("Starting order monitor");
-            tokio::select! {
-                result = monitor_clone.start_monitor() => {
-                    result.map_err(SupervisorErr::Recover)?;
-                }
-                _ = cancel_token.cancelled() => {
-                    tracing::info!("Order monitor received cancellation, shutting down gracefully");
-                }
-            }
+            monitor_clone.start_monitor(cancel_token).await.map_err(SupervisorErr::Recover)?;
             Ok(())
         })
     }
@@ -1135,7 +1136,7 @@ mod tests {
         // A JoinSet automatically aborts all its tasks when dropped
         let mut tasks = JoinSet::new();
         // Spawn the monitor
-        tasks.spawn(async move { monitor.start_monitor().await });
+        tasks.spawn(async move { monitor.start_monitor(Default::default()).await });
 
         tokio::select! {
             result = f => result,

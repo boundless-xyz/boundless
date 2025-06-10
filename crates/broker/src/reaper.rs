@@ -89,7 +89,7 @@ impl ReaperTask {
         Ok(())
     }
 
-    async fn run_reaper_loop(&self) -> Result<(), ReaperError> {
+    async fn run_reaper_loop(&self, cancel_token: CancellationToken) -> Result<(), ReaperError> {
         let interval = {
             let config = self.config.lock_all()?;
             config.prover.reaper_interval_secs
@@ -97,7 +97,13 @@ impl ReaperTask {
 
         loop {
             // Wait to run the reaper on startup to allow other tasks to start.
-            tokio::time::sleep(Duration::from_secs(interval.into())).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(interval.into())) => {},
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Reaper task received cancellation, shutting down gracefully");
+                    return Ok(());
+                }
+            }
 
             if let Err(err) = self.check_expired_orders().await {
                 warn!("Error checking expired orders: {}", err);
@@ -113,18 +119,8 @@ impl RetryTask for ReaperTask {
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let this = self.clone();
         Box::pin(async move {
-            tokio::select! {
-                result = this.run_reaper_loop() => {
-                    match result {
-                        Ok(_) => Ok(()),
-                        Err(err) => Err(SupervisorErr::Recover(err)),
-                    }
-                }
-                _ = cancel_token.cancelled() => {
-                    tracing::info!("Reaper task received cancellation, shutting down gracefully");
-                    Ok(())
-                }
-            }
+            this.run_reaper_loop(cancel_token).await.map_err(SupervisorErr::Recover)?;
+            Ok(())
         })
     }
 }

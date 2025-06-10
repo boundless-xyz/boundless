@@ -602,30 +602,23 @@ impl RetryTask for AggregatorService {
         Box::pin(async move {
             tracing::debug!("Starting Aggregator service");
             loop {
-                tokio::select! {
-                    // Handle main aggregation work
-                    _ = async {
-                        let conf_poll_time_ms = {
-                            let config = self_clone
-                                .config
-                                .lock_all()
-                                .context("Failed to lock config")
-                                .map_err(AggregatorErr::UnexpectedErr)
-                                .map_err(SupervisorErr::Recover)?;
-                            config.batcher.batch_poll_time_ms.unwrap_or(1000)
-                        };
-
-                        self_clone.aggregate().await.map_err(SupervisorErr::Recover)?;
-                        tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
-
-                        Ok::<(), SupervisorErr<AggregatorErr>>(())
-                    } => {}
-                    // Handle cancellation
-                    _ = cancel_token.cancelled() => {
-                        tracing::info!("Aggregator service received cancellation, shutting down gracefully");
-                        break;
-                    }
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Aggregator service received cancellation");
+                    break;
                 }
+
+                let conf_poll_time_ms = {
+                    let config = self_clone
+                        .config
+                        .lock_all()
+                        .context("Failed to lock config")
+                        .map_err(AggregatorErr::UnexpectedErr)
+                        .map_err(SupervisorErr::Recover)?;
+                    config.batcher.batch_poll_time_ms.unwrap_or(1000)
+                };
+
+                self_clone.aggregate().await.map_err(SupervisorErr::Recover)?;
+                tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
             }
 
             Ok(())

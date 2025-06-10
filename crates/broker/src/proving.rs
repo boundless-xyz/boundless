@@ -269,40 +269,35 @@ impl RetryTask for ProvingService {
             proving_service_copy.find_and_monitor_proofs().await.map_err(SupervisorErr::Fault)?;
 
             // Start monitoring for new proofs
+            let mut proving_interval = tokio::time::interval(Duration::from_millis(500));
+            proving_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
-                tokio::select! {
-                    // Handle main proving loop
-                    _ = async {
-                        // TODO: parallel_proofs management
-                        // we need to query the Bento/Bonsai backend and constrain the number of running
-                        // parallel proofs currently bonsai does not have this feature but
-                        // we could add it to both to support it. Alternatively we could
-                        // track it in our local DB but that could de-sync from the proving-backend so
-                        // its not ideal
-                        let order_res = proving_service_copy
-                            .db
-                            .get_proving_order()
-                            .await
-                            .context("Failed to get proving order")
-                            .map_err(ProvingErr::UnexpectedError)
-                            .map_err(SupervisorErr::Recover)?;
-
-                        if let Some(order) = order_res {
-                            let prov_serv = proving_service_copy.clone();
-                            tokio::spawn(async move { prov_serv.prove_and_update_db(order).await });
-                        }
-
-                        // TODO: configuration
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-                        Ok::<(), SupervisorErr<ProvingErr>>(())
-                    } => {}
-                    // Handle cancellation
-                    _ = cancel_token.cancelled() => {
-                        tracing::info!("Proving service received cancellation, shutting down gracefully");
-                        break;
-                    }
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Proving service received cancellation");
+                    break;
                 }
+
+                // TODO: parallel_proofs management
+                // we need to query the Bento/Bonsai backend and constrain the number of running
+                // parallel proofs currently bonsai does not have this feature but
+                // we could add it to both to support it. Alternatively we could
+                // track it in our local DB but that could de-sync from the proving-backend so
+                // its not ideal
+                let order_res = proving_service_copy
+                    .db
+                    .get_proving_order()
+                    .await
+                    .context("Failed to get proving order")
+                    .map_err(ProvingErr::UnexpectedError)
+                    .map_err(SupervisorErr::Recover)?;
+
+                if let Some(order) = order_res {
+                    let prov_serv = proving_service_copy.clone();
+                    tokio::spawn(async move { prov_serv.prove_and_update_db(order).await });
+                }
+
+                // TODO: configuration
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
 
             Ok(())
