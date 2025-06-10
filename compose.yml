@@ -166,6 +166,8 @@ services:
       - exec_agent1
       - aux_agent
       - snark_agent
+      - redis
+      - postgres
 
     profiles: [broker]
 
