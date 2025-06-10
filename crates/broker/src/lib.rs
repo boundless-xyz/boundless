@@ -845,7 +845,8 @@ where
         // we cancel tasks that source orders, but is modified to avoid unnecessary order commits.
         self.config_watcher.config.load_write()?.market.max_concurrent_proofs = Some(0);
 
-        const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 120;
+        // 2 hour max to shutdown time, to avoid indefinite shutdown time.
+        const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 2 * 60 * 60;
         const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
         let start_time = std::time::Instant::now();

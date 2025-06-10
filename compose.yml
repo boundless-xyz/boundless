@@ -161,7 +161,6 @@ services:
     restart: always
     depends_on:
       - rest_api
-      - redis
       - gpu_prove_agent0
       - exec_agent0
       - exec_agent1
@@ -177,7 +176,7 @@ services:
     mem_limit: 2G
     cpus: 2
 
-    stop_grace_period: 5m  # Give broker 5 minutes to shut down gracefully
+    stop_grace_period: 3h
 
     volumes:
       - type: bind
