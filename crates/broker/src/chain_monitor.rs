@@ -162,7 +162,7 @@ where
                     }
                     // Handle cancellation
                     _ = cancel_token.cancelled() => {
-                        tracing::info!("Chain monitor received cancellation, shutting down gracefully");
+                        tracing::debug!("Chain monitor received cancellation, shutting down gracefully");
                         break;
                     }
                 }

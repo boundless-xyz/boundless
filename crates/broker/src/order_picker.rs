@@ -752,7 +752,7 @@ where
                         }
                     }
                     _ = cancel_token.cancelled() => {
-                        tracing::info!("Order picker received cancellation, shutting down gracefully");
+                        tracing::debug!("Order picker received cancellation, shutting down gracefully");
                         // Abort remaining tasks
                         tasks.abort_all();
                         break;

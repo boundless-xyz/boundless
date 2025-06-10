@@ -283,7 +283,6 @@ where
                     }
                 }
                 _ = cancel_token.cancelled() => {
-                    tracing::info!("Monitor orders received cancellation, shutting down gracefully");
                     return Ok(());
                 }
             }
@@ -388,7 +387,6 @@ where
                     }
                 }
                 _ = cancel_token.cancelled() => {
-                    tracing::info!("Monitor order locks received cancellation, shutting down gracefully");
                     return Ok(());
                 }
             }
@@ -450,7 +448,6 @@ where
                     }
                 }
                 _ = cancel_token.cancelled() => {
-                    tracing::info!("Monitor order fulfillments received cancellation, shutting down gracefully");
                     return Ok(());
                 }
             }
