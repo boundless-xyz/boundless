@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -109,12 +110,20 @@ impl ReaperTask {
 impl RetryTask for ReaperTask {
     type Error = ReaperError;
 
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let this = self.clone();
         Box::pin(async move {
-            match this.run_reaper_loop().await {
-                Ok(_) => Ok(()),
-                Err(err) => Err(SupervisorErr::Recover(err)),
+            tokio::select! {
+                result = this.run_reaper_loop() => {
+                    match result {
+                        Ok(_) => Ok(()),
+                        Err(err) => Err(SupervisorErr::Recover(err)),
+                    }
+                }
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Reaper task received cancellation, shutting down gracefully");
+                    Ok(())
+                }
             }
         })
     }

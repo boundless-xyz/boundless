@@ -17,6 +17,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum ProvingErr {
@@ -258,7 +259,7 @@ impl ProvingService {
 
 impl RetryTask for ProvingService {
     type Error = ProvingErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let proving_service_copy = self.clone();
         Box::pin(async move {
             tracing::info!("Starting proving service");
@@ -269,28 +270,42 @@ impl RetryTask for ProvingService {
 
             // Start monitoring for new proofs
             loop {
-                // TODO: parallel_proofs management
-                // we need to query the Bento/Bonsai backend and constrain the number of running
-                // parallel proofs currently bonsai does not have this feature but
-                // we could add it to both to support it. Alternatively we could
-                // track it in our local DB but that could de-sync from the proving-backend so
-                // its not ideal
-                let order_res = proving_service_copy
-                    .db
-                    .get_proving_order()
-                    .await
-                    .context("Failed to get proving order")
-                    .map_err(ProvingErr::UnexpectedError)
-                    .map_err(SupervisorErr::Recover)?;
+                tokio::select! {
+                    // Handle main proving loop
+                    _ = async {
+                        // TODO: parallel_proofs management
+                        // we need to query the Bento/Bonsai backend and constrain the number of running
+                        // parallel proofs currently bonsai does not have this feature but
+                        // we could add it to both to support it. Alternatively we could
+                        // track it in our local DB but that could de-sync from the proving-backend so
+                        // its not ideal
+                        let order_res = proving_service_copy
+                            .db
+                            .get_proving_order()
+                            .await
+                            .context("Failed to get proving order")
+                            .map_err(ProvingErr::UnexpectedError)
+                            .map_err(SupervisorErr::Recover)?;
 
-                if let Some(order) = order_res {
-                    let prov_serv = proving_service_copy.clone();
-                    tokio::spawn(async move { prov_serv.prove_and_update_db(order).await });
+                        if let Some(order) = order_res {
+                            let prov_serv = proving_service_copy.clone();
+                            tokio::spawn(async move { prov_serv.prove_and_update_db(order).await });
+                        }
+
+                        // TODO: configuration
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                        Ok::<(), SupervisorErr<ProvingErr>>(())
+                    } => {}
+                    // Handle cancellation
+                    _ = cancel_token.cancelled() => {
+                        tracing::info!("Proving service received cancellation, shutting down gracefully");
+                        break;
+                    }
                 }
-
-                // TODO: configuration
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
+
+            Ok(())
         })
     }
 }

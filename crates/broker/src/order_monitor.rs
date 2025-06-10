@@ -33,6 +33,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 
 /// Hard limit on the number of orders to concurrently kick off proving work for.
 const MAX_PROVING_BATCH_SIZE: u32 = 10;
@@ -914,11 +915,18 @@ where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     type Error = OrderMonitorErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let monitor_clone = self.clone();
         Box::pin(async move {
             tracing::info!("Starting order monitor");
-            monitor_clone.start_monitor().await.map_err(SupervisorErr::Recover)?;
+            tokio::select! {
+                result = monitor_clone.start_monitor() => {
+                    result.map_err(SupervisorErr::Recover)?;
+                }
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Order monitor received cancellation, shutting down gracefully");
+                }
+            }
             Ok(())
         })
     }
@@ -1088,7 +1096,7 @@ mod tests {
         let block_time = 2;
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
+        tokio::spawn(chain_monitor.spawn(Default::default()));
 
         // Create required channels for tests
         let (priced_order_tx, priced_order_rx) = mpsc::channel(16);

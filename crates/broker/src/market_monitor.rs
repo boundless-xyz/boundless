@@ -22,6 +22,7 @@ use boundless_market::{
 };
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     chain_monitor::ChainMonitorService,
@@ -495,7 +496,7 @@ where
     P: Provider<Ethereum> + 'static + Clone,
 {
     type Error = MarketMonitorErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let lookback_blocks = self.lookback_blocks;
         let market_addr = self.market_addr;
         let provider = self.provider.clone();
@@ -533,6 +534,10 @@ where
                 Err(err) = Self::monitor_order_locks(market_addr, prover_addr, provider.clone(), db, new_order_tx, order_stream) => {
                     tracing::warn!("Monitor for order locks failed, restarting.");
                     Err(SupervisorErr::Recover(err))
+                }
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Market monitor received cancellation, shutting down gracefully");
+                    Ok(())
                 }
             }
         })
@@ -624,7 +629,7 @@ mod tests {
         // tx_receipt.inner.logs().into_iter().map(|log| Ok((decode_log(&log)?, log))).collect()
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
+        tokio::spawn(chain_monitor.spawn(Default::default()));
 
         let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(16);
         let orders =
@@ -652,7 +657,7 @@ mod tests {
         provider.anvil_mine(Some(10), Some(2)).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        tokio::spawn(chain_monitor.spawn());
+        tokio::spawn(chain_monitor.spawn(Default::default()));
         let (order_tx, _order_rx) = tokio::sync::mpsc::channel(16);
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let market_monitor = MarketMonitor::new(

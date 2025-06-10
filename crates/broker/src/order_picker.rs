@@ -33,6 +33,7 @@ use boundless_market::{
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 
@@ -707,7 +708,7 @@ where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
     type Error = OrderPickerErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let picker = self.clone();
 
         Box::pin(async move {
@@ -750,6 +751,12 @@ where
                             current_capacity = new_capacity;
                         }
                     }
+                    _ = cancel_token.cancelled() => {
+                        tracing::info!("Order picker received cancellation, shutting down gracefully");
+                        // Abort remaining tasks
+                        tasks.abort_all();
+                        break;
+                    }
                 }
 
                 // Process pending orders if we have capacity
@@ -768,6 +775,7 @@ where
                     }
                 }
             }
+            Ok(())
         })
     }
 }
@@ -960,7 +968,7 @@ mod tests {
             let config = self.config.unwrap_or_default();
             let prover: ProverObj = Arc::new(DefaultProver::new());
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-            tokio::spawn(chain_monitor.spawn());
+            tokio::spawn(chain_monitor.spawn(Default::default()));
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
@@ -1322,7 +1330,7 @@ mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let pricing_task = tokio::spawn(ctx.picker.spawn());
+        let pricing_task = tokio::spawn(ctx.picker.spawn(Default::default()));
 
         ctx.new_order_tx.send(order).await.unwrap();
 
@@ -1342,7 +1350,7 @@ mod tests {
 
         assert!(ctx.priced_orders_rx.is_empty());
 
-        tokio::spawn(ctx.picker.spawn());
+        tokio::spawn(ctx.picker.spawn(Default::default()));
 
         let priced_order =
             tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv())
@@ -1641,7 +1649,7 @@ mod tests {
         let mut ctx = TestCtxBuilder::default().with_config(config.clone()).build().await;
 
         // Start the order picker task
-        let picker_task = tokio::spawn(ctx.picker.spawn());
+        let picker_task = tokio::spawn(ctx.picker.spawn(Default::default()));
 
         // Send an initial order to trigger the capacity check
         let order1 =

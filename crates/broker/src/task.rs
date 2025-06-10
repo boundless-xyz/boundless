@@ -7,6 +7,7 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use anyhow::{Context, Result as AnyhowRes};
 use thiserror::Error;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::{config::ConfigLock, errors::CodedError};
 
@@ -38,7 +39,7 @@ pub type RetryRes<E: CodedError> =
 pub trait RetryTask {
     type Error: CodedError;
     /// Defines how to spawn a task to be monitored for restarts
-    fn spawn(&self) -> RetryRes<Self::Error>;
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error>;
 }
 
 /// Configuration for retry behavior in the supervisor
@@ -85,6 +86,8 @@ pub(crate) struct Supervisor<T: RetryTask> {
     /// Configuration for retry behavior
     retry_policy: RetryPolicy,
     config: ConfigLock,
+    /// Cancellation token for graceful shutdown
+    cancel_token: CancellationToken,
 }
 
 impl<T: RetryTask> Supervisor<T>
@@ -94,12 +97,23 @@ where
 {
     /// Create a new supervisor with a single task
     pub fn new(task: Arc<T>, config: ConfigLock) -> Self {
-        Self { task, retry_policy: RetryPolicy::default(), config }
+        Self {
+            task,
+            retry_policy: RetryPolicy::default(),
+            config,
+            cancel_token: CancellationToken::new(),
+        }
     }
 
     /// Configure the retry policy
     pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
         self.retry_policy = retry_policy;
+        self
+    }
+
+    /// Set the cancellation token for this supervisor
+    pub fn with_cancel_token(mut self, cancel_token: CancellationToken) -> Self {
+        self.cancel_token = cancel_token;
         self
     }
 
@@ -112,87 +126,137 @@ where
 
         // Spawn initial task
         tracing::debug!("Spawning task");
-        tasks.spawn(self.task.spawn());
+        tasks.spawn(self.task.spawn(self.cancel_token.clone()));
 
-        while let Some(res) = tasks.join_next().await {
-            // Check if we should reset the retry counter based on how long the task ran
-            if let Some(reset_duration) = self.retry_policy.reset_after {
-                let task_duration = last_spawn_time.elapsed();
-                if task_duration >= reset_duration && retry_count > 0 {
-                    tracing::info!(
-                        "Task ran successfully for {:?}, resetting retry counter from {}",
-                        task_duration,
-                        retry_count
-                    );
-                    retry_count = 0;
-                    current_delay = self.retry_policy.delay; // Reset delay to initial value
-                }
-            }
-            match res {
-                Ok(task_res) => match task_res {
-                    Ok(()) => {
-                        tracing::debug!("Task exited cleanly");
+        loop {
+            tokio::select! {
+                // Handle task completion/failure
+                Some(res) = tasks.join_next() => {
+                    // Check if we should reset the retry counter based on how long the task ran
+                    if let Some(reset_duration) = self.retry_policy.reset_after {
+                        let task_duration = last_spawn_time.elapsed();
+                        if task_duration >= reset_duration && retry_count > 0 {
+                            tracing::info!(
+                                "Task ran successfully for {:?}, resetting retry counter from {}",
+                                task_duration,
+                                retry_count
+                            );
+                            retry_count = 0;
+                            current_delay = self.retry_policy.delay; // Reset delay to initial value
+                        }
                     }
-                    Err(ref supervisor_err) => match supervisor_err {
-                        SupervisorErr::Recover(ref _err) => {
-                            if self.retry_policy.critical {
-                                let max_retries = {
-                                    let config =
-                                        self.config.lock_all().context("Failed to read config")?;
-                                    config.prover.max_critical_task_retries
-                                };
-
-                                // Check if we've exceeded max retries
-                                if let Some(max) = max_retries {
-                                    if retry_count >= max {
-                                        // We manually log the fault code rather than rendering the SupervisorErr::Recover
-                                        // code so that we indicate we are now in a hard fault state after exhausting retries.
-                                        tracing::error!(
-                                            "{} Exceeded maximum retries ({max}) for task",
-                                            FAULT_CODE
-                                        );
-                                        anyhow::bail!("Exceeded maximum retries for task");
-                                    }
+                    match res {
+                        Ok(task_res) => match task_res {
+                            Ok(()) => {
+                                tracing::debug!("Task exited cleanly");
+                                if self.cancel_token.is_cancelled() {
+                                    tracing::debug!("Task clean exit due to cancellation");
+                                    break;
                                 }
                             }
+                            Err(ref supervisor_err) => match supervisor_err {
+                                SupervisorErr::Recover(ref _err) => {
+                                    // Don't restart if we're shutting down
+                                    if self.cancel_token.is_cancelled() {
+                                        tracing::debug!("Not restarting task due to cancellation");
+                                        break;
+                                    }
 
-                            tracing::warn!(
-                                "{}, spawning replacement (retry {})",
-                                supervisor_err,
-                                retry_count + 1,
-                            );
-                            tracing::debug!("Waiting {:?} before retry", current_delay);
+                                    if self.retry_policy.critical {
+                                        let max_retries = {
+                                            let config =
+                                                self.config.lock_all().context("Failed to read config")?;
+                                            config.prover.max_critical_task_retries
+                                        };
 
-                            // Instead of sleeping here, wrap the task spawn with a delay
-                            let task_clone = self.task.clone();
-                            let t = task_clone.spawn();
-                            tasks.spawn(async move {
-                                // Apply calculated retry delay before spawning the task
-                                tokio::time::sleep(current_delay).await;
-                                t.await
-                            });
+                                        // Check if we've exceeded max retries
+                                        if let Some(max) = max_retries {
+                                            if retry_count >= max {
+                                                // We manually log the fault code rather than rendering the SupervisorErr::Recover
+                                                // code so that we indicate we are now in a hard fault state after exhausting retries.
+                                                tracing::error!(
+                                                    "{} Exceeded maximum retries ({max}) for task",
+                                                    FAULT_CODE
+                                                );
+                                                anyhow::bail!("Exceeded maximum retries for task");
+                                            }
+                                        }
+                                    }
 
-                            retry_count += 1;
-                            last_spawn_time = std::time::Instant::now() + current_delay;
+                                    tracing::warn!(
+                                        "{}, spawning replacement (retry {})",
+                                        supervisor_err,
+                                        retry_count + 1,
+                                    );
+                                    tracing::debug!("Waiting {:?} before retry", current_delay);
 
-                            // Update the delay for next retry, ensuring it doesn't exceed max_delay
-                            current_delay = current_delay
-                                .mul_f64(self.retry_policy.backoff_multiplier)
-                                .min(self.retry_policy.max_delay);
+                                    let task_clone = self.task.clone();
+                                    let t = task_clone.spawn(self.cancel_token.clone());
+                                    tasks.spawn(async move {
+                                        // Apply calculated retry delay before spawning the task
+                                        tokio::time::sleep(current_delay).await;
+                                        t.await
+                                    });
+
+                                    retry_count += 1;
+                                    last_spawn_time = std::time::Instant::now() + current_delay;
+
+                                    // Update the delay for next retry, ensuring it doesn't exceed max_delay
+                                    current_delay = current_delay
+                                        .mul_f64(self.retry_policy.backoff_multiplier)
+                                        .min(self.retry_policy.max_delay);
+                                }
+                                SupervisorErr::Fault(_err) => {
+                                    tracing::error!("{}", supervisor_err);
+                                    anyhow::bail!("Hard failure in supervisor task");
+                                }
+                            },
+                        },
+                        Err(err) => {
+                            if err.is_cancelled() {
+                                tracing::debug!("Task was canceled, treating it like a clean exit");
+                                break;
+                            } else {
+                                tracing::error!("ABORT: supervisor join failed");
+                                anyhow::bail!(err);
+                            }
                         }
-                        SupervisorErr::Fault(_err) => {
-                            tracing::error!("{}", supervisor_err);
-                            anyhow::bail!("Hard failure in supervisor task");
-                        }
-                    },
-                },
-                Err(err) => {
-                    if err.is_cancelled() {
-                        tracing::warn!("Task was canceled, treating it like a clean exit");
-                    } else {
-                        tracing::error!("ABORT: supervisor join failed");
-                        anyhow::bail!(err);
                     }
+                }
+                // Handle cancellation
+                _ = self.cancel_token.cancelled() => {
+                    tracing::info!("Supervisor received cancellation, shutting down gracefully");
+
+                    // Wait for current tasks to complete with timeout
+                    let shutdown_timeout = Duration::from_secs(30);
+                    let start_time = std::time::Instant::now();
+
+                    while !tasks.is_empty() && start_time.elapsed() < shutdown_timeout {
+                        match tokio::time::timeout(Duration::from_secs(1), tasks.join_next()).await {
+                            Ok(Some(task_result)) => {
+                                match task_result {
+                                    Ok(_) => tracing::debug!("Task completed during shutdown"),
+                                    Err(err) if err.is_cancelled() => tracing::debug!("Task cancelled during shutdown"),
+                                    Err(err) => tracing::warn!("Task failed during shutdown: {err:?}"),
+                                }
+                            }
+                            Ok(None) => {
+                                // No more tasks
+                                break;
+                            }
+                            Err(_) => {
+                                // Timeout occurred, continue to check again
+                                continue;
+                            }
+                        }
+                    }
+
+                    if !tasks.is_empty() {
+                        tracing::warn!("Some tasks did not complete within shutdown timeout, aborting remaining tasks");
+                        tasks.abort_all();
+                    }
+
+                    break;
                 }
             }
         }
@@ -242,39 +306,52 @@ mod tests {
             self.tx.close()
         }
 
-        async fn process_item(rx: Receiver<u32>) -> Result<(), SupervisorErr<TestErr>> {
+        async fn process_item(
+            rx: Receiver<u32>,
+            cancel_token: CancellationToken,
+        ) -> Result<(), SupervisorErr<TestErr>> {
             loop {
-                let value = match rx.recv().await {
-                    Ok(val) => val,
-                    Err(_) => {
-                        tracing::debug!("channel closed, exiting..");
+                tokio::select! {
+                    // Handle incoming values
+                    result = rx.recv() => {
+                        let value = match result {
+                            Ok(val) => val,
+                            Err(_) => {
+                                tracing::debug!("channel closed, exiting..");
+                                break;
+                            }
+                        };
+
+                        tracing::info!("Got value: {value}");
+
+                        match value {
+                            // Mock do work
+                            0 => tokio::time::sleep(tokio::time::Duration::from_millis(100)).await,
+                            // mock a clean exit
+                            1 => return Ok(()),
+                            // Mock a soft failure
+                            2 => {
+                                return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
+                                    "Sample error"
+                                ))))
+                            }
+                            // Mock a hard failure
+                            3 => {
+                                return Err(SupervisorErr::Fault(TestErr::SampleErr(anyhow::anyhow!(
+                                    "FAILURE"
+                                ))))
+                            }
+                            _ => {
+                                return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
+                                    "UNKNOWN VALUE TYPE"
+                                ))))
+                            }
+                        }
+                    }
+                    // Handle cancellation
+                    _ = cancel_token.cancelled() => {
+                        tracing::debug!("Task cancelled, exiting cleanly");
                         break;
-                    }
-                };
-
-                tracing::info!("Got value: {value}");
-
-                match value {
-                    // Mock do work
-                    0 => tokio::time::sleep(tokio::time::Duration::from_millis(100)).await,
-                    // mock a clean exit
-                    1 => return Ok(()),
-                    // Mock a soft failure
-                    2 => {
-                        return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
-                            "Sample error"
-                        ))))
-                    }
-                    // Mock a hard failure
-                    3 => {
-                        return Err(SupervisorErr::Fault(TestErr::SampleErr(anyhow::anyhow!(
-                            "FAILURE"
-                        ))))
-                    }
-                    _ => {
-                        return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
-                            "UNKNOWN VALUE TYPE"
-                        ))))
                     }
                 }
             }
@@ -285,9 +362,9 @@ mod tests {
 
     impl RetryTask for TestTask {
         type Error = TestErr;
-        fn spawn(&self) -> RetryRes<Self::Error> {
+        fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
             let rx_copy = self.rx.clone();
-            Box::pin(Self::process_item(rx_copy))
+            Box::pin(Self::process_item(rx_copy, cancel_token))
         }
     }
 
@@ -352,5 +429,26 @@ mod tests {
 
         let res = supervisor_task.await;
         assert!(res.unwrap_err().to_string().contains("Exceeded maximum retries for task"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn supervisor_cancellation() {
+        let task = Arc::new(TestTask::new());
+        let cancel_token = CancellationToken::new();
+
+        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default())
+            .with_cancel_token(cancel_token.clone())
+            .spawn();
+
+        task.tx(0).await.unwrap();
+        task.tx(0).await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        cancel_token.cancel();
+
+        supervisor_task.await.unwrap();
+        assert!(logs_contain("Task cancelled, exiting cleanly"));
     }
 }

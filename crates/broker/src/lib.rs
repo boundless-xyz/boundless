@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use task::{RetryPolicy, Supervisor};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
@@ -527,6 +528,12 @@ where
             config.market.lookback_blocks
         };
 
+        // Create two cancellation tokens for graceful shutdown:
+        // 1. Non-critical tasks (order discovery, picking, monitoring) - cancelled immediately on shutdown signal
+        // 2. Critical tasks (proving, aggregation, submission) - cancelled only after committed orders complete
+        let non_critical_cancel_token = CancellationToken::new();
+        let critical_cancel_token = CancellationToken::new();
+
         let chain_monitor = Arc::new(
             chain_monitor::ChainMonitorService::new(self.provider.clone())
                 .await
@@ -535,8 +542,11 @@ where
 
         let cloned_chain_monitor = chain_monitor.clone();
         let cloned_config = config.clone();
+        // Critical task, as is relied on to query current chain state
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(cloned_chain_monitor, cloned_config)
+                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start chain monitor")?;
@@ -570,8 +580,10 @@ where
         tracing::debug!("Estimated block time: {block_times}");
 
         let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(market_monitor, cloned_config)
+                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start market monitor")?;
@@ -587,8 +599,10 @@ where
                     new_order_tx.clone(),
                 ));
             let cloned_config = config.clone();
+            let cancel_token = non_critical_cancel_token.clone();
             supervisor_tasks.spawn(async move {
                 Supervisor::new(offchain_market_monitor, cloned_config)
+                    .with_cancel_token(cancel_token)
                     .spawn()
                     .await
                     .context("Failed to start offchain market monitor")?;
@@ -634,14 +648,17 @@ where
             pricing_tx,
         ));
         let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(order_picker, cloned_config)
+                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start order picker")?;
             Ok(())
         });
 
+        // CRITICAL TASK: Proving service handles committed orders
         let proving_service = Arc::new(
             proving::ProvingService::new(self.db.clone(), prover.clone(), config.clone())
                 .await
@@ -649,8 +666,10 @@ where
         );
 
         let cloned_config = config.clone();
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(proving_service, cloned_config)
+                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start proving service")?;
@@ -678,8 +697,10 @@ where
             stake_token_decimals,
         )?);
         let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(order_monitor, cloned_config)
+                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start order monitor")?;
@@ -689,6 +710,7 @@ where
         let set_builder_img_id = self.fetch_and_upload_set_builder_image(&prover).await?;
         let assessor_img_id = self.fetch_and_upload_assessor_image(&prover).await?;
 
+        // CRITICAL TASK: Aggregator handles committed orders
         let aggregator = Arc::new(
             aggregator::AggregatorService::new(
                 self.db.clone(),
@@ -705,9 +727,11 @@ where
         );
 
         let cloned_config = config.clone();
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(aggregator, cloned_config)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start aggregator service")?;
@@ -718,8 +742,11 @@ where
         let reaper =
             Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
         let cloned_config = config.clone();
+        // Using critical cancel token to ensure no stuck expired jobs on shutdown
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(reaper, cloned_config)
+                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start reaper service")?;
@@ -736,9 +763,11 @@ where
             set_builder_img_id,
         )?);
         let cloned_config = config.clone();
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
             Supervisor::new(submitter, cloned_config)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                .with_cancel_token(cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start submitter service")?;
@@ -795,12 +824,28 @@ where
             }
         }
 
-        self.shutdown().await?;
+        // Phase 1: Cancel non-critical tasks immediately to stop taking new work
+        tracing::info!(
+            "Phase 1: Cancelling non-critical tasks (order discovery, picking, monitoring)..."
+        );
+        non_critical_cancel_token.cancel();
+
+        // Phase 2: Wait for committed orders to complete, then cancel critical tasks
+        tracing::info!(
+            "Phase 2: Waiting for committed orders to complete before cancelling critical tasks..."
+        );
+        self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
 
         Ok(())
     }
 
-    async fn shutdown(&self) -> Result<(), anyhow::Error> {
+    async fn shutdown_and_cancel_critical_tasks(
+        &self,
+        critical_cancel_token: CancellationToken,
+    ) -> Result<(), anyhow::Error> {
+        // Stop accepting new proofs by setting max concurrent proofs to 0
+        // This will be overwritten by any config updates, and is not strictly necessary given
+        // we cancel tasks that source orders, but is modified to avoid unnecessary order commits.
         self.config_watcher.config.load_write()?.market.max_concurrent_proofs = Some(0);
 
         const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 120;
@@ -812,7 +857,8 @@ where
         while start_time.elapsed() < grace_period {
             let in_progress_orders = self.db.get_committed_orders().await?;
             if in_progress_orders.is_empty() {
-                eprintln!("No in-progress orders found, shutting down...");
+                eprintln!("No in-progress orders found, cancelling critical tasks...");
+                tracing::info!("No in-progress orders found, cancelling critical tasks...");
                 break;
             }
 
@@ -833,6 +879,10 @@ where
 
             tokio::time::sleep(SLEEP_DURATION).await;
         }
+
+        // Cancel critical tasks after committed work completes (or timeout)
+        tracing::info!("Cancelling critical tasks...");
+        critical_cancel_token.cancel();
 
         if start_time.elapsed() >= grace_period {
             let in_progress_orders = self.db.get_committed_orders().await?;

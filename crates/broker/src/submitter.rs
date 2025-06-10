@@ -37,6 +37,8 @@ use thiserror::Error;
 
 use crate::errors::CodedError;
 
+use tokio_util::sync::CancellationToken;
+
 #[derive(Error)]
 pub enum SubmitterErr {
     #[error("{code} Batch submission failed: {0:?}", code = self.code())]
@@ -555,30 +557,38 @@ where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     type Error = SubmitterErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let obj_clone = self.clone();
 
         Box::pin(async move {
             tracing::info!("Starting Submitter service");
             loop {
-                let result = obj_clone.process_next_batch().await;
-                if let Err(err) = result {
-                    // Only restart the service on unexpected errors.
-                    match err {
-                        SubmitterErr::BatchSubmissionFailed(_)
-                        | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
-                            tracing::error!("Batch submission failed: {err:?}");
+                tokio::select! {
+                    result = obj_clone.process_next_batch() => {
+                        if let Err(err) = result {
+                            // Only restart the service on unexpected errors.
+                            match err {
+                                SubmitterErr::BatchSubmissionFailed(_)
+                                | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
+                                    tracing::error!("Batch submission failed: {err:?}");
+                                }
+                                _ => {
+                                    tracing::error!("Submitter service failed: {err:?}");
+                                    return Err(SupervisorErr::Recover(err));
+                                }
+                            }
                         }
-                        _ => {
-                            tracing::error!("Submitter service failed: {err:?}");
-                            return Err(SupervisorErr::Recover(err));
-                        }
+
+                        // TODO: configuration
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    }
+                    _ = cancel_token.cancelled() => {
+                        tracing::info!("Submitter service received cancellation, shutting down gracefully");
+                        break;
                     }
                 }
-
-                // TODO: configuration
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
+            Ok(())
         })
     }
 }

@@ -15,6 +15,7 @@ use crate::{
     FulfillmentType, OrderRequest,
 };
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum OffchainMarketMonitorErr {
@@ -107,16 +108,21 @@ impl OffchainMarketMonitor {
 
 impl RetryTask for OffchainMarketMonitor {
     type Error = OffchainMarketMonitorErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let client = self.client.clone();
         let signer = self.signer.clone();
         let new_order_tx = self.new_order_tx.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up offchain market monitor");
-            Self::monitor_orders(client, &signer, new_order_tx)
-                .await
-                .map_err(SupervisorErr::Recover)?;
+            tokio::select! {
+                result = Self::monitor_orders(client, &signer, new_order_tx) => {
+                    result.map_err(SupervisorErr::Recover)?;
+                }
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Offchain market monitor received cancellation, shutting down gracefully");
+                }
+            }
             Ok(())
         })
     }
