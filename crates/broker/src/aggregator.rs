@@ -28,8 +28,8 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum AggregatorErr {
-    #[error("{code} Batch failure: {0}", code = self.code())]
-    BatchFailure(String),
+    #[error("{code} Compression error: {0}", code = self.code())]
+    CompressionErr(crate::provers::ProverError),
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -40,7 +40,7 @@ impl CodedError for AggregatorErr {
     fn code(&self) -> &str {
         match self {
             AggregatorErr::UnexpectedErr(_) => "[B-AGG-500]",
-            AggregatorErr::BatchFailure(_) => "[B-AGG-400]",
+            AggregatorErr::CompressionErr(_) => "[B-AGG-400]",
         }
     }
 }
@@ -536,7 +536,10 @@ impl AggregatorService {
         Ok(aggregation_state.proof_id)
     }
 
-    async fn aggregate_batch(&self, batch_id: usize) -> Result<(), AggregatorErr> {
+    async fn aggregate(&self) -> Result<(), AggregatorErr> {
+        // Get the current batch. This aggregator service works on one batch at a time, including
+        // any proofs ready for aggregation into the current batch.
+        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
         let (aggregation_proof_id, compress) = match batch.status {
@@ -578,52 +581,35 @@ impl AggregatorService {
 
         if compress {
             tracing::debug!("Starting groth16 compression proof for batch {batch_id}");
-            let compress_proof_id = self
-                .prover
-                .compress(&aggregation_proof_id)
-                .await
-                .context("Failed to complete compression")?;
+
+            let (retry_count, sleep_ms) = {
+                let config = self.config.lock_all().context("Failed to lock config")?;
+                (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+            };
+
+            let compress_proof_id = match retry(
+                retry_count,
+                sleep_ms,
+                || async { self.prover.compress(&aggregation_proof_id).await },
+                "compress",
+            )
+            .await
+            {
+                Ok(id) => id,
+                Err(err) => {
+                    self.db
+                        .set_batch_failure(batch_id, err.to_string())
+                        .await
+                        .map_err(|e| AggregatorErr::UnexpectedErr(e.into()))?;
+                    return Err(AggregatorErr::CompressionErr(err));
+                }
+            };
             tracing::debug!("Completed groth16 compression for batch {batch_id}");
 
             self.db
                 .complete_batch(batch_id, &compress_proof_id)
                 .await
                 .context("Failed to set batch as complete")?;
-        }
-
-        Ok(())
-    }
-
-    async fn aggregate(&self) -> Result<(), AggregatorErr> {
-        // Get the current batch. This aggregator service works on one batch at a time, including
-        // any proofs ready for aggregation into the current batch.
-        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
-
-        let (retry_count, sleep_ms) = {
-            let config = self.config.lock_all().context("Failed to lock config")?;
-            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-        };
-
-        if let Err(err) = retry(
-            retry_count,
-            sleep_ms,
-            || async { self.aggregate_batch(batch_id).await },
-            "aggregate_batch",
-        )
-        .await
-        {
-            let error_msg = format!(
-                "Failed to aggregate batch {batch_id} after {} retries: {err:?}",
-                retry_count + 1
-            );
-            tracing::error!("{}", error_msg);
-
-            self.db
-                .set_batch_failure(batch_id, error_msg.clone())
-                .await
-                .map_err(|e| AggregatorErr::UnexpectedErr(e.into()))?;
-
-            return Err(AggregatorErr::BatchFailure(error_msg));
         }
 
         Ok(())
