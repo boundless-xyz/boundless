@@ -26,6 +26,7 @@ export = () => {
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
+  const disableCert = config.getBoolean('DISABLE_CERT') || false;
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -49,6 +50,7 @@ export = () => {
     ethRpcUrl,
     albDomain,
     boundlessAlertsTopicArns: alertsTopicArns,
+    disableCert,
   });
 
   return {

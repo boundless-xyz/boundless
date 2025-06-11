@@ -297,6 +297,18 @@ impl Prover for DefaultProver {
         Err(ProverError::ProvingFailed(format!("timeout after {:?}", POLL_INTERVAL * MAX_ATTEMPTS)))
     }
 
+    async fn cancel_stark(&self, proof_id: &str) -> Result<(), ProverError> {
+        let mut proofs = self.state.proofs.write().await;
+        let proof_data = proofs
+            .get_mut(proof_id)
+            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
+
+        proof_data.status = Status::Failed;
+        proof_data.error_msg = "Cancelled".to_string();
+
+        Ok(())
+    }
+
     async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs

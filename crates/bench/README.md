@@ -12,30 +12,39 @@ To run a benchmark against a local devnet:
 
 2. Export the env variables:
 
-   ```bash
-   source <(just env localnet)
-   ```
+```bash
+source .env.localnet
+```
 
-   > _Note_: After sourcing, you may want to unset the `ORDER_STREAM_URL` if you wish to submit benchmark request onchain.
+3. Start a broker
 
-3. Define your Benchmark config file. You can find an example in the [data folder](./data/small_test.json).
-4. Estimate the benchmark cost (Optional)
+Simplest way is just to run the binary in debug mode
+
+```
+RUST_LOG=info cargo run --bin broker
+```
+
+4. Define your Benchmark config file. You can find an example in the [data folder](./data/small_test.json).
+
+5. Estimate the benchmark cost (Optional)
 
    ```bash
    RUST_LOG=boundless_bench=info cargo run --bin boundless-bench -- --bench crates/bench/data/small_test.json --estimate
    ```
 
-5. Run your benchmark:
+6. Run your benchmark:
 
    ```bash
    RUST_LOG=boundless_bench=info cargo run --bin boundless-bench -- --bench crates/bench/data/small_test.json
    ```
 
-6. Process the results:
+7. Process the results:
 
    ```bash
    python ./crates/bench/scripts/process.py ./out/bench_1747653790.csv
    ```
+
+> Note: This workflow can be run with `RISC0_DEV_MODE=false` and with a full bento cluster. By default will run localnet in dev mode.
 
 ## Testnet
 

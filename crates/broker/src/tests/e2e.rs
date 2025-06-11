@@ -340,7 +340,7 @@ async fn e2e_fulfill_after_lock_expiry() {
     run_with_broker(broker, async move {
         let request_id = locker_market.submit_request(&request, &locker_signer).await.unwrap();
         let (_, client_sig) = locker_market.get_submitted_request(request_id, None).await.unwrap();
-        locker_market.lock_request(&request, &client_sig, None).await.unwrap();
+        locker_market.lock_request(&request, client_sig, None).await.unwrap();
 
         // Wait for fulfillment
         ctx.customer_market
@@ -357,7 +357,6 @@ async fn e2e_fulfill_after_lock_expiry() {
 
 #[tokio::test]
 #[traced_test]
-#[ignore = "runs a proof; requires BONSAI if RISC0_DEV_MODE=FALSE"]
 async fn e2e_with_selector() {
     // Setup anvil
     let anvil = Anvil::new().spawn();

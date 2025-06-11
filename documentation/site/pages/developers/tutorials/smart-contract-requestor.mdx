@@ -181,7 +181,7 @@ So we encode the signature that the Smart Contract Requestor requires to validat
 # ) -> anyhow::Result<()> {
 let signature: Bytes = request.abi_encode().into();
 let (request_id, expires_at) =
-    client.submit_request_onchain_with_signature(&request, &signature).await?;
+    client.submit_request_onchain_with_signature(&request, signature).await?;
 tracing::info!("Request {:x} submitted", request_id);
 # Ok(())
 # }
