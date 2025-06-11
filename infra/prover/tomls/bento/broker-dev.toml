@@ -30,7 +30,7 @@ proof_retry_sleep_ms = 500
 [batcher]
 batch_max_time = 1000
 min_batch_size = 1
-block_deadline_buffer_secs = 120
+block_deadline_buffer_secs = 180
 txn_timeout = 75
 single_txn_fulfill = true
 withdraw = true

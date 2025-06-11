@@ -155,7 +155,7 @@ services:
     ports:
       - '8081:8081'
 
-    entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081
+    entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
 
   broker:
     restart: always

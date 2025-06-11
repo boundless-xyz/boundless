@@ -18,6 +18,7 @@ config:
   bento-prover:PRIVATE_KEY:
     secure: v1:U3A04k9+r+v/nv60:glZpEfPmQcvLOtJ0GAVXTHksqKsvcfoW22+fSrnD3jaERJjXMknbv8kjEybsSbePr5AKM7NV71kEjFV5PJbZiUWGxbkllaHE0Pz0FcaXQKU=
   bento-prover:SEGMENT_SIZE: "19"
+  bento-prover:SNARK_TIMEOUT: "240"
   bonsai-prover:BONSAI_API_KEY:
     secure: v1:TQceOMB2gkPHTQti:86X5QenfekfTYjsHsNnlz4SbHc/IoLbZRtL8pHSX7UQu1JfvH0d/cv1wMApBAMphMhnvMJNKD8Q=
   bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
