@@ -7,7 +7,7 @@ RUN apt-get -qq update && \
 SHELL ["/bin/bash", "-c"]
 
 RUN cargo install cargo-chef
-
+ARG CACHE_DATE=2025-06-11  # update this date to force rebuild
 # The slasher doesn't need r0vm to run, but its tests do need it. 
 # Cargo chef always pulls in and builds dev-dependencies, meaning that we need to install r0vm
 # to leverage chef. See https://github.com/LukeMathWalker/cargo-chef/issues/114
@@ -17,11 +17,11 @@ RUN cargo install cargo-chef
 # for shared build environments where Github rate limiting is an issue.
 RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
     if [ -f /run/secrets/githubTokenSecret ]; then \
-        GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
-        GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install; \
+    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
+    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install; \
     else \
-        curl -L https://risczero.com/install | bash && \
-        PATH="$PATH:/root/.risc0/bin" rzup install; \
+    curl -L https://risczero.com/install | bash && \
+    PATH="$PATH:/root/.risc0/bin" rzup install; \
     fi
 
 FROM init AS planner
