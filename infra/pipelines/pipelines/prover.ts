@@ -282,7 +282,7 @@ export class ProverPipeline extends pulumi.ComponentResource {
     githubTokenSecret: aws.secretsmanager.Secret
   ): aws.codebuild.ProjectArgs {
     return {
-      buildTimeout: 60,
+      buildTimeout: 180,
       description: `Deployment for ${APP_NAME}`,
       serviceRole: role.arn,
       environment: {

@@ -49,6 +49,10 @@ max_file_size = 50_000_000
 #
 # Maximum number of concurrent proofs that can be processed at once
 max_concurrent_proofs = 2
+# Maximum number of orders to concurrently work on pricing
+#
+# Used to limit pricing tasks spawned to prevent overwhelming the system
+#max_concurrent_preflights = 4
 # Max critical task retries on recoverable failures.
 #
 # The broker service has a number of subtasks. Some are considered critical. If a task fails, it
@@ -128,9 +132,9 @@ proof_retry_sleep_ms = 500
 #
 # When using a durable deploy, set this to the published current SOT guest
 # program path on the system
-#set_builder_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/set-builder-guest"
+#set_builder_guest_path = "./target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin"
 # Assessor ELF path
-#assessor_set_guest_path = "./target/riscv-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest"
+#assessor_set_guest_path = "./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin"
 # Interval for checking expired committed orders (in seconds)
 #
 # This is the interval at which the ReaperTask will check for expired orders and mark them as failed.

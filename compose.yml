@@ -161,6 +161,13 @@ services:
     restart: always
     depends_on:
       - rest_api
+      - gpu_prove_agent0
+      - exec_agent0
+      - exec_agent1
+      - aux_agent
+      - snark_agent
+      - redis
+      - postgres
 
     profiles: [broker]
 
@@ -171,15 +178,20 @@ services:
     mem_limit: 2G
     cpus: 2
 
+    stop_grace_period: 3h
+
     volumes:
       - type: bind
         source: ./broker.toml
         target: /app/broker.toml
       - broker-data:/db/
-      # uncomment for local testing of broker in compose
+      # Uncomment when using locally built set-builder and assessor guest programs
       # - type: bind
-      #   source: ./target/
-      #   target: /target/
+      #   source: ./target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+      #   target: /target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+      # - type: bind
+      #   source: ./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+      #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
 
     network_mode: host
 

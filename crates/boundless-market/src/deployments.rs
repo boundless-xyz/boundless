@@ -35,6 +35,7 @@ pub struct Deployment {
     ///
     /// [BoundlessMarket]: crate::contracts::IBoundlessMarket
     #[clap(long, env, required = false, long_help = "Address of the BoundlessMarket contract")]
+    #[builder(setter(into))]
     pub boundless_market_address: Address,
 
     /// Address of the [RiscZeroVerifierRouter] contract.
@@ -58,6 +59,7 @@ pub struct Deployment {
     ///
     /// [RiscZeroSetVerifier]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroSetVerifier.sol
     #[clap(long, env, required = false, long_help = "Address of the RiscZeroSetVerifier contract")]
+    #[builder(setter(into))]
     pub set_verifier_address: Address,
 
     /// Address of the stake token contract. The staking token is an ERC-20.

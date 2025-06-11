@@ -62,6 +62,10 @@ mod defaults {
     pub const fn reaper_grace_period_secs() -> u32 {
         10800
     }
+
+    pub const fn max_concurrent_preflights() -> u32 {
+        4
+    }
 }
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
@@ -176,6 +180,11 @@ pub struct MarketConf {
     ///
     /// If not set, files will be re-downloaded every time
     pub cache_dir: Option<PathBuf>,
+    /// Maximum number of orders to concurrently work on pricing
+    ///
+    /// Used to limit pricing tasks spawned to prevent overwhelming the system
+    #[serde(default = "defaults::max_concurrent_preflights")]
+    pub max_concurrent_preflights: u32,
 }
 
 impl Default for MarketConf {
@@ -207,6 +216,7 @@ impl Default for MarketConf {
             stake_balance_error_threshold: None,
             max_concurrent_proofs: None,
             cache_dir: None,
+            max_concurrent_preflights: defaults::max_concurrent_preflights(),
         }
     }
 }
@@ -354,8 +364,10 @@ pub struct Config {
 impl Config {
     /// Load the config from disk
     pub async fn load(path: &Path) -> Result<Self> {
-        let data = fs::read_to_string(path).await.context("Failed to read config file")?;
-        toml::from_str(&data).context("Failed to parse toml file")
+        let data = fs::read_to_string(path)
+            .await
+            .context(format!("Failed to read config file from {path:?}"))?;
+        toml::from_str(&data).context(format!("Failed to parse toml file from {path:?}"))
     }
 
     /// Write the config to disk

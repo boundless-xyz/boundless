@@ -2720,6 +2720,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber 0.3.19",

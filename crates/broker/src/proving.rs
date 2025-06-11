@@ -17,6 +17,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum ProvingErr {
@@ -258,7 +259,7 @@ impl ProvingService {
 
 impl RetryTask for ProvingService {
     type Error = ProvingErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let proving_service_copy = self.clone();
         Box::pin(async move {
             tracing::info!("Starting proving service");
@@ -268,7 +269,14 @@ impl RetryTask for ProvingService {
             proving_service_copy.find_and_monitor_proofs().await.map_err(SupervisorErr::Fault)?;
 
             // Start monitoring for new proofs
+            let mut proving_interval = tokio::time::interval(Duration::from_millis(500));
+            proving_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Proving service received cancellation");
+                    break;
+                }
+
                 // TODO: parallel_proofs management
                 // we need to query the Bento/Bonsai backend and constrain the number of running
                 // parallel proofs currently bonsai does not have this feature but
@@ -291,6 +299,8 @@ impl RetryTask for ProvingService {
                 // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
+
+            Ok(())
         })
     }
 }
