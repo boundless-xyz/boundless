@@ -9,7 +9,7 @@ const { bucket, keyAlias } = createPulumiState();
 
 // Generate an SSH key pair
 const sshKey = new aws.ec2.KeyPair("ssh-key", {
-  publicKey: publicKey,
+    publicKey: publicKey,
 });
 
 // Create a new security group for our server
@@ -43,8 +43,8 @@ const serverLocal = new aws.ec2.Instance("builder-local", {
         Name: "builder-local",
     },
     userDataReplaceOnChange: true,
-    userData: 
-    `#!/bin/bash
+    userData:
+        `#!/bin/bash
 set -e -v
 
 # Update and install dependencies
@@ -66,6 +66,12 @@ mkdir -p /mnt/docker-local
 
 # Mount the volume
 mount /dev/nvme1n1 /mnt/docker-local
+
+# Add mount information to fstab using UUID for stability across reboots
+UUID=$(blkid -p -s UUID -o value "/dev/nvme1n1")
+if ! grep -q "$UUID" /etc/fstab; then
+    echo "UUID=$UUID /mnt/docker-local xfs defaults,nofail 0 2" >> /etc/fstab
+fi
 
 # Configure Docker to use the instance store
 mkdir -p /mnt/docker-local/docker
