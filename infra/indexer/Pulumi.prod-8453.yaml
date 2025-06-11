@@ -9,11 +9,11 @@ config:
     secure: v1:dNuwRu18DdYGG7bd:6+uBfFvgV6GWRxiMFGvANUMqM+w8/G2m63mnRumTv3DU2A==
   aws:region: us-west-2
   indexer:BASE_STACK: organization/bootstrap/services-prod
-  indexer:BOUNDLESS_ADDRESS: 0x581C7e8018f0888364c698f97F64eB069723131F
+  indexer:BOUNDLESS_ADDRESS: 0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8
   indexer:CHAIN_ID: "8453"
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
-  #indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:RUST_LOG: "indexer_monitor=debug"
-  #indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   indexer:START_BLOCK: "30531354"

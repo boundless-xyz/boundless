@@ -46,6 +46,11 @@ mod defaults {
         250_000
     }
 
+    pub const fn additional_proof_cycles() -> u64 {
+        // 2 mcycles for assessor + 270k cycles for set builder by default
+        2_000_000 + 270_000
+    }
+
     pub const fn max_submission_attempts() -> u32 {
         2
     }
@@ -55,7 +60,11 @@ mod defaults {
     }
 
     pub const fn reaper_grace_period_secs() -> u32 {
-        30
+        10800
+    }
+
+    pub const fn max_concurrent_preflights() -> u32 {
+        4
     }
 }
 /// All configuration related to markets mechanics
@@ -141,6 +150,11 @@ pub struct MarketConf {
     /// conservative default will be used.
     #[serde(default = "defaults::groth16_verify_gas_estimate")]
     pub groth16_verify_gas_estimate: u64,
+    /// Additional cycles to be proven for each order.
+    ///
+    /// This is currently the sum of the cycles for the assessor and set builder.
+    #[serde(default = "defaults::additional_proof_cycles")]
+    pub additional_proof_cycles: u64,
     /// Optional balance warning threshold (in native token)
     ///
     /// If the submitter balance drops below this the broker will issue warning logs
@@ -166,6 +180,11 @@ pub struct MarketConf {
     ///
     /// If not set, files will be re-downloaded every time
     pub cache_dir: Option<PathBuf>,
+    /// Maximum number of orders to concurrently work on pricing
+    ///
+    /// Used to limit pricing tasks spawned to prevent overwhelming the system
+    #[serde(default = "defaults::max_concurrent_preflights")]
+    pub max_concurrent_preflights: u32,
 }
 
 impl Default for MarketConf {
@@ -190,12 +209,14 @@ impl Default for MarketConf {
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
+            additional_proof_cycles: defaults::additional_proof_cycles(),
             balance_warn_threshold: None,
             balance_error_threshold: None,
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
             max_concurrent_proofs: None,
             cache_dir: None,
+            max_concurrent_preflights: defaults::max_concurrent_preflights(),
         }
     }
 }
@@ -343,8 +364,10 @@ pub struct Config {
 impl Config {
     /// Load the config from disk
     pub async fn load(path: &Path) -> Result<Self> {
-        let data = fs::read_to_string(path).await.context("Failed to read config file")?;
-        toml::from_str(&data).context("Failed to parse toml file")
+        let data = fs::read_to_string(path)
+            .await
+            .context(format!("Failed to read config file from {path:?}"))?;
+        toml::from_str(&data).context(format!("Failed to parse toml file from {path:?}"))
     }
 
     /// Write the config to disk

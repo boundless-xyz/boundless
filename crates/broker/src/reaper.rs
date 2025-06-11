@@ -6,13 +6,16 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::{
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
     errors::CodedError,
+    provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
+    utils::cancel_proof_and_fail_order,
 };
 
 #[derive(Error, Debug)]
@@ -41,11 +44,12 @@ impl CodedError for ReaperError {
 pub struct ReaperTask {
     db: DbObj,
     config: ConfigLock,
+    prover: ProverObj,
 }
 
 impl ReaperTask {
-    pub fn new(db: DbObj, config: ConfigLock) -> Self {
-        Self { db, config }
+    pub fn new(db: DbObj, config: ConfigLock, prover: ProverObj) -> Self {
+        Self { db, config, prover }
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
@@ -63,6 +67,13 @@ impl ReaperTask {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
 
+                cancel_proof_and_fail_order(
+                    &self.prover,
+                    &self.db,
+                    &order,
+                    "Order expired in reaper",
+                )
+                .await;
                 match self.db.set_order_failure(&order_id, "Order expired").await {
                     Ok(()) => {
                         warn!("Order {} has expired, marked as failed", order_id);
@@ -78,7 +89,7 @@ impl ReaperTask {
         Ok(())
     }
 
-    async fn run_reaper_loop(&self) -> Result<(), ReaperError> {
+    async fn run_reaper_loop(&self, cancel_token: CancellationToken) -> Result<(), ReaperError> {
         let interval = {
             let config = self.config.lock_all()?;
             config.prover.reaper_interval_secs
@@ -86,7 +97,13 @@ impl ReaperTask {
 
         loop {
             // Wait to run the reaper on startup to allow other tasks to start.
-            tokio::time::sleep(Duration::from_secs(interval.into())).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(interval.into())) => {},
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Reaper task received cancellation, shutting down gracefully");
+                    return Ok(());
+                }
+            }
 
             if let Err(err) = self.check_expired_orders().await {
                 warn!("Error checking expired orders: {}", err);
@@ -99,13 +116,11 @@ impl ReaperTask {
 impl RetryTask for ReaperTask {
     type Error = ReaperError;
 
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let this = self.clone();
         Box::pin(async move {
-            match this.run_reaper_loop().await {
-                Ok(_) => Ok(()),
-                Err(err) => Err(SupervisorErr::Recover(err)),
-            }
+            this.run_reaper_loop(cancel_token).await.map_err(SupervisorErr::Recover)?;
+            Ok(())
         })
     }
 }
@@ -113,7 +128,9 @@ impl RetryTask for ReaperTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, now_timestamp, FulfillmentType, Order, OrderStatus};
+    use crate::{
+        db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus,
+    };
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
         Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
@@ -175,7 +192,8 @@ mod tests {
     async fn test_check_expired_orders_no_expired() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let reaper = ReaperTask::new(db.clone(), config);
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let reaper = ReaperTask::new(db.clone(), config, prover);
 
         let current_time = now_timestamp();
         let future_time = current_time + 100;
@@ -209,7 +227,9 @@ mod tests {
     async fn test_expired_orders() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let reaper = ReaperTask::new(db.clone(), config);
+        config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let reaper = ReaperTask::new(db.clone(), config, prover);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -258,7 +278,9 @@ mod tests {
     async fn test_check_expired_orders_all_committed_statuses() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let reaper = ReaperTask::new(db.clone(), config);
+        config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let reaper = ReaperTask::new(db.clone(), config, prover);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;

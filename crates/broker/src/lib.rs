@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use task::{RetryPolicy, Supervisor};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
@@ -257,6 +258,17 @@ impl OrderRequest {
     }
 }
 
+impl std::fmt::Display for OrderRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let total_mcycles = if self.total_cycles.is_some() {
+            format!(" ({} mcycles)", self.total_cycles.unwrap() / 1_000_000)
+        } else {
+            "".to_string()
+        };
+        write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
+    }
+}
+
 /// An Order represents a proof request and a specific method of fulfillment.
 ///
 /// Requests can be fulfilled in multiple ways, for example by locking then fulfilling them,
@@ -270,7 +282,7 @@ impl OrderRequest {
 /// details. Those also result in separate Order objects being created.
 ///
 /// See the id() method for more details on how Orders are identified.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct Order {
     /// Address of the boundless market contract. Stored as it is required to compute the order id.
     boundless_market_address: Address,
@@ -337,7 +349,12 @@ impl Order {
 
 impl std::fmt::Display for Order {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id())
+        let total_mcycles = if self.total_cycles.is_some() {
+            format!(" ({} mcycles)", self.total_cycles.unwrap() / 1_000_000)
+        } else {
+            "".to_string()
+        };
+        write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
 }
 
@@ -425,6 +442,7 @@ where
             config.prover.set_builder_guest_path.clone()
         };
 
+        tracing::debug!("Uploading set builder image: {}", image_url_str);
         self.fetch_and_upload_image(prover, image_id, image_url_str, path)
             .await
             .context("uploading set builder image")?;
@@ -446,6 +464,7 @@ where
             config.prover.assessor_set_guest_path.clone()
         };
 
+        tracing::debug!("Uploading assessor image: {}", image_url_str);
         self.fetch_and_upload_image(prover, image_id, image_url_str, path)
             .await
             .context("uploading assessor image")?;
@@ -509,6 +528,12 @@ where
             config.market.lookback_blocks
         };
 
+        // Create two cancellation tokens for graceful shutdown:
+        // 1. Non-critical tasks (order discovery, picking, monitoring) - cancelled immediately on shutdown signal
+        // 2. Critical tasks (proving, aggregation, submission) - cancelled only after committed orders complete
+        let non_critical_cancel_token = CancellationToken::new();
+        let critical_cancel_token = CancellationToken::new();
+
         let chain_monitor = Arc::new(
             chain_monitor::ChainMonitorService::new(self.provider.clone())
                 .await
@@ -517,8 +542,10 @@ where
 
         let cloned_chain_monitor = chain_monitor.clone();
         let cloned_config = config.clone();
+        // Critical task, as is relied on to query current chain state
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(cloned_chain_monitor, cloned_config)
+            Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start chain monitor")?;
@@ -552,8 +579,9 @@ where
         tracing::debug!("Estimated block time: {block_times}");
 
         let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(market_monitor, cloned_config)
+            Supervisor::new(market_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start market monitor")?;
@@ -569,8 +597,9 @@ where
                     new_order_tx.clone(),
                 ));
             let cloned_config = config.clone();
+            let cancel_token = non_critical_cancel_token.clone();
             supervisor_tasks.spawn(async move {
-                Supervisor::new(offchain_market_monitor, cloned_config)
+                Supervisor::new(offchain_market_monitor, cloned_config, cancel_token)
                     .spawn()
                     .await
                     .context("Failed to start offchain market monitor")?;
@@ -616,8 +645,9 @@ where
             pricing_tx,
         ));
         let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(order_picker, cloned_config)
+            Supervisor::new(order_picker, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start order picker")?;
@@ -631,8 +661,9 @@ where
         );
 
         let cloned_config = config.clone();
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(proving_service, cloned_config)
+            Supervisor::new(proving_service, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start proving service")?;
@@ -660,8 +691,9 @@ where
             stake_token_decimals,
         )?);
         let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(order_monitor, cloned_config)
+            Supervisor::new(order_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start order monitor")?;
@@ -687,8 +719,9 @@ where
         );
 
         let cloned_config = config.clone();
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(aggregator, cloned_config)
+            Supervisor::new(aggregator, cloned_config, cancel_token)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
                 .spawn()
                 .await
@@ -697,10 +730,13 @@ where
         });
 
         // Start the ReaperTask to check for expired committed orders
-        let reaper = Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone()));
+        let reaper =
+            Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
         let cloned_config = config.clone();
+        // Using critical cancel token to ensure no stuck expired jobs on shutdown
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(reaper, cloned_config)
+            Supervisor::new(reaper, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("Failed to start reaper service")?;
@@ -717,8 +753,9 @@ where
             set_builder_img_id,
         )?);
         let cloned_config = config.clone();
+        let cancel_token = critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
-            Supervisor::new(submitter, cloned_config)
+            Supervisor::new(submitter, cloned_config, cancel_token)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
                 .spawn()
                 .await
@@ -726,36 +763,117 @@ where
             Ok(())
         });
 
-        // Monitor the different supervisor tasks
-        while let Some(res) = supervisor_tasks.join_next().await {
-            let status = match res {
-                Err(join_err) if join_err.is_cancelled() => {
-                    tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
-                    continue;
+        // Monitor the different supervisor tasks and handle shutdown
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler");
+        let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+            .expect("Failed to install SIGINT handler");
+        loop {
+            tracing::info!("Waiting for supervisor tasks to complete...");
+            tokio::select! {
+                // Handle supervisor task results
+                Some(res) = supervisor_tasks.join_next() => {
+                    let status = match res {
+                        Err(join_err) if join_err.is_cancelled() => {
+                            tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
+                            continue;
+                        }
+                        Err(join_err) => {
+                            tracing::error!("Tokio task exited with error status: {join_err:?}");
+                            anyhow::bail!("Task exited with error status: {join_err:?}")
+                        }
+                        Ok(status) => status,
+                    };
+                    match status {
+                        Err(err) => {
+                            tracing::error!("Task exited with error status: {err:?}");
+                            anyhow::bail!("Task exited with error status: {err:?}")
+                        }
+                        Ok(()) => {
+                            tracing::info!("Task exited with ok status");
+                        }
+                    }
                 }
-                Err(join_err) => {
-                    tracing::error!("Tokio task exited with error status: {join_err:?}");
-                    // TODO(#BM-470): Here, we should be using a cancellation token to signal to all
-                    // the tasks under this supervisor that they should exit, then set a timer (e.g.
-                    // for 30) to give them time to gracefully shut down.
-                    anyhow::bail!("Task exited with error status: {join_err:?}")
+                // Handle shutdown signals
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("Received CTRL+C, starting graceful shutdown...");
+                    break;
                 }
-                Ok(status) => status,
-            };
-            match status {
-                Err(err) => {
-                    tracing::error!("Task exited with error status: {err:?}");
-                    // TODO(#BM-470): Here, we should be using a cancellation token to signal to all
-                    // the tasks under this supervisor that they should exit, then set a timer (e.g.
-                    // for 30) to give them time to gracefully shut down.
-                    anyhow::bail!("Task exited with error status: {err:?}")
+                _ = sigterm.recv() => {
+                    tracing::info!("Received SIGTERM, starting graceful shutdown...");
+                    break;
                 }
-                Ok(()) => {
-                    tracing::info!("Task exited with ok status");
+                _ = sigint.recv() => {
+                    tracing::info!("Received SIGINT, starting graceful shutdown...");
+                    break;
                 }
             }
         }
 
+        // Phase 1: Cancel non-critical tasks immediately to stop taking new work
+        tracing::info!("Cancelling non-critical tasks (order discovery, picking, monitoring)...");
+        non_critical_cancel_token.cancel();
+
+        // Phase 2: Wait for committed orders to complete, then cancel critical tasks
+        self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
+
+        Ok(())
+    }
+
+    async fn shutdown_and_cancel_critical_tasks(
+        &self,
+        critical_cancel_token: CancellationToken,
+    ) -> Result<(), anyhow::Error> {
+        // 2 hour max to shutdown time, to avoid indefinite shutdown time.
+        const SHUTDOWN_GRACE_PERIOD_SECS: u32 = 2 * 60 * 60;
+        const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
+
+        let start_time = std::time::Instant::now();
+        let grace_period = std::time::Duration::from_secs(SHUTDOWN_GRACE_PERIOD_SECS as u64);
+        let mut last_log = "".to_string();
+        while start_time.elapsed() < grace_period {
+            let in_progress_orders = self.db.get_committed_orders().await?;
+            if in_progress_orders.is_empty() {
+                break;
+            }
+
+            let new_log = format!(
+                "Waiting for {} in-progress orders to complete...\n{}",
+                in_progress_orders.len(),
+                in_progress_orders
+                    .iter()
+                    .map(|order| { format!("[{:?}] {}", order.status, order) })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+
+            if new_log != last_log {
+                tracing::info!("{}", new_log);
+                last_log = new_log;
+            }
+
+            tokio::time::sleep(SLEEP_DURATION).await;
+        }
+
+        // Cancel critical tasks after committed work completes (or timeout)
+        tracing::info!("Cancelling critical tasks...");
+        critical_cancel_token.cancel();
+
+        if start_time.elapsed() >= grace_period {
+            let in_progress_orders = self.db.get_committed_orders().await?;
+            tracing::info!(
+                "Shutdown timed out after {} seconds. Exiting with {} in-progress orders: {}",
+                SHUTDOWN_GRACE_PERIOD_SECS,
+                in_progress_orders.len(),
+                in_progress_orders
+                    .iter()
+                    .map(|order| format!("[{:?}] {}", order.status, order))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        } else {
+            tracing::info!("Shutdown complete");
+        }
         Ok(())
     }
 }
@@ -764,6 +882,29 @@ where
 // TODO(#379): Avoid drift relative to the chain's timestamps.
 pub(crate) fn now_timestamp() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+}
+
+// Utility function to format the expiries of a request in a human readable format
+fn format_expiries(request: &ProofRequest) -> String {
+    let now: i64 = now_timestamp().try_into().unwrap();
+    let lock_expires_at: i64 = request.lock_expires_at().try_into().unwrap();
+    let lock_expires_delta = lock_expires_at - now;
+    let lock_expires_delta_str = if lock_expires_delta > 0 {
+        format!("{} seconds from now", lock_expires_delta)
+    } else {
+        format!("{} seconds ago", lock_expires_delta.abs())
+    };
+    let expires_at: i64 = request.expires_at().try_into().unwrap();
+    let expires_at_delta = expires_at - now;
+    let expires_at_delta_str = if expires_at_delta > 0 {
+        format!("{} seconds from now", expires_at_delta)
+    } else {
+        format!("{} seconds ago", expires_at_delta.abs())
+    };
+    format!(
+        "lock expires at {} ({}), expires at {} ({})",
+        lock_expires_at, lock_expires_delta_str, expires_at, expires_at_delta_str
+    )
 }
 
 #[cfg(feature = "test-utils")]

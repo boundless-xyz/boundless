@@ -49,27 +49,30 @@ export = () => {
   const bentoBrokerTomlPath = bentoConfig.require('BROKER_TOML_PATH')
 
   const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-prover", chainId);
-  const bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
-    chainId,
-    ethRpcUrl,
-    gitBranch: "main",
-    privateKey: bentoProverPrivateKey,
-    baseStackName,
-    orderStreamUrl,
-    brokerTomlPath: bentoBrokerTomlPath,
-    boundlessMarketAddress: boundlessMarketAddr,
-    setVerifierAddress: setVerifierAddr,
-    segmentSize,
-    vpcId,
-    pubSubNetIds,
-    dockerDir,
-    dockerTag,
-    ciCacheSecret,
-    githubTokenSecret,
-    boundlessAlertsTopicArns: alertsTopicArns,
-    sshPublicKey: bentoProverSshPublicKey,
-    logJson,
-  });
+  let bentoBroker: BentoEC2Broker | undefined;
+  if (process.env.SKIP_BENTO !== "true") {
+    bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
+      chainId,
+      ethRpcUrl,
+      gitBranch: "main",
+      privateKey: bentoProverPrivateKey,
+      baseStackName,
+      orderStreamUrl,
+      brokerTomlPath: bentoBrokerTomlPath,
+      boundlessMarketAddress: boundlessMarketAddr,
+      setVerifierAddress: setVerifierAddr,
+      segmentSize,
+      vpcId,
+      pubSubNetIds,
+      dockerDir,
+      dockerTag,
+      ciCacheSecret,
+      githubTokenSecret,
+      boundlessAlertsTopicArns: alertsTopicArns,
+      sshPublicKey: bentoProverSshPublicKey,
+      logJson,
+    });
+  }
 
   if (process.env.SKIP_BONSAI !== "true") {
     const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", chainId);
@@ -96,10 +99,10 @@ export = () => {
   }
 
   return {
-    bentoBrokerPublicIp: bentoBroker.instance.publicIp,
-    bentoBrokerPublicDns: bentoBroker.instance.publicDns,
-    bentoBrokerInstanceId: bentoBroker.instance.id,
-    bentoBrokerUpdateCommandArn: bentoBroker.updateCommandArn,
-    bentoBrokerUpdateCommandId: bentoBroker.updateCommandId,
+    bentoBrokerPublicIp: bentoBroker?.instance.publicIp ?? undefined,
+    bentoBrokerPublicDns: bentoBroker?.instance.publicDns ?? undefined,
+    bentoBrokerInstanceId: bentoBroker?.instance.id ?? undefined,
+    bentoBrokerUpdateCommandArn: bentoBroker?.updateCommandArn ?? undefined,
+    bentoBrokerUpdateCommandId: bentoBroker?.updateCommandId ?? undefined,
   }
 };

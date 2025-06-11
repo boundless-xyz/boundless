@@ -7,6 +7,7 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use anyhow::{Context, Result as AnyhowRes};
 use thiserror::Error;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::{config::ConfigLock, errors::CodedError};
 
@@ -38,7 +39,7 @@ pub type RetryRes<E: CodedError> =
 pub trait RetryTask {
     type Error: CodedError;
     /// Defines how to spawn a task to be monitored for restarts
-    fn spawn(&self) -> RetryRes<Self::Error>;
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error>;
 }
 
 /// Configuration for retry behavior in the supervisor
@@ -85,6 +86,8 @@ pub(crate) struct Supervisor<T: RetryTask> {
     /// Configuration for retry behavior
     retry_policy: RetryPolicy,
     config: ConfigLock,
+    /// Cancellation token for graceful shutdown
+    cancel_token: CancellationToken,
 }
 
 impl<T: RetryTask> Supervisor<T>
@@ -93,8 +96,8 @@ where
     T::Error: Send + Sync + 'static,
 {
     /// Create a new supervisor with a single task
-    pub fn new(task: Arc<T>, config: ConfigLock) -> Self {
-        Self { task, retry_policy: RetryPolicy::default(), config }
+    pub fn new(task: Arc<T>, config: ConfigLock, cancel_token: CancellationToken) -> Self {
+        Self { task, retry_policy: RetryPolicy::default(), config, cancel_token }
     }
 
     /// Configure the retry policy
@@ -112,7 +115,7 @@ where
 
         // Spawn initial task
         tracing::debug!("Spawning task");
-        tasks.spawn(self.task.spawn());
+        tasks.spawn(self.task.spawn(self.cancel_token.clone()));
 
         while let Some(res) = tasks.join_next().await {
             // Check if we should reset the retry counter based on how long the task ran
@@ -165,7 +168,7 @@ where
 
                             // Instead of sleeping here, wrap the task spawn with a delay
                             let task_clone = self.task.clone();
-                            let t = task_clone.spawn();
+                            let t = task_clone.spawn(self.cancel_token.clone());
                             tasks.spawn(async move {
                                 // Apply calculated retry delay before spawning the task
                                 tokio::time::sleep(current_delay).await;
@@ -242,39 +245,52 @@ mod tests {
             self.tx.close()
         }
 
-        async fn process_item(rx: Receiver<u32>) -> Result<(), SupervisorErr<TestErr>> {
+        async fn process_item(
+            rx: Receiver<u32>,
+            cancel_token: CancellationToken,
+        ) -> Result<(), SupervisorErr<TestErr>> {
             loop {
-                let value = match rx.recv().await {
-                    Ok(val) => val,
-                    Err(_) => {
-                        tracing::debug!("channel closed, exiting..");
+                tokio::select! {
+                    // Handle incoming values
+                    result = rx.recv() => {
+                        let value = match result {
+                            Ok(val) => val,
+                            Err(_) => {
+                                tracing::debug!("channel closed, exiting..");
+                                break;
+                            }
+                        };
+
+                        tracing::info!("Got value: {value}");
+
+                        match value {
+                            // Mock do work
+                            0 => tokio::time::sleep(tokio::time::Duration::from_millis(100)).await,
+                            // mock a clean exit
+                            1 => return Ok(()),
+                            // Mock a soft failure
+                            2 => {
+                                return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
+                                    "Sample error"
+                                ))))
+                            }
+                            // Mock a hard failure
+                            3 => {
+                                return Err(SupervisorErr::Fault(TestErr::SampleErr(anyhow::anyhow!(
+                                    "FAILURE"
+                                ))))
+                            }
+                            _ => {
+                                return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
+                                    "UNKNOWN VALUE TYPE"
+                                ))))
+                            }
+                        }
+                    }
+                    // Handle cancellation
+                    _ = cancel_token.cancelled() => {
+                        tracing::debug!("Task cancelled, exiting cleanly");
                         break;
-                    }
-                };
-
-                tracing::info!("Got value: {value}");
-
-                match value {
-                    // Mock do work
-                    0 => tokio::time::sleep(tokio::time::Duration::from_millis(100)).await,
-                    // mock a clean exit
-                    1 => return Ok(()),
-                    // Mock a soft failure
-                    2 => {
-                        return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
-                            "Sample error"
-                        ))))
-                    }
-                    // Mock a hard failure
-                    3 => {
-                        return Err(SupervisorErr::Fault(TestErr::SampleErr(anyhow::anyhow!(
-                            "FAILURE"
-                        ))))
-                    }
-                    _ => {
-                        return Err(SupervisorErr::Recover(TestErr::SampleErr(anyhow::anyhow!(
-                            "UNKNOWN VALUE TYPE"
-                        ))))
                     }
                 }
             }
@@ -285,9 +301,9 @@ mod tests {
 
     impl RetryTask for TestTask {
         type Error = TestErr;
-        fn spawn(&self) -> RetryRes<Self::Error> {
+        fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
             let rx_copy = self.rx.clone();
-            Box::pin(Self::process_item(rx_copy))
+            Box::pin(Self::process_item(rx_copy, cancel_token))
         }
     }
 
@@ -297,7 +313,8 @@ mod tests {
         let task = Arc::new(TestTask::new());
         task.tx(0).await.unwrap();
 
-        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default()).spawn();
+        let supervisor_task =
+            Supervisor::new(task.clone(), ConfigLock::default(), CancellationToken::new()).spawn();
 
         task.tx(0).await.unwrap();
         task.tx(0).await.unwrap();
@@ -315,7 +332,8 @@ mod tests {
         let task = Arc::new(TestTask::new());
         task.tx(0).await.unwrap();
 
-        let supervisor_task = Supervisor::new(task.clone(), ConfigLock::default()).spawn();
+        let supervisor_task =
+            Supervisor::new(task.clone(), ConfigLock::default(), CancellationToken::new()).spawn();
 
         task.tx(3).await.unwrap();
         task.close();
@@ -330,7 +348,7 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.max_critical_task_retries = Some(3);
 
-        let supervisor_task = Supervisor::new(task.clone(), config)
+        let supervisor_task = Supervisor::new(task.clone(), config, CancellationToken::new())
             .with_retry_policy(RetryPolicy {
                 delay: std::time::Duration::from_millis(10),
                 backoff_multiplier: 2.0,
@@ -352,5 +370,25 @@ mod tests {
 
         let res = supervisor_task.await;
         assert!(res.unwrap_err().to_string().contains("Exceeded maximum retries for task"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn supervisor_cancellation() {
+        let task = Arc::new(TestTask::new());
+        let cancel_token = CancellationToken::new();
+
+        let supervisor_task =
+            Supervisor::new(task.clone(), ConfigLock::default(), cancel_token.clone()).spawn();
+
+        task.tx(0).await.unwrap();
+        task.tx(0).await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        cancel_token.cancel();
+
+        supervisor_task.await.unwrap();
+        assert!(logs_contain("Task cancelled, exiting cleanly"));
     }
 }

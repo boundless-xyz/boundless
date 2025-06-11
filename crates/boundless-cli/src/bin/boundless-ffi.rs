@@ -34,7 +34,7 @@ use boundless_market::{
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about)]
+#[clap(author, version, about = "Utility for use with Forge FFI cheatcode. See https://getfoundry.sh/reference/cheatcodes/ffi", long_about = None)]
 struct MainArgs {
     /// URL of the SetBuilder program
     #[clap(long)]

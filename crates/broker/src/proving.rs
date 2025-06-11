@@ -12,10 +12,12 @@ use crate::{
     impl_coded_debug,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
+    utils::cancel_proof_and_fail_order,
     Order, OrderStatus,
 };
 use anyhow::{Context, Result};
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum ProvingErr {
@@ -161,6 +163,19 @@ impl ProvingService {
         let order_status = match tokio::time::timeout(timeout_duration, monitor_task).await {
             Ok(result) => result.context("Monitoring proof failed")?,
             Err(_) => {
+                tracing::debug!(
+                    "Proving timed out for order {}, cancelling proof {}",
+                    order_id,
+                    proof_id
+                );
+                if let Err(err) = self.prover.cancel_stark(&proof_id).await {
+                    tracing::warn!(
+                        "Failed to cancel proof {} for timed out order {}: {}",
+                        proof_id,
+                        order_id,
+                        err
+                    );
+                }
                 return Err(anyhow::anyhow!("Proving timed out"));
             }
         };
@@ -215,7 +230,13 @@ impl ProvingService {
             let order_id = order.id();
             if order.expire_timestamp.unwrap() < now {
                 tracing::warn!("Order {} had expired on proving task start", order_id);
-                handle_order_failure(&self.db, &order_id, "Order expired on startup").await;
+                cancel_proof_and_fail_order(
+                    &self.prover,
+                    &self.db,
+                    &order,
+                    "Order expired on startup",
+                )
+                .await;
             }
             let prove_serv = self.clone();
 
@@ -238,7 +259,7 @@ impl ProvingService {
 
 impl RetryTask for ProvingService {
     type Error = ProvingErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let proving_service_copy = self.clone();
         Box::pin(async move {
             tracing::info!("Starting proving service");
@@ -248,7 +269,14 @@ impl RetryTask for ProvingService {
             proving_service_copy.find_and_monitor_proofs().await.map_err(SupervisorErr::Fault)?;
 
             // Start monitoring for new proofs
+            let mut proving_interval = tokio::time::interval(Duration::from_millis(500));
+            proving_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Proving service received cancellation");
+                    break;
+                }
+
                 // TODO: parallel_proofs management
                 // we need to query the Bento/Bonsai backend and constrain the number of running
                 // parallel proofs currently bonsai does not have this feature but
@@ -271,6 +299,8 @@ impl RetryTask for ProvingService {
                 // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
+
+            Ok(())
         })
     }
 }

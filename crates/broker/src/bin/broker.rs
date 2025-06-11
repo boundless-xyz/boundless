@@ -94,6 +94,7 @@ async fn main() -> Result<()> {
 
     let broker = Broker::new(args, provider).await?;
 
+    // Await broker shutdown before returning from main
     broker.start_service().await.context("Broker service failed")?;
 
     Ok(())

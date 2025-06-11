@@ -146,6 +146,17 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
             Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
             Resource: [privateKeySecret.arn, bonsaiSecret.arn, ethRpcUrlSecret.arn, orderStreamUrlSecret.arn],
           },
+          // Needed for ECS Exec
+          {
+            Effect: 'Allow',
+            Action: [
+              "ssmmessages:CreateControlChannel",
+              "ssmmessages:CreateDataChannel",
+              "ssmmessages:OpenControlChannel",
+              "ssmmessages:OpenDataChannel"
+            ],
+            Resource: "*"
+          }
         ],
       },
     }, { dependsOn: [taskRole] });
@@ -409,5 +420,43 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
     const alarmActions = boundlessAlertsTopicArns ?? [];
 
     createProverAlarms(serviceName, logGroup, [service, logGroup], alarmActions);
+
+    // Alarms for CPUUtilization and MemoryUtilization, alarm if over 80% for 5 consecutive minutes.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-cpu-utilization-alarm`, {
+      name: `${serviceName}-cpu-utilization-alarm`,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 5,
+      datapointsToAlarm: 5,
+      metricName: 'CPUUtilization',
+      namespace: 'AWS/ECS',
+      period: 60,
+      statistic: 'Average',
+      threshold: 80,
+      alarmDescription: 'This metric monitors the CPU utilization of the broker task.',
+      alarmActions: alarmActions,
+      dimensions: {
+        ServiceName: serviceName,
+        ClusterName: cluster.name,
+      },
+    });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-memory-utilization-alarm`, {
+      name: `${serviceName}-memory-utilization-alarm`,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      metricName: 'MemoryUtilization',
+      namespace: 'AWS/ECS',
+      period: 60,
+      evaluationPeriods: 5,
+      datapointsToAlarm: 5,
+      statistic: 'Average',
+      threshold: 80,
+      alarmDescription: 'This metric monitors the memory utilization of the broker task.',
+      alarmActions: alarmActions,
+      dimensions: {
+        ServiceName: serviceName,
+        ClusterName: cluster.name,
+      },
+    });
+
   }
 }

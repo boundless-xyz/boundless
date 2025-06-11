@@ -4,20 +4,20 @@
 The Boundless CLI source code can be found at [boundless/crates/boundless-cli](https://github.com/boundless-xyz/boundless/tree/main/crates/boundless-cli).
 :::
 
-`boundless-cli` is a command-line interface for interacting with the Boundless Market, specifically designed to help handle deposits, withdrawing, staking and submitting proof requests.
+`boundless` is a command-line interface for interacting with the Boundless Market, specifically designed to help handle deposits, withdrawing, staking and submitting proof requests.
 
 ## Installation
 
 You'll need to [install Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html), then you can run the following command to install the CLI.
 
 ```
-cargo install --locked boundless-cli
+cargo install --locked boundless
 ```
 
 ## Usage
 
 ```
-boundless-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+boundless [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 ```
 
 ### Global Options
@@ -41,7 +41,7 @@ You pass these before specifying a command:
 Each command is run in the form:
 
 ```
-boundless-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+boundless [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 ```
 
 #### Available Commands
@@ -56,7 +56,7 @@ boundless-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 | [config](#config)      | Display configuration and environment variables     |
 
 ```
-boundless-cli \
+boundless \
   --rpc-url http://localhost:8545 \
   --private-key 0xabcdef... \
   --boundless-market-address 0x1234... \
@@ -96,7 +96,7 @@ Where `<amount>` is an amount of Ether to deposit, e.g. `1.5`.
 
 **Example**:
 ```
-boundless-cli account deposit 1
+boundless account deposit 1
 ```
 This deposits 1 ETH from your wallet into the Boundless Market contract.
 
@@ -111,7 +111,7 @@ account withdraw <amount>
 
 *Example*:
 ```
-boundless-cli account withdraw 1
+boundless account withdraw 1
 ```
 This withdraws 1 ETH of your in-market balance back to your wallet.
 
@@ -128,8 +128,8 @@ account balance [address]
 
 *Example*:
 ```
-boundless-cli account balance 0xabc123...
-boundless-cli account balance
+boundless account balance 0xabc123...
+boundless account balance
 ```
 
 #### deposit-stake
@@ -142,7 +142,7 @@ account deposit-stake <amount>
 
 *Example*:
 ```
-boundless-cli account deposit-stake 100
+boundless account deposit-stake 100
 ```
 This deposits 100 HP into your staked balance.
 
@@ -157,7 +157,7 @@ account withdraw-stake <amount>
 
 *Example*:
 ```
-boundless-cli account withdraw-stake 50
+boundless account withdraw-stake 50
 ```
 
 #### stake-balance
@@ -170,8 +170,8 @@ account stake-balance [address]
 
 *Example*:
 ```
-boundless-cli account stake-balance 0xabc123...
-boundless-cli account stake-balance
+boundless account stake-balance 0xabc123...
+boundless account stake-balance
 ```
 
 ### request
@@ -211,7 +211,7 @@ request submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-pre
 
 *Example*:
 ```
-boundless-cli request submit-offer offer.yaml --program guest.wasm \
+boundless request submit-offer offer.yaml --program guest.wasm \
   --input-file data.bin --journal-prefix "ABCDEF" --wait
 ```
 Submits a request reading the YAML from `offer.yaml`, providing `guest.wasm` as the program, `data.bin` as input, and requiring the journal to start with "ABCDEF". It waits for fulfillment.
@@ -238,7 +238,7 @@ request submit [OPTIONS] <YAML_REQUEST> [ID] [--wait] [--offchain] [--no-preflig
 
 *Example*:
 ```
-boundless-cli request submit ./request.yaml --wait
+boundless request submit ./request.yaml --wait
 ```
 
 #### status
@@ -253,7 +253,7 @@ request status <REQUEST_ID> [expires_at]
 
 *Example*:
 ```
-boundless-cli request status 0x5...
+boundless request status 0x5...
 ```
 
 #### get-proof
@@ -265,7 +265,7 @@ request get-proof <REQUEST_ID>
 ```
 *Example*:
 ```
-boundless-cli request get-proof 0x5...
+boundless request get-proof 0x5...
 ```
 
 #### verify-proof
@@ -279,7 +279,7 @@ Where `<IMAGE_ID>` is a 32-byte hex digest identifying the guest code.
 
 **Example**:
 ```
-boundless-cli request verify-proof 0x5... 0x0002f87ec0...
+boundless request verify-proof 0x5... 0x0002f87ec0...
 ```
 
 ### proving
@@ -306,12 +306,12 @@ proving execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] 
 
 - **Execute from local YAML**:
   ```
-  boundless-cli proving execute --request-path ./request.yaml
+  boundless proving execute --request-path ./request.yaml
   ```
 
 - **Execute from onchain** (specifying the request ID):
   ```
-  boundless-cli proving execute --request-id 0x5... --tx-hash 0xabc...
+  boundless proving execute --request-id 0x5... --tx-hash 0xabc...
   ```
 
 #### fulfill
@@ -330,13 +330,13 @@ proving fulfill --request-ids <U256,...> [--request-digests <B256,...>] [--tx-ha
 *Examples*:
 ```
 # Fulfill a single request
-boundless-cli proving fulfill --request-ids 0x5...
+boundless proving fulfill --request-ids 0x5...
 
 # Fulfill multiple requests
-boundless-cli proving fulfill --request-ids 0x123,0x456,0x789
+boundless proving fulfill --request-ids 0x123,0x456,0x789
 
 # Fulfill multiple requests with digests and tx hashes
-boundless-cli proving fulfill --request-ids 0x123,0x456,0x789 \
+boundless proving fulfill --request-ids 0x123,0x456,0x789 \
     --request-digests 0xabc,0xdef,0x012 \
     --tx-hashes 0x111,0x222,0x333
 ```
@@ -355,7 +355,7 @@ proving lock --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
 
 *Example*:
 ```
-boundless-cli proving lock --request-id 0x5...
+boundless proving lock --request-id 0x5...
 ```
 
 ### ops
@@ -371,7 +371,7 @@ ops slash <REQUEST_ID>
 ```
 *Example*:
 ```
-boundless-cli ops slash 0x5...
+boundless ops slash 0x5...
 ```
 
 ### config
@@ -379,7 +379,7 @@ boundless-cli ops slash 0x5...
 To make sure everything is set up correctly, you can run the following command:
 
 ```bash
-boundless-cli config
+boundless config
 ```
 
 This will display the current configuration, including the RPC URL, private key, Boundless Market address, Verifier address, and SetVerifier address.
@@ -416,7 +416,7 @@ During this current Boundless phase, provers require HP tokens for lock-in stake
 :::
 
 
-Below is an example of a `request.yaml` file that can be used with the `boundless-cli submit request` command.
+Below is an example of a `request.yaml` file that can be used with the `boundless submit request` command.
 
 ```yaml [request.yaml]
 # Unique ID for this request, constructed from the client address and a 32-bit index.
@@ -471,21 +471,21 @@ export ORDER_STREAM_URL="https://eth-sepolia.beboundless.xyz/"
 Then run the following command:
 
 ```sh [Terminal]
-RUST_LOG=info boundless-cli request submit request.yaml
+RUST_LOG=info boundless request submit request.yaml
 ```
 
 To wait until the submitted request has been fulfilled, the `--wait` option can be added:
 
 ```sh [Terminal]
 # [!code word:--wait]
-RUST_LOG=info boundless-cli request submit request.yaml --wait
+RUST_LOG=info boundless request submit request.yaml --wait
 ```
 
 And to submit the request to the offchain order-stream service, make a deposit and then run `request submit` with `--offchain`.
 
 ```sh [Terminal]
 # [!code word:--offchain]
-RUST_LOG=info boundless-cli account deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
-RUST_LOG=info boundless-cli request submit request.yaml --wait --offchain
+RUST_LOG=info boundless account deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
+RUST_LOG=info boundless request submit request.yaml --wait --offchain
 ```
 
