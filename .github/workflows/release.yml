@@ -24,10 +24,20 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  RISC0_TOOLCHAIN_VERSION: 1.85.0
+  RISC0_CRATE_VERSION: "2.1.0"
+  FOUNDRY_VERSION: v1.0.0
 
 jobs:
   deployment:
-    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     env:
       RPC_MAP: |
         {
@@ -43,23 +53,21 @@ jobs:
         with:
           submodules: recursive
 
-      - name: install foundry
+      - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: ${{ env.FOUNDRY_VERSION }}
 
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      
+      - uses: risc0/risc0/.github/actions/sccache@352dea62857ba57331053cd0986a12c1a4708732
         with:
-          toolchain: '1.85'
-
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
+          key: ${{ matrix.os }}-${{ matrix.feature }}
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '2.0.0'
+          risczero-version: '2.1.0'
           toolchain-version: '1.85.0'
 
       - name: forge build
