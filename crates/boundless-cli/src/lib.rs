@@ -353,9 +353,11 @@ async fn compress_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
                 let snark_receipt: Receipt = bincode::deserialize(&receipt_buf)?;
                 return Ok(snark_receipt);
             }
-            _ => {
+            status_code => {
                 let err_msg = status.error_msg.unwrap_or_default();
-                return Err(anyhow::anyhow!("snark proving failed: {err_msg}"));
+                return Err(anyhow::anyhow!(
+                    "snark proving failed with status {status_code}: {err_msg}"
+                ));
             }
         }
     }
