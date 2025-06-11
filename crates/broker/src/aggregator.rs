@@ -17,6 +17,7 @@ use crate::{
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     errors::CodedError,
+    futures_retry::retry,
     impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
@@ -27,6 +28,8 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum AggregatorErr {
+    #[error("{code} Batch failure: {0}", code = self.code())]
+    BatchFailure(String),
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -37,6 +40,7 @@ impl CodedError for AggregatorErr {
     fn code(&self) -> &str {
         match self {
             AggregatorErr::UnexpectedErr(_) => "[B-AGG-500]",
+            AggregatorErr::BatchFailure(_) => "[B-AGG-400]",
         }
     }
 }
@@ -258,7 +262,7 @@ impl AggregatorService {
     ///
     /// Checks current min-deadline, batch timer, and current block.
     async fn check_finalize(
-        &mut self,
+        &self,
         batch_id: usize,
         batch: &Batch,
         pending_orders: &[AggregationOrder],
@@ -458,7 +462,7 @@ impl AggregatorService {
     }
 
     async fn aggregate_proofs(
-        &mut self,
+        &self,
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
@@ -532,10 +536,7 @@ impl AggregatorService {
         Ok(aggregation_state.proof_id)
     }
 
-    async fn aggregate(&mut self) -> Result<(), AggregatorErr> {
-        // Get the current batch. This aggregator service works on one batch at a time, including
-        // any proofs ready for aggregation into the current batch.
-        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
+    async fn aggregate_batch(&self, batch_id: usize) -> Result<(), AggregatorErr> {
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
         let (aggregation_proof_id, compress) = match batch.status {
@@ -592,12 +593,47 @@ impl AggregatorService {
 
         Ok(())
     }
+
+    async fn aggregate(&self) -> Result<(), AggregatorErr> {
+        // Get the current batch. This aggregator service works on one batch at a time, including
+        // any proofs ready for aggregation into the current batch.
+        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
+
+        let (retry_count, sleep_ms) = {
+            let config = self.config.lock_all().context("Failed to lock config")?;
+            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+        };
+
+        if let Err(err) = retry(
+            retry_count,
+            sleep_ms,
+            || async { self.aggregate_batch(batch_id).await },
+            "aggregate_batch",
+        )
+        .await
+        {
+            let error_msg = format!(
+                "Failed to aggregate batch {batch_id} after {} retries: {err:?}",
+                retry_count + 1
+            );
+            tracing::error!("{}", error_msg);
+
+            self.db
+                .set_batch_failure(batch_id, error_msg.clone())
+                .await
+                .map_err(|e| AggregatorErr::UnexpectedErr(e.into()))?;
+
+            return Err(AggregatorErr::BatchFailure(error_msg));
+        }
+
+        Ok(())
+    }
 }
 
 impl RetryTask for AggregatorService {
     type Error = AggregatorErr;
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let mut self_clone = self.clone();
+        let self_clone = self.clone();
 
         Box::pin(async move {
             tracing::debug!("Starting Aggregator service");
@@ -696,7 +732,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let mut aggregator = AggregatorService::new(
+        let aggregator = AggregatorService::new(
             db.clone(),
             chain_id,
             set_builder_id,
@@ -857,7 +893,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let mut aggregator = AggregatorService::new(
+        let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
             set_builder_id,
@@ -1031,7 +1067,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let mut aggregator = AggregatorService::new(
+        let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
             set_builder_id,
@@ -1145,7 +1181,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let mut aggregator = AggregatorService::new(
+        let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
             set_builder_id,
@@ -1267,7 +1303,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let mut aggregator = AggregatorService::new(
+        let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
             set_builder_id,
