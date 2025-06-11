@@ -60,14 +60,14 @@ boundless [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 Check the balance of `0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c` on the Sepolia market.
 
 ```sh
-RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
+RPC_URL=https://rpc.node \
 boundless account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
 ```
 
 Send a proof request to the Sepolia market, with the program pre-uploaded to IPFS and an input of "hello".
 
 ```sh
-RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
+RPC_URL=https://rpc.node \
 PRIVATE_KEY=0xabc... \
 boundless request submit-offer --wait --input "hello" \
 --program-url http://dweb.link/ipfs/bafkreido62tz2uyieb3s6wmixwmg43hqybga2ztmdhimv7njuulf3yug4e
@@ -76,10 +76,15 @@ boundless request submit-offer --wait --input "hello" \
 Deposit 1.5 Sepolia ETH to the market.
 
 ```sh
-RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
+RPC_URL=https://rpc.node \
 PRIVATE_KEY=0xabc... \
 boundless account deposit 1.5
 ```
+
+:::tip[Alchemy]
+We recommend using Alchemy for your RPC URL during testing; their free tier is more than enough to test requesting a proof.
+Receiving proofs requires event queries, which public RPCs may not support.
+:::
 
 The options for RPC URL and private key can also be passed as flags: `--rpc-url` and `--private-key`.
 
@@ -490,10 +495,6 @@ To submit a request, export or create a `.env` file with the following environme
 ```sh [Terminal]
 export RPC_URL="https://ethereum-sepolia-rpc.publicnode.com"
 export PRIVATE_KEY="YOUR_SEPOLIA_WALLET_PRIVATE_KEY"
-export BOUNDLESS_MARKET_ADDRESS="0x006b92674E2A8d397884e293969f8eCD9f615f4C"
-export VERIFIER_ADDRESS="0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-export SET_VERIFIER_ADDRESS="0xad2c6335191EA71Ffe2045A8d54b93A851ceca77"
-export ORDER_STREAM_URL="https://eth-sepolia.beboundless.xyz/"
 ```
 
 Then run the following command:
