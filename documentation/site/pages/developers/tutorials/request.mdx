@@ -276,7 +276,7 @@ cargo install --locked boundless-cli
 You can also install the CLI from source with the following command:
 
 ```sh [Terminal]
-cargo install --path ./crates/boundless-cli --bin boundless-cli
+cargo install --path ./crates/boundless-cli --bin boundless
 ```
 
 ### Boundless CLI
@@ -306,7 +306,7 @@ During this current Boundless phase, provers require HP tokens for lock-in stake
 :::
 
 
-Below is an example of a `request.yaml` file that can be used with the `boundless-cli submit request` command.
+Below is an example of a `request.yaml` file that can be used with the `boundless submit request` command.
 
 ```yaml [request.yaml]
 # Unique ID for this request, constructed from the client address and a 32-bit index.
@@ -361,20 +361,20 @@ export ORDER_STREAM_URL="https://eth-sepolia.beboundless.xyz/"
 Then run the following command:
 
 ```sh [Terminal]
-RUST_LOG=info boundless-cli request submit request.yaml
+RUST_LOG=info boundless request submit request.yaml
 ```
 
 To wait until the submitted request has been fulfilled, the `--wait` option can be added:
 
 ```sh [Terminal]
 # [!code word:--wait]
-RUST_LOG=info boundless-cli request submit request.yaml --wait
+RUST_LOG=info boundless request submit request.yaml --wait
 ```
 
 And to submit the request to the offchain order-stream service, make a deposit and then run `request submit` with `--offchain`.
 
 ```sh [Terminal]
 # [!code word:--offchain]
-RUST_LOG=info boundless-cli account deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
-RUST_LOG=info boundless-cli request submit request.yaml --wait --offchain
+RUST_LOG=info boundless account deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
+RUST_LOG=info boundless request submit request.yaml --wait --offchain
 ```

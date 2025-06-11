@@ -121,6 +121,7 @@ pub trait BrokerDb {
         lock_price: U256,
     ) -> Result<Order, DbError>;
     async fn get_order(&self, id: &str) -> Result<Option<Order>, DbError>;
+    async fn get_orders(&self, ids: &[&str]) -> Result<Vec<Order>, DbError>;
     async fn get_submission_order(
         &self,
         id: &str,
@@ -329,6 +330,21 @@ impl BrokerDb for SqliteDb {
             .await?;
 
         Ok(order.map(|x| x.data))
+    }
+
+    async fn get_orders(&self, ids: &[&str]) -> Result<Vec<Order>, DbError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ");
+        let query = format!("SELECT * FROM orders WHERE id IN ({})", placeholders);
+
+        let mut q = sqlx::query_as::<_, DbOrder>(&query);
+        for id in ids {
+            q = q.bind(id);
+        }
+        let orders = q.fetch_all(&self.pool).await?;
+        Ok(orders.into_iter().map(|x| x.data).collect())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
@@ -1092,6 +1108,34 @@ mod tests {
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 
         assert_eq!(order.request, db_order.request);
+    }
+
+    #[sqlx::test]
+    async fn get_orders(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let mut order1 = create_order();
+        order1.request.id = U256::from(1);
+        let mut order2 = create_order();
+        order2.request.id = U256::from(2);
+        let mut order3 = create_order();
+        order3.request.id = U256::from(3);
+        db.add_order(&order1).await.unwrap();
+        db.add_order(&order2).await.unwrap();
+        db.add_order(&order3).await.unwrap();
+
+        let ids = [order1.id(), order2.id(), order3.id()];
+        let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        let orders = db.get_orders(&id_refs).await.unwrap();
+        assert_eq!(orders.len(), 3);
+        let returned_ids: Vec<String> = orders.iter().map(|o| o.id()).collect();
+        assert!(returned_ids.contains(&order1.id()));
+        assert!(returned_ids.contains(&order2.id()));
+        assert!(returned_ids.contains(&order3.id()));
+
+        // Test empty input returns empty vec
+        let empty: Vec<&str> = vec![];
+        let orders = db.get_orders(&empty).await.unwrap();
+        assert!(orders.is_empty());
     }
 
     #[sqlx::test]

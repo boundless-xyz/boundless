@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The Boundless CLI is a command-line interface for interacting with the Boundless Market API.
+//! The Boundless CLI is a command-line interface for interacting with Boundless.
 
 #![deny(missing_docs)]
 
@@ -400,7 +400,7 @@ mod tests {
     async fn test_fulfill_with_selector() {
         let signer = PrivateKeySigner::random();
         let (request, signature) =
-            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V2_0)).await;
+            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V2_1)).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());

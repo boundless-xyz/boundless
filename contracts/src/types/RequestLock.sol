@@ -61,23 +61,23 @@ library RequestLockLibrary {
 
     function setProverPaidBeforeLockDeadline(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags = PROVER_PAID_DURING_LOCK_FLAG;
-        // Zero out slots 1-2 for gas refund.
-        clearSlot1And2(requestLock);
+        // Zero out slots 1 for gas refund. Slot 1 is only required for slashing.
+        // Slot 2 is required to support a single request having multiple proofs delivered.
+        clearSlot1(requestLock);
     }
 
     function setProverPaidAfterLockDeadline(RequestLock storage requestLock, address prover) internal {
         requestLock.prover = prover;
         requestLock.requestLockFlags |= PROVER_PAID_AFTER_LOCK_FLAG;
-        // We don't zero out slot 1 as stake information is required for slashing.
-        // Zero out slot 2 for gas refund.
-        clearSlot2(requestLock);
+        // We don't zero out any slots as slot 1 is required for slashing, and slot 2 is required
+        // to support a single request having multiple proofs delivered.
     }
 
     function setSlashed(RequestLock storage requestLock) internal {
         requestLock.requestLockFlags |= SLASHED_FLAG;
-        // Zero out slots 1-2 for gas refund. Slot 2 may have already been zeroed out
-        // in the case where the request ended up being fulfilled after the lock deadline.
-        clearSlot1And2(requestLock);
+        // Zero out slots 1 for gas refund. Slot 2 is required to support partial fulfillment after
+        // the request has expired.
+        clearSlot1(requestLock);
     }
 
     /// @notice Returns true if the request was fulfilled by the locker
@@ -112,18 +112,9 @@ library RequestLockLibrary {
         return requestLock.requestLockFlags & SLASHED_FLAG != 0;
     }
 
-    function clearSlot2(RequestLock storage requestLock) private {
-        assembly {
-            let num := add(requestLock.slot, 2)
-            sstore(num, 0)
-        }
-    }
-
-    function clearSlot1And2(RequestLock storage requestLock) private {
+    function clearSlot1(RequestLock storage requestLock) private {
         assembly {
             let num := add(requestLock.slot, 1)
-            sstore(num, 0)
-            num := add(num, 1)
             sstore(num, 0)
         }
     }

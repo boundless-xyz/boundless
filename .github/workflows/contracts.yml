@@ -15,6 +15,7 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FOUNDRY_VERSION: v1.2.2
 
 jobs:
   contracts-changed:
@@ -52,10 +53,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: install foundry
+      - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: ${{ env.FOUNDRY_VERSION }}
 
       - name: print forge version
         run: forge --version
