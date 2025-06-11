@@ -132,7 +132,7 @@ services:
   snark_agent:
     <<: *agent-common
     runtime: nvidia
-    entrypoint: /app/agent -t snark --snark-timeout ${SNARK_TIMEOUT:-180}
+    entrypoint: /app/agent -t snark
 
     ulimits:
       # Needed for stark_verify bin
@@ -155,7 +155,7 @@ services:
     ports:
       - '8081:8081'
 
-    entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081
+    entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
 
   broker:
     restart: always
