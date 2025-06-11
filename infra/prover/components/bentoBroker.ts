@@ -268,7 +268,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                                 `echo "Restarting Broker"`,
                                 "systemctl start boundless-broker.service"
                             ],
-                            timeoutSeconds: 3600,
+                            timeoutSeconds: 7200,
                             workingDirectory: "/local/boundless"
                         }
                     }

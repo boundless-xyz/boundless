@@ -37,6 +37,8 @@ use thiserror::Error;
 
 use crate::errors::CodedError;
 
+use tokio_util::sync::CancellationToken;
+
 #[derive(Error)]
 pub enum SubmitterErr {
     #[error("{code} Batch submission failed: {0:?}", code = self.code())]
@@ -555,12 +557,18 @@ where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     type Error = SubmitterErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let obj_clone = self.clone();
 
         Box::pin(async move {
             tracing::info!("Starting Submitter service");
             loop {
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Submitter service received cancellation");
+                    break;
+                }
+
+                // Process batch without interruption
                 let result = obj_clone.process_next_batch().await;
                 if let Err(err) = result {
                     // Only restart the service on unexpected errors.
@@ -579,6 +587,7 @@ where
                 // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
+            Ok(())
         })
     }
 }

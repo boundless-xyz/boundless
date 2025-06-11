@@ -161,6 +161,13 @@ services:
     restart: always
     depends_on:
       - rest_api
+      - gpu_prove_agent0
+      - exec_agent0
+      - exec_agent1
+      - aux_agent
+      - snark_agent
+      - redis
+      - postgres
 
     profiles: [broker]
 
@@ -170,6 +177,8 @@ services:
 
     mem_limit: 2G
     cpus: 2
+
+    stop_grace_period: 3h
 
     volumes:
       - type: bind

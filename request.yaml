@@ -27,7 +27,7 @@ input:
 
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 offer:
-    minPrice: 100000000000000
+    minPrice: 1000000000000000
     maxPrice: 2000000000000000
     biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
     rampUpPeriod: 300
