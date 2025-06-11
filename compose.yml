@@ -132,7 +132,7 @@ services:
   snark_agent:
     <<: *agent-common
     runtime: nvidia
-    entrypoint: /app/agent -t snark
+    entrypoint: /app/agent -t snark --snark-timeout ${SNARK_TIMEOUT:-180}
 
     ulimits:
       # Needed for stark_verify bin
