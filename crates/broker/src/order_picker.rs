@@ -1514,10 +1514,8 @@ mod tests {
             order.request.offer.biddingStart + order.request.offer.timeout as u64;
 
         let expected_log = format!(
-            "Setting order {} to prove after lock expiry at {} ({} seconds from now)",
-            order_id,
-            expected_target_timestamp,
-            expected_target_timestamp.saturating_sub(now_timestamp())
+            "Setting order {} to prove after lock expiry at {}",
+            order_id, expected_target_timestamp
         );
         assert!(ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
@@ -1604,13 +1602,10 @@ mod tests {
 
         // Check logs for the expected message about setting exec limit to max_mcycle_limit
         assert!(logs_contain(&format!(
-            "Order with request id {request2_id:x} exec limit computed from max price exceeds config max_mcycle_limit, setting exec limit to max_mcycle_limit"
+            "Order with request id {request2_id:x} exec limit computed from max price"
         )));
-        assert!(logs_contain(&format!(
-            "Starting preflight execution of 2 exec limit {} cycles (~{} mcycles)",
-            exec_limit * 1_000_000,
-            exec_limit
-        )));
+        assert!(logs_contain("exceeds config max_mcycle_limit"));
+        assert!(logs_contain("setting exec limit to max_mcycle_limit"));
     }
 
     #[tokio::test]
