@@ -91,7 +91,7 @@ pub enum MarketError {
     LockRevert(B256),
 
     /// General market error.
-    #[error("Market error: {0}")]
+    #[error("Other error: {0:?}")]
     Error(#[from] anyhow::Error),
 
     /// Timeout reached.
