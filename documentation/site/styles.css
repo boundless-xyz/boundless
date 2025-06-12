@@ -93,8 +93,12 @@ html {
   @apply scroll-smooth;
 }
 
+.vocs_Sidebar_section:first-child {
+  @apply sticky top-[61px] bg-[var(--vocs-color_backgroundDark)];
+}
+
 .vocs_Sidebar_section:first-child .vocs_Sidebar_items:first-child {
-  @apply flex flex-row gap-0 border-b border-[#d8d3be] pb-0;
+  @apply flex flex-row gap-0 border-b border-[#d8d3be] pb-0 sticky top-0 left-0 right-0;
 }
 
 .dark .vocs_Sidebar_section:first-child .vocs_Sidebar_items:first-child {
