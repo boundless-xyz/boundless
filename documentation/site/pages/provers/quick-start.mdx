@@ -99,7 +99,8 @@ cargo install --locked boundless-cli
 To set the `VERIFIER_ADDRESS`, `SET_VERIFIER_ADDRESS`, `BOUNDLESS_MARKET_ADDRESS` automatically for Ethereum Sepolia, run:
 
 ```sh [Terminal]
-source <(just env testnet)
+# Use the env file based on the network you are connecting to
+source .env.eth-sepolia
 ```
 
 You'll need to set two more environment variables yourself:
