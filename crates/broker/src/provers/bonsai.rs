@@ -106,10 +106,10 @@ impl Bonsai {
                     let receipt_buf = client.download(&output).await?;
                     return Ok(bincode::deserialize(&receipt_buf)?);
                 }
-                _ => {
+                status_code => {
                     let err_msg = status.error_msg.unwrap_or_default();
                     return Err(ProverError::ProvingFailed(format!(
-                        "snark proving failed: {err_msg}"
+                        "snark proving failed with status {status_code}: {err_msg}"
                     )));
                 }
             }
@@ -247,13 +247,13 @@ impl StatusPoller {
                     continue;
                 }
                 "SUCCEEDED" => return Ok(proof_id.uuid.clone()),
-                _ => {
+                status_code => {
                     let err_msg = status.error_msg.unwrap_or_default();
                     if err_msg.contains("INTERNAL_ERROR") {
                         return Err(ProverError::ProverInternalError(err_msg.clone()));
                     }
                     return Err(ProverError::ProvingFailed(format!(
-                        "snark proving failed: {err_msg}"
+                        "snark proving failed with status {status_code}: {err_msg}"
                     )));
                 }
             }
