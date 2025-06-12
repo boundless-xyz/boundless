@@ -36,6 +36,7 @@ export PRIVATE_KEY="abcdef..."
 
 :::tip[Alchemy]
 We recommend using Alchemy for your RPC URL during testing; their free tier is more than enough to test requesting a proof.
+Receiving proofs requires event queries, which public RPCs may not support.
 :::
 
 #### Storage Provider
@@ -98,7 +99,7 @@ let client = Client::builder()
 // Create a request using new_request
 let request = client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes());
 
-// Submit the request directly
+// Submit the request onchain, via a transaction
 let (request_id, expires_at) = client.submit_onchain(request).await?;
 # Ok(())
 # }
@@ -140,7 +141,7 @@ This will store the `journal` and `seal` from the Boundless market, together the
 
 ### Storage Providers
 
-The Boundless Market SDK automatically configures the storage provider based on environment variables; it supports both IPFS and S3 for storage.
+The Boundless Market SDK automatically configures the storage provider based on environment variables; it supports both IPFS and S3 for uploading programs and inputs.
 
 #### IPFS
 
@@ -210,10 +211,10 @@ Provers must be able to access your guest program via a publicly accessible URL;
 ```rust
 # use boundless_market::{Client, storage::storage_provider_from_env};
 # async fn upload_program(program: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-# let client = Client::builder()
-#   .with_storage_provider(Some(storage_provider_from_env()?))
-#   .build()
-#   .await?;
+let client = Client::builder()
+  .with_storage_provider(Some(storage_provider_from_env()?))
+  .build()
+  .await?;
 let program_url = client.upload_program(program).await?;
 # Ok(())
 # }
@@ -249,28 +250,31 @@ If you are working in a monorepo (i.e. your zkVM host/guest is in the same repo)
 # use boundless_market::{Client};
 # async fn create_proof_request(
 # client: Client,
-# program: &'static [u8],
 # input: &[u8]) -> Result<()> {
-// In a real application, you would import ECHO_ELF from your guest code:
-// use guest_util::{ECHO_ELF};
-# let ECHO_ELF = program;
-# let echo_message = "Hello, world!";
-
+# mod guest_util {
+#    ECHO_ELF: &[u8] = b"";
+# }
+// Import ECHO_ELF from your guest code
+use guest_util::{ECHO_ELF};
 // Create a request using new_request
-let request = client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes());
+let request = client.new_request()
+  .with_program(ECHO_ELF)
+  .with_stdin(b"Hello, world!");
 # Ok(())
 # }
 ```
 </StripRustCodeComments>
 
-### Uploading Inputs
+### Inputs
 
 :::tip[*Rather not have inputs publicly available?**]
 When working with trusted provers, you can store inputs in *Amazon S3* and restrict access via AWS S3's permission management - [Sensitive Inputs tutorial](/developers/tutorials/sensitive-inputs).
 :::
 
 To execute and run proving, the prover requires the inputs of the program.
-Similar to the program executable, the program inputs are uploaded to the same storage provider. This can be done manually like so:
+Inputs can be provides as a public URL, or "inline" by including them directly in the request.
+
+Program inputs are uploaded to the same storage provider. This can be done manually like so:
 
 <StripRustCodeComments>
 ```rust
@@ -286,7 +290,7 @@ let input_url = client.upload_input(&input_bytes).await?;
 ```
 </StripRustCodeComments>
 
-or if we look back at the counter example, we can see that the inputs are included directly into the request:
+or if we look back at the counter example, we can see that the inputs are included directly into the request builder:
 
 <StripRustCodeComments>
 ```rust
@@ -308,8 +312,10 @@ let (request_id, expires_at) = client.submit_onchain(request).await?;
 ```
 </StripRustCodeComments>
 
-When submitting requests onchain, this will cost more gas if the inputs are large.
-The offchain order-stream service also places limits on the size of in-line input.
+In this example, inputs are included inline if they are small (e.g. less than 1 kB) or uploaded to a public URL first if they are large.
+
+When submitting requests onchain with inline inputs, this will cost more gas if the inputs are large.
+The offchain order-stream service also places limits on the size of inline input.
 
 ### Onchain vs Offchain
 
@@ -387,7 +393,7 @@ There are two ways to configure offer parameters:
 
 - Use `with_offer` when:
   - You need to override the automatic calculations for a specific request
-  - You want to set exact prices rather than using cycle-based calculations
+  - You want to set exact prices rather than using cycle-based and gas-price calculations
   - You have special requirements for a particular proof request
 
 #### Per-Request Configuration with `with_offer`
@@ -415,8 +421,8 @@ let request = client.new_request()
       .max_price(parse_ether("0.002")?)
       // The timeout is the maximum number of blocks the request can stay
       // unfulfilled in the market before it expires. If a prover locks in
-      // the request and does not fulfill it before the timeout, the prover can be
-      // slashed.
+      // the request and does not fulfill it before the lock timeout, the
+      // prover can be slashed.
       .timeout(1000)
       .lock_timeout(500)
       .ramp_up_period(100)
@@ -465,9 +471,6 @@ let client = Client::builder()
     .ramp_up_period(36)
     .lock_timeout(120)
     .timeout(300)
-    // Configure gas estimates for more accurate pricing
-    .lock_gas_estimate(200_000)
-    .fulfill_gas_estimate(750_000)
   )
   .build()
   .await?;
@@ -476,28 +479,4 @@ let client = Client::builder()
 ```
 </StripRustCodeComments>
 
-With this configuration, when you create requests and provide cycle count estimates, the SDK will automatically calculate appropriate prices:
-
-<StripRustCodeComments>
-```rust
-# use anyhow::Result;
-# use boundless_market::{Client};
-# async fn create_proof_request(
-# client: Client,
-# program: &'static [u8],
-# input: &[u8]) -> Result<()> {
-// The SDK will automatically calculate prices based on the cycle count
-let request = client.new_request()
-  .with_program(program)
-  .with_stdin(input)
-  .with_cycles(1_000_000); // Provide cycle count for automatic pricing
-
-// The offer will be calculated using:
-// - min_price = min_price_per_cycle * cycle_count
-// - max_price = max_price_per_cycle * cycle_count + gas_cost_estimate
-let (request_id, expires_at) = client.submit_onchain(request).await?;
-# Ok(())
-# }
-```
-</StripRustCodeComments>
-
+With this configuration, the SDK will execute the request to estimate cycles and calculate appropriate prices.
