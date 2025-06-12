@@ -12,7 +12,7 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig, client::Client, deployments::Deployment,
     input::GuestEnv, request_builder::OfferParams, storage::fetch_url,
@@ -153,6 +153,11 @@ async fn run(args: &MainArgs) -> Result<()> {
         .build()
         .await?;
 
+    let ipfs_gateway = args
+        .storage_config
+        .ipfs_gateway_url
+        .clone()
+        .unwrap_or(Url::parse("https://gateway.pinata.cloud").unwrap());
     // Ensure we have both a program and a program URL.
     let program = args.program.as_ref().map(std::fs::read).transpose()?;
     let program_url = match program {
@@ -163,11 +168,13 @@ async fn run(args: &MainArgs) -> Result<()> {
         }
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            Url::parse("https://gateway.pinata.cloud/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi").unwrap()
+            ipfs_gateway
+                .join("/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi")
+                .unwrap()
         }
     };
     let program = match program {
-        None => fetch_url(&program_url).await?,
+        None => fetch_url(&program_url).await.context("failed to fetch order generator program")?,
         Some(program) => program,
     };
 
