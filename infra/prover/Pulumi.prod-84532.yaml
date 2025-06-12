@@ -25,5 +25,5 @@ config:
   bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-prod-84532.toml
   bonsai-prover:PRIVATE_KEY:
     secure: v1:WMkGdLo929YT4aZU:I+3FDCDbb3hgz5YMmAAMbyzV2wJ7DjGvQ7fOMOXfkV4WnjW7VFnfUXGJ6WQDdPMFOQMmkyr6w6BrWOTZ5MeSBUVCtZpfEkWTyysU7xGWa/k=
-  prover:ETH_RPC_URL:
+  base-prover:ETH_RPC_URL:
     secure: v1:WQxOU9hlcG1cREJ6:o1VDr4FDGzalqqdkp4jczT9Nl6u3VIMC6A1mRptKHW99CX6sA9vbIAvKed6LKEvkFLAZ2rRO3M+1NcDoDEwyBf3hcha69E2vpDGA3qUkWZxm2EE5FiU=
