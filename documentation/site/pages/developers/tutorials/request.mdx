@@ -260,7 +260,7 @@ If you are working in a monorepo (i.e. your zkVM host/guest is in the same repo)
 # client: Client,
 # input: &[u8]) -> Result<()> {
 # mod guest_util {
-#    ECHO_ELF: &[u8] = b"";
+#    pub const ECHO_ELF: &[u8] = b"";
 # }
 // Import ECHO_ELF from your guest code
 use guest_util::{ECHO_ELF};
