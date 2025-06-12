@@ -575,10 +575,11 @@ ExecStartPre=/local/create-broker-env.sh
 WorkingDirectory=/local/boundless
 ExecStart=/snap/bin/just broker up /local/.env.broker detached=false
 ExecStop=/snap/bin/just broker down
+KillSignal=SIGTERM
 Restart=always
 RestartSec=10
 TimeoutStartSec=3600
-TimeoutStopSec=120
+TimeoutStopSec=7200
 
 [Install]
 WantedBy=multi-user.target
