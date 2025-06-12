@@ -10,7 +10,7 @@ Therefore, this page is split into two sections:
   - The second section, [Request Configuration](#request-configuration), covers all available configuration options for the 5% of requests that require fine-tuning.
 
 :::note[Source Code]
-The *Sending a Request* section uses the counter example as a template, its source code can be found at: [apps/src/main.rs](https://github.com/boundless-xyz/boundless/blob/main/examples/counter/apps/src/main.rs)
+The *Sending a Request* section uses the counter example as a template, its source code can be found at: [boundless/examples/counter](https://github.com/boundless-xyz/boundless/tree/main/examples/counter)
 :::
 
 ## Sending a Request
@@ -27,6 +27,11 @@ We recommend using [clap](https://crates.io/crates/clap) to parse these environm
 
 #### Blockchain
 
+:::tip[Alchemy]
+We recommend using Alchemy for your RPC URL during testing; their free tier is more than enough to test requesting a proof.
+Receiving proofs requires event queries, which public RPCs may not support.
+:::
+
 Since we are submitting requests onchain, we will need private key for a wallet with sufficient funds on Sepolia, and a working RPC URL:
 
 ```bash
@@ -34,12 +39,15 @@ export RPC_URL="https://..."
 export PRIVATE_KEY="abcdef..."
 ```
 
-:::tip[Alchemy]
-We recommend using Alchemy for your RPC URL during testing; their free tier is more than enough to test requesting a proof.
-Receiving proofs requires event queries, which public RPCs may not support.
-:::
-
 #### Storage Provider
+
+:::tip[Pre-uploading your program to a public URL]
+For this tutorial, we suggest using a Pinata API key which will upload your program at runtime.
+
+If you do not want to use an API key, or if you want to use a provider other than Pinata, you can pre-upload you program to a public URL (this could be hosted via Pinata or any other service).
+
+To see more information about this option, please read [No Storage Provider](/developers/tutorials/request#no-storage-provider).
+:::
 
 To make a program, and its inputs, accessible to provers, they need to be hosted at a public URL. We recommend using IPFS for storage, particularly via [Pinata](https://pinata.cloud), as their free tier comfortably covers most Boundless use cases.
 
