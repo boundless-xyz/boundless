@@ -156,7 +156,7 @@ min_batch_size = 1
 #
 # Number of seconds before the lowest block deadline in the order batch
 # to flush the batch. This should be approximately snark_proving_time * 2
-block_deadline_buffer_secs = 120
+block_deadline_buffer_secs = 180
 # Timeout, in seconds for transaction confirmations
 txn_timeout = 45
 # Use the single TXN submission that batches submit_merkle / fulfill_batch into

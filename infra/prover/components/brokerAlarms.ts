@@ -275,6 +275,10 @@ export const createProverAlarms = (
   }, { period: 1800 }, "Proving with retries failed 2 times within 30 minutes");
 
   // Aggregator
+  //
+  // 1 batch failure to compress triggers a SEV2 alarm. This indicates a fault with the prover.
+  createErrorCodeAlarm('"[B-AGG-400]"', 'aggregator-compression-error', Severity.SEV2);
+
   // Any 1 unexpected error in the aggregator triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV2);
 
