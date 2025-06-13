@@ -16,7 +16,7 @@ config:
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:PINATA_GATEWAY_URL: https://indigo-quickest-hamster-225.mypinata.cloud
+  order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:INTERVAL: "300"
   order-generator-base:LOCK_STAKE_RAW: "500000"
