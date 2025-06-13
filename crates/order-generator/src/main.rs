@@ -312,7 +312,7 @@ mod tests {
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
     use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
-    use boundless_market_test_utils::create_test_ctx;
+    use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
     use tracing_test::traced_test;
 
     use super::*;
@@ -338,7 +338,7 @@ mod tests {
             timeout: 1000,
             lock_timeout: 1000,
             seconds_per_mcycle: 60,
-            program: None,
+            program: Some(LOOP_PATH.parse().unwrap()),
             input: None,
             input_max_mcycles: None,
             warn_balance_below: None,
