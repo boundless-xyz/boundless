@@ -13,7 +13,7 @@ config:
   slasher:LOG_LEVEL: debug,boundless_slasher=trace,alloy_transport_http=info,hyper_util=info
   slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   slasher:PRIVATE_KEY:
-    secure: v1:P2e1Vg6FMIvteW1p:jz9TWyUY353iNyqWwaAkHo9e4Jj53GOLaMyWeSYyeU6wVbLyomGINALSNEUAulyoN+AXXuoDlCcLMh3muU4iH7lp42aJpHEWvKPGBiq6pJw=
+    secure: v1:zcYWqUF5h5jDP2yj:/MBur9gX14DdjHfBkWhYo6lVwg3TTO8Liw1fz4DfnnP2LoftiLSfFZh5skOqj1gYc6Dc/D9KeyrlInhcoVoY9p5C7en6QnyOAKPmSEtLVs8=
   slasher:RETRIES: "5"
   slasher:SKIP_ADDRESSES: ""
   slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
