@@ -16,13 +16,14 @@ config:
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-84532.toml
   bento-prover:LOG_JSON: "true"
   bento-prover:PRIVATE_KEY:
-    secure: v1:U3A04k9+r+v/nv60:glZpEfPmQcvLOtJ0GAVXTHksqKsvcfoW22+fSrnD3jaERJjXMknbv8kjEybsSbePr5AKM7NV71kEjFV5PJbZiUWGxbkllaHE0Pz0FcaXQKU=
+    secure: v1:snKTOcpXAy2izkF4:npC/QgA4gcIKVOM+bbgqaLP56HaTMndl5TqF8HOu8IMkbpu63NwhHXhxshQ5SmHxVWxjXPlLeIQ7TTg69V2Qf/nZR6TDn7keYiIu76xBPvI=
   bento-prover:SEGMENT_SIZE: "19"
+  bento-prover:SNARK_TIMEOUT: "240"
   bonsai-prover:BONSAI_API_KEY:
     secure: v1:TQceOMB2gkPHTQti:86X5QenfekfTYjsHsNnlz4SbHc/IoLbZRtL8pHSX7UQu1JfvH0d/cv1wMApBAMphMhnvMJNKD8Q=
   bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
   bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-prod-84532.toml
   bonsai-prover:PRIVATE_KEY:
-    secure: v1:WMkGdLo929YT4aZU:I+3FDCDbb3hgz5YMmAAMbyzV2wJ7DjGvQ7fOMOXfkV4WnjW7VFnfUXGJ6WQDdPMFOQMmkyr6w6BrWOTZ5MeSBUVCtZpfEkWTyysU7xGWa/k=
-  prover:ETH_RPC_URL:
+    secure: v1:mLXwLMD1EhSSYwkS:JYb3H7gkMbKINmgOEOq/UEyJxetYBIPFGCC+Vqo4+TenFOVp5IOedBHbLNlajjsqACONEIuDzIDShFMT9Ec865HSs8D3X5SnO5drYeq35qg=
+  base-prover:ETH_RPC_URL:
     secure: v1:WQxOU9hlcG1cREJ6:o1VDr4FDGzalqqdkp4jczT9Nl6u3VIMC6A1mRptKHW99CX6sA9vbIAvKed6LKEvkFLAZ2rRO3M+1NcDoDEwyBf3hcha69E2vpDGA3qUkWZxm2EE5FiU=

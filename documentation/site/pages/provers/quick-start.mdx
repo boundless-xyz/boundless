@@ -1,5 +1,11 @@
 # Quick Start
 
+:::tip[Need Help?]
+If you encounter issues that need technical support, join our [Discord community](https://discord.gg/aXRuD6spez) and claim the prover role via [Guild.xyz](https://guild.xyz/boundless-xyz) to get access to the *#prover-support-forum* channel. The Boundless team and experienced provers are there to help troubleshoot issues and share best practices.
+:::
+
+## Clone the Boundless repo
+
 :::warning[Warning]
 **Incentives for provers are not active for this phase.**
 :::
@@ -93,7 +99,8 @@ cargo install --locked boundless-cli
 To set the `VERIFIER_ADDRESS`, `SET_VERIFIER_ADDRESS`, `BOUNDLESS_MARKET_ADDRESS` automatically for Ethereum Sepolia, run:
 
 ```sh [Terminal]
-source <(just env testnet)
+# Use the env file based on the network you are connecting to
+source .env.eth-sepolia
 ```
 
 You'll need to set two more environment variables yourself:

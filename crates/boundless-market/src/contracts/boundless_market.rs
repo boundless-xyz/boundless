@@ -91,7 +91,7 @@ pub enum MarketError {
     LockRevert(B256),
 
     /// General market error.
-    #[error("Market error: {0}")]
+    #[error("Other error: {0:?}")]
     Error(#[from] anyhow::Error),
 
     /// Timeout reached.
@@ -190,13 +190,13 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
 
 impl<P: Provider> BoundlessMarketService<P> {
     /// Creates a new Boundless market service.
-    pub fn new(address: Address, provider: P, caller: Address) -> Self {
-        let instance = IBoundlessMarket::new(address, provider);
+    pub fn new(address: impl Into<Address>, provider: P, caller: impl Into<Address>) -> Self {
+        let instance = IBoundlessMarket::new(address.into(), provider);
 
         Self {
             instance,
             chain_id: AtomicU64::new(0),
-            caller,
+            caller: caller.into(),
             timeout: TXN_CONFIRM_TIMEOUT,
             event_query_config: EventQueryConfig::default(),
             balance_alert_config: StakeBalanceAlertConfig::default(),
@@ -291,7 +291,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Returns the balance, in Wei, of the given account.
-    pub async fn balance_of(&self, account: Address) -> Result<U256, MarketError> {
+    pub async fn balance_of(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
+        let account = account.into();
         tracing::trace!("Calling balanceOf({account})");
         let balance = self.instance.balanceOf(account).call().await?;
 
@@ -341,12 +342,11 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn submit_request_with_signature(
         &self,
         request: &ProofRequest,
-        signature: &Bytes,
+        signature: impl Into<Bytes>,
     ) -> Result<U256, MarketError> {
         tracing::trace!("Calling submitRequest({:x?})", request);
         tracing::debug!("Sending request ID {:x}", request.id);
-        let call =
-            self.instance.submitRequest(request.clone(), signature.clone()).from(self.caller);
+        let call = self.instance.submitRequest(request.clone(), signature.into()).from(self.caller);
         let pending_tx = call.send().await?;
         tracing::debug!(
             "Broadcasting tx {:x} with request ID {:x}",
@@ -390,7 +390,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn lock_request(
         &self,
         request: &ProofRequest,
-        client_sig: &Bytes,
+        client_sig: impl Into<Bytes>,
         priority_gas: Option<u64>,
     ) -> Result<u64, MarketError> {
         tracing::trace!("Calling requestIsLocked({:x})", request.id);
@@ -400,10 +400,11 @@ impl<P: Provider> BoundlessMarketService<P> {
             return Err(MarketError::RequestAlreadyLocked(request.id));
         }
 
-        tracing::trace!("Calling lockRequest({:x?}, {:x?})", request, client_sig);
+        let client_sig_bytes = client_sig.into();
+        tracing::trace!("Calling lockRequest({:x?}, {:x?})", request, client_sig_bytes);
 
         let mut call =
-            self.instance.lockRequest(request.clone(), client_sig.clone()).from(self.caller);
+            self.instance.lockRequest(request.clone(), client_sig_bytes).from(self.caller);
 
         if let Some(gas) = priority_gas {
             let priority_fee = self
@@ -452,9 +453,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn lock_request_with_signature(
         &self,
         request: &ProofRequest,
-        client_sig: &Bytes,
-        prover_address: Address,
-        prover_sig: &Bytes,
+        client_sig: impl Into<Bytes>,
+        prover_sig: impl Into<Bytes>,
         _priority_gas: Option<u128>,
     ) -> Result<u64, MarketError> {
         tracing::trace!("Calling requestIsLocked({:x})", request.id);
@@ -464,17 +464,18 @@ impl<P: Provider> BoundlessMarketService<P> {
             return Err(MarketError::RequestAlreadyLocked(request.id));
         }
 
+        let client_sig_bytes = client_sig.into();
+        let prover_sig_bytes = prover_sig.into();
         tracing::trace!(
-            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?}, {:x?})",
+            "Calling lockRequestWithSignature({:x?}, {:x?}, {:x?})",
             request,
-            client_sig,
-            prover_address,
-            prover_sig
+            client_sig_bytes,
+            prover_sig_bytes
         );
 
         let call = self
             .instance
-            .lockRequestWithSignature(request.clone(), client_sig.clone(), prover_sig.clone())
+            .lockRequestWithSignature(request.clone(), client_sig_bytes.clone(), prover_sig_bytes)
             .from(self.caller);
         let pending_tx = call.send().await.context("Failed to lock")?;
         tracing::trace!("Broadcasting lock request with signature tx {}", pending_tx.tx_hash());
@@ -1317,7 +1318,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Returns the deposited balance, in HP, of the given account.
-    pub async fn balance_of_stake(&self, account: Address) -> Result<U256, MarketError> {
+    pub async fn balance_of_stake(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
+        let account = account.into();
         tracing::trace!("Calling balanceOfStake({})", account);
         let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?;
         Ok(balance)
@@ -1466,8 +1468,8 @@ pub struct UnlockedRequest {
 
 impl UnlockedRequest {
     /// Creates a new instance of the `UnlockedRequest` struct.
-    pub fn new(request: ProofRequest, client_sig: Bytes) -> Self {
-        Self { request, client_sig }
+    pub fn new(request: ProofRequest, client_sig: impl Into<Bytes>) -> Self {
+        Self { request, client_sig: client_sig.into() }
     }
 }
 
@@ -1504,8 +1506,16 @@ impl FulfillmentTx {
     }
 
     /// Sets the parameters for submitting a Merkle Root.
-    pub fn with_submit_root(self, verifier_address: Address, root: B256, seal: Bytes) -> Self {
-        Self { root: Some(Root { verifier_address, root, seal }), ..self }
+    pub fn with_submit_root(
+        self,
+        verifier_address: impl Into<Address>,
+        root: B256,
+        seal: impl Into<Bytes>,
+    ) -> Self {
+        Self {
+            root: Some(Root { verifier_address: verifier_address.into(), root, seal: seal.into() }),
+            ..self
+        }
     }
 
     /// Adds an unlocked request to be priced to the transaction.

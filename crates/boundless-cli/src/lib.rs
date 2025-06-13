@@ -353,9 +353,11 @@ async fn compress_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
                 let snark_receipt: Receipt = bincode::deserialize(&receipt_buf)?;
                 return Ok(snark_receipt);
             }
-            _ => {
+            status_code => {
                 let err_msg = status.error_msg.unwrap_or_default();
-                return Err(anyhow::anyhow!("snark proving failed: {err_msg}"));
+                return Err(anyhow::anyhow!(
+                    "snark proving failed with status {status_code}: {err_msg}"
+                ));
             }
         }
     }
@@ -400,7 +402,7 @@ mod tests {
     async fn test_fulfill_with_selector() {
         let signer = PrivateKeySigner::random();
         let (request, signature) =
-            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V2_0)).await;
+            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V2_1)).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
         let request_digest = request.eip712_signing_hash(&domain.alloy_struct());

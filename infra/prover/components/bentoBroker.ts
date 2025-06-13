@@ -14,6 +14,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         chainId: string;
         gitBranch: string;
         segmentSize: number;
+        snarkTimeout: number;
         privateKey: string | pulumi.Output<string>;
         ethRpcUrl: string | pulumi.Output<string>;
         orderStreamUrl: string | pulumi.Output<string>;
@@ -45,6 +46,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
             gitBranch,
             boundlessAlertsTopicArns,
             segmentSize,
+            snarkTimeout,
             logJson
         } = args;
 
@@ -268,7 +270,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                                 `echo "Restarting Broker"`,
                                 "systemctl start boundless-broker.service"
                             ],
-                            timeoutSeconds: 3600,
+                            timeoutSeconds: 7200,
                             workingDirectory: "/local/boundless"
                         }
                     }
@@ -345,6 +347,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                     boundlessMarketAddress,
                     gitBranch,
                     segmentSize,
+                    snarkTimeout,
                     secretArns: {
                         ethRpcUrl: ethRpcArn,
                         privateKey: privateKeyArn,
@@ -396,6 +399,28 @@ cat > /opt/aws/amazon-cloudwatch-agent/bin/config.json << 'EOF'
     "agent": {
         "metrics_collection_interval": 60,
         "run_as_user": "root"
+    },
+    "metrics": {
+        "namespace": "Boundless/Services/${name}",
+        "metrics_collected": {
+            "nvidia_gpu": {
+                "measurement": [
+                    "utilization_gpu",
+                    "memory_total",
+                    "memory_used",
+                    "memory_free"
+                ]
+            },
+	        "mem": {
+                "measurement": [
+                    "mem_used_percent",
+                    "mem_available",
+                    "mem_free",
+                    "mem_total"
+                ]
+            }
+        },
+        "aggregation_dimensions": [[]]
     },
     "logs": {
         "logs_collected": {
@@ -493,6 +518,7 @@ ETH_RPC_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.ethRpcUrl')
 PRIVATE_KEY_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.privateKey')
 ORDER_STREAM_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.orderStreamUrl')
 SEGMENT_SIZE=$(echo $CONFIG | jq -r '.segmentSize')
+SNARK_TIMEOUT=$(echo $CONFIG | jq -r '.snarkTimeout')
 LOG_JSON=$(echo $CONFIG | jq -r '.logJson')
 # Get secrets from AWS Secrets Manager
 RPC_URL=$(aws --region ${region} secretsmanager get-secret-value --secret-id $ETH_RPC_URL_SECRET_ARN --query SecretString --output text)
@@ -514,6 +540,7 @@ RPC_URL=$RPC_URL
 PRIVATE_KEY=$PRIVATE_KEY
 ORDER_STREAM_URL=$ORDER_STREAM_URL
 SEGMENT_SIZE=$SEGMENT_SIZE
+SNARK_TIMEOUT=$SNARK_TIMEOUT
 LOG_JSON=$LOG_JSON
 ENVEOF
 
@@ -548,10 +575,11 @@ ExecStartPre=/local/create-broker-env.sh
 WorkingDirectory=/local/boundless
 ExecStart=/snap/bin/just broker up /local/.env.broker detached=false
 ExecStop=/snap/bin/just broker down
+KillSignal=SIGTERM
 Restart=always
 RestartSec=10
 TimeoutStartSec=3600
-TimeoutStopSec=120
+TimeoutStopSec=7200
 
 [Install]
 WantedBy=multi-user.target
@@ -605,6 +633,79 @@ reboot
         const alarmActions = boundlessAlertsTopicArns ?? [];
 
         createProverAlarms(serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions);
+
+        this.instance.id.apply((instanceId) => {
+            new aws.cloudwatch.MetricAlarm(`${serviceName}-cpu-util-${Severity.SEV2}`, {
+                name: `${serviceName}-cpu-util-${Severity.SEV2}`,
+                metricName: "CPUUtilization",
+                namespace: "AWS/EC2",
+                statistic: "Maximum",
+                dimensions: {
+                    InstanceId: instanceId
+                },
+                period: 60,
+                evaluationPeriods: 20,
+                datapointsToAlarm: 20,
+                threshold: 99,
+                comparisonOperator: "GreaterThanThreshold",
+                alarmDescription: `CPU utilization is greater than 99% for 20 consecutive minutes. ${Severity.SEV2}`,
+                alarmActions: alarmActions,
+            });
+        });
+
+        new aws.cloudwatch.MetricAlarm(`${serviceName}-memory-util-${Severity.SEV2}`, {
+            name: `${serviceName}-memory-util-${Severity.SEV2}`,
+            comparisonOperator: 'GreaterThanOrEqualToThreshold',
+            metricName: 'mem_used_percent',
+            namespace: `Boundless/Services/${name}`,
+            period: 60,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            statistic: 'Maximum',
+            threshold: 80,
+            alarmDescription: `Memory utilization is greater than 80% for 20 consecutive minutes. ${Severity.SEV2}`,
+            alarmActions: alarmActions,
+        });
+
+        new aws.cloudwatch.MetricAlarm(`${serviceName}-gpu-memory-util-${Severity.SEV2}`, {
+            name: `${serviceName}-gpu-memory-util-${Severity.SEV2}`,
+            metricQueries: [
+                {
+                    id: "e1",
+                    label: "GPU memory utilization",
+                    returnData: true,
+                    expression: "100*(m1/m2)"
+                },
+                {
+                    id: "m1",
+                    returnData: false,
+                    metric: {
+                        namespace: `Boundless/Services/${name}`,
+                        metricName: "nvidia_smi_memory_used",
+                        period: 60,
+                        stat: "Maximum"
+                    }
+                },
+                {
+                    id: "m2",
+                    returnData: false,
+                    metric: {
+                        namespace: `Boundless/Services/${name}`,
+                        metricName: "nvidia_smi_memory_total",
+                        period: 60,
+                        stat: "Maximum"
+                    }
+                }
+            ],
+            threshold: 95,
+            comparisonOperator: 'GreaterThanOrEqualToThreshold',
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            treatMissingData: 'notBreaching',
+            alarmDescription: `GPU memory utilization is greater than 95% for 20 consecutive minutes. ${Severity.SEV2}`,
+            actionsEnabled: true,
+            alarmActions,
+        });
 
         this.updateCommandArn = updateDocument.arn;
         this.updateCommandId = updateDocument.id;

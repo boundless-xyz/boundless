@@ -23,13 +23,14 @@ It is recommend that a broker keep a balance on the market >= `max_stake` (confi
 
 :::note[Note]
 You will need the Boundless CLI installed to deposit/check your balance.
-Please see [Installing the Boundless CLI](/developers/tutorials/request#installing-the-boundless-cli) for instructions.
+Please see [Installing the Boundless CLI](/developers/tooling/cli#installation) for instructions.
 :::
 
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-source <(just env testnet)
+# Use the env file based on the network you are connecting to
+source .env.eth-sepolia
 
 # Example: 'account deposit-stake 100'
 boundless account deposit-stake <USDC_TO_DEPOSIT>
@@ -40,7 +41,8 @@ boundless account deposit-stake <USDC_TO_DEPOSIT>
 ```sh [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-source <(just env testnet)
+# Use the env file based on the network you are connecting to
+source .env.eth-sepolia
 
 boundless account stake-balance [wallet_address]
 ```
@@ -84,8 +86,8 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 Load environment variables for the target network:
 
 ```sh [Terminal]
-# For example, to benchmark an order on testnet
-source <(just env testnet)
+# For example, to benchmark an order on Ethereum Sepolia
+source .env.eth-sepolia
 
 # Load any other relevant env variables here, specifically `RPC_URL` and postgres env (if not default)
 ```
@@ -165,28 +167,6 @@ When upgrading your Boundless broker to a new version, follow these steps to ens
 
 ::::steps
 
-##### Set the broker to stop accepting new orders
-
-Edit your `broker.toml` configuration file and set the maximum concurrent locks to 0:
-
-```toml [broker.toml]
-max_concurrent_proofs = 0
-```
-
-This prevents the broker from locking new orders while you prepare for the upgrade.
-
-:::note[Bind Mount Issue]
-If the bind mount drops and the file update is not reflected in the broker, you can try to modify the file in docker compose, for example:
-
-```sh [Terminal]
-docker compose exec broker sh -c 'sed "s/^[[:space:]]*#*[[:space:]]*max_concurrent_proofs[[:space:]]*=[[:space:]]*[0-9]*/max_concurrent_proofs = 0/" /app/broker.toml > /tmp/broker_temp.toml && cp /tmp/broker_temp.toml /app/broker.toml'
-```
-:::
-
-##### Wait for in-progress orders to complete
-
-Monitor your broker logs (or the [Boundless Explorer](https://explorer.beboundless.xyz)) to ensure all currently locked orders are completed. This may take some time depending on the state of the committed orders.
-
 ##### Stop the broker and optionally clean the database
 
 ```sh [Terminal]
@@ -195,6 +175,8 @@ just broker clean
 # Or stop the broker without clearing volumes
 just broker down
 ```
+
+This will wait for any committed orders to finalize before shutting down. Avoid sending kill signals to the broker process and ensure either through the broker logs or through indexer that your broker does not have any incomplete locked orders before proceeding.
 
 :::note[Database Cleanup]
 While it is generally not necessary to clear volumes unless specifically noted in release, it is recommended to avoid any potential state breaking changes.
@@ -213,15 +195,6 @@ git checkout <new_version_tag>
 
 ```sh [Terminal]
 just broker
-```
-
-##### Reset the max_concurrent_proofs configuration
-
-Once the broker is running successfully with the new version, edit your `broker.toml` to restore normal operation:
-
-```toml [broker.toml]
-max_concurrent_proofs = <your_previous_value>
-# Example: max_concurrent_proofs = 4
 ```
 
 ::::

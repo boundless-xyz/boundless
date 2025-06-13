@@ -19,15 +19,15 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 homepage = "https://beboundless.xyz/"
 repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
-boundless-assessor = { version = "0.10.0", path = "crates/assessor" }
-boundless-cli = { version = "0.10.0", path = "crates/boundless-cli" }
-boundless-market = { version = "0.10.0", path = "crates/boundless-market" }
+boundless-assessor = { version = "0.11.0", path = "crates/assessor" }
+boundless-cli = { version = "0.11.0", path = "crates/boundless-cli" }
+boundless-market = { version = "0.11.0", path = "crates/boundless-market" }
 boundless-market-test-utils = { path = "crates/boundless-market/test-utils" }
 
 guest-assessor = { path = "crates/guest/assessor" }
@@ -35,7 +35,7 @@ guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
 
 async-stream = "0.3"
-alloy = { version = "0.15", default-features = false }
+alloy = { version = "1.0", default-features = false }
 alloy-primitives = { version = "1.0" }
 alloy-sol-types = { version = "1.0", features = ["json"] }
 alloy-chains = "0.2.0"
@@ -46,7 +46,7 @@ aws-sdk-s3 = "1.34" # used for minio for max compatibility
 axum = "0.8"
 axum-extra = { version = "0.10" }
 bincode = "1.3"
-bonsai-sdk = { version = "1.4.0", features = ["non_blocking"] }
+bonsai-sdk = { version = "1.4", features = ["non_blocking"] }
 bs58 = "0.5"
 bytemuck = "1.16"
 clap = { version = "4.5", features = ["derive", "env"] }
@@ -57,13 +57,13 @@ hex = { version = "0.4", default-features = false, features = ["alloc"] }
 postcard = { version = "1.0" }
 rand = { version = "0.9" }
 reqwest = "0.12"
-risc0-aggregation = "0.7.0"
-risc0-build = { version = "2.1.0", features = ["docker", "unstable"] }
-risc0-circuit-recursion = { version = "2.0.0" }
-risc0-build-ethereum = "2.1.0"
-risc0-ethereum-contracts = "2.1.0"
-risc0-zkvm = { version = "2.0.2", default-features = false }
-risc0-zkp = { version = "2.0.1" }
+risc0-aggregation = { version = "0.7.0" }
+risc0-build = { version = "2.1", features = ["docker", "unstable"] }
+risc0-circuit-recursion = { version = "2.0" }
+risc0-build-ethereum = { version = "2.2" }
+risc0-ethereum-contracts = { version = "2.2" }
+risc0-zkvm = { version = "2.1", default-features = false }
+risc0-zkp = { version = "2.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
@@ -75,6 +75,7 @@ tempfile = "3.10"
 test-log = { version = "0.2", features = ["trace"] }
 thiserror = "2.0"
 tokio = { version = "1" }
+tokio-util = { version = "0.7" }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 tower-http = { version = "0.5", features = ["trace"] }
 tracing = "0.1"

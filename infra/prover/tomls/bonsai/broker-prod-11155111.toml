@@ -18,7 +18,7 @@ stake_balance_error_threshold = "10"
 # lockin_priority_gas = 100
 
 [prover]
-bonsai_r0_zkvm_ver = '2.0.0'
+bonsai_r0_zkvm_ver = '2.1.0'
 status_poll_retry_count = 3
 status_poll_ms = 1000
 req_retry_count = 3
@@ -31,7 +31,7 @@ proof_retry_sleep_ms = 500
 [batcher]
 batch_max_time = 1000
 min_batch_size = 1
-block_deadline_buffer_secs = 120
+block_deadline_buffer_secs = 180
 txn_timeout = 75
 single_txn_fulfill = true
 withdraw = true

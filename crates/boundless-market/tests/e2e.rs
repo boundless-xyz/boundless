@@ -179,7 +179,7 @@ async fn test_e2e() {
 
     let (event, _) = logs.first().unwrap();
     let request = &event.request;
-    let customer_sig = &event.clientSignature;
+    let customer_sig = event.clientSignature.clone();
 
     // Deposit prover balances
     let deposit = default_allowance();
@@ -244,7 +244,7 @@ async fn test_e2e_merged_submit_fulfill() {
 
     let (event, _) = logs.first().unwrap();
     let request = &event.request;
-    let customer_sig = &event.clientSignature;
+    let customer_sig = event.clientSignature.clone();
 
     // Deposit prover balances
     let deposit = default_allowance();
@@ -365,7 +365,7 @@ async fn test_e2e_no_payment() {
 
     let (event, _) = logs.first().unwrap();
     let request = &event.request;
-    let customer_sig = &event.clientSignature;
+    let customer_sig = event.clientSignature.clone();
 
     // Deposit prover balances
     let deposit = default_allowance();

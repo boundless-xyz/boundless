@@ -19,7 +19,8 @@ permissions:
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.85.0
-  RISC0_CRATE_VERSION: "2.0.0"
+  RISC0_CRATE_VERSION: "2.1.0"
+  FOUNDRY_VERSION: v1.0.0
 
 jobs:
   # see: https://github.com/orgs/community/discussions/26822
@@ -45,7 +46,14 @@ jobs:
         run: exit 1
 
   rust:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
     services:
@@ -68,28 +76,26 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: install foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: "v1.0.0"
-        
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
 
-      - name: install cargo-sort
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+      - name: Install cargo-sort
+        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
         with:
           crate: cargo-sort
-          version: "=1.0.9"
-          locked: true
+          version: "1.0"
 
       - name: cargo Sort
         run: cargo sort --workspace --check
@@ -131,8 +137,16 @@ jobs:
 
       - name: sccache stats
         run: sccache --show-stats
+  
   rust-pkg-check:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
@@ -140,22 +154,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: install foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: "v1.0.0"
-
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
-
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '2.0.0'
-          toolchain-version: '1.85.0'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
 
       - name: check order-stream
         run: cargo check --locked -p order-stream --bin order_stream
@@ -164,7 +174,14 @@ jobs:
         run: cargo check --locked -p broker --bin broker
 
   link-check:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.docs == 'true'
     steps:
@@ -178,10 +195,7 @@ jobs:
           key: cache-lychee-${{ github.sha }}
           restore-keys: cache-lychee-
 
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -206,14 +220,18 @@ jobs:
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
   format:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     steps:
       - uses: actions/checkout@v4
 
-      - name: install rust
-        uses: risc0/risc0/.github/actions/rustup@release-2.0
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -227,7 +245,14 @@ jobs:
       - run: dprint check
 
   foundry:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
@@ -236,10 +261,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: install foundry
+      - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: ${{ env.FOUNDRY_VERSION }}
 
       - name: forge fmt
         run: forge fmt --check
@@ -262,10 +287,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: risc0/risc0/.github/actions/rustup@release-2.0
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - uses: risc0/risc0/.github/actions/rustup@release-2.0
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
         with:
           # Building with docs.rs config requires the nightly toolchain.
           toolchain: nightly-2025-01-03
@@ -275,7 +300,14 @@ jobs:
 
   # Check that cargo publish can package the boundless-market crate
   check-publish:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
@@ -284,7 +316,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: risc0/risc0/.github/actions/rustup@release-2.0
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
@@ -293,15 +325,18 @@ jobs:
 
   examples:
     runs-on: [ self-hosted, Linux, X64, prod, cuda, g6.4xlarge ]
-    needs: files-changed
-    if: needs.files-changed.outputs.examples == 'true'
     strategy:
+      fail-fast: false
       matrix:
         workspace:
           - examples/counter
           - examples/smart-contract-requestor
           - examples/counter-with-callback
           - examples/composition
+    needs: files-changed
+    if: needs.files-changed.outputs.examples == 'true'
+    env:
+      NVCC_APPEND_FLAGS: -arch=sm_89
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -315,31 +350,27 @@ jobs:
           username: ${{ secrets.DOCKERHUB_CI_USER }}
           password: ${{ secrets.DOCKERHUB_CI_PAT }}
 
-      - name: install foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: "v1.0.0"
-        
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
-      - name: install cuda
-        uses: risc0/risc0/.github/actions/cuda@release-2.0
+      - uses: risc0/risc0/.github/actions/cuda@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: '2.0.0'
-          toolchain-version: '1.85.0'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: install cargo-sort
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      
+      - name: Install cargo-sort
+        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
         with:
           crate: cargo-sort
-          version: "=1.0.9"
-          locked: true
+          version: "1.0"
 
       - name: cargo Sort
         run: cargo sort --workspace --check
@@ -381,7 +412,14 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
   docker:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.docker == 'true'
     steps:
@@ -422,7 +460,14 @@ jobs:
         run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
 
   infra:
-    runs-on: [ self-hosted, Linux, X64, prod, cpu ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.infra == 'true'
     steps:

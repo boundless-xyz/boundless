@@ -3,11 +3,11 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFQnk96iZHiItdiUZ
 config:
   aws:region: us-west-2
   order-stream:BASE_STACK: organization/bootstrap/services-prod
-  order-stream:BOUNDLESS_ADDRESS: 0x006b92674E2A8d397884e293969f8eCD9f615f4C
+  order-stream:BOUNDLESS_ADDRESS: 0x13337C76fE2d1750246B68781ecEe164643b98Ec
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
-  order-stream:MIN_BALANCE_RAW: "1000000000000000"
+  order-stream:MIN_BALANCE_RAW: "5000000"
   order-stream:ORDER_STREAM_PING_TIME: "100"
   order-stream:ETH_RPC_URL:
     secure: v1:QijPKfdQkkzW2v0w:zn86oTJZDFE33kBUS9WbpFh8uRF7j9FZXC3KTzmk6R8oxD9CWkp1dZLJN0X6s37DzkhiXTkmIyUUuB2EZIpS7Pv2D3PYx9iTphxBbRr17NfVMkGvWg==

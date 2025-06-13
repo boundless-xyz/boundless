@@ -5,7 +5,7 @@ inputs:
   risczero-version:
     description: 'Version of the RISC Zero zkvm to install'
     required: false
-    default: '2.0.1'
+    default: '2.1.0'
     type: string
 
   toolchain-version:
@@ -18,7 +18,7 @@ runs:
   using: composite
   steps:
     - name: install rust
-      uses: risc0/risc0/.github/actions/rustup@release-2.0
+      uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
       with:
         toolchain: ${{ inputs.toolchain-version }}
 

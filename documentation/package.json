@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "prebuild": "run-p generate-link-previews generate-smart-contracts-docs",
-    "build": "vocs build",
+    "build": "vocs build && bun ./scripts/reindex.ts",
     "dev": "vocs dev",
     "check-links": "bun ./scripts/check-links.ts",
     "check-markdown": "remark . --quiet",
@@ -33,10 +33,10 @@
     "remark-sort-definitions": "2.0.0",
     "remark-toc": "9.0.0",
     "remark-wiki-link": "2.0.1",
-    "tailwindcss": "^4.1.4",
+    "tailwindcss": "^4.1.8",
     "vite-plugin-biome": "1.0.12",
     "vite-plugin-sitemap": "0.7.1",
-    "vocs": "1.0.11"
+    "vocs": "1.0.12"
   },
-  "packageManager": "bun@1.2.10"
+  "packageManager": "bun@1.2.15"
 }

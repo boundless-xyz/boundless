@@ -28,7 +28,7 @@ use risc0_zkvm::{
 use crate::{
     config::ConfigLock,
     db::DbObj,
-    now_timestamp,
+    impl_coded_debug, now_timestamp,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType, Order,
@@ -37,10 +37,15 @@ use thiserror::Error;
 
 use crate::errors::CodedError;
 
-#[derive(Error, Debug)]
+use tokio_util::sync::CancellationToken;
+
+#[derive(Error)]
 pub enum SubmitterErr {
-    #[error("{code} Batch submission failed: {0}", code = self.code())]
-    BatchSubmissionFailed(String),
+    #[error("{code} Batch submission failed: {0:?}", code = self.code())]
+    BatchSubmissionFailed(Vec<Self>),
+
+    #[error("{code} Batch submission failed due to timeouts: {0:?}", code = self.code())]
+    BatchSubmissionFailedTimeouts(Vec<Self>),
 
     #[error("{code} Failed to confirm transaction: {0}", code = self.code())]
     TxnConfirmationError(MarketError),
@@ -58,6 +63,8 @@ pub enum SubmitterErr {
     UnexpectedErr(#[from] anyhow::Error),
 }
 
+impl_coded_debug!(SubmitterErr);
+
 impl CodedError for SubmitterErr {
     fn code(&self) -> &str {
         match self {
@@ -65,8 +72,9 @@ impl CodedError for SubmitterErr {
             SubmitterErr::AllRequestsExpiredBeforeSubmission(_) => "[B-SUB-001]",
             SubmitterErr::SomeRequestsExpiredBeforeSubmission(_) => "[B-SUB-005]",
             SubmitterErr::MarketError(_) => "[B-SUB-002]",
-            SubmitterErr::BatchSubmissionFailed(_) => "[B-SUB-003]",
-            SubmitterErr::TxnConfirmationError(_) => "[B-SUB-004]",
+            SubmitterErr::BatchSubmissionFailed(_) => "[B-SUB-004]",
+            SubmitterErr::BatchSubmissionFailedTimeouts(_) => "[B-SUB-003]",
+            SubmitterErr::TxnConfirmationError(_) => "[B-SUB-006]",
         }
     }
 }
@@ -371,7 +379,7 @@ where
             .with_unlocked_requests(requests_to_price);
         if single_txn_fulfill {
             fulfillment_tx =
-                fulfillment_tx.with_submit_root(self.set_verifier_addr, root, batch_seal.into());
+                fulfillment_tx.with_submit_root(self.set_verifier_addr, root, batch_seal);
         } else {
             let contains_root = match self.set_verifier.contains_root(root).await {
                 Ok(res) => res,
@@ -536,7 +544,11 @@ where
                 "Failed to set batch failure in db: {batch_id} - {err:?}"
             )));
         }
-        Err(SubmitterErr::BatchSubmissionFailed(format!("{errors:?}")))
+        if errors.iter().all(|e| matches!(e, SubmitterErr::TxnConfirmationError(_))) {
+            Err(SubmitterErr::BatchSubmissionFailedTimeouts(errors))
+        } else {
+            Err(SubmitterErr::BatchSubmissionFailed(errors))
+        }
     }
 }
 
@@ -545,17 +557,24 @@ where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
     type Error = SubmitterErr;
-    fn spawn(&self) -> RetryRes<Self::Error> {
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let obj_clone = self.clone();
 
         Box::pin(async move {
             tracing::info!("Starting Submitter service");
             loop {
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Submitter service received cancellation");
+                    break;
+                }
+
+                // Process batch without interruption
                 let result = obj_clone.process_next_batch().await;
                 if let Err(err) = result {
                     // Only restart the service on unexpected errors.
                     match err {
-                        SubmitterErr::BatchSubmissionFailed(_) => {
+                        SubmitterErr::BatchSubmissionFailed(_)
+                        | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
                             tracing::error!("Batch submission failed: {err:?}");
                         }
                         _ => {
@@ -568,6 +587,7 @@ where
                 // TODO: configuration
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
+            Ok(())
         })
     }
 }
@@ -813,7 +833,7 @@ mod tests {
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
-        market.lock_request(&order.request, &client_sig.into(), None).await.unwrap();
+        market.lock_request(&order.request, client_sig.to_vec(), None).await.unwrap();
 
         let submitter = Submitter::new(
             db.clone(),

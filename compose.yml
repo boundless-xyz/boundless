@@ -11,7 +11,7 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
 
 x-agent-common: &agent-common
-  image: risczero/risc0-bento-agent:stable
+  image: risczero/risc0-bento-agent:stable@sha256:c6fcc92686a5d4b20da963ebba3045f09a64695c9ba9a9aa984dd98b5ddbd6f9
   restart: always
   depends_on:
     - postgres
@@ -140,7 +140,7 @@ services:
       stack: 90000000
 
   rest_api:
-    image: risczero/risc0-bento-rest-api:stable
+    image: risczero/risc0-bento-rest-api:stable@sha256:7b5183811675d0aa3646d079dec4a7a6d47c84fab4fa33d3eb279135f2e59207
     restart: always
     depends_on:
       - postgres
@@ -155,12 +155,19 @@ services:
     ports:
       - '8081:8081'
 
-    entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081
+    entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
 
   broker:
     restart: always
     depends_on:
       - rest_api
+      - gpu_prove_agent0
+      - exec_agent0
+      - exec_agent1
+      - aux_agent
+      - snark_agent
+      - redis
+      - postgres
 
     profiles: [broker]
 
@@ -171,15 +178,20 @@ services:
     mem_limit: 2G
     cpus: 2
 
+    stop_grace_period: 3h
+
     volumes:
       - type: bind
         source: ./broker.toml
         target: /app/broker.toml
       - broker-data:/db/
-      # uncomment for local testing of broker in compose
+      # Uncomment when using locally built set-builder and assessor guest programs
       # - type: bind
-      #   source: ./target/
-      #   target: /target/
+      #   source: ./target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+      #   target: /target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+      # - type: bind
+      #   source: ./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+      #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
 
     network_mode: host
 

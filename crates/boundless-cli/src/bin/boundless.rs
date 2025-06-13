@@ -13,30 +13,33 @@
 // limitations under the License.
 
 //! The Boundless CLI is a command-line interface for interacting with Boundless.
-//!
-//! # Examples
-//!
-//! ```sh
-//! RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
-//! boundless account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
-//! ```
-//!
-//! ```sh
-//! RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
-//! PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000000 \
-//! boundless request submit-offer --wait --input "hello" \
-//! --program-url http://dweb.link/ipfs/bafkreido62tz2uyieb3s6wmixwmg43hqybga2ztmdhimv7njuulf3yug4e
-//! ```
-//!
-//! # Required options
-//!
-//! An Ethereum RPC URL is required via the `RPC_URL` environment variable or the `--rpc-url`
-//! flag. You can use a public RPC endpoint for most operations, but it is best to use an RPC
-//! endpoint that supports events (e.g. Alchemy or Infura).
-//!
-//! Sending, fulfilling, and slashing requests requires a signer provided via the `PRIVATE_KEY`
-//! environment variable or `--private-key`. This CLI only supports in-memory private keys as of
-//! this version. Full signer support is available in the SDK.
+
+const CLI_LONG_ABOUT: &str = r#"
+The Boundless CLI is a command-line interface for interacting with Boundless.
+
+# Examples
+
+```sh
+RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
+boundless account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
+```
+
+```sh
+RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
+PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000000 \
+boundless request submit-offer --wait --input "hello" \
+--program-url http://dweb.link/ipfs/bafkreido62tz2uyieb3s6wmixwmg43hqybga2ztmdhimv7njuulf3yug4e
+```
+
+# Required options
+
+An Ethereum RPC URL is required via the `RPC_URL` environment variable or the `--rpc-url`
+flag. You can use a public RPC endpoint for most operations, but it is best to use an RPC
+endpoint that supports events (e.g. Alchemy or Infura).
+
+Sending, fulfilling, and slashing requests requires a signer provided via the `PRIVATE_KEY`
+environment variable or `--private-key`. This CLI only supports in-memory private keys as of
+this version. Full signer support is available in the SDK."#;
 
 use std::{
     borrow::Cow,
@@ -403,7 +406,7 @@ struct GlobalConfig {
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for Boundless", long_about = None)]
+#[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for Boundless", long_about = CLI_LONG_ABOUT)]
 struct MainArgs {
     /// Subcommand to run
     #[command(subcommand)]
@@ -813,7 +816,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
                 client.boundless_market.get_chain_id().await?,
             )?;
 
-            client.boundless_market.lock_request(&order.request, &sig, None).await?;
+            client.boundless_market.lock_request(&order.request, sig, None).await?;
             tracing::info!("Successfully locked request 0x{:x}", request_id);
             Ok(())
         }
@@ -1068,8 +1071,8 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
         // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
         // risc0-ethereum. Add a Selector::inclusion_latest() function to risc0-ethereum and use it
         // here.
-        ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_6 as u32),
-        ProofType::Groth16 => requirements.selector(Selector::Groth16V2_0 as u32),
+        ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_7 as u32),
+        ProofType::Groth16 => requirements.selector(Selector::Groth16V2_1 as u32),
         ProofType::Any => &mut requirements,
         ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty),
     };
@@ -1811,7 +1814,7 @@ mod tests {
 
         // Lock the request
         ctx.prover_market
-            .lock_request(&request, &Bytes::copy_from_slice(&client_sig.as_bytes()), None)
+            .lock_request(&request, client_sig.as_bytes().to_vec(), None)
             .await
             .unwrap();
 
@@ -2114,7 +2117,7 @@ mod tests {
         );
 
         // Explicitly set the selector to a compatible value for the test
-        // In dev mode, instead of Groth16V2_0, use FakeReceipt
+        // In dev mode, instead of Groth16V2_1, use FakeReceipt
         request.requirements.selector = FixedBytes::from(Selector::FakeReceipt as u32);
 
         // Dump the request to a tmp file; tmp is deleted on drop.
