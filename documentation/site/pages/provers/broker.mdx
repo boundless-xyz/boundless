@@ -211,33 +211,3 @@ Once your broker is running, there are a few methods to optimize the lock-in rat
 ### Tuning Service Settings
 
 The `[prover]` settings in `broker.toml` are used to configure the prover service and significantly impact the operation of the service. The most important configuration variable to monitor and iteratively tune is `txn_timeout`. This is the number of seconds to wait for a transaction to be confirmed before timing out. Therefore, if you see timeouts in your logs, `txn_timeout` can be increased to wait longer for transaction confirmations onchain.
-
-## Debugging
-
-### Orders Stuck in 'Lockin' or `submit_merkle` Confirmation Timeouts
-
-You may notice on the [explorer](https://explorer.beboundless.xyz) that the broker has a high number of orders locked-in, but the fulfillment rate is low or even zero. This could be due to transaction confirmation timeouts. A good place to start would be to increase the `txn_timeout` in the `broker.toml` file iteratively, and see how that affects the broker's fulfillment rate.
-
-If you need a manual way to restart orders that are "stuck", please follow:
-
-::::steps
-
-##### First, you'll need to manually connect to the SQLite database for the broker. This can be done inside the broker container via `sqlite3 /db/broker.db` or by mounting the `broker-data` Docker volume
-
-##### Next, you'll need to find the batch that contains the order:
-
-```sql [Terminal]
-SELECT id FROM batches WHERE data->>'orders' LIKE '%"TARGET_ORDER_ID"%';
--- Example: SELECT id FROM batches WHERE data->>'orders' LIKE '%"0x466acfc0f27bba9fbb7a8508f576527e81e83bd00000caa"%';
-```
-
-##### Finally, you can trigger a rerun of the submitter task:
-
-```sql [Terminal]
-UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = YOUR_BATCH_ID_FROM_STEP_2;
--- Example: UPDATE batches SET data = json_set(data, '$.status', 'Complete') WHERE id = 1;
-```
-
-::::
-
-
