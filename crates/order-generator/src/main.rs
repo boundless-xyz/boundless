@@ -206,6 +206,7 @@ async fn handle_request(
     let input = match args.input {
         Some(input) => input,
         None => {
+            // Generate a random input.
             let max = args.input_max_mcycles.unwrap_or(1000);
             let input: u64 = rand::rng().random_range(1..=max) << 20;
             tracing::debug!("Generated random cycle count: {}", input);
@@ -213,11 +214,16 @@ async fn handle_request(
         }
     };
     let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
+
+    // add 1 minute for each 1M cycles to the original timeout
+    // Use the input directly as the estimated cycle count, since we are using a loop program.
     let m_cycles = input >> 20;
     let lock_timeout =
         args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    // Give equal time for provers that are fulfilling after lock expiry to prove.
     let timeout: u32 =
         args.timeout + lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+
     let request = client
         .new_request()
         .with_program(program.to_vec())
@@ -230,15 +236,23 @@ async fn handle_request(
                 .timeout(timeout)
                 .lock_stake(args.lock_stake_raw),
         );
+
+    // Build the request, including preflight, and assigned the remaining fields.
     let request = client.build_request(request).await?;
+
     tracing::info!("Request: {:?}", request);
+
     tracing::info!(
         "{} Mcycles count {} min_price in ether {} max_price in ether",
         m_cycles,
         format_units(request.offer.minPrice, "ether")?,
         format_units(request.offer.maxPrice, "ether")?
     );
+
     let submit_offchain = args.submit_offchain;
+
+    // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
+    // in the submitRequest call.
     if submit_offchain {
         if let Some(auto_deposit) = args.auto_deposit {
             let market = client.boundless_market.clone();
@@ -271,11 +285,13 @@ async fn handle_request(
             }
         }
     }
+
     let (request_id, _) = if submit_offchain {
         client.submit_request_offchain(&request).await?
     } else {
         client.submit_request_onchain(&request).await?
     };
+
     if submit_offchain {
         tracing::info!(
             "Request 0x{request_id:x} submitted offchain to {}",
