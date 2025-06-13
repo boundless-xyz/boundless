@@ -45,6 +45,7 @@ export = () => {
   const bentoProverSshPublicKey = isDev ? process.env.BENTO_PROVER_SSH_PUBLIC_KEY : bentoConfig.getSecret('SSH_PUBLIC_KEY');
   const bentoProverPrivateKey = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY") : bentoConfig.requireSecret('PRIVATE_KEY');
   const segmentSize = bentoConfig.requireNumber('SEGMENT_SIZE');
+  const snarkTimeout = bentoConfig.requireNumber('SNARK_TIMEOUT');
   const logJson = bentoConfig.getBoolean('LOG_JSON');
   const bentoBrokerTomlPath = bentoConfig.require('BROKER_TOML_PATH')
 
@@ -62,6 +63,7 @@ export = () => {
       boundlessMarketAddress: boundlessMarketAddr,
       setVerifierAddress: setVerifierAddr,
       segmentSize,
+      snarkTimeout,
       vpcId,
       pubSubNetIds,
       dockerDir,
