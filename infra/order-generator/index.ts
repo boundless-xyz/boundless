@@ -25,7 +25,7 @@ export = () => {
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const setVerifierAddr = baseConfig.require('SET_VERIFIER_ADDR');
   const boundlessMarketAddr = baseConfig.require('BOUNDLESS_MARKET_ADDR');
-  const pinataGateway = baseConfig.require('PINATA_GATEWAY_URL');
+  const ipfsGateway = baseConfig.require('IPFS_GATEWAY_URL');
   const baseStackName = baseConfig.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -133,7 +133,7 @@ export = () => {
     logLevel,
     setVerifierAddr,
     boundlessMarketAddr,
-    pinataGateway,
+    ipfsGateway,
     interval,
     lockStakeRaw,
     minPricePerMCycle,
@@ -170,7 +170,7 @@ export = () => {
     logLevel,
     setVerifierAddr,
     boundlessMarketAddr,
-    pinataGateway,
+    ipfsGateway,
     interval,
     lockStakeRaw,
     rampUp: onchainRampUp,

@@ -12,7 +12,7 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig, client::Client, deployments::Deployment,
     input::GuestEnv, request_builder::OfferParams, storage::fetch_url,
@@ -153,6 +153,11 @@ async fn run(args: &MainArgs) -> Result<()> {
         .build()
         .await?;
 
+    let ipfs_gateway = args
+        .storage_config
+        .ipfs_gateway_url
+        .clone()
+        .unwrap_or(Url::parse("https://gateway.pinata.cloud").unwrap());
     // Ensure we have both a program and a program URL.
     let program = args.program.as_ref().map(std::fs::read).transpose()?;
     let program_url = match program {
@@ -163,11 +168,13 @@ async fn run(args: &MainArgs) -> Result<()> {
         }
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            Url::parse("https://gateway.pinata.cloud/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi").unwrap()
+            ipfs_gateway
+                .join("/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi")
+                .unwrap()
         }
     };
     let program = match program {
-        None => fetch_url(&program_url).await?,
+        None => fetch_url(&program_url).await.context("failed to fetch order generator program")?,
         Some(program) => program,
     };
 
@@ -178,115 +185,124 @@ async fn run(args: &MainArgs) -> Result<()> {
                 break;
             }
         }
-
-        let mut rng = rand::rng();
-        let nonce: u64 = rng.random();
-        let input = match args.input {
-            Some(input) => input,
-            None => {
-                // Generate a random input.
-                let max = args.input_max_mcycles.unwrap_or(1000);
-                let input: u64 = rand::rng().random_range(1..=max) << 20;
-                tracing::debug!("Generated random cycle count: {}", input);
-                input
-            }
-        };
-        let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
-
-        // add 1 minute for each 1M cycles to the original timeout
-        // Use the input directly as the estimated cycle count, since we are using a loop program.
-        let m_cycles = input >> 20;
-        let lock_timeout =
-            args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-        // Give equal time for provers that are fulfilling after lock expiry to prove.
-        let timeout: u32 = args.timeout
-            + lock_timeout
-            + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-
-        let request = client
-            .new_request()
-            .with_program(program.clone())
-            .with_program_url(program_url.clone())?
-            .with_env(env)
-            .with_offer(
-                OfferParams::builder()
-                    .ramp_up_period(args.ramp_up)
-                    .lock_timeout(lock_timeout)
-                    .timeout(timeout)
-                    .lock_stake(args.lock_stake_raw),
-            );
-
-        // Build the request, including preflight, and assigned the remaining fields.
-        let request = client.build_request(request).await?;
-
-        tracing::info!("Request: {:?}", request);
-
-        tracing::info!(
-            "{} Mcycles count {} min_price in ether {} max_price in ether",
-            m_cycles,
-            format_units(request.offer.minPrice, "ether")?,
-            format_units(request.offer.maxPrice, "ether")?
-        );
-
-        let submit_offchain = args.submit_offchain;
-
-        // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
-        // in the submitRequest call.
-        if submit_offchain {
-            if let Some(auto_deposit) = args.auto_deposit {
-                let market = client.boundless_market.clone();
-                let caller = client.caller();
-                let balance = market.balance_of(caller).await?;
-                tracing::info!(
-                    "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
-                    caller,
-                    format_units(balance, "ether")?,
-                    client.deployment.boundless_market_address,
-                    format_units(auto_deposit, "ether")?
-                );
-                if balance < auto_deposit {
-                    tracing::info!(
-                        "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
-                        format_units(balance, "ether")?,
-                        format_units(auto_deposit, "ether")?
-                    );
-                    match market.deposit(auto_deposit).await {
-                        Ok(_) => {
-                            tracing::info!(
-                                "Successfully deposited {} ETH",
-                                format_units(auto_deposit, "ether")?
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to auto deposit ETH: {e:?}");
-                        }
-                    }
-                }
-            }
+        if let Err(e) = handle_request(args, &client, &program, &program_url).await {
+            tracing::error!("Request failed: {e:?}");
         }
-
-        let (request_id, _) = if submit_offchain {
-            client.submit_request_offchain(&request).await?
-        } else {
-            client.submit_request_onchain(&request).await?
-        };
-
-        if submit_offchain {
-            tracing::info!(
-                "Request 0x{request_id:x} submitted offchain to {}",
-                client.deployment.order_stream_url.clone().unwrap()
-            );
-        } else {
-            tracing::info!(
-                "Request 0x{request_id:x} submitted onchain to {}",
-                client.deployment.boundless_market_address,
-            );
-        }
-
         i += 1;
         tokio::time::sleep(Duration::from_secs(args.interval)).await;
     }
 
+    Ok(())
+}
+
+async fn handle_request(
+    args: &MainArgs,
+    client: &Client,
+    program: &[u8],
+    program_url: &url::Url,
+) -> Result<()> {
+    let mut rng = rand::rng();
+    let nonce: u64 = rng.random();
+    let input = match args.input {
+        Some(input) => input,
+        None => {
+            // Generate a random input.
+            let max = args.input_max_mcycles.unwrap_or(1000);
+            let input: u64 = rand::rng().random_range(1..=max) << 20;
+            tracing::debug!("Generated random cycle count: {}", input);
+            input
+        }
+    };
+    let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
+
+    // add 1 minute for each 1M cycles to the original timeout
+    // Use the input directly as the estimated cycle count, since we are using a loop program.
+    let m_cycles = input >> 20;
+    let lock_timeout =
+        args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    // Give equal time for provers that are fulfilling after lock expiry to prove.
+    let timeout: u32 =
+        args.timeout + lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+
+    let request = client
+        .new_request()
+        .with_program(program.to_vec())
+        .with_program_url(program_url.clone())?
+        .with_env(env)
+        .with_offer(
+            OfferParams::builder()
+                .ramp_up_period(args.ramp_up)
+                .lock_timeout(lock_timeout)
+                .timeout(timeout)
+                .lock_stake(args.lock_stake_raw),
+        );
+
+    // Build the request, including preflight, and assigned the remaining fields.
+    let request = client.build_request(request).await?;
+
+    tracing::info!("Request: {:?}", request);
+
+    tracing::info!(
+        "{} Mcycles count {} min_price in ether {} max_price in ether",
+        m_cycles,
+        format_units(request.offer.minPrice, "ether")?,
+        format_units(request.offer.maxPrice, "ether")?
+    );
+
+    let submit_offchain = args.submit_offchain;
+
+    // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
+    // in the submitRequest call.
+    if submit_offchain {
+        if let Some(auto_deposit) = args.auto_deposit {
+            let market = client.boundless_market.clone();
+            let caller = client.caller();
+            let balance = market.balance_of(caller).await?;
+            tracing::info!(
+                "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
+                caller,
+                format_units(balance, "ether")?,
+                client.deployment.boundless_market_address,
+                format_units(auto_deposit, "ether")?
+            );
+            if balance < auto_deposit {
+                tracing::info!(
+                    "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
+                    format_units(balance, "ether")?,
+                    format_units(auto_deposit, "ether")?
+                );
+                match market.deposit(auto_deposit).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            "Successfully deposited {} ETH",
+                            format_units(auto_deposit, "ether")?
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to auto deposit ETH: {e:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    let (request_id, _) = if submit_offchain {
+        client.submit_request_offchain(&request).await?
+    } else {
+        client.submit_request_onchain(&request).await?
+    };
+
+    if submit_offchain {
+        tracing::info!(
+            "Request 0x{request_id:x} submitted offchain to {}",
+            client.deployment.order_stream_url.clone().unwrap()
+        );
+    } else {
+        tracing::info!(
+            "Request 0x{request_id:x} submitted onchain to {}",
+            client.deployment.boundless_market_address,
+        );
+    }
     Ok(())
 }
 
@@ -296,7 +312,7 @@ mod tests {
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
     use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
-    use boundless_market_test_utils::create_test_ctx;
+    use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
     use tracing_test::traced_test;
 
     use super::*;
@@ -322,7 +338,7 @@ mod tests {
             timeout: 1000,
             lock_timeout: 1000,
             seconds_per_mcycle: 60,
-            program: None,
+            program: Some(LOOP_PATH.parse().unwrap()),
             input: None,
             input_max_mcycles: None,
             warn_balance_below: None,
