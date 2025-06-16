@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 
 BSL_HEADER = """
-// Copyright (c) 2025 RISC Zero Inc,
+// Copyright {YEAR} RISC Zero, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -48,10 +48,16 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/contracts/src/HitPoints.sol",
     str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
     str(Path.cwd()) + "/contracts/src/IHitPoints.sol",
-    str(Path.cwd()) + "/crates/assessor",
-    str(Path.cwd()) + "/crates/balance-alerts-layer",
     str(Path.cwd()) + "/crates/boundless-cli",
     str(Path.cwd()) + "/crates/boundless-market",
+    str(Path.cwd()) + "/crates/broker",
+    str(Path.cwd()) + "/crates/bench",
+    str(Path.cwd()) + "/crates/broker-stress",
+    str(Path.cwd()) + "/crates/guest/util",
+    str(Path.cwd()) + "/crates/indexer",
+    str(Path.cwd()) + "/crates/ops-lambdas",
+    str(Path.cwd()) + "/crates/order-stream",
+    str(Path.cwd()) + "/crates/order-generator",
     str(Path.cwd()) + "/crates/slasher",
     str(Path.cwd()) + "/documentation",
     str(Path.cwd()) + "/examples",

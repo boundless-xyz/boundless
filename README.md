@@ -80,8 +80,6 @@ See https://github.com/boundless-xyz/boundless-security
 
 ## License
 
-Rust SDK including the `boundless-market` crate is licensed under the Apache-2.0 license.
-See [LICENSE-Apache-2.0][./LICENSE-Apache-2.0] for a copy of the license.
+The [Boundless Contracts](./contracts), Boundless Assessor Library (./crates/assessor) and Boundless Assessor Guest (./crates/guest/assessor) in this repository are licensed under the Business Source License, with conversion to Apache-2.0 at a future date. See [LICENSE-BSL](./LICENSE-BSL) for a copy of the license.
 
-Other source code in this repository is licensed under the Business Source License, with conversion to Apache-2.0 at a future date.
-See [LICENSE-BSL](./LICENSE-BSL) for a copy of the license.
+Other source code within this repository is licensed under the Apache-2.0 license, unless otherwise stated at the file header. See [LICENSE-Apache-2.0][./LICENSE-Apache-2.0] for a copy of the license.
