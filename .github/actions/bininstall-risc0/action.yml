@@ -5,32 +5,40 @@ inputs:
   risczero-version:
     description: 'Version of the RISC Zero zkvm to install'
     required: false
-    default: '~1.2.0'
+    default: '2.1.0'
     type: string
 
   toolchain-version:
     description: 'Version of the RISC Zero toolchains to install'
     required: false
-    default: 'r0.1.81.0'
+    default: '1.85.0'
     type: string
 
 runs:
   using: composite
   steps:
     - name: install rust
-      uses: risc0/risc0/.github/actions/rustup@release-1.2
-
-    - uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+      uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
       with:
-        crate: cargo-binstall
-        version: '=1.10.8'
-        locked: true
+        toolchain: ${{ inputs.toolchain-version }}
 
-    - run: cargo binstall -y --force cargo-risczero@${{ inputs.risczero-version }}
+    - name: install rzup
+      run: |
+        curl -L https://risczero.com/install | bash
+        echo "$HOME/.risc0/bin" >> $GITHUB_PATH
       shell: bash
 
-    - run: cargo risczero install --version "${{ inputs.toolchain-version }}"
+    - name: install rzup components
+      run: |
+        rzup install --verbose --force cargo-risczero ${{ inputs.risczero-version }}
+        rzup install --verbose --force r0vm ${{ inputs.risczero-version }}
+        rzup install --verbose --force rust ${{ inputs.toolchain-version }}
+        rzup install --verbose --force cpp
       shell: bash
+
+    - name: test r0vm
+      shell: bash
+      run: r0vm --version
 
     - name: test risczero
       shell: bash

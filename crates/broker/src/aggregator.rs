@@ -3,10 +3,10 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-use alloy::primitives::{utils, Address, U256};
-use anyhow::{bail, Context, Result};
+use alloy::primitives::{utils, Address};
+use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
-use boundless_market::contracts::eip712_domain;
+use boundless_market::{contracts::eip712_domain, input::GuestEnv};
 use chrono::Utc;
 use risc0_aggregation::GuestState;
 use risc0_zkvm::{
@@ -17,11 +17,34 @@ use risc0_zkvm::{
 use crate::{
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
-    now_timestamp,
+    errors::CodedError,
+    futures_retry::retry,
+    impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     AggregationState, Batch, BatchStatus,
 };
+use thiserror::Error;
+use tokio_util::sync::CancellationToken;
+
+#[derive(Error)]
+pub enum AggregatorErr {
+    #[error("{code} Compression error: {0}", code = self.code())]
+    CompressionErr(crate::provers::ProverError),
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
+}
+
+impl_coded_debug!(AggregatorErr);
+
+impl CodedError for AggregatorErr {
+    fn code(&self) -> &str {
+        match self {
+            AggregatorErr::UnexpectedErr(_) => "[B-AGG-500]",
+            AggregatorErr::CompressionErr(_) => "[B-AGG-400]",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AggregatorService {
@@ -41,24 +64,12 @@ impl AggregatorService {
         db: DbObj,
         chain_id: u64,
         set_builder_guest_id: Digest,
-        set_builder_guest: Vec<u8>,
         assessor_guest_id: Digest,
-        assessor_guest: Vec<u8>,
         market_addr: Address,
         prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
     ) -> Result<Self> {
-        prover
-            .upload_image(&set_builder_guest_id.to_string(), set_builder_guest)
-            .await
-            .context("Failed to upload set-builder guest")?;
-
-        prover
-            .upload_image(&assessor_guest_id.to_string(), assessor_guest)
-            .await
-            .context("Failed to upload assessor guest")?;
-
         Ok(Self {
             db,
             config,
@@ -121,7 +132,7 @@ impl AggregatorService {
         // TODO: Need to set a timeout here to handle stuck or even just alert on delayed proving if
         // the proving cluster is overloaded
 
-        tracing::info!("Starting proving of set-builder");
+        tracing::debug!("Starting proving of set-builder");
         let proof_res = self
             .prover
             .prove_and_monitor_stark(
@@ -131,8 +142,9 @@ impl AggregatorService {
             )
             .await
             .context("Failed to prove set-builder")?;
-        tracing::info!(
-            "completed proving of set-builder cycles: {} time: {}",
+        tracing::debug!(
+            "Set-builder proof complete, proof id: {} cycles: {} time: {}",
+            proof_res.id,
             proof_res.stats.total_cycles,
             proof_res.elapsed_time
         );
@@ -160,21 +172,21 @@ impl AggregatorService {
         })
     }
 
-    async fn prove_assessor(&self, order_ids: &[U256]) -> Result<String> {
+    async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
         let mut fills = vec![];
         let mut assumptions = vec![];
 
         for order_id in order_ids {
             let order = self
                 .db
-                .get_order(*order_id)
+                .get_order(order_id)
                 .await
-                .with_context(|| format!("Failed to get DB order ID {order_id:x}"))?
-                .with_context(|| format!("order ID {order_id:x} missing from DB"))?;
+                .with_context(|| format!("Failed to get DB order ID {order_id}"))?
+                .with_context(|| format!("order ID {order_id} missing from DB"))?;
 
             let proof_id = order
                 .proof_id
-                .with_context(|| format!("Missing proof_id for order: {order_id:x}"))?;
+                .with_context(|| format!("Missing proof_id for order: {order_id}"))?;
 
             assumptions.push(proof_id.clone());
 
@@ -198,13 +210,10 @@ impl AggregatorService {
             domain: eip712_domain(self.market_addr, self.chain_id),
             prover_address: self.prover_addr,
         };
-        let input_data = input.to_vec();
+        let stdin = GuestEnv::builder().write_frame(&input.encode()).stdin;
 
-        let input_id = self
-            .prover
-            .upload_input(input_data)
-            .await
-            .context("Failed to upload assessor input")?;
+        let input_id =
+            self.prover.upload_input(stdin).await.context("Failed to upload assessor input")?;
 
         let proof_res = self
             .prover
@@ -212,8 +221,9 @@ impl AggregatorService {
             .await
             .context("Failed to prove assesor stark")?;
 
-        tracing::info!(
-            "Assessor proof completed, count: {} cycles: {} time: {}",
+        tracing::debug!(
+            "Assessor proof completed, proof id: {} count: {} cycles: {} time: {}",
+            proof_res.id,
             order_count,
             proof_res.stats.total_cycles,
             proof_res.elapsed_time
@@ -223,19 +233,18 @@ impl AggregatorService {
     }
 
     /// Get the sum of the size of the journals for proofs in a batch
-    async fn get_combined_journal_size(&self, order_ids: &[U256]) -> Result<usize> {
+    async fn get_combined_journal_size(&self, order_ids: &[String]) -> Result<usize> {
         let mut journal_size = 0;
         for order_id in order_ids {
             let order = self
                 .db
-                .get_order(*order_id)
+                .get_order(order_id)
                 .await
-                .with_context(|| format!("Failed to get order {order_id:x}"))?
-                .with_context(|| format!("Order {order_id:x} missing from DB"))?;
+                .with_context(|| format!("Failed to get order {order_id}"))?
+                .with_context(|| format!("Order {order_id} missing from DB"))?;
 
-            let proof_id = order
-                .proof_id
-                .with_context(|| format!("Missing proof_id for order {order_id:x}"))?;
+            let proof_id =
+                order.proof_id.with_context(|| format!("Missing proof_id for order {order_id}"))?;
 
             let journal = self
                 .prover
@@ -254,12 +263,18 @@ impl AggregatorService {
     ///
     /// Checks current min-deadline, batch timer, and current block.
     async fn check_finalize(
-        &mut self,
+        &self,
         batch_id: usize,
         batch: &Batch,
         pending_orders: &[AggregationOrder],
     ) -> Result<bool> {
-        let (conf_batch_size, conf_batch_time, conf_batch_fees, conf_max_journal_bytes) = {
+        let (
+            conf_batch_size,
+            conf_batch_time,
+            conf_batch_fees,
+            conf_max_journal_bytes,
+            conf_max_concurrent_proofs,
+        ) = {
             let config = self.config.lock_all().context("Failed to lock config")?;
 
             // TODO: Move this parse into config
@@ -270,11 +285,26 @@ impl AggregatorService {
                 None => None,
             };
             (
-                config.batcher.batch_size,
+                config.batcher.min_batch_size,
                 config.batcher.batch_max_time,
                 batch_max_fees,
                 config.batcher.batch_max_journal_bytes,
+                config.market.max_concurrent_proofs,
             )
+        };
+
+        // Check that the min batch size is not greater than the max concurrent proofs
+        let conf_batch_size = match (conf_batch_size, conf_max_concurrent_proofs) {
+            (Some(batch_size), Some(max_concurrent)) if batch_size > max_concurrent => {
+                tracing::warn!(
+                    "Configured min_batch_size ({}) exceeds max_concurrent_proofs ({}). \
+                     Setting min_batch_size to max_concurrent_proofs.",
+                    batch_size,
+                    max_concurrent
+                );
+                Some(max_concurrent)
+            }
+            (batch_size, _) => batch_size,
         };
 
         // Skip finalization checks if we have nothing in this batch
@@ -289,7 +319,7 @@ impl AggregatorService {
         let batch_size = batch.orders.len() + pending_orders.len();
         if let Some(batch_target_size) = conf_batch_size {
             if batch_size >= batch_target_size as usize {
-                tracing::info!(
+                tracing::debug!(
                     "Finalizing batch {batch_id}: size target hit {} - {}",
                     batch_size,
                     batch_target_size
@@ -306,11 +336,11 @@ impl AggregatorService {
 
         // Finalize the batch if the journal size is already above the max
         let batch_journal_size = self.get_combined_journal_size(&batch.orders).await?;
-        let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id).collect();
+        let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
         let pending_journal_size = self.get_combined_journal_size(&pending_order_ids).await?;
         let journal_size = batch_journal_size + pending_journal_size;
         if journal_size >= conf_max_journal_bytes {
-            tracing::info!(
+            tracing::debug!(
                 "Finalizing batch {batch_id}: journal size target hit {} >= {}",
                 journal_size,
                 conf_max_journal_bytes
@@ -328,7 +358,7 @@ impl AggregatorService {
         if let Some(batch_time) = conf_batch_time {
             let time_delta = Utc::now() - batch.start_time;
             if time_delta.num_seconds() as u64 >= batch_time {
-                tracing::info!(
+                tracing::debug!(
                     "Finalizing batch {batch_id}: time limit hit {} - {}",
                     time_delta.num_seconds(),
                     batch.start_time
@@ -345,7 +375,7 @@ impl AggregatorService {
                 pending_orders.iter().map(|order| order.fee).fold(batch.fees, |sum, fee| sum + fee);
 
             if fees >= batch_target_fees {
-                tracing::info!("Finalizing batch {batch_id}: fee target hit");
+                tracing::debug!("Finalizing batch {batch_id}: fee target hit");
                 return Ok(true);
             } else {
                 tracing::debug!("Batch {batch_id} below fee target");
@@ -368,7 +398,7 @@ impl AggregatorService {
         if let Some(deadline) = deadline {
             let remaining_secs = deadline.saturating_sub(now);
             if remaining_secs <= conf_deadline_buf_secs {
-                tracing::info!(
+                tracing::debug!(
                     "Finalizing batch {batch_id}: getting close to deadline {remaining_secs}"
                 );
                 return Ok(true);
@@ -382,22 +412,73 @@ impl AggregatorService {
         Ok(false)
     }
 
+    /// Filter out expired orders and mark them as failed
+    async fn filter_expired_orders(
+        &self,
+        orders: Vec<AggregationOrder>,
+        current_time: u64,
+    ) -> Result<Vec<AggregationOrder>, AggregatorErr> {
+        let mut valid_orders = Vec::with_capacity(orders.len());
+
+        for order in orders {
+            if order.expiration < current_time {
+                tracing::warn!(
+                    "[B-AGG-600] Order {} has expired during aggregation, marking as failed",
+                    order.order_id
+                );
+
+                if let Err(err) =
+                    self.db.set_order_failure(&order.order_id, "Expired before aggregation").await
+                {
+                    tracing::error!(
+                        "Failed to set order {} as failed before aggregation: {err}",
+                        order.order_id,
+                    );
+                }
+            } else {
+                valid_orders.push(order);
+            }
+        }
+
+        Ok(valid_orders)
+    }
+
+    /// Get all pending proofs, filter expired orders, and return both aggregation and groth16 proofs separately
+    async fn get_filtered_pending_proofs(
+        &self,
+    ) -> Result<(Vec<AggregationOrder>, Vec<AggregationOrder>), AggregatorErr> {
+        let current_time = crate::now_timestamp();
+
+        // Get both types of proofs
+        let new_proofs =
+            self.db.get_aggregation_proofs().await.context("Failed to get aggregation proofs")?;
+        let groth16_proofs =
+            self.db.get_groth16_proofs().await.context("Failed to get groth16 proofs")?;
+
+        // Filter expired orders from both lists
+        let valid_new_proofs = self.filter_expired_orders(new_proofs, current_time).await?;
+        let valid_groth16_proofs = self.filter_expired_orders(groth16_proofs, current_time).await?;
+
+        Ok((valid_new_proofs, valid_groth16_proofs))
+    }
+
     async fn aggregate_proofs(
-        &mut self,
+        &self,
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
-        unaggregated_proofs: &[AggregationOrder],
+        new_groth16_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<String> {
+        let all_orders: Vec<String> = batch
+            .orders
+            .iter()
+            .chain(new_proofs.iter().map(|p| &p.order_id))
+            .chain(new_groth16_proofs.iter().map(|p| &p.order_id))
+            .cloned()
+            .collect();
         let assessor_proof_id = if finalize {
-            let assessor_order_ids: Vec<U256> = batch
-                .orders
-                .iter()
-                .copied()
-                .chain(new_proofs.iter().map(|p| p.order_id))
-                .chain(unaggregated_proofs.iter().map(|p| p.order_id))
-                .collect();
+            let assessor_order_ids: Vec<String> = all_orders.clone();
 
             tracing::debug!(
                 "Running assessor for batch {batch_id} with orders {:x?}",
@@ -408,6 +489,12 @@ impl AggregatorService {
                 self.prove_assessor(&assessor_order_ids).await.with_context(|| {
                     format!("Failed to prove assessor with orders {:x?}", assessor_order_ids)
                 })?;
+
+            tracing::debug!(
+                "Assessor proof complete for batch {batch_id} with orders {:x?}, proof id: {}",
+                assessor_order_ids,
+                assessor_proof_id
+            );
 
             Some(assessor_proof_id)
         } else {
@@ -421,19 +508,27 @@ impl AggregatorService {
             .chain(assessor_proof_id.iter().cloned())
             .collect();
 
-        tracing::debug!("Running set builder for {batch_id} with proofs {:x?}", proof_ids);
+        tracing::debug!(
+            "Running set builder for batch {batch_id} of orders {:x?} and proofs {:x?}",
+            all_orders,
+            proof_ids
+        );
         let aggregation_state = self
             .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize)
             .await
             .context("Failed to prove set builder for batch {batch_id}")?;
 
-        tracing::info!("Completed aggregation into batch {batch_id} of proofs {:x?}", proof_ids);
+        tracing::debug!(
+            "Completed aggregation into batch {batch_id} of orders {:x?} and proofs {:x?}",
+            all_orders,
+            proof_ids
+        );
 
         self.db
             .update_batch(
                 batch_id,
                 &aggregation_state,
-                &[new_proofs, unaggregated_proofs].concat(),
+                &[new_proofs, new_groth16_proofs].concat(),
                 assessor_proof_id,
             )
             .await
@@ -442,27 +537,16 @@ impl AggregatorService {
         Ok(aggregation_state.proof_id)
     }
 
-    async fn aggregate(&mut self) -> Result<()> {
+    async fn aggregate(&self) -> Result<(), AggregatorErr> {
         // Get the current batch. This aggregator service works on one batch at a time, including
         // any proofs ready for aggregation into the current batch.
-        let batch_id =
-            self.db.get_current_batch().await.context("Failed to get current batch ID")?;
+        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
         let (aggregation_proof_id, compress) = match batch.status {
             BatchStatus::Aggregating => {
-                // Fetch all proofs that are pending aggregation from the DB.
-                let new_proofs = self
-                    .db
-                    .get_aggregation_proofs()
-                    .await
-                    .context("Failed to get pending agg proofs from DB")?;
-                // Fetch all unaggregated proofs that are ready to be submitted from the DB.
-                let new_unaggregated_proofs = self
-                    .db
-                    .get_unaggregated_proofs()
-                    .await
-                    .context("Failed to get unaggregated proofs from DB")?;
+                // Get and filter all pending proofs
+                let (new_proofs, new_groth16_proofs) = self.get_filtered_pending_proofs().await?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.
@@ -470,7 +554,7 @@ impl AggregatorService {
                     .check_finalize(
                         batch_id,
                         &batch,
-                        &[new_proofs.clone(), new_unaggregated_proofs.clone()].concat(),
+                        &[new_proofs.clone(), new_groth16_proofs.clone()].concat(),
                     )
                     .await?;
 
@@ -481,36 +565,50 @@ impl AggregatorService {
                 }
 
                 let aggregation_proof_id = self
-                    .aggregate_proofs(
-                        batch_id,
-                        &batch,
-                        &new_proofs,
-                        &new_unaggregated_proofs,
-                        finalize,
-                    )
+                    .aggregate_proofs(batch_id, &batch, &new_proofs, &new_groth16_proofs, finalize)
                     .await?;
                 (aggregation_proof_id, finalize)
             }
             BatchStatus::PendingCompression => {
-                let Some(aggregation_state) = batch.aggregation_state else {
-                    bail!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None");
-                };
+                let aggregation_state = batch.aggregation_state.with_context(|| format!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None"))?;
                 (aggregation_state.proof_id, true)
             }
-            status => bail!("Unexpected batch status {status:?}"),
+            status => {
+                return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!(
+                    "Unexpected batch status {status:?}"
+                )))
+            }
         };
 
         if compress {
-            tracing::info!("Starting groth16 compression proof for batch {batch_id}");
-            let compress_proof_id = self
-                .prover
-                .compress(&aggregation_proof_id)
-                .await
-                .context("Failed to complete compression")?;
-            tracing::info!("Completed groth16 compression for batch {batch_id}");
+            tracing::debug!("Starting groth16 compression proof for batch {batch_id}");
+
+            let (retry_count, sleep_ms) = {
+                let config = self.config.lock_all().context("Failed to lock config")?;
+                (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+            };
+
+            let compress_proof_id = match retry(
+                retry_count,
+                sleep_ms,
+                || async { self.prover.compress(&aggregation_proof_id).await },
+                "compress",
+            )
+            .await
+            {
+                Ok(id) => id,
+                Err(err) => {
+                    self.db
+                        .set_batch_failure(batch_id, err.to_string())
+                        .await
+                        .map_err(|e| AggregatorErr::UnexpectedErr(e.into()))?;
+                    return Err(AggregatorErr::CompressionErr(err));
+                }
+            };
+            tracing::debug!("Completed groth16 compression for batch {batch_id}");
 
             self.db
-                .complete_batch(batch_id, compress_proof_id)
+                .complete_batch(batch_id, &compress_proof_id)
                 .await
                 .context("Failed to set batch as complete")?;
         }
@@ -520,53 +618,63 @@ impl AggregatorService {
 }
 
 impl RetryTask for AggregatorService {
-    fn spawn(&self) -> RetryRes {
-        let mut self_clone = self.clone();
+    type Error = AggregatorErr;
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
+        let self_clone = self.clone();
 
         Box::pin(async move {
-            tracing::info!("Starting Aggregator service");
+            tracing::debug!("Starting Aggregator service");
             loop {
+                if cancel_token.is_cancelled() {
+                    tracing::debug!("Aggregator service received cancellation");
+                    break;
+                }
+
                 let conf_poll_time_ms = {
                     let config = self_clone
                         .config
                         .lock_all()
                         .context("Failed to lock config")
-                        .map_err(SupervisorErr::Fault)?;
+                        .map_err(AggregatorErr::UnexpectedErr)
+                        .map_err(SupervisorErr::Recover)?;
                     config.batcher.batch_poll_time_ms.unwrap_or(1000)
                 };
 
                 self_clone.aggregate().await.map_err(SupervisorErr::Recover)?;
                 tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
             }
+
+            Ok(())
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Add, sync::Arc};
+    use std::sync::Arc;
 
     use super::*;
     use crate::{
         chain_monitor::ChainMonitorService,
         db::SqliteDb,
         now_timestamp,
-        provers::{encode_input, MockProver, Prover},
-        BatchStatus, Order, OrderStatus,
+        provers::{encode_input, DefaultProver, Prover},
+        BatchStatus, FulfillmentType, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::U256,
+        primitives::{Bytes, U256},
         providers::{ext::AnvilApi, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, ProofRequest, Requirements,
+        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
+        Requirements,
     };
-    use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID};
-    use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID};
-    use guest_util::{ECHO_ELF, ECHO_ID};
+    use boundless_market_test_utils::{
+        ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF, SET_BUILDER_ID,
+    };
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -578,7 +686,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -586,10 +694,10 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(2);
+            config.batcher.min_batch_size = Some(2);
         }
 
-        let prover: ProverObj = Arc::new(MockProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         // Pre-prove the echo aka app guest:
         let image_id = Digest::from(ECHO_ID);
@@ -605,14 +713,17 @@ mod tests {
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        let _handle = tokio::spawn(chain_monitor.spawn());
-        let mut aggregator = AggregatorService::new(
+        let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
+        let aggregator = AggregatorService::new(
             db.clone(),
-            provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            chain_id,
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -622,19 +733,17 @@ mod tests {
         .unwrap();
 
         let customer_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
-        let chain_id = provider.get_chain_id().await.unwrap();
         let min_price = 2;
 
         // First order
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
@@ -664,21 +773,24 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         // Second order
         let order_request = ProofRequest::new(
-            1,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 1),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
@@ -708,14 +820,18 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -732,7 +848,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -740,10 +856,10 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(2);
+            config.batcher.min_batch_size = Some(2);
         }
 
-        let prover: ProverObj = Arc::new(MockProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         // Pre-prove the echo aka app guest:
         let image_id = Digest::from(ECHO_ID);
@@ -759,14 +875,16 @@ mod tests {
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
-        let _handle = tokio::spawn(chain_monitor.spawn());
-        let mut aggregator = AggregatorService::new(
+        let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
+        let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -781,14 +899,13 @@ mod tests {
 
         // First order
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
@@ -817,16 +934,20 @@ mod tests {
             expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
             request: order_request,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         // Aggregate the first order. Should not finalize.
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let option_batch = db.get_complete_batch().await.unwrap();
@@ -834,20 +955,19 @@ mod tests {
 
         let aggregating_batch_id = db.get_current_batch().await.unwrap();
         let aggregating_batch = db.get_batch(aggregating_batch_id).await.unwrap();
-        assert_eq!(aggregating_batch.orders, vec![order_id]);
+        assert_eq!(aggregating_batch.orders, vec![order.id()]);
         assert!(aggregating_batch.aggregation_state.is_some());
         assert!(!aggregating_batch.aggregation_state.unwrap().guest_state.mmr.is_finalized());
 
         // Second order
         let order_request = ProofRequest::new(
-            1,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 1),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
@@ -876,15 +996,19 @@ mod tests {
             expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
             request: order_request,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -901,7 +1025,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -909,11 +1033,11 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(2);
+            config.batcher.min_batch_size = Some(2);
             config.batcher.batch_max_fees = Some("0.1".into());
         }
 
-        let prover: ProverObj = Arc::new(MockProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         // Pre-prove the echo aka app guest:
         let image_id = Digest::from(ECHO_ID);
@@ -926,13 +1050,15 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
-        let mut aggregator = AggregatorService::new(
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
+        let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
@@ -946,14 +1072,13 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
@@ -983,14 +1108,18 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -1006,7 +1135,7 @@ mod tests {
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -1014,11 +1143,11 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(2);
+            config.batcher.min_batch_size = Some(2);
             config.batcher.block_deadline_buffer_secs = 100;
         }
 
-        let prover: ProverObj = Arc::new(MockProver::default());
+        let prover: ProverObj = Arc::new(DefaultProver::new());
 
         // Pre-prove the echo aka app guest:
         let image_id = Digest::from(ECHO_ID);
@@ -1033,15 +1162,17 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
 
-        let _handle = tokio::spawn(chain_monitor.spawn());
+        let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
-        let mut aggregator = AggregatorService::new(
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
+        let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             signer.address(),
             config.clone(),
@@ -1055,14 +1186,13 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
@@ -1092,16 +1222,20 @@ mod tests {
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         provider.anvil_mine(Some(51), Some(2)).await.unwrap();
 
         aggregator.aggregate().await.unwrap();
 
-        let db_order = db.get_order(order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
 
         let (_batch_id, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -1112,13 +1246,13 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn jounal_size_finalize() {
+    async fn journal_size_finalize() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer.clone()))
-                .on_builtin(&anvil.endpoint())
+                .connect(&anvil.endpoint())
                 .await
                 .unwrap(),
         );
@@ -1126,14 +1260,14 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.batch_size = Some(10);
+            config.batcher.min_batch_size = Some(10);
             // set config such that the batch max journal size is exceeded
             // if two ECHO sized journals are included in a batch
             config.market.max_journal_bytes = 20;
             config.batcher.batch_max_journal_bytes = 30;
         }
 
-        let mock_prover = MockProver::default();
+        let mock_prover = DefaultProver::new();
 
         // Pre-prove the echo aka app guest:
         let image_id = Digest::from(ECHO_ID);
@@ -1150,15 +1284,17 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
 
-        let _handle = tokio::spawn(chain_monitor.spawn());
+        let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
-        let mut aggregator = AggregatorService::new(
+        let set_builder_id = Digest::from(SET_BUILDER_ID);
+        prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
+        let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
+        prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
+        let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            Digest::from(SET_BUILDER_ID),
-            SET_BUILDER_ELF.to_vec(),
-            Digest::from(ASSESSOR_GUEST_ID),
-            ASSESSOR_GUEST_ELF.to_vec(),
+            set_builder_id,
+            assessor_id,
             Address::ZERO,
             signer.address(),
             config.clone(),
@@ -1172,14 +1308,13 @@ mod tests {
 
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
-            0,
-            &customer_signer.address(),
+            RequestId::new(customer_signer.address(), 0),
             Requirements::new(
                 image_id,
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "http://risczero.com/image",
-            Input { inputType: InputType::Inline, data: Default::default() },
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
@@ -1201,34 +1336,207 @@ mod tests {
             status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
-            request: order_request,
+            request: order_request.clone(),
+            image_id: Some(image_id_str.clone()),
+            input_id: Some(input_id.clone()),
+            proof_id: Some(proof_res.clone().id),
+            compressed_proof_id: None,
+            expire_timestamp: Some(now_timestamp() + 1000),
+            client_sig: client_sig.into(),
+            lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
+            error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
+        };
+
+        // add first order and aggregate
+        db.add_order(&order).await.unwrap();
+        aggregator.aggregate().await.unwrap();
+        assert!(logs_contain("journal size below limit 20 < 30"));
+
+        let batch_res = db.get_complete_batch().await.unwrap();
+        assert!(batch_res.is_none());
+
+        // Add another order, this should cross the journal limit threshold and
+        // trigger the batch to be finalized
+        let mut order_request_2 = order_request.clone();
+        order_request_2.id = RequestId::new(customer_signer.address(), 1).into();
+
+        let client_sig_2 = order_request_2
+            .sign_request(&customer_signer, Address::ZERO, chain_id)
+            .await
+            .unwrap()
+            .as_bytes();
+
+        let order2 = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_timestamp: None,
+            request: order_request_2,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             compressed_proof_id: None,
             expire_timestamp: Some(now_timestamp() + 1000),
-            client_sig: client_sig.into(),
+            client_sig: client_sig_2.into(),
             lock_price: Some(U256::from(min_price)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
             error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id,
+            total_cycles: None,
+            proving_started_at: None,
         };
 
-        // add first order and aggregate
-        let order_id = U256::from(order.request.id);
-        db.add_order(order_id, order.clone()).await.unwrap();
-        aggregator.aggregate().await.unwrap();
-        assert!(logs_contain("journal size below limit 20 < 30"));
-
-        // batch is not finalized at this point
-
-        // Add another order, this should cross the journal limit threshold and
-        // trigger the batch to be finalized
-        let order_id = U256::from(order.request.id.add(U256::from(1)));
-        db.add_order(order_id, order.clone()).await.unwrap();
+        db.add_order(&order2).await.unwrap();
         aggregator.aggregate().await.unwrap();
         assert!(logs_contain("journal size target hit 40 >= 30"));
 
         let (_, batch) = db.get_complete_batch().await.unwrap().unwrap();
         assert_eq!(batch.orders.len(), 2);
         assert_eq!(batch.status, BatchStatus::PendingSubmission);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn filter_expired_orders() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+
+        let aggregator_service = AggregatorService::new(
+            db.clone(),
+            1,
+            Digest::ZERO,
+            Digest::ZERO,
+            Address::ZERO,
+            Address::ZERO,
+            config,
+            prover,
+        )
+        .await
+        .unwrap();
+
+        let current_time = crate::now_timestamp();
+
+        // Add orders to DB first so we can mark them as failed
+        let expired_order = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_timestamp: None,
+            request: ProofRequest::new(
+                RequestId::new(Address::ZERO, 999),
+                Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
+                        predicateType: PredicateType::PrefixMatch,
+                        data: Default::default(),
+                    },
+                ),
+                "http://risczero.com",
+                RequestInput { inputType: RequestInputType::Inline, data: "".into() },
+                Offer {
+                    minPrice: U256::from(1),
+                    maxPrice: U256::from(2),
+                    biddingStart: 0,
+                    timeout: 100,
+                    lockTimeout: 100,
+                    rampUpPeriod: 1,
+                    lockStake: U256::from(0),
+                },
+            ),
+            image_id: None,
+            input_id: None,
+            proof_id: None,
+            compressed_proof_id: None,
+            expire_timestamp: Some(current_time - 100),
+            client_sig: Bytes::new(),
+            lock_price: Some(U256::from(1)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
+            error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            total_cycles: None,
+            proving_started_at: None,
+        };
+        db.add_order(&expired_order).await.unwrap();
+
+        let valid_order = Order {
+            status: OrderStatus::PendingAgg,
+            updated_at: Utc::now(),
+            target_timestamp: None,
+            request: ProofRequest::new(
+                RequestId::new(Address::ZERO, 1000),
+                Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
+                        predicateType: PredicateType::PrefixMatch,
+                        data: Default::default(),
+                    },
+                ),
+                "http://risczero.com",
+                RequestInput { inputType: RequestInputType::Inline, data: "".into() },
+                Offer {
+                    minPrice: U256::from(1),
+                    maxPrice: U256::from(2),
+                    biddingStart: 0,
+                    timeout: 100,
+                    lockTimeout: 100,
+                    rampUpPeriod: 1,
+                    lockStake: U256::from(0),
+                },
+            ),
+            image_id: None,
+            input_id: None,
+            proof_id: None,
+            compressed_proof_id: None,
+            expire_timestamp: Some(current_time + 100),
+            client_sig: Bytes::new(),
+            lock_price: Some(U256::from(1)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
+            error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            total_cycles: None,
+            proving_started_at: None,
+        };
+        db.add_order(&valid_order).await.unwrap();
+
+        // Create test orders with the correct IDs
+        let orders = vec![
+            AggregationOrder {
+                order_id: expired_order.id(),
+                proof_id: "proof1".to_string(),
+                expiration: current_time - 100,
+                fee: U256::from(10),
+            },
+            AggregationOrder {
+                order_id: valid_order.id(),
+                proof_id: "proof2".to_string(),
+                expiration: current_time + 100,
+                fee: U256::from(20),
+            },
+        ];
+
+        // Filter expired orders
+        let valid_orders =
+            aggregator_service.filter_expired_orders(orders, current_time).await.unwrap();
+
+        // Should only have one valid order
+        assert_eq!(valid_orders.len(), 1);
+        assert_eq!(valid_orders[0].order_id, valid_order.id());
+
+        // Check that expired order was marked as failed
+        let db_expired_order = db.get_order(&expired_order.id()).await.unwrap().unwrap();
+        assert_eq!(db_expired_order.status, OrderStatus::Failed);
+        assert_eq!(db_expired_order.error_msg, Some("Expired before aggregation".to_string()));
+
+        // Check that valid order is unchanged
+        let db_valid_order = db.get_order(&valid_order.id()).await.unwrap().unwrap();
+        assert_eq!(db_valid_order.status, OrderStatus::PendingAgg);
+        assert!(db_valid_order.error_msg.is_none());
     }
 }

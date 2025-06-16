@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "CommonJS",
+    "target": "ES2017",
+    "noImplicitAny": true,
+    "preserveConstEnums": true,
+    "outDir": "./build",
+    "sourceMap": true,
+    "types": ["node", "jest"],
+    "skipLibCheck": true,
+    "rootDir": "src"
+  },
+  "include": ["src/"],
+  "exclude": ["node_modules", "build"]
+}

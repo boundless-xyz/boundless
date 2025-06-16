@@ -18,7 +18,6 @@ import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
-import {HitPoints} from "../src/HitPoints.sol";
 
 /// @notice Base contract for the scripts below, providing common context and functions.
 contract RiscZeroManagementScript is Script {
@@ -34,28 +33,6 @@ contract RiscZeroManagementScript is Script {
             vm.rememberKey(deployerKey);
         }
         return deployer;
-    }
-}
-
-/// @notice Deployment script for the HitPoints deployment.
-/// @dev Use the following environment variable to control the deployment:
-///     * BOUNDLESS_MARKET_OWNER owner of the HitPoints contract
-///
-/// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract DeployHitPoints is RiscZeroManagementScript {
-    function run() external {
-        address marketOwner = vm.envAddress("BOUNDLESS_MARKET_OWNER");
-        console2.log("marketOwner:", marketOwner);
-
-        vm.startBroadcast(deployerAddress());
-        bytes32 salt = bytes32(0);
-        // Deploy the HitPoints contract
-        address stakeTokenAddress = address(new HitPoints{salt: salt}(marketOwner));
-        HitPoints(stakeTokenAddress).grantMinterRole(marketOwner);
-        vm.stopBroadcast();
-
-        console2.log("Deployed stake-token contract (HitPoints) at %s", stakeTokenAddress);
     }
 }
 
@@ -98,9 +75,6 @@ contract DeployBoundlessMarket is RiscZeroManagementScript {
             )
         );
 
-        // Add the market address in the authorized list of the stake-token contract
-        HitPoints(stakeToken).grantAuthorizedTransferRole(marketAddress);
-
         vm.stopBroadcast();
 
         console2.log("Deployed BoundlessMarket proxy contract at %s", marketAddress);
@@ -125,6 +99,9 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         require(marketAddress != address(0), "BoundlessMarket proxy address must be set in config");
         console2.log("Using BoundlessMarket proxy at address", marketAddress);
 
+        address stakeToken = deploymentConfig.stakeToken;
+        require(stakeToken != address(0), "stake-token address must be set in config");
+
         // Get the current assessor image ID and guest URL
         BoundlessMarket market = BoundlessMarket(marketAddress);
         (bytes32 currentImageID, string memory currentGuestUrl) = market.imageInfo();
@@ -135,7 +112,7 @@ contract UpgradeBoundlessMarket is RiscZeroManagementScript {
         bytes32 assessorImageId = deploymentConfig.assessorImageId;
 
         UpgradeOptions memory opts;
-        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(verifier, assessorImageId);
+        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(verifier, assessorImageId, stakeToken);
         opts.referenceContract = "build-info-reference:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/reference-contract/build-info-reference";
 

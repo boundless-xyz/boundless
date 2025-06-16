@@ -1,0 +1,21 @@
+config:
+  aws:region: us-west-2
+  pipelines:GITHUB_TOKEN:
+    secure: v1:Pk4oKulHKDkYy7nE:hBuZJUG5SUNEocf3fwOwIxU5u+z/GDoFrNTq3ybxRYJmB1Y8gg+He+ebuv3/y8wYPy5azJw5fPRzH8I6cQrSw0ADYsQONdasHoIcueM2/5ea0JPnWluxtssQV2aSIvlYNzsboIVHH973KOPbEQ==
+  pipelines:DOCKER_USER: risczeroautomation
+  pipelines:DOCKER_PAT:
+    secure: v1:T+xEOzjeS7sQw9Nb:dY+euWAR30sMP+DYC4V9lfM3LmSCu/yiYPANKYqgw7hkdM4izqHCvUq/s+8ABEgdSUVjRw==
+  pipelines:BOUNDLESS_ALERTS_SLACK_ID:
+    secure: v1:J2ub3a8jGaglZCGc:S/I5GH1h/1w3UsfHCjjInBOGz3nQG7/W9wYf
+  pipelines:WORKSPACE_SLACK_ID:
+    secure: v1:vV+qgJdAOlWjWopo:NnPGhM8xj5jRtaKJengh0njuWGTQfw41lmoy
+  pipelines:PAGERDUTY_INTEGRATION_URL:
+    secure: v1:2E/GhMEBxiNIM0ZP:Ru621fMUaloOvdXAeH5c+E1wwz69G0bcwTYfxVpeib6mL+QjkJFfWoaKb4vowKVfvYeEP2+fWovxX98KBUhT1a6VfgW76s/ms2jWH8/Hs4a3V9S3qlxQtf8bPU069WFVMA==
+  pipelines:BOUNDLESS_ALERTS_STAGING_SLACK_ID:
+    secure: v1:gD6/fZ10KbMJ6bnc:/5ZjtnPS7Sl/5ys59cJdUTCixWZdyfaU68QT
+  pipelines:SSO_BASE_URL:
+    secure: v1:J4pnTna1KP3wkUuU:9d8AW9H3gig7mn/tq1aPtw2hkYseRKsDBf0+vLHcp1j1+0zc1O6IP/PYJEcXBGozWwMOlhdddMCOA+ivd6n3EA==
+  pipelines:RUNBOOK_URL:
+    secure: v1:6oX3TRTzickOSMk9:JYDw6501xgI+VJmpeMWN3UgqofpVzsquL40NC4XTjYfged/idqzAKlp0QC5fS5Ae4SV9zkcHoFFCl54Y8h88PUDLeaCaSV/IxnGYc6NFH2jEX3PQfmDBx062bRj1ksdmki4=
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFRXbSyr6AYSMcivVuIOKM1AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM99POLOpwmSAsUSA6AgEQgDtWlwiW1A4Ljv+YiqVnhqlhSZhL08n2udrkFcXJOak8aa7RyAbspSlyMy/J6r9TffIO8mXOioXADQfokg==

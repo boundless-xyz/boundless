@@ -25,7 +25,7 @@ const EXCLUDE_CONTRACTS: [&str; 2] = [
 ];
 
 // Contracts to copy bytecode for. Used for deploying contracts in tests.
-const ARTIFACT_TARGET_CONTRACTS: [&str; 7] = [
+const ARTIFACT_TARGET_CONTRACTS: [&str; 8] = [
     "BoundlessMarket",
     "HitPoints",
     "RiscZeroMockVerifier",
@@ -33,21 +33,11 @@ const ARTIFACT_TARGET_CONTRACTS: [&str; 7] = [
     "ERC1967Proxy",
     "RiscZeroVerifierRouter",
     "RiscZeroGroth16Verifier",
+    "MockCallback",
 ];
 
 // Output filename for the generated types. The file is placed in the build directory.
 const BOUNDLESS_MARKET_RS: &str = "boundless_market_generated.rs";
-
-fn insert_derives(contents: &mut String, find_str: &str, insert_str: &str) {
-    let mut cur_pos = 0;
-    while let Some(struct_pos) =
-        contents.match_indices(find_str).find_map(|(i, _)| (i >= cur_pos).then_some(i))
-    {
-        // println!("cargo:warning={struct_pos}");
-        contents.insert_str(struct_pos, insert_str);
-        cur_pos = struct_pos + insert_str.len() + find_str.len();
-    }
-}
 
 // TODO: This is a bit fragile (e.g. it breaks if there is an unmatched brace in a comment).
 // Using alloy's `syn-solidity` would be the robust way of doing this.
@@ -111,9 +101,6 @@ fn rewrite_solidity_interface_files() {
                 }
             }
 
-            insert_derives(&mut sol_contents, "\nstruct ", "\n#[derive(Deserialize, Serialize)]");
-            insert_derives(&mut sol_contents, "\nenum ", "\n#[derive(Deserialize, Serialize)]");
-
             combined_sol_contents.push_str(&sol_contents);
         }
     }
@@ -129,11 +116,11 @@ fn rewrite_solidity_interface_files() {
     fs::write(
         dest_path,
         format!(
-            "#[allow(missing_docs)]
+            "#[allow(missing_docs, clippy::too_many_arguments)]
         pub mod boundless_market_contract {{
-            use serde::{{Deserialize, Serialize}};
             {alloy_import}::sol! {{
             #![sol(all_derives)]
+            #![sol(extra_derives(serde::Serialize, serde::Deserialize))]
             {combined_sol_contents}
 }}
 }}
@@ -279,6 +266,10 @@ fn get_interfaces(contract: &str) -> &str {
         }
         "RiscZeroGroth16Verifier" => {
             r#"constructor(bytes32 control_root, bytes32 bn254_control_id) {}"#
+        }
+        "MockCallback" => {
+            r#"constructor(address verifier, address boundlessMarket, bytes32 imageId, uint256 _targetGas) {}
+            function getCallCount() external view returns (uint256) {}"#
         }
         _ => "",
     }

@@ -15,6 +15,7 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FOUNDRY_VERSION: v1.2.2
 
 jobs:
   contracts-changed:
@@ -52,8 +53,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: install foundry
+      - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
 
       - name: print forge version
         run: forge --version
@@ -76,6 +79,8 @@ jobs:
 
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: "v1.0.0"
 
       - name: checkout main code
         uses: actions/checkout@v4
@@ -107,3 +112,4 @@ jobs:
         run: forge test -vvv
         env:
           FOUNDRY_PROFILE: reference-contract
+          FOUNDRY_OUT: contracts/reference-contract/out

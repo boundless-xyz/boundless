@@ -2,7 +2,7 @@ import { type PropsWithChildren, type ReactNode, cloneElement } from "react";
 
 function hasHashPrefix(node: ReactNode): boolean {
   if (typeof node === "string") {
-    return node.trimStart().startsWith("# ");
+    return node.startsWith("# ");
   }
 
   if (Array.isArray(node)) {

@@ -5,7 +5,7 @@
 
 use std::{default::Default, str::FromStr, sync::Arc};
 
-use alloy::primitives::{ruint::ParseError as RuintParseErr, B256, U256};
+use alloy::primitives::{ruint::ParseError as RuintParseErr, Bytes, B256, U256};
 use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::{
@@ -14,58 +14,100 @@ use sqlx::{
 };
 use thiserror::Error;
 
-use crate::{AggregationState, Batch, BatchStatus, Order, OrderStatus, ProofRequest};
+use crate::{
+    errors::{impl_coded_debug, CodedError},
+    AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderRequest, OrderStatus,
+    ProofRequest,
+};
+use tracing::instrument;
 
 #[cfg(test)]
 mod fuzz_db;
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum DbError {
-    #[error("Order key {0} not found in DB")]
-    OrderNotFound(U256),
+    #[error("{code} Order key {0} not found in DB", code = self.code())]
+    OrderNotFound(String),
 
-    #[error("Batch key {0} not found in DB")]
+    #[error("{code} Batch key {0} not found in DB", code = self.code())]
     BatchNotFound(usize),
 
-    #[error("Batch key {0} has no aggreagtion state")]
+    #[error("{code} Batch key {0} has no aggreagtion state", code = self.code())]
     BatchAggregationStateIsNone(usize),
 
     #[cfg(test)]
-    #[error("Batch insert failed {0}")]
+    #[error("{code} Batch insert failed {0}", code = self.code())]
     BatchInsertFailure(usize),
 
-    #[error("DB Missing column value: {0}")]
+    #[error("{code} DB Missing column value: {0}", code = self.code())]
     MissingElm(&'static str),
 
-    #[error("SQL error")]
-    SqlErr(#[from] sqlx::Error),
+    #[error("{code} SQL error {0}", code = self.code())]
+    SqlErr(sqlx::Error),
 
-    #[error("SQL Migration error")]
+    #[error("{code} SQL Pool timed out {0}", code = self.code())]
+    SqlPoolTimedOut(sqlx::Error),
+
+    #[error("{code} SQL Database locked {0}", code = self.code())]
+    SqlDatabaseLocked(anyhow::Error),
+
+    #[error("{code} SQL Unique violation {0}", code = self.code())]
+    SqlUniqueViolation(sqlx::Error),
+
+    #[error("{code} SQL Migration error", code = self.code())]
     MigrateErr(#[from] sqlx::migrate::MigrateError),
 
-    #[error("JSON serialization err")]
+    #[error("{code} JSON serialization error", code = self.code())]
     JsonErr(#[from] serde_json::Error),
 
-    #[error("Invalid order id")]
+    #[error("{code} Invalid order id", code = self.code())]
     InvalidOrderId(#[from] RuintParseErr),
 
-    #[error("Invalid block number: {0}")]
-    BadBlockNumb(String),
-
-    #[error("Failed to set last block")]
-    SetBlockFail,
-
-    #[error("Invalid order id: {0} missing field: {1}")]
+    #[error("{code} Invalid order id: {0} missing field: {1}", code = self.code())]
     InvalidOrder(String, &'static str),
 
-    #[error("Invalid max connection env var value")]
+    #[error("{code} Invalid max connection env var value", code = self.code())]
     MaxConnEnvVar(#[from] std::num::ParseIntError),
+
+    #[error("{code} Duplicate order id accepted {0}", code = self.code())]
+    DuplicateOrderId(String),
+}
+
+impl_coded_debug!(DbError);
+
+impl CodedError for DbError {
+    fn code(&self) -> &str {
+        match self {
+            DbError::SqlDatabaseLocked(_) => "[B-DB-001]",
+            DbError::SqlPoolTimedOut(_) => "[B-DB-002]",
+            DbError::SqlUniqueViolation(_) => "[B-DB-003]",
+            _ => "[B-DB-500]",
+        }
+    }
+}
+
+impl From<sqlx::Error> for DbError {
+    fn from(e: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(ref db_err) = e {
+            let msg = db_err.message().to_string();
+            if msg.contains("database is locked") {
+                return DbError::SqlDatabaseLocked(anyhow::anyhow!(msg));
+            }
+            if db_err.is_unique_violation() {
+                return DbError::SqlUniqueViolation(e);
+            }
+        }
+        match e {
+            sqlx::Error::PoolTimedOut => DbError::SqlPoolTimedOut(e),
+            _ => DbError::SqlErr(e),
+        }
+    }
 }
 
 /// Struct containing the information about an order used by the aggregation worker.
 #[derive(Clone, Debug)]
 pub struct AggregationOrder {
-    pub order_id: U256,
+    pub order_id: String,
     pub proof_id: String,
     pub expiration: u64,
     pub fee: U256,
@@ -73,56 +115,61 @@ pub struct AggregationOrder {
 
 #[async_trait]
 pub trait BrokerDb {
-    async fn add_order(&self, id: U256, order: Order) -> Result<Option<Order>, DbError>;
-    async fn order_exists(&self, id: U256) -> Result<bool, DbError>;
-    async fn get_order(&self, id: U256) -> Result<Option<Order>, DbError>;
+    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
+    async fn insert_accepted_request(
+        &self,
+        order_request: &OrderRequest,
+        lock_price: U256,
+    ) -> Result<Order, DbError>;
+    async fn get_order(&self, id: &str) -> Result<Option<Order>, DbError>;
+    async fn get_orders(&self, ids: &[&str]) -> Result<Vec<Order>, DbError>;
     async fn get_submission_order(
         &self,
-        id: U256,
-    ) -> Result<(ProofRequest, String, B256, U256), DbError>;
-    async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError>;
-    async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError>;
-    async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError>;
-    async fn set_order_lock(
+        id: &str,
+    ) -> Result<(ProofRequest, Bytes, String, B256, U256, FulfillmentType), DbError>;
+    async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
+    async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError>;
+    async fn set_order_complete(&self, id: &str) -> Result<(), DbError>;
+    /// Get all orders that are committed to be prove and be fulfilled.
+    async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
+    /// Get all orders that are committed to be proved but have expired based on their expire_timestamp.
+    async fn get_expired_committed_orders(
         &self,
-        id: U256,
-        lock_timestamp: u64,
-        expire_timestamp: u64,
-    ) -> Result<(), DbError>;
-    async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError>;
-    async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError>;
-    async fn set_order_complete(&self, id: U256) -> Result<(), DbError>;
-    async fn skip_order(&self, id: U256) -> Result<(), DbError>;
-    async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
-    async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
-    async fn get_pending_lock_orders(
-        &self,
-        end_timestamp: u64,
-    ) -> Result<Vec<(U256, Order)>, DbError>;
-    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u32, DbError>;
-    async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError>;
-    async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError>;
-    async fn set_order_proof_id(&self, order_id: U256, proof_id: &str) -> Result<(), DbError>;
+        grace_period_secs: i64,
+    ) -> Result<Vec<Order>, DbError>;
+    async fn get_proving_order(&self) -> Result<Option<Order>, DbError>;
+    async fn get_active_proofs(&self) -> Result<Vec<Order>, DbError>;
+    async fn set_order_proof_id(&self, order_id: &str, proof_id: &str) -> Result<(), DbError>;
     async fn set_order_compressed_proof_id(
         &self,
-        order_id: U256,
+        order_id: &str,
         proof_id: &str,
     ) -> Result<(), DbError>;
-    async fn set_image_input_ids(
-        &self,
-        id: U256,
-        image_id: &str,
-        input_id: &str,
-    ) -> Result<(), DbError>;
-    async fn set_aggregation_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError>;
+    async fn set_aggregation_status(&self, id: &str, status: OrderStatus) -> Result<(), DbError>;
     async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
-    async fn get_unaggregated_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
-    async fn complete_batch(&self, batch_id: usize, g16_proof_id: String) -> Result<(), DbError>;
+    async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
+    async fn complete_batch(&self, batch_id: usize, g16_proof_id: &str) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;
     async fn set_batch_failure(&self, batch_id: usize, err: String) -> Result<(), DbError>;
     async fn get_current_batch(&self) -> Result<usize, DbError>;
-
+    async fn set_request_fulfilled(
+        &self,
+        request_id: U256,
+        block_number: u64,
+    ) -> Result<(), DbError>;
+    // Checks the fulfillment table for the given request_id
+    async fn is_request_fulfilled(&self, request_id: U256) -> Result<bool, DbError>;
+    async fn set_request_locked(
+        &self,
+        request_id: U256,
+        locker: &str,
+        block_number: u64,
+    ) -> Result<(), DbError>;
+    // Checks the locked table for the given request_id
+    async fn is_request_locked(&self, request_id: U256) -> Result<bool, DbError>;
+    // Checks the locked table for the given request_id
+    async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError>;
     /// Update a batch with the results of an aggregation step.
     ///
     /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
@@ -137,14 +184,14 @@ pub trait BrokerDb {
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
 
     #[cfg(test)]
+    async fn add_order(&self, order: &Order) -> Result<(), DbError>;
+    #[cfg(test)]
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
     #[cfg(test)]
     async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError>;
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
-
-const SQL_BLOCK_KEY: i64 = 0;
 
 pub struct SqliteDb {
     pool: SqlitePool,
@@ -190,6 +237,44 @@ impl SqliteDb {
 
         Ok(res as usize)
     }
+
+    /// Insert an order into the database using ON CONFLICT to handle duplicates safely.
+    /// Always ignores duplicates - used for skipped requests.
+    async fn insert_order_ignore_duplicates(&self, order: &Order) -> Result<(), DbError> {
+        let result =
+            sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2) ON CONFLICT(id) DO NOTHING")
+                .bind(order.id())
+                .bind(sqlx::types::Json(&order))
+                .execute(&self.pool)
+                .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::debug!("Order {} already exists in the database", order.id());
+        }
+
+        Ok(())
+    }
+
+    /// Insert an accepted order, overwriting only if the existing order is skipped.
+    /// Returns true if inserted/updated, false if ignored due to existing non-skipped order.
+    async fn insert_accepted_order(&self, order: &Order) -> Result<(), DbError> {
+        let result = sqlx::query(
+            r#"INSERT INTO orders (id, data) VALUES ($1, $2) 
+               ON CONFLICT(id) DO UPDATE SET 
+                   data = excluded.data 
+               WHERE orders.data->>'status' = 'Skipped'"#,
+        )
+        .bind(order.id())
+        .bind(sqlx::types::Json(&order))
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::DuplicateOrderId(order.id()));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -206,179 +291,95 @@ struct DbBatch {
     data: Batch,
 }
 
+#[derive(sqlx::FromRow)]
+struct DbLockedRequest {
+    #[allow(dead_code)]
+    id: String,
+    locker: String,
+    block_number: u64,
+}
+
 #[async_trait]
 impl BrokerDb for SqliteDb {
-    async fn add_order(&self, id: U256, order: Order) -> Result<Option<Order>, DbError> {
-        // TODO(austin): https://github.com/boundless-xyz/boundless/issues/162
-        sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2)")
-            .bind(format!("{id:x}"))
-            .bind(sqlx::types::Json(&order))
-            .execute(&self.pool)
-            .await?;
-        Ok(Some(order))
+    #[cfg(test)]
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order.id())))]
+    async fn add_order(&self, order: &Order) -> Result<(), DbError> {
+        self.insert_order_ignore_duplicates(order).await
     }
 
-    async fn order_exists(&self, id: U256) -> Result<bool, DbError> {
-        let res: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM orders WHERE id = $1")
-            .bind(format!("{id:x}"))
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(res == 1)
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
+    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError> {
+        self.insert_order_ignore_duplicates(&order_request.to_skipped_order()).await
     }
 
-    async fn get_order(&self, id: U256) -> Result<Option<Order>, DbError> {
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
+    async fn insert_accepted_request(
+        &self,
+        order_request: &OrderRequest,
+        lock_price: U256,
+    ) -> Result<Order, DbError> {
+        let order = order_request.to_proving_order(lock_price);
+        self.insert_accepted_order(&order).await?;
+        Ok(order)
+    }
+
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
+    async fn get_order(&self, id: &str) -> Result<Option<Order>, DbError> {
         let order: Option<DbOrder> = sqlx::query_as("SELECT * FROM orders WHERE id = $1 LIMIT 1")
-            .bind(format!("{id:x}"))
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
 
         Ok(order.map(|x| x.data))
     }
 
+    async fn get_orders(&self, ids: &[&str]) -> Result<Vec<Order>, DbError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ");
+        let query = format!("SELECT * FROM orders WHERE id IN ({})", placeholders);
+
+        let mut q = sqlx::query_as::<_, DbOrder>(&query);
+        for id in ids {
+            q = q.bind(id);
+        }
+        let orders = q.fetch_all(&self.pool).await?;
+        Ok(orders.into_iter().map(|x| x.data).collect())
+    }
+
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
     async fn get_submission_order(
         &self,
-        id: U256,
-    ) -> Result<(ProofRequest, String, B256, U256), DbError> {
+        id: &str,
+    ) -> Result<(ProofRequest, Bytes, String, B256, U256, FulfillmentType), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             Ok((
                 order.request.clone(),
+                order.client_sig.clone(),
                 order.proof_id.ok_or(DbError::MissingElm("proof_id"))?,
                 order.request.requirements.imageId,
                 order.lock_price.ok_or(DbError::MissingElm("lock_price"))?,
+                order.fulfillment_type,
             ))
         } else {
-            Err(DbError::OrderNotFound(id))
+            Err(DbError::OrderNotFound(id.to_string()))
         }
     }
 
-    async fn get_order_compressed_proof_id(&self, id: U256) -> Result<String, DbError> {
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
+    async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             Ok(order.compressed_proof_id.ok_or(DbError::MissingElm("compressed_proof_id"))?)
         } else {
-            Err(DbError::OrderNotFound(id))
+            Err(DbError::OrderNotFound(id.to_string()))
         }
     }
 
-    async fn update_orders_for_pricing(&self, limit: u32) -> Result<Vec<(U256, Order)>, DbError> {
-        let orders: Vec<DbOrder> = sqlx::query_as(
-            r#"
-            WITH orders_to_update AS (
-                SELECT id
-                FROM orders
-                WHERE data->>'status' = $1
-                LIMIT $2
-            )
-            UPDATE orders
-            SET data = json_set(json_set(data, '$.status', $3), '$.updated_at', $4)
-            WHERE id IN (SELECT id FROM orders_to_update)
-            RETURNING *
-            "#,
-        )
-        .bind(OrderStatus::New)
-        .bind(i64::from(limit))
-        .bind(OrderStatus::Pricing)
-        .bind(Utc::now().timestamp())
-        .fetch_all(&self.pool)
-        .await?;
-
-        let result: Result<Vec<_>, _> = orders
-            .into_iter()
-            .map(|order| Ok((U256::from_str_radix(&order.id, 16)?, order.data)))
-            .collect();
-
-        result
-    }
-
-    async fn get_active_pricing_orders(&self) -> Result<Vec<(U256, Order)>, DbError> {
-        let orders: Vec<DbOrder> =
-            sqlx::query_as("SELECT * FROM orders WHERE data->>'status' = $1")
-                .bind(OrderStatus::Pricing)
-                .fetch_all(&self.pool)
-                .await?;
-
-        let orders: Result<Vec<_>, _> = orders
-            .into_iter()
-            .map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data)))
-            .collect();
-
-        orders
-    }
-
-    async fn set_order_lock(
-        &self,
-        id: U256,
-        lock_timestamp: u64,
-        expire_timestamp: u64,
-    ) -> Result<(), DbError> {
-        let res = sqlx::query(
-            r#"
-            UPDATE orders
-            SET data = json_set(
-                       json_set(
-                       json_set(
-                       json_set(data,
-                       '$.status', $1),
-                       '$.target_timestamp', $2),
-                       '$.expire_timestamp', $3),
-                       '$.updated_at', $4)
-            WHERE
-                id = $5"#,
-        )
-        .bind(OrderStatus::Locking)
-        // TODO: can we work out how to correctly
-        // use bind + a json field with out string formatting
-        // the sql query?
-        .bind(
-            i64::try_from(lock_timestamp)
-                .map_err(|_| DbError::BadBlockNumb(lock_timestamp.to_string()))?,
-        )
-        .bind(
-            i64::try_from(expire_timestamp)
-                .map_err(|_| DbError::BadBlockNumb(expire_timestamp.to_string()))?,
-        )
-        .bind(Utc::now().timestamp())
-        .bind(format!("{id:x}"))
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
-        }
-
-        Ok(())
-    }
-
-    async fn set_proving_status(&self, id: U256, lock_price: U256) -> Result<(), DbError> {
-        let res = sqlx::query(
-            r#"
-            UPDATE orders
-            SET data = json_set(
-                       json_set(
-                       json_set(data,
-                       '$.status', $1),
-                       '$.updated_at', $2),
-                       '$.lock_price', $3)
-            WHERE
-                id = $4"#,
-        )
-        .bind(OrderStatus::Locked)
-        .bind(Utc::now().timestamp())
-        .bind(lock_price.to_string())
-        .bind(format!("{id:x}"))
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
-        }
-
-        Ok(())
-    }
-
-    async fn set_order_failure(&self, id: U256, failure_str: String) -> Result<(), DbError> {
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
+    async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -394,18 +395,19 @@ impl BrokerDb for SqliteDb {
         .bind(OrderStatus::Failed)
         .bind(Utc::now().timestamp())
         .bind(failure_str)
-        .bind(format!("{id:x}"))
+        .bind(id)
         .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
+            return Err(DbError::OrderNotFound(id.to_string()));
         }
 
         Ok(())
     }
 
-    async fn set_order_complete(&self, id: U256) -> Result<(), DbError> {
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
+    async fn set_order_complete(&self, id: &str) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -418,110 +420,60 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::Done)
         .bind(Utc::now().timestamp())
-        .bind(format!("{id:x}"))
+        .bind(id)
         .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
+            return Err(DbError::OrderNotFound(id.to_string()));
         }
 
         Ok(())
     }
 
-    async fn skip_order(&self, id: U256) -> Result<(), DbError> {
-        let res = sqlx::query(
-            r#"
-            UPDATE orders
-            SET data = json_set(
-                       json_set(data,
-                       '$.status', $1),
-                       '$.updated_at', $2)
-            WHERE
-                id = $3"#,
-        )
-        .bind(OrderStatus::Skipped)
-        .bind(Utc::now().timestamp())
-        .bind(format!("{id:x}"))
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
-        }
-
-        Ok(())
-    }
-
-    async fn get_last_block(&self) -> Result<Option<u64>, DbError> {
-        // TODO: query_as, seems to not work correctly here
-        let res = sqlx::query("SELECT block FROM last_block WHERE id = $1")
-            .bind(SQL_BLOCK_KEY)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        let Some(row) = res else {
-            return Ok(None);
-        };
-
-        let block_str: String = row.try_get("block")?;
-
-        Ok(Some(block_str.parse().map_err(|_err| DbError::BadBlockNumb(block_str))?))
-    }
-
-    async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError> {
-        let res = sqlx::query("REPLACE INTO last_block (id, block) VALUES ($1, $2)")
-            .bind(SQL_BLOCK_KEY)
-            .bind(block_numb.to_string())
-            .execute(&self.pool)
-            .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::SetBlockFail);
-        }
-
-        Ok(())
-    }
-
-    async fn get_pending_lock_orders(
-        &self,
-        end_timestamp: u64,
-    ) -> Result<Vec<(U256, Order)>, DbError> {
+    #[instrument(level = "trace", skip_all)]
+    async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
-            "SELECT * FROM orders WHERE data->>'status' = $1 AND data->>'target_timestamp' <= $2",
+            "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(OrderStatus::Locking)
-        .bind(end_timestamp as i64)
-        .fetch_all(&self.pool)
-        .await?;
-
-        // Break if any order-id's are invalid and raise
-        let orders: Result<Vec<_>, _> = orders
-            .into_iter()
-            .map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data)))
-            .collect();
-
-        orders
-    }
-
-    async fn get_orders_committed_to_fulfill_count(&self) -> Result<u32, DbError> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6, $7)",
-        )
-        .bind(OrderStatus::Locking)
-        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
         .bind(OrderStatus::PendingAgg)
         .bind(OrderStatus::Aggregating)
         .bind(OrderStatus::SkipAggregation)
         .bind(OrderStatus::PendingSubmission)
-        .fetch_one(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
-        Ok(u32::try_from(count).expect("count should never be negative"))
+        // Break if any order-id's are invalid and raise
+        orders.into_iter().map(|elm| Ok(elm.data)).collect()
     }
 
-    async fn get_proving_order(&self) -> Result<Option<(U256, Order)>, DbError> {
+    #[instrument(level = "trace", skip(self))]
+    async fn get_expired_committed_orders(
+        &self,
+        grace_period_secs: i64,
+    ) -> Result<Vec<Order>, DbError> {
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            r#"
+            SELECT * FROM orders
+                WHERE data->>'status' IN ($1, $2, $3, $4, $5)
+                AND data->>'expire_timestamp' IS NOT NULL AND data->>'expire_timestamp' < $6"#,
+        )
+        .bind(OrderStatus::PendingProving)
+        .bind(OrderStatus::Proving)
+        .bind(OrderStatus::PendingAgg)
+        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::PendingSubmission)
+        .bind(Utc::now().timestamp().saturating_sub(grace_period_secs))
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(orders.into_iter().map(|db_order| db_order.data).collect())
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    async fn get_proving_order(&self) -> Result<Option<Order>, DbError> {
         let elm: Option<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -536,7 +488,7 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::Proving)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::Locked)
+        .bind(OrderStatus::PendingProving)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -544,25 +496,22 @@ impl BrokerDb for SqliteDb {
             return Ok(None);
         };
 
-        Ok(Some((U256::from_str_radix(&order.id, 16)?, order.data)))
+        Ok(Some(order.data))
     }
 
-    async fn get_active_proofs(&self) -> Result<Vec<(U256, Order)>, DbError> {
+    #[instrument(level = "trace", skip_all)]
+    async fn get_active_proofs(&self) -> Result<Vec<Order>, DbError> {
         let orders: Vec<DbOrder> =
             sqlx::query_as("SELECT * FROM orders WHERE data->>'status' = $1")
                 .bind(OrderStatus::Proving)
                 .fetch_all(&self.pool)
                 .await?;
 
-        let orders: Result<Vec<_>, _> = orders
-            .into_iter()
-            .map(|elm| Ok((U256::from_str_radix(&elm.id, 16)?, elm.data)))
-            .collect();
-
-        orders
+        orders.into_iter().map(|elm| Ok(elm.data)).collect()
     }
 
-    async fn set_order_proof_id(&self, id: U256, proof_id: &str) -> Result<(), DbError> {
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
+    async fn set_order_proof_id(&self, id: &str, proof_id: &str) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -575,20 +524,21 @@ impl BrokerDb for SqliteDb {
         )
         .bind(proof_id)
         .bind(Utc::now().timestamp())
-        .bind(format!("{id:x}"))
+        .bind(id)
         .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
+            return Err(DbError::OrderNotFound(id.to_string()));
         }
 
         Ok(())
     }
 
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
     async fn set_order_compressed_proof_id(
         &self,
-        id: U256,
+        id: &str,
         compressed_proof_id: &str,
     ) -> Result<(), DbError> {
         let res = sqlx::query(
@@ -603,50 +553,19 @@ impl BrokerDb for SqliteDb {
         )
         .bind(compressed_proof_id)
         .bind(Utc::now().timestamp())
-        .bind(format!("{id:x}"))
+        .bind(id)
         .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
+            return Err(DbError::OrderNotFound(id.to_string()));
         }
 
         Ok(())
     }
 
-    async fn set_image_input_ids(
-        &self,
-        id: U256,
-        image_id: &str,
-        input_id: &str,
-    ) -> Result<(), DbError> {
-        let res = sqlx::query(
-            r#"
-            UPDATE orders
-            SET data = json_set(
-                       json_set(
-                       json_set(data,
-                       '$.image_id', $1),
-                       '$.input_id', $2),
-                       '$.updated_at', $3)
-            WHERE
-                id = $4"#,
-        )
-        .bind(image_id)
-        .bind(input_id)
-        .bind(Utc::now().timestamp())
-        .bind(format!("{id:x}"))
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
-        }
-
-        Ok(())
-    }
-
-    async fn set_aggregation_status(&self, id: U256, status: OrderStatus) -> Result<(), DbError> {
+    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
+    async fn set_aggregation_status(&self, id: &str, status: OrderStatus) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -659,17 +578,18 @@ impl BrokerDb for SqliteDb {
         )
         .bind(status)
         .bind(Utc::now().timestamp())
-        .bind(format!("{id:x}"))
+        .bind(id)
         .execute(&self.pool)
         .await?;
 
         if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id));
+            return Err(DbError::OrderNotFound(id.to_string()));
         }
 
         Ok(())
     }
 
+    #[instrument(level = "trace", skip_all)]
     async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
@@ -693,7 +613,7 @@ impl BrokerDb for SqliteDb {
         let mut agg_orders = vec![];
         for order in orders.into_iter() {
             agg_orders.push(AggregationOrder {
-                order_id: U256::from_str_radix(&order.id, 16)?,
+                order_id: order.id.clone(),
                 // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
                 proof_id: order
                     .data
@@ -703,14 +623,18 @@ impl BrokerDb for SqliteDb {
                     .data
                     .expire_timestamp
                     .ok_or(DbError::InvalidOrder(order.id.clone(), "expire_timestamp"))?,
-                fee: order.data.lock_price.ok_or(DbError::InvalidOrder(order.id, "lock_price"))?,
+                fee: order
+                    .data
+                    .lock_price
+                    .ok_or(DbError::InvalidOrder(order.id.clone(), "lock_price"))?,
             })
         }
 
         Ok(agg_orders)
     }
 
-    async fn get_unaggregated_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
+    #[instrument(level = "trace", skip_all)]
+    async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -732,7 +656,7 @@ impl BrokerDb for SqliteDb {
         let mut agg_orders = vec![];
         for order in orders.into_iter() {
             agg_orders.push(AggregationOrder {
-                order_id: U256::from_str_radix(&order.id, 16)?,
+                order_id: order.id.clone(),
                 // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
                 proof_id: order
                     .data
@@ -749,7 +673,8 @@ impl BrokerDb for SqliteDb {
         Ok(agg_orders)
     }
 
-    async fn complete_batch(&self, batch_id: usize, g16_proof_id: String) -> Result<(), DbError> {
+    #[instrument(level = "trace", skip_all)]
+    async fn complete_batch(&self, batch_id: usize, g16_proof_id: &str) -> Result<(), DbError> {
         let batch = self.get_batch(batch_id).await?;
         if batch.aggregation_state.is_none() {
             return Err(DbError::BatchAggregationStateIsNone(batch_id));
@@ -778,6 +703,7 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip_all)]
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError> {
         let elm: Option<DbBatch> = sqlx::query_as(
             r#"
@@ -804,6 +730,7 @@ impl BrokerDb for SqliteDb {
         Ok(Some((db_batch.id as usize, db_batch.data)))
     }
 
+    #[instrument(level = "trace", skip_all)]
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
@@ -825,6 +752,7 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip_all)]
     async fn set_batch_failure(&self, batch_id: usize, err: String) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
@@ -850,6 +778,7 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip_all)]
     async fn get_current_batch(&self) -> Result<usize, DbError> {
         let batch_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM batches").fetch_one(&self.pool).await?;
@@ -872,6 +801,7 @@ impl BrokerDb for SqliteDb {
         }
     }
 
+    #[instrument(level = "trace", skip(self, aggreagtion_state, orders, assessor_proof_id))]
     async fn update_batch(
         &self,
         batch_id: usize,
@@ -938,7 +868,7 @@ impl BrokerDb for SqliteDb {
                 WHERE
                     id = $2"#,
             )
-            .bind(format!("0x{:x}", order.order_id))
+            .bind(order.order_id.clone())
             .bind(batch_id as i64)
             .execute(&mut *txn)
             .await?;
@@ -959,12 +889,12 @@ impl BrokerDb for SqliteDb {
             )
             .bind(OrderStatus::PendingSubmission)
             .bind(Utc::now().timestamp())
-            .bind(format!("{:x}", order.order_id))
+            .bind(order.order_id.clone())
             .execute(&mut *txn)
             .await?;
 
             if res.rows_affected() == 0 {
-                return Err(DbError::OrderNotFound(order.order_id));
+                return Err(DbError::OrderNotFound(order.order_id.clone()));
             }
         }
 
@@ -996,6 +926,7 @@ impl BrokerDb for SqliteDb {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip(self))]
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError> {
         let batch: Option<DbBatch> = sqlx::query_as("SELECT * FROM batches WHERE id = $1")
             .bind(batch_id as i64)
@@ -1007,6 +938,74 @@ impl BrokerDb for SqliteDb {
         } else {
             Err(DbError::BatchNotFound(batch_id))
         }
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    async fn set_request_fulfilled(
+        &self,
+        request_id: U256,
+        block_number: u64,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            INSERT INTO fulfilled_requests (id, block_number) VALUES ($1, $2)"#,
+        )
+        .bind(format!("0x{:x}", request_id))
+        .bind(block_number as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    async fn is_request_fulfilled(&self, request_id: U256) -> Result<bool, DbError> {
+        let res = sqlx::query(r#"SELECT * FROM fulfilled_requests WHERE id = $1"#)
+            .bind(format!("0x{:x}", request_id))
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(res.is_some())
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    async fn set_request_locked(
+        &self,
+        request_id: U256,
+        locker: &str,
+        block_number: u64,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            r#"INSERT INTO locked_requests (id, locker, block_number) VALUES ($1, $2, $3)"#,
+        )
+        .bind(format!("0x{:x}", request_id))
+        .bind(locker)
+        .bind(block_number as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    async fn is_request_locked(&self, request_id: U256) -> Result<bool, DbError> {
+        let res = sqlx::query(r#"SELECT * FROM locked_requests WHERE id = $1"#)
+            .bind(format!("0x{:x}", request_id))
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(res.is_some())
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError> {
+        let res: Option<DbLockedRequest> =
+            sqlx::query_as(r#"SELECT * FROM locked_requests WHERE id = $1"#)
+                .bind(format!("0x{:x}", request_id))
+                .fetch_optional(&self.pool)
+                .await?;
+
+        Ok(res.map(|r| (r.locker, r.block_number)))
     }
 
     #[cfg(test)]
@@ -1054,19 +1053,16 @@ mod tests {
     use crate::ProofRequest;
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Input, InputType, Offer, Predicate, PredicateType, Requirements,
+        Offer, Predicate, PredicateType, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
+    use tracing_test::traced_test;
 
-    fn create_order() -> Order {
-        Order {
-            status: OrderStatus::New,
-            updated_at: Utc::now(),
-            target_timestamp: None,
-            request: ProofRequest::new(
-                1,
-                &Address::ZERO,
+    fn create_order_request() -> OrderRequest {
+        OrderRequest::new(
+            ProofRequest::new(
+                RequestId::new(Address::ZERO, 1),
                 Requirements::new(
                     Digest::ZERO,
                     Predicate {
@@ -1075,7 +1071,7 @@ mod tests {
                     },
                 ),
                 "http://risczero.com",
-                Input { inputType: InputType::Inline, data: "".into() },
+                RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
@@ -1086,163 +1082,91 @@ mod tests {
                     lockStake: U256::from(0),
                 },
             ),
-            image_id: None,
-            input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
-            expire_timestamp: None,
-            client_sig: Bytes::new(),
-            lock_price: None,
-            error_msg: None,
-        }
+            Bytes::new(),
+            FulfillmentType::LockAndFulfill,
+            Address::ZERO,
+            1,
+        )
+    }
+
+    fn create_order() -> Order {
+        create_order_request().to_proving_order(Default::default())
     }
 
     #[sqlx::test]
     async fn add_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order).await.unwrap();
-    }
-
-    #[sqlx::test]
-    async fn order_not_exists(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        assert!(!db.order_exists(U256::ZERO).await.unwrap());
-    }
-
-    #[sqlx::test]
-    async fn order_exists(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order).await.unwrap();
-
-        assert!(db.order_exists(id).await.unwrap());
+        let order = create_order_request();
+        db.insert_accepted_request(&order, U256::ZERO).await.unwrap();
     }
 
     #[sqlx::test]
     async fn get_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
         let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
-        let db_order = db.get_order(id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 
         assert_eq!(order.request, db_order.request);
     }
 
     #[sqlx::test]
+    async fn get_orders(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let mut order1 = create_order();
+        order1.request.id = U256::from(1);
+        let mut order2 = create_order();
+        order2.request.id = U256::from(2);
+        let mut order3 = create_order();
+        order3.request.id = U256::from(3);
+        db.add_order(&order1).await.unwrap();
+        db.add_order(&order2).await.unwrap();
+        db.add_order(&order3).await.unwrap();
+
+        let ids = [order1.id(), order2.id(), order3.id()];
+        let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        let orders = db.get_orders(&id_refs).await.unwrap();
+        assert_eq!(orders.len(), 3);
+        let returned_ids: Vec<String> = orders.iter().map(|o| o.id()).collect();
+        assert!(returned_ids.contains(&order1.id()));
+        assert!(returned_ids.contains(&order2.id()));
+        assert!(returned_ids.contains(&order3.id()));
+
+        // Test empty input returns empty vec
+        let empty: Vec<&str> = vec![];
+        let orders = db.get_orders(&empty).await.unwrap();
+        assert!(orders.is_empty());
+    }
+
+    #[sqlx::test]
     async fn get_submission_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
         let mut order = create_order();
         order.proof_id = Some("test".to_string());
         order.lock_price = Some(U256::from(10));
-        db.add_order(id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
-        let submit_order = db.get_submission_order(id).await.unwrap();
+        let submit_order: (ProofRequest, Bytes, String, B256, U256, FulfillmentType) =
+            db.get_submission_order(&order.id()).await.unwrap();
         assert_eq!(submit_order.0, order.request);
-        assert_eq!(submit_order.1, order.proof_id.unwrap());
-        assert_eq!(submit_order.2, order.request.requirements.imageId);
-        assert_eq!(submit_order.3, order.lock_price.unwrap());
-    }
-
-    #[sqlx::test]
-    async fn update_orders_for_pricing(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
-        db.add_order(id + U256::from(1), order.clone()).await.unwrap();
-        db.add_order(id + U256::from(2), order.clone()).await.unwrap();
-
-        let price_order = db.update_orders_for_pricing(1).await.unwrap();
-        assert_eq!(price_order.len(), 1);
-        assert_eq!(price_order[0].0, id);
-        assert_eq!(price_order[0].1.status, OrderStatus::Pricing);
-        assert_ne!(price_order[0].1.updated_at, order.updated_at);
-
-        // Request the next two orders, which should skip the first
-        let price_order = db.update_orders_for_pricing(2).await.unwrap();
-        assert_eq!(price_order.len(), 2);
-        assert_eq!(price_order[0].0, id + U256::from(1));
-        assert_eq!(price_order[0].1.status, OrderStatus::Pricing);
-        assert_eq!(price_order[1].0, id + U256::from(2));
-        assert_eq!(price_order[1].1.status, OrderStatus::Pricing);
-    }
-
-    #[sqlx::test]
-    async fn get_active_pricing_orders(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-
-        let id = U256::ZERO;
-        let mut order = create_order();
-        order.status = OrderStatus::Pricing;
-        db.add_order(id, order.clone()).await.unwrap();
-
-        let orders = db.get_active_pricing_orders().await.unwrap();
-        assert_eq!(orders.len(), 1);
-        assert_eq!(orders[0].0, id);
-        assert_eq!(orders[0].1.status, OrderStatus::Pricing);
-    }
-
-    #[sqlx::test]
-    async fn set_order_lock(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
-
-        let lock_timestamp = 10;
-        let expire_timestamp = 20;
-        db.set_order_lock(id, lock_timestamp, expire_timestamp).await.unwrap();
-
-        let db_order = db.get_order(id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locking);
-        assert_eq!(db_order.target_timestamp, Some(lock_timestamp));
-        assert_eq!(db_order.expire_timestamp, Some(expire_timestamp));
-    }
-
-    #[sqlx::test]
-    #[should_panic(expected = "OrderNotFound(1)")]
-    async fn set_order_lock_fail(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
-        let bad_id = U256::from(1);
-        db.set_order_lock(bad_id, 1, 1).await.unwrap();
-    }
-
-    #[sqlx::test]
-    async fn set_proving_status(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
-
-        let lock_price = U256::from(20);
-
-        db.set_proving_status(id, lock_price).await.unwrap();
-
-        let db_order = db.get_order(id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Locked);
-        assert_eq!(db_order.lock_price, Some(lock_price));
+        assert_eq!(submit_order.1, order.client_sig);
+        assert_eq!(submit_order.2, order.proof_id.unwrap());
+        assert_eq!(submit_order.3, order.request.requirements.imageId);
+        assert_eq!(submit_order.4, order.lock_price.unwrap());
+        assert_eq!(submit_order.5, order.fulfillment_type);
     }
 
     #[sqlx::test]
     async fn set_order_failure(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
         let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
         let failure_str = "TEST_FAIL";
-        db.set_order_failure(id, failure_str.into()).await.unwrap();
+        db.set_order_failure(&order.id(), failure_str).await.unwrap();
 
-        let db_order = db.get_order(id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Failed);
         assert_eq!(db_order.error_msg, Some(failure_str.into()));
     }
@@ -1250,68 +1174,23 @@ mod tests {
     #[sqlx::test]
     async fn set_order_complete(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
         let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
+        db.add_order(&order).await.unwrap();
 
-        db.set_order_complete(id).await.unwrap();
+        db.set_order_complete(&order.id()).await.unwrap();
 
-        let db_order = db.get_order(id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Done);
     }
 
     #[sqlx::test]
     async fn skip_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
+        let order = create_order_request();
 
-        db.skip_order(id).await.unwrap();
-        let db_order = db.get_order(id).await.unwrap().unwrap();
+        db.insert_skipped_request(&order).await.unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
-    }
-
-    #[sqlx::test]
-    async fn set_get_block(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-
-        let mut block_numb = 20;
-        db.set_last_block(block_numb).await.unwrap();
-
-        let db_block = db.get_last_block().await.unwrap().unwrap();
-        assert_eq!(block_numb, db_block);
-
-        block_numb = 21;
-        db.set_last_block(block_numb).await.unwrap();
-
-        let db_block = db.get_last_block().await.unwrap().unwrap();
-        assert_eq!(block_numb, db_block);
-    }
-
-    #[sqlx::test]
-    async fn get_pending_lock_orders(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-
-        let id = U256::ZERO;
-        let target_timestamp = 20;
-        let good_end = 25;
-        let bad_end = 15;
-        let mut order = create_order();
-        order.status = OrderStatus::Locking;
-        order.target_timestamp = Some(target_timestamp);
-        db.add_order(id, order.clone()).await.unwrap();
-        order.target_timestamp = Some(good_end + 1);
-        db.add_order(id + U256::from(1), order.clone()).await.unwrap();
-
-        let res = db.get_pending_lock_orders(good_end).await.unwrap();
-
-        assert_eq!(res.len(), 1);
-        assert_eq!(res[0].0, id);
-        assert_eq!(res[0].1.target_timestamp, Some(target_timestamp));
-
-        let res = db.get_pending_lock_orders(bad_end).await.unwrap();
-        assert_eq!(res.len(), 0);
     }
 
     #[sqlx::test]
@@ -1320,13 +1199,14 @@ mod tests {
 
         let id = U256::ZERO;
         let mut order = create_order();
-        order.status = OrderStatus::Locked;
-        db.add_order(id, order.clone()).await.unwrap();
+        order.status = OrderStatus::PendingProving;
+        order.request.id = id;
+        db.add_order(&order).await.unwrap();
 
         let db_order = db.get_proving_order().await.unwrap();
         let db_order = db_order.unwrap();
-        assert_eq!(db_order.0, id);
-        assert_eq!(db_order.1.status, OrderStatus::Proving);
+        assert_eq!(db_order.id(), order.id());
+        assert_eq!(db_order.status, OrderStatus::Proving);
     }
 
     #[sqlx::test]
@@ -1334,13 +1214,14 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
+        let mut order = create_order();
+        order.request.id = id;
+        db.add_order(&order).await.unwrap();
 
         let proof_id = "test";
-        db.set_order_proof_id(id, proof_id).await.unwrap();
+        db.set_order_proof_id(&order.id(), proof_id).await.unwrap();
 
-        let db_order = db.get_order(id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.proof_id, Some(proof_id.into()));
     }
 
@@ -1351,35 +1232,18 @@ mod tests {
         let id = U256::ZERO;
         let mut order = create_order();
         order.status = OrderStatus::Done;
-        db.add_order(id, order.clone()).await.unwrap();
+        order.request.id = id;
+        db.add_order(&order).await.unwrap();
 
         let id_2 = U256::from(1);
         let mut order = create_order();
         order.status = OrderStatus::Proving;
-        db.add_order(id_2, order.clone()).await.unwrap();
+        order.request.id = id_2;
+        db.add_order(&order).await.unwrap();
 
         let proving_orders = db.get_active_proofs().await.unwrap();
         assert_eq!(proving_orders.len(), 1);
-        assert_eq!(proving_orders[0].0, id_2);
-    }
-
-    #[sqlx::test]
-    async fn set_image_input_ids(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-
-        let id = U256::ZERO;
-        let mut order = create_order();
-        order.status = OrderStatus::Locked;
-        db.add_order(id, order.clone()).await.unwrap();
-
-        let image_id = "test_img";
-        let input_id = "test_input";
-        db.set_image_input_ids(id, image_id, input_id).await.unwrap();
-
-        let db_order = db.get_order(id).await.unwrap().unwrap();
-
-        assert_eq!(db_order.image_id, Some(image_id.into()));
-        assert_eq!(db_order.input_id, Some(input_id.into()));
+        assert_eq!(proving_orders[0].id(), order.id());
     }
 
     #[sqlx::test]
@@ -1387,12 +1251,13 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let id = U256::ZERO;
-        let order = create_order();
-        db.add_order(id, order.clone()).await.unwrap();
+        let mut order = create_order();
+        order.request.id = id;
+        db.add_order(&order).await.unwrap();
 
-        db.set_aggregation_status(id, OrderStatus::PendingAgg).await.unwrap();
+        db.set_aggregation_status(&order.id(), OrderStatus::PendingAgg).await.unwrap();
 
-        let db_order = db.get_order(id).await.unwrap().unwrap();
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 
         assert_eq!(db_order.status, OrderStatus::PendingAgg);
     }
@@ -1401,9 +1266,9 @@ mod tests {
     async fn get_aggregation_proofs(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let orders = [
+        let mut orders = [
             Order {
-                status: OrderStatus::New,
+                status: OrderStatus::PendingProving,
                 proof_id: Some("test_id3".to_string()),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
@@ -1431,8 +1296,9 @@ mod tests {
                 ..create_order()
             },
         ];
-        for (i, order) in orders.iter().enumerate() {
-            db.add_order(U256::from(i), order.clone()).await.unwrap();
+        for (i, order) in orders.iter_mut().enumerate() {
+            order.request.id = U256::from(i);
+            db.add_order(order).await.unwrap();
         }
 
         let agg_proofs = db.get_aggregation_proofs().await.unwrap();
@@ -1440,20 +1306,20 @@ mod tests {
         assert_eq!(agg_proofs.len(), 2);
 
         let agg_proof = &agg_proofs[0];
-        assert_eq!(agg_proof.order_id, U256::from(1u64));
+        assert_eq!(agg_proof.order_id, orders[1].id());
         assert_eq!(agg_proof.proof_id, "test_id1");
         assert_eq!(agg_proof.expiration, 10);
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let agg_proof = &agg_proofs[1];
-        assert_eq!(agg_proof.order_id, U256::from(2u64));
+        assert_eq!(agg_proof.order_id, orders[2].id());
         assert_eq!(agg_proof.proof_id, "test_id2");
         assert_eq!(agg_proof.expiration, 10);
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
-        let db_order = db.get_order(U256::from(1u64)).await.unwrap().unwrap();
+        let db_order = db.get_order(&agg_proofs[0].order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Aggregating);
-        let db_order = db.get_order(U256::from(2u64)).await.unwrap().unwrap();
+        let db_order = db.get_order(&agg_proofs[1].order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Aggregating);
     }
 
@@ -1508,7 +1374,7 @@ mod tests {
         db.add_batch(batch_id, batch).await.unwrap();
 
         let g16_proof_id = "Testg16";
-        db.complete_batch(batch_id, g16_proof_id.into()).await.unwrap();
+        db.complete_batch(batch_id, g16_proof_id).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::Complete);
@@ -1566,20 +1432,24 @@ mod tests {
         // sqlx::migrate!("./migrations").run(&tmp_pool).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        db.add_order(U256::from(11), create_order()).await.unwrap();
-        db.add_order(U256::from(12), create_order()).await.unwrap();
+        let mut order1 = create_order();
+        order1.request.id = U256::from(11);
+        db.add_order(&order1).await.unwrap();
+        let mut order2 = create_order();
+        order2.request.id = U256::from(12);
+        db.add_order(&order2).await.unwrap();
 
         let batch_id = 1;
         let agg_proofs = [
             AggregationOrder {
                 proof_id: "a".to_string(),
-                order_id: U256::from(11),
+                order_id: order1.id(),
                 expiration: 20,
                 fee: U256::from(5),
             },
             AggregationOrder {
                 proof_id: "b".to_string(),
-                order_id: U256::from(12),
+                order_id: order2.id(),
                 expiration: 25,
                 fee: U256::from(10),
             },
@@ -1609,7 +1479,7 @@ mod tests {
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::PendingCompression);
-        assert_eq!(db_batch.orders, vec![U256::from(11), U256::from(12)]);
+        assert_eq!(db_batch.orders, vec![order1.id(), order2.id()]);
         assert_eq!(db_batch.deadline, Some(20));
         assert_eq!(db_batch.fees, U256::from(25));
         assert!(db_batch.aggregation_state.is_some());
@@ -1618,5 +1488,192 @@ mod tests {
         assert!(!agg_state.guest_state.is_initial());
         assert_eq!(&agg_state.proof_id, "c");
         assert_eq!(&agg_state.claim_digests, &claim_digests);
+    }
+
+    #[sqlx::test]
+    async fn set_and_check_request_fulfilled(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        let request_id = U256::from(123);
+        let block_number = 42;
+
+        // Initially should not be fulfilled
+        assert!(!db.is_request_fulfilled(request_id).await.unwrap());
+
+        // Set as fulfilled
+        db.set_request_fulfilled(request_id, block_number).await.unwrap();
+
+        // Should now be fulfilled
+        assert!(db.is_request_fulfilled(request_id).await.unwrap());
+
+        // Different request should still not be fulfilled
+        assert!(!db.is_request_fulfilled(U256::from(413)).await.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn set_and_check_request_locked(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        let request_id = U256::from(123);
+        let locker = "test_locker";
+        let block_number = 42;
+        // Initially should not be locked
+        assert!(!db.is_request_locked(request_id).await.unwrap());
+
+        // Set as locked
+        db.set_request_locked(request_id, locker, block_number).await.unwrap();
+
+        // Should now be locked
+        assert!(db.is_request_locked(request_id).await.unwrap());
+
+        // Different request should still not be locked
+        assert!(!db.is_request_locked(U256::from(413)).await.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn get_expired_committed_orders(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        let current_time = Utc::now().timestamp() as u64;
+        let past_time = current_time - 100;
+        let future_time = current_time + 100;
+
+        let mut orders = [
+            // Expired orders (should be returned)
+            Order {
+                status: OrderStatus::PendingProving,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::Proving,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::PendingAgg,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::SkipAggregation,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::PendingSubmission,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+            // Non-expired orders (should NOT be returned)
+            Order {
+                status: OrderStatus::Aggregating,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::PendingProving,
+                expire_timestamp: Some(future_time),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::Proving,
+                expire_timestamp: Some(future_time),
+                ..create_order()
+            },
+            // Orders without expiration timestamp (should NOT be possible, but shouldn't error)
+            Order { status: OrderStatus::PendingProving, expire_timestamp: None, ..create_order() },
+            // Orders with non-committed status (should NOT be returned even if expired)
+            Order {
+                status: OrderStatus::Done,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::Failed,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::Skipped,
+                expire_timestamp: Some(past_time),
+                ..create_order()
+            },
+        ];
+
+        for (i, order) in orders.iter_mut().enumerate() {
+            order.request.id = U256::from(i);
+            db.add_order(order).await.unwrap();
+        }
+
+        let expired_orders = db.get_expired_committed_orders(0).await.unwrap();
+
+        assert_eq!(expired_orders.len(), 5);
+
+        for order in &expired_orders {
+            assert!(order.expire_timestamp.is_some());
+            assert!(order.expire_timestamp.unwrap() < current_time);
+            assert!(matches!(
+                order.status,
+                OrderStatus::PendingProving
+                    | OrderStatus::Proving
+                    | OrderStatus::PendingAgg
+                    | OrderStatus::SkipAggregation
+                    | OrderStatus::PendingSubmission
+            ));
+        }
+
+        let mut expected_ids: Vec<U256> = (0..5).map(|i| U256::from(i)).collect();
+        let mut returned_ids: Vec<U256> = expired_orders.iter().map(|o| o.request.id).collect();
+        returned_ids.sort();
+        expected_ids.sort();
+        assert_eq!(returned_ids, expected_ids);
+    }
+
+    #[sqlx::test]
+    #[traced_test]
+    async fn insert_duplicate_orders_conflict_handling(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        // Skipped request ignores duplicates
+        let order_request = create_order_request();
+        db.insert_skipped_request(&order_request).await.unwrap();
+
+        let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
+        assert_eq!(stored_order.status, OrderStatus::Skipped);
+
+        // Try to insert the same skipped request again - should be ignored
+        db.insert_skipped_request(&order_request).await.unwrap();
+        assert!(logs_contain("already exists"));
+
+        // Accepted request can overwrite skipped order
+        let accepted_order =
+            db.insert_accepted_request(&order_request, U256::from(100)).await.unwrap();
+        assert_eq!(accepted_order.status, OrderStatus::PendingProving);
+        assert_eq!(accepted_order.lock_price, Some(U256::from(100)));
+
+        let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
+        assert_eq!(stored_order.status, OrderStatus::PendingProving);
+        assert_eq!(stored_order.lock_price, Some(U256::from(100)));
+
+        // Accepted request errors on non-skipped duplicate
+        assert!(db.insert_accepted_request(&order_request, U256::from(200)).await.is_err());
+
+        // Verify the stored order still has the original lock price (wasn't updated)
+        let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
+        assert_eq!(
+            stored_order.lock_price,
+            Some(U256::from(100)),
+            "Lock price should not be updated"
+        );
+
+        // New order (different ID) should work normally
+        let mut different_request = create_order_request();
+        different_request.request.id = U256::from(999);
+
+        let new_order =
+            db.insert_accepted_request(&different_request, U256::from(300)).await.unwrap();
+        assert_eq!(new_order.status, OrderStatus::PendingProving);
+        assert_eq!(new_order.lock_price, Some(U256::from(300)));
     }
 }

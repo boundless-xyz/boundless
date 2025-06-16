@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
 #[cfg(not(target_os = "zkvm"))]
 use std::str::FromStr;
+use std::{borrow::Cow, ops::Not};
 
 #[cfg(not(target_os = "zkvm"))]
 use alloy::{
     contract::Error as ContractErr,
-    primitives::{PrimitiveSignature, SignatureError},
+    primitives::{Signature, SignatureError},
     signers::Signer,
     sol_types::{Error as DecoderErr, SolInterface, SolStruct},
     transports::TransportError,
@@ -35,7 +35,10 @@ use std::time::Duration;
 #[cfg(not(target_os = "zkvm"))]
 use thiserror::Error;
 #[cfg(not(target_os = "zkvm"))]
-use token::IHitPoints::{self, IHitPointsErrors};
+use token::{
+    IHitPoints::{self, IHitPointsErrors},
+    IERC20::IERC20Errors,
+};
 use url::Url;
 
 use risc0_zkvm::sha::Digest;
@@ -44,7 +47,7 @@ use risc0_zkvm::sha::Digest;
 pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
 
 #[cfg(not(target_os = "zkvm"))]
-use crate::input::InputBuilder;
+use crate::{input::GuestEnvBuilder, util::now_timestamp};
 
 #[cfg(not(target_os = "zkvm"))]
 const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
@@ -53,17 +56,21 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // with alloy derive statements added.
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
-pub use boundless_market_contract::*;
+pub use boundless_market_contract::{
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
+    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, IBoundlessMarket,
+    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
+    PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
+};
 
 #[allow(missing_docs)]
 #[cfg(not(target_os = "zkvm"))]
 pub mod token {
     use alloy::{
-        primitives::{Address, PrimitiveSignature},
+        primitives::{Signature, B256},
         signers::Signer,
         sol_types::SolStruct,
     };
-    use alloy_sol_types::eip712_domain;
     use anyhow::Result;
     use serde::Serialize;
 
@@ -84,10 +91,19 @@ pub mod token {
     }
 
     alloy::sol! {
+        #[derive(Debug)]
         #[sol(rpc)]
         interface IERC20 {
+            error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed);
+            error ERC20InvalidSender(address sender);
+            error ERC20InvalidReceiver(address receiver);
+            error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed);
+            error ERC20InvalidApprover(address approver);
+            error ERC20InvalidSpender(address spender);
             function approve(address spender, uint256 value) external returns (bool);
             function balanceOf(address account) external view returns (uint256);
+            function symbol() external view returns (string memory);
+            function decimals() external view returns (uint8);
         }
     }
 
@@ -100,29 +116,34 @@ pub mod token {
     }
 
     impl Permit {
-        /// Signs the [Permit] with the given signer and EIP-712 domain derived from the given
-        /// contract address and chain ID.
+        /// Signs the [Permit] with the given signer and EIP-712 domain separator.
+        ///
+        /// The content to be signed is the hash of the magic bytes 0x1901
+        /// concatenated with the domain separator and the `hashStruct` result:
+        /// `keccak256("\x19\x01" ‖ domainSeparator ‖ hashStruct(permit))`
         pub async fn sign(
             &self,
             signer: &impl Signer,
-            contract_addr: Address,
-            chain_id: u64,
-        ) -> Result<PrimitiveSignature> {
-            let domain = eip712_domain! {
-                name: "HitPoints",
-                version: "1",
-                chain_id: chain_id,
-                verifying_contract: contract_addr,
-            };
-            let hash = self.eip712_signing_hash(&domain);
-            Ok(signer.sign_hash(&hash).await?)
+            domain_separator: B256,
+        ) -> Result<Signature> {
+            let struct_hash = self.eip712_hash_struct();
+            let prefix: &[u8] = &[0x19, 0x01];
+            let signing_bytes = prefix
+                .iter()
+                .chain(domain_separator.as_slice())
+                .chain(struct_hash.as_slice())
+                .cloned()
+                .collect::<Vec<u8>>();
+            let signing_hash = alloy::primitives::keccak256(signing_bytes);
+
+            Ok(signer.sign_hash(&signing_hash).await?)
         }
     }
 }
 
 /// Status of a proof request
-#[derive(Debug, PartialEq)]
-pub enum ProofStatus {
+#[derive(Default, Debug, PartialEq)]
+pub enum RequestStatus {
     /// The request has expired.
     Expired,
     /// The request is locked in and waiting for fulfillment.
@@ -134,12 +155,13 @@ pub enum ProofStatus {
     /// This is used to represent the status of a request
     /// with no evidence in the state. The request may be
     /// open for bidding or it may not exist.
+    #[default]
     Unknown,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 /// EIP-712 domain separator without the salt field.
-pub struct EIP721DomainSaltless {
+pub struct EIP712DomainSaltless {
     /// The name of the domain.
     pub name: Cow<'static, str>,
     /// The protocol version.
@@ -150,7 +172,7 @@ pub struct EIP721DomainSaltless {
     pub verifying_contract: Address,
 }
 
-impl EIP721DomainSaltless {
+impl EIP712DomainSaltless {
     /// Returns the EIP-712 domain with the salt field set to zero.
     pub fn alloy_struct(&self) -> Eip712Domain {
         eip712_domain! {
@@ -192,6 +214,12 @@ impl RequestId {
         Self::new(addr, index).into()
     }
 
+    /// Set the smart contract signed flag to true. This indicates that the signature associated
+    /// with the request should be validated using ERC-1271's isValidSignature function.
+    pub fn set_smart_contract_signed_flag(self) -> Self {
+        Self { addr: self.addr, index: self.index, smart_contract_signed: true }
+    }
+
     /// Unpack a [RequestId] from a [U256] ignoring bits that do not correspond to known fields.
     ///
     /// Note that this is a lossy conversion in that converting the resulting [RequestId] back into
@@ -228,7 +256,7 @@ impl From<RequestId> for U256 {
         let addr = U160::try_from(value.addr).unwrap();
         let smart_contract_signed_flag =
             if value.smart_contract_signed { U256::from(1) } else { U256::ZERO };
-        smart_contract_signed_flag << 192 | (U256::from(addr) << 32) | U256::from(value.index)
+        (smart_contract_signed_flag << 192) | (U256::from(addr) << 32) | U256::from(value.index)
     }
 }
 
@@ -239,6 +267,10 @@ pub enum RequestError {
     /// The request ID is malformed.
     #[error("malformed request ID")]
     MalformedRequestId,
+
+    /// The client address is all zeroes.
+    #[error("request ID has client address of all zeroes")]
+    ClientAddrIsZero,
 
     /// The signature is invalid.
     #[cfg(not(target_os = "zkvm"))]
@@ -291,21 +323,25 @@ pub enum RequestError {
     #[error("offer biddingStart must be greater than 0")]
     OfferBiddingStartIsZero,
 
-    /// The requirements are missing.
+    /// The requirements are missing from the request.
     #[error("missing requirements")]
     MissingRequirements,
 
-    /// The image URL is missing.
+    /// The image URL is missing from the request.
     #[error("missing image URL")]
     MissingImageUrl,
 
-    /// The input is missing.
+    /// The input is missing from the request.
     #[error("missing input")]
     MissingInput,
 
-    /// The offer is missing.
+    /// The offer is missing from the request.
     #[error("missing offer")]
     MissingOffer,
+
+    /// The request ID is missing from the request.
+    #[error("missing request ID")]
+    MissingRequestId,
 
     /// Request digest mismatch.
     #[error("request digest mismatch")]
@@ -319,96 +355,29 @@ impl From<SignatureError> for RequestError {
     }
 }
 
-/// A proof request builder.
-pub struct ProofRequestBuilder {
-    requirements: Option<Requirements>,
-    image_url: Option<String>,
-    input: Option<Input>,
-    offer: Option<Offer>,
-}
-
-impl Default for ProofRequestBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ProofRequestBuilder {
-    /// Creates a new proof request builder.
-    pub fn new() -> Self {
-        Self { requirements: None, image_url: None, input: None, offer: None }
-    }
-
-    /// Builds the proof request.
-    pub fn build(self) -> Result<ProofRequest, RequestError> {
-        let requirements = self.requirements.ok_or(RequestError::MissingRequirements)?;
-        let image_url = self.image_url.ok_or(RequestError::MissingImageUrl)?;
-        let input = self.input.ok_or(RequestError::MissingInput)?;
-        let offer = self.offer.ok_or(RequestError::MissingOffer)?;
-
-        Ok(ProofRequest::new(0, &Address::ZERO, requirements, &image_url, input, offer))
-    }
-
-    /// Sets the input data to be fetched from the given URL.
-    pub fn with_image_url(self, image_url: impl Into<String>) -> Self {
-        Self { image_url: Some(image_url.into()), ..self }
-    }
-
-    /// Sets the requirements for the request.
-    pub fn with_requirements(self, requirements: impl Into<Requirements>) -> Self {
-        Self { requirements: Some(requirements.into()), ..self }
-    }
-
-    /// Sets the guest's input for the request.
-    pub fn with_input(self, input: impl Into<Input>) -> Self {
-        Self { input: Some(input.into()), ..self }
-    }
-
-    /// Sets the offer for the request.
-    pub fn with_offer(self, offer: impl Into<Offer>) -> Self {
-        Self { offer: Some(offer.into()), ..self }
-    }
-}
-
 impl ProofRequest {
-    /// Create a new [ProofRequestBuilder]
-    pub fn builder() -> ProofRequestBuilder {
-        ProofRequestBuilder::new()
-    }
-
     /// Creates a new proof request with the given parameters.
     ///
     /// The request ID is generated by combining the address and given idx.
     pub fn new(
-        idx: u32,
-        addr: &Address,
-        requirements: Requirements,
+        request_id: RequestId,
+        requirements: impl Into<Requirements>,
         image_url: impl Into<String>,
-        input: impl Into<Input>,
-        offer: Offer,
+        input: impl Into<RequestInput>,
+        offer: impl Into<Offer>,
     ) -> Self {
         Self {
-            id: RequestId::u256(*addr, idx),
-            requirements,
+            id: request_id.into(),
+            requirements: requirements.into(),
             imageUrl: image_url.into(),
             input: input.into(),
-            offer,
+            offer: offer.into(),
         }
     }
 
     /// Returns the client address from the request ID.
-    pub fn client_address(&self) -> Result<Address, RequestError> {
-        let shifted_id: U256 = self.id >> 32;
-        if self.id >> 192 != U256::ZERO {
-            return Err(RequestError::MalformedRequestId);
-        }
-        let shifted_bytes: [u8; 32] = shifted_id.to_be_bytes();
-        let addr_bytes: [u8; 20] = shifted_bytes[12..32]
-            .try_into()
-            .expect("error in converting slice of 20 bytes into array of 20 bytes");
-        let lower_160_bits = U160::from_be_bytes(addr_bytes);
-
-        Ok(Address::from(lower_160_bits))
+    pub fn client_address(&self) -> Address {
+        RequestId::from_lossy(self.id).addr
     }
 
     /// Returns the time, in seconds since the UNIX epoch, at which the request expires.
@@ -416,43 +385,78 @@ impl ProofRequest {
         self.offer.biddingStart + self.offer.timeout as u64
     }
 
+    /// Returns true if the expiration time has passed, according to the system clock.
+    ///
+    /// NOTE: If the system clock has significant has drifted relative to the chain's clock, this
+    /// may not give the correct result.
+    #[cfg(not(target_os = "zkvm"))]
+    pub fn is_expired(&self) -> bool {
+        self.expires_at() < now_timestamp()
+    }
+
+    /// Returns the time, in seconds since the UNIX epoch, at which the request lock expires.
+    pub fn lock_expires_at(&self) -> u64 {
+        self.offer.biddingStart + self.offer.lockTimeout as u64
+    }
+
+    /// Returns true if the lock expiration time has passed, according to the system clock.
+    ///
+    /// NOTE: If the system clock has significant has drifted relative to the chain's clock, this
+    /// may not give the correct result.
+    #[cfg(not(target_os = "zkvm"))]
+    pub fn is_lock_expired(&self) -> bool {
+        self.lock_expires_at() < now_timestamp()
+    }
+
+    /// Return true if the request ID indicates that it is authorized by a smart contract, rather
+    /// than an EOA (i.e. an ECDSA key).
+    pub fn is_smart_contract_signed(&self) -> bool {
+        RequestId::from_lossy(self.id).smart_contract_signed
+    }
+
     /// Check that the request is valid and internally consistent.
     ///
     /// If any field are empty, or if two fields conflict (e.g. the max price is less than the min
     /// price) this function will return an error.
+    ///
+    /// NOTE: This does not check whether the request has expired. You can use
+    /// [ProofRequest::is_lock_expired] to do so.
     pub fn validate(&self) -> Result<(), RequestError> {
+        if RequestId::from_lossy(self.id).addr == Address::ZERO {
+            return Err(RequestError::ClientAddrIsZero);
+        }
         if self.imageUrl.is_empty() {
             return Err(RequestError::EmptyImageUrl);
-        };
+        }
         Url::parse(&self.imageUrl).map(|_| ())?;
 
         if self.requirements.imageId == B256::default() {
             return Err(RequestError::ImageIdIsZero);
-        };
+        }
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
-        };
+        }
         if self.offer.lockTimeout == 0 {
             return Err(RequestError::OfferLockTimeoutIsZero);
-        };
+        }
         if self.offer.rampUpPeriod > self.offer.lockTimeout {
             return Err(RequestError::OfferRampUpGreaterThanLockTimeout);
-        };
+        }
         if self.offer.lockTimeout > self.offer.timeout {
             return Err(RequestError::OfferLockTimeoutGreaterThanTimeout);
-        };
+        }
         if self.offer.timeout - self.offer.lockTimeout >= 1 << 24 {
             return Err(RequestError::OfferTimeoutRangeTooLarge);
-        };
+        }
         if self.offer.maxPrice == U256::ZERO {
             return Err(RequestError::OfferMaxPriceIsZero);
-        };
+        }
         if self.offer.maxPrice < self.offer.minPrice {
             return Err(RequestError::OfferMaxPriceIsLessThanMin);
         }
         if self.offer.biddingStart == 0 {
             return Err(RequestError::OfferBiddingStartIsZero);
-        };
+        }
 
         Ok(())
     }
@@ -467,10 +471,21 @@ impl ProofRequest {
         signer: &impl Signer,
         contract_addr: Address,
         chain_id: u64,
-    ) -> Result<PrimitiveSignature, RequestError> {
+    ) -> Result<Signature, RequestError> {
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         Ok(signer.sign_hash(&hash).await?)
+    }
+
+    /// Returns the EIP-712 signing hash for the request.
+    pub fn signing_hash(
+        &self,
+        contract_addr: Address,
+        chain_id: u64,
+    ) -> Result<FixedBytes<32>, RequestError> {
+        let domain = eip712_domain(contract_addr, chain_id);
+        let hash = self.eip712_signing_hash(&domain.alloy_struct());
+        Ok(hash)
     }
 
     /// Verifies the request signature with the given signer and EIP-712 domain derived from
@@ -481,11 +496,11 @@ impl ProofRequest {
         contract_addr: Address,
         chain_id: u64,
     ) -> Result<(), RequestError> {
-        let sig = PrimitiveSignature::try_from(signature.as_ref())?;
+        let sig = Signature::try_from(signature.as_ref())?;
         let domain = eip712_domain(contract_addr, chain_id);
         let hash = self.eip712_signing_hash(&domain.alloy_struct());
         let addr = sig.recover_address_from_prehash(&hash)?;
-        if addr == self.client_address()? {
+        if addr == self.client_address() {
             Ok(())
         } else {
             Err(SignatureError::FromBytes("Address mismatch").into())
@@ -524,16 +539,16 @@ impl Requirements {
         Self { selector, ..self }
     }
 
-    /// Set the selector for an unaggregated proof.
+    /// Set the selector for a groth16 proof.
     ///
     /// This will set the selector to the appropriate value based on the current environment.
     /// In dev mode, the selector will be set to `FakeReceipt`, otherwise it will be set
-    /// to `Groth16V1_2`.
+    /// to `Groth16V2_1`.
     #[cfg(not(target_os = "zkvm"))]
-    pub fn with_unaggregated_proof(self) -> Self {
+    pub fn with_groth16_proof(self) -> Self {
         match risc0_zkvm::is_dev_mode() {
             true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
-            false => Self { selector: FixedBytes::from(Selector::Groth16V1_2 as u32), ..self },
+            false => Self { selector: FixedBytes::from(Selector::Groth16V2_1 as u32), ..self },
         }
     }
 }
@@ -556,6 +571,9 @@ impl Predicate {
 }
 
 impl Callback {
+    /// Constant representing a none callback (i.e. no call will be made).
+    pub const NONE: Self = Self { addr: Address::ZERO, gasLimit: U96::ZERO };
+
     /// Sets the address of the callback.
     pub fn with_addr(self, addr: impl Into<Address>) -> Self {
         Self { addr: addr.into(), ..self }
@@ -565,39 +583,61 @@ impl Callback {
     pub fn with_gas_limit(self, gas_limit: u64) -> Self {
         Self { gasLimit: U96::from(gas_limit), ..self }
     }
+
+    /// Returns true if this is a none callback (i.e. no call will be made).
+    ///
+    /// NOTE: A callback is considered none if the address is zero, regardless of the gas limit.
+    pub fn is_none(&self) -> bool {
+        self.addr == Address::ZERO
+    }
+
+    /// Convert to an option representation, mapping a none callback to `None`.
+    pub fn into_option(self) -> Option<Self> {
+        self.is_none().not().then_some(self)
+    }
+
+    /// Convert to an option representation, mapping a none callback to `None`.
+    pub fn as_option(&self) -> Option<&Self> {
+        self.is_none().not().then_some(self)
+    }
+
+    /// Convert from an option representation, mapping `None` to [Self::NONE].
+    pub fn from_option(opt: Option<Self>) -> Self {
+        opt.unwrap_or(Self::NONE)
+    }
 }
 
-impl Input {
-    /// Create a new [InputBuilder] for use in constructing and encoding the guest zkVM environment.
+impl RequestInput {
+    /// Create a new [GuestEnvBuilder] for use in constructing and encoding the guest zkVM environment.
     #[cfg(not(target_os = "zkvm"))]
-    pub fn builder() -> InputBuilder {
-        InputBuilder::new()
+    pub fn builder() -> GuestEnvBuilder {
+        GuestEnvBuilder::new()
     }
 
     /// Sets the input type to inline and the data to the given bytes.
     ///
-    /// See [InputBuilder] for more details on how to write input data.
+    /// See [GuestEnvBuilder] for more details on how to write input data.
     ///
     /// # Example
     ///
     /// ```
-    /// use boundless_market::contracts::Input;
+    /// use boundless_market::contracts::RequestInput;
     ///
-    /// let input_vec = Input::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
-    /// let input = Input::inline(input_vec);
+    /// let input_vec = RequestInput::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
+    /// let input = RequestInput::inline(input_vec);
     /// # anyhow::Ok(())
     /// ```
     pub fn inline(data: impl Into<Bytes>) -> Self {
-        Self { inputType: InputType::Inline, data: data.into() }
+        Self { inputType: RequestInputType::Inline, data: data.into() }
     }
 
     /// Sets the input type to URL and the data to the given URL.
     pub fn url(url: impl Into<String>) -> Self {
-        Self { inputType: InputType::Url, data: url.into().into() }
+        Self { inputType: RequestInputType::Url, data: url.into().as_bytes().to_vec().into() }
     }
 }
 
-impl From<Url> for Input {
+impl From<Url> for RequestInput {
     /// Create a URL input from the given URL.
     fn from(value: Url) -> Self {
         Self::url(value)
@@ -635,8 +675,8 @@ impl Offer {
         Self { lockTimeout: lock_timeout, ..self }
     }
 
-    /// Sets the offer ramp-up period as seconds from the bidding start before the price
-    /// starts to increase until the maximum price.
+    /// Sets the duration (in seconds) during which the auction price increases linearly
+    /// from the minimum to the maximum price. After this period, the price remains at maximum.
     pub fn with_ramp_up_period(self, ramp_up_period: u32) -> Self {
         Self { rampUpPeriod: ramp_up_period, ..self }
     }
@@ -701,6 +741,10 @@ pub enum TxnErr {
     #[error("HitPoints Err: {0:?}")]
     HitPointsErr(IHitPoints::IHitPointsErrors),
 
+    /// Error from the ERC20 contract.
+    #[error("IERC20 Err: {0:?}")]
+    ERC20Err(token::IERC20::IERC20Errors),
+
     /// Missing data while decoding the error response from the contract.
     #[error("decoding err, missing data, code: {0} msg: {1}")]
     MissingData(i64, String),
@@ -722,9 +766,9 @@ pub enum TxnErr {
 #[cfg(not(target_os = "zkvm"))]
 impl From<ContractErr> for TxnErr {
     fn from(err: ContractErr) -> Self {
-        match err {
+        match &err {
             ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
-                let Some(data) = ts_err.data else {
+                let Some(data) = &ts_err.data else {
                     return TxnErr::MissingData(ts_err.code, ts_err.message.to_string());
                 };
 
@@ -734,16 +778,17 @@ impl From<ContractErr> for TxnErr {
                     return Self::BytesDecode;
                 };
 
-                // Trial deocde the error with each possible contract ABI. Right now, there are two.
-                if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data, true) {
-                    return Self::BoundlessMarketErr(decoded_error);
-                }
-                if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data, true) {
-                    return Self::HitPointsErr(decoded_error);
-                }
-                match IRiscZeroSetVerifierErrors::abi_decode(&data, true) {
-                    Ok(decoded_error) => Self::SetVerifierErr(decoded_error),
-                    Err(err) => Self::DecodeErr(err, data),
+                // Trial deocde the error with each possible contract ABI.
+                if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data) {
+                    Self::BoundlessMarketErr(decoded_error)
+                } else if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data) {
+                    Self::HitPointsErr(decoded_error)
+                } else if let Ok(decoded_error) = IRiscZeroSetVerifierErrors::abi_decode(&data) {
+                    Self::SetVerifierErr(decoded_error)
+                } else if let Ok(decoded_error) = IERC20Errors::abi_decode(&data) {
+                    Self::ERC20Err(decoded_error)
+                } else {
+                    Self::ContractErr(err)
                 }
             }
             _ => Self::ContractErr(err),
@@ -765,7 +810,7 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
                 return Err(TxnErr::BytesDecode);
             };
 
-            let decoded_error = match T::abi_decode(&data, true) {
+            let decoded_error = match T::abi_decode(&data) {
                 Ok(res) => res,
                 Err(err) => {
                     return Err(TxnErr::DecodeErr(err, data));
@@ -790,8 +835,8 @@ impl IHitPointsErrors {
 
 #[cfg(not(target_os = "zkvm"))]
 /// The EIP-712 domain separator for the Boundless Market contract.
-pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP721DomainSaltless {
-    EIP721DomainSaltless {
+pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP712DomainSaltless {
+    EIP712DomainSaltless {
         name: "IBoundlessMarket".into(),
         version: "1".into(),
         chain_id,
@@ -804,12 +849,7 @@ pub const UNSPECIFIED_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0; 4]);
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
-pub(crate) mod bytecode;
-
-#[cfg(feature = "test-utils")]
-#[allow(missing_docs)]
-/// Module for testing utilities.
-pub mod test_utils;
+pub mod bytecode;
 
 #[cfg(test)]
 mod tests {
@@ -832,7 +872,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             imageUrl: "https://dev.null".to_string(),
-            input: Input::builder().build_inline().unwrap(),
+            input: RequestInput::builder().build_inline().unwrap(),
             offer: Offer {
                 minPrice: U256::from(0),
                 maxPrice: U256::from(1),

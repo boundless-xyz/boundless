@@ -1,0 +1,18 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAHtr8teNb0/7Lg/Tm/X0vsDAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM25ECvR4QS8hDmELeAgEQgDvCxRxFXZ2CR5qk3YJ7/30fSy77uQQl1rwBT3P3Tx0DzRTuQUMx14qEWGt/k3CB8O8EOp7Xw2CehaFs3g==
+config:
+  aws:region: us-west-2
+  order-stream:BASE_STACK: organization/bootstrap/services-staging
+  order-stream:BOUNDLESS_ADDRESS: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
+  order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
+  order-stream:DOCKER_DIR: ../../
+  order-stream:DOCKER_TAG: latest
+  order-stream:MIN_BALANCE_RAW: "5000000"
+  order-stream:ORDER_STREAM_PING_TIME: "100"
+  order-stream:ETH_RPC_URL:
+    secure: v1:iZMIczncztFwXYtI:qrmC1R9gmKYmHKl0xiBnq80TaUU3hyUbES2BauboUItSks0tDfmbHAxFznc3wFOjyF2w5xqgTpVw9TA+DYwuJ6h4JKWgqEIVIQOOat1NJ6LLGma9/A==
+  order-stream:RDS_PASSWORD:
+    secure: v1:Q8vUXQ59MCkcmyw8:C8BUe4hjIDn+biTuqdDYoluH+rM6eRMO0LKjjmpN9EpQ7A==
+  order-stream:CHAIN_ID: "11155111"
+  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
+  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic

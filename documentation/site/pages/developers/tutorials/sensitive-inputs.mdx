@@ -1,0 +1,294 @@
+---
+title: Sensitive Inputs via AWS S3
+description: This tutorial shows how to upload program inputs to Amazon S3, and use IAM roles and optionally SSE-KMS to gate access to specific trusted Boundless provers. It also shows how a prover can access these sensitive inputs.
+---
+
+import { StripRustCodeComments } from "../../../components/strip-rust-code-comments";
+
+# Sensitive Inputs via AWS S3
+
+When [requesting a proof](/developers/tutorials/build), requestors need to upload both their program binary (ELF) and the associated inputs to a compatible storage provider.
+This allows the prover to download the required program and inputs to begin proving.
+
+For most use cases, storing these publicly is acceptable.
+However, in situations where the program inputs are sensitive, Boundless allows requestors to work with *trusted provers*.
+This allows requestors to effectively store inputs *privately* on Amazon S3 for storage.
+With an appropriate [bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-policies.html) (and optional [KMS key policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html) for server-side encryption), only provers with the necessary [IAM role](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html) can download the input file and begin proving.
+
+This guide walks through the setup necessary, for both the requestor and prover, to enable secure s3 inputs for a given proof request.
+
+## Prerequisites
+
+- The [aws CLI](https://aws.amazon.com/cli/) installed and configured with the requestor's AWS credentials.
+- *Requestor*: An AWS account with S3 (and optionally [KMS](https://docs.aws.amazon.com/kms/latest/developerguide/overview.html)) access.
+- *Prover*: A set of AWS credentials which map to a valid AWS account ID.
+
+## Requestor
+
+### Summary
+
+The general workflow for the requestor is:
+
+- Create an S3 bucket
+- Create an IAM role for the prover (using AWS account ID from the prover)
+- Upload the inputs to that S3 bucket
+- (Optional) Enable SSE-KMS for server-side encryption
+- Gate access to the S3 bucket to *only* the prover IAM role
+- Request a proof with the S3 url as the input URL
+
+### 1. Create the S3 bucket
+
+To continue, an [AWS account](https://signin.aws.amazon.com/signup?request_type=register) is required. After that, you'll need the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) to set up your S3 bucket, create roles and set the required policies.
+
+:::note[If you prefer using the AWS console]
+You can follow the official instructions [Step 1: Create your first S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/GetStartedWithS3.html#creating-bucket).
+:::
+
+To store the inputs, we will need to first create an S3 bucket. This can be done with the CLI with:
+
+```bash
+aws s3 mb s3://<BUCKET_NAME> --region <AWS_REGION>
+```
+
+For the bucket name, it is recommended to follow the structure:
+
+```bash
+s3://<AWS-ACCOUNT-ID>-boundless-prover-<ENV>-<REGION>
+```
+*Example*: `123456789012-boundless-prover-prod-us-east-1`
+
+To find your account ID, you can use the CLI:
+
+```bash
+aws sts get-caller-identity --query Account --output text
+```
+or follow the instructions listed [here](https://www.apn-portal.com/knowledgebase/articles/FAQ/Where-Can-I-Find-My-AWS-Account-ID).
+
+For a list of AWS regions, please see [Available AWS regions](https://docs.aws.amazon.com/global-infrastructure/latest/regions/aws-regions.html#available-regions).
+
+### 2. Create the required prover role
+
+:::note[What is an IAM role?]
+An IAM role is an AWS identity with its own permission policy that any trusted user, service, or account can temporarily assume to get short-lived credentials instead of keeping permanent keys.
+
+To learn more, please see [IAM Roles](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html).
+:::
+
+With the bucket created, we need to create an IAM role for prover; this will allow the prover access to the inputs stored in the S3 bucket. To create the role, we will need two things:
+
+- A JSON specifiying the [trust policy](https://aws.amazon.com/blogs/security/how-to-use-trust-policies-with-iam-roles/) for the IAM role.
+- The prover's AWS 12-digit account ID.
+
+To create the trust policy JSON, use a text editor and copy the following:
+
+```bash title="prover-trust-policy.json"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::222222222222:root" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+Make sure to replace `222222222222` with the AWS account ID of the prover.
+
+Saving the above as `prover-trust-policy.json`, next:
+
+```bash
+aws iam create-role \
+  --role-name ProverInputDownloadRole \
+  --assume-role-policy-document ./prover-trust-policy.json
+```
+
+The output will be in JSON format; there will be a key specifiying "Arn":
+
+```bash
+...
+"Arn": "arn:aws:iam::123456789012:role/ProverInputDownloadRole",
+...
+```
+
+The value string refers to the full *Amazon Resource Name* (ARN) of the IAM role created for the prover. Make sure to save this, you will need it when creating the bucket policy.
+
+### 3. Upload the Input file to S3
+
+Replace `<YOUR_BUCKET>`, `<PATH>`, and optionally `<KMS_KEY_ID>`, with the correct paths:
+
+```bash
+aws s3 cp ./input.json s3://<YOUR_BUCKET>/<PATH>/input.json \
+  --sse aws:kms \
+  --sse-kms-key-id <KMS_KEY_ID>   # optional: leave off to skip SSE-KMS
+```
+
+### 3a. (Optional) KMS key policy
+
+When using server-side encryption with AWS KMS keys (known as [SSE-KMS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html)), S3 will call [kms Decrypt](https://docs.aws.amazon.com/cli/latest/reference/kms/decrypt.html) every time someone requests to download the object; if the prover role lacks `kms:Decrypt` permission on that key, the download is blocked with an `AccessDenied`.
+
+This server-side encryption adds another check on top of the IAM role requirement. For some use cases, at-rest encryption is necessary for compliance (HIPAA, SOC 2 etc.).
+
+If you enabled `--sse-kms` in [Step 1](/developers/tutorials/sensitive-inputs#1-requestor-upload-the-input-file-to-s3-via-the-aws-cli), you can specify the  key policy either way the KMS console or via the AWS CLI. For up to date information on how to do that, please refer to the official AWS  [Change a Key Policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-modifying.html) documentation.
+
+An example key policy would be:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "AWS": "<PROVER_ROLE_ARN>" },
+    "Action": "kms:Decrypt",
+    "Resource": "*"
+  }]
+}
+```
+
+### 4. Set Bucket Policy
+
+From the requestor side, we need to limit access to the input file to provers with the right AWS credentials. In practice, this means S3 will only complete the `GetObject` call for provers with credentials matching the allowed IAM role. To enforce this, the requestor needs to set a [bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-policies.html).
+
+A bucket policy is a JSON document attached to an S3 bucket. This JSON specifies how to allow or deny requests based on:
+
+- who is calling (the *Principal*)
+- what the call asks for (the *Action*)
+- which bucket/resource to give access to (the *Resource*)
+
+The requestor creates this JSON once, stores it with the relevant bucket and S3 will evalaute every request against the rules specified.
+
+Below is an example bucket policy, copy it and save it to `prover_policy.json`:
+
+```json title="prover_policy.json"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "<PROVER_ROLE_ARN>" },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::<BUCKET_NAME>/*"
+    }
+  ]
+}
+```
+Only provers whose temporary credentials let them assume `<PROVER_ROLE_ARN>` can download the input file they need to start proving.
+
+The `<PROVER_ROLE_ARN>` string refers to the full *Amazon Resource Name* (ARN) of the IAM role created for the prover. This was generated during [Create the required prover role](/developers/tutorials/sensitive-inputs#create-the-required-prover-role).
+
+*Make sure to replace `<PROVER_ROLE_ARN>` with the string we saved earlier*, something like:
+
+```bash
+"arn:aws:iam::123456789012:role/ProverInputDownloadRole"
+```
+where the 12-digit number refers to the AWS account ID of the prover.
+
+Once saved to `prover-policy.json`, you can set the policy on your bucket with:
+
+```
+aws s3api put-bucket-policy \
+  --bucket <BUCKET_NAME> \
+  --policy ./prover_policy.json
+```
+
+### 5. Submit a Request to the Boundless market
+
+With your inputs now sitting privately in S3, you may now [request a proof](/developers/tutorials/request).
+
+#### Uploading your inputs using the Boundless SDK
+
+If you have already uploaded your inputs using the `aws` CLI above, you can skip the information below. Otherwise, if you are interested in using the Boundless SDK to upload your inputs to your S3 bucket, you will need to:
+
+- make sure your AWS credentials are set in environment variables, specifically:
+  - `S3_ACCESS` for the access key
+  - `S3_SECRET` for the secret key
+  - `S3_BUCKET` for the bucket name of the bucket created in [Step 1](/developers/tutorials/sensitive-inputs#1-create-the--s3-bucket)
+  - `S3_URL` for the bucket URL of the bucket created in [Step 1](/developers/tutorials/sensitive-inputs#1-create-the--s3-bucket)
+  - `AWS_REGION` for the bucket region.
+  - and last, but not least, make sure `S3_NO_PRESIGNED=1`
+
+After this setup, you may request a proof programmatically as [Request a Proof](/developers/tutorials/request) recommends; your inputs will be automatically uploaded to your gated S3 bucket, however remember that you still need to go through all the necessary gating policies as laid out in this tutorial to make sure your inputs are private and only available to select provers.
+
+If you're interested in doing a one-off test, take a look at the [request subcommands](/developers/tooling/cli#2-request-subcommands) in the Boundless CLI.
+
+Relevant Links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [storage_provider_from_env](https://docs.rs/boundless-market/latest/boundless_market/storage/fn.storage_provider_from_env.html).
+
+## Prover
+
+### Summary
+
+The general workflow for the prover is:
+
+- Export base AWS credentials to environment variables
+  - `AWS_ACCESS_KEY_ID`
+  - `AWS_SECRET_ACCESS_KEY`
+  - `AWS_REGION`
+- Export IAM role to assume to environment variable
+  - `AWS_ROLE_ARN`
+- Spin up the broker
+- Test with aws cli: `assume-role` to verify credentials
+
+
+### 1. Set AWS credentials in environment variables
+
+The prover has to make sure that the Docker container that runs the broker starts with two kinds of AWS credentials in its environment:
+
+1. base credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION`) which will be used to call [sts::AssumeRole](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html).
+2. the role to assume (e.g. `AWS_ROLE_ARN=arn:aws:iam::<PROVER_ACCOUNT_ID>:role/ProverInputDownloadRole` which is generated when the requestor created the role during [Create the required prover role](/developers/tutorials/sensitive-inputs#create-the-required-prover-role)).
+
+To set these manually, make sure the export the following environment variables before spinning up the [broker](/provers/proving-stack#what-is-the-broker):
+
+```bash
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_REGION=...
+export AWS_ROLE_ARN=...
+```
+
+Once these are set, you can run:
+
+```bash
+just broker
+```
+
+### 2. Verify IAM role authentication
+
+With the environment variables set:
+
+```bash
+export AWS_ACCESS_KEY_ID=AKIA………………
+export AWS_SECRET_ACCESS_KEY=abcd………………
+export AWS_REGION=us-east-1
+```
+
+
+```bash title="One-off test for prover to verify everything is working"
+aws sts assume-role \
+  --role-arn arn:aws:iam::111111111111:role/ProverInputDownloadRole \
+  --role-session-name testProverSession \
+  --query 'Credentials.[AccessKeyId,Expiration]' \
+  --output table
+```
+
+If the output looks something like:
+
+```
+------------------------------
+|    DescribeCredentials     |
++----------------+-----------+
+|  AKIA...       | 2025-05-07T12:34:56Z |
++----------------+-----------+
+```
+
+the role was assumed successfully and the broker will be able to download the sensitive inputs from S3 directly.
+
+## Troubleshooting
+
+| What you see | Root cause (most likely first) | Fix it fast |
+| --- | --- | --- |
+| `UnsupportedScheme` or “unsupported protocol scheme ""” before any request goes out | Broker tried to build an S3 URL from empty strings – usually the bucket name, region, or credentials are missing in `ENV` | Check that **all** four env-vars listed above are populated inside the container; an unset bucket var is the classic culprit. |
+| `AccessDenied` / HTTP 403 when the broker calls `GetObject` | Bucket policy doesn’t grant `s3:GetObject` to the **role** the broker assumed | In the bucket policy, set `"Principal": { "AWS": "<PROVER_ROLE_ARN>" }` and **remove any stray `"Principal":"*"`**. |
+| `AccessDenied (KMS.AccessDeniedException)` right after S3 authenticates | Object is encrypted with SSE-KMS, but the KMS **key policy** (or the IAM permissions of the role) is missing `kms:Decrypt` | Add the role ARN to the key policy, or attach a policy that grants `kms:Decrypt` on that key. |
+| `An error occurred (AccessDenied) when calling the AssumeRole operation` before any S3 call | The base creds can’t assume the role—either the role trust policy doesn’t list the prover’s account, or the creds lack `sts:AssumeRole` | Ask the requestor to Verify the **trust policy** on `ProverInputDownloadRole` and be sure the base IAM user/role has `sts:AssumeRole` permission. |
+| Everything works for every prover (even un-trusted ones) | Bucket policy still has `"Principal":"*"` or Block Public Access is disabled | Lock the policy down to the specific role and enable **BlockPublicPolicy** if you want S3 to reject future “*” policies. |
+

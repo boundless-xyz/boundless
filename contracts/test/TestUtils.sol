@@ -10,10 +10,13 @@ import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Selector} from "../src/types/Selector.sol";
 import "../src/BoundlessMarket.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
+import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;
+
+    bytes8 internal constant LEAF_TAG = bytes8("LEAF_TAG");
 
     function mockAssessor(
         Fulfillment[] memory fills,
@@ -22,23 +25,15 @@ library TestUtils {
         AssessorCallback[] memory callbacks,
         address prover
     ) internal pure returns (ReceiptClaim memory) {
-        bytes32[] memory claimDigests = new bytes32[](fills.length);
-        bytes32[] memory requestDigests = new bytes32[](fills.length);
+        bytes32[] memory leaves = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
-            claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            requestDigests[i] = fills[i].requestDigest;
+            bytes32 claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            leaves[i] = AssessorCommitment(i, fills[i].id, fills[i].requestDigest, claimDigest).eip712Digest();
         }
-        bytes32 root = MerkleProofish.processTree(claimDigests);
+        bytes32 root = MerkleProofish.processTree(leaves);
 
-        bytes memory journal = abi.encode(
-            AssessorJournal({
-                requestDigests: requestDigests,
-                root: root,
-                selectors: selectors,
-                callbacks: callbacks,
-                prover: prover
-            })
-        );
+        bytes memory journal =
+            abi.encode(AssessorJournal({root: root, selectors: selectors, callbacks: callbacks, prover: prover}));
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 
@@ -68,14 +63,14 @@ library TestUtils {
     function fillInclusionProofs(
         RiscZeroSetVerifier setVerifier,
         Fulfillment[] memory fills,
-        bytes32 assessorDigest,
+        bytes32 assessorLeaf,
         bytes32[][] memory tree
     ) internal view {
         // generate inclusion proofs for each claim
         Proof[] memory proofs = computeProofs(tree);
 
         for (uint256 i = 0; i < fills.length; i++) {
-            fills[i].seal = encodeSeal(setVerifier, append(proofs[i], assessorDigest));
+            fills[i].seal = encodeSeal(setVerifier, append(proofs[i], assessorLeaf));
         }
     }
 
@@ -84,19 +79,23 @@ library TestUtils {
     }
 
     // Build the Merkle Tree and return the root and the entire tree structure
-    function computeMerkleTree(bytes32[] memory leaves) internal pure returns (bytes32 root, bytes32[][] memory tree) {
-        require(leaves.length > 0, "Leaves list is empty, cannot compute Merkle root");
+    function computeMerkleTree(bytes32[] memory values) internal pure returns (bytes32 root, bytes32[][] memory tree) {
+        require(values.length > 0, "Values list is empty, cannot compute Merkle root");
 
         // Calculate the height of the tree (number of levels)
-        uint256 numLevels = log2Ceil(leaves.length) + 1;
+        uint256 numLevels = log2Ceil(values.length) + 1;
 
         // Initialize the tree structure
         tree = new bytes32[][](numLevels);
-        tree[0] = leaves;
 
-        uint256 currentLevelSize = leaves.length;
+        // Hash the values with the leaf tag to form the leaf nodes.
+        tree[0] = new bytes32[](values.length);
+        for (uint256 i = 0; i < values.length; i++) {
+            tree[0][i] = hashLeaf(values[i]);
+        }
 
         // Build the tree level by level
+        uint256 currentLevelSize = values.length;
         for (uint256 level = 0; currentLevelSize > 1; level++) {
             uint256 nextLevelSize = (currentLevelSize + 1) / 2;
             tree[level + 1] = new bytes32[](nextLevelSize);
@@ -151,6 +150,10 @@ library TestUtils {
                 proofs[leafIndex].siblings[i] = tempSiblings[i];
             }
         }
+    }
+
+    function hashLeaf(bytes32 value) internal pure returns (bytes32 leaf) {
+        return keccak256(abi.encodePacked(LEAF_TAG, value));
     }
 
     function encodeSeal(RiscZeroSetVerifier setVerifier, TestUtils.Proof memory merkleProof, bytes memory rootSeal)

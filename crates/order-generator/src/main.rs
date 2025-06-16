@@ -3,29 +3,25 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-use std::{
-    path::PathBuf,
-    time::{Duration, SystemTime},
-};
+use std::{path::PathBuf, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
     primitives::{
         utils::{format_units, parse_ether},
-        Address, U256,
+        U256,
     },
     signers::local::PrivateKeySigner,
 };
-use anyhow::{bail, Result};
-use balance_alerts_layer::BalanceAlertConfig;
+use anyhow::{Context, Result};
 use boundless_market::{
-    client::ClientBuilder,
-    contracts::{Input, Offer, Predicate, ProofRequest, Requirements},
-    input::InputBuilder,
+    balance_alerts_layer::BalanceAlertConfig, client::Client, deployments::Deployment,
+    input::GuestEnv, request_builder::OfferParams, storage::fetch_url,
     storage::StorageProviderConfig,
 };
-use clap::{Args, Parser};
-use risc0_zkvm::{compute_image_id, default_executor, sha::Digestible};
+use clap::Parser;
+use rand::Rng;
+use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
 /// Arguments of the order generator.
@@ -35,23 +31,17 @@ struct MainArgs {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     rpc_url: Url,
-    /// Optional URL of the offchain order stream endpoint.
-    ///
-    /// If set, the order-generator will submit requests off-chain.
-    #[clap(short, long)]
-    order_stream_url: Option<Url>,
-    // Storage provider to use.
-    #[clap(flatten)]
-    storage_config: Option<StorageProviderConfig>,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
-    /// Address of the SetVerifier contract.
-    #[clap(short, long, env)]
-    set_verifier_address: Address,
-    /// Address of the BoundlessMarket contract.
-    #[clap(short, long, env)]
-    boundless_market_address: Address,
+    /// Transaction timeout in seconds.
+    #[clap(long, default_value = "45")]
+    tx_timeout: u64,
+    /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
+    ///
+    /// This parameter can only be set if order_stream_url is provided.
+    #[clap(long, env, value_parser = parse_ether, requires = "submit_offchain")]
+    auto_deposit: Option<U256>,
     /// Interval in seconds between requests.
     #[clap(short, long, default_value = "60")]
     interval: u64,
@@ -67,70 +57,75 @@ struct MainArgs {
     #[clap(long = "max", value_parser = parse_ether, default_value = "0.002")]
     max_price_per_mcycle: U256,
     /// Lockin stake amount in ether.
-    #[clap(short, long, value_parser = parse_ether, default_value = "0.0")]
-    lockin_stake: U256,
+    #[clap(short, long, default_value = "0")]
+    lock_stake_raw: U256,
     /// Number of seconds, from the current time, before the auction period starts.
     #[clap(long, default_value = "30")]
     bidding_start_delay: u64,
     /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
-    #[clap(long, default_value = "0")]
+    #[clap(long, default_value = "240")] // 240s = ~20 Sepolia blocks
     ramp_up: u32,
     /// Number of seconds before the request lock-in expires.
-    #[clap(long, default_value = "1200")]
+    #[clap(long, default_value = "900")]
     lock_timeout: u32,
     /// Number of seconds before the request expires.
     #[clap(long, default_value = "1800")]
     timeout: u32,
-    /// Elf file to use as the guest image, given as a path.
+    /// Additional time in seconds to add to the timeout for each 1M cycles.
+    #[clap(long, default_value = "20")]
+    seconds_per_mcycle: u32,
+    /// Program binary file to use as the guest image, given as a path.
     ///
-    /// If unspecified, defaults to the included echo guest.
+    /// If unspecified, defaults to the included loop guest.
     #[clap(long)]
-    elf: Option<PathBuf>,
-    /// Input for the guest, given as a string or a path to a file.
+    program: Option<PathBuf>,
+    /// The cycle count to drive the loop.
     ///
-    /// If unspecified, defaults to the current (risc0_zkvm::serde encoded) timestamp.
-    #[command(flatten)]
-    input: OrderInput,
-    /// Use risc0_zkvm::serde to encode the input as a `Vec<u8>`
-    #[clap(short, long)]
-    encode_input: bool,
+    /// If unspecified, defaults to a random value between 1_000_000 and 1_000_000_000
+    /// with a step of 1_000_000.
+    #[clap(long, env = "CYCLE_COUNT")]
+    input: Option<u64>,
+    /// The maximum cycle count to drive the loop.
+    #[clap(long, env = "CYCLE_COUNT_MAX", conflicts_with_all = ["input", "program"])]
+    input_max_mcycles: Option<u64>,
     /// Balance threshold at which to log a warning.
     #[clap(long, value_parser = parse_ether, default_value = "1")]
     warn_balance_below: Option<U256>,
     /// Balance threshold at which to log an error.
     #[clap(long, value_parser = parse_ether, default_value = "0.1")]
     error_balance_below: Option<U256>,
-}
 
-#[derive(Args, Clone, Debug)]
-#[group(required = false, multiple = false)]
-struct OrderInput {
-    /// Input for the guest, given as a hex-encoded string.
-    #[clap(long, value_parser = |s: &str| hex::decode(s))]
-    input: Option<Vec<u8>>,
-    /// Input for the guest, given as a path to a file.
-    #[clap(long)]
-    input_file: Option<PathBuf>,
+    /// Boundless Market deployment configuration
+    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    deployment: Option<Deployment>,
+
+    /// Submit requests offchain.
+    #[clap(long, default_value = "false")]
+    submit_offchain: bool,
+
+    /// Storage provider to use.
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    storage_config: StorageProviderConfig,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_ansi(false)
+        .with_span_events(FmtSpan::CLOSE)
+        .json()
         .init();
-
-    match dotenvy::dotenv() {
-        Ok(path) => tracing::debug!("Loaded environment variables from {:?}", path),
-        Err(e) if e.not_found() => tracing::debug!("No .env file found"),
-        Err(e) => bail!("failed to load .env file: {}", e),
-    }
 
     let args = MainArgs::parse();
 
     // NOTE: Using a separate `run` function to facilitate testing below.
-    run(&args).await?;
+    let result = run(&args).await;
+    if let Err(e) = result {
+        tracing::error!("FATAL: {:?}", e);
+    }
 
     Ok(())
 }
@@ -143,30 +138,46 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let boundless_client = ClientBuilder::default()
+    let client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
-        .with_boundless_market_address(args.boundless_market_address)
-        .with_set_verifier_address(args.set_verifier_address)
-        .with_order_stream_url(args.order_stream_url.clone())
-        .with_storage_provider_config(args.storage_config.clone())
+        .with_storage_provider_config(&args.storage_config)?
+        .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
-        .with_bidding_start_delay(args.bidding_start_delay)
         .with_balance_alerts(balance_alerts)
+        .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
+        .config_offer_layer(|config| {
+            config
+                .min_price_per_cycle(args.min_price_per_mcycle >> 20)
+                .max_price_per_cycle(args.max_price_per_mcycle >> 20)
+                .bidding_start_delay(args.bidding_start_delay)
+        })
         .build()
         .await?;
 
-    let elf = match &args.elf {
-        Some(path) => std::fs::read(path)?,
+    let ipfs_gateway = args
+        .storage_config
+        .ipfs_gateway_url
+        .clone()
+        .unwrap_or(Url::parse("https://gateway.pinata.cloud").unwrap());
+    // Ensure we have both a program and a program URL.
+    let program = args.program.as_ref().map(std::fs::read).transpose()?;
+    let program_url = match program {
+        Some(ref program) => {
+            let program_url = client.upload_program(program).await?;
+            tracing::info!("Uploaded program to {}", program_url);
+            program_url
+        }
         None => {
-            // A build of the echo guest, which simply commits the bytes it reads from inputs.
-            let url = "https://gateway.pinata.cloud/ipfs/bafkreihfm2xxqdh336jhcrg6pfrigsfzrqgxyzilhq5rju66gyebrjznpy";
-            fetch_http(&Url::parse(url)?).await?
+            // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
+            ipfs_gateway
+                .join("/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi")
+                .unwrap()
         }
     };
-    let image_id = compute_image_id(&elf)?;
-
-    let image_url = boundless_client.upload_image(&elf).await?;
-    tracing::info!("Uploaded image to {}", image_url);
+    let program = match program {
+        None => fetch_url(&program_url).await.context("failed to fetch order generator program")?,
+        Some(program) => program,
+    };
 
     let mut i = 0u64;
     loop {
@@ -175,76 +186,9 @@ async fn run(args: &MainArgs) -> Result<()> {
                 break;
             }
         }
-
-        let input: Vec<u8> = match (args.input.input.clone(), args.input.input_file.clone()) {
-            (Some(input), None) => input,
-            (None, Some(input_file)) => std::fs::read(input_file)?,
-            (None, None) => format! {"{:?}", SystemTime::now()}.as_bytes().to_vec(),
-            _ => bail!("at most one of input or input-file args must be provided"),
-        };
-
-        let env = if args.encode_input {
-            InputBuilder::new().write(&input)?.build_env()?
-        } else {
-            InputBuilder::new().write_slice(&input).build_env()?
-        };
-
-        let session_info = default_executor().execute(env.clone().try_into()?, &elf)?;
-        let journal = session_info.journal;
-
-        let cycles_count =
-            session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
-        let min_price = args
-            .min_price_per_mcycle
-            .checked_mul(U256::from(cycles_count))
-            .unwrap()
-            .div_ceil(U256::from(1_000_000));
-        let max_price = args
-            .max_price_per_mcycle
-            .checked_mul(U256::from(cycles_count))
-            .unwrap()
-            .div_ceil(U256::from(1_000_000));
-
-        tracing::info!(
-            "{} cycles count {} min_price in ether {} max_price in ether",
-            cycles_count,
-            format_units(min_price, "ether")?,
-            format_units(max_price, "ether")?
-        );
-
-        let request = ProofRequest::builder()
-            .with_image_url(image_url.clone())
-            .with_input(Input::inline(env.encode()?))
-            .with_requirements(Requirements::new(
-                image_id,
-                Predicate::digest_match(journal.digest()),
-            ))
-            .with_offer(
-                Offer::default()
-                    .with_min_price(min_price)
-                    .with_max_price(max_price)
-                    .with_lock_stake(args.lockin_stake)
-                    .with_ramp_up_period(args.ramp_up)
-                    .with_timeout(args.timeout)
-                    .with_lock_timeout(args.lock_timeout),
-            )
-            .build()?;
-
-        tracing::info!("Request: {:?}", request);
-
-        let submit_offchain = args.order_stream_url.is_some();
-        let (request_id, _) = if submit_offchain {
-            boundless_client.submit_request_offchain(&request).await?
-        } else {
-            boundless_client.submit_request(&request).await?
-        };
-
-        if submit_offchain {
-            tracing::info!("Request 0x{request_id:x} submitted offchain");
-        } else {
-            tracing::info!("Request 0x{request_id:x} submitted onchain");
+        if let Err(e) = handle_request(args, &client, &program, &program_url).await {
+            tracing::error!("Request failed: {e:?}");
         }
-
         i += 1;
         tokio::time::sleep(Duration::from_secs(args.interval)).await;
     }
@@ -252,14 +196,115 @@ async fn run(args: &MainArgs) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_http(url: &Url) -> Result<Vec<u8>> {
-    let response = reqwest::get(url.as_str()).await?;
-    let status = response.status();
-    if !status.is_success() {
-        bail!("HTTP request failed with status: {}", status);
+async fn handle_request(
+    args: &MainArgs,
+    client: &Client,
+    program: &[u8],
+    program_url: &url::Url,
+) -> Result<()> {
+    let mut rng = rand::rng();
+    let nonce: u64 = rng.random();
+    let input = match args.input {
+        Some(input) => input,
+        None => {
+            // Generate a random input.
+            let max = args.input_max_mcycles.unwrap_or(1000);
+            let input: u64 = rand::rng().random_range(1..=max) << 20;
+            tracing::debug!("Generated random cycle count: {}", input);
+            input
+        }
+    };
+    let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
+
+    // add 1 minute for each 1M cycles to the original timeout
+    // Use the input directly as the estimated cycle count, since we are using a loop program.
+    let m_cycles = input >> 20;
+    let lock_timeout =
+        args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    // Give equal time for provers that are fulfilling after lock expiry to prove.
+    let timeout: u32 =
+        args.timeout + lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+
+    let request = client
+        .new_request()
+        .with_program(program.to_vec())
+        .with_program_url(program_url.clone())?
+        .with_env(env)
+        .with_offer(
+            OfferParams::builder()
+                .ramp_up_period(args.ramp_up)
+                .lock_timeout(lock_timeout)
+                .timeout(timeout)
+                .lock_stake(args.lock_stake_raw),
+        );
+
+    // Build the request, including preflight, and assigned the remaining fields.
+    let request = client.build_request(request).await?;
+
+    tracing::info!("Request: {:?}", request);
+
+    tracing::info!(
+        "{} Mcycles count {} min_price in ether {} max_price in ether",
+        m_cycles,
+        format_units(request.offer.minPrice, "ether")?,
+        format_units(request.offer.maxPrice, "ether")?
+    );
+
+    let submit_offchain = args.submit_offchain;
+
+    // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
+    // in the submitRequest call.
+    if submit_offchain {
+        if let Some(auto_deposit) = args.auto_deposit {
+            let market = client.boundless_market.clone();
+            let caller = client.caller();
+            let balance = market.balance_of(caller).await?;
+            tracing::info!(
+                "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
+                caller,
+                format_units(balance, "ether")?,
+                client.deployment.boundless_market_address,
+                format_units(auto_deposit, "ether")?
+            );
+            if balance < auto_deposit {
+                tracing::info!(
+                    "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
+                    format_units(balance, "ether")?,
+                    format_units(auto_deposit, "ether")?
+                );
+                match market.deposit(auto_deposit).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            "Successfully deposited {} ETH",
+                            format_units(auto_deposit, "ether")?
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to auto deposit ETH: {e:?}");
+                    }
+                }
+            }
+        }
     }
 
-    Ok(response.bytes().await?.to_vec())
+    let (request_id, _) = if submit_offchain {
+        client.submit_request_offchain(&request).await?
+    } else {
+        client.submit_request_onchain(&request).await?
+    };
+
+    if submit_offchain {
+        tracing::info!(
+            "Request 0x{request_id:x} submitted offchain to {}",
+            client.deployment.order_stream_url.clone().unwrap()
+        );
+    } else {
+        tracing::info!(
+            "Request 0x{request_id:x} submitted onchain to {}",
+            client.deployment.boundless_market_address,
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -267,9 +312,8 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::contracts::{test_utils::create_test_ctx, IBoundlessMarket};
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
+    use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
+    use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
     use tracing_test::traced_test;
 
     use super::*;
@@ -278,29 +322,31 @@ mod tests {
     #[traced_test]
     async fn test_main() {
         let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
-            order_stream_url: None,
-            storage_config: Some(StorageProviderConfig::dev_mode()),
+            storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer,
-            set_verifier_address: ctx.set_verifier_address,
-            boundless_market_address: ctx.boundless_market_address,
+            deployment: Some(ctx.deployment.clone()),
             interval: 1,
             count: Some(2),
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
             max_price_per_mcycle: parse_ether("0.002").unwrap(),
-            lockin_stake: parse_ether("0.0").unwrap(),
+            lock_stake_raw: parse_ether("0.0").unwrap(),
             bidding_start_delay: 30,
             ramp_up: 0,
             timeout: 1000,
             lock_timeout: 1000,
-            elf: None,
-            input: OrderInput { input: None, input_file: None },
-            encode_input: false,
+            seconds_per_mcycle: 60,
+            program: Some(LOOP_PATH.parse().unwrap()),
+            input: None,
+            input_max_mcycles: None,
             warn_balance_below: None,
             error_balance_below: None,
+            auto_deposit: None,
+            tx_timeout: 45,
+            submit_offchain: false,
         };
 
         run(&args).await.unwrap();
@@ -309,7 +355,7 @@ mod tests {
         let filter = Filter::new()
             .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(0)
-            .address(ctx.boundless_market_address);
+            .address(ctx.deployment.boundless_market_address);
         let logs = ctx.customer_provider.get_logs(&filter).await.unwrap();
         let decoded_logs = logs.iter().filter_map(|log| {
             match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {

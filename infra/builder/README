@@ -1,0 +1,26 @@
+# Builder
+
+The builder is an EC2 instance with Docker installed for running remote Docker builds. This is useful during development on M1 Macs when we need to build images that target `amd64`, since the M1 emulation is slow and often fails.
+
+It is only deployed to the dev account, so there is only one stack: `Pulumi.dev.yaml`. Unlike other "dev" stacks, this one uses a shared S3 state bucket and secret provider, since we share a single instance amongst the team.
+
+## Using the builder
+### Prerequisite 
+1. Get the SSH key from the team vault under "Boundless Builder SSH"
+2. Add the key to your ssh agent: `ssh-add ~/.ssh/id_ed25519_dev_docker_builder`
+
+### On each use
+1. Login as developer admin using aws-vault or similar
+2. Run `./configure_builder.sh`
+3. Now when you run `pulumi up` the docker builds will run remotely.
+4. When done using the builder, you can stop the instance to save costs: `./stop_builder.sh`
+
+## Development
+
+Only needed if you are modifying the builder's Pulumi and want to redeploy it from scratch.
+
+As developer admin:
+```
+pulumi login "s3://boundless-builder-state20250415161708046300000001?region=us-west-2&awssdk=v2"
+pulumi up
+```

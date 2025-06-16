@@ -131,6 +131,23 @@ install_rust() {
     fi
 }
 
+# Function to install the `just` command runner
+install_just() {
+    if command -v just &>/dev/null; then
+        info "'just' is already installed. Skipping."
+        return
+    fi
+
+    info "Installing the 'just' command-runner…"
+    {
+        # Install the latest pre-built binary straight to /usr/local/bin
+        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+        | sudo bash -s -- --to /usr/local/bin
+    } >> "$LOG_FILE" 2>&1
+
+    success "'just' installed successfully."
+}
+
 # Function to install CUDA Toolkit
 install_cuda() {
     if is_package_installed "cuda-toolkit"; then
@@ -260,18 +277,6 @@ EOF
     success "Docker configured to use NVIDIA runtime by default."
 }
 
-# Function to verify Docker with NVIDIA support
-verify_docker_nvidia() {
-    info "Verifying Docker and NVIDIA setup..."
-
-    if docker run --rm --gpus all nvidia/cuda:12.2.0-devel-ubuntu22.04 nvidia-smi >> "$LOG_FILE" 2>&1; then
-        success "Docker with NVIDIA support is working correctly."
-    else
-        error "Docker with NVIDIA support verification failed."
-        exit 1
-    fi
-}
-
 # Function to perform system cleanup
 cleanup() {
     info "Cleaning up unnecessary packages..."
@@ -330,28 +335,34 @@ configure_docker_nvidia
 # Install Rust
 install_rust
 
+# Install Just
+install_just
+
 # Install CUDA Toolkit
 install_cuda
 
 # Cleanup
 cleanup
 
-# Verify Docker with NVIDIA support
-verify_docker_nvidia
-
 success "All tasks completed successfully!"
 
 # Optionally, prompt to reboot if necessary
-read -rp "Do you want to reboot now to apply all changes? (y/N): " REBOOT
-case "$REBOOT" in
-    [yY][eE][sS]|[yY])
-        info "Rebooting the system..."
-        reboot
-        ;;
-    *)
-        info "Reboot skipped. Please consider rebooting your system to apply all changes."
-        ;;
-esac
+if [ -t 0 ]; then
+    # We're in an interactive terminal
+    read -rp "Do you want to reboot now to apply all changes? (y/N): " REBOOT
+    case "$REBOOT" in
+        [yY][eE][sS]|[yY])
+            info "Rebooting the system..."
+            reboot
+            ;;
+        *)
+            info "Reboot skipped. Please consider rebooting your system to apply all changes."
+            ;;
+    esac
+else
+    # We're in a non-interactive environment (like EC2 user data)
+    info "Running in non-interactive mode. Skipping reboot prompt."
+fi
 
 # Display end message with timestamp
 info "===== Script Execution Ended at $(date) ====="

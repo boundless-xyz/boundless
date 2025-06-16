@@ -39,7 +39,7 @@ fs_permissions = [{ access = "read", path = "contracts/deployment.toml" }]
 isolate = true
 
 # Profile used to run upgradeability tests.
-# TIP: You can select this profile by setting env var FOUNDRY_PROFILE=reference-contract
+# TIP: You can select this profile by setting env vars FOUNDRY_PROFILE=reference-contract and FOUNDRY_OUT="contracts/reference-contract/out"
 [profile.reference-contract]
 src = "contracts/src"
 out = "contracts/reference-contract/out"
@@ -49,3 +49,4 @@ ffi = true
 ast = true
 build_info = true
 extra_output = ["storageLayout"]
+fs_permissions = [{ access = "read", path = "contracts/reference-contract/out" }]

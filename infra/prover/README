@@ -1,0 +1,64 @@
+# Development
+
+Prerequisite: onboard to the development account. See `infra/README`.
+
+1. Create a `.env` file in this directory.
+
+```
+BONSAI_API_KEY=""
+PULUMI_CONFIG_PASSPHRASE=""
+PRIVATE_KEY=""
+ETH_RPC_URL=""
+DEV_NAME=""
+AWS_REGION="us-west-2"
+ORDER_STREAM_URL=""
+DOCKER_REMOTE_BUILDER=""
+```
+
+`PULUMI_CONFIG_PASSPHRASE` can be left blank as we do not use that feature.
+`DEV_NAME` should be your name. This is used to name resources that you create.
+
+1. pulumi login --local
+2. pulumi stack select dev
+3. pulumi up
+
+## Bento EC2 Development
+
+To enable SSH access to the instance set env variable `BENTO_PROVER_SSH_PUBLIC_KEY` with a public key before `pulumi up`. You can then ssh in using `ssh ubuntu@<bentoBrokerPublicDns>` (`bentoBrokerPublicDns` is outputted by pulumi up).
+
+Useful commands when ssh'd into the instance:
+
+```
+# View logs from userData start up:
+sudo cat /var/log/cloud-init-output.log
+
+lsblk -o NAME,SIZE -d
+
+df -h
+
+# View logs from systemd service for the broker
+sudo journalctl -e -u boundless-broker
+sudo journalctl -u boundless-broker
+
+# Check service status
+sudo systemctl status boundless-broker.service
+
+# Check dependencies of service status
+systemctl list-dependencies boundless-broker.service
+
+# Get env variables of running service
+systemctl show boundless-broker --property=Environment
+
+# View logs of cloudwatch agent
+cat /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
+
+# View docker logs
+cd /local/boundless
+docker ps -a
+# View tail broker logs
+docker compose logs --tail=100 bento-broker-1
+# View broker logs
+docker compose logs bento-broker-1
+# View logs including bento:
+docker compose logs bento-broker-1
+```

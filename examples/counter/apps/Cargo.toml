@@ -9,9 +9,8 @@ alloy = { workspace = true }
 anyhow = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true }
-dotenvy = { workspace = true }
 guest-util = { workspace = true }
-risc0-zkvm = { workspace = true, default-features = true }
+risc0-zkvm = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
@@ -19,7 +18,9 @@ url = { workspace = true }
 
 [dev-dependencies]
 boundless-market = { workspace = true, features = ["test-utils"] }
+boundless-market-test-utils = { workspace = true }
 broker = { workspace = true, features = ["test-utils"] }
-guest-assessor = { workspace = true }
-guest-set-builder = { workspace = true }
-tracing-test = "0.2"
+test-log = "0.2"
+
+[features]
+cuda = ["risc0-zkvm/cuda"]

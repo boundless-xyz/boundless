@@ -6,9 +6,9 @@
 
 This repository contains the core primitives for Boundless.
 
-> **Note:** If you are a builder looking to build an application on Boundless, you should start with the [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) and the [Boundless Builder Docs](https://docs.beboundless.xyz/build/build-a-program).
+> **Note:** If you are a builder looking to build an application on Boundless, you should start with the [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) and the [Boundless Builder Docs](https://docs.beboundless.xyz/developers/quick-start).
 
-> **Note:** If you are a prover looking to get started, please refer to the [Boundless Prover Quick Start Guide](https://docs.beboundless.xyz/prove/quick-start).
+> **Note:** If you are a prover looking to get started, please refer to the [Boundless Prover Quick Start Guide](https://docs.beboundless.xyz/provers/quick-start).
 
 ## Repository Structure
 
@@ -73,6 +73,10 @@ bun run docs
 ```
 
 Then open your browser and navigate to `http://localhost:5173`.
+
+## Audits
+
+See https://github.com/boundless-xyz/boundless-security
 
 ## License
 

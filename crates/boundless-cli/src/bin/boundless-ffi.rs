@@ -21,24 +21,25 @@ use std::{
 
 use alloy::{
     hex::FromHex,
-    primitives::{Address, Bytes, PrimitiveSignature, U256},
+    primitives::{Address, Bytes, Signature, U256},
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{ensure, Context, Result};
-use boundless_cli::{fetch_url, DefaultProver, OrderFulfilled};
+use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_market::{
     contracts::{eip712_domain, ProofRequest},
     order_stream_client::Order,
+    storage::fetch_url,
 };
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about)]
+#[clap(author, version, about = "Utility for use with Forge FFI cheatcode. See https://getfoundry.sh/reference/cheatcodes/ffi", long_about = None)]
 struct MainArgs {
-    /// URL of the SetBuilder ELF
+    /// URL of the SetBuilder program
     #[clap(long)]
     set_builder_url: String,
-    /// URL of the Assessor ELF
+    /// URL of the Assessor program
     #[clap(long)]
     assessor_url: String,
     /// Address of the prover
@@ -56,10 +57,6 @@ struct MainArgs {
     /// Hex encoded request' signature
     #[clap(long)]
     signature: String,
-    /// Whether to revert the fulfill transaction if payment conditions are not met (e.g. the
-    /// request is locked to another prover).
-    #[clap(long, default_value = "false")]
-    require_payment: bool,
 }
 
 /// Print the result of fulfilling a proof request using the RISC Zero zkVM default prover.
@@ -69,24 +66,27 @@ async fn main() -> Result<()> {
     let args = MainArgs::parse();
     // Take stdout is ensure no extra data is written to it.
     let mut stdout = take_stdout()?;
-    let set_builder_elf = fetch_url(&args.set_builder_url).await?;
-    let assessor_elf = fetch_url(&args.assessor_url).await?;
+    let set_builder_program = fetch_url(&args.set_builder_url).await?;
+    let assessor_program = fetch_url(&args.assessor_url).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
-    let prover =
-        DefaultProver::new(set_builder_elf, assessor_elf, args.prover_address, domain.clone())?;
-    let request =
-        <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?, true)
-            .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
+    let prover = DefaultProver::new(
+        set_builder_program,
+        assessor_program,
+        args.prover_address,
+        domain.clone(),
+    )?;
+    let request = <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?)
+        .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
     let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
     let order = Order {
         request,
         request_digest,
-        signature: PrimitiveSignature::try_from(
+        signature: Signature::try_from(
             Bytes::from_hex(args.signature.trim_start_matches("0x"))?.as_ref(),
         )?,
     };
-    let (fill, root_receipt, assessor_receipt) = prover.fulfill(order.clone()).await?;
-    let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt)?;
+    let (fills, root_receipt, assessor_receipt) = prover.fulfill(&[order.clone()]).await?;
+    let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
 
     // Forge test FFI calls expect hex encoded bytes sent to stdout
     write!(&mut stdout, "{}", hex::encode(order_fulfilled.abi_encode()))

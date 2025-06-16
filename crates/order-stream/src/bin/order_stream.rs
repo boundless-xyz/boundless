@@ -3,7 +3,7 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use order_stream::Args;
 
@@ -14,8 +14,10 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    order_stream::run(&args).await.context("Running order-stream REST API failed")?;
-    tracing::info!("order-stream REST API shutdown");
+    let result = order_stream::run(&args).await;
+    if let Err(e) = result {
+        tracing::error!("FATAL: {:?}", e);
+    }
 
     Ok(())
 }

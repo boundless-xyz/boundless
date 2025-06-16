@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use alloy::primitives::{Address, B256};
+use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use notify::{EventKind, Watcher};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,8 @@ use tokio::{
     task::JoinHandle,
     time::{timeout, Duration},
 };
+
+use crate::{errors::CodedError, impl_coded_debug};
 
 mod defaults {
     pub const fn max_journal_bytes() -> usize {
@@ -29,130 +31,211 @@ mod defaults {
     }
 
     pub const fn lockin_gas_estimate() -> u64 {
-        1_000_000
+        // Observed cost of a lock transaction is ~135k gas.
+        // https://sepolia.etherscan.io/tx/0xe61b5cad4a45fc0913cc966f8e3ee72027c01a949a9deca916780e1245c15964
+        200_000
     }
 
     pub const fn fulfill_gas_estimate() -> u64 {
-        300_000_000
+        // Observed cost of a basic single fulfill transaction is ~350k gas.
+        // Additional padding is used to account for journals up to 10kB in size.
+        // https://sepolia.etherscan.io/tx/0x14e54fbaf0c1eda20dd0828ddd64e255ffecee4562492f8c1253b0c3f20af764
+        750_000
+    }
+
+    pub const fn groth16_verify_gas_estimate() -> u64 {
+        250_000
+    }
+
+    pub const fn additional_proof_cycles() -> u64 {
+        // 2 mcycles for assessor + 270k cycles for set builder by default
+        2_000_000 + 270_000
     }
 
     pub const fn max_submission_attempts() -> u32 {
-        3
+        2
+    }
+
+    pub const fn reaper_interval_secs() -> u32 {
+        60
+    }
+
+    pub const fn reaper_grace_period_secs() -> u32 {
+        10800
+    }
+
+    pub const fn max_concurrent_preflights() -> u32 {
+        4
     }
 }
 /// All configuration related to markets mechanics
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct MarketConf {
-    /// Mega Cycle price (in native token)
+    /// Mega-cycle price, denominated in the native token (e.g. ETH).
+    ///
+    /// This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
+    /// execution took, as calculated by running the request in preflight. This is one of the inputs to
+    /// decide the minimum price to accept for a request.
     pub mcycle_price: String,
+    /// Mega-cycle price, denominated in the Boundless staking token.
+    ///
+    /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
+    /// order when paid in staking tokens, as is the case for orders with an expired lock.
+    pub mcycle_price_stake_token: String,
     /// Assumption price (in native token)
     ///
-    /// UNUSED CURRENTLY
+    /// DEPRECATED
+    #[deprecated]
     pub assumption_price: Option<String>,
     /// Optional max cycles (in mcycles)
     ///
     /// Orders over this max_cycles will be skipped after preflight
     pub max_mcycle_limit: Option<u64>,
-    /// Max journal bytes
+    /// Optional allow list for addresses that can bypass the mcycle limit
     ///
-    /// Orders that produce a journal larger than this size in preflight will be skipped
+    /// If enabled, all requests from clients in the allow list will be accepted regardless of the mcycle limit.
+    pub allow_skip_mcycle_limit_addresses: Option<Vec<Address>>,
+    /// Max journal size in bytes
+    ///
+    /// Orders that produce a journal larger than this size in preflight will be skipped. Since journals
+    /// must be posted onchain to complete an order, an excessively large journal may prevent completion
+    /// of a request.
     #[serde(default = "defaults::max_journal_bytes")]
     pub max_journal_bytes: usize,
-    /// Peak single proof performance in kHz
+    /// Estimated peak performance of the proving cluster, in kHz.
     ///
-    /// Used for sanity checking bids to prevent slashing
+    /// Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
+    /// can be derived from benchmarking using Bento CLI or from data based on fulfilling market orders.
     pub peak_prove_khz: Option<u64>,
-    /// Min seconds left before the deadline allowed to consider bidding on the proof
+    /// Min seconds left before the deadline to consider bidding on a request.
+    ///
+    /// If there is not enough time left before the deadline, the prover may not be able to complete
+    /// proving of the request and finalize the batch for publishing before expiration.
     pub min_deadline: u64,
-    /// Order lookback blocks
-    ///
-    /// On startup the number of blocks to look back for possible open orders
+    /// On startup, the number of blocks to look back for possible open orders.
     pub lookback_blocks: u64,
-    /// Max stake amount, in (native token)
-    pub max_stake: String,
-    /// ImageID's that skip preflight
-    pub skip_preflight_ids: Option<Vec<B256>>,
-    /// Optional allow list for customer address
+    /// Max stake amount, denominated in the Boundless staking token.
     ///
-    /// If enabled, all proof orders not in the allow list are skipped
+    /// Requests that require a higher stake than this will not be considered.
+    pub max_stake: String,
+    /// Optional allow list for customer address.
+    ///
+    /// If enabled, all requests from clients not in the allow list are skipped.
     pub allow_client_addresses: Option<Vec<Address>>,
-    /// lockinRequest priority gas
+    /// lockRequest priority gas
     ///
     /// Optional additional gas to add to the transaction for lockinRequest, good
     /// for increasing the priority if competing with multiple provers during the
     /// same block
     pub lockin_priority_gas: Option<u64>,
-    /// Max input / image file size allowed for downloading from request URLs
+    /// Max input / image file size allowed for downloading from request URLs.
     pub max_file_size: usize,
     /// Max retries for fetching input / image contents from URLs
     pub max_fetch_retries: Option<u8>,
-    /// Gas Estimation
+    /// Gas estimate for lockin call
     ///
-    /// Gas estimate for lockin call to use if it cannot be estimated using the node RPC
+    /// Used for estimating the gas costs associated with an order during pricing. If not set a
+    /// conservative default will be used.
     #[serde(default = "defaults::lockin_gas_estimate")]
     pub lockin_gas_estimate: u64,
-    /// Gas estimate for fulfill call to use if it cannot be estimated using the node RPC
+    /// Gas estimate for fulfill call
+    ///
+    /// Used for estimating the gas costs associated with an order during pricing. If not set a
+    /// conservative default will be used.
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
-    /// Balance warning threshold (in native token)
-    /// if the submitter balance drops below this the broker will issue warning logs
-    pub balance_warn_threshold: Option<String>,
-    /// Balance warning threshold (in native token)
-    /// if the submitter balance drops below this the broker will issue error logs
-    pub balance_error_threshold: Option<String>,
-    /// Stake balance warning threshold (in stake tokens)
-    /// if the stake balance drops below this the broker will issue warning logs
-    pub stake_balance_warn_threshold: Option<String>,
-    /// Stake balance error threshold (in stake tokens)
-    /// if the stake balance drops below this the broker will issue error logs
-    pub stake_balance_error_threshold: Option<String>,
-    /// Max concurrent locks
+    /// Gas estimate for proof verification using the RiscZeroGroth16Verifier
     ///
-    /// Maximum number of concurrent lockin requests that can be processed at once
-    pub max_concurrent_locks: Option<u32>,
+    /// Used for estimating the gas costs associated with an order during pricing. If not set a
+    /// conservative default will be used.
+    #[serde(default = "defaults::groth16_verify_gas_estimate")]
+    pub groth16_verify_gas_estimate: u64,
+    /// Additional cycles to be proven for each order.
+    ///
+    /// This is currently the sum of the cycles for the assessor and set builder.
+    #[serde(default = "defaults::additional_proof_cycles")]
+    pub additional_proof_cycles: u64,
+    /// Optional balance warning threshold (in native token)
+    ///
+    /// If the submitter balance drops below this the broker will issue warning logs
+    pub balance_warn_threshold: Option<String>,
+    /// Optional balance error threshold (in native token)
+    ///
+    /// If the submitter balance drops below this the broker will issue error logs
+    pub balance_error_threshold: Option<String>,
+    /// Optional stake balance warning threshold (in stake tokens)
+    ///
+    /// If the stake balance drops below this the broker will issue warning logs
+    pub stake_balance_warn_threshold: Option<String>,
+    /// Optional stake balance error threshold (in stake tokens)
+    ///
+    /// If the stake balance drops below this the broker will issue error logs
+    pub stake_balance_error_threshold: Option<String>,
+    /// Max concurrent proofs
+    ///
+    /// Maximum number of concurrent proofs that can be processed at once
+    #[serde(alias = "max_concurrent_locks")]
+    pub max_concurrent_proofs: Option<u32>,
+    /// Optional cache directory for storing downloaded images and inputs
+    ///
+    /// If not set, files will be re-downloaded every time
+    pub cache_dir: Option<PathBuf>,
+    /// Maximum number of orders to concurrently work on pricing
+    ///
+    /// Used to limit pricing tasks spawned to prevent overwhelming the system
+    #[serde(default = "defaults::max_concurrent_preflights")]
+    pub max_concurrent_preflights: u32,
 }
 
 impl Default for MarketConf {
     fn default() -> Self {
+        // Allow use of assumption_price until it is removed.
+        #[allow(deprecated)]
         Self {
-            mcycle_price: "0.1".to_string(),
+            mcycle_price: "0.00001".to_string(),
+            mcycle_price_stake_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
+            allow_skip_mcycle_limit_addresses: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,
-            min_deadline: 300, // 5 mins
+            min_deadline: 120, // 2 mins
             lookback_blocks: 100,
             max_stake: "0.1".to_string(),
-            skip_preflight_ids: None,
             allow_client_addresses: None,
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
+            additional_proof_cycles: defaults::additional_proof_cycles(),
             balance_warn_threshold: None,
             balance_error_threshold: None,
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
-            max_concurrent_locks: None,
+            max_concurrent_proofs: None,
+            cache_dir: None,
+            max_concurrent_preflights: defaults::max_concurrent_preflights(),
         }
     }
 }
 
 /// All configuration related to prover (bonsai / Bento) mechanics
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProverConf {
-    /// Number of retries to poll for proving status. Provides a little durability
-    /// for transient failures.
+    /// Number of retries to poll for proving status.
+    ///
+    /// Provides a little durability for transient failures.
     pub status_poll_retry_count: u64,
     /// Polling interval to monitor proving status (in millisecs)
     pub status_poll_ms: u64,
-    /// Optional config, if using bonsai set the zkvm version here
+    /// Optional config, if using bonsai set the zkVM version here
     pub bonsai_r0_zkvm_ver: Option<String>,
     /// Number of retries to query a prover backend for on failures.
-    /// Used for API requests to a prover backend, creating sessions,
-    /// preflighting, uploading images, etc.
+    ///
+    /// Used for API requests to a prover backend, creating sessions, preflighting, uploading images, etc.
     /// Provides a little durability for transient failures.
     pub req_retry_count: u64,
     /// Number of milliseconds to sleep between retries.
@@ -165,13 +248,32 @@ pub struct ProverConf {
     pub proof_retry_count: u64,
     /// Number of milliseconds to sleep between proof retries.
     pub proof_retry_sleep_ms: u64,
-    /// Set builder guest ELF path
+    /// Set builder guest program binary path
     ///
-    /// When using a durable deploy, set this to the published current SOT guest ELF path on the
-    /// system
+    /// When using a durable deploy, set this to the published current SOT guest program binary
+    /// path on the system
     pub set_builder_guest_path: Option<PathBuf>,
-    /// Assessor ELF path
+    /// Assessor program path
     pub assessor_set_guest_path: Option<PathBuf>,
+    /// Max critical task retries on recoverable failures.
+    ///
+    /// The broker service has a number of subtasks. Some are considered critical. If a task fails, it
+    /// will be retried, but after this number of retries, the process will exit.
+    /// None indicates there are infinite number of retries.
+    pub max_critical_task_retries: Option<u32>,
+    /// Interval for checking expired committed orders (in seconds)
+    ///
+    /// This is the interval at which the ReaperTask will check for expired orders and mark them as failed.
+    /// If not set, it defaults to 60 seconds.
+    #[serde(default = "defaults::reaper_interval_secs")]
+    pub reaper_interval_secs: u32,
+    /// Grace period before marking expired orders as failed (in seconds)
+    ///
+    /// This provides a buffer time after an order expires before the reaper marks it as failed.
+    /// This helps prevent race conditions with the aggregator that might be processing the order.
+    /// If not set, it defaults to 30 seconds.
+    #[serde(default = "defaults::reaper_grace_period_secs")]
+    pub reaper_grace_period_secs: u32,
 }
 
 impl Default for ProverConf {
@@ -186,17 +288,21 @@ impl Default for ProverConf {
             proof_retry_sleep_ms: 1000,
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
+            max_critical_task_retries: None,
+            reaper_interval_secs: defaults::reaper_interval_secs(),
+            reaper_grace_period_secs: defaults::reaper_grace_period_secs(),
         }
     }
 }
 
 /// All configuration related to batching / aggregation
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BatcherConfig {
     /// Max batch duration before publishing (in seconds)
     pub batch_max_time: Option<u64>,
     /// Batch size (in proofs) before publishing
-    pub batch_size: Option<u64>,
+    #[serde(alias = "batch_size")]
+    pub min_batch_size: Option<u32>,
     /// Max combined journal size (in bytes) that once exceeded will trigger a publish
     #[serde(default = "defaults::batch_max_journal_bytes")]
     pub batch_max_journal_bytes: usize,
@@ -211,14 +317,18 @@ pub struct BatcherConfig {
     pub txn_timeout: Option<u64>,
     /// Polling time, in milliseconds
     ///
-    /// The time between polls for new orders to aggregate and how often to check for
-    /// batch finalize conditions
+    /// The time between polls for new orders to aggregate and how often to check for batch finalize
+    /// conditions
     pub batch_poll_time_ms: Option<u64>,
     /// Use the single TXN submission that batches submit_merkle / fulfill_batch into
-    /// A single transaction. Requires the `submitRootAndFulfillBatch` method
+    ///
+    /// A single transaction. Requires the `submitRootAndFulfill` method
     /// be present on the deployed contract
     #[serde(default)]
     pub single_txn_fulfill: bool,
+    /// Whether to withdraw from the prover balance when fulfilling
+    #[serde(default)]
+    pub withdraw: bool,
     /// Number of attempts to make to submit a batch before abandoning
     #[serde(default = "defaults::max_submission_attempts")]
     pub max_submission_attempts: u32,
@@ -228,20 +338,21 @@ impl Default for BatcherConfig {
     fn default() -> Self {
         Self {
             batch_max_time: None,
-            batch_size: Some(2),
+            min_batch_size: Some(2),
             batch_max_journal_bytes: defaults::batch_max_journal_bytes(),
             batch_max_fees: None,
             block_deadline_buffer_secs: 120,
             txn_timeout: None,
             batch_poll_time_ms: Some(1000),
             single_txn_fulfill: false,
+            withdraw: false,
             max_submission_attempts: defaults::max_submission_attempts(),
         }
     }
 }
 
 /// Top level config for the broker service
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default, Debug)]
 pub struct Config {
     /// Market / bidding configurations
     pub market: MarketConf,
@@ -254,8 +365,10 @@ pub struct Config {
 impl Config {
     /// Load the config from disk
     pub async fn load(path: &Path) -> Result<Self> {
-        let data = fs::read_to_string(path).await.context("Failed to read config file")?;
-        toml::from_str(&data).context("Failed to parse toml file")
+        let data = fs::read_to_string(path)
+            .await
+            .context(format!("Failed to read config file from {path:?}"))?;
+        toml::from_str(&data).context(format!("Failed to parse toml file from {path:?}"))
     }
 
     /// Write the config to disk
@@ -266,7 +379,7 @@ impl Config {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ConfigErr {
     #[error("Failed to lock internal config structure")]
     LockFailed,
@@ -275,7 +388,18 @@ pub enum ConfigErr {
     InvalidConfig,
 }
 
-#[derive(Clone, Default)]
+impl_coded_debug!(ConfigErr);
+
+impl CodedError for ConfigErr {
+    fn code(&self) -> &str {
+        match self {
+            ConfigErr::LockFailed => "[B-CON-3012]",
+            ConfigErr::InvalidConfig => "[B-CON-3013]",
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug)]
 pub struct ConfigLock {
     config: Arc<RwLock<Config>>,
 }
@@ -391,7 +515,6 @@ impl ConfigWatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::hex::FromHex;
     use std::{
         fs::File,
         io::{Seek, Write},
@@ -402,11 +525,11 @@ mod tests {
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1"
+mcycle_price_stake_token = "0.1"
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
 max_stake = "0.1"
-skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
 
 [prover]
@@ -420,19 +543,19 @@ proof_retry_sleep_ms = 500
 
 [batcher]
 batch_max_time = 300
-batch_size = 2
+min_batch_size = 2
 batch_max_fees = "0.1"
 block_deadline_buffer_secs = 120"#;
 
     const CONFIG_TEMPL_2: &str = r#"
 [market]
 mcycle_price = "0.1"
+mcycle_price_stake_token = "0.1"
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300
 lookback_blocks = 100
 max_stake = "0.1"
-skip_preflight_ids = ["0x0000000000000000000000000000000000000000000000000000000000000001"]
 max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
@@ -450,11 +573,12 @@ proof_retry_sleep_ms = 500
 
 [batcher]
 batch_max_time = 300
-batch_size = 2
+batch_size = 3
 block_deadline_buffer_secs = 120
 txn_timeout = 45
 batch_poll_time_ms = 1200
-single_txn_fulfill = true"#;
+single_txn_fulfill = true
+withdraw = true"#;
 
     const BAD_CONFIG: &str = r#"
 [market]
@@ -466,6 +590,7 @@ error = ?"#;
         file.set_len(data.len() as u64).unwrap();
     }
 
+    #[allow(deprecated)]
     #[tokio::test]
     async fn config_parser() {
         let mut config_temp = NamedTempFile::new().unwrap();
@@ -479,11 +604,6 @@ error = ?"#;
         assert_eq!(config.market.lookback_blocks, 100);
         assert_eq!(config.market.max_stake, "0.1");
         assert_eq!(config.market.max_file_size, 50_000_000);
-        assert_eq!(
-            config.market.skip_preflight_ids.unwrap()[0],
-            B256::from_hex("0x0000000000000000000000000000000000000000000000000000000000000001")
-                .unwrap()
-        );
         assert_eq!(config.market.lockin_priority_gas, None);
 
         assert_eq!(config.prover.status_poll_ms, 1000);
@@ -497,7 +617,7 @@ error = ?"#;
         assert_eq!(config.prover.assessor_set_guest_path, None);
 
         assert_eq!(config.batcher.batch_max_time, Some(300));
-        assert_eq!(config.batcher.batch_size, Some(2));
+        assert_eq!(config.batcher.min_batch_size, Some(2));
         assert_eq!(config.batcher.batch_max_fees, Some("0.1".into()));
         assert_eq!(config.batcher.block_deadline_buffer_secs, 120);
         assert_eq!(config.batcher.txn_timeout, None);
@@ -512,6 +632,7 @@ error = ?"#;
         Config::load(config_temp.path()).await.unwrap();
     }
 
+    #[allow(deprecated)]
     #[tokio::test]
     #[traced_test]
     async fn config_watcher() {
@@ -554,7 +675,9 @@ error = ?"#;
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
             assert_eq!(config.batcher.txn_timeout, Some(45));
             assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
+            assert_eq!(config.batcher.min_batch_size, Some(3));
             assert!(config.batcher.single_txn_fulfill);
+            assert!(config.batcher.withdraw);
         }
         tracing::debug!("closing...");
     }

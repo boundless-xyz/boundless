@@ -1,0 +1,19 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFQnk96iZHiItdiUZmrd88tAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMGhehmjsbmGMGlRnGAgEQgDv42AX54nZr+dX2jdLRIXDee3XtxfFc7h/12+wQVGXqMF+AmI0dHi98MlAyC+36WTZhDOM6cpHP34xSoQ==
+config:
+  aws:region: us-west-2
+  indexer:BASE_STACK: organization/bootstrap/services-prod
+  indexer:BOUNDLESS_ADDRESS: 0x13337C76fE2d1750246B68781ecEe164643b98Ec
+  indexer:DOCKER_DIR: ../../
+  indexer:DOCKER_TAG: latest
+  indexer:START_BLOCK: "8361293"
+  indexer:ETH_RPC_URL:
+    secure: v1:Mbn0T07ulWmGdN69:SpsaSqACH26eBPPsFRCSikSJ0o7ysBkmxWUiBSP79SBqt2YSafTlaTxsBwcp+DbUUJC1rY7dCRDIgq7FrD5uokRTKULzmFGJYLcGWgYA8cqjTi8n5g==
+  indexer:RDS_PASSWORD:
+    secure: v1:6OldikDHGPtFsshU:3tg0ETBuoOsjoCnrxja5zQnWyaGOSvtIsNEIjH2uu7tvuA==
+  indexer:CHAIN_ID: "11155111"
+  indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
+  indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  indexer:GH_TOKEN_SECRET:
+    secure: v1:LfbDb8lBoozxHg+u:MSyFlUK/ayFKEXiZ2fvJuuTehwJeQBWsq4FruaZCOkxtxMpVwZnZ0frKzsLXN5UD8NRPNWC/NSfTu9oq4onmDcnn/XULgsiJerGtpuJNvjqjAwuG6GEZM61S1zoEgvI0My09F57JH7jV3OfLAQ==
+  indexer:RUST_LOG: "indexer_monitor=debug"

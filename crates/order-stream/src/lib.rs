@@ -7,9 +7,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use alloy::providers::fillers::{
-    BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-};
+use alloy::providers::fillers::{ChainIdFiller, FillProvider, JoinFill};
 use alloy::providers::Identity;
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
@@ -122,9 +120,9 @@ pub struct Args {
     #[clap(long, env)]
     boundless_market_address: Address,
 
-    /// Minimum stake balance required to connect to the WebSocket
-    #[clap(long, value_parser = parse_ether)]
-    min_balance: U256,
+    /// Minimum stake balance, in raw units, required to connect to the WebSocket
+    #[clap(long)]
+    min_balance_raw: U256,
 
     /// Maximum number of WebSocket connections
     #[clap(long, default_value = "100")]
@@ -166,7 +164,7 @@ pub struct Args {
 }
 
 /// Configuration struct
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Config {
     /// RPC URL for the Ethereum node
@@ -193,12 +191,109 @@ pub struct Config {
     pub rpc_retry_cu: u64,
 }
 
+impl Config {
+    /// Creates a new ConfigBuilder with default values
+    pub fn builder() -> ConfigBuilder {
+        ConfigBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct ConfigBuilder {
+    rpc_url: Option<Url>,
+    market_address: Option<Address>,
+    min_balance: Option<U256>,
+    max_connections: Option<usize>,
+    queue_size: Option<usize>,
+    domain: Option<String>,
+    bypass_addrs: Option<Vec<Address>>,
+    ping_time: Option<u64>,
+    rpc_retry_max: Option<u32>,
+    rpc_retry_backoff: Option<u64>,
+    rpc_retry_cu: Option<u64>,
+}
+
+impl ConfigBuilder {
+    /// Set the RPC URL
+    pub fn rpc_url(self, url: Url) -> Self {
+        Self { rpc_url: Some(url), ..self }
+    }
+
+    /// Set the market address
+    pub fn market_address(self, address: Address) -> Self {
+        Self { market_address: Some(address), ..self }
+    }
+
+    /// Set the minimum balance
+    pub fn min_balance(self, balance: U256) -> Self {
+        Self { min_balance: Some(balance), ..self }
+    }
+
+    /// Set the maximum number of connections
+    pub fn max_connections(self, max: usize) -> Self {
+        Self { max_connections: Some(max), ..self }
+    }
+
+    /// Set the queue size
+    pub fn queue_size(self, size: usize) -> Self {
+        Self { queue_size: Some(size), ..self }
+    }
+
+    /// Set the domain
+    pub fn domain(self, domain: String) -> Self {
+        Self { domain: Some(domain), ..self }
+    }
+
+    /// Set the bypass addresses
+    pub fn bypass_addrs(self, addrs: Vec<Address>) -> Self {
+        Self { bypass_addrs: Some(addrs), ..self }
+    }
+
+    /// Set the ping time
+    pub fn ping_time(self, time: u64) -> Self {
+        Self { ping_time: Some(time), ..self }
+    }
+
+    /// Set the maximum number of RPC retries
+    pub fn rpc_retry_max(self, max: u32) -> Self {
+        Self { rpc_retry_max: Some(max), ..self }
+    }
+
+    /// Set the RPC retry backoff time
+    pub fn rpc_retry_backoff(self, backoff: u64) -> Self {
+        Self { rpc_retry_backoff: Some(backoff), ..self }
+    }
+
+    /// Set the RPC retry compute units
+    pub fn rpc_retry_cu(self, cu: u64) -> Self {
+        Self { rpc_retry_cu: Some(cu), ..self }
+    }
+
+    /// Build the Config with default values for any unset fields
+    pub fn build(self) -> Result<Config, ConfigError> {
+        Ok(Config {
+            rpc_url: self.rpc_url.ok_or(ConfigError::MissingRequiredField("rpc_url"))?,
+            market_address: self
+                .market_address
+                .ok_or(ConfigError::MissingRequiredField("market_address"))?,
+            min_balance: self.min_balance.unwrap_or_else(|| parse_ether("2").unwrap()),
+            max_connections: self.max_connections.unwrap_or(100),
+            queue_size: self.queue_size.unwrap_or(10),
+            domain: self.domain.unwrap_or_else(|| "0.0.0.0:8585".to_string()),
+            bypass_addrs: self.bypass_addrs.unwrap_or_default(),
+            ping_time: self.ping_time.unwrap_or(60),
+            rpc_retry_max: self.rpc_retry_max.unwrap_or(10),
+            rpc_retry_backoff: self.rpc_retry_backoff.unwrap_or(1000),
+            rpc_retry_cu: self.rpc_retry_cu.unwrap_or(100),
+        })
+    }
+}
 impl From<&Args> for Config {
     fn from(args: &Args) -> Self {
         Self {
             rpc_url: args.rpc_url.clone(),
             market_address: args.boundless_market_address,
-            min_balance: args.min_balance,
+            min_balance: args.min_balance_raw,
             max_connections: args.max_connections,
             queue_size: args.queue_size,
             domain: args.domain.clone(),
@@ -211,13 +306,13 @@ impl From<&Args> for Config {
     }
 }
 
-type WalletProvider = FillProvider<
-    JoinFill<
-        Identity,
-        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-    >,
-    RootProvider,
->;
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Missing required field: {0}")]
+    MissingRequiredField(&'static str),
+}
+
+type ReadOnlyProvider = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
 
 /// Application state struct
 pub struct AppState {
@@ -228,7 +323,7 @@ pub struct AppState {
     /// Map of pending connections by address with their timestamp
     pending_connections: Arc<Mutex<HashMap<Address, Instant>>>,
     /// Ethereum RPC provider
-    rpc_provider: WalletProvider,
+    rpc_provider: ReadOnlyProvider,
     /// Configuration
     config: Config,
     /// chain_id
@@ -247,7 +342,10 @@ impl AppState {
             config.rpc_retry_cu,
         );
         let client = RpcClient::builder().layer(retry_layer).http(config.rpc_url.clone());
-        let rpc_provider = ProviderBuilder::new().on_client(client);
+        let rpc_provider = ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .filler(ChainIdFiller::default())
+            .connect_client(client);
 
         let db = if let Some(db_pool) = db_pool_opt {
             OrderDb::from_pool(db_pool).await?
@@ -338,8 +436,8 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route(ORDER_SUBMISSION_PATH, post(submit_order).layer(body_size_limit))
         .route(ORDER_LIST_PATH, get(list_orders))
-        .route(&format!("{ORDER_LIST_PATH}/:request_id"), get(find_orders_by_request_id))
-        .route(&format!("{AUTH_GET_NONCE}:addr"), get(get_nonce))
+        .route(&format!("{ORDER_LIST_PATH}/{{request_id}}"), get(find_orders_by_request_id))
+        .route(&format!("{AUTH_GET_NONCE}{{addr}}"), get(get_nonce))
         .route(ORDER_WS_PATH, get(websocket_handler))
         .route(HEALTH_CHECK, get(health))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -361,7 +459,11 @@ pub async fn run(args: &Args) -> Result<()> {
     run_from_parts(app_state, listener).await
 }
 
-async fn run_from_parts(app_state: Arc<AppState>, listener: tokio::net::TcpListener) -> Result<()> {
+/// Run the REST API service from parts
+pub async fn run_from_parts(
+    app_state: Arc<AppState>,
+    listener: tokio::net::TcpListener,
+) -> Result<()> {
     let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
@@ -421,16 +523,14 @@ mod tests {
     };
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance,
-            test_utils::{create_test_ctx, TestCtx},
-            Offer, Predicate, ProofRequest, Requirements,
+            hit_points::default_allowance, Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
-        input::InputBuilder,
-        order_stream_client::{order_stream, Client},
+        input::GuestEnv,
+        order_stream_client::{order_stream, OrderStreamClient},
     };
+    use boundless_market_test_utils::{create_test_ctx, TestCtx};
+
     use futures_util::StreamExt;
-    use guest_assessor::ASSESSOR_GUEST_ID;
-    use guest_set_builder::SET_BUILDER_ID;
     use reqwest::Url;
     use risc0_zkvm::sha::Digest;
     use sqlx::PgPool;
@@ -447,7 +547,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let rpc_url = anvil.endpoint_url();
 
-        let ctx = create_test_ctx(&anvil, SET_BUILDER_ID, ASSESSOR_GUEST_ID).await.unwrap();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
 
         ctx.prover_market
             .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
@@ -482,11 +582,10 @@ mod tests {
 
     fn new_request(idx: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
-            idx,
-            addr,
+            RequestId::new(*addr, idx),
             Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
             "http://image_uri.null",
-            InputBuilder::new().build_inline().unwrap(),
+            GuestEnv::builder().build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
@@ -500,7 +599,11 @@ mod tests {
     }
 
     /// Helper to wait for server health with exponential backoff
-    async fn wait_for_server_health(client: &Client, addr: &SocketAddr, max_retries: usize) {
+    async fn wait_for_server_health(
+        client: &OrderStreamClient,
+        addr: &SocketAddr,
+        max_retries: usize,
+    ) {
         let mut retry_delay = tokio::time::Duration::from_millis(50);
 
         let health_url = format!("http://{}{}", addr, HEALTH_CHECK);
@@ -541,7 +644,7 @@ mod tests {
         let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
 
         // Create client
-        let client = Client::new(
+        let client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,
@@ -563,7 +666,7 @@ mod tests {
         let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
 
         // Connect customer signer as well
-        let customer_client = Client::new(
+        let customer_client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,
@@ -579,7 +682,7 @@ mod tests {
 
                 // Handle potential errors from both streams
                 match (res1, res2) {
-                    (Some(Ok(order1)), Some(Ok(order2))) => {
+                    (Some(order1), Some(order2)) => {
                         if order1.order == order2.order {
                             order_tx.send(order1).await.unwrap();
                         } else {

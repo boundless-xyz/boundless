@@ -1,5 +1,4 @@
 import NumberFlow from "@number-flow/react";
-import { Skeleton } from "@risc0/ui/skeleton";
 import { useEffect, useState } from "react";
 import { useBlockNumber, usePublicClient } from "wagmi";
 
@@ -184,9 +183,7 @@ export default function PricingCalculator() {
             </div>
           </div>
         </>
-      ) : (
-        <Skeleton className="h-[380px] w-full" />
-      )}
+      ) : null}
     </div>
   );
 }

@@ -1,0 +1,50 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFmfoKmPfA6fP85dX4yREO9AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMkV06HDQ+CFtZ4ExcAgEQgDu2zDwaoqPnnNJplQffo8A8Cow/AjLagKhuw67asVdAf7ERKrX7L1xreCnQ7HkSqf88TpYSg8WWMexCvQ==
+config:
+  aws:region: us-west-2
+  order-generator-base:PINATA_JWT:
+    secure: v1:spij1pLpVrldXhfv:wJce+hGsA1OyjRTMtmuQML5BKt4n6kdUl+8ULEzBWYnNFQile0QpK6O7tciHoHDiZlOPYSzfe6mc/2k43MT0JNbxVnpk0ARaYZlk8X0eH1Uy10/vvpLy/JSy+7UrYLvK4YfXAADoUK4BXTgsJ2Lds6vQDdO7NFxV6RpImKT2ACdUR6BJkC0CSc2gexY/1ivyo11Uv387l+c3sP22N0DXy6DLBw1mU5T+TuPnpmIxvI730Usi9dtN20sYNIJpQ8hs+zeDxbIFwkFa7a+kg2dqwAMe811XUceWUNKqBcZtxtc2FhdF+DOIGCs0oUjn4ATIF0wA4AviV1P7gHNgsZu5qMBZHTLb2g2MkE5rOjk6qPW6HBcV+UilG3Qna9+RpcEUvRFBPvnS2Z8ewpemlN5uaAJlNRS7cF9qz1TqV1YOrYX31q2bcjxha4oT5fT++YF8M87v48A2UePv2K9ireelDmapVIOA9tf5sVIVfxuAPfQqAuoB9vlRXga+Sgeh5OzadnbFLogv1dv+e/lh672UOCrRFaOSMeEHMClB5RYR4CyfLEjMoZOk437oFy+K8AyedfIuCnbRBv5rOjXq99U61IG+s/KT1rAmCGtWW8u9hnkl86l0hsHee6IcuoUKwebIYY7/V1/uO1rIJnBCH8w0Nu+fQJCQiQUyNhwYwiA+yyqwQ5qZDDt6agVr6ee2StM1r0i4gUOkureL4i0maj1NJsVBuq5l/1sjDVpc5/f53met21ICAKM1hoEuAD/h06DmPE9KR5WtVXKOLgu3GlI2xR8ru2UxnMGvSaOmw8SV0rvfmE1ShF8BlXx9HbYowY4if+FRpUWxHpf2taBi47S4RN3Lc+pKFYPcXWYwleavMieWLtTBAq/YVsRdzN7V7WB4RhDhGSFCR6B8Ajh3cMYPizrgJb9pRsLN
+  order-generator-base:ETH_RPC_URL:
+    secure: v1:54VKT47TarVCPEY3:TQqcCt78JE0Br3VDnr00NyGbgsHE0KECtp2IDyCM/lv6pi3x5B5NuzvyEXpjUXCHRI1SbPIFO6avkc5KRlTjZq642OOInrxKyXByTEoJgTTnuXVm8Q==
+  order-generator-base:ORDER_STREAM_URL:
+    secure: v1:Nksug5e5PpAKtzDk:P3z5UVGY5VRfA39rQeqgMN7PgkgW04KzOb1ENiYzGgF83PLCoC/W85n70tZBDPWyy+lTseCKm5Hcrx9gw/bdizuEhMjp1QV4vjDW+h36WKtfv5GQaw2ZSPhPcoXAdg==
+  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
+  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  order-generator-base:BASE_STACK: organization/bootstrap/services-staging
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
+  order-generator-base:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64
+  order-generator-base:DOCKER_DIR: ../../
+  order-generator-base:DOCKER_TAG: latest
+  order-generator-base:LOG_LEVEL: info
+  order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
+  order-generator-base:CHAIN_ID: "11155111"
+  order-generator-base:INTERVAL: "300"
+  order-generator-base:LOCK_STAKE_RAW: "500000"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
+  order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
+  order-generator-base:GH_TOKEN_SECRET:
+    secure: v1:JwMshDYyGPxsESiX:SY8Ye0Yf4BUg2vHfUa0kzK+KV1hUXFBLBdMgDGsIfNosmLjwXkm1+vombjLfhzJQg+/7AFLsKUgHdteI7grj+abG6ty2365BG+claz92m1pKXc+2lJ8ot3B/bghgM5na2s/K1De2p7BEXiIHHQ==
+  order-generator-base:TX_TIMEOUT: "120"
+  # Offchain order generator is configured to send small orders that must be locked/fulfilled within 30 mins
+  # We use these orders as canaries to monitor the health of the system
+  order-generator-offchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-offchain:RAMP_UP: "300"
+  order-generator-offchain:LOCK_TIMEOUT: "900"
+  order-generator-offchain:TIMEOUT: "1500"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "0"
+  order-generator-offchain:PRIVATE_KEY:
+    secure: v1:/PAo8IW1iSC4PfVa:j+e1NmKVKprC8cRWBPmmQ5GT9O4ppUeU2VYFdpPiZDZHHCW6GCrTbHO+1BWu1rinjCT1lppKhzXhxBXlVabTVdwPOfjYZO7lF4g+dQjqq5U=
+  order-generator-offchain:AUTO_DEPOSIT: "15"
+  order-generator-offchain:WARN_BALANCE_BELOW: "35"
+  order-generator-offchain:ERROR_BALANCE_BELOW: "15"
+  order-generator-onchain:WARN_BALANCE_BELOW: "35"
+  order-generator-onchain:ERROR_BALANCE_BELOW: "15"
+  order-generator-onchain:PRIVATE_KEY:
+    secure: v1:mCtZDPI169gCEzCS:fs7WOQUknWQ3SgRy1tJWLzSqrm0DFlDyBlOy0FvCr+qPgOPpdedminnQHR4Em1kBoJteJ0H1iUKfNsaE0NUZOk3RAmCdGtsnu/QiYkHQAiQ=
+  # Onchain order generator is configured to send larger orders that must be locked/fulfilled within 1 hour
+  # Mostly used to send load to the market, but also monitored as a canary.
+  order-generator-onchain:RAMP_UP: "600"
+  order-generator-onchain:LOCK_TIMEOUT: "900"
+  order-generator-onchain:TIMEOUT: "1800"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "15"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "500"
