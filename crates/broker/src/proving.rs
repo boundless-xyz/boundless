@@ -161,7 +161,9 @@ impl ProvingService {
         // but this time, along with aggregation and submission time, should never
         // exceed the actual order expiry.
         let order_status = match tokio::time::timeout(timeout_duration, monitor_task).await {
-            Ok(result) => result.context("Monitoring proof failed")?,
+            Ok(result) => result.with_context(|| {
+                format!("Monitoring proof failed for order {order_id}, proof_id: {proof_id}")
+            })?,
             Err(_) => {
                 tracing::debug!(
                     "Proving timed out for order {}, cancelling proof {}",
