@@ -481,7 +481,11 @@ where
             .await
         {
             Ok(res) => {
-                tracing::debug!("Preflight execution of {request_id:x} with {} mcycles completed in {} seconds", res.stats.total_cycles / 1_000_000, res.elapsed_time);
+                tracing::debug!(
+                    "Preflight execution of {request_id:x} with {} mcycles completed in {} seconds",
+                    res.stats.total_cycles / 1_000_000,
+                    res.elapsed_time
+                );
                 res
             }
             Err(err) => match err {
@@ -603,7 +607,10 @@ where
             let target_min_price =
                 config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill
                     + order_gas_cost;
-            tracing::debug!("Target price: {target_min_price} ({} ETH) for request id {request_id:x}", format_ether(target_min_price));
+            tracing::debug!(
+                "Target price: {target_min_price} ({} ETH) for request id {request_id:x}",
+                format_ether(target_min_price)
+            );
 
             order
                 .request
