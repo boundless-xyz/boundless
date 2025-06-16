@@ -447,7 +447,9 @@ where
 
             if exec_limit_cycles > deadline_cycle_limit {
                 tracing::debug!(
-                    "Order with request id {request_id:x} exec limit {} cycles restricted by deadline to {} cycles (time limit)",
+                    "Order with request id {request_id:x}. Given peak_prove_khz {} and {} seconds until expiration, restricted exec limit from {} to {} cycles to ensure preflight terminates before expiration.",
+                    peak_prove_khz,
+                    expiration.saturating_sub(now),
                     exec_limit_cycles,
                     deadline_cycle_limit
                 );
@@ -478,7 +480,10 @@ where
             )
             .await
         {
-            Ok(res) => res,
+            Ok(res) => {
+                tracing::debug!("Preflight execution of {request_id:x} with {} mcycles completed in {} seconds", res.stats.total_cycles / 1_000_000, res.elapsed_time);
+                res
+            }
             Err(err) => match err {
                 ProverError::ProvingFailed(ref err_msg)
                     if err_msg.contains("Session limit exceeded") =>
@@ -598,7 +603,7 @@ where
             let target_min_price =
                 config_min_mcycle_price * (U256::from(proof_res.stats.total_cycles)) / one_mill
                     + order_gas_cost;
-            tracing::debug!("Target price: {target_min_price} for request id {request_id:x}");
+            tracing::debug!("Target price: {target_min_price} ({} ETH) for request id {request_id:x}", format_ether(target_min_price));
 
             order
                 .request
@@ -777,7 +782,7 @@ where
                                 .price_order_and_update_state(order, task_cancel_token)
                                 .await;
                             if result {
-                                tracing::debug!("Successfully processed order: {}", order_id);
+                                tracing::debug!("Finished processing order: {}", order_id);
                             } else {
                                 tracing::debug!("Order was not processed: {}", order_id);
                             }
