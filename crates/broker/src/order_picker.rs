@@ -798,7 +798,7 @@ where
                                 .price_order_and_update_state(order, task_cancel_token)
                                 .await;
                             if result {
-                                tracing::debug!("Successfully processed order: {}", order_id);
+                                tracing::debug!("Finished processing order: {}", order_id);
                             } else {
                                 tracing::debug!("Order was not processed: {}", order_id);
                             }
@@ -1665,14 +1665,10 @@ mod tests {
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
-<<<<<<< HEAD
-        let expected_log_pattern = format!("Order with request id {request_id:x} exec limit");
-=======
         let expected_log_pattern = format!("Order {order_id}. Given peak_prove_khz");
->>>>>>> e2bdf488 (BM-1208: fix stake denom, avoid precision loss, clean up logs in picker (#809))
         assert!(logs_contain(&expected_log_pattern));
-        assert!(logs_contain("cycles restricted by deadline to"));
-        assert!(logs_contain("150000 cycles (time limit)"));
+        assert!(logs_contain("restricted exec limit from"));
+        assert!(logs_contain("to 150000 cycles to ensure preflight terminates"));
     }
 
     #[tokio::test]
