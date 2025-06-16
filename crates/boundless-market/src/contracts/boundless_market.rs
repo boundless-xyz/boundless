@@ -179,7 +179,11 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
 
     match &logs[..] {
         [log] => Ok(log.clone()),
-        [] => Err(anyhow!("transaction did not emit event {}", E::SIGNATURE)),
+        [] => Err(anyhow!(
+            "transaction 0x{:x} did not emit event {}",
+            receipt.transaction_hash,
+            E::SIGNATURE
+        )),
         _ => Err(anyhow!(
             "transaction emitted more than one event with signature {}, {:#?}",
             E::SIGNATURE,
