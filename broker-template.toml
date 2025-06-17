@@ -62,7 +62,7 @@ max_critical_task_retries = 10
 #
 # If enabled, all requests from clients not in the allow list are skipped.
 #allow_client_addresses = []
-# lockRequest priority gas
+# lockRequest_priority_gas = 100
 #
 # Optional additional gas to add to the transaction for lockinRequest, good
 # for increasing the priority if competing with multiple provers during the
