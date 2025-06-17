@@ -5,7 +5,7 @@ const logGroupMapping = (service: string): string => {
     case 'bonsai-prover':
       return 'prod-11155111-bonsai-prover-11155111';
     case 'monitor':
-      return 'prod-11155111-monitor-11155111-monitor-lambda';
+      return 'prod-11155111-monitor-11155111-monitor';
     case 'indexer':
       return 'prod-11155111-indexer-11155111-service';
     case 'og-offchain':
