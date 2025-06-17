@@ -1136,7 +1136,6 @@ mod tests {
             })
             .await;
         let order_id = order.id();
-        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1147,9 +1146,7 @@ mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!(
-            "Estimated gas cost to lock and fulfill order {order_id}:"
-        )));
+        assert!(logs_contain(&format!("Estimated gas cost to lock and fulfill order {order_id}:")));
     }
 
     #[tokio::test]
@@ -1195,7 +1192,6 @@ mod tests {
 
         // set a Groth16 selector
         order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_1 as u32);
-        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1207,9 +1203,7 @@ mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!(
-            "Estimated gas cost to lock and fulfill order {order_id}:"
-        )));
+        assert!(logs_contain(&format!("Estimated gas cost to lock and fulfill order {order_id}:")));
     }
 
     #[tokio::test]
@@ -1258,7 +1252,6 @@ mod tests {
             addr: address!("0x00000000000000000000000000000000ca11bac2"),
             gasLimit: U96::from(200_000),
         };
-        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1270,9 +1263,7 @@ mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!(
-            "Estimated gas cost to lock and fulfill order {order_id}:"
-        )));
+        assert!(logs_contain(&format!("Estimated gas cost to lock and fulfill order {order_id}:")));
     }
 
     #[tokio::test]
@@ -1319,7 +1310,6 @@ mod tests {
 
         order.request.id =
             RequestId::try_from(order.request.id).unwrap().set_smart_contract_signed_flag().into();
-        let request_id = order.request.id;
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1331,9 +1321,7 @@ mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!(
-            "Estimated gas cost to lock and fulfill order {order_id}:"
-        )));
+        assert!(logs_contain(&format!("Estimated gas cost to lock and fulfill order {order_id}:")));
     }
 
     #[tokio::test]
