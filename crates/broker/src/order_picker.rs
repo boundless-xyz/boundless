@@ -392,11 +392,9 @@ where
                 // TODO: Update to account for gas once the stake token to gas token exchange rate is known
                 let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
                 // (stake price * 1_000_000) / stake mcycle price = max cycles
-                (dbg!(price)
-                    .saturating_mul(ONE_MILLION)
-                    .div_ceil(dbg!(min_mcycle_price_stake_token)))
-                .try_into()
-                .context("Failed to convert U256 exec limit to u64")?
+                (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
+                    .try_into()
+                    .context("Failed to convert U256 exec limit to u64")?
             }
         } else {
             let min_mcycle_price = {
