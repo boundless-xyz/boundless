@@ -5,7 +5,6 @@
 If you need technical support, join our [Discord community](https://discord.gg/aXRuD6spez) and claim the prover role via [Guild.xyz](https://guild.xyz/boundless-xyz) to get access to the *#dev-support-forum* channel. The Boundless team and experienced Boundless app devs are there to help troubleshoot issues and share best practices.
 :::
 
-
 The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) is the best way to get started. It provides a starter application which has the following components:
 
 * A zkVM guest program, [`is-even`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/guests/is-even/src/main.rs)
@@ -20,34 +19,37 @@ The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foun
 
 ### Clone the repository
 
-```sh
-git clone https://github.com/boundless-xyz/boundless-foundry-template && cd boundless-foundry-template
+```bash [Terminal]
+git clone https://github.com/boundless-xyz/boundless-foundry-template
+cd boundless-foundry-template
+git submodule update --init --recursive
 ```
 
 ### Set up your environment variables
 
 Export your Sepolia wallet private key as an environment variable (making sure it has enough funds):
 
-```bash
+```ts [.env]
 export WALLET_PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
 ```
 
 For provers to access the zkVM guest program, it must be uploaded to IPFS. This example uses [Pinata](https://pinata.cloud/). Pinata has a free tier with plenty of quota to get started. Create an account, generate an API key, and set the JWT as an environment variable:
 
-```bash
-export PINATA_JWT="YOUR_PINATA_JWT"
+```ts [.env]
+export WALLET_PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
+export PINATA_JWT="YOUR_PINATA_JWT" // [!code focus]
 ```
 
 To load the rest of the environment variables (i.e. Boundless contract deployments), run:
 
-```bash
+```bash [Terminal]
 . ./.env
 ```
 
 :::note[Deploy your own version of EvenNumber.sol]
 If you'd like to deploy your own version of the `EvenNumber.sol` contract, please run:
-`forge script contracts/scripts/Deploy.s.sol --rpc-url ${RPC_URL:?} --broadcast -vv`
-and save the deployed contract address to the .env file.
+`cargo build && forge script contracts/scripts/Deploy.s.sol --rpc-url ${RPC_URL:?} --broadcast -vv`
+and save the deployed contract address to the `.env` file.
 :::
 
 ### Run the example app
@@ -56,13 +58,13 @@ The [example app](apps/src/main.rs) will upload your zkVM guest to IPFS, submit 
 
 To run the example:
 
-```bash
+```bash [Terminal]
 RUST_LOG=info cargo run --bin app -- --even-number-address ${EVEN_NUMBER_ADDRESS:?} --number 4
 ```
 
 The output will look something like:
 
-```sh
+```bash [Terminal]
 2025-03-25T17:25:28.113609Z  INFO app: Uploaded image to https://gateway.pinata.cloud/ipfs/QmVCK98gXuyqbf4CRJ4qKyXhMX7omfxKT6Qv9Ckgg1JSPm
 2025-03-25T17:25:28.113827Z  INFO app: Number to publish: 4
 2025-03-25T17:25:28.183218Z  INFO risc0_zkvm::host::server::exec::executor: execution time: 1.983083ms
@@ -73,7 +75,7 @@ The output will look something like:
 
 and the app will query the status of the proof request until it is fulfilled. Once it fulfilled, you'll see output confirming the receipt of the proof, and confirmation of the transaction sent onchain calling the `set` function with the proof as calldata:
 
-```sh
+```bash [Terminal]
 2025-03-25T17:28:15.465350Z  INFO app: Request 0x2008ac70b2920c9a345ea7fff1ded1fd4302bdf0e3eb397f fulfilled
 2025-03-25T17:28:15.465481Z  INFO app: Broadcasting tx calling EvenNumber set function
 2025-03-25T17:28:15.746652Z  INFO app: Sent tx 0xef84dc7a6395c62697d51828771d55c092a8d94320ff55dd95066e44ade5455e

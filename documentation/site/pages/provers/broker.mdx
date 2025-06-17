@@ -26,7 +26,7 @@ You will need the Boundless CLI installed to deposit/check your balance.
 Please see [Installing the Boundless CLI](/developers/tooling/cli#installation) for instructions.
 :::
 
-```sh [Terminal]
+```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 # Use the env file based on the network you are connecting to
@@ -38,7 +38,7 @@ boundless account deposit-stake <USDC_TO_DEPOSIT>
 
 #### Check Current Stake Balance
 
-```sh [Terminal]
+```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 # Use the env file based on the network you are connecting to
@@ -85,7 +85,7 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 
 Load environment variables for the target network:
 
-```sh [Terminal]
+```bash [Terminal]
 # For example, to benchmark an order on Ethereum Sepolia
 source .env.eth-sepolia
 
@@ -94,13 +94,13 @@ source .env.eth-sepolia
 
 Start a bento cluster:
 
-```sh [Terminal]
+```bash [Terminal]
 just bento
 ```
 
 Then, run the benchmark:
 
-```sh [Terminal]
+```bash [Terminal]
 boundless proving benchmark --request-ids <IDS>
 ```
 
@@ -118,7 +118,7 @@ Running a broker with `just` will also start the Bento cluster through docker co
 `just` installation instructions can be found [here](https://github.com/casey/just#installation).
 :::
 
-```sh [Terminal]
+```bash [Terminal]
 just broker
 ```
 
@@ -132,7 +132,7 @@ To check Bento is running correctly, you can send a sample proof workload:
 
 > Before running this, [install Bento CLI](/provers/quick-start#bento-cli-installation)
 
-```sh [Terminal]
+```bash [Terminal]
 # In the bento directory
 RUST_LOG=info bento_cli -c 32
 ```
@@ -141,7 +141,7 @@ RUST_LOG=info bento_cli -c 32
 
 To run broker with an already initialized Bento cluster or with a different prover, you can build and run a broker directly with the following:
 
-```sh [Terminal]
+```bash [Terminal]
 cargo build --bin broker --release
 # Run with flags or environment variables based on network/configuration
 ./target/release/broker
@@ -149,7 +149,7 @@ cargo build --bin broker --release
 
 ### Stopping The Broker Service
 
-```sh [Terminal]
+```bash [Terminal]
 just broker down
 ```
 
@@ -169,7 +169,7 @@ When upgrading your Boundless broker to a new version, follow these steps to ens
 
 ##### Stop the broker and optionally clean the database
 
-```sh [Terminal]
+```bash [Terminal]
 just broker clean
 
 # Or stop the broker without clearing volumes
@@ -186,14 +186,14 @@ While it is generally not necessary to clear volumes unless specifically noted i
 
 See [releases](https://github.com/boundless-xyz/boundless/releases) for latest tag to use.
 
-```sh [Terminal]
+```bash [Terminal]
 git checkout <new_version_tag>
 # Example: git checkout v0.9.0
 ```
 
 ##### Start the broker with the new version
 
-```sh [Terminal]
+```bash [Terminal]
 just broker
 ```
 

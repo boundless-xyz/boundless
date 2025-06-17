@@ -10,7 +10,7 @@ The Boundless CLI source code can be found at [boundless/crates/boundless-cli](h
 
 You'll need to [install Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html), then you can run the following command to install the CLI.
 
-```sh
+```bash
 cargo install --locked boundless-cli
 ```
 
@@ -59,14 +59,14 @@ boundless [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 
 Check the balance of `0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c` on the Sepolia market.
 
-```sh
+```bash
 RPC_URL=https://rpc.node \
 boundless account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
 ```
 
 Send a proof request to the Sepolia market, with the program pre-uploaded to IPFS and an input of "hello".
 
-```sh
+```bash
 RPC_URL=https://rpc.node \
 PRIVATE_KEY=0xabc... \
 boundless request submit-offer --wait --input "hello" \
@@ -75,7 +75,7 @@ boundless request submit-offer --wait --input "hello" \
 
 Deposit 1.5 Sepolia ETH to the market.
 
-```sh
+```bash
 RPC_URL=https://rpc.node \
 PRIVATE_KEY=0xabc... \
 boundless account deposit 1.5
@@ -486,27 +486,27 @@ offer:
 
 To submit a request, export or create a `.env` file with the following environment variables:
 
-```sh [Terminal]
+```bash [Terminal]
 export RPC_URL="https://ethereum-sepolia-rpc.publicnode.com"
 export PRIVATE_KEY="YOUR_SEPOLIA_WALLET_PRIVATE_KEY"
 ```
 
 Then run the following command:
 
-```sh [Terminal]
+```bash [Terminal]
 RUST_LOG=info boundless request submit request.yaml
 ```
 
 To wait until the submitted request has been fulfilled, the `--wait` option can be added:
 
-```sh [Terminal]
+```bash [Terminal]
 # [!code word:--wait]
 RUST_LOG=info boundless request submit request.yaml --wait
 ```
 
 And to submit the request to the offchain order-stream service, make a deposit and then run `request submit` with `--offchain`.
 
-```sh [Terminal]
+```bash [Terminal]
 # [!code word:--offchain]
 RUST_LOG=info boundless account deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
 RUST_LOG=info boundless request submit request.yaml --wait --offchain

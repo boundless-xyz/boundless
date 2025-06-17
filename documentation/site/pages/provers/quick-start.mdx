@@ -18,7 +18,7 @@ We recommend using Ubuntu 22.04 LTS for your proving node.
 
 To get started, first clone the Boundless monorepo on your proving machine, and switch to the [latest release](https://github.com/boundless-xyz/boundless/releases):
 
-```sh
+```bash
 git clone https://github.com/boundless-xyz/boundless
 cd boundless
 git checkout release-0.10
@@ -37,7 +37,7 @@ To run a Boundless prover, you'll need the following dependencies:
 
 For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating System Requirements](/provers/requirements#operating-system)), please run:
 
-```sh
+```bash
 sudo ./scripts/setup.sh
 ```
 
@@ -53,24 +53,24 @@ Boundless is comprised of two major components:
 
 To get started with a test proof on a new proving machine, you'll need to install the `bento_cli`:
 
-```sh [Terminal]
+```bash [Terminal]
 cargo install --git https://github.com/risc0/risc0 bento-client --bin bento_cli
 ```
 Once installed, you can run bento with:
 
-```sh [Terminal]
+```bash [Terminal]
 just bento
 ```
 
 This will spin up bento without the broker. You can check the logs at any time with:
 
-```sh [Terminal]
+```bash [Terminal]
 just bento logs
 ```
 
 To run the test proof:
 
-```sh [Terminal]
+```bash [Terminal]
 RUST_LOG=info bento_cli -c 32
 ```
 
@@ -90,7 +90,7 @@ We have checked that bento successfully generated a test proof. We are now ready
 
 Before we start, we'll need to install the *Boundless CLI* (which is separate to the Bento CLI we installed earlier):
 
-```sh [Terminal]
+```bash [Terminal]
 cargo install --locked boundless-cli
 ```
 
@@ -98,14 +98,14 @@ cargo install --locked boundless-cli
 
 To set the `VERIFIER_ADDRESS`, `SET_VERIFIER_ADDRESS`, `BOUNDLESS_MARKET_ADDRESS` automatically for Ethereum Sepolia, run:
 
-```sh [Terminal]
+```bash [Terminal]
 # Use the env file based on the network you are connecting to
 source .env.eth-sepolia
 ```
 
 You'll need to set two more environment variables yourself:
 
-```sh [Terminal]
+```bash [Terminal]
 export PRIVATE_KEY=""
 export RPC_URL=""
 ```
@@ -120,7 +120,7 @@ This is your wallet which will represent your prover on the market; make sure it
 
 With the environment variables set, you can now deposit USDC tokens as stake to your account balance:
 
-```sh [Terminal]
+```bash [Terminal]
 boundless account deposit-stake 100
 ```
 
@@ -128,26 +128,26 @@ boundless account deposit-stake 100
 
 You can now start broker (which runs both bento + broker i.e. the full proving stack!):
 
-```sh [Terminal]
+```bash [Terminal]
 just broker
 ```
 
 To check the proving logs, you can use:
 
-```sh [Terminal]
+```bash [Terminal]
 just broker logs
 ```
 ### Stop Broker
 
 To stop broker, you can run:
 
-```sh [Terminal]
+```bash [Terminal]
 just broker down
 ```
 
 Or remove all volumes and data from the service:
 
-```sh [Terminal]
+```bash [Terminal]
 just broker clean
 ```
 
@@ -157,7 +157,7 @@ just broker clean
 
 Instead of passing environment variables for each shell session as we did above, you can set them in `.env.broker`. There is an [.env.broker-template](https://github.com/boundless-xyz/boundless/blob/main/.env.broker-template) available for you to get started:
 
-```sh [Terminal]
+```bash [Terminal]
 cp .env.broker-template .env.broker
 ```
 
@@ -165,7 +165,7 @@ After which, you can use a text editor to adjust the environment variables as re
 
 To run broker with a custom environment file:
 
-```sh [Terminal]
+```bash [Terminal]
 just broker up ./.env.broker
 just broker down ./.env.broker
 ```
@@ -209,12 +209,12 @@ deploy:
 
 To add a second GPU, first check your GPUs are recognised with:
 
-```sh [Terminal]
+```bash [Terminal]
 nvidia-smi -L
 ```
 which should output something like:
 
-```sh
+```bash
 GPU 0: NVIDIA GeForce RTX 3090 (UUID: GPU-abcde123-4567-8901-2345-abcdef678901)
 GPU 1: NVIDIA GeForce RTX 3090 (UUID: GPU-fedcb987-6543-2109-8765-abcdef123456)
 ```
