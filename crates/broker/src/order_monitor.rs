@@ -221,12 +221,12 @@ where
             return Err(OrderMonitorErr::AlreadyLocked);
         }
 
-        let (conf_priority_gas, conf_retry_count, conf_retry_sleep_ms) = {
+        let (conf_priority_gas, rpc_retry_count, rpc_retry_sleep_ms) = {
             let conf = self.config.lock_all().context("Failed to lock config")?;
             (
                 conf.market.lockin_priority_gas,
-                conf.prover.req_retry_count,
-                conf.prover.req_retry_sleep_ms,
+                conf.market.rpc_retry_count,
+                conf.market.rpc_retry_sleep_ms,
             )
         };
 
@@ -295,8 +295,8 @@ where
         // Fetch the block to retrieve the lock timestamp. This has been observed to return
         // inconsistent state between the receipt being available but the block not yet.
         let lock_timestamp = crate::futures_retry::retry(
-            conf_retry_count,
-            conf_retry_sleep_ms,
+            rpc_retry_count,
+            rpc_retry_sleep_ms,
             || async {
                 Ok(self
                     .provider
