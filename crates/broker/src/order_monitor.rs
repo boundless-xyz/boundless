@@ -221,9 +221,13 @@ where
             return Err(OrderMonitorErr::AlreadyLocked);
         }
 
-        let conf_priority_gas = {
+        let (conf_priority_gas, conf_retry_count, conf_retry_sleep_ms) = {
             let conf = self.config.lock_all().context("Failed to lock config")?;
-            conf.market.lockin_priority_gas
+            (
+                conf.market.lockin_priority_gas,
+                conf.prover.req_retry_count,
+                conf.prover.req_retry_sleep_ms,
+            )
         };
 
         tracing::info!(
@@ -288,14 +292,25 @@ where
                 }
             })?;
 
-        let lock_timestamp = self
-            .provider
-            .get_block_by_number(lock_block.into())
-            .await
-            .with_context(|| format!("failed to get block {lock_block}"))?
-            .with_context(|| format!("failed to get block {lock_block}: block not found"))?
-            .header
-            .timestamp;
+        // Fetch the block to retrieve the lock timestamp. This has been observed to return
+        // inconsistent state between the receipt being available but the block not yet.
+        let lock_timestamp = crate::futures_retry::retry(
+            conf_retry_count,
+            conf_retry_sleep_ms,
+            || async {
+                Ok(self
+                    .provider
+                    .get_block_by_number(lock_block.into())
+                    .await
+                    .with_context(|| format!("failed to get block {lock_block}"))?
+                    .with_context(|| format!("failed to get block {lock_block}: block not found"))?
+                    .header
+                    .timestamp)
+            },
+            "get_block_by_number",
+        )
+        .await
+        .map_err(OrderMonitorErr::UnexpectedError)?;
 
         let lock_price = order
             .request
