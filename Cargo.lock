@@ -2543,6 +2543,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-distributor"
+version = "0.11.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "boundless-market",
+ "boundless-market-test-utils",
+ "clap",
+ "hex",
+ "rand 0.9.1",
+ "reqwest",
+ "risc0-zkvm",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "tracing-test",
+ "url",
+]
+
+[[package]]
 name = "boundless-indexer"
 version = "0.11.0"
 dependencies = [
