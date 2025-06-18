@@ -46,4 +46,4 @@ config:
   order-generator-onchain:RAMP_UP: "1200"
   order-generator-onchain:LOCK_TIMEOUT: "1200"
   order-generator-onchain:TIMEOUT: "1800"
-  order-generator-onchain:SECONDS_PER_MCYCLE: "10"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "8"
