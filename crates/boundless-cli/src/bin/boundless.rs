@@ -544,6 +544,22 @@ async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result
     }
 }
 
+/// Helper function to parse stake amounts with validation
+async fn parse_stake_amount(
+    client: &StandardClient,
+    amount: &str,
+) -> Result<(U256, String, String)> {
+    let symbol = client.boundless_market.stake_token_symbol().await?;
+    let decimals = client.boundless_market.stake_token_decimals().await?;
+    let parsed_amount =
+        parse_units(amount, decimals).map_err(|e| anyhow!("Failed to parse amount: {}", e))?.into();
+    if parsed_amount == U256::from(0) {
+        bail!("Amount is below the denomination minimum: {}", amount);
+    }
+    let formatted_amount = format_units(parsed_amount, decimals)?;
+    Ok((parsed_amount, formatted_amount, symbol))
+}
+
 /// Handle account-related commands
 async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -> Result<()> {
     match cmd {
@@ -570,15 +586,8 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             Ok(())
         }
         AccountCommands::DepositStake { amount } => {
-            let symbol = client.boundless_market.stake_token_symbol().await?;
-            let decimals = client.boundless_market.stake_token_decimals().await?;
-            let parsed_amount = parse_units(amount, decimals)
-                .map_err(|e| anyhow!("Failed to parse amount: {}", e))?
-                .into();
-            if parsed_amount == U256::from(0) {
-                bail!("Amount is below the denomination minimum: {}", amount);
-            }
-            let formatted_amount = format_units(parsed_amount, decimals)?;
+            let (parsed_amount, formatted_amount, symbol) =
+                parse_stake_amount(&client, amount).await?;
 
             tracing::info!("Depositing {formatted_amount} {symbol} as stake");
             match client
@@ -603,14 +612,11 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             }
         }
         AccountCommands::WithdrawStake { amount } => {
-            let symbol = client.boundless_market.stake_token_symbol().await?;
-            let decimals = client.boundless_market.stake_token_decimals().await?;
-            let parsed_amount = parse_units(amount, decimals)
-                .map_err(|e| anyhow!("Failed to parse amount: {}", e))?
-                .into();
-            tracing::info!("Withdrawing {amount} {symbol} from stake");
+            let (parsed_amount, formatted_amount, symbol) =
+                parse_stake_amount(&client, amount).await?;
+            tracing::info!("Withdrawing {formatted_amount} {symbol} from stake");
             client.boundless_market.withdraw_stake(parsed_amount).await?;
-            tracing::info!("Successfully withdrew {amount} {symbol} from stake");
+            tracing::info!("Successfully withdrew {formatted_amount} {symbol} from stake");
             Ok(())
         }
         AccountCommands::StakeBalance { address } => {
@@ -1653,7 +1659,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_deposit_amount_below_denom_min() -> Result<()> {
+    async fn test_deposit_stake_amount_below_denom_min() -> Result<()> {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         // Use amount below denom min
