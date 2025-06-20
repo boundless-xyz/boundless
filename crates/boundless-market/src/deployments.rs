@@ -121,7 +121,7 @@ pub const BASE: Deployment = Deployment {
 
 /// [Deployment] for the Base Sepolia.
 pub const BASE_SEPOLIA: Deployment = Deployment {
-    chain_id: Some(NamedChain::Base as u64),
+    chain_id: Some(NamedChain::BaseSepolia as u64),
     boundless_market_address: address!("0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"),
     verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
     set_verifier_address: address!("0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"),
