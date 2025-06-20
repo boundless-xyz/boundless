@@ -1,0 +1,6 @@
+# deny.toml
+[bans]
+deny = [
+  { name = "native-tls" },
+  { name = "openssl" },
+]
