@@ -2,7 +2,7 @@
 mcycle_price = "0.0000005"
 mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
 peak_prove_khz = 80
-min_deadline = 200
+min_deadline = 120
 lookback_blocks = 100
 max_stake = "0.5"
 max_file_size = 50_000_000
@@ -32,7 +32,7 @@ proof_retry_sleep_ms = 500
 batch_max_time = 1000
 min_batch_size = 1
 block_deadline_buffer_secs = 180
-txn_timeout = 75
+txn_timeout = 10
 single_txn_fulfill = true
 max_submission_attempts = 2
 # batch_poll_time_ms = 500

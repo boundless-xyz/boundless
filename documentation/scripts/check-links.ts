@@ -2,7 +2,21 @@ import { readFile } from "node:fs/promises";
 import { glob } from "glob";
 
 // Add ignore list configuration
-const IGNORED_URL_PREFIXES = new Set(["https://github.com/boundless-xyz", "https://sepolia.etherscan.io"]);
+const IGNORED_URL_PREFIXES = new Set([
+  "https://github.com/boundless-xyz",
+  "https://sepolia.etherscan.io",
+  "https://polygonscan.com",
+  "https://zkevm.polygonscan.com",
+  "https://basescan.org",
+  "https://sepolia.basescan.org",
+  "https://arbiscan.io",
+  "https://sepolia.arbiscan.io",
+  "https://snowtrace.io",
+  "https://testnet.snowtrace.io",
+  "https://lineascan.build",
+  "https://sepolia.lineascan.build",
+  "https://crates.io",
+]);
 
 async function checkRemoteUrl(url: string): Promise<boolean> {
   // Check if URL starts with any of the ignored prefixes
@@ -90,7 +104,7 @@ async function localPathExists(linkPath: string): Promise<boolean> {
 }
 
 async function checkLinks() {
-  const files = await glob("**/*.md", { ignore: ["node_modules/**"] });
+  const files = await glob("**/*.{md,mdx}", { ignore: ["node_modules/**"] });
   let hasErrors = false;
 
   for (const file of files) {
@@ -150,6 +164,8 @@ async function checkLinks() {
   if (hasErrors) {
     console.error("\n❌ Some files contain invalid links");
     process.exit(1);
+  } else {
+    console.log("✅ All links are valid!");
   }
 }
 
