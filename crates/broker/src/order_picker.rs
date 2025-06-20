@@ -57,6 +57,9 @@ pub enum OrderPickerErr {
     #[error("{code} invalid request: {0}", code = self.code())]
     RequestError(#[from] RequestError),
 
+    #[error("{code} RPC error: {0:?}", code = self.code())]
+    RpcErr(anyhow::Error),
+
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
@@ -68,6 +71,7 @@ impl CodedError for OrderPickerErr {
             OrderPickerErr::FetchImageErr(_) => "[B-OP-002]",
             OrderPickerErr::GuestPanic(_) => "[B-OP-003]",
             OrderPickerErr::RequestError(_) => "[B-OP-004]",
+            OrderPickerErr::RpcErr(_) => "[B-OP-005]",
             OrderPickerErr::UnexpectedErr(_) => "[B-OP-500]",
         }
     }
@@ -707,12 +711,12 @@ where
     /// Return available gas balance.
     ///
     /// This is defined as the balance of the signer account.
-    async fn available_gas_balance(&self) -> Result<U256> {
+    async fn available_gas_balance(&self) -> Result<U256, OrderPickerErr> {
         let balance = self
             .provider
             .get_balance(self.provider.default_signer_address())
             .await
-            .context("Failed to get current wallet balance")?;
+            .map_err(|err| OrderPickerErr::RpcErr(err.into()))?;
 
         let gas_balance_reserved = self.gas_balance_reserved().await?;
 

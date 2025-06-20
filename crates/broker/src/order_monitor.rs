@@ -52,6 +52,9 @@ pub enum OrderMonitorErr {
     #[error("{code} Order already locked", code = self.code())]
     AlreadyLocked,
 
+    #[error("{code} RPC error: {0:?}", code = self.code())]
+    RpcErr(anyhow::Error),
+
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -65,6 +68,7 @@ impl CodedError for OrderMonitorErr {
             OrderMonitorErr::LockTxFailed(_) => "[B-OM-007]",
             OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
             OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
+            OrderMonitorErr::RpcErr(_) => "[B-OM-011]",
             OrderMonitorErr::UnexpectedError(_) => "[B-OM-500]",
         }
     }
@@ -626,7 +630,7 @@ where
             .provider
             .get_balance(self.provider.default_signer_address())
             .await
-            .context("Failed to get current wallet balance")?;
+            .map_err(|err| OrderMonitorErr::RpcErr(err.into()))?;
 
         // Calculate gas units required for committed orders
         let committed_orders = self.db.get_committed_orders().await?;
