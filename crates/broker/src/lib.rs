@@ -692,6 +692,10 @@ where
             self.args.boundless_market_address,
             pricing_rx,
             stake_token_decimals,
+            order_monitor::RpcRetryConfig {
+                retry_count: self.args.rpc_retry_max.into(),
+                retry_sleep_ms: self.args.rpc_retry_backoff,
+            },
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();

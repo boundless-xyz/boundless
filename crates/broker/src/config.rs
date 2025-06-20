@@ -66,14 +66,6 @@ mod defaults {
     pub const fn max_concurrent_preflights() -> u32 {
         4
     }
-
-    pub const fn rpc_retry_count() -> u64 {
-        4
-    }
-
-    pub const fn rpc_retry_sleep_ms() -> u64 {
-        500
-    }
 }
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
@@ -184,14 +176,6 @@ pub struct MarketConf {
     /// Maximum number of concurrent proofs that can be processed at once
     #[serde(alias = "max_concurrent_locks")]
     pub max_concurrent_proofs: Option<u32>,
-    /// Number of retries for simple RPC calls (e.g. eth_getBlockByNumber)
-    ///
-    /// This provides resilience against transient RPC inconsistencies.
-    #[serde(default = "defaults::rpc_retry_count")]
-    pub rpc_retry_count: u64,
-    /// Milliseconds to sleep between `rpc_retry_count` retries
-    #[serde(default = "defaults::rpc_retry_sleep_ms")]
-    pub rpc_retry_sleep_ms: u64,
     /// Optional cache directory for storing downloaded images and inputs
     ///
     /// If not set, files will be re-downloaded every time
@@ -231,8 +215,6 @@ impl Default for MarketConf {
             stake_balance_warn_threshold: None,
             stake_balance_error_threshold: None,
             max_concurrent_proofs: None,
-            rpc_retry_count: defaults::rpc_retry_count(),
-            rpc_retry_sleep_ms: defaults::rpc_retry_sleep_ms(),
             cache_dir: None,
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
         }

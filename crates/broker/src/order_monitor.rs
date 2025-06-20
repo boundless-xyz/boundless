@@ -121,6 +121,12 @@ struct OrderMonitorConfig {
 }
 
 #[derive(Clone)]
+pub struct RpcRetryConfig {
+    pub retry_count: u64,
+    pub retry_sleep_ms: u64,
+}
+
+#[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
     chain_monitor: Arc<ChainMonitorService<P>>,
@@ -133,6 +139,7 @@ pub struct OrderMonitor<P> {
     lock_and_prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     supported_selectors: SupportedSelectors,
+    rpc_retry_config: RpcRetryConfig,
 }
 
 impl<P> OrderMonitor<P>
@@ -150,6 +157,7 @@ where
         market_addr: Address,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
         stake_token_decimals: u8,
+        rpc_retry_config: RpcRetryConfig,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -192,6 +200,7 @@ where
             lock_and_prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
             prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
             supported_selectors: SupportedSelectors::default(),
+            rpc_retry_config,
         };
         Ok(monitor)
     }
@@ -221,13 +230,9 @@ where
             return Err(OrderMonitorErr::AlreadyLocked);
         }
 
-        let (conf_priority_gas, rpc_retry_count, rpc_retry_sleep_ms) = {
+        let conf_priority_gas = {
             let conf = self.config.lock_all().context("Failed to lock config")?;
-            (
-                conf.market.lockin_priority_gas,
-                conf.market.rpc_retry_count,
-                conf.market.rpc_retry_sleep_ms,
-            )
+            conf.market.lockin_priority_gas
         };
 
         tracing::info!(
@@ -295,8 +300,8 @@ where
         // Fetch the block to retrieve the lock timestamp. This has been observed to return
         // inconsistent state between the receipt being available but the block not yet.
         let lock_timestamp = crate::futures_retry::retry(
-            rpc_retry_count,
-            rpc_retry_sleep_ms,
+            self.rpc_retry_config.retry_count,
+            self.rpc_retry_config.retry_sleep_ms,
             || async {
                 Ok(self
                     .provider
@@ -1127,6 +1132,7 @@ mod tests {
             market_address,
             priced_order_rx,
             stake_token_decimals,
+            RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
         )
         .unwrap();
 
