@@ -165,7 +165,7 @@ async function checkLinks() {
     console.error("\n❌ Some files contain invalid links");
     process.exit(1);
   } else {
-    console.log("✅ All links are valid!");
+    console.info("✅ All links are valid!");
   }
 }
 
