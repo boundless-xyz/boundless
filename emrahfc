@@ -1,0 +1,26 @@
+#!/bin/bash
+
+echo "########################"
+echo "###  THE EMRAH 💥   ###"
+echo "########################"
+
+# Sistem güncelle ve gerekli paketleri kur
+sudo apt update
+sudo apt install git curl jq -y
+
+# Boundless repoyu klonla
+git clone https://github.com/okannako/boundlessrole.git boundless
+cd boundless
+
+# Örnek ortam değişken dosyasını kopyala
+cp .env.example .env.base
+
+# Kullanıcıya bilgi ver
+echo 'Lütfen .env.base dosyasını açıp ETH_RPC_URL ve PRIVATE_KEY bilgilerinizi girin!'
+sleep 2
+
+# Ortam değişkenlerini yükle
+source .env.base
+
+echo "✅ ENV dosyası yüklendi."
+echo "🚀 Boundless işlemlerine hazırsınız."
