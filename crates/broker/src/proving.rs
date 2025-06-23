@@ -91,16 +91,14 @@ impl ProvingService {
         Ok(status)
     }
 
-    pub async fn monitor_proof_with_timeout(&self, order: Order) -> Result<OrderStatus> {
+    async fn get_or_create_stark_session(&self, order: Order) -> Result<String> {
         let order_id = order.id();
 
         // Get the proof_id - either from existing order or create new proof
-        let proof_id = match order.proof_id.clone() {
+        match order.proof_id.clone() {
             Some(existing_proof_id) => {
-                tracing::debug!(
-                    "Monitoring existing proof {existing_proof_id} for order {order_id}"
-                );
-                existing_proof_id
+                tracing::debug!("Using existing proof {existing_proof_id} for order {order_id}");
+                Ok(existing_proof_id)
             }
             None => {
                 // This is a new order that needs proving
@@ -138,9 +136,15 @@ impl ProvingService {
                     format!("Failed to set order {order_id} proof id: {}", proof_id)
                 })?;
 
-                proof_id
+                Ok(proof_id)
             }
-        };
+        }
+    }
+
+    pub async fn monitor_proof_with_timeout(&self, order: Order) -> Result<OrderStatus> {
+        let order_id = order.id();
+
+        let proof_id = order.proof_id.as_ref().context("Order should have proof ID")?;
 
         let timeout_duration = {
             let expiry_timestamp_secs =
@@ -151,7 +155,7 @@ impl ProvingService {
 
         let monitor_task = self.monitor_proof_internal(
             &order_id,
-            &proof_id,
+            proof_id,
             order.is_groth16(),
             order.compressed_proof_id,
         );
@@ -161,14 +165,16 @@ impl ProvingService {
         // but this time, along with aggregation and submission time, should never
         // exceed the actual order expiry.
         let order_status = match tokio::time::timeout(timeout_duration, monitor_task).await {
-            Ok(result) => result.context("Monitoring proof failed")?,
+            Ok(result) => result.with_context(|| {
+                format!("Monitoring proof failed for order {order_id}, proof_id: {proof_id}")
+            })?,
             Err(_) => {
                 tracing::debug!(
                     "Proving timed out for order {}, cancelling proof {}",
                     order_id,
                     proof_id
                 );
-                if let Err(err) = self.prover.cancel_stark(&proof_id).await {
+                if let Err(err) = self.prover.cancel_stark(proof_id).await {
                     tracing::warn!(
                         "Failed to cancel proof {} for timed out order {}: {}",
                         proof_id,
@@ -183,13 +189,34 @@ impl ProvingService {
         Ok(order_status)
     }
 
-    async fn prove_and_update_db(&self, order: Order) {
+    async fn prove_and_update_db(&self, mut order: Order) {
         let order_id = order.id();
 
         let (proof_retry_count, proof_retry_sleep_ms) = {
             let config = self.config.lock_all().unwrap();
             (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
         };
+
+        let proof_id = match retry(
+            proof_retry_count,
+            proof_retry_sleep_ms,
+            || async { self.get_or_create_stark_session(order.clone()).await },
+            "get_or_create_stark_session",
+        )
+        .await
+        {
+            Ok(proof_id) => proof_id,
+            Err(err) => {
+                let proving_err = ProvingErr::ProvingFailed(err);
+                tracing::error!(
+                    "Failed to create stark session for order {order_id}: {proving_err:?}"
+                );
+                handle_order_failure(&self.db, &order_id, "Proving session create failed").await;
+                return;
+            }
+        };
+
+        order.proof_id = Some(proof_id);
 
         let result = retry(
             proof_retry_count,

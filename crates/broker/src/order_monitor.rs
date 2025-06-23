@@ -52,6 +52,9 @@ pub enum OrderMonitorErr {
     #[error("{code} Order already locked", code = self.code())]
     AlreadyLocked,
 
+    #[error("{code} RPC error: {0:?}", code = self.code())]
+    RpcErr(anyhow::Error),
+
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -65,6 +68,7 @@ impl CodedError for OrderMonitorErr {
             OrderMonitorErr::LockTxFailed(_) => "[B-OM-007]",
             OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
             OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
+            OrderMonitorErr::RpcErr(_) => "[B-OM-011]",
             OrderMonitorErr::UnexpectedError(_) => "[B-OM-500]",
         }
     }
@@ -121,6 +125,12 @@ struct OrderMonitorConfig {
 }
 
 #[derive(Clone)]
+pub struct RpcRetryConfig {
+    pub retry_count: u64,
+    pub retry_sleep_ms: u64,
+}
+
+#[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
     chain_monitor: Arc<ChainMonitorService<P>>,
@@ -133,6 +143,7 @@ pub struct OrderMonitor<P> {
     lock_and_prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     supported_selectors: SupportedSelectors,
+    rpc_retry_config: RpcRetryConfig,
 }
 
 impl<P> OrderMonitor<P>
@@ -150,6 +161,7 @@ where
         market_addr: Address,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
         stake_token_decimals: u8,
+        rpc_retry_config: RpcRetryConfig,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -192,6 +204,7 @@ where
             lock_and_prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
             prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
             supported_selectors: SupportedSelectors::default(),
+            rpc_retry_config,
         };
         Ok(monitor)
     }
@@ -288,14 +301,25 @@ where
                 }
             })?;
 
-        let lock_timestamp = self
-            .provider
-            .get_block_by_number(lock_block.into())
-            .await
-            .with_context(|| format!("failed to get block {lock_block}"))?
-            .with_context(|| format!("failed to get block {lock_block}: block not found"))?
-            .header
-            .timestamp;
+        // Fetch the block to retrieve the lock timestamp. This has been observed to return
+        // inconsistent state between the receipt being available but the block not yet.
+        let lock_timestamp = crate::futures_retry::retry(
+            self.rpc_retry_config.retry_count,
+            self.rpc_retry_config.retry_sleep_ms,
+            || async {
+                Ok(self
+                    .provider
+                    .get_block_by_number(lock_block.into())
+                    .await
+                    .with_context(|| format!("failed to get block {lock_block}"))?
+                    .with_context(|| format!("failed to get block {lock_block}: block not found"))?
+                    .header
+                    .timestamp)
+            },
+            "get_block_by_number",
+        )
+        .await
+        .map_err(OrderMonitorErr::UnexpectedError)?;
 
         let lock_price = order
             .request
@@ -626,7 +650,7 @@ where
             .provider
             .get_balance(self.provider.default_signer_address())
             .await
-            .context("Failed to get current wallet balance")?;
+            .map_err(|err| OrderMonitorErr::RpcErr(err.into()))?;
 
         // Calculate gas units required for committed orders
         let committed_orders = self.db.get_committed_orders().await?;
@@ -1112,6 +1136,7 @@ mod tests {
             market_address,
             priced_order_rx,
             stake_token_decimals,
+            RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
         )
         .unwrap();
 

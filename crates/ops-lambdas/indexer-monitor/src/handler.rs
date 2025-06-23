@@ -21,6 +21,11 @@ use tracing::{debug, instrument};
 
 use crate::monitor::Monitor;
 
+// We apply a lag to the metrics to avoid race conditions with the indexer,
+// where the indexer might not have finished processing and publishing the events
+// for time "now" before this lambda runs on time "now".
+const METRIC_LAG_SECONDS: i64 = 60;
+
 /// Incoming message structure for the Lambda event
 #[derive(Deserialize, Debug)]
 pub struct Event {
@@ -65,7 +70,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 
     let monitor = Monitor::new(&config.db_url).await.context("Failed to create monitor")?;
 
-    let now = Utc::now().timestamp();
+    let now = Utc::now().timestamp() - METRIC_LAG_SECONDS;
     let now_str = chrono::DateTime::from_timestamp(now, 0).unwrap().to_rfc3339();
     let start_time = monitor.get_last_run().await.context("Failed to get last run time")?;
     let start_time_str = chrono::DateTime::from_timestamp(start_time, 0).unwrap().to_rfc3339();
