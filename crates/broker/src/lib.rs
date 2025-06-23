@@ -418,11 +418,20 @@ where
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
 
-        // Resolve deployment configuration if not provided
-        if args.deployment.is_none() {
-            let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+
+        // Resolve deployment configuration if not provided, or validate if provided
+        if let Some(manual_deployment) = &args.deployment {
+            // Check if there's a default deployment for this chain ID
+            if let Some(expected_deployment) = Deployment::from_chain_id(chain_id) {
+                Self::validate_deployment_config(manual_deployment, &expected_deployment, chain_id);
+            } else {
+                tracing::info!("Using manually configured deployment for chain ID {chain_id} (no default available)");
+            }
+        } else {
             args.deployment = Some(Deployment::from_chain_id(chain_id)
                 .with_context(|| format!("No default deployment found for chain ID {chain_id}. Please specify deployment configuration manually."))?);
+            tracing::info!("Using default deployment configuration for chain ID {chain_id}");
         }
 
         Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
@@ -430,6 +439,64 @@ where
 
     pub fn deployment(&self) -> &Deployment {
         self.args.deployment.as_ref().unwrap()
+    }
+
+    fn validate_deployment_config(manual: &Deployment, expected: &Deployment, chain_id: u64) {
+        let mut warnings = Vec::new();
+
+        if manual.boundless_market_address != expected.boundless_market_address {
+            warnings.push(format!(
+                "boundless_market_address mismatch: configured={}, expected={}",
+                manual.boundless_market_address, expected.boundless_market_address
+            ));
+        }
+
+        if manual.set_verifier_address != expected.set_verifier_address {
+            warnings.push(format!(
+                "set_verifier_address mismatch: configured={}, expected={}",
+                manual.set_verifier_address, expected.set_verifier_address
+            ));
+        }
+
+        if manual.verifier_router_address != expected.verifier_router_address {
+            warnings.push(format!(
+                "verifier_router_address mismatch: configured={:?}, expected={:?}",
+                manual.verifier_router_address, expected.verifier_router_address
+            ));
+        }
+
+        if manual.stake_token_address != expected.stake_token_address {
+            warnings.push(format!(
+                "stake_token_address mismatch: configured={:?}, expected={:?}",
+                manual.stake_token_address, expected.stake_token_address
+            ));
+        }
+
+        if manual.order_stream_url != expected.order_stream_url {
+            warnings.push(format!(
+                "order_stream_url mismatch: configured={:?}, expected={:?}",
+                manual.order_stream_url, expected.order_stream_url
+            ));
+        }
+
+        if manual.chain_id != expected.chain_id {
+            warnings.push(format!(
+                "chain_id mismatch: configured={:?}, expected={:?}",
+                manual.chain_id, expected.chain_id
+            ));
+        }
+
+        if warnings.is_empty() {
+            tracing::info!(
+                "Manual deployment configuration matches expected defaults for chain ID {chain_id}"
+            );
+        } else {
+            tracing::warn!(
+                "Manual deployment configuration differs from expected defaults for chain ID {chain_id}:\n{}",
+                warnings.join("\n")
+            );
+            tracing::warn!("This may indicate a configuration error. Please verify your deployment addresses are correct.");
+        }
     }
 
     async fn fetch_and_upload_set_builder_image(&self, prover: &ProverObj) -> Result<Digest> {
