@@ -580,7 +580,10 @@ impl AggregatorService {
         };
 
         if compress {
-            tracing::debug!("Starting groth16 compression proof for batch {batch_id}");
+            tracing::debug!(
+                "Starting groth16 compression proof for batch {batch_id} with orders {:x?}",
+                batch.orders
+            );
 
             let (retry_count, sleep_ms) = {
                 let config = self.config.lock_all().context("Failed to lock config")?;
@@ -604,7 +607,10 @@ impl AggregatorService {
                     return Err(AggregatorErr::CompressionErr(err));
                 }
             };
-            tracing::debug!("Completed groth16 compression for batch {batch_id}");
+            tracing::debug!(
+                "Completed groth16 compression for batch {batch_id} with orders {:x?}",
+                batch.orders
+            );
 
             self.db
                 .complete_batch(batch_id, &compress_proof_id)
