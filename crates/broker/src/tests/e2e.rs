@@ -109,7 +109,6 @@ fn broker_args(
         config_file,
         deployment: Some(deployment),
         rpc_url,
-        order_stream_url: None,
         private_key,
         bento_api_url: None,
         bonsai_api_key,

@@ -1038,7 +1038,6 @@ pub mod test_utils {
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
                 rpc_url,
-                order_stream_url: None,
                 private_key: ctx.prover_signer.clone(),
                 bento_api_url: None,
                 bonsai_api_key: None,
