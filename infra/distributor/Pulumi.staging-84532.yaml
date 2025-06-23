@@ -5,18 +5,18 @@ config:
   distributor:DISTRIBUTOR_PRIVATE_KEY:
     secure: v1:qhAMaH4YvYCOEu97:5fbkWpv/g0hoAcazQIa/UVTb4Vj9h3Rq00dBBnmHKS7Aidg+BLomQsOZPYmCb2Pm5D2mQk0KsVpAURQ7NM/1jC4OUhXrKOfxr78YytOX7VA=
   distributor:ETH_THRESHOLD: "1"
-  distributor:ETH_TOP_UP_AMOUNT: "20"
+  distributor:ETH_TOP_UP_AMOUNT: "10"
   distributor:ORDER_GENERATOR_KEYS:
     secure: v1:fP3AXKVLL17tN0iW:r5R7B8zsWMKApZw87+YV1iplHc9Wyw6sLXF7JAZyJw5GcbS7QIgGgzYt/lyr5VC1AbPgNlS/3bl7vujjNXPSglTuPLkIEogRvCTFzLCNQUxuBzFiSz76TsqKijdec2j3cW6Sm7kBnxeUrdYDD/4ydhvPzKHLWu1W+xNkOKHh8MlezhvneyXcD1rwYn7EF1lDxQ==
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
-  distributor:PROVER_ETH_DONATE_THRESHOLD: "30"
+  distributor:PROVER_ETH_DONATE_THRESHOLD: "10"
   distributor:PROVER_KEYS:
     secure: v1:2vOtFYU4tCpTWOtn:YKw9Zc/qts4XmbSpkeWKq5tXCkPOmp8dhaE9HjoMnPKLaX91QjJEZZHZSEAiDbBRpqD/8mTQisxm0BQhSYNJoy0u22a8Bq89jZYiMGHQCP7RuOgXZ//TPd+ZdGPAWKf79Lf8m63sXSd7Zuzgu4z6RbC7T2Nn7+gSN9Ztt6iqQeZT06g1swLsQpeuEzYiVrl7Eg==
-  distributor:SCHEDULE_MINUTES: "120"
+  distributor:SCHEDULE_MINUTES: "360"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   distributor:SLASHER_KEY:
     secure: v1:1jzQibAoUrHjn0Iy:ixX10gWEC1WNnq8FVhWfHuqHvOEBys9o63zjaU6OZ6Lr+ooO9sficX9Djf979h1ElPk5CC5sqyzgShtZhkdPLo1YGqufpcdRrzNbAUODIWw=
-  distributor:STAKE_THRESHOLD: "5"
+  distributor:STAKE_THRESHOLD: "7"
   distributor:STAKE_TOP_UP_AMOUNT: "10"
   distributor:ETH_RPC_URL:
     secure: v1:Gbts2MDIxPZqVLfr:YTMV0vht0vt6P0Sr50BqmvgUIlh/06F7ZqWbmgGRzz6VStrQEoNiEecYsgMaP765Ai9eAv7m9F6G5DGxju5zl+uTG99hRg1jqog+
