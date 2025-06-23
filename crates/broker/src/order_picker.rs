@@ -170,9 +170,9 @@ where
                     order.expire_timestamp = Some(expiry_secs);
 
                     tracing::info!(
-                        "Setting order {order_id} to lock at {}, {} seconds from now",
+                        "Order {order_id} scheduled for lock attempt in {}s (timestamp: {}), when price threshold met",
+                        target_timestamp_secs.saturating_sub(now_timestamp()),
                         target_timestamp_secs,
-                        target_timestamp_secs.saturating_sub(now_timestamp())
                     );
 
                     self.priced_orders_tx
@@ -453,19 +453,16 @@ where
 
         // Cap the exec limit based on the peak prove khz and the time until expiration.
         if let Some(peak_prove_khz) = peak_prove_khz {
-            let deadline_cycle_limit = {
-                let time_until_expiration = expiration.saturating_sub(now);
-
-                calculate_max_cycles_for_time(peak_prove_khz, time_until_expiration)
-            };
+            let time_until_expiration = expiration.saturating_sub(now);
+            let deadline_cycle_limit =
+                calculate_max_cycles_for_time(peak_prove_khz, time_until_expiration);
 
             if exec_limit_cycles > deadline_cycle_limit {
                 tracing::debug!(
-                    "Order {order_id}. Given peak_prove_khz {} and {} seconds until expiration, restricted exec limit from {} to {} cycles to ensure preflight terminates before expiration.",
-                    peak_prove_khz,
-                    expiration.saturating_sub(now),
+                    "Order {order_id} preflight cycle limit adjusted to {} cycles (capped by {:.1}s fulfillment deadline at {} peak_prove_khz config)",
                     exec_limit_cycles,
-                    deadline_cycle_limit
+                    time_until_expiration,
+                    peak_prove_khz
                 );
                 exec_limit_cycles = deadline_cycle_limit;
             }
@@ -477,7 +474,7 @@ where
         }
 
         tracing::debug!(
-            "Starting preflight execution of {order_id} exec limit {} cycles (~{} mcycles)",
+            "Starting preflight execution of {order_id} with limit of {} cycles (~{} mcycles)",
             exec_limit_cycles,
             exec_limit_cycles / 1_000_000
         );
@@ -593,13 +590,12 @@ where
             * one_mill;
 
         tracing::debug!(
-            "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {} gas_cost: {}",
+            "Order {order_id} price: {}-{} ETH, {}-{} ETH per mcycle, {} stake required, {} ETH gas cost",
             format_ether(U256::from(order.request.offer.minPrice)),
             format_ether(U256::from(order.request.offer.maxPrice)),
-            proof_res.stats.total_cycles,
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            order.request.offer.lockStake,
+            format_ether(U256::from(order.request.offer.lockStake)),
             format_ether(order_gas_cost),
         );
 
@@ -621,7 +617,7 @@ where
                 .div_ceil(ONE_MILLION)
                 + order_gas_cost;
             tracing::debug!(
-                "Target price: {target_min_price} ({} ETH) for {order_id}",
+                "Order {order_id} minimum profitable price: {} ETH (includes gas + margin)",
                 format_ether(target_min_price)
             );
 
@@ -797,15 +793,9 @@ where
                         let picker_clone = picker.clone();
                         let task_cancel_token = cancel_token.child_token();
                         tasks.spawn(async move {
-                            let order_id = order.id();
-                            let result = picker_clone
+                            picker_clone
                                 .price_order_and_update_state(order, task_cancel_token)
                                 .await;
-                            if result {
-                                tracing::debug!("Finished processing order: {}", order_id);
-                            } else {
-                                tracing::debug!("Order was not processed: {}", order_id);
-                            }
                         });
                     }
                 }
