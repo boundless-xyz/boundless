@@ -67,10 +67,6 @@ pub struct Args {
     #[clap(long, env, default_value = "http://localhost:8545")]
     pub rpc_url: Url,
 
-    /// Order stream server URL
-    #[clap(long, env)]
-    pub order_stream_url: Option<Url>,
-
     /// wallet key
     #[clap(long, env)]
     pub private_key: PrivateKeySigner,
@@ -637,9 +633,19 @@ where
         });
 
         let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client = self.args.order_stream_url.clone().map(|url| {
-            OrderStreamClient::new(url, self.deployment().boundless_market_address, chain_id)
-        });
+        let client = self
+            .deployment()
+            .order_stream_url
+            .clone()
+            .map(|url| -> Result<OrderStreamClient> {
+                let url = Url::parse(&url).context("Failed to parse order stream URL")?;
+                Ok(OrderStreamClient::new(
+                    url,
+                    self.deployment().boundless_market_address,
+                    chain_id,
+                ))
+            })
+            .transpose()?;
 
         // Create a channel for new orders to be sent to the OrderPicker / from monitors
         let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
