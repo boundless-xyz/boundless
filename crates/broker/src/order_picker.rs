@@ -1659,10 +1659,10 @@ mod tests {
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
-        let expected_log_pattern = format!("Order {order_id}. Given peak_prove_khz");
+        let expected_log_pattern = format!("Order {order_id} preflight cycle limit adjusted to");
         assert!(logs_contain(&expected_log_pattern));
-        assert!(logs_contain("restricted exec limit from"));
-        assert!(logs_contain("to 150000 cycles to ensure preflight terminates"));
+        assert!(logs_contain("capped by"));
+        assert!(logs_contain("peak_prove_khz config"));
     }
 
     #[tokio::test]
