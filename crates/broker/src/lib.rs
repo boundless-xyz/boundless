@@ -16,6 +16,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::OrderStreamClient,
     selector::is_groth16_selector,
+    Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
@@ -55,7 +56,7 @@ pub(crate) mod submitter;
 pub(crate) mod task;
 pub(crate) mod utils;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// sqlite database connection url
@@ -74,14 +75,9 @@ pub struct Args {
     #[clap(long, env)]
     pub private_key: PrivateKeySigner,
 
-    /// Boundless market address
-    #[clap(long, env)]
-    pub boundless_market_address: Address,
-
-    /// Risc zero Set verifier address
-    // TODO: Get this from the market contract via view call
-    #[clap(long, env)]
-    pub set_verifier_address: Address,
+    /// Boundless deployment configuration (contract addresses, etc.)
+    #[clap(flatten, next_help_heading = "Boundless Deployment")]
+    pub deployment: Option<Deployment>,
 
     /// local prover API (Bento)
     ///
@@ -415,19 +411,30 @@ impl<P> Broker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
-    pub async fn new(args: Args, provider: P) -> Result<Self> {
+    pub async fn new(mut args: Args, provider: P) -> Result<Self> {
         let config_watcher =
             ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
 
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
 
+        // Resolve deployment configuration if not provided
+        if args.deployment.is_none() {
+            let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+            args.deployment = Some(Deployment::from_chain_id(chain_id)
+                .with_context(|| format!("No default deployment found for chain ID {chain_id}. Please specify deployment configuration manually."))?);
+        }
+
         Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
+    }
+
+    pub fn deployment(&self) -> &Deployment {
+        self.args.deployment.as_ref().unwrap()
     }
 
     async fn fetch_and_upload_set_builder_image(&self, prover: &ProverObj) -> Result<Digest> {
         let set_verifier_contract = SetVerifierService::new(
-            self.args.set_verifier_address,
+            self.deployment().set_verifier_address,
             self.provider.clone(),
             Address::ZERO,
         );
@@ -451,7 +458,7 @@ where
 
     async fn fetch_and_upload_assessor_image(&self, prover: &ProverObj) -> Result<Digest> {
         let boundless_market = BoundlessMarketService::new(
-            self.args.boundless_market_address,
+            self.deployment().boundless_market_address,
             self.provider.clone(),
             Address::ZERO,
         );
@@ -553,10 +560,9 @@ where
         });
 
         let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client =
-            self.args.order_stream_url.clone().map(|url| {
-                OrderStreamClient::new(url, self.args.boundless_market_address, chain_id)
-            });
+        let client = self.args.order_stream_url.clone().map(|url| {
+            OrderStreamClient::new(url, self.deployment().boundless_market_address, chain_id)
+        });
 
         // Create a channel for new orders to be sent to the OrderPicker / from monitors
         let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
@@ -564,7 +570,7 @@ where
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
-            self.args.boundless_market_address,
+            self.deployment().boundless_market_address,
             self.provider.clone(),
             self.db.clone(),
             chain_monitor.clone(),
@@ -634,7 +640,7 @@ where
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
         let stake_token_decimals = BoundlessMarketService::new(
-            self.args.boundless_market_address,
+            self.deployment().boundless_market_address,
             self.provider.clone(),
             Address::ZERO,
         )
@@ -647,7 +653,7 @@ where
             self.db.clone(),
             config.clone(),
             prover.clone(),
-            self.args.boundless_market_address,
+            self.deployment().boundless_market_address,
             self.provider.clone(),
             chain_monitor.clone(),
             new_order_rx,
@@ -689,7 +695,7 @@ where
             config.clone(),
             block_times,
             prover_addr,
-            self.args.boundless_market_address,
+            self.deployment().boundless_market_address,
             pricing_rx,
             stake_token_decimals,
             order_monitor::RpcRetryConfig {
@@ -716,7 +722,7 @@ where
                 chain_id,
                 set_builder_img_id,
                 assessor_img_id,
-                self.args.boundless_market_address,
+                self.deployment().boundless_market_address,
                 prover_addr,
                 config.clone(),
                 prover.clone(),
@@ -755,8 +761,8 @@ where
             config.clone(),
             prover.clone(),
             self.provider.clone(),
-            self.args.set_verifier_address,
-            self.args.boundless_market_address,
+            self.deployment().set_verifier_address,
+            self.deployment().boundless_market_address,
             set_builder_img_id,
         )?);
         let cloned_config = config.clone();
@@ -947,8 +953,7 @@ pub mod test_utils {
             let args = Args {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
-                boundless_market_address: ctx.deployment.boundless_market_address,
-                set_verifier_address: ctx.deployment.set_verifier_address,
+                deployment: Some(ctx.deployment.clone()),
                 rpc_url,
                 order_stream_url: None,
                 private_key: ctx.prover_signer.clone(),
