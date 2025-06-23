@@ -59,6 +59,7 @@ services:
   minio:
     hostname: ${MINIO_HOST:-minio}
     image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
+    restart: always
     ports:
       - '9000:9000'
       - '9001:9001'
