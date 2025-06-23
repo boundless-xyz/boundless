@@ -617,7 +617,7 @@ where
                 .div_ceil(ONE_MILLION)
                 + order_gas_cost;
             tracing::debug!(
-                "Order {order_id} minimum profitable price: {} ETH (includes gas + margin)",
+                "Order {order_id} minimum profitable price: {} ETH",
                 format_ether(target_min_price)
             );
 
