@@ -198,6 +198,8 @@ services:
       # RUST_BACKTRACE: 1
       PRIVATE_KEY: ${PRIVATE_KEY}
       RPC_URL: ${RPC_URL}
+      BOUNDLESS_MARKET_ADDRESS:
+      SET_VERIFIER_ADDRESS:
       ORDER_STREAM_URL:
 
       # TODO these env vars are temporary for handling cancellations. These should be removed when

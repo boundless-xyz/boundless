@@ -458,18 +458,26 @@ where
             ));
         }
 
-        if manual.verifier_router_address != expected.verifier_router_address {
-            warnings.push(format!(
-                "verifier_router_address mismatch: configured={:?}, expected={:?}",
-                manual.verifier_router_address, expected.verifier_router_address
-            ));
+        if let (Some(manual_addr), Some(expected_addr)) =
+            (manual.verifier_router_address, expected.verifier_router_address)
+        {
+            if manual_addr != expected_addr {
+                warnings.push(format!(
+                    "verifier_router_address mismatch: configured={}, expected={}",
+                    manual_addr, expected_addr
+                ));
+            }
         }
 
-        if manual.stake_token_address != expected.stake_token_address {
-            warnings.push(format!(
-                "stake_token_address mismatch: configured={:?}, expected={:?}",
-                manual.stake_token_address, expected.stake_token_address
-            ));
+        if let (Some(manual_addr), Some(expected_addr)) =
+            (manual.stake_token_address, expected.stake_token_address)
+        {
+            if manual_addr != expected_addr {
+                warnings.push(format!(
+                    "stake_token_address mismatch: configured={}, expected={}",
+                    manual_addr, expected_addr
+                ));
+            }
         }
 
         if manual.order_stream_url != expected.order_stream_url {
@@ -479,11 +487,13 @@ where
             ));
         }
 
-        if manual.chain_id != expected.chain_id {
-            warnings.push(format!(
-                "chain_id mismatch: configured={:?}, expected={:?}",
-                manual.chain_id, expected.chain_id
-            ));
+        if let (Some(chain_id), Some(expected_chain_id)) = (manual.chain_id, expected.chain_id) {
+            if chain_id != expected_chain_id {
+                warnings.push(format!(
+                    "chain_id mismatch: configured={}, expected={}",
+                    chain_id, expected_chain_id
+                ));
+            }
         }
 
         if warnings.is_empty() {
