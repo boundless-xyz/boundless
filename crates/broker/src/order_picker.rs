@@ -595,7 +595,7 @@ where
             format_ether(U256::from(order.request.offer.maxPrice)),
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            format_ether(U256::from(order.request.offer.lockStake)),
+            format_units(U256::from(order.request.offer.lockStake), self.stake_token_decimals).unwrap_or_default(),
             format_ether(order_gas_cost),
         );
 
