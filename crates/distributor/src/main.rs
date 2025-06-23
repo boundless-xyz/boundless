@@ -2,36 +2,35 @@
 //
 // All rights reserved.
 
-use std::{time::Duration};
+use std::time::Duration;
 
 use alloy::{
     network::{EthereumWallet, TransactionBuilder},
     primitives::{
-        U256,
         utils::{format_units, parse_ether, parse_units},
+        U256,
     },
     providers::{Provider, ProviderBuilder},
     rpc::types::TransactionRequest,
-    signers::local::PrivateKeySigner, sol,
+    signers::local::PrivateKeySigner,
+    sol,
 };
-use anyhow::{Result};
-use boundless_market::{
-    client::Client, Deployment,
-};
+use anyhow::Result;
+use boundless_market::{client::Client, Deployment};
 use clap::Parser;
 use url::Url;
 
 const TX_TIMEOUT: Duration = Duration::from_secs(180);
 
-sol! { 
-    #[sol(rpc)] 
-    contract IERC20 { 
+sol! {
+    #[sol(rpc)]
+    contract IERC20 {
         function approve(address spender, uint256 amount) external returns (bool);
         function allowance(address owner, address spender) external view returns (uint256);
-        function transfer(address to, uint256 amount) external returns (bool); 
-        function balanceOf(address owner) external view returns (uint256); 
-    } 
-} 
+        function transfer(address to, uint256 amount) external returns (bool);
+        function balanceOf(address owner) external view returns (uint256);
+    }
+}
 
 /// Arguments of the order generator.
 #[derive(Parser, Debug)]
@@ -92,10 +91,9 @@ async fn main() -> Result<()> {
 async fn run(args: &MainArgs) -> Result<()> {
     let wallet = EthereumWallet::from(args.private_key.clone());
     let distributor_address = wallet.default_signer().address();
-    let distributor_provider = ProviderBuilder::new()
-        .wallet(wallet)
-        .connect_http(args.rpc_url.clone());
-    
+    let distributor_provider =
+        ProviderBuilder::new().wallet(wallet).connect_http(args.rpc_url.clone());
+
     let distributor_client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
         .with_private_key(args.private_key.clone())
@@ -109,45 +107,56 @@ async fn run(args: &MainArgs) -> Result<()> {
     let eth_threshold = parse_ether(&args.eth_threshold)?;
     let stake_threshold: U256 = parse_units(&args.stake_threshold, stake_token_decimals)?.into();
     let eth_top_up_amount = parse_ether(&args.eth_top_up_amount)?;
-    let stake_top_up_amount: U256 = parse_units(&args.stake_top_up_amount, stake_token_decimals)?.into();
+    let stake_top_up_amount: U256 =
+        parse_units(&args.stake_top_up_amount, stake_token_decimals)?.into();
 
     tracing::info!("Distributor address: {}", distributor_address);
-    
+
     // Transfer ETH from provers to the distributor from provers if above threshold
     for prover_key in &args.prover_keys {
         let prover_wallet = EthereumWallet::from(prover_key.clone());
-        let prover_provider = ProviderBuilder::new()
-            .wallet(prover_wallet.clone())
-            .connect_http(args.rpc_url.clone());
+        let prover_provider =
+            ProviderBuilder::new().wallet(prover_wallet.clone()).connect_http(args.rpc_url.clone());
         let prover_address = prover_wallet.default_signer().address();
-        
+
         let prover_eth_balance = distributor_client.provider().get_balance(prover_address).await?;
 
-        tracing::info!("Prover {} has {} ETH balance. Threshold for donation to distributor is {}.", prover_address, format_units(prover_eth_balance, "ether")?, format_units(prover_eth_donate_threshold, "ether")?);
+        tracing::info!(
+            "Prover {} has {} ETH balance. Threshold for donation to distributor is {}.",
+            prover_address,
+            format_units(prover_eth_balance, "ether")?,
+            format_units(prover_eth_donate_threshold, "ether")?
+        );
 
         if prover_eth_balance > prover_eth_donate_threshold {
             // Transfer 75% of the balance to the distributor (leave 25% for future gas)
-            let transfer_amount = prover_eth_balance.saturating_mul(U256::from(75)).div_ceil(U256::from(100)).saturating_sub(eth_threshold); // Leave some for gas
-            
-            tracing::info!("Transferring {} ETH from prover {} to distributor", 
-                format_units(transfer_amount, "ether")?, prover_address);
-            
+            let transfer_amount = prover_eth_balance
+                .saturating_mul(U256::from(75))
+                .div_ceil(U256::from(100))
+                .saturating_sub(eth_threshold); // Leave some for gas
+
+            tracing::info!(
+                "Transferring {} ETH from prover {} to distributor",
+                format_units(transfer_amount, "ether")?,
+                prover_address
+            );
+
             let tx = TransactionRequest::default()
                 .with_from(prover_address)
                 .with_to(distributor_address)
                 .with_value(transfer_amount);
-            
-            let pending_tx = prover_provider
-                .send_transaction(tx)
-                .await?;
-            
+
+            let pending_tx = prover_provider.send_transaction(tx).await?;
+
             // Wait for the transaction to be confirmed
-            let receipt = pending_tx
-                .with_timeout(Some(TX_TIMEOUT))
-                .watch()
-                .await?;
-            
-            tracing::info!("Transfer completed: {:x} from prover {} for {} ETH to distributor", receipt, prover_address, format_units(transfer_amount, "ether")?);
+            let receipt = pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await?;
+
+            tracing::info!(
+                "Transfer completed: {:x} from prover {} for {} ETH to distributor",
+                receipt,
+                prover_address,
+                format_units(transfer_amount, "ether")?
+            );
         }
     }
 
@@ -157,36 +166,42 @@ async fn run(args: &MainArgs) -> Result<()> {
     for prover_key in &args.prover_keys {
         let prover_wallet = EthereumWallet::from(prover_key.clone());
         let prover_address = prover_wallet.default_signer().address();
-        
+
         let stake_token = distributor_client.boundless_market.stake_token_address().await?;
         let stake_token_contract = IERC20::new(stake_token, distributor_provider.clone());
 
-        let distributor_stake_balance = stake_token_contract.balanceOf(distributor_address).call().await?;
-        let prover_stake_balance_market = distributor_client.boundless_market.balance_of_stake(prover_address).await?;
-        
+        let distributor_stake_balance =
+            stake_token_contract.balanceOf(distributor_address).call().await?;
+        let prover_stake_balance_market =
+            distributor_client.boundless_market.balance_of_stake(prover_address).await?;
+
         tracing::info!("Account {} has {} stake balance deposited to market. Threshold for top up is {}. Distributor has {} stake balance. ", prover_address, format_units(prover_stake_balance_market, stake_token_decimals)?, format_units(stake_threshold, stake_token_decimals)?, format_units(distributor_stake_balance, stake_token_decimals)?);
 
         if prover_stake_balance_market < stake_threshold {
-            let prover_stake_balance_contract = stake_token_contract.balanceOf(prover_address).call().await?;
+            let prover_stake_balance_contract =
+                stake_token_contract.balanceOf(prover_address).call().await?;
 
-            let transfer_amount = stake_top_up_amount.saturating_sub(prover_stake_balance_market).saturating_sub(prover_stake_balance_contract);
+            let transfer_amount = stake_top_up_amount
+                .saturating_sub(prover_stake_balance_market)
+                .saturating_sub(prover_stake_balance_contract);
 
             if transfer_amount > distributor_stake_balance {
                 tracing::error!("[B-DIST-STK]: Distributor {} has insufficient stake balance to top up prover {} with {} stake", distributor_address, prover_address, transfer_amount);
                 break;
             }
 
-            tracing::info!("Transferring {} stake from distributor to prover {}", 
-                format_units(transfer_amount, stake_token_decimals)?, prover_address);
-            let pending_tx = stake_token_contract.transfer(prover_address, transfer_amount).send().await?;
-            
-            let receipt = pending_tx
-                .with_timeout(Some(TX_TIMEOUT))
-                .watch()
-                .await?;
-            
+            tracing::info!(
+                "Transferring {} stake from distributor to prover {}",
+                format_units(transfer_amount, stake_token_decimals)?,
+                prover_address
+            );
+            let pending_tx =
+                stake_token_contract.transfer(prover_address, transfer_amount).send().await?;
+
+            let receipt = pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await?;
+
             tracing::info!("Stake transfer completed: {:x} from distributor to prover {}. About to deposit stake", receipt, prover_address);
-            
+
             // Then have the prover deposit the stake
             let prover_client = Client::builder()
                 .with_rpc_url(args.rpc_url.clone())
@@ -194,7 +209,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .with_timeout(Some(TX_TIMEOUT))
                 .build()
                 .await?;
-            
+
             prover_client.boundless_market.deposit_stake(transfer_amount).await?;
             tracing::info!("Stake deposit completed for prover {}", prover_address);
         }
@@ -205,44 +220,49 @@ async fn run(args: &MainArgs) -> Result<()> {
         args.prover_keys.iter().collect::<Vec<_>>(),
         args.order_generator_keys.iter().collect::<Vec<_>>(),
         vec![&args.slasher_key],
-    ].concat();
+    ]
+    .concat();
 
     for key in all_accounts {
         let wallet = EthereumWallet::from(key.clone());
         let address = wallet.default_signer().address();
-        
+
         let account_eth_balance = distributor_client.provider().get_balance(address).await?;
-        let distributor_eth_balance = distributor_client.provider().get_balance(distributor_address).await?;
-        
+        let distributor_eth_balance =
+            distributor_client.provider().get_balance(distributor_address).await?;
+
         tracing::info!("Account {} has {} ETH balance. Threshold for top up is {}. Distributor has {} ETH balance. ", address, format_units(account_eth_balance, "ether")?, format_units(eth_threshold, "ether")?, format_units(distributor_eth_balance, "ether")?);
 
         if account_eth_balance < eth_threshold {
             let transfer_amount = eth_top_up_amount.saturating_sub(account_eth_balance);
-            
+
             if transfer_amount > distributor_eth_balance {
                 tracing::error!("[B-DIST-ETH]: Distributor {} has insufficient ETH balance to top up {} with {} ETH.", distributor_address, address, format_units(transfer_amount, "ether")?);
                 break;
             }
-            
-            tracing::info!("Transferring {} ETH from distributor to {}", 
-                format_units(transfer_amount, "ether")?, address);
-            
+
+            tracing::info!(
+                "Transferring {} ETH from distributor to {}",
+                format_units(transfer_amount, "ether")?,
+                address
+            );
+
             // Transfer ETH for gas
             let tx = TransactionRequest::default()
                 .with_from(distributor_address)
                 .with_to(address)
                 .with_value(transfer_amount);
-            
-            let pending_tx = distributor_client.provider()
-                .send_transaction(tx)
-                .await?;
-            
-            let receipt = pending_tx
-                .with_timeout(Some(TX_TIMEOUT))
-                .watch()
-                .await?;
-            
-            tracing::info!("ETH transfer completed: {:x}. {} ETH from distributor to {}", receipt, format_units(transfer_amount, "ether")?, address);
+
+            let pending_tx = distributor_client.provider().send_transaction(tx).await?;
+
+            let receipt = pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await?;
+
+            tracing::info!(
+                "ETH transfer completed: {:x}. {} ETH from distributor to {}",
+                receipt,
+                format_units(transfer_amount, "ether")?,
+                address
+            );
         }
     }
 
@@ -252,7 +272,8 @@ async fn run(args: &MainArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use alloy::{
-        node_bindings::Anvil, providers::{ext::AnvilApi, Provider},
+        node_bindings::Anvil,
+        providers::{ext::AnvilApi, Provider},
     };
     use boundless_market_test_utils::create_test_ctx;
     use tracing_test::traced_test;
@@ -277,15 +298,19 @@ mod tests {
             .with_private_key(distributor_signer.clone())
             .with_deployment(ctx.deployment.clone())
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let provider = ProviderBuilder::new().connect(&anvil.endpoint()).await.unwrap();
-        provider.anvil_set_balance(distributor_signer.address(), parse_ether("10").unwrap()).await.unwrap();
+        provider
+            .anvil_set_balance(distributor_signer.address(), parse_ether("10").unwrap())
+            .await
+            .unwrap();
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
             private_key: distributor_signer.clone(),
-            prover_keys: vec![prover_signer_1.clone(), prover_signer_2.clone()],    
+            prover_keys: vec![prover_signer_1.clone(), prover_signer_2.clone()],
             prover_eth_donate_threshold: "1.0".to_string(),
             eth_threshold: "0.1".to_string(),
             stake_threshold: "0.1".to_string(),
@@ -298,11 +323,22 @@ mod tests {
 
         run(&args).await.unwrap();
 
-        let prover_eth_balance = distributor_client.provider().get_balance(prover_signer_1.address()).await.unwrap();
-        let prover_stake_balance = distributor_client.boundless_market.balance_of_stake(prover_signer_1.address()).await.unwrap();
-        let prover_eth_balance_2 = distributor_client.provider().get_balance(prover_signer_2.address()).await.unwrap();
-        let prover_stake_balance_2 = distributor_client.boundless_market.balance_of_stake(prover_signer_2.address()).await.unwrap();
-        let slasher_eth_balance = distributor_client.provider().get_balance(slasher_signer.address()).await.unwrap();
+        let prover_eth_balance =
+            distributor_client.provider().get_balance(prover_signer_1.address()).await.unwrap();
+        let prover_stake_balance = distributor_client
+            .boundless_market
+            .balance_of_stake(prover_signer_1.address())
+            .await
+            .unwrap();
+        let prover_eth_balance_2 =
+            distributor_client.provider().get_balance(prover_signer_2.address()).await.unwrap();
+        let prover_stake_balance_2 = distributor_client
+            .boundless_market
+            .balance_of_stake(prover_signer_2.address())
+            .await
+            .unwrap();
+        let slasher_eth_balance =
+            distributor_client.provider().get_balance(slasher_signer.address()).await.unwrap();
 
         let eth_top_up_amount = parse_ether(&args.eth_top_up_amount).unwrap();
         assert_eq!(prover_eth_balance, eth_top_up_amount);
