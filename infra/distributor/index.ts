@@ -171,15 +171,6 @@ export = () => {
     ],
   });
 
-  new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
-    type: 'ingress',
-    fromPort: 2049,
-    toPort: 2049,
-    protocol: 'tcp',
-    securityGroupId: securityGroup.id,
-    sourceSecurityGroupId: securityGroup.id,
-  });
-
   // Create an execution role that has permissions to access the necessary secrets
   const execRole = new aws.iam.Role(`${serviceName}-exec`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
@@ -332,7 +323,7 @@ export = () => {
       value: '1',
       defaultValue: '0',
     },
-    pattern: '[B-DIST-STK]',
+    pattern: '"[B-DIST-STK]"',
   }, { dependsOn: [fargateTask] });
 
   new aws.cloudwatch.LogMetricFilter(`${serviceName}-eth-filter`, {
@@ -344,7 +335,7 @@ export = () => {
       value: '1',
       defaultValue: '0',
     },
-    pattern: '[B-DIST-ETH]',
+    pattern: '"[B-DIST-ETH]"',
   }, { dependsOn: [fargateTask] });
 
   const alarmActions = alertsTopicArns;
@@ -391,8 +382,8 @@ export = () => {
     threshold: 1,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     // >=2 error periods per hour
-    evaluationPeriods: 3600,
-    datapointsToAlarm: 2,
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
     alarmDescription: `Send stake to distributor: ${distributorAddress} on ${chainId}`,
     actionsEnabled: true,
@@ -415,7 +406,7 @@ export = () => {
     ],
     threshold: 1,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
-    evaluationPeriods: 3600,
+    evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
     alarmDescription: `Send ETH to distributor: ${distributorAddress} on ${chainId}`,

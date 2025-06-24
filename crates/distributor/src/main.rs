@@ -89,10 +89,10 @@ async fn main() -> Result<()> {
 }
 
 async fn run(args: &MainArgs) -> Result<()> {
-    let wallet = EthereumWallet::from(args.private_key.clone());
-    let distributor_address = wallet.default_signer().address();
+    let distributor_wallet = EthereumWallet::from(args.private_key.clone());
+    let distributor_address = distributor_wallet.default_signer().address();
     let distributor_provider =
-        ProviderBuilder::new().wallet(wallet).connect_http(args.rpc_url.clone());
+        ProviderBuilder::new().wallet(distributor_wallet).connect_http(args.rpc_url.clone());
 
     let distributor_client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
@@ -109,6 +109,16 @@ async fn run(args: &MainArgs) -> Result<()> {
     let eth_top_up_amount = parse_ether(&args.eth_top_up_amount)?;
     let stake_top_up_amount: U256 =
         parse_units(&args.stake_top_up_amount, stake_token_decimals)?.into();
+
+    // check top up amounts are greater than thresholds
+    if eth_top_up_amount < eth_threshold {
+        tracing::error!("ETH top up amount is less than threshold");
+        return Err(anyhow::anyhow!("ETH top up amount is less than threshold [top up amount: {}, threshold: {}]", format_units(eth_top_up_amount, "ether")?, format_units(eth_threshold, "ether")?));
+    }
+    if stake_top_up_amount < stake_threshold {
+        tracing::error!("Stake top up amount is less than threshold");
+        return Err(anyhow::anyhow!("Stake top up amount is less than threshold [top up amount: {}, threshold: {}]", format_units(stake_top_up_amount, stake_token_decimals)?, format_units(stake_threshold, stake_token_decimals)?));
+    }
 
     tracing::info!("Distributor address: {}", distributor_address);
 
@@ -129,11 +139,10 @@ async fn run(args: &MainArgs) -> Result<()> {
         );
 
         if prover_eth_balance > prover_eth_donate_threshold {
-            // Transfer 75% of the balance to the distributor (leave 25% for future gas)
+            // Transfer 80% of the balance to the distributor (leave 20% for future gas)
             let transfer_amount = prover_eth_balance
-                .saturating_mul(U256::from(75))
-                .div_ceil(U256::from(100))
-                .saturating_sub(eth_threshold); // Leave some for gas
+                .saturating_mul(U256::from(8))
+                .div_ceil(U256::from(10)); // Leave some for gas
 
             tracing::info!(
                 "Transferring {} ETH from prover {} to distributor",
@@ -175,25 +184,32 @@ async fn run(args: &MainArgs) -> Result<()> {
         let prover_stake_balance_market =
             distributor_client.boundless_market.balance_of_stake(prover_address).await?;
 
-        tracing::info!("Account {} has {} stake balance deposited to market. Threshold for top up is {}. Distributor has {} stake balance. ", prover_address, format_units(prover_stake_balance_market, stake_token_decimals)?, format_units(stake_threshold, stake_token_decimals)?, format_units(distributor_stake_balance, stake_token_decimals)?);
+        tracing::info!("Account {} has {} stake balance deposited to market. Threshold for top up is {}. Distributor has {} stake balance (Stake token: 0x{:x}). ", prover_address, format_units(prover_stake_balance_market, stake_token_decimals)?, format_units(stake_threshold, stake_token_decimals)?, format_units(distributor_stake_balance, stake_token_decimals)?, stake_token);
 
         if prover_stake_balance_market < stake_threshold {
-            let prover_stake_balance_contract =
+            let mut prover_stake_balance_contract =
                 stake_token_contract.balanceOf(prover_address).call().await?;
 
             let transfer_amount = stake_top_up_amount
-                .saturating_sub(prover_stake_balance_market)
-                .saturating_sub(prover_stake_balance_contract);
+                .saturating_sub(prover_stake_balance_market);
 
             if transfer_amount > distributor_stake_balance {
-                tracing::error!("[B-DIST-STK]: Distributor {} has insufficient stake balance to top up prover {} with {} stake", distributor_address, prover_address, transfer_amount);
-                break;
+                tracing::error!("[B-DIST-STK]: Distributor {} has insufficient stake balance to top up prover {} with {} stake", distributor_address, prover_address, format_units(transfer_amount, stake_token_decimals)?);
+                continue;
+            }
+
+            if transfer_amount == U256::ZERO {
+                tracing::error!("Misconfiguration: stake top up amount too low, or threshold too high");
+                continue;
             }
 
             tracing::info!(
-                "Transferring {} stake from distributor to prover {}",
+                "Transferring {} stake from distributor to prover {} [stake top up amount: {}, balance on market: {}, balance on contract: {}]",
                 format_units(transfer_amount, stake_token_decimals)?,
-                prover_address
+                prover_address,
+                format_units(stake_top_up_amount, stake_token_decimals)?,
+                format_units(prover_stake_balance_market, stake_token_decimals)?,
+                format_units(prover_stake_balance_contract, stake_token_decimals)?
             );
             let pending_tx =
                 stake_token_contract.transfer(prover_address, transfer_amount).send().await?;
@@ -210,7 +226,10 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .build()
                 .await?;
 
-            prover_client.boundless_market.deposit_stake(transfer_amount).await?;
+            prover_stake_balance_contract =
+                stake_token_contract.balanceOf(prover_address).call().await?;
+
+            prover_client.boundless_market.deposit_stake_with_permit(prover_stake_balance_contract, prover_key).await?;
             tracing::info!("Stake deposit completed for prover {}", prover_address);
         }
     }
@@ -238,7 +257,12 @@ async fn run(args: &MainArgs) -> Result<()> {
 
             if transfer_amount > distributor_eth_balance {
                 tracing::error!("[B-DIST-ETH]: Distributor {} has insufficient ETH balance to top up {} with {} ETH.", distributor_address, address, format_units(transfer_amount, "ether")?);
-                break;
+                continue;
+            }
+
+            if transfer_amount == U256::ZERO {
+                tracing::error!("Misconfiguration: ETH top up amount too low, or threshold too high [top up amount: {}, address 0x{:x} balance: {}, distributor balance: {}]", format_units(eth_top_up_amount, "ether")?, address, format_units(account_eth_balance, "ether")?, format_units(distributor_eth_balance, "ether")?);
+                continue;
             }
 
             tracing::info!(

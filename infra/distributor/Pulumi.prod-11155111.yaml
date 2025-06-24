@@ -23,3 +23,4 @@ config:
   distributor:STAKE_TOP_UP_AMOUNT: "10"
   distributor:ETH_RPC_URL:
     secure: v1:JmRN0Yx2P808CPdQ:80sm4c45agFln7EyTxVaABtay7q+g/jNPW2RFuiHk1pek601Wb80QMlwtI8Kx6GuhCC7ZJU8/SETkyg36Qtrz6pt+MJGwLk3GWQ=
+  distributor:LOG_LEVEL: "info"
