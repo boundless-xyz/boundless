@@ -580,14 +580,14 @@ where
         let order_id = order.id();
         let one_mill = U256::from(1_000_000);
 
-        let mcycle_price_min = (U256::from(order.request.offer.minPrice)
+        let mcycle_price_min = U256::from(order.request.offer.minPrice)
             .saturating_sub(order_gas_cost)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
-        let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
+            .saturating_mul(one_mill)
+            / U256::from(proof_res.stats.total_cycles);
+        let mcycle_price_max = U256::from(order.request.offer.maxPrice)
             .saturating_sub(order_gas_cost)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
+            .saturating_mul(one_mill)
+            / U256::from(proof_res.stats.total_cycles);
 
         tracing::debug!(
             "Order {order_id} price: {}-{} ETH, {}-{} ETH per mcycle, {} stake required, {} ETH gas cost",
