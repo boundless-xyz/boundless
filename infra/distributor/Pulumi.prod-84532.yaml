@@ -24,3 +24,6 @@ config:
   distributor:GH_TOKEN_SECRET:
     secure: v1:btZkpuJIag+Fns0T:qJ1k5UbR5gGhnhRjQBJE5ouxEJThW56Gt2IqDSK0RmzjZiIHm0oQ2Wb+GmJYUe7/CcX/QMHOj+ytF9UI/xdwNaV1X5W78WjCkm3KYee1HvcOdnDLQkv6ZVYsWbJv9lfdgn7UInYXID3/PRqtYg==
   distributor:LOG_LEVEL: "info"
+  distributor:DOCKER_DIR: ../../
+  distributor:DOCKER_TAG: latest
+  distributor:BASE_STACK: organization/bootstrap/services-prod
