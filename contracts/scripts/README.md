@@ -146,7 +146,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 > [!NOTE]
 > Only deploy a new market contract when there are breaking changes, otherwise an upgrade should be preferable.
 
-1. Make available for download the `assessor` elf and set its image ID and url in the `deployment.toml` file.
+1. Make available for download the `assessor` program and set its image ID and url in the `deployment.toml` file.
 
    To generate a deterministic image ID run (from the repo root folder):
 
@@ -156,7 +156,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 
    This will output the image ID and file location.
 
-   1. Upload the ELF to some public HTTP location (such as Pinata), and get back a download URL.
+   1. Upload the program to some public HTTP location (such as Pinata), and get back a download URL.
    2. Record these values in `deployment.toml` as `assessor-image-id` and `assessor-guest-url`.
 
    <br/>
@@ -164,8 +164,8 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!TIP]
    > Make sure to install `cargo risczero` with the `experimental` feature.
    >
-   > The `r0vm` binary can be used to double-check that the imageID corresponds to a given elf. e.g., `r0vm --id --elf [elf_path]`
-   > You can combine this with curl to check the image ID of an ELF hosted at a URL.
+   > The `r0vm` binary can be used to double-check that the imageID corresponds to a given program. e.g., `r0vm --id --elf [elf_path]`
+   > You can combine this with curl to check the image ID of an program hosted at a URL.
    >
    > ```
    > r0vm --id --elf <(curl $ELF_URL)
@@ -205,7 +205,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
    > [!TIP]
    > You can find the commit of the last deployment in the `deployment.toml` file.
 
-2. If changed, upload the new `assessor` elf and update its image ID and url in the `deployment.toml` file as explained in step 1 of [Deploy the market contract](#Deploy-the-market-contract) (optional).
+2. If changed, upload the new `assessor` program and update its image ID and url in the `deployment.toml` file as explained in step 1 of [Deploy the market contract](#Deploy-the-market-contract) (optional).
 
 3. Dry run the upgrade of the market implementation and proxy:
 
