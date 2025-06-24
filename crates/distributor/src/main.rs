@@ -75,6 +75,9 @@ struct MainArgs {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .json()
+        .with_target(false)
+        .with_ansi(false)
         .init();
 
     let args = MainArgs::parse();
