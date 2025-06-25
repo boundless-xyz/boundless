@@ -252,11 +252,12 @@ where
         tracing::debug!("Pricing order {order_id}");
 
         // Short circuit if the order has been locked.
-        if self
-            .db
-            .is_request_locked(U256::from(order.request.id))
-            .await
-            .context("Failed to check if request is locked before pricing")?
+        if order.fulfillment_type == FulfillmentType::LockAndFulfill
+            && self
+                .db
+                .is_request_locked(U256::from(order.request.id))
+                .await
+                .context("Failed to check if request is locked before pricing")?
         {
             tracing::debug!("Order {order_id} is already locked, skipping");
             return Ok(Skip);
