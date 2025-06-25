@@ -1810,4 +1810,78 @@ mod tests {
         assert!(logs_contain(&format!("exec limit cycles for order {order2_id}: 10")));
         assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
     }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_is_locked_check() -> Result<()> {
+        let ctx = TestCtxBuilder::default().build().await;
+
+        let mut order = ctx.generate_next_order(Default::default()).await;
+        let order_id = order.id();
+
+        ctx.db
+            .set_request_locked(
+                U256::from(order.request.id),
+                &ctx.provider.default_signer_address().to_string(),
+                1000,
+            )
+            .await?;
+
+        assert!(ctx.db.is_request_locked(U256::from(order.request.id)).await?);
+
+        let pricing_outcome = ctx.picker.price_order(&mut order).await?;
+        assert!(matches!(pricing_outcome, OrderPricingOutcome::Skip));
+
+        assert!(logs_contain(&format!("Order {order_id} is already locked, skipping")));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_duplicate_order_cache() -> Result<()> {
+        let mut ctx = TestCtxBuilder::default().build().await;
+
+        let order1 = ctx.generate_next_order(Default::default()).await;
+        let order_id = order1.id();
+
+        // Duplicate order
+        let order2 = Box::new(OrderRequest {
+            request: order1.request.clone(),
+            client_sig: order1.client_sig.clone(),
+            fulfillment_type: order1.fulfillment_type,
+            boundless_market_address: order1.boundless_market_address,
+            chain_id: order1.chain_id,
+            image_id: order1.image_id.clone(),
+            input_id: order1.input_id.clone(),
+            total_cycles: order1.total_cycles,
+            target_timestamp: order1.target_timestamp,
+            expire_timestamp: order1.expire_timestamp,
+        });
+
+        assert_eq!(order1.id(), order2.id(), "Both orders should have the same ID");
+
+        tokio::spawn(ctx.picker.spawn(CancellationToken::new()));
+
+        ctx.new_order_tx.send(order1).await?;
+        ctx.new_order_tx.send(order2).await?;
+
+        let first_processed =
+            tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv())
+                .await?
+                .unwrap();
+
+        assert_eq!(first_processed.id(), order_id, "First order should be processed");
+
+        let second_result =
+            tokio::time::timeout(Duration::from_secs(2), ctx.priced_orders_rx.recv()).await;
+
+        assert!(second_result.is_err(), "Second order should be deduplicated and not processed");
+
+        assert!(logs_contain(&format!(
+            "Skipping duplicate order {order_id}, already being processed"
+        )));
+
+        Ok(())
+    }
 }
