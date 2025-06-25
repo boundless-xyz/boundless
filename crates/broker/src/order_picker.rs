@@ -256,7 +256,7 @@ where
             .db
             .is_request_locked(U256::from(order.request.id))
             .await
-            .context("Failed to check if request is locked")?
+            .context("Failed to check if request is locked before pricing")?
         {
             tracing::debug!("Order {order_id} is already locked, skipping");
             return Ok(Skip);
