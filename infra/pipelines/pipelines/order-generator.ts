@@ -168,7 +168,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
           name: "DeployProduction",
           actions: [
             {
-              name: "ApproveDeployToProductionWave1",
+              name: "ApproveDeployToProduction",
               category: "Approval",
               owner: "AWS",
               provider: "Manual",
@@ -190,21 +190,12 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
               inputArtifacts: ["source_output"],
             },
             {
-              name: "ApproveDeployToProductionWave2",
-              category: "Approval",
-              owner: "AWS",
-              provider: "Manual",
-              version: "1",
-              runOrder: 3,
-              configuration: {}
-            },
-            {
               name: "DeployProductionEthSepolia",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 4,
+              runOrder: 2,
               configuration: {
                 ProjectName: prodDeploymentEthSepolia.name
               },
@@ -217,7 +208,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 4,
+              runOrder: 2,
               configuration: {
                 ProjectName: prodDeploymentBaseMainnet.name
               },

@@ -41,7 +41,7 @@ The general workflow for the requestor is:
 To continue, an [AWS account](https://signin.aws.amazon.com/signup?request_type=register) is required. After that, you'll need the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) to set up your S3 bucket, create roles and set the required policies.
 
 :::note[If you prefer using the AWS console]
-You can follow the official instructions [Step 1: Create your first S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/GetStartedWithS3.html#creating-bucket).
+You can follow the official instructions at [Step 1: Create your first S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/GetStartedWithS3.html#creating-bucket).
 :::
 
 To store the inputs, we will need to first create an S3 bucket. This can be done with the CLI with:
@@ -129,7 +129,7 @@ When using server-side encryption with AWS KMS keys (known as [SSE-KMS](https://
 
 This server-side encryption adds another check on top of the IAM role requirement. For some use cases, at-rest encryption is necessary for compliance (HIPAA, SOC 2 etc.).
 
-If you enabled `--sse-kms` in [Step 1](/developers/tutorials/sensitive-inputs#1-requestor-upload-the-input-file-to-s3-via-the-aws-cli), you can specify the  key policy either way the KMS console or via the AWS CLI. For up to date information on how to do that, please refer to the official AWS  [Change a Key Policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-modifying.html) documentation.
+If you enabled `--sse-kms` in [Upload the input file to S3](/developers/tutorials/sensitive-inputs#3-upload-the-input-file-to-s3), you can specify the  key policy either way the KMS console or via the AWS CLI. For up to date information on how to do that, please refer to the official AWS  [Change a Key Policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-modifying.html) documentation.
 
 An example key policy would be:
 
@@ -174,7 +174,7 @@ Below is an example bucket policy, copy it and save it to `prover_policy.json`:
 ```
 Only provers whose temporary credentials let them assume `<PROVER_ROLE_ARN>` can download the input file they need to start proving.
 
-The `<PROVER_ROLE_ARN>` string refers to the full *Amazon Resource Name* (ARN) of the IAM role created for the prover. This was generated during [Create the required prover role](/developers/tutorials/sensitive-inputs#create-the-required-prover-role).
+The `<PROVER_ROLE_ARN>` string refers to the full *Amazon Resource Name* (ARN) of the IAM role created for the prover. This was generated during [Create the required prover role](/developers/tutorials/sensitive-inputs#2-create-the-required-prover-role).
 
 *Make sure to replace `<PROVER_ROLE_ARN>` with the string we saved earlier*, something like:
 
@@ -202,16 +202,16 @@ If you have already uploaded your inputs using the `aws` CLI above, you can skip
 - make sure your AWS credentials are set in environment variables, specifically:
   - `S3_ACCESS` for the access key
   - `S3_SECRET` for the secret key
-  - `S3_BUCKET` for the bucket name of the bucket created in [Step 1](/developers/tutorials/sensitive-inputs#1-create-the--s3-bucket)
-  - `S3_URL` for the bucket URL of the bucket created in [Step 1](/developers/tutorials/sensitive-inputs#1-create-the--s3-bucket)
+  - `S3_BUCKET` for the bucket name of the bucket created in [Create the S3 bucket](/developers/tutorials/sensitive-inputs#1-create-the-s3-bucket)
+  - `S3_URL` for the bucket URL of the bucket created in [Create the S3 bucket](/developers/tutorials/sensitive-inputs#1-create-the-s3-bucket)
   - `AWS_REGION` for the bucket region.
   - and last, but not least, make sure `S3_NO_PRESIGNED=1`
 
 After this setup, you may request a proof programmatically as [Request a Proof](/developers/tutorials/request) recommends; your inputs will be automatically uploaded to your gated S3 bucket, however remember that you still need to go through all the necessary gating policies as laid out in this tutorial to make sure your inputs are private and only available to select provers.
 
-If you're interested in doing a one-off test, take a look at the [request subcommands](/developers/tooling/cli#2-request-subcommands) in the Boundless CLI.
+If you're interested in doing a one-off test, take a look at the [request subcommands](/developers/tooling/cli#request) in the Boundless CLI.
 
-Relevant Links: [BuiltInStorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/enum.BuiltinStorageProvider.html), [storage_provider_from_env](https://docs.rs/boundless-market/latest/boundless_market/storage/fn.storage_provider_from_env.html).
+Relevant Links: [StorageProvider](https://docs.rs/boundless-market/latest/boundless_market/storage/trait.StorageProvider.html), [storage_provider_from_env](https://docs.rs/boundless-market/latest/boundless_market/storage/fn.storage_provider_from_env.html).
 
 ## Prover
 
@@ -234,7 +234,7 @@ The general workflow for the prover is:
 The prover has to make sure that the Docker container that runs the broker starts with two kinds of AWS credentials in its environment:
 
 1. base credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION`) which will be used to call [sts::AssumeRole](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html).
-2. the role to assume (e.g. `AWS_ROLE_ARN=arn:aws:iam::<PROVER_ACCOUNT_ID>:role/ProverInputDownloadRole` which is generated when the requestor created the role during [Create the required prover role](/developers/tutorials/sensitive-inputs#create-the-required-prover-role)).
+2. the role to assume (e.g. `AWS_ROLE_ARN=arn:aws:iam::<PROVER_ACCOUNT_ID>:role/ProverInputDownloadRole` which is generated when the requestor created the role during [Create the required prover role](/developers/tutorials/sensitive-inputs#2-create-the-required-prover-role)).
 
 To set these manually, make sure the export the following environment variables before spinning up the [broker](/provers/proving-stack#what-is-the-broker):
 

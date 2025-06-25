@@ -13,6 +13,7 @@ x-base-environment: &base-environment
 x-agent-common: &agent-common
   image: risczero/risc0-bento-agent:stable@sha256:c6fcc92686a5d4b20da963ebba3045f09a64695c9ba9a9aa984dd98b5ddbd6f9
   restart: always
+  runtime: nvidia
   depends_on:
     - postgres
     - redis
@@ -106,7 +107,6 @@ services:
 
   aux_agent:
     <<: *agent-common
-    runtime: nvidia
     mem_limit: 256M
     cpus: 1
 
@@ -114,7 +114,6 @@ services:
 
   gpu_prove_agent0:
     <<: *agent-common
-    runtime: nvidia
     mem_limit: 4G
     cpus: 4
     entrypoint: /app/agent -t prove
@@ -131,7 +130,6 @@ services:
 
   snark_agent:
     <<: *agent-common
-    runtime: nvidia
     entrypoint: /app/agent -t snark
 
     ulimits:

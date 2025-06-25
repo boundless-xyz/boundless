@@ -15,7 +15,7 @@ interface OrderGeneratorArgs {
   logLevel: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
-  pinataGateway: string;
+  ipfsGateway: string;
   interval: string;
   lockStakeRaw: string;
   rampUp?: string;
@@ -118,7 +118,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
     let environment = [
       {
         name: 'IPFS_GATEWAY_URL',
-        value: args.pinataGateway,
+        value: args.ipfsGateway,
       },
       {
         name: 'RUST_LOG',

@@ -1,0 +1,29 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAHP7KM8Y/NNqphaLwufMhqSAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM8c80Qma3NrQUJRfuAgEQgDvOSgeo2SASthc5Aep0Q3Giu19AgDT1Nr5Pfu0+UwYmvhmtx25Kn14+QWyKjWl4SYYnYvDYY2j6nxZ/ZA==
+config:
+  distributor:CHAIN_ID: "11155111"
+  distributor:DISTRIBUTOR_ADDRESS: 0xFc1f6D609610a479F9c7453BF3aeC8cb3849F865
+  distributor:DISTRIBUTOR_PRIVATE_KEY:
+    secure: v1:wWCVxSAhLuXaEkDC:i1oy/n25ChGFaLXFqxqD9H9of3eV3yCIvulaEK8dZNWW3ZHUjfQG+DA3w/YUz1hpyuGSBhAAQUTNKBUJipyVD1IsGbQUKcrLvO0KVpN0+5o=
+  distributor:ETH_THRESHOLD: "10"
+  distributor:ETH_TOP_UP_AMOUNT: "20"
+  distributor:GH_TOKEN_SECRET:
+    secure: v1:gOC8wRSAwYG5xoNS:LJacIJvRktMxBKLlmt1me6tWWqJ3QlSaF92P+aCy/EGaxMCKCfnIopZ3yoCud3gBPJqQ3D933TnUJFdc086+UliuyWKWJDluTOtsxbbcCVI8193IFvJTYakDQYp8vg0nizTKh1guXvdwXlW0iw==
+  distributor:ORDER_GENERATOR_KEYS:
+    secure: v1:WR4d3YttbPOrf8Ak:KQcjq01lC7XATIDpJEEvvVb6ZEVTSiOWQWalp9eWgtRgLz0V/VC6vzYT64iIAZ72TsrCVs1MOA0bsCQIBz8i7xgTQyf29JbINl1W9QQtPX8EzF2XTqmhX9Ui486Vz94c3KV8YWnpbMBaKVMcxnaDcSFt/eTulJStBjit7eWGhazqjCKg0/nl3lSCwhb1ZdtOeA==
+  distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  distributor:PROVER_ETH_DONATE_THRESHOLD: "10"
+  distributor:PROVER_KEYS:
+    secure: v1:lvgOiMaVFr26rn0G:bd0coCCoXqQdLjliw3WqyEKxxKhHoJjNAIspAqx7ja3gw2LwILzvXZTI/sZa2JYmukkUPkBpwHDoHhdQehZT8x8gRh6cnbe6ZFvLMf2gh9S2Hx9uL9/t60oVCkE0NQOb1j2IAi6CQuJfuylvwhCRRvl93sfwCPgk9nDYZ1fnnpXo+zmaaq5DwBgkDUJMywu7tA==
+  distributor:SCHEDULE_MINUTES: "360"
+  distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-prod
+  distributor:SLASHER_KEY:
+    secure: v1:vsk259VkW141RyaB:C7r1PNqhYOijA3pWLcOAJsX4W955zPyXGWeA3xLwYFdFw/lbmlqc5Z5OE5Lebc4wluMtFD415gm5kd2bYZiaaUb5sZsOz56HZTphvHuvO1o=
+  distributor:STAKE_THRESHOLD: "7"
+  distributor:STAKE_TOP_UP_AMOUNT: "10"
+  distributor:ETH_RPC_URL:
+    secure: v1:JmRN0Yx2P808CPdQ:80sm4c45agFln7EyTxVaABtay7q+g/jNPW2RFuiHk1pek601Wb80QMlwtI8Kx6GuhCC7ZJU8/SETkyg36Qtrz6pt+MJGwLk3GWQ=
+  distributor:LOG_LEVEL: "info"
+  distributor:DOCKER_DIR: ../../
+  distributor:DOCKER_TAG: latest
+  distributor:BASE_STACK: organization/bootstrap/services-prod

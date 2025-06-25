@@ -229,6 +229,11 @@ export const createProverAlarms = (
     threshold: 3,
   }, { period: 300 });
 
+  // 3 rpc errors within 15 minutes in the order picker triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-OP-005]"', 'order-picker-rpc-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 900 });
+
   //
   // Order Monitor
   //
@@ -256,7 +261,10 @@ export const createProverAlarms = (
     threshold: 3,
   }, { period: 3600 });
 
-
+  // 3 rpc errors within 15 minutes in the order monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-OM-011]"', 'order-monitor-rpc-error', Severity.SEV2, {
+    threshold: 3,
+  }, { period: 900 });
 
   //
   // Prover
@@ -317,8 +325,11 @@ export const createProverAlarms = (
     threshold: 4,
   }, { period: 3600 }, "Some requests in a batch expired before submission twice in an hour");
 
-  // Any 1 request expired before submission triggers a SEV2 alarm.
-  createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2);
+  // Any 2 market errors triggers a SEV2 alarm. Note we occasionally see these errors and on retry they
+  // succeed, so we alert on 2.
+  createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2, {
+    threshold: 2,
+  });
 
   // 4 failures to submit a batch within 2 hours due to timeouts in the submitter triggers a SEV2 alarm.
   // This may indicate a misconfiguration of the tx timeout config.
