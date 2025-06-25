@@ -29,7 +29,6 @@ use boundless_market::contracts::{
 };
 use boundless_market::selector::SupportedSelectors;
 use moka::{future::Cache, Expiry};
-use rand::seq::SliceRandom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -877,7 +876,7 @@ where
                         }
 
                         // Prioritize the orders that intend to fulfill based on configured commitment priority.
-                        prioritize_orders(&mut valid_orders, monitor_config.order_commitment_priority);
+                        valid_orders = self.prioritize_orders(valid_orders, monitor_config.order_commitment_priority);
 
                         // Filter down the orders given our max concurrent proofs, peak khz limits, and gas limitations.
                         let final_orders = self
@@ -928,28 +927,6 @@ where
         }
         Ok(())
     }
-}
-
-fn prioritize_orders(orders: &mut [Arc<OrderRequest>], priority_mode: OrderCommitmentPriority) {
-    match priority_mode {
-        OrderCommitmentPriority::ShortestExpiry => {
-            orders.sort_by_key(|order| {
-                if order.fulfillment_type == FulfillmentType::LockAndFulfill {
-                    order.request.lock_expires_at()
-                } else {
-                    order.request.expires_at()
-                }
-            });
-        }
-        OrderCommitmentPriority::Random => {
-            orders.shuffle(&mut rand::rng());
-        }
-    }
-
-    tracing::debug!(
-        "Orders ready for proving, prioritized. Before applying capacity limits: {}",
-        orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
-    );
 }
 
 impl<P> RetryTask for OrderMonitor<P>
@@ -1347,9 +1324,9 @@ mod tests {
             .await;
         let order_4_id = order4.id();
 
-        let mut orders =
+        let orders =
             vec![Arc::from(order1), Arc::from(order2), Arc::from(order3), Arc::from(order4)];
-        prioritize_orders(&mut orders, OrderCommitmentPriority::ShortestExpiry);
+        let orders = ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
 
         assert!(orders[0].id() == order_1_id);
         assert!(orders[1].id() == order_3_id);
@@ -1861,8 +1838,9 @@ mod tests {
         let mut all_orderings = HashSet::new();
 
         for _ in 0..10 {
-            let mut test_orders = orders.clone();
-            prioritize_orders(&mut test_orders, OrderCommitmentPriority::Random);
+            let test_orders = orders.clone();
+            let test_orders =
+                ctx.monitor.prioritize_orders(test_orders, OrderCommitmentPriority::Random);
 
             // Extract the ordering of all orders
             let order_ids: Vec<_> = test_orders.iter().map(|order| order.request.id).collect();
@@ -1873,8 +1851,7 @@ mod tests {
         assert!(all_orderings.len() > 1, "Random mode should produce different orderings");
 
         // Test that random mode produces different orderings
-        let mut prioritized = orders;
-        prioritize_orders(&mut prioritized, OrderCommitmentPriority::Random);
+        let prioritized = ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::Random);
 
         // We should have 3 LockAndFulfill and 3 FulfillAfterLockExpire orders in total
         let lock_and_fulfill_count = prioritized
@@ -1924,8 +1901,8 @@ mod tests {
             orders.push(Arc::from(order));
         }
 
-        let mut prioritized = orders;
-        prioritize_orders(&mut prioritized, OrderCommitmentPriority::ShortestExpiry);
+        let prioritized =
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
 
         // Orders should be sorted by their relevant expiry times, regardless of type
         // Expected order: LockAndFulfill(100), LockAndFulfill(150), FulfillAfterLockExpire(150), LockAndFulfill(200), FulfillAfterLockExpire(250), FulfillAfterLockExpire(300)
@@ -1982,12 +1959,13 @@ mod tests {
         }
 
         // Test random mode (no need to capture result since it's random)
-        let mut _prioritized_random = orders.clone();
-        prioritize_orders(&mut _prioritized_random, OrderCommitmentPriority::Random);
+        let _prioritized_random = orders.clone();
+        let _prioritized_random =
+            ctx.monitor.prioritize_orders(_prioritized_random, OrderCommitmentPriority::Random);
 
         // Test shortest expiry mode
-        let mut prioritized_shortest = orders;
-        prioritize_orders(&mut prioritized_shortest, OrderCommitmentPriority::ShortestExpiry);
+        let prioritized_shortest =
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
 
         // In shortest expiry mode, orders should be sorted by expiry time
         for i in 0..3 {
