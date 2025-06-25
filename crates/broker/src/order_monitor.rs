@@ -613,21 +613,16 @@ where
         let capacity = self
             .get_proving_order_capacity(config.max_concurrent_proofs, prev_orders_by_status)
             .await?;
-        let capacity_granted = capacity
-            .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"));
+        let capacity_granted: usize = capacity
+            .request_capacity(num_orders.try_into().expect("Failed to convert order count to u32"))
+            as usize;
 
         tracing::info!(
             "Num orders ready for locking and/or proving: {}. Total capacity available: {capacity:?}, Capacity granted: {capacity_granted:?}",
             num_orders
         );
 
-        // Given our capacity computed from max_concurrent_proofs, truncate the order list.
-        let mut orders_truncated = orders;
-        if orders_truncated.len() > capacity_granted as usize {
-            orders_truncated.truncate(capacity_granted as usize);
-        }
-
-        let mut final_orders: Vec<Arc<OrderRequest>> = Vec::with_capacity(orders_truncated.len());
+        let mut final_orders: Vec<Arc<OrderRequest>> = Vec::with_capacity(capacity_granted);
 
         // Get current gas price and available balance
         let gas_price =
@@ -679,7 +674,7 @@ where
 
         // Apply peak khz limit if specified
         let num_commited_orders = committed_orders.len();
-        if config.peak_prove_khz.is_some() && !orders_truncated.is_empty() {
+        if config.peak_prove_khz.is_some() && !orders.is_empty() {
             let peak_prove_khz = config.peak_prove_khz.unwrap();
             let total_commited_cycles = committed_orders
                 .iter()
@@ -712,7 +707,10 @@ where
             // For each order in consideration, check if it can be completed before its expiration
             // and that there is enough gas to pay for the lock and fulfillment of all orders
             // including the committed orders.
-            for order in orders_truncated {
+            for order in orders {
+                if final_orders.len() >= capacity_granted {
+                    break;
+                }
                 // Calculate gas and cost for this order using our helper method
                 let order_cost_wei = self.calculate_order_gas_cost_wei(&order, gas_price).await?;
 
@@ -774,7 +772,10 @@ where
             }
         } else {
             // If no peak khz limit, just check gas for each order
-            for order in orders_truncated {
+            for order in orders {
+                if final_orders.len() >= capacity_granted {
+                    break;
+                }
                 let order_cost_wei = self.calculate_order_gas_cost_wei(&order, gas_price).await?;
 
                 // Skip if not enough balance
