@@ -31,6 +31,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, RequestError},
     selector::SupportedSelectors,
 };
+use moka::future::Cache;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinSet;
@@ -41,6 +42,12 @@ use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
+
+/// Maximum number of orders to cache for deduplication
+const ORDER_DEDUP_CACHE_SIZE: u64 = 5000;
+
+/// In-memory LRU cache for order deduplication by ID (prevents duplicate order processing)
+type OrderCache = Arc<Cache<String, ()>>;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -90,6 +97,7 @@ pub struct OrderPicker<P> {
     new_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
     priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
     stake_token_decimals: u8,
+    order_cache: OrderCache,
 }
 
 #[derive(Debug)]
@@ -145,6 +153,12 @@ where
             new_order_rx: Arc::new(Mutex::new(new_order_rx)),
             priced_orders_tx: order_result_tx,
             stake_token_decimals,
+            order_cache: Arc::new(
+                Cache::builder()
+                    .max_capacity(ORDER_DEDUP_CACHE_SIZE)
+                    .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
+                    .build(),
+            ),
         }
     }
 
@@ -790,6 +804,19 @@ where
                 // Process pending orders if we have capacity
                 while !pending_orders.is_empty() && tasks.len() < current_capacity {
                     if let Some(order) = pending_orders.pop_front() {
+                        let order_id = order.id();
+
+                        // Check if we've already started processing this order ID
+                        if picker.order_cache.get(&order_id).await.is_some() {
+                            tracing::debug!(
+                                "Skipping duplicate order {order_id}, already being processed"
+                            );
+                            continue;
+                        }
+
+                        // Mark order as being processed immediately to prevent duplicates
+                        picker.order_cache.insert(order_id.clone(), ()).await;
+
                         let picker_clone = picker.clone();
                         let task_cancel_token = cancel_token.child_token();
                         tasks.spawn(async move {
