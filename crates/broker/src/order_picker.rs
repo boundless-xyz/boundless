@@ -31,6 +31,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, RequestError},
     selector::SupportedSelectors,
 };
+use moka::future::Cache;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinSet;
@@ -41,6 +42,12 @@ use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
+
+/// Maximum number of orders to cache for deduplication
+const ORDER_DEDUP_CACHE_SIZE: u64 = 5000;
+
+/// In-memory LRU cache for order deduplication by ID (prevents duplicate order processing)
+type OrderCache = Arc<Cache<String, ()>>;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -90,6 +97,7 @@ pub struct OrderPicker<P> {
     new_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
     priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
     stake_token_decimals: u8,
+    order_cache: OrderCache,
 }
 
 #[derive(Debug)]
@@ -145,6 +153,12 @@ where
             new_order_rx: Arc::new(Mutex::new(new_order_rx)),
             priced_orders_tx: order_result_tx,
             stake_token_decimals,
+            order_cache: Arc::new(
+                Cache::builder()
+                    .max_capacity(ORDER_DEDUP_CACHE_SIZE)
+                    .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
+                    .build(),
+            ),
         }
     }
 
@@ -236,6 +250,18 @@ where
     ) -> Result<OrderPricingOutcome, OrderPickerErr> {
         let order_id = order.id();
         tracing::debug!("Pricing order {order_id}");
+
+        // Short circuit if the order has been locked.
+        if order.fulfillment_type == FulfillmentType::LockAndFulfill
+            && self
+                .db
+                .is_request_locked(U256::from(order.request.id))
+                .await
+                .context("Failed to check if request is locked before pricing")?
+        {
+            tracing::debug!("Order {order_id} is already locked, skipping");
+            return Ok(Skip);
+        }
 
         let (min_deadline, allowed_addresses_opt) = {
             let config = self.config.lock_all().context("Failed to read config")?;
@@ -790,6 +816,19 @@ where
                 // Process pending orders if we have capacity
                 while !pending_orders.is_empty() && tasks.len() < current_capacity {
                     if let Some(order) = pending_orders.pop_front() {
+                        let order_id = order.id();
+
+                        // Check if we've already started processing this order ID
+                        if picker.order_cache.get(&order_id).await.is_some() {
+                            tracing::debug!(
+                                "Skipping duplicate order {order_id}, already being processed"
+                            );
+                            continue;
+                        }
+
+                        // Mark order as being processed immediately to prevent duplicates
+                        picker.order_cache.insert(order_id.clone(), ()).await;
+
                         let picker_clone = picker.clone();
                         let task_cancel_token = cancel_token.child_token();
                         tasks.spawn(async move {
@@ -1770,5 +1809,79 @@ mod tests {
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!("exec limit cycles for order {order2_id}: 10")));
         assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_is_locked_check() -> Result<()> {
+        let ctx = TestCtxBuilder::default().build().await;
+
+        let mut order = ctx.generate_next_order(Default::default()).await;
+        let order_id = order.id();
+
+        ctx.db
+            .set_request_locked(
+                U256::from(order.request.id),
+                &ctx.provider.default_signer_address().to_string(),
+                1000,
+            )
+            .await?;
+
+        assert!(ctx.db.is_request_locked(U256::from(order.request.id)).await?);
+
+        let pricing_outcome = ctx.picker.price_order(&mut order).await?;
+        assert!(matches!(pricing_outcome, OrderPricingOutcome::Skip));
+
+        assert!(logs_contain(&format!("Order {order_id} is already locked, skipping")));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_duplicate_order_cache() -> Result<()> {
+        let mut ctx = TestCtxBuilder::default().build().await;
+
+        let order1 = ctx.generate_next_order(Default::default()).await;
+        let order_id = order1.id();
+
+        // Duplicate order
+        let order2 = Box::new(OrderRequest {
+            request: order1.request.clone(),
+            client_sig: order1.client_sig.clone(),
+            fulfillment_type: order1.fulfillment_type,
+            boundless_market_address: order1.boundless_market_address,
+            chain_id: order1.chain_id,
+            image_id: order1.image_id.clone(),
+            input_id: order1.input_id.clone(),
+            total_cycles: order1.total_cycles,
+            target_timestamp: order1.target_timestamp,
+            expire_timestamp: order1.expire_timestamp,
+        });
+
+        assert_eq!(order1.id(), order2.id(), "Both orders should have the same ID");
+
+        tokio::spawn(ctx.picker.spawn(CancellationToken::new()));
+
+        ctx.new_order_tx.send(order1).await?;
+        ctx.new_order_tx.send(order2).await?;
+
+        let first_processed =
+            tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv())
+                .await?
+                .unwrap();
+
+        assert_eq!(first_processed.id(), order_id, "First order should be processed");
+
+        let second_result =
+            tokio::time::timeout(Duration::from_secs(2), ctx.priced_orders_rx.recv()).await;
+
+        assert!(second_result.is_err(), "Second order should be deduplicated and not processed");
+
+        assert!(logs_contain(&format!(
+            "Skipping duplicate order {order_id}, already being processed"
+        )));
+
+        Ok(())
     }
 }
