@@ -6,7 +6,7 @@ use crate::chain_monitor::ChainHead;
 use crate::OrderRequest;
 use crate::{
     chain_monitor::ChainMonitorService,
-    config::ConfigLock,
+    config::{ConfigLock, OrderCommitmentPriority},
     db::DbObj,
     errors::CodedError,
     impl_coded_debug, now_timestamp,
@@ -29,6 +29,7 @@ use boundless_market::contracts::{
 };
 use boundless_market::selector::SupportedSelectors;
 use moka::{future::Cache, Expiry};
+use rand::seq::SliceRandom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -122,6 +123,7 @@ struct OrderMonitorConfig {
     max_concurrent_proofs: Option<u32>,
     additional_proof_cycles: u64,
     batch_buffer_time_secs: u64,
+    order_commitment_priority: OrderCommitmentPriority,
 }
 
 #[derive(Clone)]
@@ -509,22 +511,6 @@ where
         Ok(candidate_orders)
     }
 
-    fn prioritize_orders(&self, orders: &mut [Arc<OrderRequest>]) {
-        // Sort orders by priority - for lock and fulfill orders, use lock expiration, for fulfill after lock expire, use request expiration
-        orders.sort_by_key(|order| {
-            if order.fulfillment_type == FulfillmentType::LockAndFulfill {
-                order.request.lock_expires_at()
-            } else {
-                order.request.expires_at()
-            }
-        });
-
-        tracing::debug!(
-            "Orders ready for proving, prioritized. Before applying capacity limits: {}",
-            orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
-        );
-    }
-
     async fn lock_and_prove_orders(&self, orders: &[Arc<OrderRequest>]) -> Result<()> {
         let lock_jobs = orders.iter().map(|order| {
             async move {
@@ -874,6 +860,7 @@ where
                                 max_concurrent_proofs: config.market.max_concurrent_proofs,
                                 additional_proof_cycles: config.market.additional_proof_cycles,
                                 batch_buffer_time_secs: config.batcher.block_deadline_buffer_secs,
+                                order_commitment_priority: config.market.order_commitment_priority,
                             }
                         };
 
@@ -888,8 +875,8 @@ where
                             continue;
                         }
 
-                        // Prioritize the orders that intend to fulfill based on when they need to locked and/or proven.
-                        self.prioritize_orders(&mut valid_orders);
+                        // Prioritize the orders that intend to fulfill based on configured commitment priority.
+                        prioritize_orders(&mut valid_orders, monitor_config.order_commitment_priority);
 
                         // Filter down the orders given our max concurrent proofs, peak khz limits, and gas limitations.
                         let final_orders = self
@@ -940,6 +927,28 @@ where
         }
         Ok(())
     }
+}
+
+fn prioritize_orders(orders: &mut [Arc<OrderRequest>], priority_mode: OrderCommitmentPriority) {
+    match priority_mode {
+        OrderCommitmentPriority::ShortestExpiry => {
+            orders.sort_by_key(|order| {
+                if order.fulfillment_type == FulfillmentType::LockAndFulfill {
+                    order.request.lock_expires_at()
+                } else {
+                    order.request.expires_at()
+                }
+            });
+        }
+        OrderCommitmentPriority::Random => {
+            orders.shuffle(&mut rand::rng());
+        }
+    }
+
+    tracing::debug!(
+        "Orders ready for proving, prioritized. Before applying capacity limits: {}",
+        orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+    );
 }
 
 impl<P> RetryTask for OrderMonitor<P>
@@ -1339,7 +1348,7 @@ mod tests {
 
         let mut orders =
             vec![Arc::from(order1), Arc::from(order2), Arc::from(order3), Arc::from(order4)];
-        ctx.monitor.prioritize_orders(&mut orders);
+        prioritize_orders(&mut orders, OrderCommitmentPriority::ShortestExpiry);
 
         assert!(orders[0].id() == order_1_id);
         assert!(orders[1].id() == order_3_id);
@@ -1451,7 +1460,11 @@ mod tests {
             .monitor
             .apply_capacity_limits(
                 orders,
-                &OrderMonitorConfig { max_concurrent_proofs: Some(3), ..Default::default() },
+                &OrderMonitorConfig {
+                    max_concurrent_proofs: Some(3),
+                    order_commitment_priority: OrderCommitmentPriority::ShortestExpiry,
+                    ..Default::default()
+                },
                 &mut String::new(),
             )
             .await
@@ -1803,5 +1816,190 @@ mod tests {
         assert!(valid_orders_in_future
             .iter()
             .any(|order| order.id() == fulfill_after_expire_order_id));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_expired_order_fulfillment_priority_random() {
+        use crate::config::OrderCommitmentPriority;
+        use std::collections::HashSet;
+
+        let mut ctx = setup_test().await;
+        let current_timestamp = now_timestamp();
+
+        // Create mixed orders: some lock-and-fulfill, some expired
+        let mut orders = Vec::new();
+
+        // Add lock-and-fulfill orders
+        for i in 1..=3 {
+            let order = ctx
+                .create_test_order(
+                    FulfillmentType::LockAndFulfill,
+                    current_timestamp,
+                    100 + (i * 10) as u64,
+                    200,
+                )
+                .await;
+            orders.push(Arc::from(order));
+        }
+
+        // Add expired orders
+        for i in 4..=6 {
+            let order = ctx
+                .create_test_order(
+                    FulfillmentType::FulfillAfterLockExpire,
+                    current_timestamp,
+                    10,
+                    100 + (i * 10) as u64,
+                )
+                .await;
+            orders.push(Arc::from(order));
+        }
+
+        // Run multiple times to test randomness of all orders
+        let mut all_orderings = HashSet::new();
+
+        for _ in 0..10 {
+            let mut test_orders = orders.clone();
+            prioritize_orders(&mut test_orders, OrderCommitmentPriority::Random);
+
+            // Extract the ordering of all orders
+            let order_ids: Vec<_> = test_orders.iter().map(|order| order.request.id).collect();
+            all_orderings.insert(order_ids);
+        }
+
+        // Should see different orderings due to randomness
+        assert!(all_orderings.len() > 1, "Random mode should produce different orderings");
+
+        // Test that random mode produces different orderings
+        let mut prioritized = orders;
+        prioritize_orders(&mut prioritized, OrderCommitmentPriority::Random);
+
+        // We should have 3 LockAndFulfill and 3 FulfillAfterLockExpire orders in total
+        let lock_and_fulfill_count = prioritized
+            .iter()
+            .filter(|order| order.fulfillment_type == FulfillmentType::LockAndFulfill)
+            .count();
+        let fulfill_after_expire_count = prioritized
+            .iter()
+            .filter(|order| order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire)
+            .count();
+
+        assert_eq!(lock_and_fulfill_count, 3);
+        assert_eq!(fulfill_after_expire_count, 3);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_expired_order_fulfillment_priority_shortest_expiry() {
+        use crate::config::OrderCommitmentPriority;
+
+        let mut ctx = setup_test().await;
+        let current_timestamp = now_timestamp();
+
+        // Create mixed orders with different expiry times
+        let mut orders = Vec::new();
+
+        // Lock-and-fulfill orders with different lock timeouts
+        let lock_timeouts = [150, 100, 200]; // Will be sorted: 100, 150, 200
+        for &timeout in lock_timeouts.iter() {
+            let order = ctx
+                .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, timeout, 300)
+                .await;
+            orders.push(Arc::from(order));
+        }
+
+        // Expired orders with different total timeouts
+        let total_timeouts = [250, 150, 300]; // Will be sorted: 150, 250, 300
+        for &timeout in total_timeouts.iter() {
+            let order = ctx
+                .create_test_order(
+                    FulfillmentType::FulfillAfterLockExpire,
+                    current_timestamp,
+                    10,
+                    timeout,
+                )
+                .await;
+            orders.push(Arc::from(order));
+        }
+
+        let mut prioritized = orders;
+        prioritize_orders(&mut prioritized, OrderCommitmentPriority::ShortestExpiry);
+
+        // Orders should be sorted by their relevant expiry times, regardless of type
+        // Expected order: LockAndFulfill(100), LockAndFulfill(150), FulfillAfterLockExpire(150), LockAndFulfill(200), FulfillAfterLockExpire(250), FulfillAfterLockExpire(300)
+
+        // Position 0: LockAndFulfill with lock_expires=100
+        assert_eq!(prioritized[0].fulfillment_type, FulfillmentType::LockAndFulfill);
+        assert_eq!(prioritized[0].request.lock_expires_at(), current_timestamp + 100);
+
+        // Position 1: LockAndFulfill with lock_expires=150
+        assert_eq!(prioritized[1].fulfillment_type, FulfillmentType::LockAndFulfill);
+        assert_eq!(prioritized[1].request.lock_expires_at(), current_timestamp + 150);
+
+        // Position 2: FulfillAfterLockExpire with expires=150
+        assert_eq!(prioritized[2].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(prioritized[2].request.expires_at(), current_timestamp + 150);
+
+        // Position 3: LockAndFulfill with lock_expires=200
+        assert_eq!(prioritized[3].fulfillment_type, FulfillmentType::LockAndFulfill);
+        assert_eq!(prioritized[3].request.lock_expires_at(), current_timestamp + 200);
+
+        // Position 4: FulfillAfterLockExpire with expires=250
+        assert_eq!(prioritized[4].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(prioritized[4].request.expires_at(), current_timestamp + 250);
+
+        // Position 5: FulfillAfterLockExpire with expires=300
+        assert_eq!(prioritized[5].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(prioritized[5].request.expires_at(), current_timestamp + 300);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_expired_order_fulfillment_priority_configuration_change() {
+        use crate::config::OrderCommitmentPriority;
+
+        let mut ctx = setup_test().await;
+        let current_timestamp = now_timestamp();
+
+        // Start with random mode
+        ctx.config.load_write().unwrap().market.order_commitment_priority =
+            OrderCommitmentPriority::Random;
+
+        // Create only expired orders for this test
+        let mut orders = Vec::new();
+        for i in 1..=4 {
+            let order = ctx
+                .create_test_order(
+                    FulfillmentType::FulfillAfterLockExpire,
+                    current_timestamp,
+                    10,
+                    100 + (i * 20) as u64, // Different expiry times: 120, 140, 160, 180
+                )
+                .await;
+            orders.push(Arc::from(order));
+        }
+
+        // Test random mode (no need to capture result since it's random)
+        let mut _prioritized_random = orders.clone();
+        prioritize_orders(&mut _prioritized_random, OrderCommitmentPriority::Random);
+
+        // Test shortest expiry mode
+        let mut prioritized_shortest = orders;
+        prioritize_orders(&mut prioritized_shortest, OrderCommitmentPriority::ShortestExpiry);
+
+        // In shortest expiry mode, orders should be sorted by expiry time
+        for i in 0..3 {
+            assert!(
+                prioritized_shortest[i].request.expires_at()
+                    <= prioritized_shortest[i + 1].request.expires_at()
+            );
+        }
+
+        // Verify the exact order for shortest expiry
+        assert_eq!(prioritized_shortest[0].request.expires_at(), current_timestamp + 120);
+        assert_eq!(prioritized_shortest[1].request.expires_at(), current_timestamp + 140);
+        assert_eq!(prioritized_shortest[2].request.expires_at(), current_timestamp + 160);
+        assert_eq!(prioritized_shortest[3].request.expires_at(), current_timestamp + 180);
     }
 }

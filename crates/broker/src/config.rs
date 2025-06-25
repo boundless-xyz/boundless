@@ -86,6 +86,22 @@ impl Default for OrderPricingPriority {
     }
 }
 
+/// Order commitment priority mode for determining which orders to commit to first
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OrderCommitmentPriority {
+    /// Process orders in random order to distribute competition among provers
+    Random,
+    /// Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+    ShortestExpiry,
+}
+
+impl Default for OrderCommitmentPriority {
+    fn default() -> Self {
+        Self::Random
+    }
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
@@ -212,6 +228,13 @@ pub struct MarketConf {
     /// - "shortest_expiry": Process orders by shortest expiry first (earliest deadline)
     #[serde(default)]
     pub order_pricing_priority: OrderPricingPriority,
+    /// Order commitment priority mode
+    ///
+    /// Determines how orders are prioritized when committing to prove them. Options:
+    /// - "random": Process orders in random order to distribute competition among provers (default)
+    /// - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+    #[serde(default, alias = "expired_order_fulfillment_priority")]
+    pub order_commitment_priority: OrderCommitmentPriority,
 }
 
 impl Default for MarketConf {
@@ -245,6 +268,7 @@ impl Default for MarketConf {
             cache_dir: None,
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
             order_pricing_priority: OrderPricingPriority::default(),
+            order_commitment_priority: OrderCommitmentPriority::default(),
         }
     }
 }
