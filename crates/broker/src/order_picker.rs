@@ -112,36 +112,6 @@ enum OrderPricingOutcome {
     Skip,
 }
 
-/// Select the next order based on the configured order pricing priority (standalone function for testing)
-fn select_next_order(
-    orders: &mut VecDeque<Box<OrderRequest>>,
-    priority_mode: OrderPricingPriority,
-) -> Option<Box<OrderRequest>> {
-    if orders.is_empty() {
-        return None;
-    }
-
-    match priority_mode {
-        OrderPricingPriority::Random => {
-            use rand::Rng;
-            let mut rng = rand::rng();
-            let index = rng.random_range(0..orders.len());
-            orders.remove(index)
-        }
-        OrderPricingPriority::ObservationTime => orders.pop_front(),
-        OrderPricingPriority::ShortestExpiry => {
-            let (shortest_index, _) = orders.iter().enumerate().min_by_key(|(_, order)| {
-                if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
-                    order.request.offer.biddingStart + order.request.offer.timeout as u64
-                } else {
-                    order.request.offer.biddingStart + order.request.offer.lockTimeout as u64
-                }
-            })?;
-            orders.remove(shortest_index)
-        }
-    }
-}
-
 impl<P> OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -827,7 +797,9 @@ where
 
                 // Process pending orders if we have capacity
                 while !pending_orders.is_empty() && tasks.len() < current_capacity {
-                    if let Some(order) = select_next_order(&mut pending_orders, priority_mode) {
+                    if let Some(order) =
+                        picker.select_next_pricing_order(&mut pending_orders, priority_mode)
+                    {
                         let picker_clone = picker.clone();
                         let task_cancel_token = cancel_token.child_token();
                         tasks.spawn(async move {
@@ -1831,8 +1803,9 @@ mod tests {
 
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            if let Some(order) =
-                select_next_order(&mut orders, OrderPricingPriority::ObservationTime)
+            if let Some(order) = ctx
+                .picker
+                .select_next_pricing_order(&mut orders, OrderPricingPriority::ObservationTime)
             {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
@@ -1871,8 +1844,9 @@ mod tests {
         // Test that shortest_expiry mode returns orders by earliest expiry
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            if let Some(order) =
-                select_next_order(&mut orders, OrderPricingPriority::ShortestExpiry)
+            if let Some(order) = ctx
+                .picker
+                .select_next_pricing_order(&mut orders, OrderPricingPriority::ShortestExpiry)
             {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
@@ -1937,8 +1911,9 @@ mod tests {
         // Test selection order
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            if let Some(order) =
-                select_next_order(&mut orders, OrderPricingPriority::ShortestExpiry)
+            if let Some(order) = ctx
+                .picker
+                .select_next_pricing_order(&mut orders, OrderPricingPriority::ShortestExpiry)
             {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
@@ -1975,7 +1950,9 @@ mod tests {
 
             let mut selected_order_indices = Vec::new();
             while !orders.is_empty() {
-                if let Some(order) = select_next_order(&mut orders, OrderPricingPriority::Random) {
+                if let Some(order) =
+                    ctx.picker.select_next_pricing_order(&mut orders, OrderPricingPriority::Random)
+                {
                     let order_index =
                         boundless_market::contracts::RequestId::try_from(order.request.id)
                             .unwrap()
