@@ -562,6 +562,9 @@ where
         // Create a channel for new orders to be sent to the OrderPicker / from monitors
         let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
 
+        // Create a broadcast channel for request fulfillment notifications
+        let (fulfillment_tx, _) = tokio::sync::broadcast::channel(1000);
+
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             loopback_blocks,
@@ -572,6 +575,7 @@ where
             self.args.private_key.address(),
             client.clone(),
             new_order_tx.clone(),
+            fulfillment_tx.clone(),
         ));
 
         let block_times =
@@ -666,9 +670,14 @@ where
         });
 
         let proving_service = Arc::new(
-            proving::ProvingService::new(self.db.clone(), prover.clone(), config.clone())
-                .await
-                .context("Failed to initialize proving service")?,
+            proving::ProvingService::new(
+                self.db.clone(),
+                prover.clone(),
+                config.clone(),
+                fulfillment_tx.clone(),
+            )
+            .await
+            .context("Failed to initialize proving service")?,
         );
 
         let cloned_config = config.clone();
