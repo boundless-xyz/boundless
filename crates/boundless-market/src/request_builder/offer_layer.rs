@@ -62,7 +62,8 @@ pub struct OfferLayerConfig {
     pub timeout: u32,
 
     /// Amount of the stake token that the prover must stake when locking a request.
-    #[builder(setter(into), default = "U256::from(100) * Unit::PWEI.wei_const()")]
+    // TODO(BM-1233): Change this to be based on the Deployment configuration.
+    #[builder(setter(into), default = "U256::from(5) * Unit::MWEI.wei_const()")] // 5 USDC
     pub lock_stake: U256,
 
     /// Estimated gas used when locking a request.

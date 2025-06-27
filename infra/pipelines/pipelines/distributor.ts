@@ -3,10 +3,10 @@ import * as aws from "@pulumi/aws";
 import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
 import { BasePipelineArgs } from "./base";
 
-interface OrderGeneratorPipelineArgs extends BasePipelineArgs { }
+interface DistributorPipelineArgs extends BasePipelineArgs { }
 
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
-const APP_NAME = "order-generator";
+const APP_NAME = "distributor";
 // The branch that we should deploy from on push.
 const BRANCH_NAME = "main";
 // The buildspec for the CodeBuild project that deploys our Pulumi stacks to the staging and prod accounts.
@@ -43,10 +43,8 @@ const BUILD_SPEC = `
           - pulumi up --yes
     `;
 
-// A sample deployment pipeline that deploys to the staging account, then requires a manual approval before
-// deploying to prod.
-export class OrderGeneratorPipeline extends pulumi.ComponentResource {
-  constructor(name: string, args: OrderGeneratorPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
+export class DistributorPipeline extends pulumi.ComponentResource {
+  constructor(name: string, args: DistributorPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
     super(`boundless:pipelines:${APP_NAME}Pipeline`, name, args, opts);
 
     const { connection, artifactBucket, role, githubToken, dockerUsername, dockerToken, slackAlertsTopicArn } = args;
@@ -155,7 +153,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 1,
+              runOrder: 2,
               configuration: {
                 ProjectName: stagingDeploymentBaseSepolia.name
               },
@@ -168,7 +166,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
           name: "DeployProduction",
           actions: [
             {
-              name: "ApproveDeployToProduction",
+              name: "ApproveDeployToProductionWave1",
               category: "Approval",
               owner: "AWS",
               provider: "Manual",
@@ -241,7 +239,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
       name: `${APP_NAME}-pipeline-notifications`,
       eventTypeIds: [
         "codepipeline-pipeline-manual-approval-succeeded",
-        "codepipeline-pipeline-action-execution-failed",
+        "codepipeline-pipeline-action-execution-failed"
       ],
       resource: pipeline.arn,
       detailType: "FULL",
@@ -267,7 +265,7 @@ export class OrderGeneratorPipeline extends pulumi.ComponentResource {
       description: `Deployment for ${APP_NAME}`,
       serviceRole: role.arn,
       environment: {
-        computeType: "BUILD_GENERAL1_LARGE",
+        computeType: "BUILD_GENERAL1_MEDIUM",
         image: "aws/codebuild/standard:7.0",
         type: "LINUX_CONTAINER",
         privilegedMode: true,

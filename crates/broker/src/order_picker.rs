@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::{
     chain_monitor::ChainMonitorService,
-    config::ConfigLock,
+    config::{ConfigLock, OrderPricingPriority},
     db::DbObj,
     errors::CodedError,
     provers::{ProverError, ProverObj},
@@ -112,6 +112,36 @@ enum OrderPricingOutcome {
     Skip,
 }
 
+/// Select the next order based on the configured order pricing priority (standalone function for testing)
+fn select_next_order(
+    orders: &mut VecDeque<Box<OrderRequest>>,
+    priority_mode: OrderPricingPriority,
+) -> Option<Box<OrderRequest>> {
+    if orders.is_empty() {
+        return None;
+    }
+
+    match priority_mode {
+        OrderPricingPriority::Random => {
+            use rand::Rng;
+            let mut rng = rand::rng();
+            let index = rng.random_range(0..orders.len());
+            orders.remove(index)
+        }
+        OrderPricingPriority::ObservationTime => orders.pop_front(),
+        OrderPricingPriority::ShortestExpiry => {
+            let (shortest_index, _) = orders.iter().enumerate().min_by_key(|(_, order)| {
+                if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
+                    order.request.offer.biddingStart + order.request.offer.timeout as u64
+                } else {
+                    order.request.offer.biddingStart + order.request.offer.lockTimeout as u64
+                }
+            })?;
+            orders.remove(shortest_index)
+        }
+    }
+}
+
 impl<P> OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -170,9 +200,9 @@ where
                     order.expire_timestamp = Some(expiry_secs);
 
                     tracing::info!(
-                        "Setting order {order_id} to lock at {}, {} seconds from now",
+                        "Order {order_id} scheduled for lock attempt in {}s (timestamp: {}), when price threshold met",
+                        target_timestamp_secs.saturating_sub(now_timestamp()),
                         target_timestamp_secs,
-                        target_timestamp_secs.saturating_sub(now_timestamp())
                     );
 
                     self.priced_orders_tx
@@ -453,19 +483,16 @@ where
 
         // Cap the exec limit based on the peak prove khz and the time until expiration.
         if let Some(peak_prove_khz) = peak_prove_khz {
-            let deadline_cycle_limit = {
-                let time_until_expiration = expiration.saturating_sub(now);
-
-                calculate_max_cycles_for_time(peak_prove_khz, time_until_expiration)
-            };
+            let time_until_expiration = expiration.saturating_sub(now);
+            let deadline_cycle_limit =
+                calculate_max_cycles_for_time(peak_prove_khz, time_until_expiration);
 
             if exec_limit_cycles > deadline_cycle_limit {
                 tracing::debug!(
-                    "Order {order_id}. Given peak_prove_khz {} and {} seconds until expiration, restricted exec limit from {} to {} cycles to ensure preflight terminates before expiration.",
-                    peak_prove_khz,
-                    expiration.saturating_sub(now),
+                    "Order {order_id} preflight cycle limit adjusted to {} cycles (capped by {:.1}s fulfillment deadline at {} peak_prove_khz config)",
                     exec_limit_cycles,
-                    deadline_cycle_limit
+                    time_until_expiration,
+                    peak_prove_khz
                 );
                 exec_limit_cycles = deadline_cycle_limit;
             }
@@ -477,7 +504,7 @@ where
         }
 
         tracing::debug!(
-            "Starting preflight execution of {order_id} exec limit {} cycles (~{} mcycles)",
+            "Starting preflight execution of {order_id} with limit of {} cycles (~{} mcycles)",
             exec_limit_cycles,
             exec_limit_cycles / 1_000_000
         );
@@ -583,23 +610,22 @@ where
         let order_id = order.id();
         let one_mill = U256::from(1_000_000);
 
-        let mcycle_price_min = (U256::from(order.request.offer.minPrice)
+        let mcycle_price_min = U256::from(order.request.offer.minPrice)
             .saturating_sub(order_gas_cost)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
-        let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
+            .saturating_mul(one_mill)
+            / U256::from(proof_res.stats.total_cycles);
+        let mcycle_price_max = U256::from(order.request.offer.maxPrice)
             .saturating_sub(order_gas_cost)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
+            .saturating_mul(one_mill)
+            / U256::from(proof_res.stats.total_cycles);
 
         tracing::debug!(
-            "Order price: min: {} max: {} - cycles: {} - mcycle price: {} - {} - stake: {} gas_cost: {}",
+            "Order {order_id} price: {}-{} ETH, {}-{} ETH per mcycle, {} stake required, {} ETH gas cost",
             format_ether(U256::from(order.request.offer.minPrice)),
             format_ether(U256::from(order.request.offer.maxPrice)),
-            proof_res.stats.total_cycles,
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            order.request.offer.lockStake,
+            format_units(U256::from(order.request.offer.lockStake), self.stake_token_decimals).unwrap_or_default(),
             format_ether(order_gas_cost),
         );
 
@@ -621,7 +647,7 @@ where
                 .div_ceil(ONE_MILLION)
                 + order_gas_cost;
             tracing::debug!(
-                "Target price: {target_min_price} ({} ETH) for {order_id}",
+                "Order {order_id} minimum profitable price: {} ETH",
                 format_ether(target_min_price)
             );
 
@@ -751,14 +777,18 @@ where
         Box::pin(async move {
             tracing::info!("Starting order picking monitor");
 
-            let read_capacity = || -> Result<usize, Self::Error> {
+            let read_config = || -> Result<(usize, OrderPricingPriority), Self::Error> {
                 let cfg = picker.config.lock_all().map_err(|err| {
                     OrderPickerErr::UnexpectedErr(anyhow::anyhow!("Failed to read config: {err}"))
                 })?;
-                Ok(cfg.market.max_concurrent_preflights as usize)
+                Ok((
+                    cfg.market.max_concurrent_preflights as usize,
+                    cfg.market.order_pricing_priority,
+                ))
             };
 
-            let mut current_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
+            let (mut current_capacity, mut priority_mode) =
+                read_config().map_err(SupervisorErr::Fault)?;
             let mut tasks: JoinSet<()> = JoinSet::new();
             let mut rx = picker.new_order_rx.lock().await;
             let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
@@ -776,10 +806,14 @@ where
                     }
                     _ = capacity_check_interval.tick() => {
                         // Check capacity on an interval for capacity changes in config
-                        let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
-                        if new_capacity != current_capacity {
+                        let (new_capacity, new_priority_mode) = read_config().map_err(SupervisorErr::Fault)?;
+                        if new_capacity != current_capacity{
                             tracing::debug!("Pricing capacity changed from {} to {}", current_capacity, new_capacity);
                             current_capacity = new_capacity;
+                        }
+                        if new_priority_mode != priority_mode {
+                            tracing::debug!("Order pricing priority changed from {:?} to {:?}", priority_mode, new_priority_mode);
+                            priority_mode = new_priority_mode;
                         }
                     }
                     _ = cancel_token.cancelled() => {
@@ -793,19 +827,13 @@ where
 
                 // Process pending orders if we have capacity
                 while !pending_orders.is_empty() && tasks.len() < current_capacity {
-                    if let Some(order) = pending_orders.pop_front() {
+                    if let Some(order) = select_next_order(&mut pending_orders, priority_mode) {
                         let picker_clone = picker.clone();
                         let task_cancel_token = cancel_token.child_token();
                         tasks.spawn(async move {
-                            let order_id = order.id();
-                            let result = picker_clone
+                            picker_clone
                                 .price_order_and_update_state(order, task_cancel_token)
                                 .await;
-                            if result {
-                                tracing::debug!("Finished processing order: {}", order_id);
-                            } else {
-                                tracing::debug!("Order was not processed: {}", order_id);
-                            }
                         });
                     }
                 }
@@ -826,6 +854,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::config::OrderPricingPriority;
     use crate::{
         chain_monitor::ChainMonitorService, db::SqliteDb, provers::DefaultProver, FulfillmentType,
         OrderStatus,
@@ -848,6 +877,7 @@ mod tests {
     };
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
+    use std::collections::{HashSet, VecDeque};
     use tracing_test::traced_test;
 
     /// Reusable context for testing the order picker
@@ -1669,10 +1699,10 @@ mod tests {
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
-        let expected_log_pattern = format!("Order {order_id}. Given peak_prove_khz");
+        let expected_log_pattern = format!("Order {order_id} preflight cycle limit adjusted to");
         assert!(logs_contain(&expected_log_pattern));
-        assert!(logs_contain("restricted exec limit from"));
-        assert!(logs_contain("to 150000 cycles to ensure preflight terminates"));
+        assert!(logs_contain("capped by"));
+        assert!(logs_contain("peak_prove_khz config"));
     }
 
     #[tokio::test]
@@ -1780,5 +1810,190 @@ mod tests {
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!("exec limit cycles for order {order2_id}: 10")));
         assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_pricing_priority_observation_time() {
+        let ctx = TestCtxBuilder::default().build().await;
+
+        let mut orders = VecDeque::new();
+        for i in 0..5 {
+            let order = ctx
+                .generate_next_order(OrderParams {
+                    order_index: i,
+                    bidding_start: now_timestamp() + (i as u64 * 10), // Different start times
+                    ..Default::default()
+                })
+                .await;
+            orders.push_back(order);
+        }
+
+        let mut selected_order_indices = Vec::new();
+        while !orders.is_empty() {
+            if let Some(order) =
+                select_next_order(&mut orders, OrderPricingPriority::ObservationTime)
+            {
+                let order_index =
+                    boundless_market::contracts::RequestId::try_from(order.request.id)
+                        .unwrap()
+                        .index;
+                selected_order_indices.push(order_index);
+            }
+        }
+
+        assert_eq!(selected_order_indices, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_pricing_priority_shortest_expiry() {
+        let ctx = TestCtxBuilder::default().build().await;
+
+        let base_time = now_timestamp();
+
+        // Create orders with different expiry times (lock timeouts)
+        let mut orders = VecDeque::new();
+        let expiry_times = [300, 100, 500, 200, 400]; // Different lock timeouts
+
+        for (i, &timeout) in expiry_times.iter().enumerate() {
+            let order = ctx
+                .generate_next_order(OrderParams {
+                    order_index: i as u32,
+                    bidding_start: base_time,
+                    lock_timeout: timeout,
+                    ..Default::default()
+                })
+                .await;
+            orders.push_back(order);
+        }
+
+        // Test that shortest_expiry mode returns orders by earliest expiry
+        let mut selected_order_indices = Vec::new();
+        while !orders.is_empty() {
+            if let Some(order) =
+                select_next_order(&mut orders, OrderPricingPriority::ShortestExpiry)
+            {
+                let order_index =
+                    boundless_market::contracts::RequestId::try_from(order.request.id)
+                        .unwrap()
+                        .index;
+                selected_order_indices.push(order_index);
+            }
+        }
+
+        assert_eq!(selected_order_indices, vec![1, 3, 0, 4, 2]);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_pricing_priority_shortest_expiry_with_lock_expired() {
+        let ctx = TestCtxBuilder::default().build().await;
+
+        let base_time = now_timestamp();
+
+        // Create a mix of regular orders and lock-expired orders
+        let mut orders = VecDeque::new();
+
+        // Regular order with lock timeout 300
+        let order1 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                lock_timeout: 300,
+                timeout: 600,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        orders.push_back(order1);
+
+        // Lock-expired order with timeout 400 (uses timeout for expiry, not lock_timeout)
+        let order2 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                bidding_start: base_time,
+                lock_timeout: 200, // This is ignored for lock-expired orders
+                timeout: 400,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        orders.push_back(order2);
+
+        // Regular order with lock timeout 250
+        let order3 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 3,
+                bidding_start: base_time,
+                lock_timeout: 250,
+                timeout: 500,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        orders.push_back(order3);
+
+        // Test selection order
+        let mut selected_order_indices = Vec::new();
+        while !orders.is_empty() {
+            if let Some(order) =
+                select_next_order(&mut orders, OrderPricingPriority::ShortestExpiry)
+            {
+                let order_index =
+                    boundless_market::contracts::RequestId::try_from(order.request.id)
+                        .unwrap()
+                        .index;
+                selected_order_indices.push(order_index);
+            }
+        }
+
+        // Should be: 3 (250), 1 (300), 2 (400)
+        // Order 3: lock_timeout 250 -> expiry = base_time + 250
+        // Order 1: lock_timeout 300 -> expiry = base_time + 300
+        // Order 2: timeout 400 (lock-expired) -> expiry = base_time + 400
+        assert_eq!(selected_order_indices, vec![3, 1, 2]);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_pricing_priority_random() {
+        let ctx = TestCtxBuilder::default().build().await;
+
+        // Run the test multiple times to verify randomness
+        let mut all_orderings = HashSet::new();
+
+        for _ in 0..20 {
+            // Run 20 times to get different random orderings
+            let mut orders = VecDeque::new();
+            for i in 0..5 {
+                let order = ctx
+                    .generate_next_order(OrderParams { order_index: i, ..Default::default() })
+                    .await;
+                orders.push_back(order);
+            }
+
+            let mut selected_order_indices = Vec::new();
+            while !orders.is_empty() {
+                if let Some(order) = select_next_order(&mut orders, OrderPricingPriority::Random) {
+                    let order_index =
+                        boundless_market::contracts::RequestId::try_from(order.request.id)
+                            .unwrap()
+                            .index;
+                    selected_order_indices.push(order_index);
+                }
+            }
+
+            all_orderings.insert(selected_order_indices);
+        }
+
+        assert!(all_orderings.len() > 1, "Random selection should produce different orderings");
+
+        // Verify all orderings contain the same elements (all 5 orders)
+        for ordering in &all_orderings {
+            let mut sorted_ordering = ordering.clone();
+            sorted_ordering.sort();
+            assert_eq!(sorted_ordering, vec![0, 1, 2, 3, 4]);
+        }
     }
 }
