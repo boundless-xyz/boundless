@@ -112,36 +112,6 @@ enum OrderPricingOutcome {
     Skip,
 }
 
-/// Select the next order based on the configured order pricing priority (standalone function for testing)
-fn select_next_order(
-    orders: &mut VecDeque<Box<OrderRequest>>,
-    priority_mode: OrderPricingPriority,
-) -> Option<Box<OrderRequest>> {
-    if orders.is_empty() {
-        return None;
-    }
-
-    match priority_mode {
-        OrderPricingPriority::Random => {
-            use rand::Rng;
-            let mut rng = rand::rng();
-            let index = rng.random_range(0..orders.len());
-            orders.remove(index)
-        }
-        OrderPricingPriority::ObservationTime => orders.pop_front(),
-        OrderPricingPriority::ShortestExpiry => {
-            let (shortest_index, _) = orders.iter().enumerate().min_by_key(|(_, order)| {
-                if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
-                    order.request.offer.biddingStart + order.request.offer.timeout as u64
-                } else {
-                    order.request.offer.biddingStart + order.request.offer.lockTimeout as u64
-                }
-            })?;
-            orders.remove(shortest_index)
-        }
-    }
-}
-
 impl<P> OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -827,7 +797,9 @@ where
 
                 // Process pending orders if we have capacity
                 while !pending_orders.is_empty() && tasks.len() < current_capacity {
-                    if let Some(order) = select_next_order(&mut pending_orders, priority_mode) {
+                    if let Some(order) =
+                        picker.select_next_pricing_order(&mut pending_orders, priority_mode)
+                    {
                         let picker_clone = picker.clone();
                         let task_cancel_token = cancel_token.child_token();
                         tasks.spawn(async move {
@@ -850,11 +822,10 @@ fn calculate_max_cycles_for_time(prove_khz: u64, time_seconds: u64) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::config::OrderPricingPriority;
     use crate::{
         chain_monitor::ChainMonitorService, db::SqliteDb, provers::DefaultProver, FulfillmentType,
         OrderStatus,
@@ -877,13 +848,12 @@ mod tests {
     };
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
-    use std::collections::{HashSet, VecDeque};
     use tracing_test::traced_test;
 
     /// Reusable context for testing the order picker
-    struct TestCtx<P> {
+    pub(crate) struct PickerTestCtx<P> {
         anvil: AnvilInstance,
-        picker: OrderPicker<P>,
+        pub(crate) picker: OrderPicker<P>,
         boundless_market: BoundlessMarketService<Arc<P>>,
         storage_provider: MockStorageProvider,
         db: DbObj,
@@ -893,15 +863,15 @@ mod tests {
     }
 
     /// Parameters for the generate_next_order function.
-    struct OrderParams {
-        order_index: u32,
-        min_price: U256,
-        max_price: U256,
-        lock_stake: U256,
-        fulfillment_type: FulfillmentType,
-        bidding_start: u64,
-        lock_timeout: u32,
-        timeout: u32,
+    pub(crate) struct OrderParams {
+        pub(crate) order_index: u32,
+        pub(crate) min_price: U256,
+        pub(crate) max_price: U256,
+        pub(crate) lock_stake: U256,
+        pub(crate) fulfillment_type: FulfillmentType,
+        pub(crate) bidding_start: u64,
+        pub(crate) lock_timeout: u32,
+        pub(crate) timeout: u32,
     }
 
     impl Default for OrderParams {
@@ -919,15 +889,15 @@ mod tests {
         }
     }
 
-    impl<P> TestCtx<P>
+    impl<P> PickerTestCtx<P>
     where
         P: Provider + WalletProvider,
     {
-        fn signer(&self, index: usize) -> PrivateKeySigner {
+        pub(crate) fn signer(&self, index: usize) -> PrivateKeySigner {
             self.anvil.keys()[index].clone().into()
         }
 
-        async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
+        pub(crate) async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
             let image_url = self.storage_provider.upload_program(ECHO_ELF).await.unwrap();
             let image_id = Digest::from(ECHO_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
@@ -972,28 +942,30 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct TestCtxBuilder {
+    pub(crate) struct PickerTestCtxBuilder {
         initial_signer_eth: Option<i32>,
         initial_hp: Option<U256>,
         config: Option<ConfigLock>,
         stake_token_decimals: Option<u8>,
     }
 
-    impl TestCtxBuilder {
-        fn with_initial_signer_eth(self, eth: i32) -> Self {
+    impl PickerTestCtxBuilder {
+        pub(crate) fn with_initial_signer_eth(self, eth: i32) -> Self {
             Self { initial_signer_eth: Some(eth), ..self }
         }
-        fn with_initial_hp(self, hp: U256) -> Self {
+        pub(crate) fn with_initial_hp(self, hp: U256) -> Self {
             assert!(hp < U256::from(U96::MAX), "Cannot have more than 2^96 hit points");
             Self { initial_hp: Some(hp), ..self }
         }
-        fn with_config(self, config: ConfigLock) -> Self {
+        pub(crate) fn with_config(self, config: ConfigLock) -> Self {
             Self { config: Some(config), ..self }
         }
-        fn with_stake_token_decimals(self, decimals: u8) -> Self {
+        pub(crate) fn with_stake_token_decimals(self, decimals: u8) -> Self {
             Self { stake_token_decimals: Some(decimals), ..self }
         }
-        async fn build(self) -> TestCtx<impl Provider + WalletProvider + Clone + 'static> {
+        pub(crate) async fn build(
+            self,
+        ) -> PickerTestCtx<impl Provider + WalletProvider + Clone + 'static> {
             let anvil = Anvil::new()
                 .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
                 .spawn();
@@ -1063,7 +1035,7 @@ mod tests {
                 self.stake_token_decimals.unwrap_or(6),
             );
 
-            TestCtx {
+            PickerTestCtx {
                 anvil,
                 picker,
                 boundless_market,
@@ -1083,7 +1055,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
 
@@ -1104,7 +1076,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
         // set a bad predicate
@@ -1131,7 +1103,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
 
@@ -1158,7 +1130,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx
             .generate_next_order(OrderParams {
@@ -1188,7 +1160,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
         let min_price = parse_ether("0.0013").unwrap();
@@ -1245,7 +1217,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
         let min_price = parse_ether("0.0013").unwrap();
@@ -1305,7 +1277,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
         let min_price = parse_ether("0.0013").unwrap();
@@ -1364,7 +1336,7 @@ mod tests {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
 
@@ -1388,7 +1360,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.id();
@@ -1437,7 +1409,7 @@ mod tests {
             config.load_write().unwrap().market.max_stake = "10".into();
         }
 
-        let mut ctx = TestCtxBuilder::default()
+        let mut ctx = PickerTestCtxBuilder::default()
             .with_initial_signer_eth(signer_inital_balance_eth)
             .with_initial_hp(lockin_stake)
             .with_config(config)
@@ -1492,7 +1464,7 @@ mod tests {
             config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
         }
 
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
@@ -1527,8 +1499,11 @@ mod tests {
         }
         let lock_stake = U256::from(10);
 
-        let ctx =
-            TestCtxBuilder::default().with_config(config).with_initial_hp(lock_stake).build().await;
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(lock_stake)
+            .build()
+            .await;
         let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
 
         let order_id = order.id();
@@ -1549,7 +1524,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price_stake_token = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default()
+        let mut ctx = PickerTestCtxBuilder::default()
             .with_config(config)
             .with_initial_hp(U256::from(1000))
             .build()
@@ -1592,7 +1567,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price_stake_token = "0.1".into();
         }
-        let ctx = TestCtxBuilder::default()
+        let ctx = PickerTestCtxBuilder::default()
             .with_stake_token_decimals(6)
             .with_config(config)
             .build()
@@ -1635,7 +1610,7 @@ mod tests {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.max_mcycle_limit = Some(exec_limit);
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         ctx.picker.config.load_write().as_mut().unwrap().market.allow_skip_mcycle_limit_addresses =
             Some(vec![ctx.provider.default_signer_address()]);
@@ -1679,7 +1654,7 @@ mod tests {
             config.load_write().unwrap().market.peak_prove_khz = Some(1);
             config.load_write().unwrap().market.min_deadline = 10;
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx
             .generate_next_order(OrderParams {
@@ -1714,7 +1689,7 @@ mod tests {
             cfg.market.mcycle_price = "0.0000001".into();
             cfg.market.max_concurrent_preflights = 2;
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config.clone()).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config.clone()).build().await;
 
         // Start the order picker task
         let picker_task = tokio::spawn(ctx.picker.spawn(Default::default()));
@@ -1760,7 +1735,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price_stake_token = "1".into();
         }
-        let ctx = TestCtxBuilder::default()
+        let ctx = PickerTestCtxBuilder::default()
             .with_config(config.clone())
             .with_stake_token_decimals(6)
             .build()
@@ -1810,190 +1785,5 @@ mod tests {
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!("exec limit cycles for order {order2_id}: 10")));
         assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_order_pricing_priority_observation_time() {
-        let ctx = TestCtxBuilder::default().build().await;
-
-        let mut orders = VecDeque::new();
-        for i in 0..5 {
-            let order = ctx
-                .generate_next_order(OrderParams {
-                    order_index: i,
-                    bidding_start: now_timestamp() + (i as u64 * 10), // Different start times
-                    ..Default::default()
-                })
-                .await;
-            orders.push_back(order);
-        }
-
-        let mut selected_order_indices = Vec::new();
-        while !orders.is_empty() {
-            if let Some(order) =
-                select_next_order(&mut orders, OrderPricingPriority::ObservationTime)
-            {
-                let order_index =
-                    boundless_market::contracts::RequestId::try_from(order.request.id)
-                        .unwrap()
-                        .index;
-                selected_order_indices.push(order_index);
-            }
-        }
-
-        assert_eq!(selected_order_indices, vec![0, 1, 2, 3, 4]);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_order_pricing_priority_shortest_expiry() {
-        let ctx = TestCtxBuilder::default().build().await;
-
-        let base_time = now_timestamp();
-
-        // Create orders with different expiry times (lock timeouts)
-        let mut orders = VecDeque::new();
-        let expiry_times = [300, 100, 500, 200, 400]; // Different lock timeouts
-
-        for (i, &timeout) in expiry_times.iter().enumerate() {
-            let order = ctx
-                .generate_next_order(OrderParams {
-                    order_index: i as u32,
-                    bidding_start: base_time,
-                    lock_timeout: timeout,
-                    ..Default::default()
-                })
-                .await;
-            orders.push_back(order);
-        }
-
-        // Test that shortest_expiry mode returns orders by earliest expiry
-        let mut selected_order_indices = Vec::new();
-        while !orders.is_empty() {
-            if let Some(order) =
-                select_next_order(&mut orders, OrderPricingPriority::ShortestExpiry)
-            {
-                let order_index =
-                    boundless_market::contracts::RequestId::try_from(order.request.id)
-                        .unwrap()
-                        .index;
-                selected_order_indices.push(order_index);
-            }
-        }
-
-        assert_eq!(selected_order_indices, vec![1, 3, 0, 4, 2]);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_order_pricing_priority_shortest_expiry_with_lock_expired() {
-        let ctx = TestCtxBuilder::default().build().await;
-
-        let base_time = now_timestamp();
-
-        // Create a mix of regular orders and lock-expired orders
-        let mut orders = VecDeque::new();
-
-        // Regular order with lock timeout 300
-        let order1 = ctx
-            .generate_next_order(OrderParams {
-                order_index: 1,
-                bidding_start: base_time,
-                lock_timeout: 300,
-                timeout: 600,
-                fulfillment_type: FulfillmentType::LockAndFulfill,
-                ..Default::default()
-            })
-            .await;
-        orders.push_back(order1);
-
-        // Lock-expired order with timeout 400 (uses timeout for expiry, not lock_timeout)
-        let order2 = ctx
-            .generate_next_order(OrderParams {
-                order_index: 2,
-                bidding_start: base_time,
-                lock_timeout: 200, // This is ignored for lock-expired orders
-                timeout: 400,
-                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
-                ..Default::default()
-            })
-            .await;
-        orders.push_back(order2);
-
-        // Regular order with lock timeout 250
-        let order3 = ctx
-            .generate_next_order(OrderParams {
-                order_index: 3,
-                bidding_start: base_time,
-                lock_timeout: 250,
-                timeout: 500,
-                fulfillment_type: FulfillmentType::LockAndFulfill,
-                ..Default::default()
-            })
-            .await;
-        orders.push_back(order3);
-
-        // Test selection order
-        let mut selected_order_indices = Vec::new();
-        while !orders.is_empty() {
-            if let Some(order) =
-                select_next_order(&mut orders, OrderPricingPriority::ShortestExpiry)
-            {
-                let order_index =
-                    boundless_market::contracts::RequestId::try_from(order.request.id)
-                        .unwrap()
-                        .index;
-                selected_order_indices.push(order_index);
-            }
-        }
-
-        // Should be: 3 (250), 1 (300), 2 (400)
-        // Order 3: lock_timeout 250 -> expiry = base_time + 250
-        // Order 1: lock_timeout 300 -> expiry = base_time + 300
-        // Order 2: timeout 400 (lock-expired) -> expiry = base_time + 400
-        assert_eq!(selected_order_indices, vec![3, 1, 2]);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_order_pricing_priority_random() {
-        let ctx = TestCtxBuilder::default().build().await;
-
-        // Run the test multiple times to verify randomness
-        let mut all_orderings = HashSet::new();
-
-        for _ in 0..20 {
-            // Run 20 times to get different random orderings
-            let mut orders = VecDeque::new();
-            for i in 0..5 {
-                let order = ctx
-                    .generate_next_order(OrderParams { order_index: i, ..Default::default() })
-                    .await;
-                orders.push_back(order);
-            }
-
-            let mut selected_order_indices = Vec::new();
-            while !orders.is_empty() {
-                if let Some(order) = select_next_order(&mut orders, OrderPricingPriority::Random) {
-                    let order_index =
-                        boundless_market::contracts::RequestId::try_from(order.request.id)
-                            .unwrap()
-                            .index;
-                    selected_order_indices.push(order_index);
-                }
-            }
-
-            all_orderings.insert(selected_order_indices);
-        }
-
-        assert!(all_orderings.len() > 1, "Random selection should produce different orderings");
-
-        // Verify all orderings contain the same elements (all 5 orders)
-        for ordering in &all_orderings {
-            let mut sorted_ordering = ordering.clone();
-            sorted_ordering.sort();
-            assert_eq!(sorted_ordering, vec![0, 1, 2, 3, 4]);
-        }
     }
 }
