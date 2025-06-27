@@ -945,7 +945,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
@@ -987,22 +987,22 @@ mod tests {
         RootProvider,
     >;
 
-    struct TestCtx {
-        monitor: OrderMonitor<TestProvider>,
-        anvil: AnvilInstance,
-        db: DbObj,
-        market_address: Address,
+    pub struct TestCtx {
+        pub monitor: OrderMonitor<TestProvider>,
+        pub anvil: AnvilInstance,
+        pub db: DbObj,
+        pub market_address: Address,
         #[allow(dead_code)]
-        config: ConfigLock,
-        priced_order_tx: mpsc::Sender<Box<OrderRequest>>,
-        signer: PrivateKeySigner,
-        market_service: BoundlessMarketService<Arc<TestProvider>>,
+        pub config: ConfigLock,
+        pub priced_order_tx: mpsc::Sender<Box<OrderRequest>>,
+        pub signer: PrivateKeySigner,
+        pub market_service: BoundlessMarketService<Arc<TestProvider>>,
         next_order_id: u32, // Counter to assign unique order IDs
     }
 
     impl TestCtx {
         // Convert the standalone function to a method on TestCtx
-        async fn create_test_order(
+        pub async fn create_test_order(
             &mut self,
             fulfillment_type: FulfillmentType,
             bidding_start: u64,
@@ -1056,7 +1056,7 @@ mod tests {
         }
     }
 
-    async fn setup_test() -> TestCtx {
+    pub async fn setup_om_test_context() -> TestCtx {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
@@ -1161,7 +1161,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn monitor_block() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
 
         // Create a test order using the TestCtx helper method
         let order =
@@ -1213,7 +1213,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_filter_expired_orders() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create an expired order
@@ -1237,7 +1237,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_filter_insufficient_deadline() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create an order with insufficient deadline
@@ -1266,7 +1266,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_filter_locked_by_others() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create an order that's locked by another prover
@@ -1293,52 +1293,11 @@ mod tests {
         assert_eq!(order.status, OrderStatus::Skipped);
     }
 
-    // Sorting tests
-    #[tokio::test]
-    async fn test_prioritize_orders() {
-        let mut ctx = setup_test().await;
-        let current_timestamp = now_timestamp();
-
-        // Create orders with different expiration times
-        // Must lock and fulfill within 50 seconds
-        let order1 = ctx
-            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 50, 200)
-            .await;
-        let order_1_id = order1.id();
-
-        // Must lock and fulfill within 100 seconds.
-        let order2 = ctx
-            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
-            .await;
-        let order_2_id = order2.id();
-
-        // Must fulfill after lock expires within 51 seconds.
-        let order3 = ctx
-            .create_test_order(FulfillmentType::FulfillAfterLockExpire, current_timestamp, 1, 51)
-            .await;
-        let order_3_id = order3.id();
-
-        // Must fulfill after lock expires within 53 seconds.
-        let order4 = ctx
-            .create_test_order(FulfillmentType::FulfillAfterLockExpire, current_timestamp, 1, 53)
-            .await;
-        let order_4_id = order4.id();
-
-        let orders =
-            vec![Arc::from(order1), Arc::from(order2), Arc::from(order3), Arc::from(order4)];
-        let orders = ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
-
-        assert!(orders[0].id() == order_1_id);
-        assert!(orders[1].id() == order_3_id);
-        assert!(orders[2].id() == order_4_id);
-        assert!(orders[3].id() == order_2_id);
-    }
-
     // Processing tests
     #[tokio::test]
     #[traced_test]
     async fn test_process_fulfill_after_lock_expire_orders() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
         let order = ctx
@@ -1355,7 +1314,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_apply_capacity_limits_unlimited() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create multiple orders
@@ -1407,7 +1366,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_apply_capacity_limits_proving() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Add a committed order to simulate existing workload
@@ -1468,7 +1427,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_apply_capacity_limits_committed_work_too_large() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Add a large committed order to simulate existing workload
@@ -1514,7 +1473,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_apply_capacity_limits_skip_proof_time_past_expiration() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create orders with different expiration times
@@ -1564,7 +1523,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_gas_estimation_functions() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
 
         // Create orders with different fulfillment types to test gas estimation for each type
         let lock_and_fulfill_order =
@@ -1610,7 +1569,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_multiple_orders_khz_capacity() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         ctx.config.load_write().unwrap().market.max_concurrent_proofs = None;
 
         // Create multiple orders with increasing cycle counts to test gas allocation
@@ -1650,7 +1609,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_insufficient_balance_committed_orders() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
 
         let balance = ctx.monitor.provider.get_balance(ctx.signer.address()).await.unwrap();
         let gas_price = ctx.monitor.provider.get_gas_price().await.unwrap();
@@ -1715,7 +1674,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_target_timestamp_prevents_early_locking() {
-        let mut ctx = setup_test().await;
+        let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
         let future_timestamp = current_timestamp + 100; // 100 seconds in the future
 
@@ -1794,191 +1753,5 @@ mod tests {
         assert!(valid_orders_in_future
             .iter()
             .any(|order| order.id() == fulfill_after_expire_order_id));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_expired_order_fulfillment_priority_random() {
-        use crate::config::OrderCommitmentPriority;
-        use std::collections::HashSet;
-
-        let mut ctx = setup_test().await;
-        let current_timestamp = now_timestamp();
-
-        // Create mixed orders: some lock-and-fulfill, some expired
-        let mut orders = Vec::new();
-
-        // Add lock-and-fulfill orders
-        for i in 1..=3 {
-            let order = ctx
-                .create_test_order(
-                    FulfillmentType::LockAndFulfill,
-                    current_timestamp,
-                    100 + (i * 10) as u64,
-                    200,
-                )
-                .await;
-            orders.push(Arc::from(order));
-        }
-
-        // Add expired orders
-        for i in 4..=6 {
-            let order = ctx
-                .create_test_order(
-                    FulfillmentType::FulfillAfterLockExpire,
-                    current_timestamp,
-                    10,
-                    100 + (i * 10) as u64,
-                )
-                .await;
-            orders.push(Arc::from(order));
-        }
-
-        // Run multiple times to test randomness of all orders
-        let mut all_orderings = HashSet::new();
-
-        for _ in 0..10 {
-            let test_orders = orders.clone();
-            let test_orders =
-                ctx.monitor.prioritize_orders(test_orders, OrderCommitmentPriority::Random);
-
-            // Extract the ordering of all orders
-            let order_ids: Vec<_> = test_orders.iter().map(|order| order.request.id).collect();
-            all_orderings.insert(order_ids);
-        }
-
-        // Should see different orderings due to randomness
-        assert!(all_orderings.len() > 1, "Random mode should produce different orderings");
-
-        // Test that random mode produces different orderings
-        let prioritized = ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::Random);
-
-        // We should have 3 LockAndFulfill and 3 FulfillAfterLockExpire orders in total
-        let lock_and_fulfill_count = prioritized
-            .iter()
-            .filter(|order| order.fulfillment_type == FulfillmentType::LockAndFulfill)
-            .count();
-        let fulfill_after_expire_count = prioritized
-            .iter()
-            .filter(|order| order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire)
-            .count();
-
-        assert_eq!(lock_and_fulfill_count, 3);
-        assert_eq!(fulfill_after_expire_count, 3);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_expired_order_fulfillment_priority_shortest_expiry() {
-        use crate::config::OrderCommitmentPriority;
-
-        let mut ctx = setup_test().await;
-        let current_timestamp = now_timestamp();
-
-        // Create mixed orders with different expiry times
-        let mut orders = Vec::new();
-
-        // Lock-and-fulfill orders with different lock timeouts
-        let lock_timeouts = [150, 100, 200]; // Will be sorted: 100, 150, 200
-        for &timeout in lock_timeouts.iter() {
-            let order = ctx
-                .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, timeout, 300)
-                .await;
-            orders.push(Arc::from(order));
-        }
-
-        // Expired orders with different total timeouts
-        let total_timeouts = [250, 150, 300]; // Will be sorted: 150, 250, 300
-        for &timeout in total_timeouts.iter() {
-            let order = ctx
-                .create_test_order(
-                    FulfillmentType::FulfillAfterLockExpire,
-                    current_timestamp,
-                    10,
-                    timeout,
-                )
-                .await;
-            orders.push(Arc::from(order));
-        }
-
-        let prioritized =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
-
-        // Orders should be sorted by their relevant expiry times, regardless of type
-        // Expected order: LockAndFulfill(100), LockAndFulfill(150), FulfillAfterLockExpire(150), LockAndFulfill(200), FulfillAfterLockExpire(250), FulfillAfterLockExpire(300)
-
-        // Position 0: LockAndFulfill with lock_expires=100
-        assert_eq!(prioritized[0].fulfillment_type, FulfillmentType::LockAndFulfill);
-        assert_eq!(prioritized[0].request.lock_expires_at(), current_timestamp + 100);
-
-        // Position 1: LockAndFulfill with lock_expires=150
-        assert_eq!(prioritized[1].fulfillment_type, FulfillmentType::LockAndFulfill);
-        assert_eq!(prioritized[1].request.lock_expires_at(), current_timestamp + 150);
-
-        // Position 2: FulfillAfterLockExpire with expires=150
-        assert_eq!(prioritized[2].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
-        assert_eq!(prioritized[2].request.expires_at(), current_timestamp + 150);
-
-        // Position 3: LockAndFulfill with lock_expires=200
-        assert_eq!(prioritized[3].fulfillment_type, FulfillmentType::LockAndFulfill);
-        assert_eq!(prioritized[3].request.lock_expires_at(), current_timestamp + 200);
-
-        // Position 4: FulfillAfterLockExpire with expires=250
-        assert_eq!(prioritized[4].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
-        assert_eq!(prioritized[4].request.expires_at(), current_timestamp + 250);
-
-        // Position 5: FulfillAfterLockExpire with expires=300
-        assert_eq!(prioritized[5].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
-        assert_eq!(prioritized[5].request.expires_at(), current_timestamp + 300);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_expired_order_fulfillment_priority_configuration_change() {
-        use crate::config::OrderCommitmentPriority;
-
-        let mut ctx = setup_test().await;
-        let current_timestamp = now_timestamp();
-
-        // Start with random mode
-        ctx.config.load_write().unwrap().market.order_commitment_priority =
-            OrderCommitmentPriority::Random;
-
-        // Create only expired orders for this test
-        let mut orders = Vec::new();
-        for i in 1..=4 {
-            let order = ctx
-                .create_test_order(
-                    FulfillmentType::FulfillAfterLockExpire,
-                    current_timestamp,
-                    10,
-                    100 + (i * 20) as u64, // Different expiry times: 120, 140, 160, 180
-                )
-                .await;
-            orders.push(Arc::from(order));
-        }
-
-        // Test random mode (no need to capture result since it's random)
-        let _prioritized_random = orders.clone();
-        let _prioritized_random =
-            ctx.monitor.prioritize_orders(_prioritized_random, OrderCommitmentPriority::Random);
-
-        // Test shortest expiry mode
-        let prioritized_shortest =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
-
-        // In shortest expiry mode, orders should be sorted by expiry time
-        for i in 0..3 {
-            assert!(
-                prioritized_shortest[i].request.expires_at()
-                    <= prioritized_shortest[i + 1].request.expires_at()
-            );
-        }
-
-        // Verify the exact order for shortest expiry
-        assert_eq!(prioritized_shortest[0].request.expires_at(), current_timestamp + 120);
-        assert_eq!(prioritized_shortest[1].request.expires_at(), current_timestamp + 140);
-        assert_eq!(prioritized_shortest[2].request.expires_at(), current_timestamp + 160);
-        assert_eq!(prioritized_shortest[3].request.expires_at(), current_timestamp + 180);
     }
 }
