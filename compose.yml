@@ -30,6 +30,42 @@ x-exec-agent-common: &exec-agent-common
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
   entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
 
+x-broker-environment: &broker-environment
+  RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
+  # RUST_BACKTRACE: 1
+  PRIVATE_KEY: ${PRIVATE_KEY}
+  RPC_URL: ${RPC_URL}
+  BOUNDLESS_MARKET_ADDRESS:
+  SET_VERIFIER_ADDRESS:
+  ORDER_STREAM_URL:
+  # TODO these env vars are temporary for handling cancellations. These should be removed when
+  # updated.
+  POSTGRES_HOST:
+  POSTGRES_DB:
+  POSTGRES_PORT:
+  POSTGRES_USER:
+  POSTGRES_PASS:
+
+x-broker-common: &broker-common
+  restart: always
+  depends_on:
+    - rest_api
+    - gpu_prove_agent0
+    - exec_agent0
+    - exec_agent1
+    - aux_agent
+    - snark_agent
+    - redis
+    - postgres
+  profiles: [broker]
+  build:
+    context: .
+    dockerfile: dockerfiles/broker.dockerfile
+  mem_limit: 2G
+  cpus: 2
+  stop_grace_period: 3h
+  network_mode: host
+
 services:
   redis:
     hostname: ${REDIS_HOST:-redis}
@@ -156,28 +192,7 @@ services:
     entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
 
   broker:
-    restart: always
-    depends_on:
-      - rest_api
-      - gpu_prove_agent0
-      - exec_agent0
-      - exec_agent1
-      - aux_agent
-      - snark_agent
-      - redis
-      - postgres
-
-    profiles: [broker]
-
-    build:
-      context: .
-      dockerfile: dockerfiles/broker.dockerfile
-
-    mem_limit: 2G
-    cpus: 2
-
-    stop_grace_period: 3h
-
+    <<: *broker-common
     volumes:
       - type: bind
         source: ./broker.toml
@@ -190,27 +205,26 @@ services:
       # - type: bind
       #   source: ./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
       #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
-
-    network_mode: host
-
     environment:
-      RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
-      # RUST_BACKTRACE: 1
+      <<: *broker-environment
       PRIVATE_KEY: ${PRIVATE_KEY}
       RPC_URL: ${RPC_URL}
-      BOUNDLESS_MARKET_ADDRESS:
-      SET_VERIFIER_ADDRESS:
-      ORDER_STREAM_URL:
-
-      # TODO these env vars are temporary for handling cancellations. These should be removed when
-      # updated.
-      POSTGRES_HOST:
-      POSTGRES_DB:
-      POSTGRES_PORT:
-      POSTGRES_USER:
-      POSTGRES_PASS:
-
     entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
+
+  # # Example second broker with different configuration
+  # broker2:
+  #   <<: *broker-common
+  #   volumes:
+  #     - type: bind
+  #       source: ./broker2.toml
+  #       target: /app/broker.toml
+  #     - broker2-data:/db/
+  #   environment:
+  #     <<: *broker-environment
+  #     # Note: use a different variable if you want to use different private keys in each broker
+  #     PRIVATE_KEY: ${PRIVATE_KEY}
+  #     RPC_URL: ${RPC_URL_2}
+  #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
 volumes:
   redis-data:
@@ -218,3 +232,4 @@ volumes:
   minio-data:
   grafana-data:
   broker-data:
+  # broker2-data:
