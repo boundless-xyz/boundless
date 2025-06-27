@@ -24,8 +24,8 @@ deployment_secrets.toml
 !.env.base-sepolia
 !.env.base
 
-# Ignore broker config file
-broker.toml
+# Ignore broker config file(s)
+*broker*.toml
 
 # Cargo
 target/

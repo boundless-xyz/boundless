@@ -474,10 +474,14 @@ mod tests {
         Args {
             db_url: "sqlite::memory:".into(),
             config_file,
-            boundless_market_address,
-            set_verifier_address,
+            deployment: Some(
+                Deployment::builder()
+                    .boundless_market_address(boundless_market_address)
+                    .set_verifier_address(set_verifier_address)
+                    .build()
+                    .unwrap(),
+            ),
             rpc_url,
-            order_stream_url: None,
             private_key,
             bento_api_url: None,
             bonsai_api_key,
