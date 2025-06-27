@@ -24,11 +24,12 @@ These steps create a new project with a dev stack for deploying to the developme
 
 1. Vault in as developer admin
 2. `pulumi login --local`
-3. `pulumi new aws-typescript --name <project_name> --stack dev --yes`
-4. `git add -u && git commit -m "Initialize <project_name>"`
-5. Add `Pulumi.dev.yaml` to `.gitignore`
-6. `git add -u && git commit -m ".gitignore"`
-7. Modify `package.json` to add a script that builds using `tsc`. This is used by Github Actions CI. Add:
+3. `mkdir <project_name> && cd <project_name>`
+4. `pulumi new aws-typescript --name <project_name> --stack dev --yes`
+5. `git add -u && git commit -m "Initialize <project_name>"`
+6. Add `Pulumi.dev.yaml` to `.gitignore`
+7. `git add -u && git commit -m ".gitignore"`
+8. Modify `package.json` to add a script that builds using `tsc`. This is used by Github Actions CI. Add:
    ```
     "scripts": {
         "build": "tsc"
@@ -42,6 +43,6 @@ Once the dev stack is stable, these steps create staging and prod stacks in prep
 Requires Ops Admin permissions. Create staging and prod stacks requires accessing the Pulumi state bucket and Pulumi KMS key for encrypting secrets.
 
 7. `pulumi login "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"` 
-8. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" staging`
+8. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" staging-11155111`
 9. `pulumi stack init --secrets-provider="awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key" prod`
 10. Set your secrets using `pulumi config set --secret <NAME> <VALUE>`

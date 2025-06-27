@@ -112,6 +112,36 @@ enum OrderPricingOutcome {
     Skip,
 }
 
+/// Select the next order based on the configured order pricing priority (standalone function for testing)
+fn select_next_order(
+    orders: &mut VecDeque<Box<OrderRequest>>,
+    priority_mode: OrderPricingPriority,
+) -> Option<Box<OrderRequest>> {
+    if orders.is_empty() {
+        return None;
+    }
+
+    match priority_mode {
+        OrderPricingPriority::Random => {
+            use rand::Rng;
+            let mut rng = rand::rng();
+            let index = rng.random_range(0..orders.len());
+            orders.remove(index)
+        }
+        OrderPricingPriority::ObservationTime => orders.pop_front(),
+        OrderPricingPriority::ShortestExpiry => {
+            let (shortest_index, _) = orders.iter().enumerate().min_by_key(|(_, order)| {
+                if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
+                    order.request.offer.biddingStart + order.request.offer.timeout as u64
+                } else {
+                    order.request.offer.biddingStart + order.request.offer.lockTimeout as u64
+                }
+            })?;
+            orders.remove(shortest_index)
+        }
+    }
+}
+
 impl<P> OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -580,14 +610,14 @@ where
         let order_id = order.id();
         let one_mill = U256::from(1_000_000);
 
-        let mcycle_price_min = (U256::from(order.request.offer.minPrice)
+        let mcycle_price_min = U256::from(order.request.offer.minPrice)
             .saturating_sub(order_gas_cost)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
-        let mcycle_price_max = (U256::from(order.request.offer.maxPrice)
+            .saturating_mul(one_mill)
+            / U256::from(proof_res.stats.total_cycles);
+        let mcycle_price_max = U256::from(order.request.offer.maxPrice)
             .saturating_sub(order_gas_cost)
-            / U256::from(proof_res.stats.total_cycles))
-            * one_mill;
+            .saturating_mul(one_mill)
+            / U256::from(proof_res.stats.total_cycles);
 
         tracing::debug!(
             "Order {order_id} price: {}-{} ETH, {}-{} ETH per mcycle, {} stake required, {} ETH gas cost",
