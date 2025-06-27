@@ -47,7 +47,7 @@ rmp-serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true }
+tokio-tungstenite = { version = "0.24" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 siwe = { version = "0.6", features = ["serde"] }
@@ -63,5 +63,13 @@ tracing-test = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = []
+default = ["rust-tls"]
+native-tls = [
+    "alloy/reqwest-native-tls",
+    "tokio-tungstenite/native-tls"
+]
+rust-tls = [
+    "alloy/reqwest-rustls-tls",
+    "tokio-tungstenite/rustls-tls-native-roots"
+]
 test-utils = ["dep:risc0-circuit-recursion"]

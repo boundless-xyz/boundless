@@ -3781,16 +3781,16 @@ version = "0.11.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum 2.2.0",
+ "risc0-build-ethereum",
 ]
 
 [[package]]
 name = "guest-set-builder"
 version = "0.7.0"
-source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.7.0#c09ee29b386d2b1486724509868d1115db36929f"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=angelo-rust-tls-2#b7b539a11168b53fc42b79f305e2249f70d8b9ef"
 dependencies = [
  "risc0-build",
- "risc0-build-ethereum 2.1.0",
+ "risc0-build-ethereum",
 ]
 
 [[package]]
@@ -3799,7 +3799,7 @@ version = "0.11.0"
 dependencies = [
  "hex",
  "risc0-build",
- "risc0-build-ethereum 2.2.0",
+ "risc0-build-ethereum",
 ]
 
 [[package]]
@@ -4241,11 +4241,9 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "socket2",
- "system-configuration",
  "tokio",
  "tower-service",
  "tracing",
- "windows-registry",
 ]
 
 [[package]]
@@ -6163,11 +6161,9 @@ checksum = "eabf4c97d9130e2bf606614eb937e86edac8292eaa6f422f995d7e8de1eb1813"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.4.10",
  "http 1.3.1",
  "http-body 1.0.1",
  "http-body-util",
@@ -6177,7 +6173,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "mime",
  "mime_guess",
  "native-tls",
  "percent-encoding",
@@ -6293,9 +6288,8 @@ checksum = "3df6368f71f205ff9c33c076d170dd56ebf68e8161c733c0caa07a7a5509ed53"
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f18e3e10496d7cda4adb19d220865c39c9ad3b2fd5f9b6c5ebc21db5ab6a2ba"
+version = "0.7.0"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=angelo-rust-tls-2#b7b539a11168b53fc42b79f305e2249f70d8b9ef"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -6353,22 +6347,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-build-ethereum"
-version = "2.1.0"
-source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.7.0#c09ee29b386d2b1486724509868d1115db36929f"
-dependencies = [
- "anyhow",
- "bytemuck",
- "hex",
- "risc0-build",
- "risc0-zkp",
- "risc0-zkvm",
-]
-
-[[package]]
-name = "risc0-build-ethereum"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a56410d3f5cd9d333f60e879b73cec972765599e723c6b945ba3bf1260ce910"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=angelo-rust-tls-2#b7b539a11168b53fc42b79f305e2249f70d8b9ef"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -6534,8 +6514,7 @@ dependencies = [
 [[package]]
 name = "risc0-ethereum-contracts"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a54c94ca72de802a01d41eb3d6ed72464daa747867ef49ef3ef9176aa27ab998"
+source = "git+https://github.com/risc0/risc0-ethereum?branch=angelo-rust-tls-2#b7b539a11168b53fc42b79f305e2249f70d8b9ef"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -7810,27 +7789,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "system-configuration"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c879d448e9d986b661742763247d3693ed13609438cf3d006f51f5368a5ba6b"
-dependencies = [
- "bitflags 2.9.1",
- "core-foundation 0.9.4",
- "system-configuration-sys",
-]
-
-[[package]]
-name = "system-configuration-sys"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
-dependencies = [
- "core-foundation-sys",
- "libc",
-]
-
-[[package]]
 name = "tagptr"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8091,9 +8049,11 @@ checksum = "edc5f74e248dc973e0dbb7b74c7e0d6fcc301c694ff50049504004ef4d0cdcd9"
 dependencies = [
  "futures-util",
  "log",
- "native-tls",
+ "rustls 0.23.27",
+ "rustls-native-certs 0.8.1",
+ "rustls-pki-types",
  "tokio",
- "tokio-native-tls",
+ "tokio-rustls 0.26.2",
  "tungstenite",
 ]
 
@@ -8310,8 +8270,9 @@ dependencies = [
  "http 1.3.1",
  "httparse",
  "log",
- "native-tls",
  "rand 0.8.5",
+ "rustls 0.23.27",
+ "rustls-pki-types",
  "sha1",
  "thiserror 1.0.69",
  "utf-8",
@@ -8876,17 +8837,6 @@ checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
 dependencies = [
  "windows-core",
  "windows-link",
-]
-
-[[package]]
-name = "windows-registry"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3bab093bdd303a1240bb99b8aba8ea8a69ee19d34c9e2ef9594e708a4878820"
-dependencies = [
- "windows-link",
- "windows-result",
- "windows-strings",
 ]
 
 [[package]]
