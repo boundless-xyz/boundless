@@ -10,6 +10,7 @@ members = [
     "crates/broker-stress",
     "crates/distributor",
     "crates/guest/assessor",
+    "crates/guest/povw",
     "crates/guest/util",
     "crates/indexer",
     "crates/ops-lambdas/indexer-monitor",

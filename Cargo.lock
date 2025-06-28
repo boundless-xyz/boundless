@@ -2704,6 +2704,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-povw-guests"
+version = "0.11.0"
+dependencies = [
+ "risc0-build",
+ "risc0-build-ethereum 2.2.0",
+]
+
+[[package]]
 name = "boundless-slasher"
 version = "0.11.0"
 dependencies = [
