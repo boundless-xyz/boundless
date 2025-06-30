@@ -7,6 +7,7 @@ import { Notifications } from "./components/notifications";
 import { OrderGeneratorPipeline } from "./pipelines/order-generator";
 import { OrderStreamPipeline } from "./pipelines/order-stream";
 import { IndexerPipeline } from "./pipelines/indexer";
+import { DistributorPipeline } from "./pipelines/distributor";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import {
@@ -145,6 +146,16 @@ const orderStreamPipeline = new OrderStreamPipeline("orderStreamPipeline", {
 })
 
 const indexerPipeline = new IndexerPipeline("indexerPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+})
+
+const distributorPipeline = new DistributorPipeline("distributorPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
