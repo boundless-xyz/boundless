@@ -199,6 +199,55 @@ just broker
 
 ::::
 
+## Running Multiple Brokers
+
+You can run multiple broker instances simultaneously to serve different networks at the same time while sharing the same Bento cluster. The Docker compose setup supports this through the `broker2` service example.
+
+### Multi-Broker Configuration
+
+Each broker instance requires:
+
+1. **Separate configuration file**: Create different `broker.toml` files (e.g., `broker.toml`, `broker2.toml`, etc.)
+2. **Different RPC URL**: Use different chain endpoints via setting respective `RPC_URL` environment variables, or modifying the `compose.yml` manually.
+3. **Optional separate private key**: Use different `PRIVATE_KEY` variables if desired for different accounts on different networks.
+
+### Environment Variables for Multi-Broker Setup
+
+If using the default `compose.yml` file and uncommenting the second broker config:
+
+```bash [.env]
+# Export environment variables for the first broker
+export RPC_URL=<URL for network 1>
+export PRIVATE_KEY=0x...
+
+# Export environment variables for the second broker
+export RPC_URL_2=<URL for network 2>
+```
+
+Then, create the new broker config file that the second broker will use:
+
+```bash [Terminal]
+# Copy from an existing broker config file
+cp broker.toml broker2.toml
+
+# Or creating one from a fresh template
+cp broker-template.toml broker2.toml
+```
+
+Then, modify configuation values for each network, keeping the following in mind:
+
+- The `peak_prove_khz` setting is shared across all brokers
+  - For example, if you have [benchmarked](#benchmarking-bento) your broker to be able to prove at 500kHz, the values in each config should not sum up to be more than 500kHz.
+- `max_concurrent_preflights` is set to a value that the bento cluster can keep up with
+  - It is recommended that the max concurrent preflights across all networks is less than the number of exec agents you have specified in your `compose.yml`.
+- `max_concurrent_proofs` is a per-broker configuration, and is not shared across brokers
+
+Then, just start the cluster as you normally would with:
+
+```bash [Terminal]
+just broker
+```
+
 ## Broker Optimization
 
 ### Increasing Lock-in Rate

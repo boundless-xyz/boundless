@@ -53,6 +53,19 @@ max_concurrent_proofs = 2
 #
 # Used to limit pricing tasks spawned to prevent overwhelming the system
 #max_concurrent_preflights = 4
+# Order pricing priority mode
+#
+# Determines how orders are prioritized for pricing. Options:
+# - "random": Process orders in random order to distribute competition among provers (default)
+# - "observation_time": Process orders in the order they were observed (FIFO)
+# - "shortest_expiry": Process orders by shortest expiry first (earliest deadline)
+#order_pricing_priority = "random"
+# Order commitment priority mode
+#
+# Determines how orders are prioritized when committing to prove them. Options:
+# - "random": Process orders in random order to distribute competition among provers (default)
+# - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+#order_commitment_priority = "random"
 # Max critical task retries on recoverable failures.
 #
 # The broker service has a number of subtasks. Some are considered critical. If a task fails, it

@@ -24,3 +24,6 @@ config:
   distributor:ETH_RPC_URL:
     secure: v1:JmRN0Yx2P808CPdQ:80sm4c45agFln7EyTxVaABtay7q+g/jNPW2RFuiHk1pek601Wb80QMlwtI8Kx6GuhCC7ZJU8/SETkyg36Qtrz6pt+MJGwLk3GWQ=
   distributor:LOG_LEVEL: "info"
+  distributor:DOCKER_DIR: ../../
+  distributor:DOCKER_TAG: latest
+  distributor:BASE_STACK: organization/bootstrap/services-prod
