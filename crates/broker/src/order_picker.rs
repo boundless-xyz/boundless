@@ -1829,7 +1829,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_order_is_locked_check() -> Result<()> {
-        let ctx = TestCtxBuilder::default().build().await;
+        let ctx = PickerTestCtxBuilder::default().build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.id();
@@ -1855,7 +1855,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_duplicate_order_cache() -> Result<()> {
-        let mut ctx = TestCtxBuilder::default().build().await;
+        let mut ctx = PickerTestCtxBuilder::default().build().await;
 
         let order1 = ctx.generate_next_order(Default::default()).await;
         let order_id = order1.id();
