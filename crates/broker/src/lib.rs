@@ -499,8 +499,8 @@ where
             );
         } else {
             tracing::warn!(
-                "Manual deployment configuration differs from expected defaults for chain ID {chain_id}:\n{}",
-                warnings.join("\n")
+                "Manual deployment configuration differs from expected defaults for chain ID {chain_id}: {}",
+                warnings.join(", ")
             );
             tracing::warn!("This may indicate a configuration error. Please verify your deployment addresses are correct.");
         }
