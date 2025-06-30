@@ -8,7 +8,7 @@ max_stake = "0.5"
 max_file_size = 50_000_000
 max_mcycle_limit = 250
 max_concurrent_proofs = 1
-balance_warn_threshold = "0.03"
+balance_warn_threshold = "0.025"
 balance_error_threshold = "0.01"
 stake_balance_warn_threshold = "5"
 stake_balance_error_threshold = "1"
@@ -31,7 +31,7 @@ proof_retry_sleep_ms = 500
 [batcher]
 batch_max_time = 1000
 min_batch_size = 1
-block_deadline_buffer_secs = 90
+block_deadline_buffer_secs = 120
 txn_timeout = 10
 single_txn_fulfill = true
 max_submission_attempts = 2
