@@ -153,15 +153,15 @@ impl Prover for DefaultProver {
         let image = self
             .get_image(image_id)
             .await
-            .ok_or_else(|| ProverError::NotFound(format!("image {image_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("image {image_id}").into()))?;
         let input = self
             .get_input(input_id)
             .await
-            .ok_or_else(|| ProverError::NotFound(format!("input {input_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("input {input_id}").into()))?;
         let assumption_receipts = self
             .get_receipts(assumptions)
             .await
-            .map_err(|err| ProverError::NotFound(err.to_string()))?;
+            .map_err(|err| ProverError::NotFound(err.to_string().into()))?;
 
         let proof_id = format!("execute_{}", Uuid::new_v4());
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
@@ -190,7 +190,7 @@ impl Prover for DefaultProver {
                 proof.status = Status::Failed;
                 proof.error_msg = err.to_string();
 
-                Err(ProverError::ProvingFailed(err.to_string()))
+                Err(ProverError::ProvingFailed(err.to_string().into()))
             }
         }
     }
@@ -204,15 +204,15 @@ impl Prover for DefaultProver {
         let image = self
             .get_image(image_id)
             .await
-            .ok_or_else(|| ProverError::NotFound(format!("image {image_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("image {image_id}").into()))?;
         let input = self
             .get_input(input_id)
             .await
-            .ok_or_else(|| ProverError::NotFound(format!("input {input_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("input {input_id}").into()))?;
         let assumption_receipts = self
             .get_receipts(assumptions)
             .await
-            .map_err(|err| ProverError::NotFound(err.to_string()))?;
+            .map_err(|err| ProverError::NotFound(err.to_string().into()))?;
 
         let proof_id = format!("stark_{}", Uuid::new_v4());
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
@@ -257,7 +257,7 @@ impl Prover for DefaultProver {
 
     async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
         if !proof_id.starts_with("stark_") {
-            return Err(ProverError::NotFound(format!("stark proof {proof_id}")))?;
+            return Err(ProverError::NotFound(format!("stark proof {proof_id}").into()))?;
         }
 
         const MAX_ATTEMPTS: u32 = 1800; // 30 minutes at 1 second intervals
@@ -266,9 +266,9 @@ impl Prover for DefaultProver {
         for _ in 0..MAX_ATTEMPTS {
             {
                 let proofs = self.state.proofs.read().await;
-                let proof_data = proofs
-                    .get(proof_id)
-                    .ok_or_else(|| ProverError::NotFound(format!("stark proof {proof_id}")))?;
+                let proof_data = proofs.get(proof_id).ok_or_else(|| {
+                    ProverError::NotFound(format!("stark proof {proof_id}").into())
+                })?;
 
                 match proof_data.status {
                     Status::Running => {}
@@ -286,7 +286,9 @@ impl Prover for DefaultProver {
                         });
                     }
                     Status::Failed => {
-                        return Err(ProverError::ProvingFailed(proof_data.error_msg.clone()));
+                        return Err(ProverError::ProvingFailed(
+                            proof_data.error_msg.to_string().into(),
+                        ));
                     }
                 }
             }
@@ -294,14 +296,16 @@ impl Prover for DefaultProver {
             tokio::time::sleep(POLL_INTERVAL).await;
         }
 
-        Err(ProverError::ProvingFailed(format!("timeout after {:?}", POLL_INTERVAL * MAX_ATTEMPTS)))
+        Err(ProverError::ProvingFailed(
+            format!("timeout after {:?}", POLL_INTERVAL * MAX_ATTEMPTS).into(),
+        ))
     }
 
     async fn cancel_stark(&self, proof_id: &str) -> Result<(), ProverError> {
         let mut proofs = self.state.proofs.write().await;
         let proof_data = proofs
             .get_mut(proof_id)
-            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}").into()))?;
 
         proof_data.status = Status::Failed;
         proof_data.error_msg = "Cancelled".to_string();
@@ -313,7 +317,7 @@ impl Prover for DefaultProver {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
-            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}").into()))?;
         Ok(proof_data.receipt.clone())
     }
 
@@ -321,7 +325,7 @@ impl Prover for DefaultProver {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
-            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}").into()))?;
         Ok(proof_data.preflight_journal.clone())
     }
 
@@ -329,15 +333,14 @@ impl Prover for DefaultProver {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
-            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}").into()))?;
         Ok(proof_data.receipt.as_ref().map(|receipt| receipt.journal.bytes.clone()))
     }
 
     async fn compress(&self, proof_id: &str) -> Result<String, ProverError> {
-        let receipt = self
-            .get_receipt(proof_id)
-            .await?
-            .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {}", proof_id)))?;
+        let receipt = self.get_receipt(proof_id).await?.ok_or_else(|| {
+            ProverError::NotFound(format!("no receipt for proof {}", proof_id).into())
+        })?;
 
         let proof_id = format!("snark_{}", Uuid::new_v4());
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
@@ -381,7 +384,7 @@ impl Prover for DefaultProver {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
-            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}").into()))?;
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
 }

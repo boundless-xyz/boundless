@@ -44,13 +44,13 @@ pub enum ProverError {
     ConfigReadErr(#[from] ConfigErr),
 
     #[error("{code} Not found: {0}", code = self.code())]
-    NotFound(String),
+    NotFound(Box<str>),
 
     #[error("{code} Stark job missing stats data", code = self.code())]
     MissingStatus,
 
     #[error("{code} Prover failure: {0}", code = self.code())]
-    ProvingFailed(String),
+    ProvingFailed(Box<str>),
 
     #[error("{code} Bincode deserilization error {0}", code = self.code())]
     BincodeErr(#[from] bincode::Error),
@@ -59,7 +59,7 @@ pub enum ProverError {
     StatusFailure,
 
     #[error("{code} Prover internal error: {0}", code = self.code())]
-    ProverInternalError(String),
+    ProverInternalError(Box<str>),
 
     #[error("{code} {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),

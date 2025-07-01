@@ -108,9 +108,9 @@ impl Bonsai {
                 }
                 status_code => {
                     let err_msg = status.error_msg.unwrap_or_default();
-                    return Err(ProverError::ProvingFailed(format!(
-                        "snark proving failed with status {status_code}: {err_msg}"
-                    )));
+                    return Err(ProverError::ProvingFailed(
+                        format!("snark proving failed with status {status_code}: {err_msg}").into(),
+                    ));
                 }
             }
         }
@@ -210,11 +210,11 @@ impl StatusPoller {
                 _ => {
                     let err_msg = status.error_msg.unwrap_or_default();
                     if err_msg.contains("INTERNAL_ERROR") {
-                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+                        return Err(ProverError::ProverInternalError(err_msg.into()));
                     }
-                    return Err(ProverError::ProvingFailed(format!(
-                        "{proof_id:?} failed: {err_msg}"
-                    )));
+                    return Err(ProverError::ProvingFailed(
+                        format!("{proof_id:?} failed: {err_msg}").into(),
+                    ));
                 }
             }
         }
@@ -250,11 +250,11 @@ impl StatusPoller {
                 status_code => {
                     let err_msg = status.error_msg.unwrap_or_default();
                     if err_msg.contains("INTERNAL_ERROR") {
-                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+                        return Err(ProverError::ProverInternalError(err_msg.into()));
                     }
-                    return Err(ProverError::ProvingFailed(format!(
-                        "snark proving failed with status {status_code}: {err_msg}"
-                    )));
+                    return Err(ProverError::ProvingFailed(
+                        format!("snark proving failed with status {status_code}: {err_msg}").into(),
+                    ));
                 }
             }
         }
@@ -383,10 +383,9 @@ impl Prover for Bonsai {
                             Ok(tx) => tx,
                             Err(e) => {
                                 tracing::error!("Failed to begin transaction: {}", e);
-                                return Err(ProverError::ProvingFailed(format!(
-                                    "Failed to begin transaction: {}",
-                                    e
-                                )));
+                                return Err(ProverError::ProvingFailed(
+                                    format!("Failed to begin transaction: {}", e).into(),
+                                ));
                             }
                         };
                         if let Err(e) =
@@ -396,10 +395,9 @@ impl Prover for Bonsai {
                                 .await
                         {
                             tracing::error!("Failed to update job state: {}", e);
-                            return Err(ProverError::ProvingFailed(format!(
-                                "Failed to update job: {}",
-                                e
-                            )));
+                            return Err(ProverError::ProvingFailed(
+                                format!("Failed to update job: {}", e).into(),
+                            ));
                         }
 
                         if let Err(e) = sqlx::query("DELETE FROM task_deps WHERE job_id = $1::uuid")
@@ -408,10 +406,9 @@ impl Prover for Bonsai {
                             .await
                         {
                             tracing::error!("Failed to delete task dependencies: {}", e);
-                            return Err(ProverError::ProvingFailed(format!(
-                                "Failed to delete task deps: {}",
-                                e
-                            )));
+                            return Err(ProverError::ProvingFailed(
+                                format!("Failed to delete task deps: {}", e).into(),
+                            ));
                         }
 
                         if let Err(e) = sqlx::query("DELETE FROM tasks WHERE job_id = $1::uuid")
@@ -420,18 +417,16 @@ impl Prover for Bonsai {
                             .await
                         {
                             tracing::error!("Failed to delete tasks: {}", e);
-                            return Err(ProverError::ProvingFailed(format!(
-                                "Failed to delete tasks: {}",
-                                e
-                            )));
+                            return Err(ProverError::ProvingFailed(
+                                format!("Failed to delete tasks: {}", e).into(),
+                            ));
                         }
 
                         if let Err(e) = tx.commit().await {
                             tracing::error!("Failed to commit transaction: {}", e);
-                            return Err(ProverError::ProvingFailed(format!(
-                                "Failed to commit transaction: {}",
-                                e
-                            )));
+                            return Err(ProverError::ProvingFailed(
+                                format!("Failed to commit transaction: {}", e).into(),
+                            ));
                         }
 
                         tracing::info!("Successfully cancelled Bento job {}", proof_id);
@@ -439,10 +434,9 @@ impl Prover for Bonsai {
                     }
                     Err(e) => {
                         tracing::error!("Failed to connect to PostgreSQL: {}", e);
-                        Err(ProverError::ProvingFailed(format!(
-                            "Failed to connect to postgres: {}",
-                            e
-                        )))
+                        Err(ProverError::ProvingFailed(
+                            format!("Failed to connect to postgres: {}", e).into(),
+                        ))
                     }
                 }
             }

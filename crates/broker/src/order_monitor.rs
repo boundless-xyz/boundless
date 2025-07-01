@@ -41,10 +41,10 @@ const MAX_PROVING_BATCH_SIZE: u32 = 10;
 #[derive(Error)]
 pub enum OrderMonitorErr {
     #[error("{code} Failed to lock order: {0}", code = self.code())]
-    LockTxFailed(String),
+    LockTxFailed(Box<str>),
 
     #[error("{code} Failed to confirm lock tx: {0}", code = self.code())]
-    LockTxNotConfirmed(String),
+    LockTxNotConfirmed(Box<str>),
 
     #[error("{code} Insufficient balance for lock", code = self.code())]
     InsufficientBalance,
@@ -255,11 +255,11 @@ where
                         TxnErr::BoundlessMarketErr(IBoundlessMarketErrors::RequestIsLocked(_)) => {
                             OrderMonitorErr::AlreadyLocked
                         }
-                        _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
+                        _ => OrderMonitorErr::LockTxFailed(txn_err.to_string().into()),
                     },
                     MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
                     MarketError::TxnConfirmationError(e) => {
-                        OrderMonitorErr::LockTxNotConfirmed(e.to_string())
+                        OrderMonitorErr::LockTxNotConfirmed(e.to_string().into())
                     }
                     MarketError::LockRevert(e) => {
                         // Note: lock revert could be for any number of reasons;
@@ -268,7 +268,7 @@ where
                         // 3/ the request may have been fulfilled,
                         // 4/ the requestor may have withdrawn their funds
                         // Currently we don't have a way to determine the cause of the revert.
-                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
+                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e).into())
                     }
                     MarketError::Error(e) => {
                         // Insufficient balance error is thrown both when the requestor has insufficient balance,
@@ -281,10 +281,13 @@ where
                             if e.to_string().to_lowercase().contains(&prover_addr_str) {
                                 OrderMonitorErr::InsufficientBalance
                             } else {
-                                OrderMonitorErr::LockTxFailed(format!(
-                                    "Requestor has insufficient balance at lock time: {}",
-                                    e
-                                ))
+                                OrderMonitorErr::LockTxFailed(
+                                    format!(
+                                        "Requestor has insufficient balance at lock time: {}",
+                                        e
+                                    )
+                                    .into(),
+                                )
                             }
                         } else if e.to_string().contains("RequestIsLocked") {
                             OrderMonitorErr::AlreadyLocked

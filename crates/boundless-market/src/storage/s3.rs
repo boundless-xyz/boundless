@@ -60,7 +60,7 @@ pub enum S3StorageProviderError {
 
     /// Error type for missing configuration parameters.
     #[error("missing config parameter: {0}")]
-    Config(String),
+    Config(Box<str>),
 
     /// Error type for when S3 returns a string that fails to parse as a URL.
     #[error("failed to parse URL returned by S3: {0}")]
@@ -119,30 +119,28 @@ impl S3StorageProvider {
         let access_key = config
             .s3_access_key
             .clone()
-            .ok_or_else(|| S3StorageProviderError::Config("s3_access_key".to_string()))?;
+            .ok_or_else(|| S3StorageProviderError::Config("s3_access_key".into()))?;
 
         let secret_key = config
             .s3_secret_key
             .clone()
-            .ok_or_else(|| S3StorageProviderError::Config("s3_secret_key".to_string()))?;
+            .ok_or_else(|| S3StorageProviderError::Config("s3_secret_key".into()))?;
 
         let bucket = config
             .s3_bucket
             .clone()
-            .ok_or_else(|| S3StorageProviderError::Config("s3_bucket".to_string()))?;
-        let url = config
-            .s3_url
-            .clone()
-            .ok_or_else(|| S3StorageProviderError::Config("s3_url".to_string()))?;
+            .ok_or_else(|| S3StorageProviderError::Config("s3_bucket".into()))?;
+        let url =
+            config.s3_url.clone().ok_or_else(|| S3StorageProviderError::Config("s3_url".into()))?;
 
         let region = config
             .aws_region
             .clone()
-            .ok_or_else(|| S3StorageProviderError::Config("s3_region".to_string()))?;
+            .ok_or_else(|| S3StorageProviderError::Config("s3_region".into()))?;
 
         let presigned = config
             .s3_use_presigned
-            .ok_or_else(|| S3StorageProviderError::Config("s3_use_presigned".to_string()))?;
+            .ok_or_else(|| S3StorageProviderError::Config("s3_use_presigned".into()))?;
 
         Ok(Self::from_parts(access_key, secret_key, bucket, url, region, presigned))
     }

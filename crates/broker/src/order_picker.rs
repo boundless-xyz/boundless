@@ -59,7 +59,7 @@ pub enum OrderPickerErr {
     FetchImageErr(#[source] anyhow::Error),
 
     #[error("{code} guest panicked: {0}", code = self.code())]
-    GuestPanic(String),
+    GuestPanic(Box<str>),
 
     #[error("{code} invalid request: {0}", code = self.code())]
     RequestError(#[from] RequestError),
