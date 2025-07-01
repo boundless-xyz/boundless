@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::{
     chain_monitor::ChainMonitorService,
-    config::ConfigLock,
+    config::{ConfigLock, OrderPricingPriority},
     db::DbObj,
     errors::CodedError,
     provers::{ProverError, ProverObj},
@@ -31,6 +31,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, RequestError},
     selector::SupportedSelectors,
 };
+use moka::future::Cache;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinSet;
@@ -41,6 +42,12 @@ use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
+
+/// Maximum number of orders to cache for deduplication
+const ORDER_DEDUP_CACHE_SIZE: u64 = 5000;
+
+/// In-memory LRU cache for order deduplication by ID (prevents duplicate order processing)
+type OrderCache = Arc<Cache<String, ()>>;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -90,6 +97,7 @@ pub struct OrderPicker<P> {
     new_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
     priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
     stake_token_decimals: u8,
+    order_cache: OrderCache,
 }
 
 #[derive(Debug)]
@@ -145,6 +153,12 @@ where
             new_order_rx: Arc::new(Mutex::new(new_order_rx)),
             priced_orders_tx: order_result_tx,
             stake_token_decimals,
+            order_cache: Arc::new(
+                Cache::builder()
+                    .max_capacity(ORDER_DEDUP_CACHE_SIZE)
+                    .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
+                    .build(),
+            ),
         }
     }
 
@@ -236,6 +250,18 @@ where
     ) -> Result<OrderPricingOutcome, OrderPickerErr> {
         let order_id = order.id();
         tracing::debug!("Pricing order {order_id}");
+
+        // Short circuit if the order has been locked.
+        if order.fulfillment_type == FulfillmentType::LockAndFulfill
+            && self
+                .db
+                .is_request_locked(U256::from(order.request.id))
+                .await
+                .context("Failed to check if request is locked before pricing")?
+        {
+            tracing::debug!("Order {order_id} is already locked, skipping");
+            return Ok(Skip);
+        }
 
         let (min_deadline, allowed_addresses_opt) = {
             let config = self.config.lock_all().context("Failed to read config")?;
@@ -747,14 +773,18 @@ where
         Box::pin(async move {
             tracing::info!("Starting order picking monitor");
 
-            let read_capacity = || -> Result<usize, Self::Error> {
+            let read_config = || -> Result<(usize, OrderPricingPriority), Self::Error> {
                 let cfg = picker.config.lock_all().map_err(|err| {
                     OrderPickerErr::UnexpectedErr(anyhow::anyhow!("Failed to read config: {err}"))
                 })?;
-                Ok(cfg.market.max_concurrent_preflights as usize)
+                Ok((
+                    cfg.market.max_concurrent_preflights as usize,
+                    cfg.market.order_pricing_priority,
+                ))
             };
 
-            let mut current_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
+            let (mut current_capacity, mut priority_mode) =
+                read_config().map_err(SupervisorErr::Fault)?;
             let mut tasks: JoinSet<()> = JoinSet::new();
             let mut rx = picker.new_order_rx.lock().await;
             let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
@@ -772,10 +802,14 @@ where
                     }
                     _ = capacity_check_interval.tick() => {
                         // Check capacity on an interval for capacity changes in config
-                        let new_capacity = read_capacity().map_err(SupervisorErr::Fault)?;
-                        if new_capacity != current_capacity {
+                        let (new_capacity, new_priority_mode) = read_config().map_err(SupervisorErr::Fault)?;
+                        if new_capacity != current_capacity{
                             tracing::debug!("Pricing capacity changed from {} to {}", current_capacity, new_capacity);
                             current_capacity = new_capacity;
+                        }
+                        if new_priority_mode != priority_mode {
+                            tracing::debug!("Order pricing priority changed from {:?} to {:?}", priority_mode, new_priority_mode);
+                            priority_mode = new_priority_mode;
                         }
                     }
                     _ = cancel_token.cancelled() => {
@@ -789,7 +823,22 @@ where
 
                 // Process pending orders if we have capacity
                 while !pending_orders.is_empty() && tasks.len() < current_capacity {
-                    if let Some(order) = pending_orders.pop_front() {
+                    if let Some(order) =
+                        picker.select_next_pricing_order(&mut pending_orders, priority_mode)
+                    {
+                        let order_id = order.id();
+
+                        // Check if we've already started processing this order ID
+                        if picker.order_cache.get(&order_id).await.is_some() {
+                            tracing::debug!(
+                                "Skipping duplicate order {order_id}, already being processed"
+                            );
+                            continue;
+                        }
+
+                        // Mark order as being processed immediately to prevent duplicates
+                        picker.order_cache.insert(order_id.clone(), ()).await;
+
                         let picker_clone = picker.clone();
                         let task_cancel_token = cancel_token.child_token();
                         tasks.spawn(async move {
@@ -812,7 +861,7 @@ fn calculate_max_cycles_for_time(prove_khz: u64, time_seconds: u64) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::time::Duration;
 
     use super::*;
@@ -841,9 +890,9 @@ mod tests {
     use tracing_test::traced_test;
 
     /// Reusable context for testing the order picker
-    struct TestCtx<P> {
+    pub(crate) struct PickerTestCtx<P> {
         anvil: AnvilInstance,
-        picker: OrderPicker<P>,
+        pub(crate) picker: OrderPicker<P>,
         boundless_market: BoundlessMarketService<Arc<P>>,
         storage_provider: MockStorageProvider,
         db: DbObj,
@@ -853,15 +902,15 @@ mod tests {
     }
 
     /// Parameters for the generate_next_order function.
-    struct OrderParams {
-        order_index: u32,
-        min_price: U256,
-        max_price: U256,
-        lock_stake: U256,
-        fulfillment_type: FulfillmentType,
-        bidding_start: u64,
-        lock_timeout: u32,
-        timeout: u32,
+    pub(crate) struct OrderParams {
+        pub(crate) order_index: u32,
+        pub(crate) min_price: U256,
+        pub(crate) max_price: U256,
+        pub(crate) lock_stake: U256,
+        pub(crate) fulfillment_type: FulfillmentType,
+        pub(crate) bidding_start: u64,
+        pub(crate) lock_timeout: u32,
+        pub(crate) timeout: u32,
     }
 
     impl Default for OrderParams {
@@ -879,15 +928,15 @@ mod tests {
         }
     }
 
-    impl<P> TestCtx<P>
+    impl<P> PickerTestCtx<P>
     where
         P: Provider + WalletProvider,
     {
-        fn signer(&self, index: usize) -> PrivateKeySigner {
+        pub(crate) fn signer(&self, index: usize) -> PrivateKeySigner {
             self.anvil.keys()[index].clone().into()
         }
 
-        async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
+        pub(crate) async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
             let image_url = self.storage_provider.upload_program(ECHO_ELF).await.unwrap();
             let image_id = Digest::from(ECHO_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
@@ -932,28 +981,30 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct TestCtxBuilder {
+    pub(crate) struct PickerTestCtxBuilder {
         initial_signer_eth: Option<i32>,
         initial_hp: Option<U256>,
         config: Option<ConfigLock>,
         stake_token_decimals: Option<u8>,
     }
 
-    impl TestCtxBuilder {
-        fn with_initial_signer_eth(self, eth: i32) -> Self {
+    impl PickerTestCtxBuilder {
+        pub(crate) fn with_initial_signer_eth(self, eth: i32) -> Self {
             Self { initial_signer_eth: Some(eth), ..self }
         }
-        fn with_initial_hp(self, hp: U256) -> Self {
+        pub(crate) fn with_initial_hp(self, hp: U256) -> Self {
             assert!(hp < U256::from(U96::MAX), "Cannot have more than 2^96 hit points");
             Self { initial_hp: Some(hp), ..self }
         }
-        fn with_config(self, config: ConfigLock) -> Self {
+        pub(crate) fn with_config(self, config: ConfigLock) -> Self {
             Self { config: Some(config), ..self }
         }
-        fn with_stake_token_decimals(self, decimals: u8) -> Self {
+        pub(crate) fn with_stake_token_decimals(self, decimals: u8) -> Self {
             Self { stake_token_decimals: Some(decimals), ..self }
         }
-        async fn build(self) -> TestCtx<impl Provider + WalletProvider + Clone + 'static> {
+        pub(crate) async fn build(
+            self,
+        ) -> PickerTestCtx<impl Provider + WalletProvider + Clone + 'static> {
             let anvil = Anvil::new()
                 .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
                 .spawn();
@@ -1023,7 +1074,7 @@ mod tests {
                 self.stake_token_decimals.unwrap_or(6),
             );
 
-            TestCtx {
+            PickerTestCtx {
                 anvil,
                 picker,
                 boundless_market,
@@ -1043,7 +1094,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
 
@@ -1064,7 +1115,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
         // set a bad predicate
@@ -1091,7 +1142,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
 
@@ -1118,7 +1169,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx
             .generate_next_order(OrderParams {
@@ -1148,7 +1199,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
         let min_price = parse_ether("0.0013").unwrap();
@@ -1205,7 +1256,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
         let min_price = parse_ether("0.0013").unwrap();
@@ -1265,7 +1316,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
         let min_price = parse_ether("0.0013").unwrap();
@@ -1324,7 +1375,7 @@ mod tests {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
 
@@ -1348,7 +1399,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
         let order_id = order.id();
@@ -1397,7 +1448,7 @@ mod tests {
             config.load_write().unwrap().market.max_stake = "10".into();
         }
 
-        let mut ctx = TestCtxBuilder::default()
+        let mut ctx = PickerTestCtxBuilder::default()
             .with_initial_signer_eth(signer_inital_balance_eth)
             .with_initial_hp(lockin_stake)
             .with_config(config)
@@ -1452,7 +1503,7 @@ mod tests {
             config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
         }
 
-        let mut ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx.generate_next_order(Default::default()).await;
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
@@ -1487,8 +1538,11 @@ mod tests {
         }
         let lock_stake = U256::from(10);
 
-        let ctx =
-            TestCtxBuilder::default().with_config(config).with_initial_hp(lock_stake).build().await;
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(lock_stake)
+            .build()
+            .await;
         let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
 
         let order_id = order.id();
@@ -1509,7 +1563,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price_stake_token = "0.0000001".into();
         }
-        let mut ctx = TestCtxBuilder::default()
+        let mut ctx = PickerTestCtxBuilder::default()
             .with_config(config)
             .with_initial_hp(U256::from(1000))
             .build()
@@ -1552,7 +1606,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price_stake_token = "0.1".into();
         }
-        let ctx = TestCtxBuilder::default()
+        let ctx = PickerTestCtxBuilder::default()
             .with_stake_token_decimals(6)
             .with_config(config)
             .build()
@@ -1595,7 +1649,7 @@ mod tests {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.max_mcycle_limit = Some(exec_limit);
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         ctx.picker.config.load_write().as_mut().unwrap().market.allow_skip_mcycle_limit_addresses =
             Some(vec![ctx.provider.default_signer_address()]);
@@ -1639,7 +1693,7 @@ mod tests {
             config.load_write().unwrap().market.peak_prove_khz = Some(1);
             config.load_write().unwrap().market.min_deadline = 10;
         }
-        let ctx = TestCtxBuilder::default().with_config(config).build().await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx
             .generate_next_order(OrderParams {
@@ -1674,7 +1728,7 @@ mod tests {
             cfg.market.mcycle_price = "0.0000001".into();
             cfg.market.max_concurrent_preflights = 2;
         }
-        let mut ctx = TestCtxBuilder::default().with_config(config.clone()).build().await;
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config.clone()).build().await;
 
         // Start the order picker task
         let picker_task = tokio::spawn(ctx.picker.spawn(Default::default()));
@@ -1720,7 +1774,7 @@ mod tests {
         {
             config.load_write().unwrap().market.mcycle_price_stake_token = "1".into();
         }
-        let ctx = TestCtxBuilder::default()
+        let ctx = PickerTestCtxBuilder::default()
             .with_config(config.clone())
             .with_stake_token_decimals(6)
             .build()
@@ -1770,5 +1824,79 @@ mod tests {
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!("exec limit cycles for order {order2_id}: 10")));
         assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_is_locked_check() -> Result<()> {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+
+        let mut order = ctx.generate_next_order(Default::default()).await;
+        let order_id = order.id();
+
+        ctx.db
+            .set_request_locked(
+                U256::from(order.request.id),
+                &ctx.provider.default_signer_address().to_string(),
+                1000,
+            )
+            .await?;
+
+        assert!(ctx.db.is_request_locked(U256::from(order.request.id)).await?);
+
+        let pricing_outcome = ctx.picker.price_order(&mut order).await?;
+        assert!(matches!(pricing_outcome, OrderPricingOutcome::Skip));
+
+        assert!(logs_contain(&format!("Order {order_id} is already locked, skipping")));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_duplicate_order_cache() -> Result<()> {
+        let mut ctx = PickerTestCtxBuilder::default().build().await;
+
+        let order1 = ctx.generate_next_order(Default::default()).await;
+        let order_id = order1.id();
+
+        // Duplicate order
+        let order2 = Box::new(OrderRequest {
+            request: order1.request.clone(),
+            client_sig: order1.client_sig.clone(),
+            fulfillment_type: order1.fulfillment_type,
+            boundless_market_address: order1.boundless_market_address,
+            chain_id: order1.chain_id,
+            image_id: order1.image_id.clone(),
+            input_id: order1.input_id.clone(),
+            total_cycles: order1.total_cycles,
+            target_timestamp: order1.target_timestamp,
+            expire_timestamp: order1.expire_timestamp,
+        });
+
+        assert_eq!(order1.id(), order2.id(), "Both orders should have the same ID");
+
+        tokio::spawn(ctx.picker.spawn(CancellationToken::new()));
+
+        ctx.new_order_tx.send(order1).await?;
+        ctx.new_order_tx.send(order2).await?;
+
+        let first_processed =
+            tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv())
+                .await?
+                .unwrap();
+
+        assert_eq!(first_processed.id(), order_id, "First order should be processed");
+
+        let second_result =
+            tokio::time::timeout(Duration::from_secs(2), ctx.priced_orders_rx.recv()).await;
+
+        assert!(second_result.is_err(), "Second order should be deduplicated and not processed");
+
+        assert!(logs_contain(&format!(
+            "Skipping duplicate order {order_id}, already being processed"
+        )));
+
+        Ok(())
     }
 }

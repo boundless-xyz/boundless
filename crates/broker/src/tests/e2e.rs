@@ -18,6 +18,7 @@ use boundless_market::{
     },
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
+    Deployment,
 };
 use boundless_market_test_utils::{
     create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_GUEST_PATH, ECHO_ELF,
@@ -88,8 +89,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
 
 fn broker_args(
     config_file: PathBuf,
-    boundless_market_address: Address,
-    set_verifier_address: Address,
+    deployment: Deployment,
     rpc_url: Url,
     private_key: PrivateKeySigner,
 ) -> Args {
@@ -107,10 +107,8 @@ fn broker_args(
     Args {
         db_url: "sqlite::memory:".into(),
         config_file,
-        boundless_market_address,
-        set_verifier_address,
+        deployment: Some(deployment),
         rpc_url,
-        order_stream_url: None,
         private_key,
         bento_api_url: None,
         bonsai_api_key,
@@ -161,8 +159,7 @@ async fn simple_e2e() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.deployment.boundless_market_address,
-        ctx.deployment.set_verifier_address,
+        ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -232,8 +229,7 @@ async fn simple_e2e_with_callback() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.deployment.boundless_market_address,
-        ctx.deployment.set_verifier_address,
+        ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -308,8 +304,7 @@ async fn e2e_fulfill_after_lock_expiry() {
     let config = new_config_with_min_deadline(1, 0).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.deployment.boundless_market_address,
-        ctx.deployment.set_verifier_address,
+        ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -375,8 +370,7 @@ async fn e2e_with_selector() {
     let config = new_config(1).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.deployment.boundless_market_address,
-        ctx.deployment.set_verifier_address,
+        ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
@@ -437,8 +431,7 @@ async fn e2e_with_multiple_requests() {
     let config = new_config(2).await;
     let args = broker_args(
         config.path().to_path_buf(),
-        ctx.deployment.boundless_market_address,
-        ctx.deployment.set_verifier_address,
+        ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
     );

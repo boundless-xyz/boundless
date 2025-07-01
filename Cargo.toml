@@ -20,15 +20,15 @@ members = [
 ]
 
 [workspace.package]
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 homepage = "https://beboundless.xyz/"
 repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
-boundless-assessor = { version = "0.11.0", path = "crates/assessor" }
-boundless-cli = { version = "0.11.0", path = "crates/boundless-cli" }
-boundless-market = { version = "0.11.0", path = "crates/boundless-market" }
+boundless-assessor = { version = "0.12.0", path = "crates/assessor" }
+boundless-cli = { version = "0.12.0", path = "crates/boundless-cli" }
+boundless-market = { version = "0.12.0", path = "crates/boundless-market" }
 boundless-market-test-utils = { path = "crates/boundless-market/test-utils" }
 distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
@@ -61,8 +61,8 @@ reqwest = "0.12"
 risc0-aggregation = { version = "0.7.0" }
 risc0-build = { version = "2.1", features = ["docker", "unstable"] }
 risc0-circuit-recursion = { version = "2.0" }
-risc0-build-ethereum = { version = "2.2" }
-risc0-ethereum-contracts = { version = "2.2" }
+risc0-build-ethereum = { version = "2.2.1" }
+risc0-ethereum-contracts = { version = "2.2.1" }
 risc0-zkvm = { version = "2.1", default-features = false }
 risc0-zkp = { version = "2.0" }
 serde = { version = "1.0", features = ["derive"] }
