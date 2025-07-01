@@ -41,21 +41,14 @@ sudo ./scripts/setup.sh
 
 ### Setup Environment Variables
 
-To set the `VERIFIER_ADDRESS`, `SET_VERIFIER_ADDRESS`, `BOUNDLESS_MARKET_ADDRESS` automatically for Ethereum Sepolia, run:
-
-```bash [Terminal]
-# Use the env file based on the network you are connecting to
-source .env.eth-sepolia
-```
-
-You'll need to set two more environment variables yourself:
+You'll need to set two environment variables:
 
 ```bash [Terminal]
 export PRIVATE_KEY=""
 export RPC_URL=""
 ```
 
-This is your wallet which will represent your prover on the market; make sure it has funds. For the RPC url, we recommend using [Alchemy](https://alchemy.com).
+This is the private key to the wallet which will represent your prover on the market; make sure it has funds. For the RPC url, we recommend using an [Alchemy](https://alchemy.com) endpoint for the network you want to prove on.
 
 ## Running a Test Proof
 
@@ -114,14 +107,13 @@ cargo install --locked boundless-cli
 
 :::note[Note]
 * To read more about depositing funds to the market, please see [Deposit / Balance](/provers/broker#deposit-stake-to-the-market).
-
 * If you need testnet USDC on Base Sepolia, please use the [Circle Testnet Faucet](https://faucet.circle.com/).
 :::
 
 With the environment variables set, you can now deposit USDC tokens as stake to your account balance:
 
 ```bash [Terminal]
-boundless account deposit-stake 100
+boundless account deposit-stake 10
 ```
 
 ### Start Broker
