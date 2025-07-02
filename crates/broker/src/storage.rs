@@ -73,14 +73,12 @@ pub(crate) async fn create_uri_handler(
             if !risc0_zkvm::is_dev_mode() {
                 return Err(StorageErr::UnsupportedScheme("file".to_string()));
             }
-            let max_size = {
-                let config = &config.lock_all().expect("lock failed").market;
-                if skip_max_size_check {
-                    usize::MAX
-                } else {
-                    config.max_file_size
-                }
+            let max_size = if skip_max_size_check {
+                usize::MAX
+            } else {
+                config.lock_all().expect("lock failed").market.max_file_size
             };
+
             let handler = FileHandler { path: uri.path().into(), max_size };
 
             Ok(Arc::new(handler))
