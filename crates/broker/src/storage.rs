@@ -64,6 +64,7 @@ impl CodedError for StorageErr {
 pub(crate) async fn create_uri_handler(
     uri_str: &str,
     config: &ConfigLock,
+    skip_max_size_check: bool,
 ) -> Result<Arc<dyn Handler>, StorageErr> {
     let uri = url::Url::parse(uri_str)?;
 
@@ -74,7 +75,11 @@ pub(crate) async fn create_uri_handler(
             }
             let max_size = {
                 let config = &config.lock_all().expect("lock failed").market;
-                config.max_file_size
+                if skip_max_size_check {
+                    usize::MAX
+                } else {
+                    config.max_file_size
+                }
             };
             let handler = FileHandler { path: uri.path().into(), max_size };
 
@@ -83,7 +88,8 @@ pub(crate) async fn create_uri_handler(
         "http" | "https" => {
             let (max_size, max_retries, cache_dir) = {
                 let config = &config.lock_all().expect("lock failed").market;
-                (config.max_file_size, config.max_fetch_retries, config.cache_dir.clone())
+                let size = if skip_max_size_check { usize::MAX } else { config.max_file_size };
+                (size, config.max_fetch_retries, config.cache_dir.clone())
             };
             let handler = HttpHandler::new(uri, max_size, cache_dir, max_retries).await?;
 
@@ -92,7 +98,8 @@ pub(crate) async fn create_uri_handler(
         "s3" => {
             let (max_size, max_retries) = {
                 let config = &config.lock_all().expect("lock failed").market;
-                (config.max_file_size, config.max_fetch_retries)
+                let size = if skip_max_size_check { usize::MAX } else { config.max_file_size };
+                (size, config.max_fetch_retries)
             };
             let handler = S3Handler::new(uri, max_size, max_retries).await?;
 
@@ -347,7 +354,9 @@ pub async fn upload_image_uri(
         request.id,
         request.imageUrl
     );
-    let uri = create_uri_handler(&request.imageUrl, config).await.context("URL handling failed")?;
+    let uri = create_uri_handler(&request.imageUrl, config, false)
+        .await
+        .context("URL handling failed")?;
 
     let image_data = uri
         .fetch()
@@ -394,8 +403,21 @@ pub async fn upload_input_uri(
             let input_uri_str =
                 std::str::from_utf8(&request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");
-            let input_uri =
-                create_uri_handler(input_uri_str, config).await.context("URL handling failed")?;
+            let allow_skip_mcycle_limit_addresses = {
+                let conf = config.lock_all().context("Failed to read config")?;
+                conf.market.allow_skip_mcycle_limit_addresses.clone()
+            };
+
+            let mut skip_max_size_limit = false;
+            let client_addr = request.client_address();
+            if let Some(allow_addresses) = allow_skip_mcycle_limit_addresses {
+                if allow_addresses.contains(&client_addr) {
+                    skip_max_size_limit = true;
+                }
+            }
+            let input_uri = create_uri_handler(input_uri_str, config, skip_max_size_limit)
+                .await
+                .context("URL handling failed")?;
 
             let input_data = boundless_market::input::GuestEnv::decode(
                 &input_uri

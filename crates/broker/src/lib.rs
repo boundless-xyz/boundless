@@ -581,7 +581,7 @@ where
 
             file_program_buf
         } else {
-            let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config)
+            let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config, false)
                 .await
                 .context("Failed to parse image URI")?;
             tracing::debug!("Downloading image from: {image_uri}");
