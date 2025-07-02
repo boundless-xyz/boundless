@@ -126,10 +126,11 @@ pub struct MarketConf {
     ///
     /// Orders over this max_cycles will be skipped after preflight
     pub max_mcycle_limit: Option<u64>,
-    /// Optional allow list for addresses that can bypass the mcycle limit
+    /// Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
     ///
-    /// If enabled, all requests from clients in the allow list will be accepted regardless of the mcycle limit.
-    pub allow_skip_mcycle_limit_addresses: Option<Vec<Address>>,
+    /// If enabled, the order will be preflighted without constraints.
+    #[serde(alias = "priority_requestor_addresses")]
+    pub priority_requestor_addresses: Option<Vec<Address>>,
     /// Max journal size in bytes
     ///
     /// Orders that produce a journal larger than this size in preflight will be skipped. Since journals
@@ -246,7 +247,7 @@ impl Default for MarketConf {
             mcycle_price_stake_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
-            allow_skip_mcycle_limit_addresses: None,
+            priority_requestor_addresses: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,
             min_deadline: 120, // 2 mins

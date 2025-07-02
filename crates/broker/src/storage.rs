@@ -401,18 +401,17 @@ pub async fn upload_input_uri(
             let input_uri_str =
                 std::str::from_utf8(&request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");
-            let allow_skip_mcycle_limit_addresses = {
+            let priority_requestor_addresses = {
                 let conf = config.lock_all().context("Failed to read config")?;
-                conf.market.allow_skip_mcycle_limit_addresses.clone()
+                conf.market.priority_requestor_addresses.clone()
             };
 
-            let mut skip_max_size_limit = false;
             let client_addr = request.client_address();
-            if let Some(allow_addresses) = allow_skip_mcycle_limit_addresses {
-                if allow_addresses.contains(&client_addr) {
-                    skip_max_size_limit = true;
-                }
-            }
+            let skip_max_size_limit = if let Some(allow_addresses) = priority_requestor_addresses {
+                allow_addresses.contains(&client_addr)
+            } else {
+                false
+            };
             let input_uri = create_uri_handler(input_uri_str, config, skip_max_size_limit)
                 .await
                 .context("URL handling failed")?;
