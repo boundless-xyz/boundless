@@ -543,8 +543,8 @@ where
         // If a max_mcycle_limit is configured check if the order is over that limit
         if let Some(mcycle_limit) = max_mcycle_limit {
             let mcycles = proof_res.stats.total_cycles / 1_000_000;
-            if mcycles >= mcycle_limit {
-                tracing::info!("Order {order_id} max_mcycle_limit check failed req: {mcycle_limit} | config: {mcycles}");
+            if !skip_mcycle_limit && mcycles >= mcycle_limit {
+                tracing::info!("Order {order_id} max_mcycle_limit check failed req: {mcycles} | config: {mcycle_limit}");
                 return Ok(Skip);
             }
         }
