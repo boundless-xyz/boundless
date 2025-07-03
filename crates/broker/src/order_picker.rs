@@ -451,24 +451,24 @@ where
             tracing::trace!("exec limit cycles for order {order_id}: {}", exec_limit_cycles);
         }
 
-        let allow_skip_mcycle_limit_addresses = {
+        let priority_requestor_addresses = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            config.market.allow_skip_mcycle_limit_addresses.clone()
+            config.market.priority_requestor_addresses.clone()
         };
 
         let mut skip_mcycle_limit = false;
         let client_addr = order.request.client_address();
-        if let Some(allow_addresses) = allow_skip_mcycle_limit_addresses {
+        if let Some(allow_addresses) = priority_requestor_addresses {
             if allow_addresses.contains(&client_addr) {
                 skip_mcycle_limit = true;
             }
         }
 
-        // If the order is from an allowed address, skip the mcycle limit
+        // If the order is from a priority requestor address, skip the mcycle limit
         // If a max_mcycle_limit is configured, override the exec limit if the order is over that limit
         if skip_mcycle_limit {
             exec_limit_cycles = u64::MAX;
-            tracing::debug!("Order {order_id} exec limit skipped due to client {} being part of allow_skip_mcycle_limit_addresses.", client_addr);
+            tracing::debug!("Order {order_id} exec limit skipped due to client {} being part of priority_requestor_addresses.", client_addr);
         } else if let Some(config_mcycle_limit) = max_mcycle_limit {
             let config_cycle_limit = config_mcycle_limit.saturating_mul(1_000_000);
             if exec_limit_cycles >= config_cycle_limit {
@@ -1651,7 +1651,7 @@ pub(crate) mod tests {
         }
         let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        ctx.picker.config.load_write().as_mut().unwrap().market.allow_skip_mcycle_limit_addresses =
+        ctx.picker.config.load_write().as_mut().unwrap().market.priority_requestor_addresses =
             Some(vec![ctx.provider.default_signer_address()]);
 
         // First order from allowed address - should skip mcycle limit
@@ -1663,7 +1663,7 @@ pub(crate) mod tests {
 
         // Check logs for the expected message about skipping mcycle limit
         assert!(logs_contain(&format!(
-            "Order {order_id} exec limit skipped due to client {} being part of allow_skip_mcycle_limit_addresses.",
+            "Order {order_id} exec limit skipped due to client {} being part of priority_requestor_addresses.",
             ctx.provider.default_signer_address()
         )));
 
