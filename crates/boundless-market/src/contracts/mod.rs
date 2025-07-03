@@ -778,7 +778,7 @@ impl From<ContractErr> for TxnErr {
                     return Self::BytesDecode;
                 };
 
-                // Trial deocde the error with each possible contract ABI.
+                // Trial decode the error with each possible contract ABI.
                 if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data) {
                     Self::BoundlessMarketErr(decoded_error)
                 } else if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data) {
