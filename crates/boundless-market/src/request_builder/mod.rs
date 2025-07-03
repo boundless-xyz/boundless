@@ -542,7 +542,7 @@ impl RequestParams {
 
     /// Request a stand-alone Groth16 proof for this request.
     ///
-    /// This is a convinience method to set the selector on the requirements. Note that calling
+    /// This is a convenience method to set the selector on the requirements. Note that calling
     /// [RequestParams::with_requirements] after this function will overwrite the change.
     pub fn with_groth16_proof(self) -> Self {
         // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
