@@ -29,6 +29,9 @@ pub enum ProvingErr {
     #[error("{code} Request fulfilled by another prover", code = self.code())]
     ExternallyFulfilled,
 
+    #[error("{code} Proving timed out", code = self.code())]
+    ProvingTimedOut,
+
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -40,6 +43,7 @@ impl CodedError for ProvingErr {
         match self {
             ProvingErr::ProvingFailed(_) => "[B-PRO-501]",
             ProvingErr::ExternallyFulfilled => "[B-PRO-502]",
+            ProvingErr::ProvingTimedOut => "[B-PRO-503]",
             ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
         }
     }
@@ -165,7 +169,10 @@ impl ProvingService {
         }
     }
 
-    pub async fn monitor_proof_with_timeout(&self, order: Order) -> Result<OrderStatus> {
+    pub async fn monitor_proof_with_timeout(
+        &self,
+        order: Order,
+    ) -> Result<OrderStatus, ProvingErr> {
         let order_id = order.id();
         let request_id = order.request.id;
 
@@ -193,7 +200,7 @@ impl ProvingService {
                         request_id
                     );
                     self.cancel_stark_session(proof_id, &order_id, "externally fulfilled").await;
-                    return Err(ProvingErr::ExternallyFulfilled.into());
+                    return Err(ProvingErr::ExternallyFulfilled);
                 }
                 Ok(false) => Some(rx),
                 Err(e) => {
@@ -229,7 +236,7 @@ impl ProvingService {
                 res = &mut monitor_task => {
                     break res.with_context(|| {
                         format!("Monitoring proof failed for order {order_id}, proof_id: {proof_id}")
-                    })?;
+                    }).map_err(ProvingErr::ProvingFailed)?;
                 }
                 // Timeout occurred
                 _ = &mut timeout_future => {
@@ -239,7 +246,7 @@ impl ProvingService {
                         proof_id
                     );
                     self.cancel_stark_session(proof_id, &order_id, "timed out").await;
-                    return Err(anyhow::anyhow!("Proving timed out"));
+                    return Err(ProvingErr::ProvingTimedOut);
                 }
                 // External fulfillment notification (only active for FulfillAfterLockExpire orders)
                 Some(recv_res) = async {
@@ -257,7 +264,7 @@ impl ProvingService {
                                 proof_id
                             );
                             self.cancel_stark_session(proof_id, &order_id, "externally fulfilled").await;
-                            return Err(ProvingErr::ExternallyFulfilled.into());
+                            return Err(ProvingErr::ExternallyFulfilled);
                         }
                         Ok(_) => {
                             // Fulfillment for a different request, continue monitoring
@@ -319,10 +326,13 @@ impl ProvingService {
                     tracing::error!("Failed to set aggregation status for order {order_id}: {e:?}");
                 }
             }
+            Err(ProvingErr::ExternallyFulfilled) => {
+                tracing::info!("Order {order_id} was fulfilled by another prover, cancelled proof");
+                handle_order_failure(&self.db, &order_id, "Externally fulfilled").await;
+            }
             Err(err) => {
-                let proving_err = ProvingErr::ProvingFailed(err);
                 tracing::error!(
-                    "FATAL: Order {} failed to prove after {} retries: {proving_err:?}",
+                    "Order {} failed to prove after {} retries: {err:?}",
                     order_id,
                     proof_retry_count
                 );
