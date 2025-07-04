@@ -33,13 +33,15 @@ use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
 
-use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
-
-use super::{
-    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
-    IBoundlessMarket::{self, IBoundlessMarketInstance},
-    Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+use crate::{
+    contracts::{
+        eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
+        IBoundlessMarket::{self, IBoundlessMarketInstance},
+        Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+    },
 };
+
+use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
 
 /// Fraction of stake the protocol gives to the prover who fills an order that was locked by another prover but expired
 /// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
@@ -432,7 +434,12 @@ impl<P: Provider> BoundlessMarketService<P> {
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         if !receipt.status() {
-            // TODO: Get + print revertReason
+            tracing::error!(
+                "Lock request reverted for request ID {:x}, transaction hash: {}. \
+                 This may be due to being outbid, insufficient stake, or contract reversion.",
+                request.id,
+                receipt.transaction_hash
+            );
             return Err(MarketError::LockRevert(receipt.transaction_hash));
         }
 
@@ -486,7 +493,12 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
         if !receipt.status() {
-            // TODO: Get + print revertReason
+            tracing::error!(
+                "Lock request with signature reverted for request ID {:x}, transaction hash: {}. \
+                 This may be due to being outbid, invalid signature, insufficient stake, or contract reversion.",
+                request.id,
+                receipt.transaction_hash
+            );
             return Err(MarketError::LockRevert(receipt.transaction_hash));
         }
 
@@ -841,11 +853,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-        let tx_receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
@@ -879,11 +887,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-        let tx_receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")?;
+        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
