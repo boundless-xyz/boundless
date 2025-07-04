@@ -16,11 +16,7 @@ while [[ $# -gt 0 ]]; do
         FIREBLOCKS=1
         shift # past argument
         ;;
-    --broadcast)
-        FORGE_SCRIPT_FLAGS+=("$1") 
-        shift
-        ;;
-    --verify)
+    --broadcast|--verify)
         FORGE_SCRIPT_FLAGS+=("$1") 
         shift
         ;;
@@ -37,6 +33,12 @@ done
 
 set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
 
+if [ -n "$STACK_TAG" ]; then
+    DEPLOY_KEY=${CHAIN_KEY:?}-${STACK_TAG:?}
+else
+    DEPLOY_KEY=${CHAIN_KEY:?}
+fi
+
 # HINT: deployment_secrets.toml contains API keys. You can write it yourself, or ask a friend.
 load_env_var() {
     local var_name="$1"
@@ -48,7 +50,7 @@ load_env_var() {
     
     if [ -z "$current_value" ]; then
         echo "$var_name from $config_file: " > /dev/stderr
-        local new_value=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].$config_key" "$REPO_ROOT_DIR/contracts/$config_file")
+        local new_value=$(yq eval -e "$config_key" "$REPO_ROOT_DIR/contracts/$config_file")
         [ -n "$new_value" ] || exit 1
         export $var_name="$new_value"
     else
@@ -57,9 +59,9 @@ load_env_var() {
 }
 
 echo "Loading environment variables from deployment TOML files"
-load_env_var "RPC_URL" "rpc-url" "deployment_secrets.toml"
-load_env_var "ETHERSCAN_API_KEY" "etherscan-api-key" "deployment_secrets.toml"
-load_env_var "CHAIN_ID" "id" "deployment.toml"
+load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
+load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
+load_env_var "CHAIN_ID" ".deployment[\"${DEPLOY_KEY:?}\"].id" "deployment.toml"
 
 # Check if we're on the correct network
 CONNECTED_CHAIN_ID=$(cast chain-id --rpc-url ${RPC_URL:?})
@@ -77,7 +79,7 @@ forge_script() {
 
     if [ "${script_function:?}" == "help" ]; then
         echo "Usage:"
-        echo "  bash ${0} <script_function> [--fireblocks] [--verify] [--broadcast]"
+        echo "  CHAIN_KEY=ethereum-sepolia [STACK_TAG=staging] ${0} <script_function> [--fireblocks] [--verify] [--broadcast]"
         exit 0
     fi
 
@@ -103,8 +105,8 @@ forge_script() {
     else
         # Run forge
         forge script ${FORGE_SCRIPT_FLAGS} \
+            --private-key=${DEPLOYER_PRIVATE_KEY:?} \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
-            --private-key=${PRIVATE_KEY:?} \
             --rpc-url ${RPC_URL:?} \
             "$target" "$@"
     fi
@@ -113,4 +115,4 @@ forge_script() {
 # Run from the repo root for consistency.
 cd ${REPO_ROOT_DIR:?}
 
-forge_script ${SCRIPT_FUNCTION}
+forge_script "$@"
