@@ -190,8 +190,7 @@ fn copy_interfaces_and_types() {
 fn generate_contracts_rust_file() {
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let src_path =
-        Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("contracts").join("out");
+    let src_path = Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("out");
 
     // If running under cargo publish, the contracts directory doesn't exist, so we exit early.
     if !src_path.exists() {

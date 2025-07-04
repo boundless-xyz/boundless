@@ -1,5 +1,8 @@
 # Contract Operations Guide
 
+> [!WARNING]
+> This content is out of date
+
 An operations guide for the Boundless contracts.
 
 > [!NOTE]
