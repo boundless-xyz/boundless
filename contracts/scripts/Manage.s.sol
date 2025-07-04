@@ -166,3 +166,31 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
     }
 }
+
+/// @notice Script from transferring ownership of the BoundlessMarket contract.
+/// @dev Transfer will be from the current admin (i.e. owner) address the admin address set in deployment.toml
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/tutorials/solidity-scripting
+contract TransferOwnership is BoundlessScript {
+    function run() external {
+        // Load the config
+        DeploymentConfig memory deploymentConfig =
+            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
+
+        address admin = deploymentConfig.admin.required("admin");
+        address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
+        BoundlessMarket market = BoundlessMarket(marketAddress);
+
+        address currentAdmin = market.owner();
+        require(admin != currentAdmin, "current and new admin address are the same");
+
+        vm.broadcast(currentAdmin);
+        market.transferOwnership(admin);
+
+        vm.broadcast(admin);
+        market.acceptOwnership();
+
+        console2.log("Transfered ownership of the BoundlessMarket contract from %s to %s", currentAdmin, admin);
+    }
+}
