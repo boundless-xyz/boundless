@@ -1,4 +1,4 @@
-[chains.anvil]
+[deployment.anvil]
 name = "Anvil"
 id = 31337
 etherscan-url = ""
@@ -19,7 +19,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.ethereum-sepolia-prod]
+[deployment.ethereum-sepolia-prod]
 name = "Ethereum Sepolia [production]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
@@ -42,7 +42,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.ethereum-sepolia-staging]
+[deployment.ethereum-sepolia-staging]
 name = "Ethereum Sepolia [staging]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
@@ -65,7 +65,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.base-mainnet]
+[deployment.base-mainnet]
 name = "Base Mainnet"
 id = 8453
 etherscan-url = "https://basescan.org/"
@@ -88,7 +88,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.base-sepolia-prod]
+[deployment.base-sepolia-prod]
 name = "Base Sepolia [prod]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
@@ -111,7 +111,7 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.base-sepolia-staging]
+[deployment.base-sepolia-staging]
 name = "Base Sepolia [staging]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
