@@ -78,6 +78,10 @@ max_critical_task_retries = 10
 #
 # If enabled, all requests from clients not in the allow list are skipped.
 #allow_client_addresses = []
+# Optional deny list for requestor address.
+#
+# If enabled, all requests from clients in the deny list are skipped.
+#deny_requestor_addresses = []
 # lockRequest priority gas
 #
 # Optional additional gas to add to the transaction for lockinRequest, good

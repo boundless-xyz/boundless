@@ -3,6 +3,7 @@
 // All rights reserved.
 
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -158,6 +159,10 @@ pub struct MarketConf {
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
     pub allow_client_addresses: Option<Vec<Address>>,
+    /// Optional deny list for requestor address.
+    ///
+    /// If enabled, all requests from clients in the deny list are skipped.
+    pub deny_requestor_addresses: Option<HashSet<Address>>,
     /// lockRequest priority gas
     ///
     /// Optional additional gas to add to the transaction for lockinRequest, good
@@ -254,6 +259,7 @@ impl Default for MarketConf {
             lookback_blocks: 100,
             max_stake: "0.1".to_string(),
             allow_client_addresses: None,
+            deny_requestor_addresses: None,
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
             max_fetch_retries: Some(2),
@@ -611,6 +617,7 @@ max_stake = "0.1"
 max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
+deny_requestor_addresses = ["0x0000000000000000000000000000000000000000"]
 lockin_priority_gas = 100
 max_mcycle_limit = 10
 
@@ -715,6 +722,10 @@ error = ?"#;
             assert_eq!(config.market.min_deadline, 300);
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
+            assert_eq!(
+                config.market.deny_requestor_addresses,
+                Some([Address::ZERO].into_iter().collect())
+            );
             assert_eq!(config.market.lockin_priority_gas, Some(100));
             assert_eq!(config.market.max_fetch_retries, Some(10));
             assert_eq!(config.market.max_mcycle_limit, Some(10));

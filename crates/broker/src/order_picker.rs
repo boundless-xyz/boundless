@@ -263,9 +263,13 @@ where
             return Ok(Skip);
         }
 
-        let (min_deadline, allowed_addresses_opt) = {
+        let (min_deadline, allowed_addresses_opt, denied_addresses_opt) = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            (config.market.min_deadline, config.market.allow_client_addresses.clone())
+            (
+                config.market.min_deadline,
+                config.market.allow_client_addresses.clone(),
+                config.market.deny_requestor_addresses.clone(),
+            )
         };
 
         // Initial sanity checks:
@@ -273,6 +277,16 @@ where
             let client_addr = order.request.client_address();
             if !allow_addresses.contains(&client_addr) {
                 tracing::info!("Removing order {order_id} from {client_addr} because it is not in allowed addrs");
+                return Ok(Skip);
+            }
+        }
+
+        if let Some(deny_addresses) = denied_addresses_opt {
+            let client_addr = order.request.client_address();
+            if deny_addresses.contains(&client_addr) {
+                tracing::info!(
+                    "Removing order {order_id} from {client_addr} because it is in denied addrs"
+                );
                 return Ok(Skip);
             }
         }
@@ -1390,6 +1404,34 @@ pub(crate) mod tests {
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("because it is not in allowed addrs"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_denied_addr() {
+        let config = ConfigLock::default();
+        let ctx = PickerTestCtxBuilder::default().with_config(config.clone()).build().await;
+        let deny_address = ctx.provider.default_signer_address();
+
+        {
+            let mut cfg = config.load_write().unwrap();
+            cfg.market.mcycle_price = "0.0000001".into();
+            cfg.market.deny_requestor_addresses = Some([deny_address].into_iter().collect());
+        }
+
+        let order = ctx.generate_next_order(Default::default()).await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let order_id = order.id();
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(logs_contain("because it is in denied addrs"));
     }
 
     #[tokio::test]
