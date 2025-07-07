@@ -1,7 +1,5 @@
 name: bento
 # Anchors:
-# Defaults to 57600 seconds (16 hours)
-
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
   REDIS_URL: redis://${REDIS_HOST:-redis}:6379
