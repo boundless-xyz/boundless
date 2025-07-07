@@ -1,5 +1,8 @@
 name: bento
 # Anchors:
+# Defaults to 57600 seconds (16 hours)
+x-redis-ttl-flag: &redis-ttl-flag --redis-ttl 57600
+
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
   REDIS_URL: redis://${REDIS_HOST:-redis}:6379
@@ -28,7 +31,7 @@ x-exec-agent-common: &exec-agent-common
   environment:
     <<: *base-environment
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} *redis-ttl-flag
 
 x-broker-environment: &broker-environment
   RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
@@ -147,13 +150,13 @@ services:
     mem_limit: 256M
     cpus: 1
 
-    entrypoint: /app/agent -t aux --monitor-requeue
+    entrypoint: /app/agent -t aux --monitor-requeue *redis-ttl-flag
 
   gpu_prove_agent0:
     <<: *agent-common
     mem_limit: 4G
     cpus: 4
-    entrypoint: /app/agent -t prove
+    entrypoint: /app/agent -t prove *redis-ttl-flag
 
     # comment-out if running in CPU proving mode
     deploy:
@@ -167,7 +170,7 @@ services:
 
   snark_agent:
     <<: *agent-common
-    entrypoint: /app/agent -t snark
+    entrypoint: /app/agent -t snark *redis-ttl-flag
 
     ulimits:
       # Needed for stark_verify bin
