@@ -76,11 +76,12 @@ async fn main() -> Result<()> {
         .connect_client(client);
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
+    let broker = Broker::new(args.clone(), provider.clone()).await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
         let boundless_market = BoundlessMarketService::new(
-            args.boundless_market_address,
+            broker.deployment().boundless_market_address,
             provider.clone(),
             provider.default_signer_address(),
         );
@@ -91,8 +92,6 @@ async fn main() -> Result<()> {
             .await
             .context("Failed to deposit to market")?;
     }
-
-    let broker = Broker::new(args, provider).await?;
 
     // Await broker shutdown before returning from main
     broker.start_service().await.context("Broker service failed")?;

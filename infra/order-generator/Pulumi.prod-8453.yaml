@@ -15,7 +15,7 @@ config:
   order-generator-base:LOCK_STAKE_RAW: "500000" # $0.50 USDC
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.000005"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
@@ -28,7 +28,7 @@ config:
   # Offchain order generator is configured to send small orders that must be locked/fulfilled within 30 mins
   # We use these orders as canaries to monitor the health of the system
   order-generator-offchain:INPUT_MAX_MCYCLES: "10"
-  order-generator-offchain:RAMP_UP: "300"
+  order-generator-offchain:RAMP_UP: "450"
   order-generator-offchain:LOCK_TIMEOUT: "900"
   order-generator-offchain:TIMEOUT: "1500"
   order-generator-offchain:SECONDS_PER_MCYCLE: "0"
@@ -43,7 +43,8 @@ config:
     secure: v1:eK1UASw3bSRPU8ed:Vzu/ysmaB8pwHrXhbmiBaHtdwNQ44J6FRfvPCEn30lMvT8qjZIPESen9iAV9ajr37T2Crf4UlYW4pINu96Jamm6djA5yI2poxPBmAoTcvH4=
   # Onchain order generator is configured to send larger orders that must be locked/fulfilled within 1 hour
   # Mostly used to send load to the market, but also monitored as a canary.
-  order-generator-onchain:RAMP_UP: "600"
-  order-generator-onchain:LOCK_TIMEOUT: "900"
+  order-generator-onchain:RAMP_UP: "1200"
+  order-generator-onchain:LOCK_TIMEOUT: "1200"
   order-generator-onchain:TIMEOUT: "1800"
-  order-generator-onchain:SECONDS_PER_MCYCLE: "15"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "8"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "500"

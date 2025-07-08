@@ -3,6 +3,7 @@
 // All rights reserved.
 
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -67,6 +68,41 @@ mod defaults {
         4
     }
 }
+
+/// Order pricing priority mode for determining which orders to price first
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OrderPricingPriority {
+    /// Process orders in random order to distribute competition among provers
+    Random,
+    /// Process orders in the order they were observed (FIFO)
+    ObservationTime,
+    /// Process orders by shortest expiry first (earliest deadline)
+    ShortestExpiry,
+}
+
+impl Default for OrderPricingPriority {
+    fn default() -> Self {
+        Self::Random
+    }
+}
+
+/// Order commitment priority mode for determining which orders to commit to first
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OrderCommitmentPriority {
+    /// Process orders in random order to distribute competition among provers
+    Random,
+    /// Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+    ShortestExpiry,
+}
+
+impl Default for OrderCommitmentPriority {
+    fn default() -> Self {
+        Self::Random
+    }
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
@@ -91,10 +127,11 @@ pub struct MarketConf {
     ///
     /// Orders over this max_cycles will be skipped after preflight
     pub max_mcycle_limit: Option<u64>,
-    /// Optional allow list for addresses that can bypass the mcycle limit
+    /// Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
     ///
-    /// If enabled, all requests from clients in the allow list will be accepted regardless of the mcycle limit.
-    pub allow_skip_mcycle_limit_addresses: Option<Vec<Address>>,
+    /// If enabled, the order will be preflighted without constraints.
+    #[serde(alias = "priority_requestor_addresses")]
+    pub priority_requestor_addresses: Option<Vec<Address>>,
     /// Max journal size in bytes
     ///
     /// Orders that produce a journal larger than this size in preflight will be skipped. Since journals
@@ -122,6 +159,10 @@ pub struct MarketConf {
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
     pub allow_client_addresses: Option<Vec<Address>>,
+    /// Optional deny list for requestor address.
+    ///
+    /// If enabled, all requests from clients in the deny list are skipped.
+    pub deny_requestor_addresses: Option<HashSet<Address>>,
     /// lockRequest priority gas
     ///
     /// Optional additional gas to add to the transaction for lockinRequest, good
@@ -185,6 +226,21 @@ pub struct MarketConf {
     /// Used to limit pricing tasks spawned to prevent overwhelming the system
     #[serde(default = "defaults::max_concurrent_preflights")]
     pub max_concurrent_preflights: u32,
+    /// Order pricing priority mode
+    ///
+    /// Determines how orders are prioritized for pricing. Options:
+    /// - "random": Process orders in random order to distribute competition among provers (default)
+    /// - "observation_time": Process orders in the order they were observed (FIFO)
+    /// - "shortest_expiry": Process orders by shortest expiry first (earliest deadline)
+    #[serde(default)]
+    pub order_pricing_priority: OrderPricingPriority,
+    /// Order commitment priority mode
+    ///
+    /// Determines how orders are prioritized when committing to prove them. Options:
+    /// - "random": Process orders in random order to distribute competition among provers (default)
+    /// - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+    #[serde(default, alias = "expired_order_fulfillment_priority")]
+    pub order_commitment_priority: OrderCommitmentPriority,
 }
 
 impl Default for MarketConf {
@@ -196,13 +252,14 @@ impl Default for MarketConf {
             mcycle_price_stake_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
-            allow_skip_mcycle_limit_addresses: None,
+            priority_requestor_addresses: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,
             min_deadline: 120, // 2 mins
             lookback_blocks: 100,
             max_stake: "0.1".to_string(),
             allow_client_addresses: None,
+            deny_requestor_addresses: None,
             lockin_priority_gas: None,
             max_file_size: 50_000_000,
             max_fetch_retries: Some(2),
@@ -217,6 +274,8 @@ impl Default for MarketConf {
             max_concurrent_proofs: None,
             cache_dir: None,
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
+            order_pricing_priority: OrderPricingPriority::default(),
+            order_commitment_priority: OrderCommitmentPriority::default(),
         }
     }
 }
@@ -558,6 +617,7 @@ max_stake = "0.1"
 max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
+deny_requestor_addresses = ["0x0000000000000000000000000000000000000000"]
 lockin_priority_gas = 100
 max_mcycle_limit = 10
 
@@ -662,6 +722,10 @@ error = ?"#;
             assert_eq!(config.market.min_deadline, 300);
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
+            assert_eq!(
+                config.market.deny_requestor_addresses,
+                Some([Address::ZERO].into_iter().collect())
+            );
             assert_eq!(config.market.lockin_priority_gas, Some(100));
             assert_eq!(config.market.max_fetch_retries, Some(10));
             assert_eq!(config.market.max_mcycle_limit, Some(10));

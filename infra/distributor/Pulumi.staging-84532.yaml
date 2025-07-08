@@ -1,0 +1,31 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEN1lD/SMQODOz9YgEAnhi7AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMKUdV0964lNIacKIuAgEQgDuGeR64948sR4IedpHcSKriNwKJz04dCwHSS91eRcpsKqVy4f3uyOzClHgSOaljH/eTIhIWC1WQIpRYbA==
+config:
+  distributor:DISTRIBUTOR_ADDRESS: 0x364002190e381A62c301D2d7D0427E5CDdeF37cE
+  distributor:DISTRIBUTOR_PRIVATE_KEY:
+    secure: v1:qhAMaH4YvYCOEu97:5fbkWpv/g0hoAcazQIa/UVTb4Vj9h3Rq00dBBnmHKS7Aidg+BLomQsOZPYmCb2Pm5D2mQk0KsVpAURQ7NM/1jC4OUhXrKOfxr78YytOX7VA=
+  distributor:ETH_THRESHOLD: "1"
+  distributor:ETH_TOP_UP_AMOUNT: "10"
+  distributor:ORDER_GENERATOR_KEYS:
+    secure: v1:fP3AXKVLL17tN0iW:r5R7B8zsWMKApZw87+YV1iplHc9Wyw6sLXF7JAZyJw5GcbS7QIgGgzYt/lyr5VC1AbPgNlS/3bl7vujjNXPSglTuPLkIEogRvCTFzLCNQUxuBzFiSz76TsqKijdec2j3cW6Sm7kBnxeUrdYDD/4ydhvPzKHLWu1W+xNkOKHh8MlezhvneyXcD1rwYn7EF1lDxQ==
+  distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  distributor:PROVER_ETH_DONATE_THRESHOLD: "10"
+  distributor:PROVER_KEYS:
+    secure: v1:2vOtFYU4tCpTWOtn:YKw9Zc/qts4XmbSpkeWKq5tXCkPOmp8dhaE9HjoMnPKLaX91QjJEZZHZSEAiDbBRpqD/8mTQisxm0BQhSYNJoy0u22a8Bq89jZYiMGHQCP7RuOgXZ//TPd+ZdGPAWKf79Lf8m63sXSd7Zuzgu4z6RbC7T2Nn7+gSN9Ztt6iqQeZT06g1swLsQpeuEzYiVrl7Eg==
+  distributor:SCHEDULE_MINUTES: "360"
+  distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
+  distributor:SLASHER_KEY:
+    secure: v1:1jzQibAoUrHjn0Iy:ixX10gWEC1WNnq8FVhWfHuqHvOEBys9o63zjaU6OZ6Lr+ooO9sficX9Djf979h1ElPk5CC5sqyzgShtZhkdPLo1YGqufpcdRrzNbAUODIWw=
+  distributor:STAKE_THRESHOLD: "7"
+  distributor:STAKE_TOP_UP_AMOUNT: "10"
+  distributor:ETH_RPC_URL:
+    secure: v1:Gbts2MDIxPZqVLfr:YTMV0vht0vt6P0Sr50BqmvgUIlh/06F7ZqWbmgGRzz6VStrQEoNiEecYsgMaP765Ai9eAv7m9F6G5DGxju5zl+uTG99hRg1jqog+
+  distributor:GH_TOKEN_SECRET:
+    secure: v1:LP7Dlck3U2L4swoQ:bsaCSR9sLqBtw79LCWs//evqgGnkK6So545k6xNmBwDQHMllC0sP9p/vEJN+QdAvzuoeo70cO9h0W7uYQX5b/egOLr2Nj4YlwvnoLrp0HmtwjNswS+o7Lgy/lA8dv6OXdntLR6TwlfYnBnPcTw==
+  distributor:BOUNDLESS_MARKET_ADDR: 0xAD0Bd6C436658aF457736d7224a87d2EF56365C8
+  distributor:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  distributor:CHAIN_ID: "84532"
+  distributor:LOG_LEVEL: "info"
+  distributor:DOCKER_DIR: ../../
+  distributor:DOCKER_TAG: latest
+  distributor:BASE_STACK: organization/bootstrap/services-staging
