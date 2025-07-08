@@ -1,0 +1,25 @@
+[package]
+name = "boundless-povw-guests"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[dev-dependencies]
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+anyhow = { workspace = true }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
+risc0-zkvm = { workspace = true, features = ["client", "unstable"] }
+tokio = { workspace = true }
+
+[build-dependencies]
+risc0-build = { workspace = true, features = ["unstable"] }
+risc0-build-ethereum = { workspace = true }
+
+[package.metadata.risc0]
+methods = ["mint-calculator"]
+
+[package.metadata.release]
+release = false
