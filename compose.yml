@@ -28,7 +28,7 @@ x-exec-agent-common: &exec-agent-common
   environment:
     <<: *base-environment
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} --redis-ttl ${REDIS_TTL:-57600}
 
 x-broker-environment: &broker-environment
   RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
@@ -147,13 +147,13 @@ services:
     mem_limit: 256M
     cpus: 1
 
-    entrypoint: /app/agent -t aux --monitor-requeue
+    entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
 
   gpu_prove_agent0:
     <<: *agent-common
     mem_limit: 4G
     cpus: 4
-    entrypoint: /app/agent -t prove
+    entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
 
     # comment-out if running in CPU proving mode
     deploy:
@@ -167,7 +167,7 @@ services:
 
   snark_agent:
     <<: *agent-common
-    entrypoint: /app/agent -t snark
+    entrypoint: /app/agent -t snark --redis-ttl ${REDIS_TTL:-57600}
 
     ulimits:
       # Needed for stark_verify bin
