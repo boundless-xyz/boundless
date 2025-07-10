@@ -72,7 +72,7 @@ etherscan-url = "https://basescan.org/"
 version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
-admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+admin = "0xc182328072F1158c574539F43890090d81f4A5ab"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
