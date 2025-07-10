@@ -20,8 +20,8 @@ config:
   bento-prover:SEGMENT_SIZE: "19"
   bento-prover:SNARK_TIMEOUT: "240"
   bonsai-prover:BONSAI_API_KEY:
-    secure: v1:TQceOMB2gkPHTQti:86X5QenfekfTYjsHsNnlz4SbHc/IoLbZRtL8pHSX7UQu1JfvH0d/cv1wMApBAMphMhnvMJNKD8Q=
-  bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
+    secure: v1:uBnGt0CVgsrXPBPh:Tl3CljSj77l6n6reC+x53AFcAXVF9kwU2e9P0QdYz8uxT9lgzKO5oOYoKS77t6vR8G8FSAdYhjc=
+  bonsai-prover:BONSAI_API_URL: https://api.staging.bonsai.xyz/
   bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-prod-84532.toml
   bonsai-prover:PRIVATE_KEY:
     secure: v1:mLXwLMD1EhSSYwkS:JYb3H7gkMbKINmgOEOq/UEyJxetYBIPFGCC+Vqo4+TenFOVp5IOedBHbLNlajjsqACONEIuDzIDShFMT9Ec865HSs8D3X5SnO5drYeq35qg=
