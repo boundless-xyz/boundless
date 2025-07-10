@@ -5,6 +5,23 @@
 use std::future::Future;
 use tokio::time::Duration;
 
+/// Helper function for logging errors and sleeping before retry
+async fn log_and_sleep<E: std::fmt::Debug>(
+    function_name: &str,
+    err: &E,
+    attempt: u64,
+    retry_count: u64,
+    retry_sleep_ms: u64,
+) {
+    tracing::warn!(
+        "Operation [{}] failed: {err:?}, starting retry {}/{}",
+        function_name,
+        attempt + 1,
+        retry_count
+    );
+    tokio::time::sleep(Duration::from_millis(retry_sleep_ms)).await;
+}
+
 /// Retry a future with a specified number of retries and sleep duration between attempts.
 pub async fn retry<T, E, F, Fut>(
     retry_count: u64,
@@ -27,13 +44,7 @@ where
             Ok(result) => return Ok(result),
             Err(err) => {
                 if attempt < retry_count {
-                    tracing::warn!(
-                        "Operation [{}] failed: {err:?}, starting retry {}/{}",
-                        function_name,
-                        attempt + 1,
-                        retry_count
-                    );
-                    tokio::time::sleep(Duration::from_millis(retry_sleep_ms)).await;
+                    log_and_sleep(function_name, &err, attempt, retry_count, retry_sleep_ms).await;
                     last_error = Some(err);
                     continue;
                 }
@@ -83,13 +94,7 @@ where
                 }
 
                 if attempt < retry_count {
-                    tracing::warn!(
-                        "Operation [{}] failed: {err:?}, starting retry {}/{}",
-                        function_name,
-                        attempt + 1,
-                        retry_count
-                    );
-                    tokio::time::sleep(Duration::from_millis(retry_sleep_ms)).await;
+                    log_and_sleep(function_name, &err, attempt, retry_count, retry_sleep_ms).await;
                     last_error = Some(err);
                     continue;
                 }
