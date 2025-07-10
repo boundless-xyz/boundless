@@ -18,10 +18,10 @@ config:
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   bonsai-prover:BONSAI_API_KEY:
-    secure: v1:DBLnIT+fWqeYZsZd:FEOPSijO1WHd24xhepKtRB37SnovAt7A+7QmgJJ84yUvoKAmntUYalyrTN3TvSspnpgR23dQlfM=
+    secure: v1:NRRKxAkHsbxMRDwJ:U8wrJkEh+rQhlouRIMZES2WF2HtLxV/KQn4oRQ9ONVu0Q1XIqH94uRl30hPWo0aJACO8m9t6h3c=
   bonsai-prover:PRIVATE_KEY:
     secure: v1:j5fu2VrpM4iMtqx0:44th6mCirhEI2znqmXOYsAEYUyrjIdArEuX6upMQf5jtHbB+PYwcie1JoSPGtFSQzs0EYFtJ9xa2Rxlu8Bhafa1WM3ZNipR+0Tg6+zgAaEg=
-  bonsai-prover:BONSAI_API_URL: https://api.bonsai.xyz/
+  bonsai-prover:BONSAI_API_URL: https://api.staging.bonsai.xyz/
   bento-prover:SEGMENT_SIZE: "19"
   bento-prover:SNARK_TIMEOUT: "240"
   bento-prover:PRIVATE_KEY:
