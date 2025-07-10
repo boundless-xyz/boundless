@@ -207,7 +207,7 @@ contract AcceptTransferOwnership is BoundlessScript {
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
         BoundlessMarket market = BoundlessMarket(marketAddress);
 
-        require(admin != market.pendingOwner(), "pending owner is not the configured admin");
+        require(admin == market.pendingOwner(), "pending owner is not the configured admin");
 
         vm.broadcast(admin);
         market.acceptOwnership();

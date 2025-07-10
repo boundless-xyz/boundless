@@ -51,7 +51,7 @@ load_env_var() {
     if [ -z "$current_value" ]; then
         echo "$var_name from $config_file: " > /dev/stderr
         local new_value=$(yq eval -e "$config_key" "$REPO_ROOT_DIR/contracts/$config_file")
-        [ -n "$new_value" ] || exit 1
+        [ -n "$new_value" ] && [[ "$new_value" != "null" ]] || exit 1
         export $var_name="$new_value"
     else
         echo "$var_name from env $current_value"
