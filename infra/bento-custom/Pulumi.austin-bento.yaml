@@ -1,0 +1,13 @@
+encryptionsalt: v1:Nog/F2TKJaE=:v1:XCmQ41O4MdkNI975:RIgyWiDcx4+vU92kOVUj3rdjmY6dXw==
+config:
+  aws:region: us-west-2
+  prover:environment: custom
+  prover:gitBranch: main
+  prover:segmentSize: "21"
+  prover:snarkTimeout: "180"
+  prover:brokerPrivateKey:
+    secure: v1:OsDi7HUxBqbwwmHk:gBhKxgAsC0htyOD8eAFhF9D7BmF+RVheMTpMpX5USY3Pf8FT6l/1GTY6QIcejfmtxdkACRmhHt1aHm5EcSgteV0AsFfZfVYtWKrz6vltvrUQE8goxQ==
+  prover:rpcUrl:
+    secure: v1:ci8q3X6VQl93Xaus:c/ure9m0EUbrGlZycQ3rELIm1fzZvZGp3ahSd4v6oyJfxjZ/RR3++9SKdaLEz2j5+PJx5aYyiafng2eNOXdHEPD5a1EnpGR3UgO+KmQ5j6vif81hcQ==
+  prover:rdsPassword:
+    secure: v1:68x3XeNDFFilIbrb:XsnWnwdGo0vNMLm7eJx0G5E0nexrcGkM3OqyRXIFEC8b776CuyCXMxnQNUYaFTDVnTd8uKQDE8LNW86X
