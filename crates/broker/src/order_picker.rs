@@ -500,7 +500,7 @@ where
             if exec_limit_cycles > deadline_cycle_limit {
                 tracing::debug!(
                     "Order {order_id} preflight cycle limit adjusted to {} cycles (capped by {:.1}s fulfillment deadline at {} peak_prove_khz config)",
-                    exec_limit_cycles,
+                    deadline_cycle_limit,
                     time_until_expiration,
                     peak_prove_khz
                 );
