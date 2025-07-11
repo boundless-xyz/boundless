@@ -195,9 +195,7 @@ where
 
             if !matches!(req_status, RequestStatus::Unknown) {
                 tracing::debug!(
-                    "Skipping order {} reason: order status no longer bidding: {:?}",
-                    request_id,
-                    req_status
+                    "Skipping order {request_id:x} reason: order status no longer bidding: {req_status:?}",
                 );
                 continue;
             }
