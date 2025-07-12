@@ -885,9 +885,14 @@ where
                     return Ok((order.request, Bytes::from(order.signature.as_bytes())));
                 }
                 Err(err) => {
-                    tracing::error!(
-                        "Error querying order stream for request 0x{request_id:x}; err = {err}"
-                    );
+                    // TODO: Provide a type-safe way to handle this error.
+                    if err.to_string().contains("No order found") {
+                        tracing::debug!("Request 0x{request_id:x} not found offchain");
+                    } else {
+                        tracing::error!(
+                            "Error querying order stream for request 0x{request_id:x}; err = {err}"
+                        );
+                    }
                 }
             }
         } else {
