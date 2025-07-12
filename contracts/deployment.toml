@@ -1,4 +1,4 @@
-[chains.anvil]
+[deployment.anvil]
 name = "Anvil"
 id = 31337
 etherscan-url = ""
@@ -19,14 +19,14 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.ethereum-sepolia-prod]
+[deployment.ethereum-sepolia-prod]
 name = "Ethereum Sepolia [production]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
 version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
-admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
@@ -42,14 +42,14 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.ethereum-sepolia-staging]
+[deployment.ethereum-sepolia-staging]
 name = "Ethereum Sepolia [staging]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
 version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
-admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
@@ -65,14 +65,14 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.base-mainnet]
+[deployment.base-mainnet]
 name = "Base Mainnet"
 id = 8453
 etherscan-url = "https://basescan.org/"
 version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
-admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+admin = "0xc182328072F1158c574539F43890090d81f4A5ab"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
@@ -88,14 +88,14 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.base-sepolia-prod]
+[deployment.base-sepolia-prod]
 name = "Base Sepolia [prod]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
 version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
-admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
@@ -111,14 +111,14 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 
 ###
 
-[chains.base-sepolia-staging]
+[deployment.base-sepolia-staging]
 name = "Base Sepolia [staging]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
 version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
 # Accounts
-admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"

@@ -195,9 +195,7 @@ where
 
             if !matches!(req_status, RequestStatus::Unknown) {
                 tracing::debug!(
-                    "Skipping order {} reason: order status no longer bidding: {:?}",
-                    request_id,
-                    req_status
+                    "Skipping order {request_id:x} reason: order status no longer bidding: {req_status:?}",
                 );
                 continue;
             }
@@ -208,10 +206,7 @@ where
             };
 
             tracing::info!(
-                "Found open order: {:x} with request status: {:?}, preparing to process with fulfillment type: {:?}",
-                request_id,
-                req_status,
-                fulfillment_type
+                "Found open order: {request_id:x} with request status: {req_status:?}, preparing to process with fulfillment type: {fulfillment_type:?}",
             );
 
             let new_order = OrderRequest::new(
