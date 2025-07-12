@@ -22,13 +22,12 @@ use std::{
 use alloy::{
     hex::FromHex,
     primitives::{Address, Bytes, Signature, U256},
-    sol_types::{SolStruct, SolValue},
+    sol_types::SolValue,
 };
 use anyhow::{ensure, Context, Result};
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_market::{
     contracts::{eip712_domain, ProofRequest},
-    order_stream_client::Order,
     storage::fetch_url,
 };
 use clap::Parser;
@@ -77,15 +76,10 @@ async fn main() -> Result<()> {
     )?;
     let request = <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?)
         .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
-    let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
-    let order = Order {
-        request,
-        request_digest,
-        signature: Signature::try_from(
-            Bytes::from_hex(args.signature.trim_start_matches("0x"))?.as_ref(),
-        )?,
-    };
-    let (fills, root_receipt, assessor_receipt) = prover.fulfill(&[order.clone()]).await?;
+    let signature =
+        Signature::try_from(Bytes::from_hex(args.signature.trim_start_matches("0x"))?.as_ref())?;
+    let (fills, root_receipt, assessor_receipt) =
+        prover.fulfill(&[(request, signature.as_bytes().into())]).await?;
     let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
 
     // Forge test FFI calls expect hex encoded bytes sent to stdout
