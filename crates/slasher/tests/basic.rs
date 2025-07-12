@@ -6,18 +6,15 @@ use std::{process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, Signature, U256},
+    primitives::{Address, Bytes, U256},
     providers::Provider,
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
 use boundless_cli::OrderFulfilled;
-use boundless_market::{
-    contracts::{
-        boundless_market::{FulfillmentTx, UnlockedRequest},
-        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
-    },
-    order_stream_client::Order,
+use boundless_market::contracts::{
+    boundless_market::{FulfillmentTx, UnlockedRequest},
+    Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
 };
 use boundless_market_test_utils::create_test_ctx;
 use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
@@ -183,11 +180,6 @@ async fn test_slash_fulfilled() {
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
     ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
     let domain = ctx.customer_market.eip712_domain().await.unwrap();
-    let order = Order::new(
-        request.clone(),
-        request.signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id()).unwrap(),
-        Signature::try_from(client_sig.as_ref()).unwrap(),
-    );
     let prover = boundless_cli::DefaultProver::new(
         SET_BUILDER_ELF.to_vec(),
         ASSESSOR_GUEST_ELF.to_vec(),
@@ -195,7 +187,8 @@ async fn test_slash_fulfilled() {
         domain,
     )
     .unwrap();
-    let (fill, root_receipt, assessor_receipt) = prover.fulfill(&[order]).await.unwrap();
+    let (fill, root_receipt, assessor_receipt) =
+        prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
     let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt).unwrap();
     let expires_at = request.offer.biddingStart + request.offer.timeout as u64;
     let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;

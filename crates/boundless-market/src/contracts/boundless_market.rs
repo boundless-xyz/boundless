@@ -1095,6 +1095,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                 .context("Failed to get transaction")?
                 .context("Transaction not found")?;
             let inputs = tx_data.input();
+            // TODO: This should parse from events rather than calldata.
             let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs)
                 .context("Failed to decode input")?;
             return Ok((calldata.request, calldata.clientSignature));
