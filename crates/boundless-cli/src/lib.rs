@@ -17,7 +17,7 @@
 #![deny(missing_docs)]
 
 use alloy::{
-    primitives::{Address, Bytes},
+    primitives::Address,
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{bail, Context, Result};
@@ -40,9 +40,9 @@ use boundless_market::{
         Fulfillment as BoundlessFulfillment, RequestInputType,
     },
     input::GuestEnv,
+    order_stream_client::Order,
     selector::{is_groth16_selector, SupportedSelectors},
     storage::fetch_url,
-    ProofRequest,
 };
 
 alloy::sol!(
@@ -215,16 +215,17 @@ impl DefaultProver {
     /// * The [SetInclusionReceipt] of the assessor.
     pub async fn fulfill(
         &self,
-        orders: &[(ProofRequest, Bytes)],
+        orders: &[Order],
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
-        let orders_jobs = orders.iter().cloned().map(|(req, sig)| async move {
-            let order_program = fetch_url(&req.imageUrl).await?;
-            let order_input: Vec<u8> = match req.input.inputType {
-                RequestInputType::Inline => GuestEnv::decode(&req.input.data)?.stdin,
+        let orders_jobs = orders.iter().map(|order| async {
+            let request = order.request.clone();
+            let order_program = fetch_url(&request.imageUrl).await?;
+            let order_input: Vec<u8> = match request.input.inputType {
+                RequestInputType::Inline => GuestEnv::decode(&request.input.data)?.stdin,
                 RequestInputType::Url => {
                     GuestEnv::decode(
                         &fetch_url(
-                            std::str::from_utf8(&req.input.data)
+                            std::str::from_utf8(&request.input.data)
                                 .context("input url is not utf8")?,
                         )
                         .await?,
@@ -234,9 +235,9 @@ impl DefaultProver {
                 _ => bail!("Unsupported input type"),
             };
 
-            let selector = req.requirements.selector;
+            let selector = request.requirements.selector;
             if !self.supported_selectors.is_supported(selector) {
-                bail!("Unsupported selector {}", req.requirements.selector);
+                bail!("Unsupported selector {}", request.requirements.selector);
             };
 
             let order_receipt = self
@@ -249,8 +250,8 @@ impl DefaultProver {
             let order_claim_digest = order_claim.digest();
 
             let fill = Fulfillment {
-                request: req.clone(),
-                signature: sig.into(),
+                request: order.request.clone(),
+                signature: order.signature.into(),
                 journal: order_journal.clone(),
             };
 
@@ -265,7 +266,7 @@ impl DefaultProver {
 
         for (i, result) in results.into_iter().enumerate() {
             if let Err(e) = result {
-                tracing::warn!("Failed to prove request 0x{:x}: {}", orders[i].0.id, e);
+                tracing::warn!("Failed to prove request 0x{:x}: {}", orders[i].request.id, e);
                 continue;
             }
             let (receipt, claim, claim_digest, fill) = result?;
@@ -299,8 +300,8 @@ impl DefaultProver {
                 merkle_path(&claim_digests, i),
                 verifier_parameters.digest(),
             );
-            let (req, _sig) = &orders[i];
-            let order_seal = if is_groth16_selector(req.requirements.selector) {
+            let order = &orders[i];
+            let order_seal = if is_groth16_selector(order.request.requirements.selector) {
                 let receipt = self.compress(&receipts[i]).await?;
                 encode_seal(&receipt)?
             } else {
@@ -308,9 +309,9 @@ impl DefaultProver {
             };
 
             let fulfillment = BoundlessFulfillment {
-                id: req.id,
-                requestDigest: req.eip712_signing_hash(&self.domain.alloy_struct()),
-                imageId: req.requirements.imageId,
+                id: order.request.id,
+                requestDigest: order.request.eip712_signing_hash(&self.domain.alloy_struct()),
+                imageId: order.request.requirements.imageId,
                 journal: fills[i].journal.clone().into(),
                 seal: order_seal.into(),
             };
@@ -404,6 +405,7 @@ mod tests {
             setup_proving_request_and_signature(&signer, Some(Selector::Groth16V2_1)).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
+        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
@@ -412,7 +414,8 @@ mod tests {
         )
         .expect("failed to create prover");
 
-        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+        let order = Order { request, request_digest, signature };
+        prover.fulfill(&[order.clone()]).await.unwrap();
     }
 
     #[tokio::test]
@@ -422,6 +425,7 @@ mod tests {
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
+        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),
             ASSESSOR_GUEST_ELF.to_vec(),
@@ -430,6 +434,7 @@ mod tests {
         )
         .expect("failed to create prover");
 
-        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+        let order = Order { request, request_digest, signature };
+        prover.fulfill(&[order.clone()]).await.unwrap();
     }
 }
