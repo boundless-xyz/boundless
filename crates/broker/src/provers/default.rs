@@ -149,6 +149,7 @@ impl Prover for DefaultProver {
         input_id: &str,
         assumptions: Vec<String>,
         executor_limit: Option<u64>,
+        _order_id: &str,
     ) -> Result<ProofResult, ProverError> {
         let image = self
             .get_image(image_id)
@@ -425,7 +426,8 @@ mod tests {
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
 
         // Run preflight
-        let result = prover.preflight(&image_id, &input_id, vec![], None).await.unwrap();
+        let result =
+            prover.preflight(&image_id, &input_id, vec![], None, "test_order_id").await.unwrap();
         assert!(!result.id.is_empty());
         assert!(result.stats.segments > 0 && result.stats.user_cycles > 0);
 

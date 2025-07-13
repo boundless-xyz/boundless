@@ -192,7 +192,7 @@ impl StatusPoller {
                         return Err(ProverError::MissingStatus);
                     };
                     tracing::trace!(
-                        "Proof {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
+                        "Session {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
                         stats.cycles,
                         stats.total_cycles
                     );
@@ -289,6 +289,7 @@ impl Prover for Bonsai {
         input_id: &str,
         assumptions: Vec<String>,
         executor_limit: Option<u64>,
+        order_id: &str,
     ) -> Result<ProofResult, ProverError> {
         self.retry_only(
             || async {
@@ -310,6 +311,9 @@ impl Prover for Bonsai {
                     )
                     .await?;
 
+                tracing::debug!(
+                    "Created session for preflight: {preflight_id:?} for order id {order_id:?} with image id {image_id} and input id {input_id}"
+                );
                 let poller = StatusPoller {
                     poll_sleep_ms: self.status_poll_ms,
                     retry_counts: self.status_poll_retry_count,

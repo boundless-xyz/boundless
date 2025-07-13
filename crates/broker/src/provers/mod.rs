@@ -106,6 +106,7 @@ pub trait Prover {
         input_id: &str,
         assumptions: Vec<String>,
         executor_limit: Option<u64>,
+        order_id: &str,
     ) -> Result<ProofResult, ProverError>;
     async fn prove_stark(
         &self,

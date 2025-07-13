@@ -526,12 +526,14 @@ where
                 &input_id,
                 vec![],
                 /* TODO assumptions */ Some(exec_limit_cycles),
+                &order_id,
             )
             .await
         {
             Ok(res) => {
                 tracing::debug!(
-                    "Preflight execution of {order_id} with {} mcycles completed in {} seconds",
+                    "Preflight execution of {order_id} with session id {} and {} mcycles completed in {} seconds",
+                    res.id,
                     res.stats.total_cycles / 1_000_000,
                     res.elapsed_time
                 );
