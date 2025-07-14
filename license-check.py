@@ -53,6 +53,7 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/crates/broker",
     str(Path.cwd()) + "/crates/bench",
     str(Path.cwd()) + "/crates/broker-stress",
+    str(Path.cwd()) + "/crates/distributor",
     str(Path.cwd()) + "/crates/guest/util",
     str(Path.cwd()) + "/crates/indexer",
     str(Path.cwd()) + "/crates/ops-lambdas",
