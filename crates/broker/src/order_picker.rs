@@ -2,13 +2,12 @@
 //
 // All rights reserved.
 
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
     chain_monitor::ChainMonitorService,
-    config::{ConfigLock, OrderPricingPriority},
+    config::ConfigLock,
     db::DbObj,
     errors::CodedError,
     provers::{ProverError, ProverObj},
@@ -789,36 +788,37 @@ where
         Box::pin(async move {
             tracing::info!("Starting order picking monitor");
 
-            let read_config = || -> Result<(usize, OrderPricingPriority), Self::Error> {
+            let read_config = || -> Result<_, Self::Error> {
                 let cfg = picker.config.lock_all().map_err(|err| {
                     OrderPickerErr::UnexpectedErr(anyhow::anyhow!("Failed to read config: {err}"))
                 })?;
                 Ok((
                     cfg.market.max_concurrent_preflights as usize,
                     cfg.market.order_pricing_priority,
+                    cfg.market.priority_requestor_addresses.clone(),
                 ))
             };
 
-            let (mut current_capacity, mut priority_mode) =
+            let (mut current_capacity, mut priority_mode, mut priority_addresses) =
                 read_config().map_err(SupervisorErr::Fault)?;
             let mut tasks: JoinSet<()> = JoinSet::new();
             let mut rx = picker.new_order_rx.lock().await;
             let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
-            let mut pending_orders: VecDeque<Box<OrderRequest>> = VecDeque::new();
+            let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
 
             loop {
                 tokio::select! {
                     // This channel is cancellation safe, so it's fine to use in the select!
                     Some(order) = rx.recv() => {
                         tracing::debug!("Queued order {} to be priced", order.id());
-                        pending_orders.push_back(order);
+                        pending_orders.push(order);
                     }
                     _ = tasks.join_next(), if !tasks.is_empty() => {
                         tracing::trace!("Pricing task completed ({} remaining)", tasks.len());
                     }
                     _ = capacity_check_interval.tick() => {
                         // Check capacity on an interval for capacity changes in config
-                        let (new_capacity, new_priority_mode) = read_config().map_err(SupervisorErr::Fault)?;
+                        let (new_capacity, new_priority_mode, new_priority_addresses) = read_config().map_err(SupervisorErr::Fault)?;
                         if new_capacity != current_capacity{
                             tracing::debug!("Pricing capacity changed from {} to {}", current_capacity, new_capacity);
                             current_capacity = new_capacity;
@@ -826,6 +826,10 @@ where
                         if new_priority_mode != priority_mode {
                             tracing::debug!("Order pricing priority changed from {:?} to {:?}", priority_mode, new_priority_mode);
                             priority_mode = new_priority_mode;
+                        }
+                        if new_priority_addresses != priority_addresses {
+                            tracing::debug!("Priority requestor addresses changed");
+                            priority_addresses = new_priority_addresses;
                         }
                     }
                     _ = cancel_token.cancelled() => {
@@ -838,10 +842,16 @@ where
                 }
 
                 // Process pending orders if we have capacity
-                while !pending_orders.is_empty() && tasks.len() < current_capacity {
-                    if let Some(order) =
-                        picker.select_next_pricing_order(&mut pending_orders, priority_mode)
-                    {
+                if !pending_orders.is_empty() && tasks.len() < current_capacity {
+                    let available_capacity = current_capacity - tasks.len();
+                    let selected_orders = picker.select_pricing_orders(
+                        &mut pending_orders,
+                        priority_mode,
+                        priority_addresses.as_deref(),
+                        available_capacity,
+                    );
+
+                    for order in selected_orders {
                         let order_id = order.id();
 
                         // Check if we've already started processing this order ID

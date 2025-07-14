@@ -123,6 +123,7 @@ struct OrderMonitorConfig {
     additional_proof_cycles: u64,
     batch_buffer_time_secs: u64,
     order_commitment_priority: OrderCommitmentPriority,
+    priority_addresses: Option<Vec<Address>>,
 }
 
 #[derive(Clone)]
@@ -861,6 +862,7 @@ where
                                 additional_proof_cycles: config.market.additional_proof_cycles,
                                 batch_buffer_time_secs: config.batcher.block_deadline_buffer_secs,
                                 order_commitment_priority: config.market.order_commitment_priority,
+                                priority_addresses: config.market.priority_requestor_addresses.clone(),
                             }
                         };
 
@@ -876,7 +878,7 @@ where
                         }
 
                         // Prioritize the orders that intend to fulfill based on configured commitment priority.
-                        valid_orders = self.prioritize_orders(valid_orders, monitor_config.order_commitment_priority);
+                        valid_orders = self.prioritize_orders(valid_orders, monitor_config.order_commitment_priority, monitor_config.priority_addresses.as_deref());
 
                         // Filter down the orders given our max concurrent proofs, peak khz limits, and gas limitations.
                         let final_orders = self
