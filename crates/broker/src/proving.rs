@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::future::pending;
 use std::time::Duration;
 
 use crate::{
@@ -25,6 +26,7 @@ use crate::{
     utils::cancel_proof_and_fail_order,
     Order, OrderStatus,
 };
+use alloy::primitives::U256;
 use anyhow::{Context, Result};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
@@ -33,6 +35,12 @@ use tokio_util::sync::CancellationToken;
 pub enum ProvingErr {
     #[error("{code} Proving failed after retries: {0:?}", code = self.code())]
     ProvingFailed(anyhow::Error),
+
+    #[error("{code} Request fulfilled by another prover", code = self.code())]
+    ExternallyFulfilled,
+
+    #[error("{code} Proving timed out", code = self.code())]
+    ProvingTimedOut,
 
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
@@ -44,6 +52,8 @@ impl CodedError for ProvingErr {
     fn code(&self) -> &str {
         match self {
             ProvingErr::ProvingFailed(_) => "[B-PRO-501]",
+            ProvingErr::ExternallyFulfilled => "[B-PRO-502]",
+            ProvingErr::ProvingTimedOut => "[B-PRO-503]",
             ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
         }
     }
@@ -54,11 +64,29 @@ pub struct ProvingService {
     db: DbObj,
     prover: ProverObj,
     config: ConfigLock,
+    fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
 }
 
 impl ProvingService {
-    pub async fn new(db: DbObj, prover: ProverObj, config: ConfigLock) -> Result<Self> {
-        Ok(Self { db, prover, config })
+    pub async fn new(
+        db: DbObj,
+        prover: ProverObj,
+        config: ConfigLock,
+        fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
+    ) -> Result<Self> {
+        Ok(Self { db, prover, config, fulfillment_tx })
+    }
+
+    async fn cancel_stark_session(&self, proof_id: &str, order_id: &str, reason: &str) {
+        if let Err(err) = self.prover.cancel_stark(proof_id).await {
+            tracing::warn!(
+                "Failed to cancel proof {} for {} order {}: {}",
+                proof_id,
+                reason,
+                order_id,
+                err
+            );
+        }
     }
 
     async fn monitor_proof_internal(
@@ -101,16 +129,14 @@ impl ProvingService {
         Ok(status)
     }
 
-    pub async fn monitor_proof_with_timeout(&self, order: Order) -> Result<OrderStatus> {
+    async fn get_or_create_stark_session(&self, order: Order) -> Result<String> {
         let order_id = order.id();
 
         // Get the proof_id - either from existing order or create new proof
-        let proof_id = match order.proof_id.clone() {
+        match order.proof_id.clone() {
             Some(existing_proof_id) => {
-                tracing::debug!(
-                    "Monitoring existing proof {existing_proof_id} for order {order_id}"
-                );
-                existing_proof_id
+                tracing::debug!("Using existing proof {existing_proof_id} for order {order_id}");
+                Ok(existing_proof_id)
             }
             None => {
                 // This is a new order that needs proving
@@ -148,9 +174,19 @@ impl ProvingService {
                     format!("Failed to set order {order_id} proof id: {}", proof_id)
                 })?;
 
-                proof_id
+                Ok(proof_id)
             }
-        };
+        }
+    }
+
+    pub async fn monitor_proof_with_timeout(
+        &self,
+        order: Order,
+    ) -> Result<OrderStatus, ProvingErr> {
+        let order_id = order.id();
+        let request_id = order.request.id;
+
+        let proof_id = order.proof_id.as_ref().context("Order should have proof ID")?;
 
         let timeout_duration = {
             let expiry_timestamp_secs =
@@ -158,48 +194,131 @@ impl ProvingService {
             let now = crate::now_timestamp();
             Duration::from_secs(expiry_timestamp_secs.saturating_sub(now))
         };
+        // Only subscribe to fulfillment events for FulfillAfterLockExpire orders
+        let mut fulfillment_rx = if matches!(
+            order.fulfillment_type,
+            crate::FulfillmentType::FulfillAfterLockExpire
+        ) {
+            let rx = self.fulfillment_tx.subscribe();
+
+            // Check if the order has already been fulfilled before starting proof
+            match self.db.is_request_fulfilled(request_id).await {
+                Ok(true) => {
+                    tracing::debug!(
+                        "Order {} (request {}) was already fulfilled, skipping proof",
+                        order_id,
+                        request_id
+                    );
+                    self.cancel_stark_session(proof_id, &order_id, "externally fulfilled").await;
+                    return Err(ProvingErr::ExternallyFulfilled);
+                }
+                Ok(false) => Some(rx),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to check fulfillment status for order {}, will continue proving: {e:?}",
+                        order_id,
+                    );
+                    Some(rx)
+                }
+            }
+        } else {
+            None
+        };
 
         let monitor_task = self.monitor_proof_internal(
             &order_id,
-            &proof_id,
+            proof_id,
             order.is_groth16(),
             order.compressed_proof_id,
         );
+        tokio::pin!(monitor_task);
 
         // Note: this timeout may not exactly match the order expiry exactly due to
         // discrepancy between wall clock and monotonic clock from the timeout,
         // but this time, along with aggregation and submission time, should never
         // exceed the actual order expiry.
-        let order_status = match tokio::time::timeout(timeout_duration, monitor_task).await {
-            Ok(result) => result.context("Monitoring proof failed")?,
-            Err(_) => {
-                tracing::debug!(
-                    "Proving timed out for order {}, cancelling proof {}",
-                    order_id,
-                    proof_id
-                );
-                if let Err(err) = self.prover.cancel_stark(&proof_id).await {
-                    tracing::warn!(
-                        "Failed to cancel proof {} for timed out order {}: {}",
-                        proof_id,
-                        order_id,
-                        err
-                    );
+        let timeout_future = tokio::time::sleep(timeout_duration);
+        tokio::pin!(timeout_future);
+
+        let order_status = loop {
+            tokio::select! {
+                // Proof monitoring completed
+                res = &mut monitor_task => {
+                    break res.with_context(|| {
+                        format!("Monitoring proof failed for order {order_id}, proof_id: {proof_id}")
+                    }).map_err(ProvingErr::ProvingFailed)?;
                 }
-                return Err(anyhow::anyhow!("Proving timed out"));
+                // Timeout occurred
+                _ = &mut timeout_future => {
+                    tracing::debug!(
+                        "Proving timed out for order {}, cancelling proof {}",
+                        order_id,
+                        proof_id
+                    );
+                    self.cancel_stark_session(proof_id, &order_id, "timed out").await;
+                    return Err(ProvingErr::ProvingTimedOut);
+                }
+                // External fulfillment notification (only active for FulfillAfterLockExpire orders)
+                Some(recv_res) = async {
+                    match &mut fulfillment_rx {
+                        Some(rx) => Some(rx.recv().await),
+                        None => pending::<Option<Result<U256, tokio::sync::broadcast::error::RecvError>>>().await,
+                    }
+                } => {
+                    match recv_res {
+                        Ok(fulfilled_request_id) if fulfilled_request_id == request_id => {
+                            tracing::debug!(
+                                "Order {} (request {}) was fulfilled by another prover, cancelling proof {}",
+                                order_id,
+                                request_id,
+                                proof_id
+                            );
+                            self.cancel_stark_session(proof_id, &order_id, "externally fulfilled").await;
+                            return Err(ProvingErr::ExternallyFulfilled);
+                        }
+                        Ok(_) => {
+                            // Fulfillment for a different request, continue monitoring
+                        }
+                        Err(_) => {
+                            // Channel closed or lagged, continue monitoring
+                            tracing::trace!("Fulfillment channel error, continuing proof monitoring");
+                        }
+                    }
+                }
             }
         };
 
         Ok(order_status)
     }
 
-    async fn prove_and_update_db(&self, order: Order) {
+    async fn prove_and_update_db(&self, mut order: Order) {
         let order_id = order.id();
 
         let (proof_retry_count, proof_retry_sleep_ms) = {
             let config = self.config.lock_all().unwrap();
             (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
         };
+
+        let proof_id = match retry(
+            proof_retry_count,
+            proof_retry_sleep_ms,
+            || async { self.get_or_create_stark_session(order.clone()).await },
+            "get_or_create_stark_session",
+        )
+        .await
+        {
+            Ok(proof_id) => proof_id,
+            Err(err) => {
+                let proving_err = ProvingErr::ProvingFailed(err);
+                tracing::error!(
+                    "Failed to create stark session for order {order_id}: {proving_err:?}"
+                );
+                handle_order_failure(&self.db, &order_id, "Proving session create failed").await;
+                return;
+            }
+        };
+
+        order.proof_id = Some(proof_id);
 
         let result = retry(
             proof_retry_count,
@@ -217,10 +336,13 @@ impl ProvingService {
                     tracing::error!("Failed to set aggregation status for order {order_id}: {e:?}");
                 }
             }
+            Err(ProvingErr::ExternallyFulfilled) => {
+                tracing::info!("Order {order_id} was fulfilled by another prover, cancelled proof");
+                handle_order_failure(&self.db, &order_id, "Externally fulfilled").await;
+            }
             Err(err) => {
-                let proving_err = ProvingErr::ProvingFailed(err);
                 tracing::error!(
-                    "FATAL: Order {} failed to prove after {} retries: {proving_err:?}",
+                    "Order {} failed to prove after {} retries: {err:?}",
                     order_id,
                     proof_retry_count
                 );
@@ -340,6 +462,72 @@ mod tests {
     use std::sync::Arc;
     use tracing_test::traced_test;
 
+    fn create_test_order(
+        request_id: U256,
+        image_id: String,
+        input_id: String,
+        proof_id: Option<String>,
+        fulfillment_type: FulfillmentType,
+        status: OrderStatus,
+    ) -> Order {
+        Order {
+            status,
+            updated_at: Utc::now(),
+            target_timestamp: Some(0),
+            request: ProofRequest {
+                id: request_id,
+                requirements: Requirements::new(
+                    Digest::ZERO,
+                    Predicate {
+                        predicateType: PredicateType::PrefixMatch,
+                        data: Default::default(),
+                    },
+                ),
+                imageUrl: "http://risczero.com/image".into(),
+                input: RequestInput {
+                    inputType: RequestInputType::Inline,
+                    data: Default::default(),
+                },
+                offer: Offer {
+                    minPrice: U256::from(2),
+                    maxPrice: U256::from(4),
+                    biddingStart: now_timestamp(),
+                    rampUpPeriod: 1,
+                    lockTimeout: 100,
+                    timeout: 100,
+                    lockStake: U256::from(10),
+                },
+            },
+            image_id: Some(image_id),
+            input_id: Some(input_id),
+            proof_id,
+            compressed_proof_id: None,
+            expire_timestamp: Some(now_timestamp() + 3600), // 1 hour from now
+            client_sig: Bytes::new(),
+            lock_price: None,
+            fulfillment_type,
+            error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            total_cycles: None,
+            proving_started_at: None,
+        }
+    }
+
+    async fn send_fulfillment_event(
+        fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
+        request_id: U256,
+    ) {
+        for _ in 0..50 {
+            // Try for up to 5 seconds
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if fulfillment_tx.send(request_id).is_ok() {
+                return;
+            }
+        }
+        panic!("Failed to send fulfillment event within timeout");
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn prove_order() {
@@ -354,54 +542,20 @@ mod tests {
             .await
             .unwrap();
 
+        let (fulfillment_tx, _) = tokio::sync::broadcast::channel(100);
         let proving_service =
-            ProvingService::new(db.clone(), prover, config.clone()).await.unwrap();
+            ProvingService::new(db.clone(), prover.clone(), config.clone(), fulfillment_tx)
+                .await
+                .unwrap();
 
-        let min_price = 2;
-        let max_price = 4;
-
-        let order = Order {
-            status: OrderStatus::PendingProving,
-            updated_at: Utc::now(),
-            target_timestamp: Some(0),
-            request: ProofRequest {
-                id: U256::ZERO,
-                requirements: Requirements::new(
-                    Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
-                imageUrl: "http://risczero.com/image".into(),
-                input: RequestInput {
-                    inputType: RequestInputType::Inline,
-                    data: Default::default(),
-                },
-                offer: Offer {
-                    minPrice: U256::from(min_price),
-                    maxPrice: U256::from(max_price),
-                    biddingStart: now_timestamp(),
-                    rampUpPeriod: 1,
-                    lockTimeout: 100,
-                    timeout: 100,
-                    lockStake: U256::from(10),
-                },
-            },
-            image_id: Some(image_id),
-            input_id: Some(input_id),
-            proof_id: None,
-            compressed_proof_id: None,
-            expire_timestamp: Some(now_timestamp() + 3600), // 1 hour from now
-            client_sig: Bytes::new(),
-            lock_price: None,
-            fulfillment_type: FulfillmentType::LockAndFulfill,
-            error_msg: None,
-            boundless_market_address: Address::ZERO,
-            chain_id: 1,
-            total_cycles: None,
-            proving_started_at: None,
-        };
+        let order = create_test_order(
+            U256::ZERO,
+            image_id.clone(),
+            input_id.clone(),
+            None,
+            FulfillmentType::LockAndFulfill,
+            OrderStatus::PendingProving,
+        );
 
         db.add_order(&order).await.unwrap();
 
@@ -409,6 +563,34 @@ mod tests {
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingAgg);
+
+        // Test that LockAndFulfill orders ignore fulfillment events
+        let (fulfillment_tx, _) = tokio::sync::broadcast::channel(100);
+        let proving_service_with_fulfillment =
+            ProvingService::new(db.clone(), prover.clone(), config.clone(), fulfillment_tx.clone())
+                .await
+                .unwrap();
+
+        let lock_and_fulfill_order = create_test_order(
+            U256::from(999),
+            image_id,
+            input_id,
+            None,
+            FulfillmentType::LockAndFulfill,
+            OrderStatus::PendingProving,
+        );
+
+        db.add_order(&lock_and_fulfill_order).await.unwrap();
+
+        // Spawn fulfillment event that should be ignored
+        tokio::spawn(async move {
+            send_fulfillment_event(fulfillment_tx, lock_and_fulfill_order.request.id).await
+        });
+
+        proving_service_with_fulfillment.prove_and_update_db(lock_and_fulfill_order.clone()).await;
+
+        let final_order = db.get_order(&lock_and_fulfill_order.id()).await.unwrap().unwrap();
+        assert_eq!(final_order.status, OrderStatus::PendingAgg);
     }
 
     #[tokio::test]
@@ -429,8 +611,9 @@ mod tests {
         // pre-prove the stark so it already exists before the service comes up
         let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();
 
+        let (fulfillment_tx, _) = tokio::sync::broadcast::channel(100);
         let proving_service =
-            ProvingService::new(db.clone(), prover, config.clone()).await.unwrap();
+            ProvingService::new(db.clone(), prover, config.clone(), fulfillment_tx).await.unwrap();
 
         let order_id = U256::ZERO;
         let min_price = 2;
@@ -496,5 +679,85 @@ mod tests {
         assert_eq!(order.proof_id, Some(proof_id));
 
         assert!(logs_contain("Found 1 proofs currently proving"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_fulfillment_event_cancellation() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+
+        let image_id = Digest::from(ECHO_ID).to_string();
+        prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
+        let input_id = prover
+            .upload_input(encode_input(&vec![0x41, 0x41, 0x41, 0x41]).unwrap())
+            .await
+            .unwrap();
+
+        let (fulfillment_tx, _) = tokio::sync::broadcast::channel(100);
+        let proving_service =
+            ProvingService::new(db.clone(), prover.clone(), config.clone(), fulfillment_tx.clone())
+                .await
+                .unwrap();
+
+        let request_id = U256::from(123);
+        let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();
+
+        // Test 1: FulfillAfterLockExpire order cancelled by matching fulfillment event
+        let order = create_test_order(
+            request_id,
+            image_id.clone(),
+            input_id.clone(),
+            Some(proof_id.clone()),
+            FulfillmentType::FulfillAfterLockExpire,
+            OrderStatus::Proving,
+        );
+
+        db.add_order(&order).await.unwrap();
+
+        let proving_service_clone = proving_service.clone();
+        let order_clone = order.clone();
+        let monitor_task = tokio::spawn(async move {
+            proving_service_clone.monitor_proof_with_timeout(order_clone).await
+        });
+
+        // Send fulfillment event for the same request - should cancel proof
+        send_fulfillment_event(fulfillment_tx.clone(), request_id).await;
+
+        let result = monitor_task.await.unwrap();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Request fulfilled by another prover"));
+
+        // Test 2: FulfillAfterLockExpire order ignores different request ID
+        let request_id_2 = U256::from(456);
+        let different_fulfillment_id = U256::from(999);
+        let proof_id_2 = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();
+
+        let order_2 = create_test_order(
+            request_id_2,
+            image_id,
+            input_id,
+            Some(proof_id_2.clone()),
+            FulfillmentType::FulfillAfterLockExpire,
+            OrderStatus::Proving,
+        );
+
+        db.add_order(&order_2).await.unwrap();
+
+        let proving_service_clone_2 = proving_service.clone();
+        let order_clone_2 = order_2.clone();
+        let monitor_task_2 = tokio::spawn(async move {
+            proving_service_clone_2.monitor_proof_with_timeout(order_clone_2).await
+        });
+
+        // Send fulfillment event for different request ID - should be ignored
+        send_fulfillment_event(fulfillment_tx, different_fulfillment_id).await;
+
+        let result_2 = monitor_task_2.await.unwrap();
+        assert!(result_2.is_ok());
+        assert_eq!(result_2.unwrap(), OrderStatus::PendingAgg);
+
+        assert!(logs_contain("was fulfilled by another prover"));
     }
 }

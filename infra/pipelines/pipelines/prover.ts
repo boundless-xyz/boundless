@@ -178,7 +178,7 @@ export class ProverPipeline extends pulumi.ComponentResource {
           name: "DeployProduction",
           actions: [
             {
-              name: "ApproveDeployToProductionWave1",
+              name: "ApproveDeployToProduction",
               category: "Approval",
               owner: "AWS",
               provider: "Manual",
@@ -205,7 +205,7 @@ export class ProverPipeline extends pulumi.ComponentResource {
               owner: "AWS",
               provider: "Manual",
               version: "1",
-              runOrder: 3,
+              runOrder: 2,
               configuration: {}
             },
             {
@@ -214,7 +214,7 @@ export class ProverPipeline extends pulumi.ComponentResource {
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 4,
+              runOrder: 2,
               configuration: {
                 ProjectName: prodDeploymentEthSepolia.name
               },
@@ -227,7 +227,7 @@ export class ProverPipeline extends pulumi.ComponentResource {
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 4,
+              runOrder: 2,
               configuration: {
                 ProjectName: prodDeploymentBaseMainnet.name
               },

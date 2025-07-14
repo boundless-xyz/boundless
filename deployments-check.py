@@ -56,7 +56,7 @@ def main():
     rs_network_keys = {
         'ethereum-sepolia-prod': 'SEPOLIA',
         'base-mainnet': 'BASE',
-        'base-sepolia-prod': 'BASE'_SEPOLIA
+        'base-sepolia-prod': 'BASE_SEPOLIA'
     }
 
     for toml_key, docs_key in networks.items():

@@ -1,10 +1,12 @@
 [profile.default]
-src = "contracts/src"
-out = "contracts/out"
-fs_permissions = [{ access = "read", path = "contracts/out" }, { access = "read", path = "contracts/deployment.toml" }]
-libs = ["lib"]
-script = "contracts/scripts"
-test = "contracts/test"
+src = "./contracts/src"
+# OZ Upgrades requires the out dir to be `./out`, or for `FOUNDRY_OUT` to be set
+# https://github.com/OpenZeppelin/openzeppelin-foundry-upgrades/blob/cfd861bc18ef4737e82eae6ec75304e27af699ef/src/internal/Utils.sol#L139-L147
+out = "./out"
+fs_permissions = [{ access = "read", path = "./out" }, { access = "read", path = "./contracts/deployment.toml" }]
+libs = ["./lib"]
+script = "./contracts/scripts"
+test = "./contracts/test"
 ffi = true
 evm_version = 'cancun'
 via_ir = true

@@ -5,7 +5,6 @@
 If you need technical support, join our [Discord community](https://discord.gg/aXRuD6spez) and claim the prover role via [Guild.xyz](https://guild.xyz/boundless-xyz) to get access to the *#dev-support-forum* channel. The Boundless team and experienced Boundless app devs are there to help troubleshoot issues and share best practices.
 :::
 
-
 The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) is the best way to get started. It provides a starter application which has the following components:
 
 * A zkVM guest program, [`is-even`](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/guests/is-even/src/main.rs)
@@ -16,69 +15,83 @@ The [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foun
     *  waits for the request to be fulfilled and receives the proof from the Boundless market
     *  submits the received proof to the `EvenNumber` contract for verification.
 
+
 ## Setup the app locally
+
+
+### Install RISC Zero
+
+```bash [Terminal]
+curl -L https://risczero.com/install | bash
+rzup install
+```
+
+See more about installation on the [RISC Zero docs](https://dev.risczero.com/api/zkvm/install).
 
 ### Clone the repository
 
-```sh
-git clone https://github.com/boundless-xyz/boundless-foundry-template && cd boundless-foundry-template
+You can either clone the repo using `git`, but we recommend using `forge init` (you'll need to install [Foundry](https://getfoundry.sh/introduction/installation/)):
+
+```bash [Terminal]
+forge init --template https://github.com/boundless-xyz/boundless-foundry-template boundless-foundry-template && cd boundless-foundry-template
+```
+
+#### Using git
+
+```bash [Terminal]
+git clone https://github.com/boundless-xyz/boundless-foundry-template
+cd boundless-foundry-template
+git submodule update --init --recursive
 ```
 
 ### Set up your environment variables
 
-Export your Sepolia wallet private key as an environment variable (making sure it has enough funds):
+Export your Sepolia wallet private key as an environment variable (making sure it has enough funds), and export a valid RPC URL (you can use the public one provided):
 
 ```bash
-export WALLET_PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
+export RPC_URL="https://ethereum-sepolia-rpc.publicnode.com"
+export PRIVATE_KEY="YOUR_PRIVATE_KEY"
 ```
 
-For provers to access the zkVM guest program, it must be uploaded to IPFS. This example uses [Pinata](https://pinata.cloud/). Pinata has a free tier with plenty of quota to get started. Create an account, generate an API key, and set the JWT as an environment variable:
+You'll also need a deployment of the EvenNumber contract. You can use a predeployed contract on Sepolia:
 
 ```bash
-export PINATA_JWT="YOUR_PINATA_JWT"
+export EVEN_NUMBER_ADDRESS="0xE819474E78ad6e1C720a21250b9986e1f6A866A3"
 ```
-
-To load the rest of the environment variables (i.e. Boundless contract deployments), run:
-
-```bash
-. ./.env
-```
-
 :::note[Deploy your own version of EvenNumber.sol]
 If you'd like to deploy your own version of the `EvenNumber.sol` contract, please run:
-`forge script contracts/scripts/Deploy.s.sol --rpc-url ${RPC_URL:?} --broadcast -vv`
-and save the deployed contract address to the .env file.
+`cargo build && forge script contracts/scripts/Deploy.s.sol --rpc-url ${RPC_URL:?} --broadcast -vv`
+after which you can export your deployed contract address to EVEN_NUMBER_ADDRESS.
 :::
 
 ### Run the example app
 
-The [example app](apps/src/main.rs) will upload your zkVM guest to IPFS, submit a request to the market for a proof that "4" is an even number, wait for the request to be fulfilled, and then submit that proof to the EvenNumber contract, setting the value to "4".
+The [example app](https://github.com/boundless-xyz/boundless-foundry-template/blob/main/apps/src/main.rs) will submit a request to the market for a proof that "4" is an even number, wait for the request to be fulfilled, and then submit that proof to the EvenNumber contract, setting the public number variable to "4".
 
-To run the example:
+To run the example using the pre-uploaded zkVM guest:
 
-```bash
-RUST_LOG=info cargo run --bin app -- --even-number-address ${EVEN_NUMBER_ADDRESS:?} --number 4
+```bash [Terminal]
+RUST_LOG=info cargo run --bin app -- --number 4 --program-url https://plum-accurate-weasel-904.mypinata.cloud/ipfs/QmU7eqsYWguHCYGQzcg42faQQkgRfWScig7BcsdM1sJciw
 ```
 
 The output will look something like:
 
-```sh
-2025-03-25T17:25:28.113609Z  INFO app: Uploaded image to https://gateway.pinata.cloud/ipfs/QmVCK98gXuyqbf4CRJ4qKyXhMX7omfxKT6Qv9Ckgg1JSPm
-2025-03-25T17:25:28.113827Z  INFO app: Number to publish: 4
-2025-03-25T17:25:28.183218Z  INFO risc0_zkvm::host::server::exec::executor: execution time: 1.983083ms
-2025-03-25T17:25:28.185290Z  INFO app: Sending input inline with request
-2025-03-25T17:25:43.176884Z  INFO app: Request 0x2008ac70b2920c9a345ea7fff1ded1fd4302bdf0e3eb397f submitted
-2025-03-25T17:25:43.176913Z  INFO app: Waiting for 0x2008ac70b2920c9a345ea7fff1ded1fd4302bdf0e3eb397f to be fulfilled
+```bash [Terminal]
+2025-07-01T10:37:08.148174Z  INFO app: Number to publish: 4
+2025-07-01T10:37:10.167132Z  INFO risc0_zkvm::host::server::exec::executor: execution time: 5.667791ms
+2025-07-01T10:37:26.144716Z  INFO app: Waiting for request 2008ac70b2920c9a345ea7fff1ded1fd4302bdf06516a20c to be fulfilled
 ```
 
 and the app will query the status of the proof request until it is fulfilled. Once it fulfilled, you'll see output confirming the receipt of the proof, and confirmation of the transaction sent onchain calling the `set` function with the proof as calldata:
 
-```sh
-2025-03-25T17:28:15.465350Z  INFO app: Request 0x2008ac70b2920c9a345ea7fff1ded1fd4302bdf0e3eb397f fulfilled
-2025-03-25T17:28:15.465481Z  INFO app: Broadcasting tx calling EvenNumber set function
-2025-03-25T17:28:15.746652Z  INFO app: Sent tx 0xef84dc7a6395c62697d51828771d55c092a8d94320ff55dd95066e44ade5455e
-2025-03-25T17:28:26.176615Z  INFO app: Tx 0xef84dc7a6395c62697d51828771d55c092a8d94320ff55dd95066e44ade5455e confirmed
-2025-03-25T17:28:26.258037Z  INFO app: The number variable for contract at address: 0x29340e3f2264d3dab1c89328b1abbce756e2ad5b is set to 4
+```bash [Terminal]
+2025-07-01T10:39:30.164558Z  INFO app: Request 2008ac70b2920c9a345ea7fff1ded1fd4302bdf06516a20c fulfilled
+2025-07-01T10:39:30.164634Z  INFO app: Calling EvenNumber set function
+2025-07-01T10:39:30.682193Z  INFO app: Broadcasting tx 0x067794fbb80a4d67eee593904dc9e6109875efd455b8eedc67609b9d547d5c0d
+2025-07-01T10:39:42.529922Z  INFO app: Tx 0x067794fbb80a4d67eee593904dc9e6109875efd455b8eedc67609b9d547d5c0d confirmed
+2025-07-01T10:39:42.902820Z  INFO app: The number variable for contract at address: 0xe819474e78ad6e1c720a21250b9986e1f6a866a3 is set to 4
 ```
 
-You've now requested your first proof from Boundless, received that proof and sent that proof onchain for verification. Effectively, you've offloaded computation offchain with the same trust model as onchain, all thanks to the power of ZK. This is the true power of verifiable compute. To learn more about each individual step, please refer to [Build A Program](/)
+You've now requested your first proof from Boundless, received that proof and sent that proof onchain for verification. Effectively, you've offloaded computation offchain with the same trust model as onchain, all thanks to the power of ZK. This is the true power of verifiable compute.
+
+To learn more about each individual step, please refer to [Build A Program](/developers/tutorials/build). If you want to do some further development on your local fork of the Boundless Foundry Template, please read the [Development](https://github.com/boundless-xyz/boundless-foundry-template?tab=readme-ov-file#development) section on the README.

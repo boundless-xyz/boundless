@@ -639,14 +639,14 @@ reboot
                 name: `${serviceName}-cpu-util-${Severity.SEV2}`,
                 metricName: "CPUUtilization",
                 namespace: "AWS/EC2",
-                statistic: "Maximum",
+                statistic: "Average",
                 dimensions: {
                     InstanceId: instanceId
                 },
                 period: 60,
                 evaluationPeriods: 20,
                 datapointsToAlarm: 20,
-                threshold: 99,
+                threshold: 75,
                 comparisonOperator: "GreaterThanThreshold",
                 alarmDescription: `CPU utilization is greater than 99% for 20 consecutive minutes. ${Severity.SEV2}`,
                 alarmActions: alarmActions,

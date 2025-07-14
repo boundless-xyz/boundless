@@ -82,6 +82,7 @@ pub struct MarketMonitor<P> {
     prover_addr: Address,
     order_stream: Option<OrderStreamClient>,
     new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
+    fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
 }
 
 sol! {
@@ -107,6 +108,7 @@ where
         prover_addr: Address,
         order_stream: Option<OrderStreamClient>,
         new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
+        fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
     ) -> Self {
         Self {
             lookback_blocks,
@@ -117,6 +119,7 @@ where
             prover_addr,
             order_stream,
             new_order_tx,
+            fulfillment_tx,
         }
     }
 
@@ -202,9 +205,7 @@ where
 
             if !matches!(req_status, RequestStatus::Unknown) {
                 tracing::debug!(
-                    "Skipping order {} reason: order status no longer bidding: {:?}",
-                    request_id,
-                    req_status
+                    "Skipping order {request_id:x} reason: order status no longer bidding: {req_status:?}",
                 );
                 continue;
             }
@@ -215,10 +216,7 @@ where
             };
 
             tracing::info!(
-                "Found open order: {:x} with request status: {:?}, preparing to process with fulfillment type: {:?}",
-                request_id,
-                req_status,
-                fulfillment_type
+                "Found open order: {request_id:x} with request status: {req_status:?}, preparing to process with fulfillment type: {fulfillment_type:?}",
             );
 
             let new_order = OrderRequest::new(
@@ -408,6 +406,7 @@ where
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
+        fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
@@ -444,6 +443,11 @@ where
                                         );
                                     }
                                 }
+                            }
+
+                            // Broadcast the fulfillment event to any listeners
+                            if let Err(e) = fulfillment_tx.send(U256::from(event.requestId)) {
+                                tracing::trace!("No fulfillment listeners for request 0x{:x}: {}", event.requestId, e);
                             }
                         }
                         Some(Err(err)) => {
@@ -537,6 +541,7 @@ where
         let new_order_tx = self.new_order_tx.clone();
         let db = self.db.clone();
         let order_stream = self.order_stream.clone();
+        let fulfillment_tx = self.fulfillment_tx.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up market monitor");
@@ -565,6 +570,7 @@ where
                     market_addr,
                     provider.clone(),
                     db.clone(),
+                    fulfillment_tx,
                     cancel_token.clone()
                 ),
                 Self::monitor_order_locks(
@@ -700,6 +706,7 @@ mod tests {
         tokio::spawn(chain_monitor.spawn(Default::default()));
         let (order_tx, _order_rx) = tokio::sync::mpsc::channel(16);
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let (fulfillment_tx, _) = tokio::sync::broadcast::channel(100);
         let market_monitor = MarketMonitor::new(
             1,
             Address::ZERO,
@@ -709,6 +716,7 @@ mod tests {
             Address::ZERO,
             None,
             order_tx,
+            fulfillment_tx,
         );
 
         let block_time = market_monitor.get_block_time().await.unwrap();

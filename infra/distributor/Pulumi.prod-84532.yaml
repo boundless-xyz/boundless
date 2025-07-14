@@ -1,0 +1,29 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAHVo6Qs4XicpLZSDYkQczVEAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMOzK/uXaAemWgpe5kAgEQgDsyF9DJjotbCrbVeFrpV9zhp8T0uO15fY9tSxMn0zBX1kPRY6WeyHaqCjcy9zwjx1WASaNyxenJ13JZHA==
+config:
+  distributor:ORDER_GENERATOR_KEYS:
+    secure: v1:Y+M+oudvKchynmEN:uY/rHGx+rgPTX1C1ocfCOwbEEbbQPVFmFPuTQk099BZYRt7u3Olcr2LCwjqIxRbJVzIHcziVvrIYq3TRp/Bedt6yjcutPC8g/NtUXM4i7cjXhSknhUFRQbONHBiFfN78Zhh0ZeeFYEW/177UG6DM3RnSQaXNWD1jIEZzm4tJ+PXocOIGu9ArxT3JtNxDskoTGw==
+  distributor:PROVER_KEYS:
+    secure: v1:/TbbpUgZAUfk2p84:iWwDu0qpb3b4w0IEWT63kGO+No54O3xAoI9bwswvGdhZ9wpuHLpseALobPhZgIK4/U06kg43MxurVBPBk2zs7Hny3f6mcGt8q5DPT4I72krYFD+RJLVDzArZVQyUE7+xva83hgCfRvpoZXZxy9yRf+g0OSRSNvb0GQA1GALvbN7olMbD4E/0Yis9aNPWhDkAGw==
+  distributor:SLASHER_KEY:
+    secure: v1:Vd9P2PmvmCic+8Ed:G7zQ94e8AUFtTZ7xGTKIcFGor8G87u5bpeng/cpimMYLH1eBJyAaqgp0i0l2iqwOGxr7ObM4XWGaRcJkH7sW4i+6zilJ/zxhid+qHoPxImA=
+  distributor:DISTRIBUTOR_PRIVATE_KEY:
+    secure: v1:g4qV5frG/1O1ayAy:y/70Fq1I4nZQnHcLsekHYUcLqyATJgQxJ7xt44x9abdGUGYnUD4R9qB5C0lquZIaWO00yE2uK4m5LhFEwE2KzVm2kb1ziBxG7UouJwQhEiM=
+  distributor:DISTRIBUTOR_ADDRESS: 0xFc1f6D609610a479F9c7453BF3aeC8cb3849F865
+  distributor:ETH_THRESHOLD: "1"
+  distributor:ETH_TOP_UP_AMOUNT: "10"
+  distributor:STAKE_THRESHOLD: "7"
+  distributor:STAKE_TOP_UP_AMOUNT: "10"
+  distributor:PROVER_ETH_DONATE_THRESHOLD: "10"
+  distributor:SCHEDULE_MINUTES: "360"
+  distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-prod
+  distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  distributor:CHAIN_ID: "84532"
+  distributor:ETH_RPC_URL:
+    secure: v1:vFW7ipVZLPf90pGO:HLQjyyvMnGte9uSNn32DBrHpYICauMxG5dK1yZnnWQtM8oV+qT1oxMT/5aGNpfQEmiBR740W2DmEIeduId5xe3oOhoy2h+Lx/yTq
+  distributor:GH_TOKEN_SECRET:
+    secure: v1:btZkpuJIag+Fns0T:qJ1k5UbR5gGhnhRjQBJE5ouxEJThW56Gt2IqDSK0RmzjZiIHm0oQ2Wb+GmJYUe7/CcX/QMHOj+ytF9UI/xdwNaV1X5W78WjCkm3KYee1HvcOdnDLQkv6ZVYsWbJv9lfdgn7UInYXID3/PRqtYg==
+  distributor:LOG_LEVEL: "info"
+  distributor:DOCKER_DIR: ../../
+  distributor:DOCKER_TAG: latest
+  distributor:BASE_STACK: organization/bootstrap/services-prod

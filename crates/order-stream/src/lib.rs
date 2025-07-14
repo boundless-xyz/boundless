@@ -134,7 +134,7 @@ pub struct Args {
     min_balance_raw: U256,
 
     /// Maximum number of WebSocket connections
-    #[clap(long, default_value = "100")]
+    #[clap(long, default_value = "250")]
     max_connections: usize,
 
     /// Maximum size of the queue for each WebSocket connection
