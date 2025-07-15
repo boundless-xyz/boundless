@@ -840,17 +840,22 @@ where
                 BTreeMap::new();
 
             // Helper closure to cancel active tasks for a request
-            let cancel_active_tasks = |active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>, 
-                                       request_id: U256, 
-                                       reason: &str| {
-                if let Some(order_tasks) = active_tasks.remove(&request_id) {
-                    tracing::debug!("Cancelling {} active preflights for {} request 0x{:x}",
-                        order_tasks.len(), reason, request_id);
-                    for (_, task_token) in order_tasks {
-                        task_token.cancel();
+            let cancel_active_tasks =
+                |active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+                 request_id: U256,
+                 reason: &str| {
+                    if let Some(order_tasks) = active_tasks.remove(&request_id) {
+                        tracing::debug!(
+                            "Cancelling {} active preflights for {} request 0x{:x}",
+                            order_tasks.len(),
+                            reason,
+                            request_id
+                        );
+                        for (_, task_token) in order_tasks {
+                            task_token.cancel();
+                        }
                     }
-                }
-            };
+                };
 
             loop {
                 tokio::select! {
