@@ -905,7 +905,7 @@ where
                                 .map(ToString::to_string)
                                 .collect::<Vec<_>>()
                                 .join(", ");
-                            tracing::info!("Current pricing tasks: [{}]", task_details);
+                            tracing::debug!("Current pricing tasks: [{}]", task_details);
                         }
 
                         tasks.spawn(async move {
