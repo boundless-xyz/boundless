@@ -172,7 +172,7 @@ fn format_order_id(
 /// Order request from the network.
 ///
 /// This will turn into an [`Order`] once it is locked or skipped.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct OrderRequest {
     request: ProofRequest,
     client_sig: Bytes,
