@@ -5,10 +5,11 @@ import os
 from pathlib import Path
 import subprocess
 
-ALL_RIGHT_RESERVED_HEADER = """
-// Copyright (c) {YEAR} RISC Zero, Inc.
+BSL_HEADER = """
+// Copyright {YEAR} RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 """.strip().splitlines()
 
 APACHE_HEADER = """
@@ -44,20 +45,30 @@ SKIP_PATHS = [
 ]
 
 APACHE_PATHS = [
-    str(Path.cwd()) + "/crates/boundless-market",
-    str(Path.cwd()) + "/crates/boundless-cli",
-    str(Path.cwd()) + "/crates/assessor",
-    str(Path.cwd()) + "/crates/balance-alerts-layer",
-    str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
     str(Path.cwd()) + "/contracts/src/HitPoints.sol",
-    str(Path.cwd()) + "/contracts/src/IHitPoints.sol"
+    str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
+    str(Path.cwd()) + "/contracts/src/IHitPoints.sol",
+    str(Path.cwd()) + "/crates/boundless-cli",
+    str(Path.cwd()) + "/crates/boundless-market",
+    str(Path.cwd()) + "/crates/broker",
+    str(Path.cwd()) + "/crates/bench",
+    str(Path.cwd()) + "/crates/broker-stress",
+    str(Path.cwd()) + "/crates/distributor",
+    str(Path.cwd()) + "/crates/guest/util",
+    str(Path.cwd()) + "/crates/indexer",
+    str(Path.cwd()) + "/crates/ops-lambdas",
+    str(Path.cwd()) + "/crates/order-stream",
+    str(Path.cwd()) + "/crates/order-generator",
+    str(Path.cwd()) + "/crates/slasher",
+    str(Path.cwd()) + "/documentation",
+    str(Path.cwd()) + "/examples",
 ]
 
 def check_header(file, expected_year, lines_actual):
     if any(map(lambda path: file.is_relative_to(path), APACHE_PATHS)):
         header = APACHE_HEADER
     else:
-        header = ALL_RIGHT_RESERVED_HEADER
+        header = BSL_HEADER
 
     for expected, actual in zip(header, lines_actual):
         expected = expected.replace("{YEAR}", expected_year)
