@@ -826,7 +826,16 @@ where
                     Some(order) = rx.recv() => {
                         let order_id = order.id();
                         pending_orders.push(order);
-                        tracing::debug!("Queued order {} to be priced. Currently {} queued pricing tasks: {:?}", order_id, pending_orders.len(), pending_orders);
+                        tracing::debug!(
+                            "Queued order {} to be priced. Currently {} queued pricing tasks: {}",
+                            order_id,
+                            pending_orders.len(),
+                            pending_orders
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
                     }
                     _ = tasks.join_next(), if !tasks.is_empty() => {
                         tracing::trace!("Pricing task completed ({} remaining)", tasks.len());
