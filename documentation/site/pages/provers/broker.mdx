@@ -51,11 +51,15 @@ You can omit the `PRIVATE_KEY` environment variable here and specify your `walle
 
 ### Settings in Broker.toml
 
+:::tip[See all broker.toml settings]
+To see all the possible settings in `broker.toml`, please refer to [broker-template.toml](https://github.com/boundless-xyz/boundless/blob/main/broker-template.toml) in the Boundless monorepo.
+:::
+
 :::warning[Warning]
 Quotation marks matter in TOML so please pay particular attention to the quotation marks for config values.
 :::
 
-`broker.toml` contains the following settings for the market:
+Below are some `broker.toml` settings:
 
 | setting                  | initial value | description                                                                                                    |
 | ------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -69,6 +73,7 @@ Quotation marks matter in TOML so please pay particular attention to the quotati
 | max\_file\_size          | `50_000_000`  | The maximum guest image size in bytes that the Broker will accept.                                             |
 | allow\_client\_addresses | `["0x1234..."]` | Optional whitelist of requestor addresses. When defined, only requests from these requestor addresses will be processed. Use format `["0xAddress1", "0xAddress2"]`. |
 | lockin\_priority\_gas    | `100`         | Additional gas to add to the base price when locking in stake on a contract to increase priority.              |
+
 
 ## Broker Operation
 

@@ -274,7 +274,7 @@ export function generateSitemap() {
 }
 
 export default defineConfig({
-  banner: '🎉 Boundless is launching on Base for Mainnet Beta 🎉 Join the [Discord](https://discord.com/invite/boundlessxyz) and [claim the Dev role](https://guild.xyz/boundless-xyz) 🎉',
+  banner: '🎉 Boundless is launching prover incentives for Mainnet Beta 🎉 Join the [Discord](https://discord.com/invite/boundlessxyz) and [claim the Prover role](https://guild.xyz/boundless-xyz) to ask for technical support 🎉',
   logoUrl: "/logo.svg",
   topNav: [
     { text: "Explorer", link: "https://explorer.beboundless.xyz" },
