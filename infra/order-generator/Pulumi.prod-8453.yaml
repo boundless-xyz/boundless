@@ -11,7 +11,7 @@ config:
   order-generator-base:CHAIN_ID: "8453"
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
-  order-generator-base:INTERVAL: "180"
+  order-generator-base:INTERVAL: "60"
   order-generator-base:LOCK_STAKE_RAW: "500000" # $0.50 USDC
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
