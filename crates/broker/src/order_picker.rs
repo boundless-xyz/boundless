@@ -807,6 +807,94 @@ where
     }
 }
 
+/// Handles a lock event for a request
+/// Cancels and removes only LockAndFulfill orders
+#[allow(clippy::vec_box)]
+fn handle_lock_event(
+    request_id: U256,
+    active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+    pending_orders: &mut Vec<Box<OrderRequest>>,
+) {
+    // Cancel only LockAndFulfill active tasks
+    if let Some(order_tasks) = active_tasks.get_mut(&request_id) {
+        let initial_count = order_tasks.len();
+        order_tasks.retain(|order_id, task_token| {
+            if order_id.contains("LockAndFulfill") {
+                task_token.cancel();
+                false
+            } else {
+                true
+            }
+        });
+        let cancelled = initial_count - order_tasks.len();
+
+        if cancelled > 0 {
+            tracing::debug!(
+                "Cancelled {} LockAndFulfill preflights for locked request 0x{:x}",
+                cancelled,
+                request_id
+            );
+        }
+
+        // Remove the entry if no tasks remain
+        if order_tasks.is_empty() {
+            active_tasks.remove(&request_id);
+        }
+    }
+
+    // Remove only pending LockAndFulfill orders
+    let initial_len = pending_orders.len();
+    pending_orders.retain(|order| {
+        let same_request = U256::from(order.request.id) == request_id;
+        let is_lock_and_fulfill = order.fulfillment_type == FulfillmentType::LockAndFulfill;
+        !(same_request && is_lock_and_fulfill)
+    });
+    let removed_orders = initial_len - pending_orders.len();
+
+    if removed_orders > 0 {
+        tracing::debug!(
+            "Removed {} pending LockAndFulfill orders for locked request 0x{:x}",
+            removed_orders,
+            request_id
+        );
+    }
+}
+
+/// Handles a fulfill event for a request
+/// Cancels and removes all orders for the request
+#[allow(clippy::vec_box)]
+fn handle_fulfill_event(
+    request_id: U256,
+    active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+    pending_orders: &mut Vec<Box<OrderRequest>>,
+) {
+    // Cancel all active tasks
+    if let Some(order_tasks) = active_tasks.remove(&request_id) {
+        let count = order_tasks.len();
+        tracing::debug!(
+            "Cancelling {} active preflights for fulfilled request 0x{:x}",
+            count,
+            request_id
+        );
+        for (_, task_token) in order_tasks {
+            task_token.cancel();
+        }
+    }
+
+    // Remove all pending orders
+    let initial_len = pending_orders.len();
+    pending_orders.retain(|order| U256::from(order.request.id) != request_id);
+    let removed_orders = initial_len - pending_orders.len();
+
+    if removed_orders > 0 {
+        tracing::debug!(
+            "Removed {} pending orders for fulfilled request 0x{:x}",
+            removed_orders,
+            request_id
+        );
+    }
+}
+
 impl<P> RetryTask for OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -839,24 +927,6 @@ where
             let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> =
                 BTreeMap::new();
 
-            // Helper closure to cancel active tasks for a request
-            let cancel_active_tasks =
-                |active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
-                 request_id: U256,
-                 reason: &str| {
-                    if let Some(order_tasks) = active_tasks.remove(&request_id) {
-                        tracing::debug!(
-                            "Cancelling {} active preflights for {} request 0x{:x}",
-                            order_tasks.len(),
-                            reason,
-                            request_id
-                        );
-                        for (_, task_token) in order_tasks {
-                            task_token.cancel();
-                        }
-                    }
-                };
-
             loop {
                 tokio::select! {
                     // This channel is cancellation safe, so it's fine to use in the select!
@@ -880,37 +950,13 @@ where
                                 tracing::debug!("Received order state change for request 0x{:x}: Locked by prover {:x}",
                                     request_id, prover);
 
-                                // Cancel all active tasks for this request_id
-                                cancel_active_tasks(&mut active_tasks, request_id, "locked");
-
-                                // Remove any pending LockAndFulfill orders for this request_id
-                                let initial_len = pending_orders.len();
-                                pending_orders.retain(|order| {
-                                    let same_request = U256::from(order.request.id) == request_id;
-                                    let is_lock_and_fulfill = order.fulfillment_type == FulfillmentType::LockAndFulfill;
-                                    !(same_request && is_lock_and_fulfill)
-                                });
-                                let removed_count = initial_len - pending_orders.len();
-                                if removed_count > 0 {
-                                    tracing::debug!("Removed {} pending LockAndFulfill orders for locked request 0x{:x}",
-                                        removed_count, request_id);
-                                }
+                                handle_lock_event(request_id, &mut active_tasks, &mut pending_orders);
                             }
                             OrderStateChange::Fulfilled { request_id } => {
                                 tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
                                     request_id);
 
-                                // Cancel all active tasks for this request_id
-                                cancel_active_tasks(&mut active_tasks, request_id, "fulfilled");
-
-                                // Remove any pending orders for this request_id
-                                let initial_len = pending_orders.len();
-                                pending_orders.retain(|order| U256::from(order.request.id) != request_id);
-                                let removed_count = initial_len - pending_orders.len();
-                                if removed_count > 0 {
-                                    tracing::debug!("Removed {} pending orders for fulfilled request 0x{:x}",
-                                        removed_count, request_id);
-                                }
+                                handle_fulfill_event(request_id, &mut active_tasks, &mut pending_orders);
                             }
                         }
                     }
@@ -2173,5 +2219,105 @@ pub(crate) mod tests {
         assert!(logs_contain(&order2_id));
 
         picker_task.abort();
+    }
+
+    #[tokio::test]
+    async fn test_handle_lock_event() {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> = BTreeMap::new();
+        let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
+
+        let lock_and_fulfill_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 123,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+
+        let fulfill_after_expire_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 123,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let request_id = U256::from(lock_and_fulfill_order.request.id);
+
+        let lock_and_fulfill_token = CancellationToken::new();
+        let fulfill_after_expire_token = CancellationToken::new();
+
+        // Add active tasks using actual order IDs
+        let mut order_tasks = BTreeMap::new();
+        order_tasks.insert(lock_and_fulfill_order.id(), lock_and_fulfill_token.clone());
+        order_tasks.insert(fulfill_after_expire_order.id(), fulfill_after_expire_token.clone());
+        active_tasks.insert(request_id, order_tasks);
+
+        pending_orders.push(lock_and_fulfill_order);
+        pending_orders.push(fulfill_after_expire_order);
+
+        handle_lock_event(request_id, &mut active_tasks, &mut pending_orders);
+
+        assert!(lock_and_fulfill_token.is_cancelled(), "LockAndFulfill task should be cancelled");
+        assert!(
+            !fulfill_after_expire_token.is_cancelled(),
+            "FulfillAfterLockExpire task should NOT be cancelled"
+        );
+
+        assert!(active_tasks.contains_key(&request_id));
+        let remaining_tasks = active_tasks.get(&request_id).unwrap();
+        assert_eq!(remaining_tasks.len(), 1);
+        let remaining_order_id = remaining_tasks.keys().next().unwrap();
+        assert!(remaining_order_id.contains("FulfillAfterLockExpire"));
+
+        assert_eq!(pending_orders.len(), 1);
+        assert_eq!(pending_orders[0].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+    }
+
+    #[tokio::test]
+    async fn test_handle_fulfill_event() {
+        // Create test context and orders
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> = BTreeMap::new();
+        let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
+
+        let lock_and_fulfill_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 456,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+
+        let fulfill_after_expire_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 456,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let request_id = U256::from(lock_and_fulfill_order.request.id);
+
+        let token1 = CancellationToken::new();
+        let token2 = CancellationToken::new();
+
+        let mut order_tasks = BTreeMap::new();
+        order_tasks.insert(lock_and_fulfill_order.id(), token1.clone());
+        order_tasks.insert(fulfill_after_expire_order.id(), token2.clone());
+        active_tasks.insert(request_id, order_tasks);
+
+        pending_orders.push(lock_and_fulfill_order);
+        pending_orders.push(fulfill_after_expire_order);
+
+        handle_fulfill_event(request_id, &mut active_tasks, &mut pending_orders);
+
+        assert!(token1.is_cancelled(), "All tasks should be cancelled");
+        assert!(token2.is_cancelled(), "All tasks should be cancelled");
+
+        assert!(!active_tasks.contains_key(&request_id));
+
+        assert_eq!(pending_orders.len(), 0, "All pending orders should be removed");
     }
 }
