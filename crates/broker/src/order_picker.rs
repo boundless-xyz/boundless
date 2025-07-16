@@ -972,7 +972,7 @@ where
                             }
 
 
-                            tracing::trace!("Pricing task for order {} (request 0x{:x}) completed ({} remaining)",
+                            tracing::trace!("Priced task for order {} (request 0x{:x}) completed ({} remaining)",
                                 order_id, request_id, tasks.len());
                         }
                     }
@@ -2218,11 +2218,8 @@ pub(crate) mod tests {
         // Wait for the second order to be processed
         tokio::time::timeout(Duration::from_secs(5), ctx.priced_orders_rx.recv()).await.unwrap();
 
-        // Check that we logged the task being removed and the new one being added
-        assert!(logs_contain(&format!(
-            "Removed pricing task {}. Current in-progress pricing tasks: [",
-            order1_id
-        )));
+        // Check that we logged the task completion
+        assert!(logs_contain(&format!("Priced task for order {} (request", order1_id)));
 
         // The order2 should be shown as in progress when order1 completes
         assert!(logs_contain(&order2_id));
