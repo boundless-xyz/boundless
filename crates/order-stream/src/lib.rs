@@ -415,7 +415,7 @@ impl AppState {
     }
 }
 
-const MAX_ORDER_SIZE: usize = 25 * 1024 * 1024; // 25 mb
+const MAX_ORDER_SIZE: usize = 100 * 1024; // 100 KiB
 
 #[derive(OpenApi, Debug, Deserialize)]
 #[openapi(
