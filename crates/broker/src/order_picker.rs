@@ -263,28 +263,29 @@ where
         let order_id = order.id();
         tracing::debug!("Pricing order {order_id}");
 
-        // Short circuit if the order has been locked.
-        if order.fulfillment_type == FulfillmentType::LockAndFulfill
-            && self
-                .db
-                .is_request_locked(U256::from(order.request.id))
-                .await
-                .context("Failed to check if request is locked before pricing")?
-        {
-            tracing::debug!("Order {order_id} is already locked, skipping");
-            return Ok(Skip);
-        }
+        // Lock expiration is the timestamp before which the order must be filled in order to avoid slashing
+        let lock_expiration =
+            order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
+        // order expiration is the timestamp after which the order can no longer be filled by anyone.
+        let order_expiration =
+            order.request.offer.biddingStart + order.request.offer.timeout as u64;
 
-        if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire
-            && self
-                .db
-                .is_request_fulfilled(U256::from(order.request.id))
-                .await
-                .context("Failed to check if request is fulfilled before pricing")?
-        {
-            tracing::debug!("Order {order_id} is already fulfilled, skipping");
+        let now = now_timestamp();
+
+        // If order_expiration > lock_expiration the period in-between is when order can be filled
+        // by anyone without staking to partially claim the slashed stake
+        let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
+
+        let (expiration, lockin_stake) = if lock_expired {
+            (order_expiration, U256::ZERO)
+        } else {
+            (lock_expiration, U256::from(order.request.offer.lockStake))
+        };
+
+        if expiration <= now {
+            tracing::info!("Removing order {order_id} because it has expired");
             return Ok(Skip);
-        }
+        };
 
         let (min_deadline, allowed_addresses_opt, denied_addresses_opt) = {
             let config = self.config.lock_all().context("Failed to read config")?;
@@ -294,6 +295,13 @@ where
                 config.market.deny_requestor_addresses.clone(),
             )
         };
+
+        // Does the order expire within the min deadline
+        let seconds_left = expiration.saturating_sub(now);
+        if seconds_left <= min_deadline {
+            tracing::info!("Removing order {order_id} because it expires within min_deadline: {seconds_left}, min_deadline: {min_deadline}");
+            return Ok(Skip);
+        }
 
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
@@ -322,37 +330,6 @@ where
             return Ok(Skip);
         };
 
-        // Lock expiration is the timestamp before which the order must be filled in order to avoid slashing
-        let lock_expiration =
-            order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
-        // order expiration is the timestamp after which the order can no longer be filled by anyone.
-        let order_expiration =
-            order.request.offer.biddingStart + order.request.offer.timeout as u64;
-
-        let now = now_timestamp();
-
-        // If order_expiration > lock_expiration the period in-between is when order can be filled
-        // by anyone without staking to partially claim the slashed stake
-        let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
-
-        let (expiration, lockin_stake) = if lock_expired {
-            (order_expiration, U256::ZERO)
-        } else {
-            (lock_expiration, U256::from(order.request.offer.lockStake))
-        };
-
-        if expiration <= now {
-            tracing::info!("Removing order {order_id} because it has expired");
-            return Ok(Skip);
-        };
-
-        // Does the order expire within the min deadline
-        let seconds_left = expiration.saturating_sub(now);
-        if seconds_left <= min_deadline {
-            tracing::info!("Removing order {order_id} because it expires within min_deadline: {seconds_left}, min_deadline: {min_deadline}");
-            return Ok(Skip);
-        }
-
         // Check if the stake is sane and if we can afford it
         // For lock expired orders, we don't check the max stake because we can't lock those orders.
         let max_stake = {
@@ -362,6 +339,29 @@ where
 
         if !lock_expired && lockin_stake > max_stake {
             tracing::info!("Removing high stake order {order_id}, lock stake: {lockin_stake}, max stake: {max_stake}");
+            return Ok(Skip);
+        }
+
+        // Short circuit if the order has been locked.
+        if order.fulfillment_type == FulfillmentType::LockAndFulfill
+            && self
+                .db
+                .is_request_locked(U256::from(order.request.id))
+                .await
+                .context("Failed to check if request is locked before pricing")?
+        {
+            tracing::debug!("Order {order_id} is already locked, skipping");
+            return Ok(Skip);
+        }
+
+        if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire
+            && self
+                .db
+                .is_request_fulfilled(U256::from(order.request.id))
+                .await
+                .context("Failed to check if request is fulfilled before pricing")?
+        {
+            tracing::debug!("Order {order_id} is already fulfilled, skipping");
             return Ok(Skip);
         }
 
