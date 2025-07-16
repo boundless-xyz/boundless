@@ -17,7 +17,8 @@ use std::{path::PathBuf, time::Duration};
 use alloy::{
     network::EthereumWallet,
     primitives::{
-        utils::{format_units, parse_ether}, U256
+        utils::{format_units, parse_ether},
+        U256,
     },
     signers::local::PrivateKeySigner,
 };
