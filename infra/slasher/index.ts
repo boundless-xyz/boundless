@@ -4,9 +4,10 @@ import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
 import { ChainId, getServiceNameV1, getEnvVar, Severity } from '../util';
 import * as crypto from 'crypto';
-require('dotenv').config();
+import * as dotenv from 'dotenv';
 
 export = () => {
+  dotenv.config();
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
