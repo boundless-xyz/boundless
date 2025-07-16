@@ -975,7 +975,7 @@ where
                                 .values()
                                 .flat_map(|orders| orders.keys().cloned())
                                 .collect();
-                            tracing::info!(
+                            tracing::debug!(
                                 "Removed pricing task {}. Current in-progress pricing tasks: [{}]",
                                 order_id,
                                 task_details.join(", ")
