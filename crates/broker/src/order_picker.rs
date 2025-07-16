@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ use crate::{
     provers::{ProverError, ProverObj},
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, OrderRequest,
+    utils, FulfillmentType, OrderRequest, OrderStateChange,
 };
 use crate::{now_timestamp, provers::ProofResult};
 use alloy::{
@@ -43,7 +43,7 @@ use boundless_market::{
 };
 use moka::future::Cache;
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -108,7 +108,7 @@ pub struct OrderPicker<P> {
     priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
     stake_token_decimals: u8,
     order_cache: OrderCache,
-    active_tasks: Arc<Mutex<HashMap<String, Box<OrderRequest>>>>,
+    order_state_tx: broadcast::Sender<OrderStateChange>,
 }
 
 #[derive(Debug)]
@@ -146,6 +146,7 @@ where
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         stake_token_decimals: u8,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
@@ -170,7 +171,7 @@ where
                     .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
                     .build(),
             ),
-            active_tasks: Arc::new(Mutex::new(HashMap::new())),
+            order_state_tx,
         }
     }
 
@@ -184,7 +185,12 @@ where
             let pricing_result = tokio::select! {
                 result = self.price_order(&mut order) => result,
                 _ = cancel_token.cancelled() => {
-                    tracing::debug!("Order pricing cancelled during pricing for order {order_id}");
+                    tracing::info!("Order pricing cancelled during pricing for order {order_id}");
+
+                    // Add the cancelled order to the database as skipped
+                    if let Err(e) = self.db.insert_skipped_request(&order).await {
+                        tracing::error!("Failed to add cancelled order to database: {e}");
+                    }
                     return Ok(false);
                 }
             };
@@ -801,6 +807,94 @@ where
     }
 }
 
+/// Handles a lock event for a request
+/// Cancels and removes only LockAndFulfill orders
+#[allow(clippy::vec_box)]
+fn handle_lock_event(
+    request_id: U256,
+    active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+    pending_orders: &mut Vec<Box<OrderRequest>>,
+) {
+    // Cancel only LockAndFulfill active tasks
+    if let Some(order_tasks) = active_tasks.get_mut(&request_id) {
+        let initial_count = order_tasks.len();
+        order_tasks.retain(|order_id, task_token| {
+            if order_id.contains("LockAndFulfill") {
+                task_token.cancel();
+                false
+            } else {
+                true
+            }
+        });
+        let cancelled = initial_count - order_tasks.len();
+
+        if cancelled > 0 {
+            tracing::debug!(
+                "Cancelled {} LockAndFulfill preflights for locked request 0x{:x}",
+                cancelled,
+                request_id
+            );
+        }
+
+        // Remove the entry if no tasks remain
+        if order_tasks.is_empty() {
+            active_tasks.remove(&request_id);
+        }
+    }
+
+    // Remove only pending LockAndFulfill orders
+    let initial_len = pending_orders.len();
+    pending_orders.retain(|order| {
+        let same_request = U256::from(order.request.id) == request_id;
+        let is_lock_and_fulfill = order.fulfillment_type == FulfillmentType::LockAndFulfill;
+        !(same_request && is_lock_and_fulfill)
+    });
+    let removed_orders = initial_len - pending_orders.len();
+
+    if removed_orders > 0 {
+        tracing::debug!(
+            "Removed {} pending LockAndFulfill orders for locked request 0x{:x}",
+            removed_orders,
+            request_id
+        );
+    }
+}
+
+/// Handles a fulfill event for a request
+/// Cancels and removes all orders for the request
+#[allow(clippy::vec_box)]
+fn handle_fulfill_event(
+    request_id: U256,
+    active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+    pending_orders: &mut Vec<Box<OrderRequest>>,
+) {
+    // Cancel all active tasks
+    if let Some(order_tasks) = active_tasks.remove(&request_id) {
+        let count = order_tasks.len();
+        tracing::debug!(
+            "Cancelling {} active preflights for fulfilled request 0x{:x}",
+            count,
+            request_id
+        );
+        for (_, task_token) in order_tasks {
+            task_token.cancel();
+        }
+    }
+
+    // Remove all pending orders
+    let initial_len = pending_orders.len();
+    pending_orders.retain(|order| U256::from(order.request.id) != request_id);
+    let removed_orders = initial_len - pending_orders.len();
+
+    if removed_orders > 0 {
+        tracing::debug!(
+            "Removed {} pending orders for fulfilled request 0x{:x}",
+            removed_orders,
+            request_id
+        );
+    }
+}
+
 impl<P> RetryTask for OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -825,10 +919,13 @@ where
 
             let (mut current_capacity, mut priority_mode, mut priority_addresses) =
                 read_config().map_err(SupervisorErr::Fault)?;
-            let mut tasks: JoinSet<()> = JoinSet::new();
+            let mut tasks: JoinSet<(String, U256)> = JoinSet::new();
             let mut rx = picker.new_order_rx.lock().await;
+            let mut order_state_rx = picker.order_state_tx.subscribe();
             let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
             let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
+            let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> =
+                BTreeMap::new();
 
             loop {
                 tokio::select! {
@@ -847,8 +944,46 @@ where
                                 .join(", ")
                         );
                     }
-                    _ = tasks.join_next(), if !tasks.is_empty() => {
-                        tracing::trace!("Pricing task completed ({} remaining)", tasks.len());
+                    Ok(state_change) = order_state_rx.recv() => {
+                        match state_change {
+                            OrderStateChange::Locked { request_id, prover } => {
+                                tracing::debug!("Received order state change for request 0x{:x}: Locked by prover {:x}",
+                                    request_id, prover);
+
+                                handle_lock_event(request_id, &mut active_tasks, &mut pending_orders);
+                            }
+                            OrderStateChange::Fulfilled { request_id } => {
+                                tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
+                                    request_id);
+
+                                handle_fulfill_event(request_id, &mut active_tasks, &mut pending_orders);
+                            }
+                        }
+                    }
+                    Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                        if let Ok((order_id, request_id)) = result {
+                            // Clean up the active task entry now that it's completed
+                            if let Some(order_tasks) = active_tasks.get_mut(&request_id) {
+                                order_tasks.remove(&order_id);
+                                if order_tasks.is_empty() {
+                                    active_tasks.remove(&request_id);
+                                }
+                            }
+
+                            // Log current active tasks after removal
+                            let task_details: Vec<String> = active_tasks
+                                .values()
+                                .flat_map(|orders| orders.keys().cloned())
+                                .collect();
+                            tracing::debug!(
+                                "Removed pricing task {}. Current in-progress pricing tasks: [{}]",
+                                order_id,
+                                task_details.join(", ")
+                            );
+
+                            tracing::trace!("Pricing task for order {} (request 0x{:x}) completed ({} remaining)",
+                                order_id, request_id, tasks.len());
+                        }
                     }
                     _ = capacity_check_interval.tick() => {
                         // Check capacity on an interval for capacity changes in config
@@ -888,6 +1023,17 @@ where
 
                     for order in selected_orders {
                         let order_id = order.id();
+                        let request_id = U256::from(order.request.id);
+
+                        // Check if we're already processing this specific order
+                        if let Some(order_tasks) = active_tasks.get(&request_id) {
+                            if order_tasks.contains_key(&order_id) {
+                                tracing::debug!(
+                                    "Skipping order {order_id} - already being processed"
+                                );
+                                continue;
+                            }
+                        }
 
                         // Check if we've already started processing this order ID
                         if picker.order_cache.get(&order_id).await.is_some() {
@@ -902,43 +1048,25 @@ where
 
                         let picker_clone = picker.clone();
                         let task_cancel_token = cancel_token.child_token();
-                        let order_id = order.id();
 
-                        // Track this task as active
-                        {
-                            let mut active_tasks = picker_clone.active_tasks.lock().await;
-                            active_tasks.insert(order_id.clone(), order.clone());
+                        // Track the active task so it can be cancelled if needed
+                        active_tasks
+                            .entry(request_id)
+                            .or_default()
+                            .insert(order_id.clone(), task_cancel_token.clone());
 
-                            // Log current active tasks
-                            let task_details = active_tasks
-                                .values()
-                                .map(ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            tracing::debug!("Current pricing tasks: [{}]", task_details);
-                        }
+                        // Log current active tasks
+                        let task_details: Vec<String> = active_tasks
+                            .values()
+                            .flat_map(|orders| orders.keys().cloned())
+                            .collect();
+                        tracing::debug!("Current pricing tasks: [{}]", task_details.join(", "));
 
                         tasks.spawn(async move {
                             picker_clone
                                 .price_order_and_update_state(order, task_cancel_token)
                                 .await;
-
-                            // Remove this task from active tracking
-                            {
-                                let mut active_tasks = picker_clone.active_tasks.lock().await;
-                                active_tasks.remove(&order_id);
-
-                                // Log current active tasks
-                                let task_details = active_tasks
-                                    .values()
-                                    .map(ToString::to_string)
-                                    .collect::<Vec<_>>()
-                                    .join(", ");
-                                tracing::info!(
-                                    "Removed pricing task. Current in-progress pricing tasks: [{}]",
-                                    task_details
-                                );
-                            }
+                            (order_id, request_id)
                         });
                     }
                 }
@@ -1155,6 +1283,7 @@ pub(crate) mod tests {
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
             let (priced_orders_tx, priced_orders_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
+            let (order_state_tx, _) = tokio::sync::broadcast::channel(TEST_CHANNEL_CAPACITY);
 
             let picker = OrderPicker::new(
                 db.clone(),
@@ -1166,6 +1295,7 @@ pub(crate) mod tests {
                 new_order_rx,
                 priced_orders_tx,
                 self.stake_token_decimals.unwrap_or(6),
+                order_state_tx,
             );
 
             PickerTestCtx {
@@ -2015,9 +2145,7 @@ pub(crate) mod tests {
 
         assert!(second_result.is_err(), "Second order should be deduplicated and not processed");
 
-        assert!(logs_contain(&format!(
-            "Skipping duplicate order {order_id}, already being processed"
-        )));
+        assert!(logs_contain(&format!("Skipping order {order_id} - already being processed")));
 
         Ok(())
     }
@@ -2082,9 +2210,114 @@ pub(crate) mod tests {
         tokio::time::timeout(Duration::from_secs(5), ctx.priced_orders_rx.recv()).await.unwrap();
 
         // Check that we logged the task being removed and the new one being added
-        assert!(logs_contain("Removed pricing task. Current in-progress pricing tasks: ["));
+        assert!(logs_contain(&format!(
+            "Removed pricing task {}. Current in-progress pricing tasks: [",
+            order1_id
+        )));
+
+        // The order2 should be shown as in progress when order1 completes
         assert!(logs_contain(&order2_id));
 
         picker_task.abort();
+    }
+
+    #[tokio::test]
+    async fn test_handle_lock_event() {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> = BTreeMap::new();
+        let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
+
+        let lock_and_fulfill_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 123,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+
+        let fulfill_after_expire_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 123,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let request_id = U256::from(lock_and_fulfill_order.request.id);
+
+        let lock_and_fulfill_token = CancellationToken::new();
+        let fulfill_after_expire_token = CancellationToken::new();
+
+        // Add active tasks using actual order IDs
+        let mut order_tasks = BTreeMap::new();
+        order_tasks.insert(lock_and_fulfill_order.id(), lock_and_fulfill_token.clone());
+        order_tasks.insert(fulfill_after_expire_order.id(), fulfill_after_expire_token.clone());
+        active_tasks.insert(request_id, order_tasks);
+
+        pending_orders.push(lock_and_fulfill_order);
+        pending_orders.push(fulfill_after_expire_order);
+
+        handle_lock_event(request_id, &mut active_tasks, &mut pending_orders);
+
+        assert!(lock_and_fulfill_token.is_cancelled(), "LockAndFulfill task should be cancelled");
+        assert!(
+            !fulfill_after_expire_token.is_cancelled(),
+            "FulfillAfterLockExpire task should NOT be cancelled"
+        );
+
+        assert!(active_tasks.contains_key(&request_id));
+        let remaining_tasks = active_tasks.get(&request_id).unwrap();
+        assert_eq!(remaining_tasks.len(), 1);
+        let remaining_order_id = remaining_tasks.keys().next().unwrap();
+        assert!(remaining_order_id.contains("FulfillAfterLockExpire"));
+
+        assert_eq!(pending_orders.len(), 1);
+        assert_eq!(pending_orders[0].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+    }
+
+    #[tokio::test]
+    async fn test_handle_fulfill_event() {
+        // Create test context and orders
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> = BTreeMap::new();
+        let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
+
+        let lock_and_fulfill_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 456,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+
+        let fulfill_after_expire_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 456,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let request_id = U256::from(lock_and_fulfill_order.request.id);
+
+        let token1 = CancellationToken::new();
+        let token2 = CancellationToken::new();
+
+        let mut order_tasks = BTreeMap::new();
+        order_tasks.insert(lock_and_fulfill_order.id(), token1.clone());
+        order_tasks.insert(fulfill_after_expire_order.id(), token2.clone());
+        active_tasks.insert(request_id, order_tasks);
+
+        pending_orders.push(lock_and_fulfill_order);
+        pending_orders.push(fulfill_after_expire_order);
+
+        handle_fulfill_event(request_id, &mut active_tasks, &mut pending_orders);
+
+        assert!(token1.is_cancelled(), "All tasks should be cancelled");
+        assert!(token2.is_cancelled(), "All tasks should be cancelled");
+
+        assert!(!active_tasks.contains_key(&request_id));
+
+        assert_eq!(pending_orders.len(), 0, "All pending orders should be removed");
     }
 }
