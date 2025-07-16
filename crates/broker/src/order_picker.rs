@@ -926,6 +926,7 @@ where
             let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
             let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> =
                 BTreeMap::new();
+            let mut last_active_tasks_log: String = String::new();
 
             loop {
                 tokio::select! {
@@ -970,16 +971,6 @@ where
                                 }
                             }
 
-                            // Log current active tasks after removal
-                            let task_details: Vec<String> = active_tasks
-                                .values()
-                                .flat_map(|orders| orders.keys().cloned())
-                                .collect();
-                            tracing::debug!(
-                                "Removed pricing task {}. Current in-progress pricing tasks: [{}]",
-                                order_id,
-                                task_details.join(", ")
-                            );
 
                             tracing::trace!("Pricing task for order {} (request 0x{:x}) completed ({} remaining)",
                                 order_id, request_id, tasks.len());
@@ -999,6 +990,14 @@ where
                         if new_priority_addresses != priority_addresses {
                             tracing::debug!("Priority requestor addresses changed");
                             priority_addresses = new_priority_addresses;
+                        }
+
+                        // Log active pricing tasks if they've changed
+                        let current_tasks_log = format_active_tasks(&active_tasks);
+
+                        if last_active_tasks_log != current_tasks_log {
+                            tracing::debug!("Current pricing tasks: [{}]", current_tasks_log);
+                            last_active_tasks_log = current_tasks_log;
                         }
                     }
 
@@ -1055,13 +1054,6 @@ where
                             .or_default()
                             .insert(order_id.clone(), task_cancel_token.clone());
 
-                        // Log current active tasks
-                        let task_details: Vec<String> = active_tasks
-                            .values()
-                            .flat_map(|orders| orders.keys().cloned())
-                            .collect();
-                        tracing::debug!("Current pricing tasks: [{}]", task_details.join(", "));
-
                         tasks.spawn(async move {
                             picker_clone
                                 .price_order_and_update_state(order, task_cancel_token)
@@ -1073,6 +1065,23 @@ where
             }
             Ok(())
         })
+    }
+}
+
+/// Format active pricing tasks for logging, limiting to first 3 and showing total count
+fn format_active_tasks(
+    active_tasks: &BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+) -> String {
+    let mut order_iter = active_tasks.values().flat_map(|orders| orders.keys().cloned());
+
+    let first_three: Vec<String> = order_iter.by_ref().take(3).collect();
+    let remaining_count = order_iter.count();
+    let total_count = first_three.len() + remaining_count;
+
+    if remaining_count == 0 {
+        first_three.join(", ")
+    } else {
+        format!("{}, ... ({} total)", first_three.join(", "), total_count)
     }
 }
 
