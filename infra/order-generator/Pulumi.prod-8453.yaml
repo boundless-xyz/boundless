@@ -11,7 +11,7 @@ config:
   order-generator-base:CHAIN_ID: "8453"
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
-  order-generator-base:INTERVAL: "60"
+  order-generator-base:INTERVAL: "20"
   order-generator-base:LOCK_STAKE_RAW: "500000" # $0.50 USDC
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
@@ -27,7 +27,7 @@ config:
   order-generator-base:TX_TIMEOUT: "90"
   # Offchain order generator is configured to send small orders that must be locked/fulfilled within 30 mins
   # We use these orders as canaries to monitor the health of the system
-  order-generator-offchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-offchain:INPUT_MAX_MCYCLES: "200"
   order-generator-offchain:RAMP_UP: "450"
   order-generator-offchain:LOCK_TIMEOUT: "900"
   order-generator-offchain:TIMEOUT: "1500"

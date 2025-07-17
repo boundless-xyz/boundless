@@ -30,6 +30,7 @@ use boundless_market::{
 };
 use clap::Parser;
 use rand::Rng;
+use risc0_zkvm::Journal;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
@@ -234,11 +235,16 @@ async fn handle_request(
     let timeout: u32 =
         args.timeout + lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
 
+    // Provide journal and cycles in order to skip preflighting, allowing us to send requests faster.
+    let journal = Journal::new([input.to_le_bytes(), nonce.to_le_bytes()].concat());
+
     let request = client
         .new_request()
         .with_program(program.to_vec())
         .with_program_url(program_url.clone())?
         .with_env(env)
+        .with_cycles(input)
+        .with_journal(journal)
         .with_offer(
             OfferParams::builder()
                 .ramp_up_period(args.ramp_up)
