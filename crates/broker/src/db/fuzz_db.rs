@@ -108,8 +108,8 @@ fn generate_test_order(request_id: u32) -> Order {
         ),
         image_id: None,
         input_id: None,
-        proof_id: Some(format!("proof_{}", request_id)),
-        compressed_proof_id: Some(format!("compressed_proof_{}", request_id)),
+        proof_id: Some(format!("proof_{request_id}")),
+        compressed_proof_id: Some(format!("compressed_proof_{request_id}")),
         expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
@@ -185,7 +185,7 @@ proptest! {
                             },
                             DbOperation::OperateOnExistingOrder(operation) => {
                                 // Skip if no orders have been added yet
-                                if state.added_orders.len() == 0 {
+                                if state.added_orders.is_empty() {
                                     continue;
                                 }
 
@@ -250,7 +250,7 @@ proptest! {
                                         }
                                     },
                                     BatchOperation::UpdateBatch { proof_id, order_count } => {
-                                        if state.added_orders.len() > 0 {
+                                        if !state.added_orders.is_empty() {
                                             let batch_id = db.get_current_batch().await.unwrap();
                                             // Select up to order_count random orders
                                             let count = std::cmp::min(order_count as usize, state.added_orders.len());
@@ -263,7 +263,7 @@ proptest! {
 
                                                 orders.push(AggregationOrder {
                                                     order_id: id.to_string(),
-                                                    proof_id: format!("proof_{}", id),
+                                                    proof_id: format!("proof_{id}"),
                                                     expiration: 1000,
                                                     fee: U256::from(10),
                                                 });

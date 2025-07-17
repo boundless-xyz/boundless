@@ -1709,8 +1709,7 @@ pub(crate) mod tests {
             order.request.offer.biddingStart + order.request.offer.timeout as u64;
 
         let expected_log = format!(
-            "Setting order {} to prove after lock expiry at {}",
-            order_id, expected_target_timestamp
+            "Setting order {order_id} to prove after lock expiry at {expected_target_timestamp}"
         );
         assert!(ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
@@ -1754,8 +1753,7 @@ pub(crate) mod tests {
         // the execution limit check tells us if the order is profitable or not, since it computes the max number
         // of cycles that can be proven while keeping the order profitable.
         assert!(logs_contain(&format!(
-            "Skipping order {} due to session limit exceeded",
-            order_id
+            "Skipping order {order_id} due to session limit exceeded"
         )));
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
@@ -1801,7 +1799,7 @@ pub(crate) mod tests {
         assert!(locked);
 
         // Check logs for the expected message about setting exec limit to max_mcycle_limit
-        assert!(logs_contain(&format!("Order {} exec limit computed from max price", order2_id)));
+        assert!(logs_contain(&format!("Order {order2_id} exec limit computed from max price")));
         assert!(logs_contain("exceeds config max_mcycle_limit"));
         assert!(logs_contain("setting exec limit to max_mcycle_limit"));
     }

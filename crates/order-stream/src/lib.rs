@@ -615,7 +615,7 @@ mod tests {
     ) {
         let mut retry_delay = tokio::time::Duration::from_millis(50);
 
-        let health_url = format!("http://{}{}", addr, HEALTH_CHECK);
+        let health_url = format!("http://{addr}{HEALTH_CHECK}");
         for attempt in 1..=max_retries {
             match client.client.get(&health_url).send().await {
                 Ok(response) if response.status().is_success() => {
@@ -624,11 +624,10 @@ mod tests {
                 }
                 _ => {
                     if attempt == max_retries {
-                        panic!("Server failed to become healthy after {} attempts", max_retries);
+                        panic!("Server failed to become healthy after {max_retries} attempts");
                     }
                     println!(
-                        "Waiting for server to become healthy (attempt {}/{})",
-                        attempt, max_retries
+                        "Waiting for server to become healthy (attempt {attempt}/{max_retries})"
                     );
                     tokio::time::sleep(retry_delay).await;
                     retry_delay =

@@ -29,7 +29,7 @@ use risc0_aggregation::{
 };
 use risc0_ethereum_contracts::encode_seal;
 use risc0_zkvm::{
-    compute_image_id, default_prover, is_dev_mode,
+    compute_image_id, default_prover,
     sha::{Digest, Digestible},
     ExecutorEnv, ProverOpts, Receipt, ReceiptClaim,
 };
@@ -360,6 +360,15 @@ async fn compress_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
             }
         }
     }
+}
+
+// Returns `true` if the dev mode environment variable is enabled.
+fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
 }
 
 #[cfg(test)]

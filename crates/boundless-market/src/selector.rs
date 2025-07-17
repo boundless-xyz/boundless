@@ -20,12 +20,10 @@ use alloy_primitives::FixedBytes;
 use clap::ValueEnum;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::selector::{Selector, SelectorType};
-use risc0_zkvm::{
-    is_dev_mode,
-    sha::{Digest, Digestible},
-};
+use risc0_zkvm::sha::{Digest, Digestible};
 
 use crate::contracts::UNSPECIFIED_SELECTOR;
+use crate::util::is_dev_mode;
 
 /// Define the selector types.
 ///

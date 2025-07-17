@@ -348,7 +348,7 @@ impl Prover for DefaultProver {
         let receipt = self
             .get_receipt(proof_id)
             .await?
-            .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {}", proof_id)))?;
+            .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {proof_id}")))?;
 
         let proof_id = format!("snark_{}", Uuid::new_v4());
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());

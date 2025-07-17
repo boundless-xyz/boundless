@@ -117,7 +117,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .bind(format!("{:x}", address))
+        .bind(format!("{address:x}"))
         .fetch_all(&self.db)
         .await?;
 
@@ -139,7 +139,7 @@ impl Monitor {
               AND pr.client_address = $1
             "#,
         )
-        .bind(format!("{:x}", address))
+        .bind(format!("{address:x}"))
         .fetch_one(&self.db)
         .await?;
 
@@ -202,7 +202,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .bind(format!("{:x}", address))
+        .bind(format!("{address:x}"))
         .fetch_all(&self.db)
         .await?;
 
@@ -212,7 +212,7 @@ impl Monitor {
     /// Total number of submitted requests from a specific client address.
     pub async fn total_requests_from_client(&self, address: Address) -> Result<i64> {
         let row = sqlx::query("SELECT COUNT(*) FROM proof_requests WHERE client_address = $1")
-            .bind(format!("{:x}", address))
+            .bind(format!("{address:x}"))
             .fetch_one(&self.db)
             .await?;
 
@@ -274,7 +274,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .bind(format!("{:x}", address))
+        .bind(format!("{address:x}"))
         .fetch_all(&self.db)
         .await?;
 
@@ -292,7 +292,7 @@ impl Monitor {
             WHERE pr.client_address = $1
             "#,
         )
-        .bind(format!("{:x}", address))
+        .bind(format!("{address:x}"))
         .fetch_one(&self.db)
         .await?;
 
@@ -323,7 +323,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .bind(format!("{:x}", prover))
+        .bind(format!("{prover:x}"))
         .fetch_all(&self.db)
         .await?;
 
@@ -343,7 +343,7 @@ impl Monitor {
             WHERE f.prover_address = $1
             "#,
         )
-        .bind(format!("{:x}", prover))
+        .bind(format!("{prover:x}"))
         .fetch_one(&self.db)
         .await?;
 
@@ -374,7 +374,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .bind(format!("{:x}", prover))
+        .bind(format!("{prover:x}"))
         .fetch_all(&self.db)
         .await?;
 
@@ -392,7 +392,7 @@ impl Monitor {
             WHERE prover_address = $1
             "#,
         )
-        .bind(format!("{:x}", prover))
+        .bind(format!("{prover:x}"))
         .fetch_one(&self.db)
         .await?;
 
@@ -450,7 +450,7 @@ impl Monitor {
         )
         .bind(from)
         .bind(to)
-        .bind(format!("{:x}", prover))
+        .bind(format!("{prover:x}"))
         .fetch_all(&self.db)
         .await?;
 
@@ -468,7 +468,7 @@ impl Monitor {
             WHERE prover_address = $1
             "#,
         )
-        .bind(format!("{:x}", prover))
+        .bind(format!("{prover:x}"))
         .fetch_one(&self.db)
         .await?;
 

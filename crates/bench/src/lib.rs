@@ -456,10 +456,17 @@ mod tests {
     use boundless_market::storage::StorageProviderConfig;
     use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
     use broker::{config::Config, Args, Broker};
-    use risc0_zkvm::is_dev_mode;
     use tracing_test::traced_test;
 
     use super::*;
+
+    fn is_dev_mode() -> bool {
+        std::env::var("RISC0_DEV_MODE")
+            .ok()
+            .map(|x| x.to_lowercase())
+            .filter(|x| x == "1" || x == "true" || x == "yes")
+            .is_some()
+    }
 
     fn broker_args(
         config_file: PathBuf,

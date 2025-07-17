@@ -87,7 +87,7 @@ impl StorageProvider for TempFileStorageProvider {
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
         let image_id = risc0_zkvm::compute_image_id(program)?;
-        let filename = format!("{}.bin", image_id);
+        let filename = format!("{image_id}.bin");
         let file_url = self.save_file(program, &filename).await?;
         Ok(file_url)
     }
@@ -114,7 +114,7 @@ mod tests {
         let program_url = provider.upload_program(program_data).await.unwrap();
         let input_url = provider.upload_input(input_data).await.unwrap();
 
-        println!("Program URL: {}", program_url);
-        println!("Input URL: {}", input_url);
+        println!("Program URL: {program_url}");
+        println!("Input URL: {input_url}");
     }
 }

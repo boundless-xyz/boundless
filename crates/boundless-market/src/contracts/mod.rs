@@ -546,7 +546,7 @@ impl Requirements {
     /// to `Groth16V2_2`.
     #[cfg(not(target_os = "zkvm"))]
     pub fn with_groth16_proof(self) -> Self {
-        match risc0_zkvm::is_dev_mode() {
+        match crate::util::is_dev_mode() {
             true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
             false => Self { selector: FixedBytes::from(Selector::Groth16V2_2 as u32), ..self },
         }

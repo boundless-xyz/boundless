@@ -84,7 +84,7 @@ async fn test_basic_usage() {
         "1",
     ];
 
-    println!("{} {:?}", exe_path, args);
+    println!("{exe_path} {args:?}");
 
     #[allow(clippy::zombie_processes)]
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
@@ -156,7 +156,7 @@ async fn test_slash_fulfilled() {
         "1",
     ];
 
-    println!("{} {:?}", exe_path, args);
+    println!("{exe_path} {args:?}");
 
     #[allow(clippy::zombie_processes)]
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
@@ -217,8 +217,7 @@ async fn test_slash_fulfilled() {
             break;
         }
         println!(
-            "Waiting for lock to expire...{} < {} - Expires at {}",
-            ts, lock_expires_at, expires_at
+            "Waiting for lock to expire...{ts} < {lock_expires_at} - Expires at {expires_at}"
         );
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
