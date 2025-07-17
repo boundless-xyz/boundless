@@ -602,11 +602,14 @@ where
 
             let cache_cloned = self.preflight_cache.clone();
             let result = tokio::task::spawn(async move {
+
+                // Multiple concurrent calls of this coalesce into a single execution. This is done
+                // to prevent multiple preflight jobs starting for the same program/input.
+                // https://docs.rs/moka/latest/moka/sync/struct.Cache.html#concurrent-calls-on-the-same-key-2
                 cache_cloned
                     .try_get_with(cache_key_clone, async move {
                         tracing::trace!(
-                            "Starting preflight of {order_id_clone} with exec limit {} mcycles",
-                            exec_limit_cycles
+                            "Starting preflight of {order_id_clone} with exec limit {exec_limit_cycles} mcycles",
                         );
 
                         // Upload image and input only if not cached
@@ -2697,8 +2700,7 @@ pub(crate) mod tests {
         assert_eq!(
             preflight_calls.len(),
             1,
-            "Should have exactly 1 preflight call since all orders are identical. Got calls: {:?}",
-            preflight_calls
+            "Should have exactly 1 preflight call since all orders are identical.",
         );
 
         Ok(())
@@ -2771,8 +2773,7 @@ pub(crate) mod tests {
         assert_eq!(
             preflight_calls.len(),
             2,
-            "Should have exactly 2 preflight calls since orders have different exec limits due to different timeouts. Got: {:?}",
-            preflight_calls
+            "Should have exactly 2 preflight calls since orders have different exec limits due to different timeouts.",
         );
 
         // Check that the log message about insufficient limit was produced
@@ -2856,7 +2857,7 @@ pub(crate) mod tests {
         // Wait for task A to start its preflight before cancelling
         loop {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            if logs_contain(&format!("Starting preflight of {}", order_a_id)) {
+            if logs_contain(&format!("Starting preflight of {order_a_id}")) {
                 // Sleep to wait for B to wait on this preflight
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 break;
