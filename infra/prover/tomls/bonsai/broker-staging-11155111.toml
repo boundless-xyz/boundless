@@ -18,7 +18,7 @@ priority_requestor_addresses = ["0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd", "0
 # lockin_priority_gas = 100
 
 [prover]
-bonsai_r0_zkvm_ver = '2.1.0'
+bonsai_r0_zkvm_ver = '2.3.0'
 status_poll_retry_count = 3
 status_poll_ms = 1000
 req_retry_count = 3

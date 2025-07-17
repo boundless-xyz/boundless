@@ -181,7 +181,7 @@ impl StorageProvider for PinataStorageProvider {
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
         let image_id = risc0_zkvm::compute_image_id(program)?;
-        let filename = format!("{}.bin", image_id);
+        let filename = format!("{image_id}.bin");
         self.upload(program, filename).await
     }
 

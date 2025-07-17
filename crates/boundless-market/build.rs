@@ -90,7 +90,7 @@ fn rewrite_solidity_interface_files() {
                     sol_contents.replace_range(start..start + end + 1, "");
                 } else {
                     // print the file name and panic if we can't find the matching brace
-                    panic!("Unmatched brace in library {:?}", entry);
+                    panic!("Unmatched brace in library {entry:?}");
                 }
             }
 
@@ -170,7 +170,7 @@ fn copy_interfaces_and_types() {
         })
         .collect();
 
-    println!("contracts_to_copy: {:?}", contracts_to_copy);
+    println!("contracts_to_copy: {contracts_to_copy:?}");
 
     for contract in contracts_to_copy {
         let source_path = src_path.join(&contract);
@@ -179,9 +179,9 @@ fn copy_interfaces_and_types() {
 
         if source_path.exists() {
             // Copy the file to the destination without directory prefixes
-            let dest_file_name = contract.split('/').last().unwrap();
+            let dest_file_name = contract.split('/').next_back().unwrap();
             let dest_file_path = dest_path.join(dest_file_name);
-            println!("Copying {:?} to {:?}", source_path, dest_file_path);
+            println!("Copying {source_path:?} to {dest_file_path:?}");
             std::fs::copy(&source_path, dest_file_path).unwrap();
         }
     }

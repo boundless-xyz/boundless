@@ -32,3 +32,13 @@ pub(crate) fn now_timestamp() -> u64 {
         .unwrap()
         .as_secs()
 }
+
+/// Returns `true` if the dev mode environment variable is enabled.
+#[cfg(not(target_os = "zkvm"))]
+pub(crate) fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}

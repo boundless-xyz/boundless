@@ -279,7 +279,7 @@ where
                         // 3/ the request may have been fulfilled,
                         // 4/ the requestor may have withdrawn their funds
                         // Currently we don't have a way to determine the cause of the revert.
-                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{:x}", e))
+                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
                     }
                     MarketError::Error(e) => {
                         // Insufficient balance error is thrown both when the requestor has insufficient balance,
@@ -293,8 +293,7 @@ where
                                 OrderMonitorErr::InsufficientBalance
                             } else {
                                 OrderMonitorErr::LockTxFailed(format!(
-                                    "Requestor has insufficient balance at lock time: {}",
-                                    e
+                                    "Requestor has insufficient balance at lock time: {e}"
                                 ))
                             }
                         } else if e.to_string().contains("RequestIsLocked") {
@@ -1610,7 +1609,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        println!("filtered_orders: {:?}", filtered_orders);
+        println!("filtered_orders: {filtered_orders:?}");
         // 100khz can prove 1m+2m+3m+4m (10m) cycles in 100 seconds
         assert_eq!(filtered_orders.len(), 4);
 

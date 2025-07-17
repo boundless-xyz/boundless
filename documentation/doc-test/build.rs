@@ -128,11 +128,11 @@ impl Level {
                     writeln!(dst, "#[ignore]")?;
                 }
                 self.write_space(dst, level);
-                writeln!(dst, "fn {}_md_{}_test() {{", stem, i)?;
+                writeln!(dst, "fn {stem}_md_{i}_test() {{")?;
                 // Indent the code content
                 for line in snippet.content.lines() {
                     self.write_space(dst, level + 1);
-                    writeln!(dst, "{}", line)?;
+                    writeln!(dst, "{line}")?;
                 }
                 self.write_space(dst, level);
                 writeln!(dst, "}}")?;

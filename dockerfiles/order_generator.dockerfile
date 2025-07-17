@@ -1,11 +1,11 @@
 # Build stage
-FROM rust:1.85.0-bookworm AS init
+FROM rust:1.88.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
 
 SHELL ["/bin/bash", "-c"]
-ARG CACHE_DATE=2025-06-11  # update this date to force rebuild
+ARG CACHE_DATE=2025-07-17  # update this date to force rebuild
 # Github token can be provided as a secret with the name githubTokenSecret. Useful
 # for shared build environments where Github rate limiting is an issue.
 RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \

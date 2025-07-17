@@ -18,8 +18,8 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  RISC0_TOOLCHAIN_VERSION: 1.85.0
-  RISC0_CRATE_VERSION: "2.1.0"
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "2.3.0"
   FOUNDRY_VERSION: v1.0.0
 
 jobs:
@@ -294,8 +294,8 @@ jobs:
       - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
         with:
           # Building with docs.rs config requires the nightly toolchain.
-          toolchain: nightly-2025-01-03
-      - run: cargo +nightly-2025-01-03 doc -p boundless-market --all-features --no-deps
+          toolchain: nightly-2025-05-09
+      - run: cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 

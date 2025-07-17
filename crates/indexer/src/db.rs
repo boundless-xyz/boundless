@@ -279,7 +279,7 @@ impl IndexerDb for AnyDb {
 
     async fn has_proof_request(&self, request_digest: B256) -> Result<bool, DbError> {
         let result = sqlx::query("SELECT 1 FROM proof_requests WHERE request_digest = $1")
-            .bind(format!("{:x}", request_digest))
+            .bind(format!("{request_digest:x}"))
             .fetch_optional(&self.pool)
             .await?;
 
@@ -330,7 +330,7 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             ON CONFLICT (request_digest) DO NOTHING",
         )
-        .bind(format!("{:x}", request_digest))
+        .bind(format!("{request_digest:x}"))
         .bind(format!("{:x}", request.id))
         .bind(format!("{:x}", request.client_address()))
         .bind(format!("{:x}", request.requirements.imageId))
@@ -406,7 +406,7 @@ impl IndexerDb for AnyDb {
         )
         .bind(format!("{:x}", fill.requestDigest))
         .bind(format!("{:x}", fill.id))
-        .bind(format!("{:x}", prover_address))
+        .bind(format!("{prover_address:x}"))
         .bind(format!("{:x}", fill.imageId))
         .bind(format!("{:x}", fill.journal))
         .bind(format!("{:x}", fill.seal))
@@ -436,8 +436,8 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (request_digest) DO NOTHING",
         )
-        .bind(format!("{:x}", request_digest))
-        .bind(format!("{:x}", request_id))
+        .bind(format!("{request_digest:x}"))
+        .bind(format!("{request_id:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -466,9 +466,9 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (request_digest) DO NOTHING",
         )
-        .bind(format!("{:x}", request_digest))
-        .bind(format!("{:x}", request_id))
-        .bind(format!("{:x}", prover_address))
+        .bind(format!("{request_digest:x}"))
+        .bind(format!("{request_id:x}"))
+        .bind(format!("{prover_address:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -495,8 +495,8 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (request_digest, tx_hash) DO NOTHING",
         )
-        .bind(format!("{:x}", request_digest))
-        .bind(format!("{:x}", request_id))
+        .bind(format!("{request_digest:x}"))
+        .bind(format!("{request_id:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -523,8 +523,8 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (request_digest) DO NOTHING",
         )
-        .bind(format!("{:x}", request_digest))
-        .bind(format!("{:x}", request_id))
+        .bind(format!("{request_digest:x}"))
+        .bind(format!("{request_id:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -545,7 +545,7 @@ impl IndexerDb for AnyDb {
         self.add_tx(metadata).await?;
         let result =
             sqlx::query("SELECT prover_address FROM request_locked_events WHERE request_id = $1")
-                .bind(format!("{:x}", request_id))
+                .bind(format!("{request_id:x}"))
                 .fetch_optional(&self.pool)
                 .await?;
         // TODO: Improve this
@@ -572,11 +572,11 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (request_id) DO NOTHING",
         )
-        .bind(format!("{:x}", request_id))
+        .bind(format!("{request_id:x}"))
         .bind(prover_address)
         .bind(burn_value.to_string())
         .bind(transfer_value.to_string())
-        .bind(format!("{:x}", stake_recipient))
+        .bind(format!("{stake_recipient:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -603,7 +603,7 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (account, tx_hash) DO NOTHING",
         )
-        .bind(format!("{:x}", account))
+        .bind(format!("{account:x}"))
         .bind(value.to_string())
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -631,7 +631,7 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (account, tx_hash) DO NOTHING",
         )
-        .bind(format!("{:x}", account))
+        .bind(format!("{account:x}"))
         .bind(value.to_string())
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -659,7 +659,7 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (account, tx_hash) DO NOTHING",
         )
-        .bind(format!("{:x}", account))
+        .bind(format!("{account:x}"))
         .bind(value.to_string())
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -687,7 +687,7 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (account, tx_hash) DO NOTHING",
         )
-        .bind(format!("{:x}", account))
+        .bind(format!("{account:x}"))
         .bind(value.to_string())
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -717,8 +717,8 @@ impl IndexerDb for AnyDb {
             ) VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (request_id, tx_hash) DO NOTHING",
         )
-        .bind(format!("{:x}", request_id))
-        .bind(format!("{:x}", callback_address))
+        .bind(format!("{request_id:x}"))
+        .bind(format!("{callback_address:x}"))
         .bind(error_data)
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -811,7 +811,7 @@ mod tests {
 
         // Verify proof request was added
         let result = sqlx::query("SELECT * FROM proof_requests WHERE request_digest = $1")
-            .bind(format!("{:x}", request_digest))
+            .bind(format!("{request_digest:x}"))
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
@@ -910,7 +910,7 @@ mod tests {
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
-        assert_eq!(result.get::<String, _>("request_digest"), format!("{:x}", request_digest));
+        assert_eq!(result.get::<String, _>("request_digest"), format!("{request_digest:x}"));
 
         // Test request locked event
         let prover_address = Address::ZERO;
@@ -922,7 +922,7 @@ mod tests {
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
-        assert_eq!(result.get::<String, _>("prover_address"), format!("{:x}", prover_address));
+        assert_eq!(result.get::<String, _>("prover_address"), format!("{prover_address:x}"));
 
         // Test proof delivered event
         db.add_proof_delivered_event(request_digest, request_id, &metadata).await.unwrap();
@@ -931,7 +931,7 @@ mod tests {
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
-        assert_eq!(result.get::<String, _>("request_digest"), format!("{:x}", request_digest));
+        assert_eq!(result.get::<String, _>("request_digest"), format!("{request_digest:x}"));
 
         // Test request fulfilled event
         db.add_request_fulfilled_event(request_digest, request_id, &metadata).await.unwrap();
@@ -940,7 +940,7 @@ mod tests {
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
-        assert_eq!(result.get::<String, _>("request_digest"), format!("{:x}", request_digest));
+        assert_eq!(result.get::<String, _>("request_digest"), format!("{request_digest:x}"));
     }
 
     #[tokio::test]

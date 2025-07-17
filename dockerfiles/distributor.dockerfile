@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.85.0-bookworm AS init
+FROM rust:1.88.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -7,7 +7,7 @@ RUN apt-get -qq update && \
 SHELL ["/bin/bash", "-c"]
 
 RUN cargo install cargo-chef
-ARG CACHE_DATE=2025-06-11  # update this date to force rebuild
+ARG CACHE_DATE=2025-07-17  # update this date to force rebuild
 # The slasher doesn't need r0vm to run, but its tests do need it. 
 # Cargo chef always pulls in and builds dev-dependencies, meaning that we need to install r0vm
 # to leverage chef. See https://github.com/LukeMathWalker/cargo-chef/issues/114

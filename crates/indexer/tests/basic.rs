@@ -86,7 +86,7 @@ async fn test_e2e() {
         "1",
     ];
 
-    println!("{} {:?}", exe_path, args);
+    println!("{exe_path} {args:?}");
 
     let prover = DefaultProver::new(
         SET_BUILDER_ELF.to_vec(),
@@ -221,7 +221,7 @@ async fn test_monitoring() {
         "1",
     ];
 
-    println!("{} {:?}", exe_path, args);
+    println!("{exe_path} {args:?}");
 
     let prover = DefaultProver::new(
         SET_BUILDER_ELF.to_vec(),

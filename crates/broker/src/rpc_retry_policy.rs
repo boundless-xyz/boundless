@@ -31,7 +31,7 @@ impl RetryPolicy for CustomRetryPolicy {
         let should_retry = match error {
             TransportError::Transport(TransportErrorKind::Custom(err)) => {
                 // easier to match against the debug format string because this is what we see in the logs
-                let err_debug_str = format!("{:?}", err);
+                let err_debug_str = format!("{err:?}");
                 err_debug_str.contains("os error 104") || err_debug_str.contains("reset by peer")
             }
             _ => false,
