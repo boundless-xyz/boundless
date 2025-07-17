@@ -1,10 +1,10 @@
-FROM rust:1.85.0-bookworm AS init
+FROM rust:1.88.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
 
 SHELL ["/bin/bash", "-c"]
-ARG CACHE_DATE=2025-06-11  # update this date to force rebuild
+ARG CACHE_DATE=2025-07-17  # update this date to force rebuild
 RUN curl -L https://foundry.paradigm.xyz | bash && \
     source /root/.bashrc && \
     foundryup
@@ -14,10 +14,10 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
 RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
     if [ -f /run/secrets/githubTokenSecret ]; then \
     GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install rust 1.85.0; \
+    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install rust 1.88.0; \
     else \
     curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install rust 1.85.0; \
+    PATH="$PATH:/root/.risc0/bin" rzup install rust 1.88.0; \
     fi
 
 RUN cargo install cargo-chef
@@ -64,7 +64,7 @@ SHELL ["/bin/bash", "-c"]
 RUN cargo build --release --bin broker && \
     cp /src/target/release/broker /src/broker
 
-FROM rust:1.85.0-bookworm AS runtime
+FROM rust:1.88.0-bookworm AS runtime
 
 RUN mkdir /app/
 

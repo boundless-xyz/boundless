@@ -37,7 +37,7 @@ pub async fn up() -> Result<()> {
         .spawn()
         .map_err(|e| {
             if e.kind() == io::ErrorKind::NotFound {
-                io::Error::new(io::ErrorKind::Other, "Toxiproxy is not installed or not in the PATH. See https://github.com/Shopify/toxiproxy")
+                io::Error::other("Toxiproxy is not installed or not in the PATH. See https://github.com/Shopify/toxiproxy")
             } else {
                 e
             }
@@ -58,7 +58,7 @@ pub async fn up() -> Result<()> {
     let start = tokio::time::Instant::now();
     let timeout = Duration::from_secs(10);
     loop {
-        match client.get(format!("{}/proxies", TOXIPROXY_URL)).send().await {
+        match client.get(format!("{TOXIPROXY_URL}/proxies")).send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     tracing::info!("HTTP API is up.");
@@ -101,11 +101,11 @@ pub async fn proxy_rpc(rpc_url: &str, rng_seed: u64) -> Result<String> {
         "rand_seed": rng_seed,
     });
     // remove proxy if it already exists
-    client.delete(format!("{}/proxies/anvil_proxy", TOXIPROXY_URL)).send().await?;
-    client.post(format!("{}/proxies", TOXIPROXY_URL)).json(&proxy_config).send().await?;
+    client.delete(format!("{TOXIPROXY_URL}/proxies/anvil_proxy")).send().await?;
+    client.post(format!("{TOXIPROXY_URL}/proxies")).json(&proxy_config).send().await?;
     tracing::info!("Started proxy listening on {} forwarding to {}", listen_addr, rpc_url);
 
-    Ok(format!("http://{}", listen_addr))
+    Ok(format!("http://{listen_addr}"))
 }
 
 pub async fn add_reset_toxic(toxicity: f32) -> Result<()> {
@@ -117,7 +117,7 @@ pub async fn add_reset_toxic(toxicity: f32) -> Result<()> {
         "stream": "downstream",
     });
     client
-        .post(format!("{}/proxies/anvil_proxy/toxics", TOXIPROXY_URL))
+        .post(format!("{TOXIPROXY_URL}/proxies/anvil_proxy/toxics"))
         .json(&toxic_config)
         .send()
         .await?

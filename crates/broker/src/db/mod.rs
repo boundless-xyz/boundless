@@ -346,8 +346,8 @@ impl BrokerDb for SqliteDb {
         if ids.is_empty() {
             return Ok(vec![]);
         }
-        let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ");
-        let query = format!("SELECT * FROM orders WHERE id IN ({})", placeholders);
+        let placeholders = std::iter::repeat_n("?", ids.len()).collect::<Vec<_>>().join(", ");
+        let query = format!("SELECT * FROM orders WHERE id IN ({placeholders})");
 
         let mut q = sqlx::query_as::<_, DbOrder>(&query);
         for id in ids {
@@ -959,7 +959,7 @@ impl BrokerDb for SqliteDb {
             r#"
             INSERT INTO fulfilled_requests (id, block_number) VALUES ($1, $2)"#,
         )
-        .bind(format!("0x{:x}", request_id))
+        .bind(format!("0x{request_id:x}"))
         .bind(block_number as i64)
         .execute(&self.pool)
         .await?;
@@ -970,7 +970,7 @@ impl BrokerDb for SqliteDb {
     #[instrument(level = "trace", skip(self))]
     async fn is_request_fulfilled(&self, request_id: U256) -> Result<bool, DbError> {
         let res = sqlx::query(r#"SELECT * FROM fulfilled_requests WHERE id = $1"#)
-            .bind(format!("0x{:x}", request_id))
+            .bind(format!("0x{request_id:x}"))
             .fetch_optional(&self.pool)
             .await?;
 
@@ -987,7 +987,7 @@ impl BrokerDb for SqliteDb {
         sqlx::query(
             r#"INSERT INTO locked_requests (id, locker, block_number) VALUES ($1, $2, $3)"#,
         )
-        .bind(format!("0x{:x}", request_id))
+        .bind(format!("0x{request_id:x}"))
         .bind(locker)
         .bind(block_number as i64)
         .execute(&self.pool)
@@ -999,7 +999,7 @@ impl BrokerDb for SqliteDb {
     #[instrument(level = "trace", skip(self))]
     async fn is_request_locked(&self, request_id: U256) -> Result<bool, DbError> {
         let res = sqlx::query(r#"SELECT * FROM locked_requests WHERE id = $1"#)
-            .bind(format!("0x{:x}", request_id))
+            .bind(format!("0x{request_id:x}"))
             .fetch_optional(&self.pool)
             .await?;
 
@@ -1010,7 +1010,7 @@ impl BrokerDb for SqliteDb {
     async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError> {
         let res: Option<DbLockedRequest> =
             sqlx::query_as(r#"SELECT * FROM locked_requests WHERE id = $1"#)
-                .bind(format!("0x{:x}", request_id))
+                .bind(format!("0x{request_id:x}"))
                 .fetch_optional(&self.pool)
                 .await?;
 

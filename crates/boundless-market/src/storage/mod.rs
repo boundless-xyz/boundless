@@ -17,6 +17,7 @@
 
 use std::{fmt::Debug, ops::Deref, path::PathBuf, result::Result::Ok, sync::Arc};
 
+use crate::util::is_dev_mode;
 use async_trait::async_trait;
 use clap::{builder::ArgPredicate, Args, ValueEnum};
 use derive_builder::Builder;
@@ -260,7 +261,7 @@ impl StorageProvider for StandardStorageProvider {
 /// - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
 pub fn storage_provider_from_env() -> Result<StandardStorageProvider, StandardStorageProviderError>
 {
-    if risc0_zkvm::is_dev_mode() {
+    if is_dev_mode() {
         return Ok(StandardStorageProvider::File(TempFileStorageProvider::new()?));
     }
 

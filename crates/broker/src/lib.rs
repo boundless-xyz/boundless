@@ -186,7 +186,7 @@ fn format_order_id(
     signing_hash: &FixedBytes<32>,
     fulfillment_type: &FulfillmentType,
 ) -> String {
-    format!("0x{:x}-{}-{:?}", request_id, signing_hash, fulfillment_type)
+    format!("0x{request_id:x}-{signing_hash}-{fulfillment_type:?}")
 }
 
 /// Order request from the network.
@@ -480,8 +480,7 @@ where
         {
             if manual_addr != expected_addr {
                 warnings.push(format!(
-                    "verifier_router_address mismatch: configured={}, expected={}",
-                    manual_addr, expected_addr
+                    "verifier_router_address mismatch: configured={manual_addr}, expected={expected_addr}"
                 ));
             }
         }
@@ -491,8 +490,7 @@ where
         {
             if manual_addr != expected_addr {
                 warnings.push(format!(
-                    "stake_token_address mismatch: configured={}, expected={}",
-                    manual_addr, expected_addr
+                    "stake_token_address mismatch: configured={manual_addr}, expected={expected_addr}"
                 ));
             }
         }
@@ -507,8 +505,7 @@ where
         if let (Some(chain_id), Some(expected_chain_id)) = (manual.chain_id, expected.chain_id) {
             if chain_id != expected_chain_id {
                 warnings.push(format!(
-                    "chain_id mismatch: configured={}, expected={}",
-                    chain_id, expected_chain_id
+                    "chain_id mismatch: configured={chain_id}, expected={expected_chain_id}"
                 ));
             }
         }
@@ -722,7 +719,7 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if risc0_zkvm::is_dev_mode() {
+        let prover: provers::ProverObj = if is_dev_mode() {
             tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
             Receipts generated from this process are invalid and should never be used in production.");
             Arc::new(provers::DefaultProver::new())
@@ -1017,21 +1014,29 @@ fn format_expiries(request: &ProofRequest) -> String {
     let lock_expires_at: i64 = request.lock_expires_at().try_into().unwrap();
     let lock_expires_delta = lock_expires_at - now;
     let lock_expires_delta_str = if lock_expires_delta > 0 {
-        format!("{} seconds from now", lock_expires_delta)
+        format!("{lock_expires_delta} seconds from now")
     } else {
         format!("{} seconds ago", lock_expires_delta.abs())
     };
     let expires_at: i64 = request.expires_at().try_into().unwrap();
     let expires_at_delta = expires_at - now;
     let expires_at_delta_str = if expires_at_delta > 0 {
-        format!("{} seconds from now", expires_at_delta)
+        format!("{expires_at_delta} seconds from now")
     } else {
         format!("{} seconds ago", expires_at_delta.abs())
     };
     format!(
-        "lock expires at {} ({}), expires at {} ({})",
-        lock_expires_at, lock_expires_delta_str, expires_at, expires_at_delta_str
+        "lock expires at {lock_expires_at} ({lock_expires_delta_str}), expires at {expires_at} ({expires_at_delta_str})"
     )
+}
+
+/// Returns `true` if the dev mode environment variable is enabled.
+pub(crate) fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
 }
 
 #[cfg(feature = "test-utils")]

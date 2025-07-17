@@ -100,7 +100,7 @@ pub(crate) async fn websocket_handler(
     if let Err(err) = auth_msg.verify(&state.config.domain, &addr_nonce).await {
         tracing::warn!("Auth message failed to verify: {err:?}");
         return Ok(
-            (StatusCode::UNAUTHORIZED, format!("Authentication error: {:?}", err)).into_response()
+            (StatusCode::UNAUTHORIZED, format!("Authentication error: {err:?}")).into_response()
         );
     }
 
