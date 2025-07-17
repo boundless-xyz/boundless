@@ -28,7 +28,7 @@ x-exec-agent-common: &exec-agent-common
     <<: *base-environment
     LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-/usr/local/cuda-12.2/compat/}
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} --redis-ttl ${REDIS_TTL:-57600}
 
 x-broker-environment: &broker-environment
   RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
@@ -150,14 +150,14 @@ services:
       <<: *base-environment
       LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-/usr/local/cuda-12.2/compat/}
 
-    entrypoint: /app/agent -t aux --monitor-requeue
+    entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
 
   gpu_prove_agent0:
     <<: *agent-common
     runtime: nvidia
     mem_limit: 4G
     cpus: 4
-    entrypoint: /app/agent -t prove
+    entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
 
     # comment-out if running in CPU proving mode
     deploy:
@@ -171,7 +171,7 @@ services:
 
   snark_agent:
     <<: *agent-common
-    entrypoint: /app/agent -t snark
+    entrypoint: /app/agent -t snark --redis-ttl ${REDIS_TTL:-57600}
     environment:
       <<: *base-environment
       LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-/usr/local/cuda-12.2/compat/}

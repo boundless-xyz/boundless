@@ -92,6 +92,7 @@ pub struct Order {
     #[schema(value_type = Object)]
     pub request_digest: B256,
     /// Order signature
+    // TODO: This should not be Signature. It should be Bytes or Vec<u8>.
     #[schema(value_type = Object)]
     pub signature: Signature,
 }

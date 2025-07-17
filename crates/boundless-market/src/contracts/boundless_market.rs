@@ -977,7 +977,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<(Bytes, Bytes, Address), MarketError> {
         let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
             self.event_query_config.block_range * self.event_query_config.max_iterations,
@@ -1005,7 +1005,11 @@ impl<P: Provider> BoundlessMarketService<P> {
             let logs = event_filter.query().await?;
 
             if let Some((event, _)) = logs.first() {
-                return Ok((event.fulfillment.journal.clone(), event.fulfillment.seal.clone()));
+                return Ok((
+                    event.fulfillment.journal.clone(),
+                    event.fulfillment.seal.clone(),
+                    event.prover,
+                ));
             }
 
             // Move the upper_block down for the next iteration
@@ -1075,7 +1079,25 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<(Bytes, Bytes), MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
-            RequestStatus::Fulfilled => self.query_fulfilled_event(request_id, None, None).await,
+            RequestStatus::Fulfilled => {
+                let (journal, seal, _) = self.query_fulfilled_event(request_id, None, None).await?;
+                Ok((journal, seal))
+            }
+            _ => Err(MarketError::RequestNotFulfilled(request_id)),
+        }
+    }
+
+    /// Returns the prover address for a request that is fulfilled.
+    pub async fn get_request_fulfillment_prover(
+        &self,
+        request_id: U256,
+    ) -> Result<Address, MarketError> {
+        match self.get_status(request_id, None).await? {
+            RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
+            RequestStatus::Fulfilled => {
+                let (_, _, prover) = self.query_fulfilled_event(request_id, None, None).await?;
+                Ok(prover)
+            }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
     }
@@ -1095,6 +1117,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                 .context("Failed to get transaction")?
                 .context("Transaction not found")?;
             let inputs = tx_data.input();
+            // TODO: This should parse from events rather than calldata.
             let calldata = IBoundlessMarket::submitRequestCall::abi_decode(inputs)
                 .context("Failed to decode input")?;
             return Ok((calldata.request, calldata.clientSignature));
@@ -1118,7 +1141,9 @@ impl<P: Provider> BoundlessMarketService<P> {
             match status {
                 RequestStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 RequestStatus::Fulfilled => {
-                    return self.query_fulfilled_event(request_id, None, None).await;
+                    let (journal, seal, _) =
+                        self.query_fulfilled_event(request_id, None, None).await?;
+                    return Ok((journal, seal));
                 }
                 _ => {
                     tracing::info!(

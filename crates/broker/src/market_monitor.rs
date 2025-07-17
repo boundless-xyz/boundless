@@ -1,6 +1,16 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use std::sync::Arc;
 
@@ -21,7 +31,7 @@ use boundless_market::{
     order_stream_client::OrderStreamClient,
 };
 use futures_util::StreamExt;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -29,7 +39,7 @@ use crate::{
     db::{DbError, DbObj},
     errors::{impl_coded_debug, CodedError},
     task::{RetryRes, RetryTask, SupervisorErr},
-    FulfillmentType, OrderRequest,
+    FulfillmentType, OrderRequest, OrderStateChange,
 };
 use thiserror::Error;
 
@@ -71,8 +81,8 @@ pub struct MarketMonitor<P> {
     chain_monitor: Arc<ChainMonitorService<P>>,
     prover_addr: Address,
     order_stream: Option<OrderStreamClient>,
-    new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
-    fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
+    new_order_tx: mpsc::Sender<Box<OrderRequest>>,
+    order_state_tx: broadcast::Sender<OrderStateChange>,
 }
 
 sol! {
@@ -97,8 +107,8 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
         prover_addr: Address,
         order_stream: Option<OrderStreamClient>,
-        new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
-        fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
+        new_order_tx: mpsc::Sender<Box<OrderRequest>>,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
     ) -> Self {
         Self {
             lookback_blocks,
@@ -109,7 +119,7 @@ where
             prover_addr,
             order_stream,
             new_order_tx,
-            fulfillment_tx,
+            order_state_tx,
         }
     }
 
@@ -142,7 +152,7 @@ where
         market_addr: Address,
         provider: Arc<P>,
         chain_monitor: Arc<ChainMonitorService<P>>,
-        new_order_tx: &tokio::sync::mpsc::Sender<Box<OrderRequest>>,
+        new_order_tx: &mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<u64, MarketMonitorErr> {
         let current_block = chain_monitor.current_block_number().await?;
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
@@ -195,9 +205,7 @@ where
 
             if !matches!(req_status, RequestStatus::Unknown) {
                 tracing::debug!(
-                    "Skipping order {} reason: order status no longer bidding: {:?}",
-                    request_id,
-                    req_status
+                    "Skipping order {request_id:x} reason: order status no longer bidding: {req_status:?}",
                 );
                 continue;
             }
@@ -208,10 +216,7 @@ where
             };
 
             tracing::info!(
-                "Found open order: {:x} with request status: {:?}, preparing to process with fulfillment type: {:?}",
-                request_id,
-                req_status,
-                fulfillment_type
+                "Found open order: {request_id:x} with request status: {req_status:?}, preparing to process with fulfillment type: {fulfillment_type:?}",
             );
 
             let new_order = OrderRequest::new(
@@ -293,6 +298,7 @@ where
     }
 
     /// Monitors the RequestLocked events and updates the database accordingly.
+    #[allow(clippy::too_many_arguments)]
     async fn monitor_order_locks(
         market_addr: Address,
         prover_addr: Address,
@@ -300,6 +306,7 @@ where
         db: DbObj,
         new_order_tx: mpsc::Sender<Box<OrderRequest>>,
         order_stream: Option<OrderStreamClient>,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
@@ -339,6 +346,15 @@ where
                                         tracing::error!("Failed to store request locked for request {:x} in db: {e:?}", event.requestId);
                                     }
                                 }
+                            }
+
+                            // Send order state change message for any active preflight of this order
+                            let state_change = OrderStateChange::Locked {
+                                request_id: U256::from(event.requestId),
+                                prover: event.prover,
+                            };
+                            if let Err(e) = order_state_tx.send(state_change) {
+                                tracing::warn!("Failed to send order state change message for request {:x}: {e:?}", event.requestId);
                             }
 
                             // If the request was not locked by the prover, we create an order to evaluate the request
@@ -401,7 +417,7 @@ where
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
-        fulfillment_tx: tokio::sync::broadcast::Sender<U256>,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
@@ -440,9 +456,12 @@ where
                                 }
                             }
 
-                            // Broadcast the fulfillment event to any listeners
-                            if let Err(e) = fulfillment_tx.send(U256::from(event.requestId)) {
-                                tracing::trace!("No fulfillment listeners for request 0x{:x}: {}", event.requestId, e);
+                            // Send order state change message
+                            let state_change = OrderStateChange::Fulfilled {
+                                request_id: U256::from(event.requestId),
+                            };
+                            if let Err(e) = order_state_tx.send(state_change) {
+                                tracing::warn!("Failed to send order state change message for fulfilled request {:x}: {e:?}", event.requestId);
                             }
                         }
                         Some(Err(err)) => {
@@ -468,7 +487,7 @@ where
         provider: Arc<P>,
         market_addr: Address,
         chain_id: u64,
-        new_order_tx: &tokio::sync::mpsc::Sender<Box<OrderRequest>>,
+        new_order_tx: &mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<()> {
         tracing::info!("Detected new on-chain request 0x{:x}", event.requestId);
         // Check the request id flag to determine if the request is smart contract signed. If so we verify the
@@ -536,7 +555,7 @@ where
         let new_order_tx = self.new_order_tx.clone();
         let db = self.db.clone();
         let order_stream = self.order_stream.clone();
-        let fulfillment_tx = self.fulfillment_tx.clone();
+        let order_state_tx = self.order_state_tx.clone();
 
         Box::pin(async move {
             tracing::info!("Starting up market monitor");
@@ -565,7 +584,7 @@ where
                     market_addr,
                     provider.clone(),
                     db.clone(),
-                    fulfillment_tx,
+                    order_state_tx.clone(),
                     cancel_token.clone()
                 ),
                 Self::monitor_order_locks(
@@ -575,6 +594,7 @@ where
                     db,
                     new_order_tx,
                     order_stream,
+                    order_state_tx,
                     cancel_token
                 )
             )
@@ -672,7 +692,7 @@ mod tests {
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn(Default::default()));
 
-        let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(16);
+        let (order_tx, mut order_rx) = mpsc::channel(16);
         let orders =
             MarketMonitor::find_open_orders(2, market_address, provider, chain_monitor, &order_tx)
                 .await
@@ -699,9 +719,9 @@ mod tests {
 
         let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
         tokio::spawn(chain_monitor.spawn(Default::default()));
-        let (order_tx, _order_rx) = tokio::sync::mpsc::channel(16);
+        let (order_tx, _order_rx) = mpsc::channel(16);
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let (fulfillment_tx, _) = tokio::sync::broadcast::channel(100);
+        let (order_state_tx, _) = broadcast::channel(16);
         let market_monitor = MarketMonitor::new(
             1,
             Address::ZERO,
@@ -711,7 +731,7 @@ mod tests {
             Address::ZERO,
             None,
             order_tx,
-            fulfillment_tx,
+            order_state_tx,
         );
 
         let block_time = market_monitor.get_block_time().await.unwrap();

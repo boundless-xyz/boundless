@@ -1,6 +1,16 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use std::future::Future;
 
@@ -192,7 +202,7 @@ impl StatusPoller {
                         return Err(ProverError::MissingStatus);
                     };
                     tracing::trace!(
-                        "Proof {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
+                        "Session {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
                         stats.cycles,
                         stats.total_cycles
                     );
@@ -289,6 +299,7 @@ impl Prover for Bonsai {
         input_id: &str,
         assumptions: Vec<String>,
         executor_limit: Option<u64>,
+        order_id: &str,
     ) -> Result<ProofResult, ProverError> {
         self.retry_only(
             || async {
@@ -310,6 +321,9 @@ impl Prover for Bonsai {
                     )
                     .await?;
 
+                tracing::debug!(
+                    "Created session for preflight: {preflight_id:?} for order id {order_id:?} with image id {image_id} and input id {input_id}"
+                );
                 let poller = StatusPoller {
                     poll_sleep_ms: self.status_poll_ms,
                     retry_counts: self.status_poll_retry_count,

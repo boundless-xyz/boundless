@@ -1,6 +1,16 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use std::{path::PathBuf, time::Duration};
 
@@ -20,6 +30,7 @@ use boundless_market::{
 };
 use clap::Parser;
 use rand::Rng;
+use risc0_zkvm::Journal;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
@@ -224,11 +235,16 @@ async fn handle_request(
     let timeout: u32 =
         args.timeout + lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
 
+    // Provide journal and cycles in order to skip preflighting, allowing us to send requests faster.
+    let journal = Journal::new([input.to_le_bytes(), nonce.to_le_bytes()].concat());
+
     let request = client
         .new_request()
         .with_program(program.to_vec())
         .with_program_url(program_url.clone())?
         .with_env(env)
+        .with_cycles(input)
+        .with_journal(journal)
         .with_offer(
             OfferParams::builder()
                 .ramp_up_period(args.ramp_up)
