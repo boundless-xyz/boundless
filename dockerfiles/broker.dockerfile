@@ -1,4 +1,4 @@
-FROM rust:1.85.0-bookworm AS init
+FROM rust:1.88.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -64,7 +64,7 @@ SHELL ["/bin/bash", "-c"]
 RUN cargo build --release --bin broker && \
     cp /src/target/release/broker /src/broker
 
-FROM rust:1.85.0-bookworm AS runtime
+FROM rust:1.88.0-bookworm AS runtime
 
 RUN mkdir /app/
 
