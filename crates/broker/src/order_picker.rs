@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use risc0_zkvm::sha::Digest;
+use sha2::{Digest as Sha2Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +28,10 @@ use crate::{
     task::{RetryRes, RetryTask, SupervisorErr},
     utils, FulfillmentType, OrderRequest, OrderStateChange,
 };
-use crate::{now_timestamp, provers::ProofResult};
+use crate::{
+    now_timestamp,
+    provers::{ExecutorResp, ProofResult},
+};
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -38,7 +43,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, RequestError},
+    contracts::{boundless_market::BoundlessMarketService, RequestError, RequestInputType},
     selector::SupportedSelectors,
 };
 use moka::future::Cache;
@@ -59,26 +64,33 @@ const ORDER_DEDUP_CACHE_SIZE: u64 = 5000;
 /// In-memory LRU cache for order deduplication by ID (prevents duplicate order processing)
 type OrderCache = Arc<Cache<String, ()>>;
 
-#[derive(Error, Debug)]
+/// Configuration for preflight result caching
+const PREFLIGHT_CACHE_SIZE: u64 = 5000;
+const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60; // 3 hours
+
+/// Cache for preflight results to avoid duplicate computations
+type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
+
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum OrderPickerErr {
     #[error("{code} failed to fetch / push input: {0}", code = self.code())]
-    FetchInputErr(#[source] anyhow::Error),
+    FetchInputErr(#[source] Arc<anyhow::Error>),
 
     #[error("{code} failed to fetch / push image: {0}", code = self.code())]
-    FetchImageErr(#[source] anyhow::Error),
+    FetchImageErr(#[source] Arc<anyhow::Error>),
 
     #[error("{code} guest panicked: {0}", code = self.code())]
     GuestPanic(String),
 
     #[error("{code} invalid request: {0}", code = self.code())]
-    RequestError(#[from] RequestError),
+    RequestError(Arc<RequestError>),
 
     #[error("{code} RPC error: {0:?}", code = self.code())]
-    RpcErr(anyhow::Error),
+    RpcErr(Arc<anyhow::Error>),
 
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
-    UnexpectedErr(#[from] anyhow::Error),
+    UnexpectedErr(Arc<anyhow::Error>),
 }
 
 impl CodedError for OrderPickerErr {
@@ -91,6 +103,18 @@ impl CodedError for OrderPickerErr {
             OrderPickerErr::RpcErr(_) => "[B-OP-005]",
             OrderPickerErr::UnexpectedErr(_) => "[B-OP-500]",
         }
+    }
+}
+
+impl From<anyhow::Error> for OrderPickerErr {
+    fn from(err: anyhow::Error) -> Self {
+        OrderPickerErr::UnexpectedErr(Arc::new(err))
+    }
+}
+
+impl From<RequestError> for OrderPickerErr {
+    fn from(err: RequestError) -> Self {
+        OrderPickerErr::RequestError(Arc::new(err))
     }
 }
 
@@ -108,6 +132,7 @@ pub struct OrderPicker<P> {
     priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
     stake_token_decimals: u8,
     order_cache: OrderCache,
+    preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
 }
 
@@ -169,6 +194,12 @@ where
                 Cache::builder()
                     .max_capacity(ORDER_DEDUP_CACHE_SIZE)
                     .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
+                    .build(),
+            ),
+            preflight_cache: Arc::new(
+                Cache::builder()
+                    .max_capacity(PREFLIGHT_CACHE_SIZE)
+                    .time_to_live(Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
                     .build(),
             ),
             order_state_tx,
@@ -436,18 +467,6 @@ where
             (config.market.max_mcycle_limit, config.market.peak_prove_khz)
         };
 
-        // TODO: Move URI handling like this into the prover impls
-        let image_id = upload_image_uri(&self.prover, &order.request, &self.config)
-            .await
-            .map_err(OrderPickerErr::FetchImageErr)?;
-
-        let input_id = upload_input_uri(&self.prover, &order.request, &self.config)
-            .await
-            .map_err(OrderPickerErr::FetchInputErr)?;
-
-        order.image_id = Some(image_id.clone());
-        order.input_id = Some(input_id.clone());
-
         // Create a executor limit based on the max price of the order
         let mut exec_limit_cycles: u64 = if lock_expired {
             let min_mcycle_price_stake_token = {
@@ -547,42 +566,130 @@ where
             exec_limit_cycles,
             exec_limit_cycles / 1_000_000
         );
-        // TODO add a future timeout here to put a upper bound on how long to preflight for
-        let proof_res = match self
-            .prover
-            .preflight(
-                &image_id,
-                &input_id,
-                vec![],
-                /* TODO assumptions */ Some(exec_limit_cycles),
-                &order_id,
-            )
-            .await
-        {
-            Ok(res) => {
-                tracing::debug!(
-                    "Preflight execution of {order_id} with session id {} and {} mcycles completed in {} seconds",
-                    res.id,
-                    res.stats.total_cycles / 1_000_000,
-                    res.elapsed_time
-                );
-                res
+
+        // Create cache key based on input type
+        let image_id = Digest::from(order.request.requirements.imageId.0);
+        let cache_key = match order.request.input.inputType {
+            RequestInputType::Url => {
+                let input_url = std::str::from_utf8(&order.request.input.data)
+                    .context("input url is not utf8")
+                    .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?
+                    .to_string();
+                PreflightCacheKey { image_id, input: InputCacheKey::Url(input_url) }
             }
-            Err(err) => match err {
-                ProverError::ProvingFailed(ref err_msg)
-                    if err_msg.contains("Session limit exceeded") =>
-                {
+            RequestInputType::Inline => {
+                // For inline inputs, use SHA256 hash of the data
+                let mut hasher = Sha256::new();
+                Sha2Digest::update(&mut hasher, &order.request.input.data);
+                let input_hash: [u8; 32] = hasher.finalize().into();
+                PreflightCacheKey { image_id, input: InputCacheKey::Hash(input_hash) }
+            }
+            RequestInputType::__Invalid => {
+                return Err(OrderPickerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                    "Unknown input type: {:?}",
+                    order.request.input.inputType
+                ))));
+            }
+        };
+        // Use try_get_with for atomic cache check and preflight execution
+        let prover = self.prover.clone();
+        let config = self.config.clone();
+        let request = order.request.clone();
+        let order_id_clone = order_id.clone();
+
+        // Try to get cached result or compute new preflight
+        let preflight_result = self.preflight_cache.try_get_with(cache_key, async move {
+            // Upload image and input only if not cached
+            let image_id = upload_image_uri(&prover, &request, &config)
+                .await
+                .map_err(|e| OrderPickerErr::FetchImageErr(Arc::new(e)))?;
+
+            let input_id = upload_input_uri(&prover, &request, &config)
+                .await
+                .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?;
+
+            // TODO add a future timeout here to put a upper bound on how long to preflight for
+            match prover
+                .preflight(
+                    &image_id,
+                    &input_id,
+                    vec![],
+                    Some(exec_limit_cycles),
+                    &order_id_clone,
+                )
+                .await
+            {
+                Ok(res) => {
                     tracing::debug!(
-                        "Skipping order {order_id} due to session limit exceeded: {}",
-                        err_msg
+                        "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed in {} seconds",
+                        res.id,
+                        res.stats.total_cycles / 1_000_000,
+                        res.elapsed_time
                     );
-                    return Ok(Skip);
+
+                    // Store the uploaded IDs for this result
+                    Ok(PreflightCacheValue::Success {
+                        exec_session_id: res.id,
+                        cycle_count: res.stats.total_cycles,
+                        image_id,
+                        input_id,
+                    })
                 }
-                ProverError::ProvingFailed(ref err_msg) if err_msg.contains("GuestPanic") => {
-                    return Err(OrderPickerErr::GuestPanic(err_msg.clone()));
+                Err(err) => {
+                    match err {
+                        ProverError::ProvingFailed(ref err_msg)
+                            if err_msg.contains("Session limit exceeded") =>
+                        {
+                            tracing::debug!(
+                                "Skipping order {order_id_clone} due to session limit exceeded: {}",
+                                err_msg
+                            );
+                            // Cache this as a Skip to avoid retrying
+                            Ok(PreflightCacheValue::Skip)
+                        }
+                        ProverError::ProvingFailed(ref err_msg)
+                            if err_msg.contains("GuestPanic") =>
+                        {
+                            Err(OrderPickerErr::GuestPanic(err_msg.clone()))
+                        }
+                        _ => Err(OrderPickerErr::UnexpectedErr(Arc::new(err.into()))),
+                    }
                 }
-                _ => return Err(OrderPickerErr::UnexpectedErr(err.into())),
-            },
+            }
+        }).await;
+
+        // Handle the preflight result
+        let (exec_session_id, cycle_count, _image_id, _input_id) = match preflight_result {
+            Ok(PreflightCacheValue::Success {
+                exec_session_id,
+                cycle_count,
+                image_id,
+                input_id,
+            }) => {
+                tracing::debug!(
+                    "Using preflight result for {order_id}: session id {} with {} mcycles",
+                    exec_session_id,
+                    cycle_count / 1_000_000
+                );
+
+                // Update order with the uploaded IDs
+                order.image_id = Some(image_id.clone());
+                order.input_id = Some(input_id.clone());
+
+                (exec_session_id, cycle_count, image_id, input_id)
+            }
+            Ok(PreflightCacheValue::Skip) => {
+                return Ok(Skip);
+            }
+            Err(err) => {
+                return Err((*err).clone());
+            }
+        };
+
+        let proof_res = ProofResult {
+            id: exec_session_id,
+            stats: ExecutorResp { total_cycles: cycle_count, ..Default::default() },
+            elapsed_time: 0.0,
         };
 
         // If a max_mcycle_limit is configured check if the order is over that limit
@@ -783,7 +890,7 @@ where
             .provider
             .get_balance(self.provider.default_signer_address())
             .await
-            .map_err(|err| OrderPickerErr::RpcErr(err.into()))?;
+            .map_err(|err| OrderPickerErr::RpcErr(Arc::new(err.into())))?;
 
         let gas_balance_reserved = self.gas_balance_reserved().await?;
 
@@ -805,6 +912,27 @@ where
         let balance = self.market.balance_of_stake(self.provider.default_signer_address()).await?;
         Ok(balance)
     }
+}
+
+/// Input type for preflight cache
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+enum InputCacheKey {
+    Url(String),
+    Hash([u8; 32]),
+}
+
+/// Key type for the preflight cache
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+struct PreflightCacheKey {
+    image_id: Digest,
+    input: InputCacheKey,
+}
+
+/// Value type for the preflight cache
+#[derive(Clone, Debug)]
+enum PreflightCacheValue {
+    Success { exec_session_id: String, cycle_count: u64, image_id: String, input_id: String },
+    Skip,
 }
 
 /// Handles a lock event for a request
@@ -908,7 +1036,9 @@ where
 
             let read_config = || -> Result<_, Self::Error> {
                 let cfg = picker.config.lock_all().map_err(|err| {
-                    OrderPickerErr::UnexpectedErr(anyhow::anyhow!("Failed to read config: {err}"))
+                    OrderPickerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                        "Failed to read config: {err}"
+                    )))
                 })?;
                 Ok((
                     cfg.market.max_concurrent_preflights as usize,
@@ -1097,8 +1227,10 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        chain_monitor::ChainMonitorService, db::SqliteDb, provers::DefaultProver, FulfillmentType,
-        OrderStatus,
+        chain_monitor::ChainMonitorService,
+        db::SqliteDb,
+        provers::{DefaultProver, Prover},
+        FulfillmentType, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
@@ -1107,6 +1239,7 @@ pub(crate) mod tests {
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
+    use async_trait::async_trait;
     use boundless_market::contracts::{
         Callback, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
         Requirements,
@@ -1118,6 +1251,7 @@ pub(crate) mod tests {
     };
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
+    use risc0_zkvm::Receipt;
     use tracing_test::traced_test;
 
     /// Reusable context for testing the order picker
@@ -1168,7 +1302,8 @@ pub(crate) mod tests {
         }
 
         pub(crate) async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
-            let image_url = self.storage_provider.upload_program(ECHO_ELF).await.unwrap();
+            let image_url =
+                self.storage_provider.upload_program(ECHO_ELF).await.unwrap().to_string();
             let image_id = Digest::from(ECHO_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
@@ -1217,6 +1352,7 @@ pub(crate) mod tests {
         initial_hp: Option<U256>,
         config: Option<ConfigLock>,
         stake_token_decimals: Option<u8>,
+        prover: Option<ProverObj>,
     }
 
     impl PickerTestCtxBuilder {
@@ -1229,6 +1365,9 @@ pub(crate) mod tests {
         }
         pub(crate) fn with_config(self, config: ConfigLock) -> Self {
             Self { config: Some(config), ..self }
+        }
+        pub(crate) fn with_prover(self, prover: ProverObj) -> Self {
+            Self { prover: Some(prover), ..self }
         }
         pub(crate) fn with_stake_token_decimals(self, decimals: u8) -> Self {
             Self { stake_token_decimals: Some(decimals), ..self }
@@ -1285,7 +1424,7 @@ pub(crate) mod tests {
 
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
-            let prover: ProverObj = Arc::new(DefaultProver::new());
+            let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn(Default::default()));
 
@@ -2325,5 +2464,181 @@ pub(crate) mod tests {
         assert!(!active_tasks.contains_key(&request_id));
 
         assert_eq!(pending_orders.len(), 0, "All pending orders should be removed");
+    }
+
+    // Mock prover that tracks preflight calls
+    struct MockPreflightTracker {
+        preflight_calls: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+        default_prover: Arc<DefaultProver>,
+    }
+
+    impl MockPreflightTracker {
+        fn new() -> Self {
+            Self {
+                preflight_calls: Arc::new(std::sync::Mutex::new(Vec::new())),
+                default_prover: Arc::new(DefaultProver::new()),
+            }
+        }
+
+        fn get_preflight_calls(&self) -> Vec<(String, String)> {
+            self.preflight_calls.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl Prover for MockPreflightTracker {
+        async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
+            self.default_prover.upload_image(image_id, image).await
+        }
+
+        async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
+            self.default_prover.upload_input(input).await
+        }
+
+        async fn preflight(
+            &self,
+            image_id: &str,
+            input_id: &str,
+            assumptions: Vec<String>,
+            executor_limit: Option<u64>,
+            order_id: &str,
+        ) -> Result<ProofResult, ProverError> {
+            // Track the preflight call
+            self.preflight_calls.lock().unwrap().push((image_id.to_string(), input_id.to_string()));
+
+            // Call the default prover
+            self.default_prover
+                .preflight(image_id, input_id, assumptions, executor_limit, order_id)
+                .await
+        }
+
+        async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
+            self.default_prover.has_image(image_id).await
+        }
+
+        async fn prove_stark(
+            &self,
+            image_id: &str,
+            input_id: &str,
+            assumptions: Vec<String>,
+        ) -> Result<String, ProverError> {
+            self.default_prover.prove_stark(image_id, input_id, assumptions).await
+        }
+
+        async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
+            self.default_prover.wait_for_stark(proof_id).await
+        }
+
+        async fn cancel_stark(&self, proof_id: &str) -> Result<(), ProverError> {
+            self.default_prover.cancel_stark(proof_id).await
+        }
+
+        async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
+            self.default_prover.get_receipt(proof_id).await
+        }
+
+        async fn get_preflight_journal(
+            &self,
+            proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_preflight_journal(proof_id).await
+        }
+
+        async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_journal(proof_id).await
+        }
+
+        async fn compress(&self, proof_id: &str) -> Result<String, ProverError> {
+            self.default_prover.compress(proof_id).await
+        }
+
+        async fn get_compressed_receipt(
+            &self,
+            proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_compressed_receipt(proof_id).await
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_preflight_cache_behavior() -> Result<()> {
+        // Create mock prover that tracks preflight calls
+        let mock_prover = Arc::new(MockPreflightTracker::new());
+
+        // Upload test image
+        let image_id = Digest::from(ECHO_ID).to_string();
+        mock_prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
+
+        // Create test context with our mock prover
+        let ctx = PickerTestCtxBuilder::default().with_prover(mock_prover.clone()).build().await;
+
+        // Create three orders: two with different request IDs, one duplicate of the first
+        // All orders use the same ECHO program (same image_id) and same input data
+        let mut order1 =
+            ctx.generate_next_order(OrderParams { order_index: 100, ..Default::default() }).await;
+
+        let mut order2 =
+            ctx.generate_next_order(OrderParams { order_index: 200, ..Default::default() }).await;
+
+        // Create order3 with same request ID as order1 (different fulfillment type to make it valid)
+        let mut order3 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 100,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        // Verify orders have expected request IDs
+        assert_eq!(
+            order1.request.id, order3.request.id,
+            "Order1 and Order3 should have same request ID"
+        );
+        assert_ne!(
+            order1.request.id, order2.request.id,
+            "Order1 and Order2 should have different request IDs"
+        );
+
+        let order1_id = order1.id();
+        let order2_id = order2.id();
+        let order3_id = order3.id();
+
+        // Since all orders use the same image and input, they should ALL use the same cache entry.
+        // So we expect only 1 preflight call total.
+
+        // Process order1 and order2 concurrently to test cache atomicity
+        let (pricing1, pricing2) =
+            tokio::join!(ctx.picker.price_order(&mut order1), ctx.picker.price_order(&mut order2));
+
+        assert!(pricing1.is_ok(), "Order1 pricing should succeed");
+        assert!(pricing2.is_ok(), "Order2 pricing should succeed");
+
+        // Process order3 (should use cache)
+        let pricing3 = ctx.picker.price_order(&mut order3).await;
+        assert!(pricing3.is_ok(), "Order3 pricing should succeed");
+
+        // Check preflight calls - should only be called once since all orders are identical
+        let preflight_calls = mock_prover.get_preflight_calls();
+
+        tracing::info!("Preflight calls made: {:?}", preflight_calls);
+
+        // Since ALL orders have the same image_url and input data, they should share the same cache entry
+        assert_eq!(
+            preflight_calls.len(),
+            1,
+            "Should have exactly 1 preflight call since all orders are identical. Got calls: {:?}",
+            preflight_calls
+        );
+
+        tracing::info!(
+            "Test completed successfully. Orders processed: {}, {}, {}. Preflight calls: {}",
+            order1_id,
+            order2_id,
+            order3_id,
+            preflight_calls.len()
+        );
+
+        Ok(())
     }
 }
