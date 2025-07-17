@@ -371,7 +371,7 @@ job-status job_id:
 install-cli:
     #!/usr/bin/env bash
     echo "Building boundless-cli Docker image..."
-    docker build -t boundless-cli .
+    docker build -t boundless-cli -f dockerfiles/cli.Dockerfile .
 
     echo "Creating temporary container to extract binary..."
     CONTAINER_ID=$(docker create boundless-cli)
