@@ -659,6 +659,7 @@ version = "0.1.0"
 dependencies = [
  "postcard",
  "risc0-zkvm",
+ "risc0-zkvm-platform",
 ]
 
 [[package]]
