@@ -1,6 +1,16 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
@@ -149,6 +159,7 @@ impl Prover for DefaultProver {
         input_id: &str,
         assumptions: Vec<String>,
         executor_limit: Option<u64>,
+        _order_id: &str,
     ) -> Result<ProofResult, ProverError> {
         let image = self
             .get_image(image_id)
@@ -425,7 +436,8 @@ mod tests {
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
 
         // Run preflight
-        let result = prover.preflight(&image_id, &input_id, vec![], None).await.unwrap();
+        let result =
+            prover.preflight(&image_id, &input_id, vec![], None, "test_order_id").await.unwrap();
         assert!(!result.id.is_empty());
         assert!(result.stats.segments > 0 && result.stats.user_cycles > 0);
 

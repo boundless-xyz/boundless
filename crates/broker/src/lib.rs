@@ -1,6 +1,16 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
@@ -36,6 +46,7 @@ use url::Url;
 
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
+const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
 
 pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
@@ -160,6 +171,15 @@ enum FulfillmentType {
     FulfillWithoutLocking,
 }
 
+/// Message sent from MarketMonitor to OrderPicker about order state changes
+#[derive(Debug, Clone)]
+pub enum OrderStateChange {
+    /// Order has been locked by a prover
+    Locked { request_id: U256, prover: Address },
+    /// Order has been fulfilled
+    Fulfilled { request_id: U256 },
+}
+
 /// Helper function to format an order ID consistently
 fn format_order_id(
     request_id: &U256,
@@ -172,7 +192,7 @@ fn format_order_id(
 /// Order request from the network.
 ///
 /// This will turn into an [`Order`] once it is locked or skipped.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct OrderRequest {
     request: ProofRequest,
     client_sig: Bytes,
@@ -651,8 +671,8 @@ where
         // Create a channel for new orders to be sent to the OrderPicker / from monitors
         let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
 
-        // Create a broadcast channel for request fulfillment notifications
-        let (fulfillment_tx, _) = tokio::sync::broadcast::channel(1000);
+        // Create a broadcast channel for order state change messages
+        let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
 
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
@@ -664,7 +684,7 @@ where
             self.args.private_key.address(),
             client.clone(),
             new_order_tx.clone(),
-            fulfillment_tx.clone(),
+            order_state_tx.clone(),
         ));
 
         let block_times =
@@ -747,6 +767,7 @@ where
             new_order_rx,
             pricing_tx,
             stake_token_decimals,
+            order_state_tx.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -763,7 +784,7 @@ where
                 self.db.clone(),
                 prover.clone(),
                 config.clone(),
-                fulfillment_tx.clone(),
+                order_state_tx.clone(),
             )
             .await
             .context("Failed to initialize proving service")?,

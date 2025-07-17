@@ -1,6 +1,16 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use crate::{
     config::{OrderCommitmentPriority, OrderPricingPriority},
@@ -8,45 +18,98 @@ use crate::{
     order_picker::OrderPicker,
     FulfillmentType, OrderRequest,
 };
+
 use rand::seq::SliceRandom;
-use rand::Rng;
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
+
+/// Unified priority mode for both pricing and commitment
+#[derive(Debug, Clone, Copy)]
+enum UnifiedPriorityMode {
+    Random,
+    TimeOrdered,
+    ShortestExpiry,
+}
+
+impl From<OrderPricingPriority> for UnifiedPriorityMode {
+    fn from(mode: OrderPricingPriority) -> Self {
+        match mode {
+            OrderPricingPriority::Random => UnifiedPriorityMode::Random,
+            OrderPricingPriority::ObservationTime => UnifiedPriorityMode::TimeOrdered,
+            OrderPricingPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
+        }
+    }
+}
+
+impl From<OrderCommitmentPriority> for UnifiedPriorityMode {
+    fn from(mode: OrderCommitmentPriority) -> Self {
+        match mode {
+            OrderCommitmentPriority::Random => UnifiedPriorityMode::Random,
+            OrderCommitmentPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
+        }
+    }
+}
+
+fn sort_orders_by_priority_and_mode<T>(
+    orders: &mut Vec<T>,
+    priority_addresses: Option<&[alloy::primitives::Address]>,
+    mode: UnifiedPriorityMode,
+) where
+    T: AsRef<OrderRequest>,
+{
+    let Some(addresses) = priority_addresses else {
+        sort_by_mode(orders, mode);
+        return;
+    };
+
+    let (mut priority_orders, mut regular_orders): (Vec<T>, Vec<T>) = orders
+        .drain(..)
+        .partition(|order| addresses.contains(&order.as_ref().request.client_address()));
+
+    sort_by_mode(&mut priority_orders, mode);
+    sort_by_mode(&mut regular_orders, mode);
+
+    orders.extend(priority_orders);
+    orders.extend(regular_orders);
+}
+
+fn sort_by_mode<T>(orders: &mut [T], mode: UnifiedPriorityMode)
+where
+    T: AsRef<OrderRequest>,
+{
+    match mode {
+        UnifiedPriorityMode::Random => orders.shuffle(&mut rand::rng()),
+        UnifiedPriorityMode::TimeOrdered => {
+            // Already in observation time order, no sorting needed
+        }
+        UnifiedPriorityMode::ShortestExpiry => {
+            orders.sort_by_key(|order| {
+                let order_ref = order.as_ref();
+                match order_ref.fulfillment_type {
+                    FulfillmentType::LockAndFulfill => order_ref.request.lock_expires_at(),
+                    _ => order_ref.request.expires_at(),
+                }
+            });
+        }
+    }
+}
 
 impl<P> OrderPicker<P> {
-    /// Select the next order for pricing based on the configured order pricing priority. This
-    /// method chooses which of the orders that have been observed to preflight to be ready to be
-    /// committed to prove.
-    ///
-    /// This method can be modified to implement custom order selection strategies. It has access
-    /// to [`OrderPicker`] state, allowing it to use OrderPicker state such as current prover
-    /// capacity, market conditions, or other contextual information for order selection.
-    pub(crate) fn select_next_pricing_order(
+    #[allow(clippy::vec_box)]
+    pub(crate) fn select_pricing_orders(
         &self,
-        orders: &mut VecDeque<Box<OrderRequest>>,
+        orders: &mut Vec<Box<OrderRequest>>,
         priority_mode: OrderPricingPriority,
-    ) -> Option<Box<OrderRequest>> {
-        if orders.is_empty() {
-            return None;
+        priority_addresses: Option<&[alloy::primitives::Address]>,
+        capacity: usize,
+    ) -> Vec<Box<OrderRequest>> {
+        if orders.is_empty() || capacity == 0 {
+            return Vec::new();
         }
 
-        match priority_mode {
-            OrderPricingPriority::Random => {
-                let mut rng = rand::rng();
-                let index = rng.random_range(0..orders.len());
-                orders.remove(index)
-            }
-            OrderPricingPriority::ObservationTime => orders.pop_front(),
-            OrderPricingPriority::ShortestExpiry => {
-                let (shortest_index, _) = orders.iter().enumerate().min_by_key(|(_, order)| {
-                    if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
-                        order.request.offer.biddingStart + order.request.offer.timeout as u64
-                    } else {
-                        order.request.offer.biddingStart + order.request.offer.lockTimeout as u64
-                    }
-                })?;
-                orders.remove(shortest_index)
-            }
-        }
+        sort_orders_by_priority_and_mode(orders, priority_addresses, priority_mode.into());
+
+        let take_count = std::cmp::min(capacity, orders.len());
+        orders.drain(..take_count).collect()
     }
 }
 
@@ -57,21 +120,10 @@ impl<P> OrderMonitor<P> {
         &self,
         mut orders: Vec<Arc<OrderRequest>>,
         priority_mode: OrderCommitmentPriority,
+        priority_addresses: Option<&[alloy::primitives::Address]>,
     ) -> Vec<Arc<OrderRequest>> {
-        match priority_mode {
-            OrderCommitmentPriority::ShortestExpiry => {
-                orders.sort_by_key(|order| {
-                    if order.fulfillment_type == FulfillmentType::LockAndFulfill {
-                        order.request.lock_expires_at()
-                    } else {
-                        order.request.expires_at()
-                    }
-                });
-            }
-            OrderCommitmentPriority::Random => {
-                orders.shuffle(&mut rand::rng());
-            }
-        }
+        // Sort orders with priority addresses first, then by mode
+        sort_orders_by_priority_and_mode(&mut orders, priority_addresses, priority_mode.into());
 
         tracing::debug!(
             "Orders ready for proving, prioritized. Before applying capacity limits: {}",
@@ -97,7 +149,7 @@ mod tests {
     async fn test_order_pricing_priority_observation_time() {
         let ctx = PickerTestCtxBuilder::default().build().await;
 
-        let mut orders = VecDeque::new();
+        let mut orders = Vec::new();
         for i in 0..5 {
             let order = ctx
                 .generate_next_order(OrderParams {
@@ -106,15 +158,18 @@ mod tests {
                     ..Default::default()
                 })
                 .await;
-            orders.push_back(order);
+            orders.push(order);
         }
 
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            if let Some(order) = ctx
-                .picker
-                .select_next_pricing_order(&mut orders, OrderPricingPriority::ObservationTime)
-            {
+            let selected_orders = ctx.picker.select_pricing_orders(
+                &mut orders,
+                OrderPricingPriority::ObservationTime,
+                None,
+                1,
+            );
+            if let Some(order) = selected_orders.into_iter().next() {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
                         .unwrap()
@@ -134,7 +189,7 @@ mod tests {
         let base_time = now_timestamp();
 
         // Create orders with different expiry times (lock timeouts)
-        let mut orders = VecDeque::new();
+        let mut orders = Vec::new();
         let expiry_times = [300, 100, 500, 200, 400]; // Different lock timeouts
 
         for (i, &timeout) in expiry_times.iter().enumerate() {
@@ -146,16 +201,19 @@ mod tests {
                     ..Default::default()
                 })
                 .await;
-            orders.push_back(order);
+            orders.push(order);
         }
 
         // Test that shortest_expiry mode returns orders by earliest expiry
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            if let Some(order) = ctx
-                .picker
-                .select_next_pricing_order(&mut orders, OrderPricingPriority::ShortestExpiry)
-            {
+            let selected_orders = ctx.picker.select_pricing_orders(
+                &mut orders,
+                OrderPricingPriority::ShortestExpiry,
+                None,
+                1,
+            );
+            if let Some(order) = selected_orders.into_iter().next() {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
                         .unwrap()
@@ -175,7 +233,7 @@ mod tests {
         let base_time = now_timestamp();
 
         // Create a mix of regular orders and lock-expired orders
-        let mut orders = VecDeque::new();
+        let mut orders = Vec::new();
 
         // Regular order with lock timeout 300
         let order1 = ctx
@@ -188,7 +246,7 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        orders.push_back(order1);
+        orders.push(order1);
 
         // Lock-expired order with timeout 400 (uses timeout for expiry, not lock_timeout)
         let order2 = ctx
@@ -201,7 +259,7 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        orders.push_back(order2);
+        orders.push(order2);
 
         // Regular order with lock timeout 250
         let order3 = ctx
@@ -214,15 +272,18 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        orders.push_back(order3);
+        orders.push(order3);
 
         // Test selection order
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            if let Some(order) = ctx
-                .picker
-                .select_next_pricing_order(&mut orders, OrderPricingPriority::ShortestExpiry)
-            {
+            let selected_orders = ctx.picker.select_pricing_orders(
+                &mut orders,
+                OrderPricingPriority::ShortestExpiry,
+                None,
+                1,
+            );
+            if let Some(order) = selected_orders.into_iter().next() {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
                         .unwrap()
@@ -248,19 +309,23 @@ mod tests {
 
         for _ in 0..20 {
             // Run 20 times to get different random orderings
-            let mut orders = VecDeque::new();
+            let mut orders = Vec::new();
             for i in 0..5 {
                 let order = ctx
                     .generate_next_order(OrderParams { order_index: i, ..Default::default() })
                     .await;
-                orders.push_back(order);
+                orders.push(order);
             }
 
             let mut selected_order_indices = Vec::new();
             while !orders.is_empty() {
-                if let Some(order) =
-                    ctx.picker.select_next_pricing_order(&mut orders, OrderPricingPriority::Random)
-                {
+                let selected_orders = ctx.picker.select_pricing_orders(
+                    &mut orders,
+                    OrderPricingPriority::Random,
+                    None,
+                    1,
+                );
+                if let Some(order) = selected_orders.into_iter().next() {
                     let order_index =
                         boundless_market::contracts::RequestId::try_from(order.request.id)
                             .unwrap()
@@ -314,7 +379,8 @@ mod tests {
 
         let orders =
             vec![Arc::from(order1), Arc::from(order2), Arc::from(order3), Arc::from(order4)];
-        let orders = ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
+        let orders =
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
 
         assert!(orders[0].id() == order_1_id);
         assert!(orders[1].id() == order_3_id);
@@ -363,7 +429,7 @@ mod tests {
         for _ in 0..10 {
             let test_orders = orders.clone();
             let test_orders =
-                ctx.monitor.prioritize_orders(test_orders, OrderCommitmentPriority::Random);
+                ctx.monitor.prioritize_orders(test_orders, OrderCommitmentPriority::Random, None);
 
             // Extract the ordering of all orders
             let order_ids: Vec<_> = test_orders.iter().map(|order| order.request.id).collect();
@@ -374,7 +440,8 @@ mod tests {
         assert!(all_orderings.len() > 1, "Random mode should produce different orderings");
 
         // Test that random mode produces different orderings
-        let prioritized = ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::Random);
+        let prioritized =
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::Random, None);
 
         // We should have 3 LockAndFulfill and 3 FulfillAfterLockExpire orders in total
         let lock_and_fulfill_count = prioritized
@@ -423,7 +490,7 @@ mod tests {
         }
 
         let prioritized =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
 
         // Orders should be sorted by their relevant expiry times, regardless of type
         // Expected order: LockAndFulfill(100), LockAndFulfill(150), FulfillAfterLockExpire(150), LockAndFulfill(200), FulfillAfterLockExpire(250), FulfillAfterLockExpire(300)
@@ -479,12 +546,15 @@ mod tests {
 
         // Test random mode (no need to capture result since it's random)
         let _prioritized_random = orders.clone();
-        let _prioritized_random =
-            ctx.monitor.prioritize_orders(_prioritized_random, OrderCommitmentPriority::Random);
+        let _prioritized_random = ctx.monitor.prioritize_orders(
+            _prioritized_random,
+            OrderCommitmentPriority::Random,
+            None,
+        );
 
         // Test shortest expiry mode
         let prioritized_shortest =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry);
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
 
         // In shortest expiry mode, orders should be sorted by expiry time
         for i in 0..3 {
@@ -499,5 +569,133 @@ mod tests {
         assert_eq!(prioritized_shortest[1].request.expires_at(), current_timestamp + 140);
         assert_eq!(prioritized_shortest[2].request.expires_at(), current_timestamp + 160);
         assert_eq!(prioritized_shortest[3].request.expires_at(), current_timestamp + 180);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_priority_requestor_addresses_pricing() {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp();
+
+        let regular_addr = alloy::primitives::Address::from([0x42; 20]);
+        let priority_addr = alloy::primitives::Address::from([0x99; 20]);
+        let priority_addresses = vec![priority_addr];
+
+        // Test shortest expiry mode without priority addresses
+        let mut regular_order_1 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 0,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                ..Default::default()
+            })
+            .await;
+        regular_order_1.request.id =
+            boundless_market::contracts::RequestId::new(regular_addr, 0).into();
+
+        let mut priority_order_1 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                lock_timeout: 500,
+                ..Default::default()
+            })
+            .await;
+        priority_order_1.request.id =
+            boundless_market::contracts::RequestId::new(priority_addr, 1).into();
+
+        let mut test_orders = vec![regular_order_1, priority_order_1];
+        let selected_orders = ctx.picker.select_pricing_orders(
+            &mut test_orders,
+            OrderPricingPriority::ShortestExpiry,
+            None,
+            1,
+        );
+        let selected_order = selected_orders.into_iter().next().unwrap();
+        assert_eq!(selected_order.request.client_address(), regular_addr); // Regular order selected due to shorter expiry
+
+        // Test shortest expiry mode with priority addresses
+        let mut regular_order_2 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 0,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                ..Default::default()
+            })
+            .await;
+        regular_order_2.request.id =
+            boundless_market::contracts::RequestId::new(regular_addr, 0).into();
+
+        let mut priority_order_2 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                lock_timeout: 500,
+                ..Default::default()
+            })
+            .await;
+        priority_order_2.request.id =
+            boundless_market::contracts::RequestId::new(priority_addr, 1).into();
+
+        let mut test_orders = vec![regular_order_2, priority_order_2];
+        let selected_orders = ctx.picker.select_pricing_orders(
+            &mut test_orders,
+            OrderPricingPriority::ShortestExpiry,
+            Some(&priority_addresses),
+            1,
+        );
+        let selected_order = selected_orders.into_iter().next().unwrap();
+        assert_eq!(selected_order.request.client_address(), priority_addr); // Priority order selected first despite longer expiry
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_priority_requestor_addresses_commitment() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Create orders with different priorities and timeouts
+        let mut orders = Vec::new();
+
+        // Regular order with short expiry (should be selected first without priority)
+        let regular_order = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+        orders.push(Arc::from(regular_order));
+
+        // Switch the signer address to a new one.
+        ctx.signer = crate::PrivateKeySigner::random();
+        let priority_addr = ctx.signer.address();
+        let priority_addresses = vec![priority_addr];
+
+        // Priority order with long expiry (should be selected first with priority)
+        // Note: The order is created with the default signer address (ctx.signer.address())
+        // so it will be treated as a priority order
+        let priority_order = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 500, 600)
+            .await;
+        orders.push(Arc::from(priority_order));
+
+        // Test shortest expiry mode without priority addresses
+        let test_orders = orders.clone();
+        let prioritized_orders = ctx.monitor.prioritize_orders(
+            test_orders,
+            OrderCommitmentPriority::ShortestExpiry,
+            None,
+        );
+        assert_eq!(prioritized_orders[0].request.lock_expires_at(), current_timestamp + 100); // Regular order first
+
+        // Test shortest expiry mode with priority addresses
+        let test_orders = orders.clone();
+        let prioritized_orders = ctx.monitor.prioritize_orders(
+            test_orders,
+            OrderCommitmentPriority::ShortestExpiry,
+            Some(&priority_addresses),
+        );
+
+        // Priority order should be first despite longer expiry, regular order second
+        assert_eq!(prioritized_orders[0].request.lock_expires_at(), current_timestamp + 500);
+        assert_eq!(prioritized_orders[0].request.client_address(), priority_addr);
+        assert_eq!(prioritized_orders[1].request.lock_expires_at(), current_timestamp + 100);
     }
 }

@@ -51,24 +51,29 @@ You can omit the `PRIVATE_KEY` environment variable here and specify your `walle
 
 ### Settings in Broker.toml
 
+:::tip[See all broker.toml settings]
+To see all the possible settings in `broker.toml`, please refer to [broker-template.toml](https://github.com/boundless-xyz/boundless/blob/main/broker-template.toml) in the Boundless monorepo.
+:::
+
 :::warning[Warning]
 Quotation marks matter in TOML so please pay particular attention to the quotation marks for config values.
 :::
 
-`broker.toml` contains the following settings for the market:
+Below are some `broker.toml` settings:
 
 | setting                  | initial value | description                                                                                                    |
 | ------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
 | mcycle\_price            | `".001"`      | The price (in native token of target market) of proving 1M cycles.                                             |
 | assumption\_price        | `"0.1"`       | Currently unused.                                                                                              |
-| peak\_prove\_khz         | `500`         | This should correspond to the maximum number of cycles per second (in kHz) your proving backend can operate.   |
+| peak\_prove\_khz         | `500`         | This should correspond to the maximum number of cycles per second (in kHz) your proving backend can operate - see [Benchmarking Bento](#benchmarking-bento). |
 | min\_deadline            | `150`         | This is a minimum number of blocks before the requested job expiration that Broker will attempt to lock a job. |
 | lookback\_blocks         | `100`         | This is used on Broker initialization, and sets the number of blocks to look back for candidate proofs.        |
 | max\_stake               | `"0.5"`       | The maximum amount used to lock in a job for any single order.                                                 |
 | skip\_preflight\_ids     | `[]`          | A list of `imageID`s that the Broker should skip preflight checks in format `["0xID1","0xID2"]`.               |
 | max\_file\_size          | `50_000_000`  | The maximum guest image size in bytes that the Broker will accept.                                             |
-| allow\_client\_addresses | `[]`          | When defined, this acts as a firewall to limit proving only to specific client addresses.                           |
+| allow\_client\_addresses | `["0x1234..."]` | Optional whitelist of requestor addresses. When defined, only requests from these requestor addresses will be processed. Use format `["0xAddress1", "0xAddress2"]`. |
 | lockin\_priority\_gas    | `100`         | Additional gas to add to the base price when locking in stake on a contract to increase priority.              |
+
 
 ## Broker Operation
 

@@ -24,7 +24,6 @@ use alloy::{
     },
 };
 use alloy_primitives::{Signature, B256};
-use alloy_sol_types::SolStruct;
 use anyhow::{anyhow, bail, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -40,7 +39,7 @@ use crate::{
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
-    order_stream_client::{Order, OrderStreamClient},
+    order_stream_client::OrderStreamClient,
     request_builder::{
         FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
         RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
@@ -858,37 +857,57 @@ where
         Ok((journal, receipt))
     }
 
-    /// Fetch an order as a proof request and signature pair.
+    /// Fetch a proof request and its signature, querying first offchain, and then onchain.
     ///
-    /// If the request is not found in the boundless market, it will be fetched from the order stream service.
-    pub async fn fetch_order(
+    /// This method does not verify the signature, and the order cannot be guarenteed to be
+    /// authorized by this call alone.
+    ///
+    /// The request is first looked up offchain using the order stream service, then onchain using
+    /// event queries. The offchain query is sent first, since it is quick to check. Querying
+    /// onchain uses event logs, and will take more time to find requests that are further in the
+    /// past.
+    ///
+    /// Providing a `tx_hash` will speed up onchain queries, by fetching the transaction containing
+    /// the request. Providing the `request_digest` allows differentiating between multiple
+    /// requests with the same ID. If set to `None`, the first found request matching the ID will
+    /// be returned.
+    pub async fn fetch_proof_request(
         &self,
         request_id: U256,
         tx_hash: Option<B256>,
         request_digest: Option<B256>,
-    ) -> Result<Order, ClientError> {
-        match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
-            Ok((request, signature_bytes)) => {
-                let domain = self.boundless_market.eip712_domain().await?;
-                let digest = request.eip712_signing_hash(&domain.alloy_struct());
-                if let Some(expected_digest) = request_digest {
-                    if digest != expected_digest {
-                        return Err(ClientError::RequestError(RequestError::DigestMismatch));
+    ) -> Result<(ProofRequest, Bytes), ClientError> {
+        if let Some(ref order_stream_client) = self.offchain_client {
+            tracing::debug!("Querying the order stream for request: 0x{request_id:x} using request_digest {request_digest:?}");
+            match order_stream_client.fetch_order(request_id, request_digest).await {
+                Ok(order) => {
+                    tracing::debug!("Found request 0x{request_id:x} offchain");
+                    return Ok((order.request, Bytes::from(order.signature.as_bytes())));
+                }
+                Err(err) => {
+                    // TODO: Provide a type-safe way to handle this error.
+                    if err.to_string().contains("No order found") {
+                        tracing::debug!("Request 0x{request_id:x} not found offchain");
+                    } else {
+                        tracing::error!(
+                            "Error querying order stream for request 0x{request_id:x}; err = {err}"
+                        );
                     }
                 }
-                Ok(Order {
-                    request,
-                    request_digest: digest,
-                    signature: Signature::try_from(signature_bytes.as_ref())
-                        .map_err(|_| ClientError::Error(anyhow!("Failed to parse signature")))?,
-                })
             }
-            Err(_) => Ok(self
-                .offchain_client
-                .as_ref()
-                .context("Request not found on-chain and order stream client not available. Please provide an order stream URL")?
-                .fetch_order(request_id, request_digest)
-                .await?),
+        } else {
+            tracing::debug!("Skipping query for request offchain; no order stream client provided");
+        }
+
+        tracing::debug!(
+            "Querying the blockchain for request: 0x{request_id:x} using tx_hash {tx_hash:?}"
+        );
+        match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
+            Ok((proof_request, signature)) => Ok((proof_request, signature)),
+            Err(err @ MarketError::RequestNotFound(_)) => Err(err.into()),
+            err @ Err(_) => err
+                .with_context(|| format!("error querying for 0x{request_id:x} onchain"))
+                .map_err(Into::into),
         }
     }
 }
