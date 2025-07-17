@@ -175,7 +175,7 @@ services:
       stack: 90000000
 
   rest_api:
-    image: risczero/risc0-bento-rest-api:stable@sha256:caa6012548777a461b4e487d673bd0d23606f97cdecea9d1612fafd8fa8a9102
+    image: risczero/risc0-bento-rest-api:2.3.0@sha256:caa6012548777a461b4e487d673bd0d23606f97cdecea9d1612fafd8fa8a9102
     restart: always
     depends_on:
       - postgres
