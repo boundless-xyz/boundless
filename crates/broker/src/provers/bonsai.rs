@@ -303,6 +303,8 @@ impl Prover for Bonsai {
     ) -> Result<ProofResult, ProverError> {
         self.retry_only(
             || async {
+                // Convert cycles to Mi-cycles (1024*1024) for Bonsai API
+                let bonsai_limit = executor_limit.map(|cycles| cycles.div_ceil(1024 * 1024));
                 let preflight_id: SessionId = self
                     .retry(
                         || async {
@@ -313,7 +315,7 @@ impl Prover for Bonsai {
                                     input_id.into(),
                                     assumptions.clone(),
                                     true,
-                                    executor_limit,
+                                    bonsai_limit,
                                 )
                                 .await?)
                         },
@@ -398,8 +400,7 @@ impl Prover for Bonsai {
                             Err(e) => {
                                 tracing::error!("Failed to begin transaction: {}", e);
                                 return Err(ProverError::ProvingFailed(format!(
-                                    "Failed to begin transaction: {}",
-                                    e
+                                    "Failed to begin transaction: {e}"
                                 )));
                             }
                         };
@@ -411,8 +412,7 @@ impl Prover for Bonsai {
                         {
                             tracing::error!("Failed to update job state: {}", e);
                             return Err(ProverError::ProvingFailed(format!(
-                                "Failed to update job: {}",
-                                e
+                                "Failed to update job: {e}"
                             )));
                         }
 
@@ -423,8 +423,7 @@ impl Prover for Bonsai {
                         {
                             tracing::error!("Failed to delete task dependencies: {}", e);
                             return Err(ProverError::ProvingFailed(format!(
-                                "Failed to delete task deps: {}",
-                                e
+                                "Failed to delete task deps: {e}"
                             )));
                         }
 
@@ -435,16 +434,14 @@ impl Prover for Bonsai {
                         {
                             tracing::error!("Failed to delete tasks: {}", e);
                             return Err(ProverError::ProvingFailed(format!(
-                                "Failed to delete tasks: {}",
-                                e
+                                "Failed to delete tasks: {e}"
                             )));
                         }
 
                         if let Err(e) = tx.commit().await {
                             tracing::error!("Failed to commit transaction: {}", e);
                             return Err(ProverError::ProvingFailed(format!(
-                                "Failed to commit transaction: {}",
-                                e
+                                "Failed to commit transaction: {e}"
                             )));
                         }
 
@@ -454,8 +451,7 @@ impl Prover for Bonsai {
                     Err(e) => {
                         tracing::error!("Failed to connect to PostgreSQL: {}", e);
                         Err(ProverError::ProvingFailed(format!(
-                            "Failed to connect to postgres: {}",
-                            e
+                            "Failed to connect to postgres: {e}"
                         )))
                     }
                 }
@@ -536,7 +532,7 @@ async fn create_pg_pool() -> Result<sqlx::PgPool, sqlx::Error> {
 
     let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
 
-    let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
+    let connection_string = format!("postgres://{user}:{password}@{host}:{port}/{db}");
 
     sqlx::PgPool::connect(&connection_string).await
 }

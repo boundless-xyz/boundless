@@ -659,6 +659,7 @@ version = "0.1.0"
 dependencies = [
  "postcard",
  "risc0-zkvm",
+ "risc0-zkvm-platform",
 ]
 
 [[package]]
@@ -1053,9 +1054,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "2.2.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c59aaf1898f2f5d526a79d53dbe6288aeb1ce52a17184b85af84d06dedb1a367"
+checksum = "910c2023c39ac1e23dd4f7acdff086333f31ca608035f96c74366a79c098de3b"
 dependencies = [
  "anyhow",
  "borsh",

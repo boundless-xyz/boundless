@@ -170,7 +170,7 @@ impl ProvingService {
                 tracing::debug!("Order {order_id} being proved, proof id: {proof_id}");
 
                 self.db.set_order_proof_id(&order_id, &proof_id).await.with_context(|| {
-                    format!("Failed to set order {order_id} proof id: {}", proof_id)
+                    format!("Failed to set order {order_id} proof id: {proof_id}")
                 })?;
 
                 Ok(proof_id)

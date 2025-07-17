@@ -546,7 +546,7 @@ impl RequestParams {
     /// [RequestParams::with_requirements] after this function will overwrite the change.
     pub fn with_groth16_proof(self) -> Self {
         let mut requirements = self.requirements;
-        requirements.selector = match risc0_zkvm::is_dev_mode() {
+        requirements.selector = match crate::util::is_dev_mode() {
             true => Some((Selector::FakeReceipt as u32).into()),
             false => Some((Selector::groth16_latest() as u32).into()),
         };

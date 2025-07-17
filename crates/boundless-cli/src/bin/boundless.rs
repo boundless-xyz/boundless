@@ -736,7 +736,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             }
 
             let request_ids_string =
-                request_ids.iter().map(|id| format!("0x{:x}", id)).collect::<Vec<_>>().join(", ");
+                request_ids.iter().map(|id| format!("0x{id:x}")).collect::<Vec<_>>().join(", ");
             tracing::info!("Fulfilling proof requests {}", request_ids_string);
 
             let (_, market_url) = client.boundless_market.image_info().await?;
@@ -1047,7 +1047,7 @@ async fn create_pg_pool() -> Result<sqlx::PgPool, sqlx::Error> {
 
     let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
 
-    let connection_string = format!("postgres://{}:{}@{}:{}/{}", user, password, host, port, db);
+    let connection_string = format!("postgres://{user}:{password}@{host}:{port}/{db}");
 
     sqlx::PgPool::connect(&connection_string).await
 }
@@ -1075,7 +1075,7 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
     let stdin: Vec<u8> = match (&args.input.input, &args.input.input_file) {
         (Some(input), None) => input.as_bytes().to_vec(),
         (None, Some(input_file)) => std::fs::read(input_file)
-            .context(format!("Failed to read input file at {:?}", input_file))?,
+            .context(format!("Failed to read input file at {input_file:?}"))?,
         _ => bail!("Exactly one of input or input-file args must be provided"),
     };
 
@@ -1100,7 +1100,7 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
         // risc0-ethereum. Add a Selector::inclusion_latest() function to risc0-ethereum and use it
         // here.
         ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_7 as u32),
-        ProofType::Groth16 => requirements.selector(Selector::Groth16V2_1 as u32),
+        ProofType::Groth16 => requirements.selector(Selector::Groth16V2_2 as u32),
         ProofType::Any => &mut requirements,
         ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty),
     };
@@ -1317,11 +1317,11 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
 
     let chain_id = match provider.get_chain_id().await {
         Ok(chain_id) => {
-            println!("✅ Connected to chain ID: {}", chain_id);
+            println!("✅ Connected to chain ID: {chain_id}");
             chain_id
         }
         Err(e) => {
-            println!("❌ Failed to connect: {}", e);
+            println!("❌ Failed to connect: {e}");
             // Do not run remaining checks, which require an RPC connection.
             return Ok(());
         }
@@ -1348,7 +1348,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
             true
         }
         Err(e) => {
-            println!("❌ Contract error: {}", e);
+            println!("❌ Contract error: {e}");
             false
         }
     };
@@ -1364,7 +1364,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
             image_info
         }
         Err(e) => {
-            println!("❌ Contract error: {}", e);
+            println!("❌ Contract error: {e}");
             (B256::default(), String::default())
         }
     };
@@ -1395,7 +1395,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
                 true
             }
             Err(e) => {
-                println!("❌ Contract error: {}", e);
+                println!("❌ Contract error: {e}");
                 false
             }
         };
@@ -1515,7 +1515,7 @@ mod tests {
             .await
             .unwrap();
         let order_stream_address = listener.local_addr().unwrap();
-        let order_stream_url = Url::parse(&format!("http://{}", order_stream_address)).unwrap();
+        let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
         let domain = order_stream_address.to_string();
 
         let config = ConfigBuilder::default()
@@ -2075,7 +2075,7 @@ mod tests {
         .unwrap();
 
         let request_ids_str =
-            request_ids.iter().map(|id| format!("0x{:x}", id)).collect::<Vec<_>>().join(", ");
+            request_ids.iter().map(|id| format!("0x{id:x}")).collect::<Vec<_>>().join(", ");
         assert!(logs_contain(&format!("Successfully fulfilled requests {request_ids_str}")));
 
         for request_id in request_ids {
@@ -2089,7 +2089,7 @@ mod tests {
             })
             .await
             .unwrap();
-            assert!(logs_contain(&format!("Request 0x{:x} status: Fulfilled", request_id)));
+            assert!(logs_contain(&format!("Request 0x{request_id:x} status: Fulfilled")));
         }
     }
 
@@ -2170,7 +2170,7 @@ mod tests {
         );
 
         // Explicitly set the selector to a compatible value for the test
-        // In dev mode, instead of Groth16V2_1, use FakeReceipt
+        // In dev mode, instead of Groth16V2_2, use FakeReceipt
         request.requirements.selector = FixedBytes::from(Selector::FakeReceipt as u32);
 
         // Dump the request to a tmp file; tmp is deleted on drop.

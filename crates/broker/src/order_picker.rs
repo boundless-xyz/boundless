@@ -1467,7 +1467,7 @@ pub(crate) mod tests {
             .await;
 
         // set a Groth16 selector
-        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_1 as u32);
+        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_2 as u32);
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1848,8 +1848,7 @@ pub(crate) mod tests {
             order.request.offer.biddingStart + order.request.offer.timeout as u64;
 
         let expected_log = format!(
-            "Setting order {} to prove after lock expiry at {}",
-            order_id, expected_target_timestamp
+            "Setting order {order_id} to prove after lock expiry at {expected_target_timestamp}"
         );
         assert!(ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
@@ -1892,10 +1891,7 @@ pub(crate) mod tests {
         // Since we know the stake reward is constant, and we know our min_mycle_price_stake_token
         // the execution limit check tells us if the order is profitable or not, since it computes the max number
         // of cycles that can be proven while keeping the order profitable.
-        assert!(logs_contain(&format!(
-            "Skipping order {} due to session limit exceeded",
-            order_id
-        )));
+        assert!(logs_contain(&format!("Skipping order {order_id} due to session limit exceeded")));
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
@@ -1940,7 +1936,7 @@ pub(crate) mod tests {
         assert!(locked);
 
         // Check logs for the expected message about setting exec limit to max_mcycle_limit
-        assert!(logs_contain(&format!("Order {} exec limit computed from max price", order2_id)));
+        assert!(logs_contain(&format!("Order {order2_id} exec limit computed from max price")));
         assert!(logs_contain("exceeds config max_mcycle_limit"));
         assert!(logs_contain("setting exec limit to max_mcycle_limit"));
     }
@@ -2219,7 +2215,7 @@ pub(crate) mod tests {
         tokio::time::timeout(Duration::from_secs(5), ctx.priced_orders_rx.recv()).await.unwrap();
 
         // Check that we logged the task completion
-        assert!(logs_contain(&format!("Priced task for order {} (request", order1_id)));
+        assert!(logs_contain(&format!("Priced task for order {order1_id} (request")));
 
         // The order2 should be shown as in progress when order1 completes
         assert!(logs_contain(&order2_id));

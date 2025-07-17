@@ -63,7 +63,7 @@ struct MainArgs {
 }
 
 fn parse_address(s: &str) -> Result<Address, String> {
-    s.trim().parse::<Address>().map_err(|e| format!("Failed to parse address {}: {}", s, e))
+    s.trim().parse::<Address>().map_err(|e| format!("Failed to parse address {s}: {e}"))
 }
 
 #[derive(Args, Clone, Debug)]

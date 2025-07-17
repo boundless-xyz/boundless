@@ -173,7 +173,7 @@ async fn proof_submission(signer: &PrivateKeySigner, rpc_url: Url) -> anyhow::Re
         .wait_for_request_fulfillment(request_id, Duration::from_secs(10), expires_at)
         .await?;
 
-    println!("Journal: {:?}, Seal: {:?}", journal, seal);
+    println!("Journal: {journal:?}, Seal: {seal:?}");
 
     Ok(())
 }

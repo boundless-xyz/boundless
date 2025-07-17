@@ -11,7 +11,7 @@ config:
   distributor:PROVER_KEYS:
     secure: v1:TXC+1jwcXbabnnAZ:uqcnV3p8CUoZcV51S5/966bHwi4Qxy5aKvcJ+w0qgvkT4Rz9D67PKUWw6tG6+pSg/1I6FIwOhlgT+j7GYcUHrRjU8F9X3JmPewSqw11Sg8Nz5XLNEo5nbrXGwXlHIHWfTkJ8/dcm4kSQzz4qyQWQjXpqLptnXlYuYtcpY+yJvqaXaS2MUStMtX0KQlaFu+GbsQ==
   distributor:ETH_THRESHOLD: "10"
-  distributor:STAKE_THRESHOLD: "5"
+  distributor:STAKE_THRESHOLD: "10"
   distributor:ETH_TOP_UP_AMOUNT: "20"
   distributor:STAKE_TOP_UP_AMOUNT: "10"
   distributor:PROVER_ETH_DONATE_THRESHOLD: "30"

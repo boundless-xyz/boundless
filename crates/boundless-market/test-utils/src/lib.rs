@@ -42,7 +42,6 @@ use risc0_aggregation::{
 use risc0_circuit_recursion::control_id::{ALLOWED_CONTROL_ROOT, BN254_IDENTITY_CONTROL_ID};
 use risc0_ethereum_contracts::{encode_seal, set_verifier::SetVerifierService};
 use risc0_zkvm::{
-    is_dev_mode,
     sha::{Digest, Digestible},
     FakeReceipt, Groth16ReceiptVerifierParameters, InnerReceipt, Journal, MaybePruned, Receipt,
     ReceiptClaim,
@@ -452,4 +451,12 @@ pub fn mock_singleton(
     .unwrap();
 
     (to_b256(set_builder_root), set_builder_seal.into(), fulfillment, assessor_seal.into())
+}
+
+fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
 }

@@ -128,7 +128,7 @@ pub fn process_tree(values: Vec<Digest>) -> Digest {
     let mut n = values.len();
     let mut leaves = values.clone();
     while n > 1 {
-        let next_level_length = (n + 1) / 2;
+        let next_level_length = n.div_ceil(2);
         for i in 0..(n / 2) {
             leaves[i] = commutative_keccak256(&leaves[2 * i], &leaves[2 * i + 1]);
         }

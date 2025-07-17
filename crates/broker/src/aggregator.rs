@@ -496,7 +496,7 @@ impl AggregatorService {
 
             let assessor_proof_id =
                 self.prove_assessor(&assessor_order_ids).await.with_context(|| {
-                    format!("Failed to prove assessor with orders {:x?}", assessor_order_ids)
+                    format!("Failed to prove assessor with orders {assessor_order_ids:x?}")
                 })?;
 
             tracing::debug!(

@@ -217,7 +217,7 @@ impl StorageProvider for S3StorageProvider {
 
     async fn upload_program(&self, program: &[u8]) -> Result<Url, Self::Error> {
         let image_id = risc0_zkvm::compute_image_id(program)?;
-        let key = format!("program/{}", image_id);
+        let key = format!("program/{image_id}");
         self.upload(program, &key).await
     }
 

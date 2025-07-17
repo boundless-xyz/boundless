@@ -34,11 +34,19 @@ use boundless_market_test_utils::{
     create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_GUEST_PATH, ECHO_ELF,
     ECHO_ID, SET_BUILDER_PATH,
 };
-use risc0_zkvm::{is_dev_mode, sha::Digest};
+use risc0_zkvm::sha::Digest;
 use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
+
+fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
 
 fn generate_request(
     id: u32,
