@@ -216,9 +216,7 @@ async fn test_slash_fulfilled() {
         if ts > lock_expires_at {
             break;
         }
-        println!(
-            "Waiting for lock to expire...{ts} < {lock_expires_at} - Expires at {expires_at}"
-        );
+        println!("Waiting for lock to expire...{ts} < {lock_expires_at} - Expires at {expires_at}");
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
