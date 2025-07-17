@@ -594,68 +594,80 @@ where
 
         // Loop while the cached result is skipped and has a lower exec limit than the current order.
         let preflight_result = loop {
-            let prover = &self.prover;
-            let config = &self.config;
-            let request = &order.request;
-            let order_id_clone = &order_id;
+            let prover = self.prover.clone();
+            let config = self.config.clone();
+            let request = order.request.clone();
+            let order_id_clone = order_id.clone();
+            let cache_key_clone = cache_key.clone();
 
-            let result = self
-                .preflight_cache
-                .try_get_with(cache_key.clone(), async move {
-                    // Upload image and input only if not cached
-                    let image_id = upload_image_uri(prover, request, config)
-                        .await
-                        .map_err(|e| OrderPickerErr::FetchImageErr(Arc::new(e)))?;
+            let cache_cloned = self.preflight_cache.clone();
+            let result = tokio::task::spawn(async move {
+                cache_cloned
+                    .try_get_with(cache_key_clone, async move {
+                        tracing::trace!(
+                            "Starting preflight of {order_id_clone} with exec limit {} mcycles",
+                            exec_limit_cycles
+                        );
 
-                    let input_id = upload_input_uri(prover, request, config)
-                        .await
-                        .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?;
+                        // Upload image and input only if not cached
+                        let image_id = upload_image_uri(&prover, &request, &config)
+                            .await
+                            .map_err(|e| OrderPickerErr::FetchImageErr(Arc::new(e)))?;
 
-                    // TODO add a future timeout here to put a upper bound on how long to preflight for
-                    match prover
-                        .preflight(
-                            &image_id,
-                            &input_id,
-                            vec![],
-                            Some(exec_limit_cycles),
-                            order_id_clone,
-                        )
-                        .await
-                    {
-                        Ok(res) => {
-                            tracing::debug!(
-                                "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed in {} seconds",
-                                res.id,
-                                res.stats.total_cycles / 1_000_000,
-                                res.elapsed_time
-                            );
-                            Ok(PreflightCacheValue::Success {
-                                exec_session_id: res.id,
-                                cycle_count: res.stats.total_cycles,
-                                image_id,
-                                input_id,
-                            })
-                        }
-                        Err(err) => match err {
-                            ProverError::ProvingFailed(ref err_msg)
-                                if err_msg.contains("Session limit exceeded") =>
-                            {
+                        let input_id = upload_input_uri(&prover, &request, &config)
+                            .await
+                            .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?;
+
+                        // TODO add a future timeout here to put a upper bound on how long to preflight for
+                        match prover
+                            .preflight(
+                                &image_id,
+                                &input_id,
+                                vec![],
+                                Some(exec_limit_cycles),
+                                &order_id_clone,
+                            )
+                            .await
+                        {
+                            Ok(res) => {
                                 tracing::debug!(
-                                    "Skipping order {order_id_clone} due to session limit exceeded: {}",
-                                    err_msg
+                                    "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed in {} seconds",
+                                    res.id,
+                                    res.stats.total_cycles / 1_000_000,
+                                    res.elapsed_time
                                 );
-                                Ok(PreflightCacheValue::Skip { cached_limit: exec_limit_cycles })
+                                Ok(PreflightCacheValue::Success {
+                                    exec_session_id: res.id,
+                                    cycle_count: res.stats.total_cycles,
+                                    image_id,
+                                    input_id,
+                                })
                             }
-                            ProverError::ProvingFailed(ref err_msg)
-                                if err_msg.contains("GuestPanic") =>
-                            {
-                                Err(OrderPickerErr::GuestPanic(err_msg.clone()))
-                            }
-                            _ => Err(OrderPickerErr::UnexpectedErr(Arc::new(err.into()))),
-                        },
-                    }
-                })
-                .await;
+                            Err(err) => match err {
+                                ProverError::ProvingFailed(ref err_msg)
+                                    if err_msg.contains("Session limit exceeded") =>
+                                {
+                                    tracing::debug!(
+                                        "Skipping order {order_id_clone} due to session limit exceeded: {}",
+                                        err_msg
+                                    );
+                                    Ok(PreflightCacheValue::Skip {
+                                        cached_limit: exec_limit_cycles,
+                                    })
+                                }
+                                ProverError::ProvingFailed(ref err_msg)
+                                    if err_msg.contains("GuestPanic") =>
+                                {
+                                    Err(OrderPickerErr::GuestPanic(err_msg.clone()))
+                                }
+                                _ => Err(OrderPickerErr::UnexpectedErr(Arc::new(err.into()))),
+                            },
+                        }
+                    })
+                    .await
+            })
+            .await
+            .map_err(|e| OrderPickerErr::UnexpectedErr(Arc::new(e.into())))?;
 
             let cached_value = match result {
                 Ok(value) => value,
@@ -2637,25 +2649,19 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_preflight_cache_behavior() -> Result<()> {
-        // Create mock prover that tracks preflight calls
         let mock_prover = Arc::new(MockPreflightTracker::new());
 
-        // Upload test image
         let image_id = Digest::from(ECHO_ID).to_string();
         mock_prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
 
-        // Create test context with our mock prover
         let ctx = PickerTestCtxBuilder::default().with_prover(mock_prover.clone()).build().await;
 
-        // Create three orders: two with different request IDs, one duplicate of the first
-        // All orders use the same ECHO program (same image_id) and same input data
         let mut order1 =
             ctx.generate_next_order(OrderParams { order_index: 100, ..Default::default() }).await;
 
         let mut order2 =
             ctx.generate_next_order(OrderParams { order_index: 200, ..Default::default() }).await;
 
-        // Create order3 with same request ID as order1 (different fulfillment type to make it valid)
         let mut order3 = ctx
             .generate_next_order(OrderParams {
                 order_index: 100,
@@ -2664,7 +2670,6 @@ pub(crate) mod tests {
             })
             .await;
 
-        // Verify orders have expected request IDs
         assert_eq!(
             order1.request.id, order3.request.id,
             "Order1 and Order3 should have same request ID"
@@ -2673,13 +2678,6 @@ pub(crate) mod tests {
             order1.request.id, order2.request.id,
             "Order1 and Order2 should have different request IDs"
         );
-
-        let order1_id = order1.id();
-        let order2_id = order2.id();
-        let order3_id = order3.id();
-
-        // Since all orders use the same image and input, they should ALL use the same cache entry.
-        // So we expect only 1 preflight call total.
 
         // Process order1 and order2 concurrently to test cache atomicity
         let (pricing1, pricing2) =
@@ -2782,6 +2780,110 @@ pub(crate) mod tests {
             "Cached result has insufficient limit for order {}",
             high_timeout_order.id()
         )));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_concurrent_preflights_with_cancellation() -> Result<()> {
+        let mock_prover = Arc::new(MockPreflightTracker::new());
+        let image_id = Digest::from(LOOP_ID).to_string();
+        mock_prover.upload_image(&image_id, LOOP_ELF.to_vec()).await.unwrap();
+
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
+        }
+        let ctx = PickerTestCtxBuilder::default()
+            .with_prover(mock_prover.clone())
+            .with_config(config)
+            .build()
+            .await;
+
+        // Create two orders with same program+input for same cache key
+        let order_a = ctx
+            .generate_loop_order(
+                OrderParams {
+                    order_index: 1,
+                    min_price: parse_ether("100.0").unwrap(),
+                    max_price: parse_ether("100.0").unwrap(),
+                    timeout: 3600,
+                    lock_timeout: 3000,
+                    ..Default::default()
+                },
+                5_000_000,
+            )
+            .await;
+
+        let order_b = ctx
+            .generate_loop_order(
+                OrderParams {
+                    order_index: 2,
+                    min_price: parse_ether("100.0").unwrap(),
+                    max_price: parse_ether("100.0").unwrap(),
+                    timeout: 3600,
+                    lock_timeout: 3000,
+                    ..Default::default()
+                },
+                5_000_000,
+            )
+            .await;
+
+        // Create cancellation tokens
+        let cancel_token_a = CancellationToken::new();
+        let cancel_token_b = CancellationToken::new();
+
+        // Save order IDs before moving into tasks
+        let order_a_id = order_a.id();
+        let _order_b_id = order_b.id();
+
+        // Start both preflights concurrently with a slight stagger
+        let cancel_a_clone = cancel_token_a.clone();
+        let picker_a = ctx.picker.clone();
+        let task_a = tokio::spawn(async move {
+            picker_a.price_order_and_update_state(order_a, cancel_token_a).await
+        });
+
+        // Small delay to ensure task A starts first
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let picker_b = ctx.picker.clone();
+        let task_b = tokio::spawn(async move {
+            picker_b.price_order_and_update_state(order_b, cancel_token_b).await
+        });
+
+        // Wait for task A to start its preflight before cancelling
+        loop {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if logs_contain(&format!("Starting preflight of {}", order_a_id)) {
+                // Sleep to wait for B to wait on this preflight
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                break;
+            }
+        }
+
+        // Cancel task A now that we know it has started preflight
+        cancel_a_clone.cancel();
+
+        // Wait for both tasks to complete
+        let result_a = task_a.await.unwrap();
+        let result_b = task_b.await.unwrap();
+
+        // Task A should have been cancelled and returned false
+        assert!(!result_a, "Task A should have been cancelled");
+
+        // Task B should have completed successfully
+        assert!(result_b, "Task B should have completed successfully");
+
+        // Check that the cancellation was logged
+        assert!(logs_contain("Order pricing cancelled during pricing for order"));
+
+        // Verify that both preflight calls were made (both tasks start their preflights)
+        // Task A starts its preflight but gets cancelled during execution
+        // Task B completes its preflight successfully
+        let preflight_calls = mock_prover.get_preflight_calls();
+        assert_eq!(preflight_calls.len(), 1, "Should have exactly 1 preflight call");
 
         Ok(())
     }
