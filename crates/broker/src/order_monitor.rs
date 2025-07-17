@@ -366,11 +366,11 @@ where
 
     async fn log_capacity(
         prev_orders_by_status: &mut String,
-        commited_orders: Vec<Order>,
+        committed_orders: Vec<Order>,
         max: u32,
     ) {
-        let committed_orders_count: u32 = commited_orders.len().try_into().unwrap();
-        let request_id_and_status = commited_orders
+        let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
+        let request_id_and_status = committed_orders
             .iter()
             .map(|order| format!("[{:?}]: {order}", order.status))
             .collect::<Vec<_>>();
@@ -379,7 +379,7 @@ where
 
         // Note: we don't compare previous to capacity_log as it contains timestamps which cause it to always change.
         // We only want to log if status or num orders changes.
-        let cur_orders_by_status = commited_orders
+        let cur_orders_by_status = committed_orders
             .iter()
             .map(|order| format!("{:?}-{}", order.status, order.id()))
             .collect::<Vec<_>>()
@@ -682,10 +682,10 @@ where
         let mut remaining_balance_wei = available_balance_wei - committed_cost_wei;
 
         // Apply peak khz limit if specified
-        let num_commited_orders = committed_orders.len();
+        let num_committed_orders = committed_orders.len();
         if config.peak_prove_khz.is_some() && !orders.is_empty() {
             let peak_prove_khz = config.peak_prove_khz.unwrap();
-            let total_commited_cycles = committed_orders
+            let total_committed_cycles = committed_orders
                 .iter()
                 .map(|order| order.total_cycles.unwrap() + config.additional_proof_cycles)
                 .sum::<u64>();
@@ -698,7 +698,7 @@ where
                 .min()
                 .unwrap_or(now);
 
-            let proof_time_seconds = total_commited_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
+            let proof_time_seconds = total_committed_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
             let mut prover_available_at = started_proving_at + proof_time_seconds;
             if prover_available_at < now {
                 let seconds_behind = now - prover_available_at;
@@ -706,8 +706,8 @@ where
                 prover_available_at = now;
             }
             tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available in {} seconds", 
-                num_commited_orders,
-                total_commited_cycles,
+                num_committed_orders,
+                total_committed_cycles,
                 peak_prove_khz,
                 started_proving_at,
                 prover_available_at.saturating_sub(now),
@@ -768,7 +768,7 @@ where
                         // permanently. Otherwise, will retry including the order.
                         self.skip_order(&order, "cannot be completed before expiration").await;
                     } else {
-                        tracing::debug!("Given current commited orders and capacity, order 0x{:x} cannot be completed before its expiration. Not skipping as capacity may free up before it expires.", order.request.id);
+                        tracing::debug!("Given current committed orders and capacity, order 0x{:x} cannot be completed before its expiration. Not skipping as capacity may free up before it expires.", order.request.id);
                     }
                     continue;
                 }
@@ -805,9 +805,9 @@ where
         }
 
         tracing::info!(
-            "Started with {} orders ready to be locked and/or proven. Already commited to {} orders. After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
+            "Started with {} orders ready to be locked and/or proven. Already committed to {} orders. After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
             num_orders,
-            num_commited_orders,
+            num_committed_orders,
             if let Some(max_concurrent_proofs) = config.max_concurrent_proofs {
                 max_concurrent_proofs.to_string()
             } else {
