@@ -2695,22 +2695,12 @@ pub(crate) mod tests {
         // Check preflight calls - should only be called once since all orders are identical
         let preflight_calls = mock_prover.get_preflight_calls();
 
-        tracing::info!("Preflight calls made: {:?}", preflight_calls);
-
         // Since ALL orders have the same image_url and input data, they should share the same cache entry
         assert_eq!(
             preflight_calls.len(),
             1,
             "Should have exactly 1 preflight call since all orders are identical. Got calls: {:?}",
             preflight_calls
-        );
-
-        tracing::info!(
-            "Test completed successfully. Orders processed: {}, {}, {}. Preflight calls: {}",
-            order1_id,
-            order2_id,
-            order3_id,
-            preflight_calls.len()
         );
 
         Ok(())
