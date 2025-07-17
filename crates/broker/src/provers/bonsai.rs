@@ -303,7 +303,7 @@ impl Prover for Bonsai {
     ) -> Result<ProofResult, ProverError> {
         self.retry_only(
             || async {
-                // Convert cycles to MiB cycles (1024*1024) for Bonsai API
+                // Convert cycles to Mi-cycles (1024*1024) for Bonsai API
                 let bonsai_limit = executor_limit.map(|cycles| cycles.div_ceil(1024 * 1024));
                 let preflight_id: SessionId = self
                     .retry(
