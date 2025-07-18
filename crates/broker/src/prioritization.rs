@@ -16,7 +16,7 @@ use crate::{
     config::{OrderCommitmentPriority, OrderPricingPriority},
     order_monitor::OrderMonitor,
     order_picker::OrderPicker,
-    FulfillmentType, OrderRequest,
+    OrderRequest,
 };
 
 use rand::seq::SliceRandom;
@@ -82,13 +82,7 @@ where
             // Already in observation time order, no sorting needed
         }
         UnifiedPriorityMode::ShortestExpiry => {
-            orders.sort_by_key(|order| {
-                let order_ref = order.as_ref();
-                match order_ref.fulfillment_type {
-                    FulfillmentType::LockAndFulfill => order_ref.request.lock_expires_at(),
-                    _ => order_ref.request.expires_at(),
-                }
-            });
+            orders.sort_by_key(|order| order.as_ref().expiry());
         }
     }
 }
