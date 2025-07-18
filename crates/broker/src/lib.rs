@@ -269,6 +269,17 @@ impl OrderRequest {
         order.proving_started_at = Some(Utc::now().timestamp().try_into().unwrap());
         order
     }
+
+    /// Returns the relevant expiration timestamp for this order based on its fulfillment type.
+    /// - For LockAndFulfill orders: returns lock expiration
+    /// - For FulfillAfterLockExpire/FulfillWithoutLocking orders: returns order expiration
+    pub fn expiry(&self) -> u64 {
+        match self.fulfillment_type {
+            FulfillmentType::LockAndFulfill => self.request.lock_expires_at(),
+            FulfillmentType::FulfillAfterLockExpire => self.request.expires_at(),
+            FulfillmentType::FulfillWithoutLocking => self.request.expires_at(),
+        }
+    }
 }
 
 impl std::fmt::Display for OrderRequest {
