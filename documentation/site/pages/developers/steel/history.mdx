@@ -61,7 +61,7 @@ The commitment block has to fall within the 24 hour time window necessary for St
 The execution and commitment blocks are fundamentally related; the execution block should always be an ancestor of the commitment block. Therefore, it is possible to prove that the committed chain includes the execution block by validating a chain of beacon block roots in between the two blocks.
 
 Steel history works backwards from the commitment block to the execution block with consecutive calls to the beacon roots contract;
-validating a beacon root is a single call for every 24 hours of history.
+Validating a beacon root is a single call for every 24 hours of history.
 This step takes approximately 1M cycles per 24 hours of history within the Steel guest.
 
 Ultimately, Steel will check the integrity of the view call data in the execution block by proving that the execution block is a canonical ancestor of the commitment block.
@@ -70,8 +70,8 @@ Once onchain, successfully validating the Steel commitment will prove the integr
 ## How far can you go back?
 
 There is a hard limit on how far back in time you can place the execution block:
-the entire validation procedure depends on [EIP-4788] which was introduced with the [Cancun upgrade] on March 13 2024;
-this is the furthest that Steel history can go back.
+The entire validation procedure depends on [EIP-4788] which was introduced with the [Cancun upgrade] on March 13 2024;
+This is the furthest that Steel history can go back.
 
 ## How much does Steel history cost?
 
