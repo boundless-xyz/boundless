@@ -406,7 +406,6 @@ where
                     tracing::info!("Slashing successful for request 0x{:x}", request_id);
                     self.remove_order(request_id).await?;
                 }
-                // match on MarketError::RequestIsSlashed
                 Err(MarketError::RequestIsSlashed(request_id)) => {
                     tracing::warn!("Request 0x{:x} is already slashed, removing", request_id);
                     self.remove_order(request_id).await?;
