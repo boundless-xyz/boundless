@@ -1,7 +1,7 @@
 # Quick Start
 
 :::note[Reminders]
-- **OP Kailua** enables rollup operators to add a new fault proof system to their rollup via the Optimism `DisputeGameFactory`
+- **OP Kailua** enables rollup operators to add a new fault-proof system to their rollup via the Optimism `DisputeGameFactory`
 contract.
  - **OP Kailua's** contracts rely on ZK proofs to finalize/dismiss output proposals, and are compatible with
 Optimism's Bedrock contracts `v1.4.0` and above.
@@ -32,7 +32,7 @@ You can deploy a local optimism devnet equipped with Kailua through the followin
 2. `just devnet-build`
     * Builds the local cargo and foundry projects.
 3. `just devnet-up`
-    * Starts a local OP Stack devnet using docker.
+    * Starts a local OP Stack devnet using Docker.
     * Dumps the output into `devnetlog.txt` for inspection.
 4. `just devnet-upgrade`
     * Upgrades the devnet to use the `KailuaGame` contract.
@@ -50,5 +50,5 @@ You can deploy a local optimism devnet equipped with Kailua through the followin
     * Tests the validator's fault proving functionality.
     * Tests the proposer's canonical chain tracking functionality.
 8. After you're done:
-    * `just devnet-down` to stop the running docker containers.
+    * `just devnet-down` to stop the running Docker containers.
     * `just devnet-clean` to cleanup the docker volumes.
