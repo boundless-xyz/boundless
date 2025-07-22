@@ -351,7 +351,7 @@ proving fulfill --request-ids <U256,...> [--request-digests <B256,...>] [--tx-ha
 - `--request-ids`: comma-separated list of proof request identifiers (hex values)
 - `--request-digests`: comma-separated list of request EIP712 digests (optional, must match request_ids length and order)
 - `--tx-hashes`: comma-separated list of transaction hashes (optional, must match request_ids length and order)
-- `--order-stream-url`: fetch request data from an offchain server
+- `--order-stream-url`: fetch request data from an off-chain server
 
 **Examples**:
 
@@ -467,7 +467,7 @@ requirements:
 imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu"
 
 # Input to be provided to the zkVM guest execution.
-# The input data is a encoded guest environment.
+# The input data is an encoded guest environment.
 # See crates/boundless-market/src/input.rs for additional details.
 input:
     inputType: Inline
@@ -479,7 +479,7 @@ offer:
     maxPrice: 2000000000000000
     biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
     rampUpPeriod: 300
-    timeout: 3600 # 1 hor
+    timeout: 3600 # 1 hour
     lockTimeout: 2700 # 45 minutes
     lockStake: 5000000 # 5 USDC tokens
 ```
