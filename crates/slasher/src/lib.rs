@@ -16,7 +16,7 @@ use std::{cmp::min, sync::Arc};
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
-    primitives::{Address, U256},
+    primitives::{Address, B256, U256},
     providers::{
         fillers::{ChainIdFiller, JoinFill},
         Identity, Provider, ProviderBuilder, RootProvider,
@@ -74,8 +74,8 @@ pub enum ServiceError {
     #[error("Request not expired")]
     RequestNotExpired,
 
-    #[error("Slash reverted for request 0x{:x}, tx_hash: {}", request_id, tx_hash)]
-    SlashRevert(B256),
+    #[error("Slash reverted for request 0x{0:x}, tx_hash: {1:?}")]
+    SlashRevert(U256, B256),
 }
 
 #[derive(Clone)]
@@ -177,6 +177,7 @@ where
                             }
                             // Recoverable errors
                             ServiceError::BoundlessMarketError(_)
+                            | ServiceError::SlashRevert(_, _)
                             | ServiceError::EventQueryError(_)
                             | ServiceError::RpcError(_)
                             | ServiceError::BlockTimestampNotFound(_) => {
@@ -419,7 +420,7 @@ where
                         self.remove_order(request_id).await?;
                     } else {
                         tracing::error!("Tx 0x{:x} for request 0x{:x} reverted and request is not slashed already", tx_hash, request_id);
-                        return Err(ServiceError::SlashRevert(tx_hash));
+                        return Err(ServiceError::SlashRevert(request_id, tx_hash));
                     }
                 }
                 Err(err) => {
