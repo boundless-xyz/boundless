@@ -73,6 +73,9 @@ pub enum ServiceError {
 
     #[error("Request not expired")]
     RequestNotExpired,
+
+    #[error("Slash reverted for request 0x{:x}, tx_hash: {}", request_id, tx_hash)]
+    SlashRevert(B256),
 }
 
 #[derive(Clone)]
@@ -402,6 +405,23 @@ where
                 Ok(_) => {
                     tracing::info!("Slashing successful for request 0x{:x}", request_id);
                     self.remove_order(request_id).await?;
+                }
+                // match on MarketError::RequestIsSlashed
+                Err(MarketError::RequestIsSlashed(request_id)) => {
+                    tracing::warn!("Request 0x{:x} is already slashed, removing", request_id);
+                    self.remove_order(request_id).await?;
+                }
+                Err(MarketError::SlashRevert(tx_hash)) => {
+                    // If already slashed should be caught by the error above, but double check here in case race condition
+                    // caused the previous call to miss the slashing.
+                    let slashed = self.boundless_market.is_slashed(request_id).await?;
+                    if slashed {
+                        tracing::warn!("Tx 0x{:x} reverted when slashing request 0x{:x}. Request is already slashed, removing", tx_hash, request_id);
+                        self.remove_order(request_id).await?;
+                    } else {
+                        tracing::error!("Tx 0x{:x} for request 0x{:x} reverted and request is not slashed already", tx_hash, request_id);
+                        return Err(ServiceError::SlashRevert(tx_hash));
+                    }
                 }
                 Err(err) => {
                     let err_msg = err.to_string();
