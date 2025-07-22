@@ -4,17 +4,17 @@
 
 > "Unbounded EVM computation made simple"
 
-Steel lets Solidity developers effortlessly scale their applications by moving computation offchain without compromising on onchain security. Steel drastically reduces gas costs and this enables previously impossible applications.
+Steel lets Solidity developers effortlessly scale their applications by moving computation off-chain without compromising on on-chain security. Steel drastically reduces gas costs and this enables previously impossible applications.
 
-Steel pulls state from any EVM chain, performs verifiable computation across multiple blocks offchain, and generates concise execution proofs. Developers simply verify these proofs onchain to access boundless compute, without worrying about gas limits.
+Steel pulls state from any EVM chain, performs verifiable computation across multiple blocks off-chain, and generates concise execution proofs. Developers simply verify these proofs onchain to access boundless compute, without worrying about gas limits.
 
 :::note[Example]
-A single Steel proof has verified a computation equivalent to 30 Ethereum blocks—saving 1.2 billion gas—generated for under $10 and verified onchain for under 300k gas.
+A single Steel proof has verified a computation equivalent to 30 Ethereum blocks—saving 1.2 billion gas—generated for under $10 and verified on-chain for under 300k gas.
 :::
 
-## Onchain vs offchain execution
+## On-chain vs offchain execution
 
-Onchain execution is limited by the gas limit per block. This is fine for simple execution, but most real-world applications require significantly more capability than what is currently available, even on layer 2 rollups. With Steel, developers can carry out the same EVM execution they would onchain, but at a much larger scale. This EVM execution is within a boundless and verifiable environment offchain within the zkVM, allowing for an unprecedented amount of scaling for EVM applications.
+Onchain execution is limited by the gas limit per block. This is fine for simple execution, but most real-world applications require significantly more capability than what is currently available, even on layer 2 rollups. With Steel, developers can carry out the same EVM execution they would on-chain, but at a much larger scale. This EVM execution is within a boundless and verifiable environment offchain within the zkVM, allowing for an unprecedented amount of scaling for EVM applications.
 
 To describe how Steel replaces onchain execution with onchain verification of smart contract execution proofs, we will walk through a simple example: a counter variable is incremented if, and only if, the ERC20 balance of a certain account is larger than 1.
 
