@@ -850,6 +850,12 @@ where
 
     /// Calculates the cycle limit for the preflight and also for the max cycles that this specific
     /// order variant will consider proving for.
+    ///
+    /// The reason for calculating both preflight and prove limits is to execute the order with
+    /// a large enough cycle limit for both lock and fulfill orders as well as for if the order
+    /// expires and to prove after lock expiry so that the execution can be cached and only happen
+    /// once. The prove limit is the limit for this specific order variant and decides the max
+    /// cycles the order can be for the prover to decide to commit to proving it.
     fn calculate_exec_limits(
         &self,
         order: &OrderRequest,

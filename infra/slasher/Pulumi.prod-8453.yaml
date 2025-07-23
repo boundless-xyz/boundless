@@ -11,7 +11,7 @@ config:
   slasher:DOCKER_DIR: "../../"
   slasher:DOCKER_TAG: "latest"
   slasher:INTERVAL: "60"
-  slasher:LOG_LEVEL: "debug,boundless_slasher=trace,alloy_transport_http=info,hyper_util=info"
+  slasher:LOG_LEVEL: "boundless_slasher=trace,boundless_market=debug"
   slasher:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic"
   slasher:PRIVATE_KEY:
     secure: v1:y8eStQ5qMAiWESW+:7h7dy4iFabk0eVUOqsF12zDeEOkxbEm/jM0VF3PZVo8hW2WvaoZSByXi5GfaOtNJ/LnQCFzkC8tKw0uqVseD+UCeEsbv+H7avy80mFE7JIY=

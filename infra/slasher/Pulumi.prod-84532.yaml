@@ -10,7 +10,7 @@ config:
   slasher:GH_TOKEN_SECRET:
     secure: v1:ojnmJ/qxshXu1bbB:EF44eg8dH3FOA6JfPKV8vBqlpV74D8D4Ivj6vf/ppAe12CaKHs7Und0Yf0vLL4c/p+Gn3vbxXg9ARjVZZKn7ddE9h5pXBDSQvF3prEvuGTIFUOSuZDOndht/Dywxwf38P/NVDB/v9kkw8T3qtg==
   slasher:INTERVAL: "60"
-  slasher:LOG_LEVEL: debug,boundless_slasher=trace,alloy_transport_http=info,hyper_util=info
+  slasher:LOG_LEVEL: "boundless_slasher=trace,boundless_market=debug"
   slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   slasher:PRIVATE_KEY:
     secure: v1:zcYWqUF5h5jDP2yj:/MBur9gX14DdjHfBkWhYo6lVwg3TTO8Liw1fz4DfnnP2LoftiLSfFZh5skOqj1gYc6Dc/D9KeyrlInhcoVoY9p5C7en6QnyOAKPmSEtLVs8=
