@@ -27,7 +27,7 @@ Boundless' proving stack supports multi GPU proving as a first class citizen; pl
 
 ## Operating System
 
-At this time, Ubuntu 20.04/22.04 are the only supported operating systems. The Boundless team are working on adding support for 24.04. Currently, 24.04 support is experimental and please be warned that it is not guaranteed to work.
+At this time, Ubuntu 20.04/22.04 are the only supported operating systems. The Boundless team is working on adding support for 24.04. Currently, 24.04 support is experimental and please be warned that it is not guaranteed to work.
 
 Other operating systems *could* work, but driver support (such as Nvidia drivers), compiling dependencies, and general testing will be the responsibility of the prover operator.
 
@@ -49,5 +49,5 @@ To get started with the Broker and deposit stake to the market contract, please 
 :::
 
 The Boundless Market works via an escrow system.
-Whgen provers win a bid on a [proof request](/provers/proof-lifecycle#3-provers-bid-on-the-request), they require tokens to cover staking requirements for the request, as specified by the client.
+When provers win a bid on a [proof request](/provers/proof-lifecycle#3-provers-bid-on-the-request), they require tokens to cover staking requirements for the request, as specified by the client.
 The recommended way to carry out market interactions, such as depositing stake, is to use the [Broker](/provers/broker#broker-configuration), an optional service which runs within the Bento docker compose stack.
