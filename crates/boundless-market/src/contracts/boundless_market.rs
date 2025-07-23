@@ -66,6 +66,10 @@ pub enum MarketError {
     #[error("Request has expired 0x{0:x}")]
     RequestHasExpired(U256),
 
+    /// Request already slashed.
+    #[error("Request is slashed 0x{0:x}")]
+    RequestIsSlashed(U256),
+
     /// Request malformed.
     #[error("Request error {0}")]
     RequestError(#[from] RequestError),
@@ -89,6 +93,10 @@ pub enum MarketError {
     /// Lock request reverted, possibly outbid.
     #[error("Lock request reverted, possibly outbid: txn_hash: {0}")]
     LockRevert(B256),
+
+    /// Lock request reverted, possibly outbid.
+    #[error("Slash request reverted, possibly already slashed: txn_hash: {0}")]
+    SlashRevert(B256),
 
     /// General market error.
     #[error("Other error: {0:?}")]
@@ -557,12 +565,20 @@ impl<P: Provider> BoundlessMarketService<P> {
         &self,
         request_id: U256,
     ) -> Result<IBoundlessMarket::ProverSlashed, MarketError> {
+        if self.is_slashed(request_id).await? {
+            return Err(MarketError::RequestIsSlashed(request_id));
+        }
+
         tracing::trace!("Calling slash({:x?})", request_id);
         let call = self.instance.slash(request_id).from(self.caller);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
+
+        if !receipt.status() {
+            return Err(MarketError::SlashRevert(receipt.transaction_hash));
+        }
 
         let log = extract_tx_log::<IBoundlessMarket::ProverSlashed>(&receipt)?;
         Ok(log.inner.data)

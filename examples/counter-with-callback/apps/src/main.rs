@@ -218,7 +218,7 @@ mod tests {
             },
 
             _ = tokio::time::sleep(Duration::from_secs(TIMEOUT_SECS)) => {
-                panic!("The run function did not complete within {} seconds", TIMEOUT_SECS)
+                panic!("The run function did not complete within {TIMEOUT_SECS} seconds")
             }
         }
 
