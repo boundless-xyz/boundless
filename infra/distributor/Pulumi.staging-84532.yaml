@@ -16,7 +16,7 @@ config:
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   distributor:SLASHER_KEY:
     secure: v1:1jzQibAoUrHjn0Iy:ixX10gWEC1WNnq8FVhWfHuqHvOEBys9o63zjaU6OZ6Lr+ooO9sficX9Djf979h1ElPk5CC5sqyzgShtZhkdPLo1YGqufpcdRrzNbAUODIWw=
-  distributor:STAKE_THRESHOLD: "7"
+  distributor:STAKE_THRESHOLD: "10"
   distributor:STAKE_TOP_UP_AMOUNT: "10"
   distributor:ETH_RPC_URL:
     secure: v1:Gbts2MDIxPZqVLfr:YTMV0vht0vt6P0Sr50BqmvgUIlh/06F7ZqWbmgGRzz6VStrQEoNiEecYsgMaP765Ai9eAv7m9F6G5DGxju5zl+uTG99hRg1jqog+

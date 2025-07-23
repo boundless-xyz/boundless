@@ -12,7 +12,7 @@ config:
   distributor:DISTRIBUTOR_ADDRESS: 0xFc1f6D609610a479F9c7453BF3aeC8cb3849F865
   distributor:ETH_THRESHOLD: "1"
   distributor:ETH_TOP_UP_AMOUNT: "10"
-  distributor:STAKE_THRESHOLD: "7"
+  distributor:STAKE_THRESHOLD: "10"
   distributor:STAKE_TOP_UP_AMOUNT: "10"
   distributor:PROVER_ETH_DONATE_THRESHOLD: "10"
   distributor:SCHEDULE_MINUTES: "360"

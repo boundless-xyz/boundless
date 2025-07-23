@@ -545,12 +545,10 @@ impl RequestParams {
     /// This is a convinience method to set the selector on the requirements. Note that calling
     /// [RequestParams::with_requirements] after this function will overwrite the change.
     pub fn with_groth16_proof(self) -> Self {
-        // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
-        // risc0-ethereum.
         let mut requirements = self.requirements;
         requirements.selector = match crate::util::is_dev_mode() {
             true => Some((Selector::FakeReceipt as u32).into()),
-            false => Some((Selector::Groth16V2_2 as u32).into()),
+            false => Some((Selector::groth16_latest() as u32).into()),
         };
         Self { requirements, ..self }
     }

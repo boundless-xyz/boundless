@@ -11,7 +11,7 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
 
 x-agent-common: &agent-common
-  image: risczero/risc0-bento-agent:2.3.0@sha256:5b029fb8074b3273b45e6e8fb4d6dbd86000a216688d8f1429eb893686cc1ff8
+  image: risczero/risc0-bento-agent:2.3.1@sha256:7873f18005efff03fc5399f1bdcb6760cda7ffbd4fdd4d9c39aedee8972e0a0d
   restart: always
   depends_on:
     - postgres
@@ -182,7 +182,7 @@ services:
       stack: 90000000
 
   rest_api:
-    image: risczero/risc0-bento-rest-api:2.3.0@sha256:caa6012548777a461b4e487d673bd0d23606f97cdecea9d1612fafd8fa8a9102
+    image: risczero/risc0-bento-rest-api:2.3.1@sha256:71dafe532d4e1ada47989b63cf04b2e2bae6b62eebb5d47973e875e2eddf6c3a
     restart: always
     depends_on:
       - postgres

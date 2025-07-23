@@ -183,10 +183,10 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 2 fulfilled orders in 30 minutes",
+          description: "less than 2 fulfilled orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 2,
@@ -197,10 +197,10 @@ export const alarmConfig: ChainStageAlarms = {
           }
         },
         {
-          description: "less than 1 fulfilled orders in 30 minutes",
+          description: "less than 1 fulfilled orders in 60 minutes",
           severity: Severity.SEV1,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 1,
@@ -360,10 +360,10 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 2 fulfilled orders in 30 minutes",
+          description: "less than 2 fulfilled orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 2,
@@ -552,10 +552,10 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 3 fulfilled orders in 30 minutes",
+          description: "less than 3 fulfilled orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 3,
@@ -566,10 +566,10 @@ export const alarmConfig: ChainStageAlarms = {
           }
         },
         {
-          description: "less than 2 fulfilled orders in 30 minutes",
+          description: "less than 1 fulfilled orders in 60 minutes",
           severity: Severity.SEV1,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 2,
