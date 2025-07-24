@@ -62,7 +62,7 @@ jobs:
         run: forge --version
 
       - name: Ensure gas snapshots have been updated. Reminder to run `forge test --isolate`.
-        run: FORGE_SNAPSHOT_CHECK=true forge test --isolate
+        run: FORGE_SNAPSHOT_CHECK=true forge test --isolate --optimize true --optimizer-runs 100
 
   upgradability:
     runs-on: ubuntu-latest
