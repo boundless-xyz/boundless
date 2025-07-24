@@ -2422,27 +2422,36 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         }
         ProofRequest[] memory requests = new ProofRequest[](batchSize);
         bytes[] memory journals = new bytes[](batchSize);
-        uint256 expectedRevenue = 0;
         uint256 idx = 0;
+        
         for (uint256 i = 0; i < batch.length; i++) {
             Client client = getClient(i);
 
-            vm.warp(10000);
             for (uint256 j = 0; j < batch[i]; j++) {
                 ProofRequest memory request = client.request(uint32(j));
 
-                // TODO: This is a fragile part of this test. It should be improved.
-                uint256 desiredPrice = uint256(1.5 ether);
-                vm.warp(request.offer.timeAtPrice(desiredPrice));
-                expectedRevenue += desiredPrice;
+                requests[idx] = request;
+                journals[idx] = APP_JOURNAL;
+                idx++;
+            }
+        }
+
+        uint256 desiredPrice = uint256(1.5 ether);
+        vm.warp(requests[0].offer.timeAtPrice(desiredPrice));
+        uint256 expectedRevenue = desiredPrice * batchSize;
+
+        uint256 idx2 = 0;
+        for (uint256 i = 0; i < batch.length; i++) {
+            Client client = getClient(i);
+
+            for (uint256 j = 0; j < batch[i]; j++) {
+                ProofRequest memory request = requests[idx2];
 
                 boundlessMarket.lockRequestWithSignature(
                     request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))
                 );
 
-                requests[idx] = request;
-                journals[idx] = APP_JOURNAL;
-                idx++;
+                idx2++;
             }
         }
 
