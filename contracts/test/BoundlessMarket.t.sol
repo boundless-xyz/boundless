@@ -2414,6 +2414,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     // Fulfill a batch of locked requests
     function testFulfillLockedRequests() public {
+        vm.warp(10000);
         // Provide a batch definition as an array of clients and how many requests each submits.
         uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
         uint256 batchSize = 0;
