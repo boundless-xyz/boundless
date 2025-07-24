@@ -300,24 +300,15 @@ where
         let order_id = order.id();
         tracing::debug!("Pricing order {order_id}");
 
-        // Lock expiration is the timestamp before which the order must be filled in order to avoid slashing
-        let lock_expiration =
-            order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
-        // order expiration is the timestamp after which the order can no longer be filled by anyone.
-        let order_expiration =
-            order.request.offer.biddingStart + order.request.offer.timeout as u64;
-
         let now = now_timestamp();
 
         // If order_expiration > lock_expiration the period in-between is when order can be filled
         // by anyone without staking to partially claim the slashed stake
         let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
 
-        let (expiration, lockin_stake) = if lock_expired {
-            (order_expiration, U256::ZERO)
-        } else {
-            (lock_expiration, U256::from(order.request.offer.lockStake))
-        };
+        let expiration = order.expiry();
+        let lockin_stake =
+            if lock_expired { U256::ZERO } else { U256::from(order.request.offer.lockStake) };
 
         if expiration <= now {
             tracing::info!("Removing order {order_id} because it has expired");
@@ -462,102 +453,15 @@ where
             return Ok(Skip);
         }
 
-        let (max_mcycle_limit, peak_prove_khz) = {
-            let config = self.config.lock_all().context("Failed to read config")?;
-            (config.market.max_mcycle_limit, config.market.peak_prove_khz)
-        };
+        // Calculate exec limit (handles priority requestors and config internally)
+        let (exec_limit_cycles, prove_limit) = self.calculate_exec_limits(order, order_gas_cost)?;
 
-        // Create a executor limit based on the max price of the order
-        let mut exec_limit_cycles: u64 = if lock_expired {
-            let min_mcycle_price_stake_token = {
-                let config = self.config.lock_all().context("Failed to read config")?;
-                parse_units(&config.market.mcycle_price_stake_token, self.stake_token_decimals)
-                    .context("Failed to parse mcycle_price")?
-                    .into()
-            };
-
-            if min_mcycle_price_stake_token == U256::ZERO {
-                tracing::warn!("min_mcycle_price_stake_token is 0, setting unlimited exec limit");
-                u64::MAX
-            } else {
-                // Note this does not account for gas cost unlike a normal order
-                // TODO: Update to account for gas once the stake token to gas token exchange rate is known
-                let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
-                // (stake price * 1_000_000) / stake mcycle price = max cycles
-                (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
-                    .try_into()
-                    .context("Failed to convert U256 exec limit to u64")?
-            }
-        } else {
-            let min_mcycle_price = {
-                let config = self.config.lock_all().context("Failed to read config")?;
-                parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?
-            };
-            // ((max_price - gas_cost) * 1_000_000) / mcycle_price = max cycles
-            (U256::from(order.request.offer.maxPrice)
-                .saturating_sub(order_gas_cost)
-                .saturating_mul(ONE_MILLION)
-                / min_mcycle_price)
-                .try_into()
-                .context("Failed to convert U256 exec limit to u64")?
-        };
-
-        if exec_limit_cycles < 2 {
+        if prove_limit < 2 {
             // Exec limit is based on user cycles, and 2 is the minimum number of user cycles for a
             // provable execution.
             // TODO when/if total cycle limit is allowed in future, update this to be total cycle min
             tracing::info!("Removing order {order_id} because its exec limit is too low");
 
-            return Ok(Skip);
-        } else {
-            tracing::trace!("exec limit cycles for order {order_id}: {}", exec_limit_cycles);
-        }
-
-        let priority_requestor_addresses = {
-            let config = self.config.lock_all().context("Failed to read config")?;
-            config.market.priority_requestor_addresses.clone()
-        };
-
-        let mut skip_mcycle_limit = false;
-        let client_addr = order.request.client_address();
-        if let Some(allow_addresses) = priority_requestor_addresses {
-            if allow_addresses.contains(&client_addr) {
-                skip_mcycle_limit = true;
-            }
-        }
-
-        // If the order is from a priority requestor address, skip the mcycle limit
-        // If a max_mcycle_limit is configured, override the exec limit if the order is over that limit
-        if skip_mcycle_limit {
-            exec_limit_cycles = u64::MAX;
-            tracing::debug!("Order {order_id} exec limit skipped due to client {} being part of priority_requestor_addresses.", client_addr);
-        } else if let Some(config_mcycle_limit) = max_mcycle_limit {
-            let config_cycle_limit = config_mcycle_limit.saturating_mul(1_000_000);
-            if exec_limit_cycles >= config_cycle_limit {
-                tracing::debug!("Order {order_id} exec limit computed from max price {} exceeds config max_mcycle_limit {}, setting exec limit to max_mcycle_limit", exec_limit_cycles / 1_000_000, config_mcycle_limit);
-                exec_limit_cycles = config_cycle_limit;
-            }
-        }
-
-        // Cap the exec limit based on the peak prove khz and the time until expiration.
-        if let Some(peak_prove_khz) = peak_prove_khz {
-            let time_until_expiration = expiration.saturating_sub(now);
-            let deadline_cycle_limit =
-                calculate_max_cycles_for_time(peak_prove_khz, time_until_expiration);
-
-            if exec_limit_cycles > deadline_cycle_limit {
-                tracing::debug!(
-                    "Order {order_id} preflight cycle limit adjusted to {} cycles (capped by {:.1}s fulfillment deadline at {} peak_prove_khz config)",
-                    deadline_cycle_limit,
-                    time_until_expiration,
-                    peak_prove_khz
-                );
-                exec_limit_cycles = deadline_cycle_limit;
-            }
-        }
-
-        if exec_limit_cycles == 0 {
-            tracing::debug!("Order {order_id} has no time left to prove within deadline, skipping");
             return Ok(Skip);
         }
 
@@ -726,12 +630,10 @@ where
         };
 
         // If a max_mcycle_limit is configured check if the order is over that limit
-        if let Some(mcycle_limit) = max_mcycle_limit {
-            let mcycles = proof_res.stats.total_cycles / 1_000_000;
-            if !skip_mcycle_limit && mcycles >= mcycle_limit {
-                tracing::info!("Order {order_id} max_mcycle_limit check failed req: {mcycles} | config: {mcycle_limit}");
-                return Ok(Skip);
-            }
+        let proof_cycles = proof_res.stats.total_cycles;
+        if proof_cycles > prove_limit {
+            tracing::info!("Order {order_id} max_mcycle_limit check failed req: {proof_cycles} | config: {prove_limit}");
+            return Ok(Skip);
         }
 
         let journal = self
@@ -944,6 +846,157 @@ where
     async fn available_stake_balance(&self) -> Result<U256> {
         let balance = self.market.balance_of_stake(self.provider.default_signer_address()).await?;
         Ok(balance)
+    }
+
+    /// Calculates the cycle limit for the preflight and also for the max cycles that this specific
+    /// order variant will consider proving for.
+    ///
+    /// The reason for calculating both preflight and prove limits is to execute the order with
+    /// a large enough cycle limit for both lock and fulfill orders as well as for if the order
+    /// expires and to prove after lock expiry so that the execution can be cached and only happen
+    /// once. The prove limit is the limit for this specific order variant and decides the max
+    /// cycles the order can be for the prover to decide to commit to proving it.
+    fn calculate_exec_limits(
+        &self,
+        order: &OrderRequest,
+        order_gas_cost: U256,
+    ) -> Result<(u64, u64), OrderPickerErr> {
+        // Derive parameters from order
+        let order_id = order.id();
+        let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
+        let now = now_timestamp();
+        let request_expiration = order.expiry();
+        let lock_expiry = order.request.lock_expires_at();
+        let order_expiry = order.request.expires_at();
+        let (
+            max_mcycle_limit,
+            peak_prove_khz,
+            min_mcycle_price,
+            min_mcycle_price_stake_token,
+            priority_requestor_addresses,
+        ) = {
+            let config = self.config.lock_all().context("Failed to read config")?;
+            (
+                config.market.max_mcycle_limit,
+                config.market.peak_prove_khz,
+                parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?,
+                parse_units(&config.market.mcycle_price_stake_token, self.stake_token_decimals)
+                    .context("Failed to parse mcycle_price")?
+                    .into(),
+                config.market.priority_requestor_addresses.clone(),
+            )
+        };
+
+        // Pricing based cycle limits: Calculate the cycle limit based on stake price
+        let stake_based_limit = if min_mcycle_price_stake_token == U256::ZERO {
+            tracing::warn!("min_mcycle_price_stake_token is 0, setting unlimited exec limit");
+            u64::MAX
+        } else {
+            let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
+            (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
+                .try_into()
+                .context("Failed to convert U256 exec limit to u64")?
+        };
+
+        let mut preflight_limit = stake_based_limit;
+        let mut prove_limit = stake_based_limit;
+
+        // If lock and fulfill, potentially increase that to ETH-based value if higher
+        if !lock_expired {
+            // Calculate eth-based limit for lock and fulfill orders
+            let eth_based_limit = if min_mcycle_price == U256::ZERO {
+                tracing::warn!("min_mcycle_price is 0, setting unlimited exec limit");
+                u64::MAX
+            } else {
+                (U256::from(order.request.offer.maxPrice)
+                    .saturating_sub(order_gas_cost)
+                    .saturating_mul(ONE_MILLION)
+                    / min_mcycle_price)
+                    .try_into()
+                    .context("Failed to convert U256 exec limit to u64")?
+            };
+
+            if eth_based_limit > stake_based_limit {
+                // Eth based limit is higher, use that for both preflight and prove
+                preflight_limit = eth_based_limit;
+                prove_limit = eth_based_limit;
+            } else {
+                // Otherwise lower the prove cycle limit for this order variant
+                prove_limit = eth_based_limit;
+            }
+            tracing::debug!(
+                "Order {order_id} initial preflight pricing cycle limit to prove: {} cycles",
+                prove_limit
+            );
+        }
+
+        debug_assert!(
+            preflight_limit >= prove_limit,
+            "preflight_limit ({preflight_limit}) < prove_limit ({prove_limit})",
+        );
+
+        // Apply max mcycle limit cap
+        let mut max_mcycle_limit = max_mcycle_limit;
+        // Check if priority requestor address - skip all exec limit calculations
+        let client_addr = order.request.client_address();
+        if let Some(allow_addresses) = &priority_requestor_addresses {
+            if allow_addresses.contains(&client_addr) {
+                max_mcycle_limit = None;
+                tracing::debug!("Order {order_id} exec limit config ignored due to client {} being part of priority_requestor_addresses.", client_addr);
+            }
+        }
+
+        if let Some(config_mcycle_limit) = max_mcycle_limit {
+            let config_cycle_limit = config_mcycle_limit.saturating_mul(1_000_000);
+            if prove_limit > config_cycle_limit {
+                tracing::debug!(
+                    "Order {order_id} prove limit capped by max_mcycle_limit config: {} -> {} cycles",
+                    prove_limit,
+                    config_cycle_limit
+                );
+                prove_limit = config_cycle_limit;
+                preflight_limit = config_cycle_limit;
+            } else if preflight_limit > config_cycle_limit {
+                preflight_limit = config_cycle_limit;
+            }
+        }
+
+        // Apply timing constraints based on peak prove khz
+        if let Some(peak_prove_khz) = peak_prove_khz {
+            let prove_window = request_expiration.saturating_sub(now);
+            let prove_deadline_limit = calculate_max_cycles_for_time(peak_prove_khz, prove_window);
+            if prove_limit > prove_deadline_limit {
+                tracing::debug!("Order {order_id} prove limit capped by deadline: {} -> {} cycles ({:.1}s at {} peak_prove_khz)", prove_limit, prove_deadline_limit, prove_window, peak_prove_khz);
+                prove_limit = prove_deadline_limit;
+            }
+
+            // For preflight, also check fulfill-after-expiry window
+            let new_preflight_limit = if !lock_expired {
+                let fulfill_after_expiry_window = order_expiry.saturating_sub(lock_expiry);
+                let fulfill_after_expiry_limit =
+                    calculate_max_cycles_for_time(peak_prove_khz, fulfill_after_expiry_window);
+                std::cmp::max(prove_deadline_limit, fulfill_after_expiry_limit)
+            } else {
+                prove_deadline_limit
+            };
+
+            if preflight_limit > new_preflight_limit {
+                preflight_limit = new_preflight_limit;
+            }
+        }
+
+        tracing::trace!(
+            "Order {order_id} final limits - preflight: {} cycles, prove: {} cycles",
+            preflight_limit,
+            prove_limit
+        );
+
+        debug_assert!(
+            preflight_limit >= prove_limit,
+            "preflight_limit ({preflight_limit}) < prove_limit ({prove_limit})",
+        );
+
+        Ok((preflight_limit, prove_limit))
     }
 }
 
@@ -2143,7 +2196,7 @@ pub(crate) mod tests {
 
         // Check logs for the expected message about skipping mcycle limit
         assert!(logs_contain(&format!(
-            "Order {order_id} exec limit skipped due to client {} being part of priority_requestor_addresses.",
+            "Order {order_id} exec limit config ignored due to client {} being part of priority_requestor_addresses.",
             ctx.provider.default_signer_address()
         )));
 
@@ -2159,9 +2212,14 @@ pub(crate) mod tests {
         assert!(locked);
 
         // Check logs for the expected message about setting exec limit to max_mcycle_limit
-        assert!(logs_contain(&format!("Order {order2_id} exec limit computed from max price")));
-        assert!(logs_contain("exceeds config max_mcycle_limit"));
-        assert!(logs_contain("setting exec limit to max_mcycle_limit"));
+        assert!(logs_contain(&format!(
+            "Order {order2_id} prove limit capped by max_mcycle_limit config"
+        )));
+        assert!(logs_contain(&format!(
+            "with limit of {} cycles (~{} mcycles)",
+            U256::from(exec_limit) * ONE_MILLION,
+            exec_limit
+        )));
     }
 
     #[tokio::test]
@@ -2193,10 +2251,8 @@ pub(crate) mod tests {
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
-        let expected_log_pattern = format!("Order {order_id} preflight cycle limit adjusted to");
+        let expected_log_pattern = format!("Order {order_id} prove limit capped by deadline");
         assert!(logs_contain(&expected_log_pattern));
-        assert!(logs_contain("capped by"));
-        assert!(logs_contain("peak_prove_khz config"));
     }
 
     #[tokio::test]
@@ -2302,7 +2358,9 @@ pub(crate) mod tests {
         assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
 
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
-        assert!(logs_contain(&format!("exec limit cycles for order {order2_id}: 10")));
+        assert!(logs_contain(&format!(
+            "Starting preflight execution of {order2_id} with limit of 10 cycles"
+        )));
         assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
     }
 
@@ -2768,15 +2826,9 @@ pub(crate) mod tests {
         let preflight_calls = mock_prover.get_preflight_calls();
         assert_eq!(
             preflight_calls.len(),
-            2,
-            "Should have exactly 2 preflight calls since orders have different exec limits due to different timeouts.",
+            1,
+            "Should have exactly 1 preflight call due to preflight result caching that avoids redundant execution.",
         );
-
-        // Check that the log message about insufficient limit was produced
-        assert!(logs_contain(&format!(
-            "Cached result has insufficient limit for order {}",
-            high_timeout_order.id()
-        )));
 
         Ok(())
     }
@@ -2876,12 +2928,456 @@ pub(crate) mod tests {
         // Check that the cancellation was logged
         assert!(logs_contain("Order pricing cancelled during pricing for order"));
 
-        // Verify that both preflight calls were made (both tasks start their preflights)
-        // Task A starts its preflight but gets cancelled during execution
-        // Task B completes its preflight successfully
+        // Verify that preflights are cached to avoid redundant execution
+        // Both orders should reuse the same preflight result due to caching
         let preflight_calls = mock_prover.get_preflight_calls();
-        assert_eq!(preflight_calls.len(), 1, "Should have exactly 1 preflight call");
+        assert_eq!(preflight_calls.len(), 1, "Should have exactly 1 preflight call due to caching");
 
         Ok(())
+    }
+
+    // Unit tests for calculate_exec_limits function
+
+    /// Helper to parse stake token amounts (6 decimals) instead of ETH (18 decimals)
+    fn parse_stake_tokens(amount: &str) -> U256 {
+        parse_units(amount, 6).unwrap().into()
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_eth_higher_than_stake() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0.01".to_string(),           // 0.01 ETH per mcycle
+            mcycle_price_stake_token: "10".to_string(), // 10 stake tokens per mcycle
+            max_mcycle_limit: None,
+            peak_prove_khz: None,
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap(); // 0.001 ETH gas cost
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(), // 0.05 ETH max price
+                lock_stake: parse_stake_tokens("100"),   // 100 stake tokens
+                lock_timeout: 900,                       // lock timeout
+                timeout: 1200,                           // order timeout
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.01 ETH/mcycle = 4.9M cycles
+        // Stake based: 100 stake tokens * 1M / 10 stake_tokens/mcycle = 10M cycles
+        // ETH-based is higher, so both should use ETH-based limit
+
+        assert_eq!(preflight_limit, 4_900_000u64);
+        assert_eq!(prove_limit, 4_900_000u64);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_stake_higher_than_eth_exposes_bug() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0.1".to_string(), // 0.1 ETH per mcycle (expensive)
+            mcycle_price_stake_token: "1".to_string(), // 1 stake token per mcycle (cheaper)
+            max_mcycle_limit: None,
+            peak_prove_khz: None,
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(), // 0.05 ETH max price
+                lock_stake: parse_stake_tokens("1000"),  // 1000 stake tokens
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.1 ETH/mcycle = 490k cycles
+        // Stake based: 1000 stake tokens * 1M / 1 stake_token/mcycle = 1000M cycles
+        // Stake-based is higher, demonstrating the bug where preflight != prove limits
+
+        assert_eq!(preflight_limit, 250_000_000u64);
+        assert_eq!(prove_limit, 490_000u64);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_fulfill_after_expire_stake_only() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0.1".to_string(), // Won't be used for FulfillAfterLockExpire
+            mcycle_price_stake_token: "0.1".to_string(), // 0.1 ETH per mcycle
+            max_mcycle_limit: None,
+            peak_prove_khz: None,
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                max_price: parse_ether("1.0").unwrap(), // Won't be used
+                lock_stake: parse_stake_tokens("1.0"),  // 1 stake token
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // Should only use stake-based pricing for FulfillAfterLockExpire
+        // Stake based: 1.0 stake tokens * 1M / 0.1 stake tokens per mcycle = 10M cycles
+        let expected_cycles = 2_500_000u64;
+
+        assert_eq!(preflight_limit, expected_cycles);
+        assert_eq!(prove_limit, expected_cycles);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_max_mcycle_cap() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0.01".to_string(),
+            mcycle_price_stake_token: "0.1".to_string(),
+            max_mcycle_limit: Some(20), // 20 mcycle limit
+            peak_prove_khz: None,
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("10.0").unwrap(), // Very high price
+                lock_stake: parse_stake_tokens("1000.0"), // Very high stake
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // Should be capped at 20M cycles regardless of high prices
+        let expected_cycles = 20_000_000u64;
+
+        assert_eq!(preflight_limit, expected_cycles);
+        assert_eq!(prove_limit, expected_cycles);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_priority_requestor_unlimited() {
+        let priority_address = address!("1234567890123456789012345678901234567890");
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0.01".to_string(),
+            mcycle_price_stake_token: "0.1".to_string(),
+            max_mcycle_limit: Some(5), // Low limit normally
+            peak_prove_khz: None,
+            priority_requestor_addresses: Some(vec![priority_address]),
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("1.0").unwrap(),
+                lock_stake: parse_stake_tokens("100.0"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        // Set the client address to the priority address
+        order.request.id = RequestId::new(priority_address, 1).into();
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
+        // For LockAndFulfill orders: preflight uses higher limit (stake), prove uses ETH-based
+        assert_eq!(preflight_limit, 250_000_000u64); // Stake-based calculation
+        assert_eq!(prove_limit, 99_900_000u64); // ETH-based calculation
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_timing_constraints() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0.01".to_string(),
+            mcycle_price_stake_token: "0.1".to_string(),
+            max_mcycle_limit: None,
+            peak_prove_khz: Some(1000), // 1M cycles per second
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("10.0").unwrap(), // High price that would normally allow many cycles
+                lock_stake: parse_stake_tokens("100.0"), // High stake
+                lock_timeout: 60,                        // 60 second lock timeout
+                timeout: 120,                            // 120 second order timeout
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // Should be limited by timing constraints
+        // Prove window: 60 seconds -> 60M cycles max
+        // Both should be capped at 60M cycles despite high prices
+        let expected_cycles = 60_000_000u64;
+
+        assert_eq!(preflight_limit, expected_cycles);
+        assert_eq!(prove_limit, expected_cycles);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_zero_stake_price_unlimited() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0.01".to_string(),
+            mcycle_price_stake_token: "0".to_string(), // Zero stake price
+            max_mcycle_limit: None,
+            peak_prove_khz: None,
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                max_price: parse_ether("1.0").unwrap(),
+                lock_stake: parse_stake_tokens("10.0"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // Should be unlimited (u64::MAX) when stake price is zero
+        assert_eq!(preflight_limit, u64::MAX);
+        assert_eq!(prove_limit, u64::MAX);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_very_short_deadline() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0.01".to_string(),
+            mcycle_price_stake_token: "0.1".to_string(),
+            max_mcycle_limit: None,
+            peak_prove_khz: Some(1000), // 1M cycles per second
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("1.0").unwrap(), // High price
+                lock_stake: parse_stake_tokens("10.0"), // High stake
+                lock_timeout: 1,                        // 1 second lock timeout (very short!)
+                timeout: 2,                             // 2 second order timeout
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // Should be limited by very short deadline: 1 second = 1M cycles
+        let expected_cycles = 1_000_000u64;
+
+        assert_eq!(preflight_limit, expected_cycles);
+        assert_eq!(prove_limit, expected_cycles);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_zero_mcycle_price_unlimited() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0".to_string(), // Zero ETH price
+            mcycle_price_stake_token: "0.1".to_string(),
+            max_mcycle_limit: None,
+            peak_prove_khz: None,
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("1.0").unwrap(),
+                lock_stake: parse_stake_tokens("10.0"),
+                lock_timeout: 60,
+                timeout: 120,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // Should be unlimited (u64::MAX) when ETH mcycle_price is zero
+        assert_eq!(preflight_limit, u64::MAX);
+        assert_eq!(prove_limit, u64::MAX);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_zero_mcycle_price_order_processing() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0".into();
+        }
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx.generate_next_order(Default::default()).await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced_order.target_timestamp, Some(0));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_zero_stake_price_order_processing() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price_stake_token = "0".into();
+        }
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
+        assert!(priced_order.target_timestamp.is_some());
     }
 }
