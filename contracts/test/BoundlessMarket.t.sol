@@ -2427,6 +2427,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         for (uint256 i = 0; i < batch.length; i++) {
             Client client = getClient(i);
 
+            vm.warp(10000);
             for (uint256 j = 0; j < batch[i]; j++) {
                 ProofRequest memory request = client.request(uint32(j));
 
