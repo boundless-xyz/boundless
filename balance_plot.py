@@ -18,6 +18,8 @@ def fetch_balances(rpc_url, address, duration, interval):
     past_block_number = latest_block_number - 1000
     past_block = web3.eth.get_block(past_block_number)
     avg_block_time = (latest_block_timestamp - past_block.timestamp) / 1000
+    if avg_block_time == 0:
+        raise ValueError("Average block time is zero — cannot correctly calculate block offset.")
 
     balances = []
 
@@ -98,6 +100,10 @@ if __name__ == '__main__':
             print("RPC_URL environment variable is required.")
             exit(1)
 
-        balances, chain_id = fetch_balances(rpc_url, args.address, args.duration, args.interval)
-        write_csv(balances, args.address, chain_id)
-        plot_balances(balances, args.address, chain_id)
+         try:
+            balances, chain_id = fetch_balances(rpc_url, args.address, args.duration, args.interval)
+            write_csv(balances, args.address, chain_id)
+            plot_balances(balances, args.address, chain_id)
+        except ValueError as e:
+            print(f"Error: {e}")
+            exit(1)
