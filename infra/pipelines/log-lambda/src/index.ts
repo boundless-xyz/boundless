@@ -3,6 +3,7 @@ import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
 import { getLogGroupName } from "./logGroups";
 import { SERVICE_TO_QUERY_STRING_MAPPING } from "./logQueries";
 import { encodeCloudWatchLogsInsightsUrl, encodeAwsConsoleUrl } from "./urls";
+import { accountIdToRoleName } from "./roles";
 
 const LOG_QUERY_MINS_BEFORE = 2;
 const LOG_QUERY_MINS_AFTER = 1;
@@ -95,7 +96,7 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
 
   const url = encodeAwsConsoleUrl(ssoBaseUrl, {
     account_id: accountId,
-    role_name: 'AWSPowerUserAccess',
+    role_name: accountIdToRoleName(accountId),
   }, {
     destination: logsUrl
   });

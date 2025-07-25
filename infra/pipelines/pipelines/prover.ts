@@ -200,15 +200,6 @@ export class ProverPipeline extends pulumi.ComponentResource {
               inputArtifacts: ["source_output"],
             },
             {
-              name: "ApproveDeployToProductionWave2",
-              category: "Approval",
-              owner: "AWS",
-              provider: "Manual",
-              version: "1",
-              runOrder: 2,
-              configuration: {}
-            },
-            {
               name: "DeployProductionEthSepolia",
               category: "Build",
               owner: "AWS",
