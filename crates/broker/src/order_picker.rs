@@ -895,7 +895,7 @@ where
             let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
             (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
                 .try_into()
-                .context("Failed to convert U256 exec limit to u64")?
+                .unwrap_or(u64::MAX)
         };
 
         let mut preflight_limit = stake_based_limit;
@@ -913,7 +913,7 @@ where
                     .saturating_mul(ONE_MILLION)
                     / min_mcycle_price)
                     .try_into()
-                    .context("Failed to convert U256 exec limit to u64")?
+                    .unwrap_or(u64::MAX)
             };
 
             if eth_based_limit > stake_based_limit {
