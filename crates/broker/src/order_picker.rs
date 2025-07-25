@@ -28,10 +28,7 @@ use crate::{
     task::{RetryRes, RetryTask, SupervisorErr},
     utils, FulfillmentType, OrderRequest, OrderStateChange,
 };
-use crate::{
-    now_timestamp,
-    provers::{ExecutorResp, ProofResult},
-};
+use crate::{now_timestamp, provers::ProofResult};
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -536,16 +533,15 @@ where
                             )
                             .await
                         {
-                            Ok(res) => {
+                            Ok(proof_result) => {
                                 tracing::debug!(
                                     "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed in {} seconds",
-                                    res.id,
-                                    res.stats.total_cycles / 1_000_000,
-                                    res.elapsed_time
+                                    proof_result.id,
+                                    proof_result.stats.total_cycles / 1_000_000,
+                                    proof_result.elapsed_time
                                 );
                                 Ok(PreflightCacheValue::Success {
-                                    exec_session_id: res.id,
-                                    cycle_count: res.stats.total_cycles,
+                                    proof_result,
                                     image_id,
                                     input_id,
                                 })
@@ -596,24 +592,19 @@ where
         };
 
         // Handle the preflight result
-        let (exec_session_id, cycle_count) = match preflight_result {
-            Ok(PreflightCacheValue::Success {
-                exec_session_id,
-                cycle_count,
-                image_id,
-                input_id,
-            }) => {
+        let proof_res = match preflight_result {
+            Ok(PreflightCacheValue::Success { proof_result, image_id, input_id }) => {
                 tracing::debug!(
                     "Using preflight result for {order_id}: session id {} with {} mcycles",
-                    exec_session_id,
-                    cycle_count / 1_000_000
+                    proof_result.id,
+                    proof_result.stats.total_cycles / 1_000_000
                 );
 
                 // Update order with the uploaded IDs
                 order.image_id = Some(image_id.clone());
                 order.input_id = Some(input_id.clone());
 
-                (exec_session_id, cycle_count)
+                proof_result
             }
             Ok(PreflightCacheValue::Skip { .. }) => {
                 return Ok(Skip);
@@ -621,12 +612,6 @@ where
             Err(err) => {
                 return Err(err);
             }
-        };
-
-        let proof_res = ProofResult {
-            id: exec_session_id,
-            stats: ExecutorResp { total_cycles: cycle_count, ..Default::default() },
-            elapsed_time: 0.0,
         };
 
         // If a max_mcycle_limit is configured check if the order is over that limit
@@ -1017,7 +1002,7 @@ struct PreflightCacheKey {
 /// Value type for the preflight cache
 #[derive(Clone, Debug)]
 enum PreflightCacheValue {
-    Success { exec_session_id: String, cycle_count: u64, image_id: String, input_id: String },
+    Success { proof_result: ProofResult, image_id: String, input_id: String },
     Skip { cached_limit: u64 },
 }
 
