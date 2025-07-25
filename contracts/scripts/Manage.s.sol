@@ -138,7 +138,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         // git worktree add ../boundless-reference ${DEPLOYED_COMMIT:?}
         // cd ../boundless-reference
         // forge build
-        // cp -R out/build-info ../boundless/contracts/build-info-reference
+        // cp -R contracts/out/build-info ../boundless/contracts/build-info-reference
         // ```
         UpgradeOptions memory opts;
         opts.constructorData =
