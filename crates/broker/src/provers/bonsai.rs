@@ -41,6 +41,7 @@ pub struct Bonsai {
     req_retry_count: u64,
     status_poll_ms: u64,
     status_poll_retry_count: u64,
+    proof_job_timeout_secs: u64,
     prover_type: ProverType,
 }
 
@@ -52,6 +53,7 @@ impl Bonsai {
             req_retry_sleep_ms,
             status_poll_ms,
             status_poll_retry_count,
+            proof_job_timeout_secs,
         ) = {
             let config = config.lock_all().unwrap();
             (
@@ -60,6 +62,7 @@ impl Bonsai {
                 config.prover.req_retry_sleep_ms,
                 config.prover.status_poll_ms,
                 config.prover.status_poll_retry_count,
+                config.prover.proof_job_timeout_secs,
             )
         };
 
@@ -71,6 +74,7 @@ impl Bonsai {
             req_retry_count,
             status_poll_ms,
             status_poll_retry_count,
+            proof_job_timeout_secs,
             prover_type,
         })
     }
@@ -96,34 +100,44 @@ impl Bonsai {
         )
         .await?;
 
-        loop {
-            let status = retry::<_, SdkErr, _, _>(
-                cfg.status_poll_retry_count,
-                cfg.status_poll_ms,
-                || async { proof_id.status(client).await },
-                "get snark status",
-            )
-            .await?;
+        let timeout_duration = tokio::time::Duration::from_secs(cfg.proof_job_timeout_secs);
+        let polling_future = async {
+            loop {
+                let status = retry::<_, SdkErr, _, _>(
+                    cfg.status_poll_retry_count,
+                    cfg.status_poll_ms,
+                    || async { proof_id.status(client).await },
+                    "get snark status",
+                )
+                .await?;
 
-            match status.status.as_ref() {
-                "RUNNING" => {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(cfg.status_poll_ms))
-                        .await;
-                    continue;
-                }
-                "SUCCEEDED" => {
-                    let output = status.output.unwrap();
-                    let receipt_buf = client.download(&output).await?;
-                    return Ok(bincode::deserialize(&receipt_buf)?);
-                }
-                status_code => {
-                    let err_msg = status.error_msg.unwrap_or_default();
-                    return Err(ProverError::ProvingFailed(format!(
-                        "snark proving failed with status {status_code}: {err_msg}"
-                    )));
+                match status.status.as_ref() {
+                    "RUNNING" => {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(cfg.status_poll_ms))
+                            .await;
+                        continue;
+                    }
+                    "SUCCEEDED" => {
+                        let output = status.output.unwrap();
+                        let receipt_buf = client.download(&output).await?;
+                        return Ok(bincode::deserialize(&receipt_buf)?);
+                    }
+                    status_code => {
+                        let err_msg = status.error_msg.unwrap_or_default();
+                        return Err(ProverError::ProvingFailed(format!(
+                            "snark proving failed with status {status_code}: {err_msg}"
+                        )));
+                    }
                 }
             }
-        }
+        };
+
+        tokio::time::timeout(timeout_duration, polling_future).await.map_err(|_| {
+            ProverError::ProvingFailed(format!(
+                "Snark compression timed out after {} seconds",
+                cfg.proof_job_timeout_secs
+            ))
+        })?
     }
 
     async fn retry<T, F, Fut>(&self, f: F, msg: &str) -> Result<T, ProverError>
@@ -164,6 +178,7 @@ impl Bonsai {
 struct StatusPoller {
     poll_sleep_ms: u64,
     retry_counts: u64,
+    timeout_secs: u64,
 }
 
 impl StatusPoller {
@@ -172,62 +187,72 @@ impl StatusPoller {
         proof_id: &SessionId,
         client: &BonsaiClient,
     ) -> Result<ProofResult, ProverError> {
-        loop {
-            let status = retry::<_, SdkErr, _, _>(
-                self.retry_counts,
-                self.poll_sleep_ms,
-                || async { proof_id.status(client).await },
-                "get session status",
-            )
-            .await;
+        let timeout_duration = tokio::time::Duration::from_secs(self.timeout_secs);
+        let polling_future = async {
+            loop {
+                let status = retry::<_, SdkErr, _, _>(
+                    self.retry_counts,
+                    self.poll_sleep_ms,
+                    || async { proof_id.status(client).await },
+                    "get session status",
+                )
+                .await;
 
-            if let Err(_err) = status {
-                return Err(ProverError::StatusFailure);
-            }
-
-            let status = status.unwrap();
-
-            match status.status.as_ref() {
-                "RUNNING" => {
-                    tracing::trace!(
-                        "Session {proof_id:?} is still running. Elapsed time: {}",
-                        status.elapsed_time.unwrap_or(f64::NAN)
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
-                        .await;
-                    continue;
+                if let Err(_err) = status {
+                    return Err(ProverError::StatusFailure);
                 }
-                "SUCCEEDED" => {
-                    let Some(stats) = status.stats else {
-                        return Err(ProverError::MissingStatus);
-                    };
-                    tracing::trace!(
-                        "Session {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
-                        stats.cycles,
-                        stats.total_cycles
-                    );
-                    return Ok(ProofResult {
-                        id: proof_id.uuid.clone(),
-                        stats: ExecutorResp {
-                            assumption_count: 0,
-                            segments: stats.segments as u64,
-                            user_cycles: stats.cycles,
-                            total_cycles: stats.total_cycles,
-                        },
-                        elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
-                    });
-                }
-                _ => {
-                    let err_msg = status.error_msg.unwrap_or_default();
-                    if err_msg.contains("INTERNAL_ERROR") {
-                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+
+                let status = status.unwrap();
+
+                match status.status.as_ref() {
+                    "RUNNING" => {
+                        tracing::trace!(
+                            "Session {proof_id:?} is still running. Elapsed time: {}",
+                            status.elapsed_time.unwrap_or(f64::NAN)
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
+                            .await;
+                        continue;
                     }
-                    return Err(ProverError::ProvingFailed(format!(
-                        "{proof_id:?} failed: {err_msg}"
-                    )));
+                    "SUCCEEDED" => {
+                        let Some(stats) = status.stats else {
+                            return Err(ProverError::MissingStatus);
+                        };
+                        tracing::trace!(
+                            "Session {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
+                            stats.cycles,
+                            stats.total_cycles
+                        );
+                        return Ok(ProofResult {
+                            id: proof_id.uuid.clone(),
+                            stats: ExecutorResp {
+                                assumption_count: 0,
+                                segments: stats.segments as u64,
+                                user_cycles: stats.cycles,
+                                total_cycles: stats.total_cycles,
+                            },
+                            elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
+                        });
+                    }
+                    _ => {
+                        let err_msg = status.error_msg.unwrap_or_default();
+                        if err_msg.contains("INTERNAL_ERROR") {
+                            return Err(ProverError::ProverInternalError(err_msg.clone()));
+                        }
+                        return Err(ProverError::ProvingFailed(format!(
+                            "{proof_id:?} failed: {err_msg}"
+                        )));
+                    }
                 }
             }
-        }
+        };
+
+        tokio::time::timeout(timeout_duration, polling_future).await.map_err(|_| {
+            ProverError::ProvingFailed(format!(
+                "Proof job {proof_id:?} timed out after {} seconds",
+                self.timeout_secs
+            ))
+        })?
     }
 
     async fn poll_with_retries_snark_id(
@@ -235,39 +260,49 @@ impl StatusPoller {
         proof_id: &SnarkId,
         client: &BonsaiClient,
     ) -> Result<String, ProverError> {
-        loop {
-            let status = retry::<_, SdkErr, _, _>(
-                self.retry_counts,
-                self.poll_sleep_ms,
-                || async { proof_id.status(client).await },
-                "get snark status",
-            )
-            .await;
+        let timeout_duration = tokio::time::Duration::from_secs(self.timeout_secs);
+        let polling_future = async {
+            loop {
+                let status = retry::<_, SdkErr, _, _>(
+                    self.retry_counts,
+                    self.poll_sleep_ms,
+                    || async { proof_id.status(client).await },
+                    "get snark status",
+                )
+                .await;
 
-            if let Err(_err) = status {
-                return Err(ProverError::StatusFailure);
-            }
-
-            let status = status.unwrap();
-
-            match status.status.as_ref() {
-                "RUNNING" => {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
-                        .await;
-                    continue;
+                if let Err(_err) = status {
+                    return Err(ProverError::StatusFailure);
                 }
-                "SUCCEEDED" => return Ok(proof_id.uuid.clone()),
-                status_code => {
-                    let err_msg = status.error_msg.unwrap_or_default();
-                    if err_msg.contains("INTERNAL_ERROR") {
-                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+
+                let status = status.unwrap();
+
+                match status.status.as_ref() {
+                    "RUNNING" => {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
+                            .await;
+                        continue;
                     }
-                    return Err(ProverError::ProvingFailed(format!(
-                        "snark proving failed with status {status_code}: {err_msg}"
-                    )));
+                    "SUCCEEDED" => return Ok(proof_id.uuid.clone()),
+                    status_code => {
+                        let err_msg = status.error_msg.unwrap_or_default();
+                        if err_msg.contains("INTERNAL_ERROR") {
+                            return Err(ProverError::ProverInternalError(err_msg.clone()));
+                        }
+                        return Err(ProverError::ProvingFailed(format!(
+                            "snark proving failed with status {status_code}: {err_msg}"
+                        )));
+                    }
                 }
             }
-        }
+        };
+
+        tokio::time::timeout(timeout_duration, polling_future).await.map_err(|_| {
+            ProverError::ProvingFailed(format!(
+                "Snark proving for {proof_id:?} timed out after {} seconds",
+                self.timeout_secs
+            ))
+        })?
     }
 }
 
@@ -329,6 +364,7 @@ impl Prover for Bonsai {
                 let poller = StatusPoller {
                     poll_sleep_ms: self.status_poll_ms,
                     retry_counts: self.status_poll_retry_count,
+                    timeout_secs: self.proof_job_timeout_secs,
                 };
                 poller.poll_with_retries_session_id(&preflight_id, &self.client).await
             },
@@ -375,6 +411,7 @@ impl Prover for Bonsai {
         let poller = StatusPoller {
             poll_sleep_ms: self.status_poll_ms,
             retry_counts: self.status_poll_retry_count,
+            timeout_secs: self.proof_job_timeout_secs,
         };
 
         poller.poll_with_retries_session_id(&proof_id, &self.client).await
@@ -498,6 +535,7 @@ impl Prover for Bonsai {
         let poller = StatusPoller {
             poll_sleep_ms: self.status_poll_ms,
             retry_counts: self.status_poll_retry_count,
+            timeout_secs: self.proof_job_timeout_secs,
         };
 
         poller.poll_with_retries_snark_id(&proof_id, &self.client).await?;
