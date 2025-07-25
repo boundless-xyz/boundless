@@ -40,7 +40,7 @@ test-cargo-example:
     RISC0_DEV_MODE=1 cargo test
 
 # Run database tests
-test-cargo-db: 
+test-cargo-db:
     just test-db setup
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
@@ -129,7 +129,7 @@ check-clippy:
     cargo clippy --workspace --all-targets
 
 check-docs:
-    # Matches the docs-rs job in CI 
+    # Matches the docs-rs job in CI
     RUSTDOCFLAGS="--cfg docsrs -D warnings" RISC0_SKIP_BUILD=1 cargo +nightly-2025-01-03 doc -p boundless-market --all-features --no-deps
 
 # Format all code
@@ -153,7 +153,7 @@ format:
     forge fmt
 
 # Clean up all build artifacts
-clean: 
+clean:
     @just localnet down
     @echo "Cleaning up..."
     @rm -rf {{LOGS_DIR}} ./broadcast
@@ -175,16 +175,16 @@ localnet action="up": check-deps
     PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     ADMIN_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     DEPOSIT_AMOUNT="100000000000000000000"
-    
+
     if [ "{{action}}" = "up" ]; then
         mkdir -p {{LOGS_DIR}}
-        
+
         # Create .env.localnet from template if it doesn't exist
         if [ ! -f .env.localnet ]; then
             echo "Creating .env.localnet from template..."
             cp .env.localnet-template .env.localnet || { echo "Error: .env.localnet-template not found"; exit 1; }
         fi
-        
+
         echo "Building contracts..."
         forge build || { echo "Failed to build contracts"; just localnet down; exit 1; }
         echo "Building Rust project..."
@@ -218,11 +218,11 @@ localnet action="up": check-deps
         sed -i.bak "s/^export HIT_POINTS_ADDRESS=.*/export HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
-        
+
         # Mint stake to the address in the localnet template wallet
         DEFAULT_PRIVATE_KEY="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
         DEFAULT_ADDRESS="0x90F79bf6EB2c4f870365E785982E1f101E93b906"
-        
+
         echo "Minting HP for prover address."
         cast send --private-key $DEPLOYER_PRIVATE_KEY \
             --rpc-url http://localhost:$ANVIL_PORT \
@@ -236,7 +236,7 @@ localnet action="up": check-deps
             --min-balance-raw 0 \
             --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
             --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
-        
+
         echo "Depositing stake using boundless CLI..."
         RPC_URL=http://localhost:$ANVIL_PORT \
         PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
@@ -244,7 +244,7 @@ localnet action="up": check-deps
         SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
         VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
         ./target/debug/boundless account deposit-stake 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
-        
+
         echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
         if [ ! -f broker.toml ]; then
             echo "Creating broker.toml from template..."
@@ -309,13 +309,13 @@ bento action="up" env_file="" compose_flags="" detached="true":
         else
             echo "Using default values from compose.yml"
         fi
-        
+
         if [ "{{detached}}" = "true" ]; then
             DETACHED_FLAG="-d"
         else
             DETACHED_FLAG=""
         fi
-        
+
         docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG
         if [ "{{detached}}" != "true" ]; then
             echo "Docker Compose services have been started."
@@ -354,7 +354,7 @@ broker action="up" env_file="" detached="true":
         cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
         echo "broker.toml created successfully."
     fi
-    
+
     just bento "{{action}}" "{{env_file}}" "--profile broker" "{{detached}}"
 
 # Run the setup script
@@ -366,3 +366,30 @@ bento-setup:
 job-status job_id:
     #!/usr/bin/env bash
     ./scripts/job_status.sh {{job_id}}
+
+# Build boundless-cli binary in container and copy binary to /usr/local/bin
+install-cli:
+    #!/usr/bin/env bash
+    echo "Building boundless-cli Docker image..."
+    docker build -t boundless-cli -f dockerfiles/cli.Dockerfile .
+
+    echo "Creating temporary container to extract binary..."
+    CONTAINER_ID=$(docker create boundless-cli)
+
+    echo "Copying binary from container..."
+    docker cp $CONTAINER_ID:/usr/local/bin/boundless ./boundless
+    docker cp $CONTAINER_ID:/usr/local/bin/boundless-ffi ./boundless-ffi
+
+    echo "Cleaning up container..."
+    docker rm $CONTAINER_ID
+
+    echo "Moving binary to /usr/local/bin..."
+    sudo mv ./boundless /usr/local/bin/boundless
+    sudo mv ./boundless-ffi /usr/local/bin/boundless-ffi
+
+    echo "Setting executable permissions..."
+    sudo chmod +x /usr/local/bin/boundless /usr/local/bin/boundless-ffi
+
+    echo "boundless-cli successfully installed to /usr/local/bin/boundless"
+    echo "Running 'boundless --version' to verify installation..."
+    boundless --version || { echo "Error: boundless CLI installation failed"; exit 1; }
