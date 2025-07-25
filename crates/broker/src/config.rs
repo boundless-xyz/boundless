@@ -77,6 +77,10 @@ mod defaults {
     pub const fn max_concurrent_preflights() -> u32 {
         4
     }
+
+    pub const fn proof_job_timeout_secs() -> u64 {
+        3600
+    }
 }
 
 /// Order pricing priority mode for determining which orders to price first
@@ -342,6 +346,13 @@ pub struct ProverConf {
     /// If not set, it defaults to 30 seconds.
     #[serde(default = "defaults::reaper_grace_period_secs")]
     pub reaper_grace_period_secs: u32,
+    /// Timeout for proof jobs to complete (in seconds)
+    ///
+    /// If a proof job is stuck in "RUNNING" state longer than this timeout,
+    /// the polling will stop and return a timeout error instead of waiting indefinitely.
+    /// If not set, it defaults to 3600 seconds (1 hour).
+    #[serde(default = "defaults::proof_job_timeout_secs")]
+    pub proof_job_timeout_secs: u64,
 }
 
 impl Default for ProverConf {
@@ -359,6 +370,7 @@ impl Default for ProverConf {
             max_critical_task_retries: None,
             reaper_interval_secs: defaults::reaper_interval_secs(),
             reaper_grace_period_secs: defaults::reaper_grace_period_secs(),
+            proof_job_timeout_secs: defaults::proof_job_timeout_secs(),
         }
     }
 }
