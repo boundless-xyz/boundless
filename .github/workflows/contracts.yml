@@ -15,7 +15,7 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  FOUNDRY_VERSION: v1.2.2
+  FOUNDRY_VERSION: v1.2.3
 
 jobs:
   contracts-changed:
@@ -80,7 +80,7 @@ jobs:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: ${{ env.FOUNDRY_VERSION }}
 
       - name: checkout main code
         uses: actions/checkout@v4

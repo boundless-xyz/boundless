@@ -232,11 +232,17 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 5. Test the deployment.
 
    ```bash
-   FOUNDRY_PROFILE=deployment-test forge test --fork-url $RPC_URL
+   FOUNDRY_PROFILE=deployment-test SELECTOR=<ZKVM-SELECTOR> forge test --fork-url $RPC_URL
    ```
+
+   where the `SELECTOR` is the zkvm selector used as part of the request requirments.
 
    > [!IMPORTANT]
    > Make sure the Assessor info match what you expect.
+
+   > [!NOTE]
+   > `BONSAI_API_KEY` and `BONSAI_API_URL` can be set to use bonsai as backend.
+   > Optional `IPFS_GATEWAY` and `PINATA_JWT` envs can be set to bypass rate limits if needed.
 
 [yq-install]: https://github.com/mikefarah/yq?tab=readme-ov-file#install
 [alloy-chains]: https://github.com/alloy-rs/chains/blob/main/src/named.rs
