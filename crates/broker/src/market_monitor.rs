@@ -435,7 +435,7 @@ where
                 log_res = stream.next() => {
                     match log_res {
                         Some(Ok((event, log))) => {
-                            tracing::debug!("Detected request fulfilled 0x{:x} txn: 0x{:x}", event.requestId, log.transaction_hash);
+                            tracing::debug!("Detected request fulfilled 0x{:x}", event.requestId);
                             if let Err(e) = db
                                 .set_request_fulfilled(
                                     U256::from(event.requestId),
