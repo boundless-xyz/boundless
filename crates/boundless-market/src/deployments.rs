@@ -73,6 +73,13 @@ pub struct Deployment {
     #[clap(long, env, long_help = "URL for the offchain order stream service")]
     #[builder(setter(into, strip_option), default)]
     pub order_stream_url: Option<Cow<'static, str>>,
+
+    /// Address of the [ProofDelegation] contract.
+    ///
+    /// [ProofDelegation]: crate::contracts::ProofDelegation
+    #[clap(long, env, long_help = "Address of the ProofDelegation contract")]
+    #[builder(setter(strip_option), default)]
+    pub proof_delegation_address: Option<Address>,
 }
 
 impl Deployment {
