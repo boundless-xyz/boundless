@@ -539,11 +539,28 @@ where
                     return Ok(());
                 }
                 Err(err) => {
-                    tracing::warn!(
-                        "Batch submission attempt {}/{} failed. Error: {err:?}",
-                        attempt + 1,
-                        max_batch_submission_attempts,
-                    );
+                    // Check if this is a nonce-related error
+                    let error_msg = err.to_string().to_lowercase();
+                    let is_nonce_error = error_msg.contains("nonce too low") 
+                        || error_msg.contains("nonce already used")
+                        || error_msg.contains("nonce gap");
+                    
+                    if is_nonce_error {
+                        tracing::warn!(
+                            "Batch submission attempt {}/{} failed with nonce error: {err:?}. Will retry with fresh nonce.",
+                            attempt + 1,
+                            max_batch_submission_attempts,
+                        );
+                        
+                        // Add a small delay to allow the nonce to settle
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    } else {
+                        tracing::warn!(
+                            "Batch submission attempt {}/{} failed. Error: {err:?}",
+                            attempt + 1,
+                            max_batch_submission_attempts,
+                        );
+                    }
                     errors.push(err);
                 }
             }
