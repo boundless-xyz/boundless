@@ -453,7 +453,7 @@ where
                 .get(order_id)
                 .unwrap_or(&OrderPrice { price: U256::ZERO, stake_reward: U256::ZERO });
             tracing::info!(
-                "✨ Completed order: {:x} fee: {} stake_reward: {} ✨",
+                "✨ Completed order: 0x{:x} fee: {} stake_reward: {} ✨",
                 fulfillment.id,
                 format_ether(order_price.price),
                 format_ether(order_price.stake_reward)

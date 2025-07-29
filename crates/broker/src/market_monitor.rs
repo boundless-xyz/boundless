@@ -326,7 +326,7 @@ where
                     match log_res {
                         Some(Ok((event, log))) => {
                             tracing::debug!(
-                                "Detected request 0x{:x} locked by {:x}",
+                                "Detected request 0x{:x} locked by 0x{:x}",
                                 event.requestId,
                                 event.prover,
                             );
@@ -435,7 +435,7 @@ where
                 log_res = stream.next() => {
                     match log_res {
                         Some(Ok((event, log))) => {
-                            tracing::debug!("Detected request fulfilled 0x{:x}", event.requestId);
+                            tracing::debug!("Detected request fulfilled 0x{:x} txn: 0x{:x}", event.requestId, log.transaction_hash);
                             if let Err(e) = db
                                 .set_request_fulfilled(
                                     U256::from(event.requestId),
