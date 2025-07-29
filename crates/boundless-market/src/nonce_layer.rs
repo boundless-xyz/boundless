@@ -88,12 +88,29 @@ where
         let semaphore = self.get_account_semaphore(from_address).await;
         let _permit = semaphore.acquire().await.unwrap();
 
-        // Fetch the pending nonce if not already set
-        if request.nonce.is_none() {
-            let pending_nonce = self.inner.get_transaction_count(from_address).pending().await?;
+        // Always fetch the latest pending nonce to avoid nonce conflicts
+        let pending_nonce = self.inner.get_transaction_count(from_address).pending().await?;
+        
+        // If request already has a nonce, check if it's still valid
+        if let Some(existing_nonce) = request.nonce {
+            if existing_nonce < pending_nonce {
+                tracing::warn!(
+                    "NonceProvider::send_with_nonce_management - stale nonce detected: {} < {}, updating to latest",
+                    existing_nonce,
+                    pending_nonce
+                );
+                request.nonce = Some(pending_nonce);
+            } else {
+                tracing::trace!(
+                    "NonceProvider::send_with_nonce_management - using existing nonce {} for address: {}",
+                    existing_nonce,
+                    from_address
+                );
+            }
+        } else {
             request.nonce = Some(pending_nonce);
             tracing::trace!(
-                "NonceProvider::send_with_nonce_management - set nonce {} for address: {}",
+                "NonceProvider::send_with_nonce_management - set fresh nonce {} for address: {}",
                 pending_nonce,
                 from_address
             );
