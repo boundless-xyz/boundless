@@ -229,7 +229,7 @@ where
             .get_status(request_id, Some(order.request.expires_at()))
             .await
             .context("Failed to get request status")
-            .map_err(|e| OrderMonitorErr::RpcErr(e.into()))?;
+            .map_err(OrderMonitorErr::RpcErr)?;
         if order_status != RequestStatus::Unknown {
             tracing::info!("Request {:x} not open: {order_status:?}, skipping", request_id);
             // TODO: fetch some chain data to find out who / and for how much the order

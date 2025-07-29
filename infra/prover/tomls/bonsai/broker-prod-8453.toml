@@ -14,7 +14,6 @@ stake_balance_warn_threshold = "15"
 stake_balance_error_threshold = "10"
 priority_requestor_addresses = [
   "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd",
-  "0x734dF7809c4ef94Da037449C287166D114503198", # Signal contract on Base
 ]
 # max_fetch_retries = 2
 # allow_client_addresses = []
