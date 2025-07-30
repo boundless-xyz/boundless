@@ -188,7 +188,7 @@ install_docker() {
             sudo apt update -y
 
             # Install Docker Engine, CLI, and Containerd
-            sudo apt install -y docker-ce docker-ce-cli containerd.io
+            ssudo apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin -y
 
             # Enable Docker
             sudo systemctl enable docker
