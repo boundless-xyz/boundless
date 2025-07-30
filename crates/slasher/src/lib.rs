@@ -423,6 +423,16 @@ where
                         return Err(ServiceError::SlashRevert(request_id, tx_hash));
                     }
                 }
+                Err(MarketError::LogNotEmitted(tx_hash, err)) => {
+                    let slashed = self.boundless_market.is_slashed(request_id).await?;
+                    if slashed {
+                        tracing::warn!("Tx 0x{:x} did not emit expected Slashed event for request 0x{:x} [{}]. Request is already slashed, removing", tx_hash, request_id, err);
+                        self.remove_order(request_id).await?;
+                    } else {
+                        tracing::error!("Tx 0x{:x} for request 0x{:x} did not emit expected Slashed event [{}]. Request is not slashed already", tx_hash, request_id, err);
+                        return Err(ServiceError::SlashRevert(request_id, tx_hash));
+                    }
+                }
                 Err(err) => {
                     let err_msg = err.to_string();
                     if err_msg.contains("RequestIsSlashed")

@@ -904,12 +904,17 @@ where
         // If lock and fulfill, potentially increase that to ETH-based value if higher
         if !lock_expired {
             // Calculate eth-based limit for lock and fulfill orders
-            let eth_based_limit = (U256::from(order.request.offer.maxPrice)
-                .saturating_sub(order_gas_cost)
-                .saturating_mul(ONE_MILLION)
-                / min_mcycle_price)
-                .try_into()
-                .context("Failed to convert U256 exec limit to u64")?;
+            let eth_based_limit = if min_mcycle_price == U256::ZERO {
+                tracing::warn!("min_mcycle_price is 0, setting unlimited exec limit");
+                u64::MAX
+            } else {
+                (U256::from(order.request.offer.maxPrice)
+                    .saturating_sub(order_gas_cost)
+                    .saturating_mul(ONE_MILLION)
+                    / min_mcycle_price)
+                    .try_into()
+                    .context("Failed to convert U256 exec limit to u64")?
+            };
 
             if eth_based_limit > stake_based_limit {
                 // Eth based limit is higher, use that for both preflight and prove
@@ -3286,5 +3291,93 @@ pub(crate) mod tests {
 
         assert_eq!(preflight_limit, expected_cycles);
         assert_eq!(prove_limit, expected_cycles);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_zero_mcycle_price_unlimited() {
+        let market_config = crate::config::MarketConf {
+            mcycle_price: "0".to_string(), // Zero ETH price
+            mcycle_price_stake_token: "0.1".to_string(),
+            max_mcycle_limit: None,
+            peak_prove_khz: None,
+            priority_requestor_addresses: None,
+            ..Default::default()
+        };
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("1.0").unwrap(),
+                lock_stake: parse_stake_tokens("10.0"),
+                lock_timeout: 60,
+                timeout: 120,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit) =
+            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+
+        // Should be unlimited (u64::MAX) when ETH mcycle_price is zero
+        assert_eq!(preflight_limit, u64::MAX);
+        assert_eq!(prove_limit, u64::MAX);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_zero_mcycle_price_order_processing() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price = "0".into();
+        }
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx.generate_next_order(Default::default()).await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced_order.target_timestamp, Some(0));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_zero_stake_price_order_processing() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.mcycle_price_stake_token = "0".into();
+        }
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
+        assert!(priced_order.target_timestamp.is_some());
     }
 }

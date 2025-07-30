@@ -74,7 +74,7 @@ export const createProverAlarms = (
   // Note: AWS has a limit of 5 filter patterns containing regex for each log group
   // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPattern.html
 
-  // [Regex] 3 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
+  // [Regex] 5 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('%\[B-[A-Z]+-500\]%', 'unexpected-errors', Severity.SEV2, {
     threshold: 5,
   }, { period: 300 });
@@ -110,10 +110,10 @@ export const createProverAlarms = (
     threshold: 5,
   }, { period: 900 });
 
-  // 1 supervisor fault triggers a SEV2 alarm
+  // 2 supervisor fault within 30 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('"[B-SUP-FAULT]"', 'supervisor-fault-errors', Severity.SEV2, {
-    threshold: 1,
-  });
+    threshold: 2,
+  }, { period: 1800 });
 
   //
   // Alarms for specific services and error codes.
@@ -123,14 +123,20 @@ export const createProverAlarms = (
   //
   // DB
   //
-  // 1 db locked error triggers a SEV2 alarm
-  createErrorCodeAlarm('"[B-DB-001]"', 'db-locked-error', Severity.SEV2);
+  // 2 db locked error within 30 minutes triggers a SEV2 alarm
+  createErrorCodeAlarm('"[B-DB-001]"', 'db-locked-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 }, "DB locked error 2 times within 30 minutes");
 
-  // 1 db pool timeout error triggers a SEV2 alarm
-  createErrorCodeAlarm('"[B-DB-002]"', 'db-pool-timeout-error', Severity.SEV2);
+  // 2 db pool timeout error within 30 minutes triggers a SEV2 alarm
+  createErrorCodeAlarm('"[B-DB-002]"', 'db-pool-timeout-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 }, "DB pool timeout error 2 times within 30 minutes");
 
-  // 1 db unexpected error triggers a SEV2 alarm
-  createErrorCodeAlarm('"[B-DB-500]"', 'db-unexpected-error', Severity.SEV2);
+  // 2 db unexpected error within 30 minutes triggers a SEV2 alarm
+  createErrorCodeAlarm('"[B-DB-500]"', 'db-unexpected-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 }, "DB unexpected error 2 times within 30 minutes");
 
   //
   // Storage
@@ -140,8 +146,8 @@ export const createProverAlarms = (
     threshold: 3,
   }, { period: 300 });
 
-  // 1 unexpected storage error triggers a SEV2 alarm
-  createErrorCodeAlarm('"[B-STR-500]"', 'storage-unexpected-error', Severity.SEV2);
+  // 2 unexpected storage errors triggers a SEV2 alarm
+  createErrorCodeAlarm('"[B-STR-500]"', 'storage-unexpected-error', Severity.SEV2, { threshold: 2 });
 
   //
   // Market Monitor
@@ -161,8 +167,8 @@ export const createProverAlarms = (
     threshold: 5,
   }, { period: 900 });
 
-  // Any 1 unexpected error in the market monitor triggers a SEV2 alarm.
-  createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2);
+  // Any 2 unexpected errors within 30 minutes in the market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2, { threshold: 2 }, { period: 1800 });
 
   // 3 unexpected errors within 5 minutes in the market monitor triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV1, {
@@ -179,8 +185,10 @@ export const createProverAlarms = (
     threshold: 5,
   }, { period: 3600 });
 
-  // Any 1 unexpected error in the on-chain market monitor triggers a SEV2 alarm.
-  createErrorCodeAlarm('"[B-CHM-500]"', 'chain-monitor-unexpected-error', Severity.SEV2);
+  // Any 2 unexpected errors within 30 minutes in the chain monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-CHM-500]"', 'chain-monitor-unexpected-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 });
 
   // 3 unexpected errors within 5 minutes in the chain monitor triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-CHM-500]"', 'chain-monitor-unexpected-error', Severity.SEV1, {
@@ -201,8 +209,10 @@ export const createProverAlarms = (
     threshold: 3,
   }, { period: 900 });
 
-  // Any 1 unexpected error in the off-chain market monitor triggers a SEV2 alarm.
-  createErrorCodeAlarm('"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error', Severity.SEV2);
+  // Any 2 unexpected errors within 30 minutes in the off-chain market monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 });
 
   // 3 unexpected errors within 5 minutes in the off-chain market monitor triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error', Severity.SEV1, {
@@ -212,10 +222,10 @@ export const createProverAlarms = (
   //
   // Order Picker
   //
-  // Any 1 unexpected error in the order picker triggers a SEV2 alarm.
+  // Any 2 unexpected errors within 30 minutes in the order picker triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-OP-500]"', 'order-picker-unexpected-error', Severity.SEV2, {
-    threshold: 1,
-  });
+    threshold: 2,
+  }, { period: 1800 });
 
   // Create a metric for errors when fetching images/inputs but don't alarm as could be user error.
   // Note: This is a pattern to match "[B-OP-001]" OR "[B-OP-002]"
@@ -237,12 +247,14 @@ export const createProverAlarms = (
   //
   // Order Monitor
   //
-  // Any 1 unexpected error in the order monitor triggers a SEV2 alarm.
-  createErrorCodeAlarm('"[B-OM-500]"', 'order-monitor-unexpected-error', Severity.SEV2);
+  // Any 2 unexpected errors within 30 minutes in the order monitor triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-OM-500]"', 'order-monitor-unexpected-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 });
 
-  // 3 unexpected errors within 5 minutes in the order monitor triggers a SEV1 alarm.
+  // 4 unexpected errors within 5 minutes in the order monitor triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-OM-500]"', 'order-monitor-unexpected-error', Severity.SEV1, {
-    threshold: 3,
+    threshold: 4,
   }, { period: 300 });
 
   // Create metrics for scenarios where we fail to lock an order that we wanted to lock.
@@ -252,8 +264,10 @@ export const createProverAlarms = (
   // If we fail to lock an order because we saw an event indicating another prover locked before us.
   createLogMetricFilter('"[B-OM-009]"', 'order-monitor-already-locked');
 
-  // If we fail to lock an order because we don't have enough stake balance, SEV2.
-  createErrorCodeAlarm('"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2);
+  // If we fail to lock an order twice within 2 hours because we don't have enough stake balance, SEV2.
+  createErrorCodeAlarm('"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 7200 });
 
   // 3 lock tx not confirmed errors within 1 hour in the order monitor triggers a SEV2 alarm.
   // This may indicate a misconfiguration of the tx timeout config.
@@ -269,8 +283,10 @@ export const createProverAlarms = (
   //
   // Prover
   //
-  // Any 1 unexpected error in the prover triggers a SEV2 alarm.
-  createErrorCodeAlarm('"[B-PRO-500]"', 'prover-unexpected-error', Severity.SEV2);
+  // Any 2 unexpected errors within 30 minutes in the prover triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-PRO-500]"', 'prover-unexpected-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 });
 
   // 3 unexpected errors within 5 minutes in the prover triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-PRO-500]"', 'prover-unexpected-error', Severity.SEV1, {
@@ -284,11 +300,15 @@ export const createProverAlarms = (
 
   // Aggregator
   //
-  // 1 batch failure to compress triggers a SEV2 alarm. This indicates a fault with the prover.
-  createErrorCodeAlarm('"[B-AGG-400]"', 'aggregator-compression-error', Severity.SEV2);
+  // 2 batch failure to compress within 2 hours triggers a SEV2 alarm. This indicates a fault with the prover.
+  createErrorCodeAlarm('"[B-AGG-400]"', 'aggregator-compression-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 7200 });
 
-  // Any 1 unexpected error in the aggregator triggers a SEV2 alarm.
-  createErrorCodeAlarm('"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV2);
+  // Any 2 unexpected errors within 30 minutes in the aggregator triggers a SEV2 alarm.
+  createErrorCodeAlarm('"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV2, {
+    threshold: 2,
+  }, { period: 1800 });
 
   // 3 unexpected errors within 5 minutes in the aggregator triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV1, {
@@ -325,10 +345,10 @@ export const createProverAlarms = (
     threshold: 4,
   }, { period: 3600 }, "Some requests in a batch expired before submission twice in an hour");
 
-  // Any 2 market errors triggers a SEV2 alarm. Note we occasionally see these errors and on retry they
-  // succeed, so we alert on 2.
+  // Any 3 market errors triggers a SEV2 alarm. Note we occasionally see these errors and on retry they
+  // succeed, so we alert on 3
   createErrorCodeAlarm('"[B-SUB-002]"', 'submitter-market-error-submission', Severity.SEV2, {
-    threshold: 2,
+    threshold: 3,
   });
 
   // 4 failures to submit a batch within 2 hours due to timeouts in the submitter triggers a SEV2 alarm.

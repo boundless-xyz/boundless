@@ -117,6 +117,7 @@ export = () => {
   const offchainLockTimeout = offchainConfig.get('LOCK_TIMEOUT');
   const offchainTimeout = offchainConfig.get('TIMEOUT');
   const offchainSecondsPerMCycle = offchainConfig.get('SECONDS_PER_MCYCLE');
+  const offchainInterval = offchainConfig.get('INTERVAL');
   new OrderGenerator('offchain', {
     chainId,
     stackName,
@@ -134,7 +135,7 @@ export = () => {
     setVerifierAddr,
     boundlessMarketAddr,
     ipfsGateway,
-    interval,
+    interval: offchainInterval ?? interval,
     lockStakeRaw,
     minPricePerMCycle,
     maxPricePerMCycle,
@@ -158,6 +159,7 @@ export = () => {
   const onchainLockTimeout = onchainConfig.get('LOCK_TIMEOUT');
   const onchainTimeout = onchainConfig.get('TIMEOUT');
   const onchainSecondsPerMCycle = onchainConfig.get('SECONDS_PER_MCYCLE');
+  const onchainInterval = onchainConfig.get('INTERVAL');
   new OrderGenerator('onchain', {
     chainId,
     stackName,
@@ -171,7 +173,7 @@ export = () => {
     setVerifierAddr,
     boundlessMarketAddr,
     ipfsGateway,
-    interval,
+    interval: onchainInterval ?? interval,
     lockStakeRaw,
     rampUp: onchainRampUp,
     inputMaxMCycles: onchainInputMaxMCycles,
