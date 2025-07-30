@@ -112,13 +112,13 @@ if (hasDelegated) {
 anvil
 
 # Deploy to local network
-forge create ProofDelegation --rpc-url http://localhost:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+forge create ProofDelegation --rpc-url http://localhost:8545 --private-key YOUR_PRIVATE_KEY
 
 # Test delegation
-PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+PRIVATE_KEY=YOUR_PRIVATE_KEY \
 RPC_URL=http://localhost:8545 \
 PROOF_DELEGATION_ADDRESS=0x... \
-node scripts/delegate-proofs.js delegate 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+node scripts/delegate-proofs.js delegate 0x1234...your_main_wallet
 ```
 
 ## Backward Compatibility
