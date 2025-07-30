@@ -228,7 +228,8 @@ where
             .market
             .get_status(request_id, Some(order.request.expires_at()))
             .await
-            .context("Failed to get request status")?;
+            .context("Failed to get request status")
+            .map_err(OrderMonitorErr::RpcErr)?;
         if order_status != RequestStatus::Unknown {
             tracing::info!("Request {:x} not open: {order_status:?}, skipping", request_id);
             // TODO: fetch some chain data to find out who / and for how much the order
@@ -545,6 +546,10 @@ where
                                         "Failed to lock order: {order_id} - {} - {inner:?}",
                                         err.code()
                                     );
+                                }
+                                OrderMonitorErr::AlreadyLocked => {
+                                    // For order already locked, we don't need to print the error backtrace.
+                                    tracing::warn!("Soft failed to lock request: {order_id} - {}", err.code());
                                 }
                                 _ => {
                                     tracing::warn!(

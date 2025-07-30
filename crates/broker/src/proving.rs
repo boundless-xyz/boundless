@@ -341,8 +341,9 @@ impl ProvingService {
             }
             Err(err) => {
                 tracing::error!(
-                    "Order {} failed to prove after {} retries: {err:?}",
+                    "Order {} with job id {} failed to prove after {} retries: {err:?}",
                     order_id,
+                    order.proof_id.as_deref().unwrap_or("<invalid>"),
                     proof_retry_count
                 );
 

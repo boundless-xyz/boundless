@@ -16,6 +16,7 @@ const IGNORED_URL_PREFIXES = new Set([
   "https://lineascan.build",
   "https://sepolia.lineascan.build",
   "https://crates.io",
+  "https://ethereum.org",
 ]);
 
 async function checkRemoteUrl(url: string): Promise<boolean> {

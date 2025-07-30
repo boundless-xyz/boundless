@@ -98,6 +98,10 @@ pub enum MarketError {
     #[error("Slash request reverted, possibly already slashed: txn_hash: {0}")]
     SlashRevert(B256),
 
+    /// Log not emitted.
+    #[error("Expected log was not emitted, txn {0} possibly reverted: {1}")]
+    LogNotEmitted(B256, anyhow::Error),
+
     /// General market error.
     #[error("Other error: {0:?}")]
     Error(#[from] anyhow::Error),
@@ -345,8 +349,10 @@ impl<P: Provider> BoundlessMarketService<P> {
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         // Look for the logs for submitting the transaction.
-        let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
-        Ok(U256::from(log.inner.data.requestId))
+        match extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt) {
+            Ok(log) => Ok(U256::from(log.inner.data.requestId)),
+            Err(e) => Err(MarketError::LogNotEmitted(receipt.transaction_hash, e)),
+        }
     }
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
@@ -369,8 +375,10 @@ impl<P: Provider> BoundlessMarketService<P> {
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
         // Look for the logs for submitting the transaction.
-        let log = extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt)?;
-        Ok(U256::from(log.inner.data.requestId))
+        match extract_tx_log::<IBoundlessMarket::RequestSubmitted>(&receipt) {
+            Ok(log) => Ok(U256::from(log.inner.data.requestId)),
+            Err(e) => Err(MarketError::LogNotEmitted(receipt.transaction_hash, e)),
+        }
     }
 
     /// Submit a request such that it is publicly available for provers to evaluate and bid
@@ -580,8 +588,10 @@ impl<P: Provider> BoundlessMarketService<P> {
             return Err(MarketError::SlashRevert(receipt.transaction_hash));
         }
 
-        let log = extract_tx_log::<IBoundlessMarket::ProverSlashed>(&receipt)?;
-        Ok(log.inner.data)
+        match extract_tx_log::<IBoundlessMarket::ProverSlashed>(&receipt) {
+            Ok(log) => Ok(log.inner.data),
+            Err(e) => Err(MarketError::LogNotEmitted(receipt.transaction_hash, e)),
+        }
     }
 
     /// Submits a `FulfillmentTx`.
