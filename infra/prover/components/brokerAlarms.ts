@@ -231,9 +231,6 @@ export const createProverAlarms = (
   // Create a metric for errors when fetching images/inputs but don't alarm as could be user error.
   // Note: This is a pattern to match "[B-OP-001]" OR "[B-OP-002]"
   createLogMetricFilter('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error');
-  createErrorCodeAlarm('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error', Severity.SEV2, {
-    threshold: 3,
-  }, { period: 900 });
 
   // 3 unexpected errors within 5 minutes in the order picker triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-OP-500]"', 'order-picker-unexpected-error', Severity.SEV1, {
