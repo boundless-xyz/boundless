@@ -871,7 +871,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             .with_timeout(Some(self.timeout))
             .get_receipt()
             .await
-            .context("failed to confirm tx")?;
+            .context("failed to confirm tx")
+            .map_err(MarketError::TxnConfirmationError)?;
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
@@ -909,7 +910,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             .with_timeout(Some(self.timeout))
             .get_receipt()
             .await
-            .context("failed to confirm tx")?;
+            .context("failed to confirm tx")
+            .map_err(MarketError::TxnConfirmationError)?;
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
