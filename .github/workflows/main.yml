@@ -98,6 +98,9 @@ jobs:
           crate: cargo-sort
           version: "1.0"
 
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
+
       - name: cargo Sort
         run: cargo sort --workspace --check
 
@@ -124,6 +127,9 @@ jobs:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
         run: cargo clippy --locked --all-targets
+
+      - name: cargo deny
+        run: cargo deny check bans
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
