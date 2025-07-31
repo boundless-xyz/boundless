@@ -326,7 +326,7 @@ where
                     match log_res {
                         Some(Ok((event, log))) => {
                             tracing::debug!(
-                                "Detected request 0x{:x} locked by {:x}",
+                                "Detected request 0x{:x} locked by 0x{:x}",
                                 event.requestId,
                                 event.prover,
                             );

@@ -14,7 +14,7 @@ config:
   pipelines:BOUNDLESS_ALERTS_STAGING_SLACK_ID:
     secure: v1:gD6/fZ10KbMJ6bnc:/5ZjtnPS7Sl/5ys59cJdUTCixWZdyfaU68QT
   pipelines:SSO_BASE_URL:
-    secure: v1:J4pnTna1KP3wkUuU:9d8AW9H3gig7mn/tq1aPtw2hkYseRKsDBf0+vLHcp1j1+0zc1O6IP/PYJEcXBGozWwMOlhdddMCOA+ivd6n3EA==
+    secure: v1:mp7Zj3Vr4nKxLLQN:Q3IdlOsOP/SGJr4ZMVyyKDf5p9PzvbvuiUUlpsxGdu7bVNycztiqWWvRKufGwi6zkOoeorW6azi896WAvLD5Kg==
   pipelines:RUNBOOK_URL:
     secure: v1:6oX3TRTzickOSMk9:JYDw6501xgI+VJmpeMWN3UgqofpVzsquL40NC4XTjYfged/idqzAKlp0QC5fS5Ae4SV9zkcHoFFCl54Y8h88PUDLeaCaSV/IxnGYc6NFH2jEX3PQfmDBx062bRj1ksdmki4=
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key

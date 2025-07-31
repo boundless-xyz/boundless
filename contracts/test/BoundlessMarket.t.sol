@@ -103,7 +103,7 @@ contract BoundlessMarketTest is Test {
 
     uint256 constant DEFAULT_BALANCE = 1000 ether;
     uint256 constant EXPECTED_DEFAULT_MAX_GAS_FOR_VERIFY = 50000;
-    uint256 constant EXPECTED_SLASH_BURN_BPS = 7500;
+    uint256 constant EXPECTED_SLASH_BURN_BPS = 2000;
 
     ReceiptClaim internal APP_CLAIM = ReceiptClaimLib.ok(APP_IMAGE_ID, sha256(APP_JOURNAL));
 
@@ -574,15 +574,16 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Attempt to withdraw funds from the stake treasury from an unauthorized account.
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, testProverAddress));
         vm.prank(testProverAddress);
-        boundlessMarket.withdrawFromStakeTreasury(0.25 ether);
+        uint256 expectedWithdrawal = 1 ether - (1 ether * EXPECTED_SLASH_BURN_BPS / 10000);
+        boundlessMarket.withdrawFromStakeTreasury(expectedWithdrawal);
 
         // Withdraw funds from the stake treasury
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.StakeWithdrawal(address(boundlessMarket), 0.25 ether);
+        emit IBoundlessMarket.StakeWithdrawal(address(boundlessMarket), expectedWithdrawal);
         vm.prank(OWNER_WALLET.addr);
-        boundlessMarket.withdrawFromStakeTreasury(0.25 ether);
+        boundlessMarket.withdrawFromStakeTreasury(expectedWithdrawal);
         assert(boundlessMarket.balanceOfStake(address(boundlessMarket)) == 0);
-        assert(stakeToken.balanceOf(OWNER_WALLET.addr) == 0.25 ether);
+        assert(stakeToken.balanceOf(OWNER_WALLET.addr) == expectedWithdrawal);
     }
 
     function testWithdrawals() public {

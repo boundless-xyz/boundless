@@ -196,15 +196,22 @@ export = () => {
   const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
 
   let distributorArgs = [
-    boundlessMarketAddr ? `--boundless-market-address ${boundlessMarketAddr}` : '',
-    setVerifierAddr ? `--set-verifier-address ${setVerifierAddr}` : '',
-    chainId ? `--chain-id ${chainId}` : '',
     ethThreshold ? `--eth-threshold ${ethThreshold}` : '',
     stakeThreshold ? `--stake-threshold ${stakeThreshold}` : '',
     ethTopUpAmount ? `--eth-top-up-amount ${ethTopUpAmount}` : '',
     stakeTopUpAmount ? `--stake-top-up-amount ${stakeTopUpAmount}` : '',
     proverEthDonateThreshold ? `--prover-eth-donate-threshold ${proverEthDonateThreshold}` : '',
   ]
+
+  if (boundlessMarketAddr && setVerifierAddr) {
+    distributorArgs.push(
+      `--boundless-market-address ${boundlessMarketAddr}`,
+      `--set-verifier-address ${setVerifierAddr}`,
+      `--chain-id ${chainId}`,
+    );
+  } else if (boundlessMarketAddr || setVerifierAddr) {
+    throw new Error('Must provide all of boundlessMarketAddr, setVerifierAddr, and chainId. Or none of them.');
+  }
 
   const distributorSecrets = [
     {

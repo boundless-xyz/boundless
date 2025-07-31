@@ -90,6 +90,9 @@ jobs:
 
       - name: Forge build on main branch
         run: forge build
+        env:
+          FOUNDRY_PROFILE: reference-contract
+          FOUNDRY_OUT: contracts/out
 
       - name: Upload build-info artifact
         uses: actions/upload-artifact@v4
