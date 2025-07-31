@@ -18,7 +18,6 @@ priority_requestor_addresses = ["0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"]
 # lockin_priority_gas = 100
 
 [prover]
-bonsai_r0_zkvm_ver = '2.3.0'
 status_poll_retry_count = 3
 status_poll_ms = 1000
 req_retry_count = 3
@@ -32,7 +31,7 @@ proof_retry_sleep_ms = 500
 batch_max_time = 1000
 min_batch_size = 1
 block_deadline_buffer_secs = 120
-txn_timeout = 75
+txn_timeout = 90
 single_txn_fulfill = true
 max_submission_attempts = 2
 # batch_poll_time_ms = 500

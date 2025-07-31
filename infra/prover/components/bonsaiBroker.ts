@@ -10,7 +10,7 @@ import * as crypto from 'crypto';
 
 export class BonsaiECSBroker extends pulumi.ComponentResource {
   constructor(name: string, args: {
-    chainId: string;
+    chainId: ChainId;
     privateKey: string | pulumi.Output<string>;
     ethRpcUrl: string | pulumi.Output<string>;
     orderStreamUrl: string | pulumi.Output<string>;
@@ -49,7 +49,8 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
       dockerTag,
       ciCacheSecret,
       githubTokenSecret,
-      boundlessAlertsTopicArns
+      boundlessAlertsTopicArns,
+      chainId,
     } = args;
     const serviceName = name;
 
@@ -108,7 +109,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
     });
 
     // EFS
-    const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev5`, {
+    const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev6`, {
       encrypted: true,
       tags: {
         Name: serviceName,
@@ -419,7 +420,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
 
     const alarmActions = boundlessAlertsTopicArns ?? [];
 
-    createProverAlarms(serviceName, logGroup, [service, logGroup], alarmActions);
+    createProverAlarms(chainId, serviceName, logGroup, [service, logGroup], alarmActions);
 
     // Alarms for CPUUtilization and MemoryUtilization, alarm if over 80% for 5 consecutive minutes.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-cpu-utilization-alarm`, {
