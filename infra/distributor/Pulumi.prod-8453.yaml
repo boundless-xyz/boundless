@@ -5,7 +5,7 @@ config:
   distributor:DISTRIBUTOR_ADDRESS: 0xFc1f6D609610a479F9c7453BF3aeC8cb3849F865
   distributor:DISTRIBUTOR_PRIVATE_KEY:
     secure: v1:wsMaM6eH71PkGoGO:gnW40haQnOPc/SUZaxWYyvQY4tJNe7qjkn7rgbszPuaPczv607usL0t6mXGNtCCTF2uGUaYp6q8TobbS48GS5du7EL3FVm2l3uGGOxSemok=
-  distributor:ETH_THRESHOLD: "0.04"
+  distributor:ETH_THRESHOLD: "0.02"
   distributor:ETH_TOP_UP_AMOUNT: "0.02"
   distributor:GH_TOKEN_SECRET:
     secure: v1:sFcUNPOUWZ1ghOjf:Y3a6CP7X6bTABqL+OxMTKA7yzNFptTWH2+ADn188fYxHTccf0qeaIF8VRfCvJ2iVnMxfoAFsMpW72mf+Gzv3seAzwLHZhbwciJ4WrFKD3bHKydiDAQepnRbogHwcMfGWi7hSkSu72ihW3sm/hQ==

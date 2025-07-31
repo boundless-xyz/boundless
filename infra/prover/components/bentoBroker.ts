@@ -11,7 +11,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
     public instance: aws.ec2.Instance;
 
     constructor(name: string, args: {
-        chainId: string;
+        chainId: ChainId;
         gitBranch: string;
         segmentSize: number;
         snarkTimeout: number;
@@ -35,6 +35,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         super(name, name, opts);
 
         const {
+            chainId,
             boundlessMarketAddress,
             setVerifierAddress,
             ethRpcUrl,
@@ -632,7 +633,7 @@ reboot
 
         const alarmActions = boundlessAlertsTopicArns ?? [];
 
-        createProverAlarms(serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions);
+        createProverAlarms(chainId, serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions);
 
         this.instance.id.apply((instanceId) => {
             new aws.cloudwatch.MetricAlarm(`${serviceName}-cpu-util-${Severity.SEV2}`, {
