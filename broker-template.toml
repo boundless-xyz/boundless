@@ -125,8 +125,6 @@ stake_balance_error_threshold = "5"
 #groth16_verify_gas_estimate = 250000
 
 [prover]
-# Optional config, if using bonsai set the zkVM version here
-bonsai_r0_zkvm_ver = "2.1.0"
 # Number of retries to poll for proving status.
 #
 # Provides a little durability for transient failures.
@@ -197,3 +195,7 @@ withdraw = false
 #batch_max_fees = "0.1"
 # Number of attempts to make to submit a batch before abandoning
 #max_submission_attempts = 2
+
+# Optional config, only needed if using bonsai to set the zkVM version header. Not necessary when
+# using Bento as the prover.
+# bonsai_r0_zkvm_ver = "2.3.0"
