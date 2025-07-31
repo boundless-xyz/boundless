@@ -863,7 +863,8 @@ where
     ) -> Result<(u64, u64), OrderPickerErr> {
         // Derive parameters from order
         let order_id = order.id();
-        let is_fulfill_after_lock_expire = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
+        let is_fulfill_after_lock_expire =
+            order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
         let now = now_timestamp();
         let request_expiration = order.expiry();
         let lock_expiry = order.request.lock_expires_at();
@@ -893,12 +894,15 @@ where
             u64::MAX
         } else {
             let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
-            
-            let initial_stake_based_limit = (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
-                .try_into()
-                .context("Failed to convert U256 exec limit to u64")?;
 
-            tracing::trace!("Order {order_id} initial stake based limit: {initial_stake_based_limit}");
+            let initial_stake_based_limit =
+                (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
+                    .try_into()
+                    .context("Failed to convert U256 exec limit to u64")?;
+
+            tracing::trace!(
+                "Order {order_id} initial stake based limit: {initial_stake_based_limit}"
+            );
             initial_stake_based_limit
         };
 
@@ -2951,7 +2955,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_eth_higher_than_stake() {
         let market_config = crate::config::MarketConf {
-            mcycle_price: "0.001".to_string(),           // 0.01 ETH per mcycle
+            mcycle_price: "0.001".to_string(),          // 0.01 ETH per mcycle
             mcycle_price_stake_token: "10".to_string(), // 10 stake tokens per mcycle
             max_mcycle_limit: None,
             peak_prove_khz: None,
@@ -3034,8 +3038,16 @@ pub(crate) mod tests {
         // Stake based: (1000 stake tokens - 20% burn) * 1M / 1 stake_token/mcycle = 800M cycles
         // Stake-based is higher, demonstrating the bug where preflight != prove limits
 
-        let stake_reward_tokens = order.request.offer.stake_reward_if_locked_and_not_fulfilled().div_ceil(U256::from(1_000_000));
-        let stake_based_limit: u64 = stake_reward_tokens.saturating_mul(U256::from(1_000_000)).div_ceil(U256::from(1)).try_into().unwrap();
+        let stake_reward_tokens = order
+            .request
+            .offer
+            .stake_reward_if_locked_and_not_fulfilled()
+            .div_ceil(U256::from(1_000_000));
+        let stake_based_limit: u64 = stake_reward_tokens
+            .saturating_mul(U256::from(1_000_000))
+            .div_ceil(U256::from(1))
+            .try_into()
+            .unwrap();
         assert_eq!(preflight_limit, stake_based_limit);
         assert_eq!(prove_limit, 490_000u64);
     }
@@ -3067,7 +3079,7 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 max_price: parse_ether("1.0").unwrap(), // Won't be used
-                lock_stake: parse_stake_tokens("100"),  // 100 stake tokens 
+                lock_stake: parse_stake_tokens("100"),  // 100 stake tokens
                 lock_timeout: 900,
                 timeout: 1200,
                 ..Default::default()
@@ -3081,8 +3093,12 @@ pub(crate) mod tests {
         // Stake based: (100 stake tokens - 20% burn) / 0.1 stake tokens per mcycle = 80M cycles
         let stake_reward_tokens = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
         tracing::info!("Stake reward tokens: {stake_reward_tokens}");
-        let stake_based_limit: u64 = stake_reward_tokens.saturating_mul(U256::from(1_000_000)).div_ceil(parse_stake_tokens("0.1")).try_into().unwrap();
-        
+        let stake_based_limit: u64 = stake_reward_tokens
+            .saturating_mul(U256::from(1_000_000))
+            .div_ceil(parse_stake_tokens("0.1"))
+            .try_into()
+            .unwrap();
+
         assert_eq!(preflight_limit, stake_based_limit);
         assert_eq!(prove_limit, stake_based_limit);
     }
