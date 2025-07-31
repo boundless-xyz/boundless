@@ -10,7 +10,7 @@ config:
   distributor:GH_TOKEN_SECRET:
     secure: v1:sFcUNPOUWZ1ghOjf:Y3a6CP7X6bTABqL+OxMTKA7yzNFptTWH2+ADn188fYxHTccf0qeaIF8VRfCvJ2iVnMxfoAFsMpW72mf+Gzv3seAzwLHZhbwciJ4WrFKD3bHKydiDAQepnRbogHwcMfGWi7hSkSu72ihW3sm/hQ==
   distributor:ORDER_GENERATOR_KEYS:
-    secure: v1:THhABhfR96UYlcmp:ViJhlkprSvL76ul1gGL+ahGQ+ywi7BnRZKH2tLFFjlTDFYLRgcJRBMe34lzDy/NjEfxkqlMUMSI/68g/ZEU3hB9zk+hglbtksOA41WZLd7GipjP7YfYusrWLeWAiGTC2SZv7VWmquKJOi2Ix5ukbEi9U4IHItKTvfuj3jTSlBfJkmfbtjyWnGIaA/+pywackpw==
+    secure: v1:D2lLNEwWcoH+VOka:UsK4htbDibTpowMbrN0ftNKt22lag4bqKak4BmYdeYrRzo7GDswP0iHT35IXgkRFisjoc7rijEMsHWrBBQhPrLpXG25fg7YHfXwzF33c/GbeJ2Bmt5ZincM7+MzBZpjTOj/yHibiQHlG1tW4jDzs4xBMvBDzrLqkAy4GsKQhhQy4k5Aeqdu2xkLAyUHsVdCFFxG17dyasCKRy/mYiq2tVZ3IRsoM1Sq+RnsltfVgp2RYRVJDw7A3IjRxwBwC47T0l3Hlg0J4s2rAfIuhOqy/L0ZH
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   distributor:PROVER_ETH_DONATE_THRESHOLD: "0.02"
   distributor:PROVER_KEYS:
