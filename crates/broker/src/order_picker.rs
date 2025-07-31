@@ -898,7 +898,7 @@ where
             let initial_stake_based_limit =
                 (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
                     .try_into()
-                    .unwrap_or(u64::MAX)?;
+                    .unwrap_or(u64::MAX);
 
             tracing::trace!(
                 "Order {order_id} initial stake based limit: {initial_stake_based_limit}"
