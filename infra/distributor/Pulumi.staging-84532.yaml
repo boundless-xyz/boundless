@@ -7,7 +7,7 @@ config:
   distributor:ETH_THRESHOLD: "1"
   distributor:ETH_TOP_UP_AMOUNT: "10"
   distributor:ORDER_GENERATOR_KEYS:
-    secure: v1:fP3AXKVLL17tN0iW:r5R7B8zsWMKApZw87+YV1iplHc9Wyw6sLXF7JAZyJw5GcbS7QIgGgzYt/lyr5VC1AbPgNlS/3bl7vujjNXPSglTuPLkIEogRvCTFzLCNQUxuBzFiSz76TsqKijdec2j3cW6Sm7kBnxeUrdYDD/4ydhvPzKHLWu1W+xNkOKHh8MlezhvneyXcD1rwYn7EF1lDxQ==
+    secure: v1:vvl5DmuoD3p18e/x:sAdPBLFlib2gFlu0ITBCciFj1jpI9lPdapOfAX92Ys7GTuboFlxpIa829in/9YOG++iZGZZw40L6SDfevfFsdXTUSG/YO7MA3jRKrlmOOc9EtOvsUZX6IFbHJJmjNCTI9bbcsHTLtixTknP6oDeoPeXS79b77pp9U/U/38c2XtCTbKygWZMGhV+JpHtWShWXueP5UDy3Y2vsVVTwuQSgRIKWb12rAgyAPojvlzMqTDy7j7Oe1eQDW4DgH5+siFcvaCzhTVofN7xTyRZolyq6EZUyxs657wcUZJCOJpHA8qtD1up5BzfkXqXdZvLGChjQzG6zf2vlQj2PHu/mdSXIp//gnZwHj9D6y8QeJ4reWiIVlHo=
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   distributor:PROVER_ETH_DONATE_THRESHOLD: "10"
   distributor:PROVER_KEYS:
