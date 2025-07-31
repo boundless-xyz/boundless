@@ -2327,7 +2327,7 @@ pub(crate) mod tests {
 
         let mut order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: U256::from(4),
+                lock_stake: U256::from(1),
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 bidding_start: now_timestamp() - 100,
                 lock_timeout: 10,
@@ -2338,7 +2338,7 @@ pub(crate) mod tests {
 
         let order_id = order.id();
         let stake_reward = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward, U256::from(3));
+        assert_eq!(stake_reward, U256::from(0));
 
         let locked = ctx.picker.price_order(&mut order).await;
         assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
@@ -2361,14 +2361,14 @@ pub(crate) mod tests {
 
         let order2_id = order2.id();
         let stake_reward2 = order2.request.offer.stake_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward2, U256::from(10));
+        assert_eq!(stake_reward2, U256::from(32));
 
         let locked = ctx.picker.price_order(&mut order2).await;
         assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
 
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!(
-            "Starting preflight execution of {order2_id} with limit of 10 cycles"
+            "Starting preflight execution of {order2_id} with limit of 32 cycles"
         )));
         assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
     }

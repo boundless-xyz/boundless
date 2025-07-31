@@ -1,5 +1,5 @@
 import * as pulumi from '@pulumi/pulumi';
-import { getEnvVar, ChainId, getServiceNameV1 } from "../util";
+import { getEnvVar, ChainId, getServiceNameV1, getChainId } from "../util";
 import { BentoEC2Broker } from "./components/bentoBroker";
 import { BonsaiECSBroker } from "./components/bonsaiBroker";
 require('dotenv').config();
@@ -53,7 +53,7 @@ export = () => {
   let bentoBroker: BentoEC2Broker | undefined;
   if (process.env.SKIP_BENTO !== "true") {
     bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
-      chainId,
+      chainId: getChainId(chainId),
       ethRpcUrl,
       gitBranch: "main",
       privateKey: bentoProverPrivateKey,
@@ -79,7 +79,7 @@ export = () => {
   if (process.env.SKIP_BONSAI !== "true") {
     const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", chainId);
     const bonsaiBroker = new BonsaiECSBroker(bonsaiBrokerServiceName, {
-      chainId,
+      chainId: getChainId(chainId),
       ethRpcUrl,
       privateKey: bonsaiProverPrivateKey,
       baseStackName,
