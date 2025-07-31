@@ -1437,6 +1437,7 @@ pub(crate) mod tests {
                 boundless_market_address: *boundless_market_address,
                 chain_id,
                 total_cycles: None,
+                cached_id: Default::default(),
             })
         }
 
@@ -1488,6 +1489,7 @@ pub(crate) mod tests {
                 boundless_market_address: *boundless_market_address,
                 chain_id,
                 total_cycles: None,
+                cached_id: Default::default(),
             })
         }
     }
@@ -2419,6 +2421,7 @@ pub(crate) mod tests {
             total_cycles: order1.total_cycles,
             target_timestamp: order1.target_timestamp,
             expire_timestamp: order1.expire_timestamp,
+            cached_id: Default::default(),
         });
 
         assert_eq!(order1.id(), order2.id(), "Both orders should have the same ID");
@@ -2489,12 +2492,9 @@ pub(crate) mod tests {
         ctx.new_order_tx.send(order1).await.unwrap();
 
         // Wait for the order to be processed and check for the "Added" log
-        tokio::time::timeout(
-            MIN_CAPACITY_CHECK_INTERVAL + Duration::from_secs(1),
-            ctx.priced_orders_rx.recv(),
-        )
-        .await
-        .unwrap();
+        tokio::time::timeout(MIN_CAPACITY_CHECK_INTERVAL * 2, ctx.priced_orders_rx.recv())
+            .await
+            .unwrap();
 
         // Check that we logged the task being added
         assert!(logs_contain("Current pricing tasks: ["));

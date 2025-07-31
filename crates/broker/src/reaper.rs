@@ -194,6 +194,7 @@ mod tests {
             chain_id: 1,
             total_cycles: None,
             proving_started_at: None,
+            cached_id: Default::default(),
         }
     }
 
