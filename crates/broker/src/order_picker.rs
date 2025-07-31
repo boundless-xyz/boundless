@@ -898,7 +898,7 @@ where
             let initial_stake_based_limit =
                 (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
                     .try_into()
-                    .context("Failed to convert U256 exec limit to u64")?;
+                    .unwrap_or(u64::MAX);
 
             tracing::trace!(
                 "Order {order_id} initial stake based limit: {initial_stake_based_limit}"
@@ -921,7 +921,7 @@ where
                     .saturating_mul(ONE_MILLION)
                     / min_mcycle_price)
                     .try_into()
-                    .context("Failed to convert U256 exec limit to u64")?
+                    .unwrap_or(u64::MAX)
             };
 
             if eth_based_limit > stake_based_limit {
