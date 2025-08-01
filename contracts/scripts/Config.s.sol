@@ -15,6 +15,8 @@ struct DeploymentConfig {
     address verifier;
     address setVerifier;
     address boundlessMarket;
+    address boundlessMarketImpl;
+    address boundlessMarketOldImpl;
     address stakeToken;
     bytes32 assessorImageId;
     string assessorGuestUrl;
@@ -81,6 +83,10 @@ library ConfigParser {
         deploymentConfig.setVerifier = stdToml.readAddressOr(config, string.concat(chain, ".set-verifier"), address(0));
         deploymentConfig.boundlessMarket =
             stdToml.readAddressOr(config, string.concat(chain, ".boundless-market"), address(0));
+        deploymentConfig.boundlessMarketImpl =
+            stdToml.readAddressOr(config, string.concat(chain, ".boundless-market-impl"), address(0));
+        deploymentConfig.boundlessMarketOldImpl =
+            stdToml.readAddressOr(config, string.concat(chain, ".boundless-market-old-impl"), address(0));
         deploymentConfig.stakeToken = stdToml.readAddressOr(config, string.concat(chain, ".stake-token"), address(0));
         deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));
         deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
