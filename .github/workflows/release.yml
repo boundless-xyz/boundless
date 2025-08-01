@@ -78,7 +78,7 @@ jobs:
 
       - name: forge deployment test
         env:
-          CHAIN_KEY: ${{ github.event.inputs.chain_key }}
+          CHAIN_KEY: ethereum-sepolia-prod
           FOUNDRY_PROFILE: deployment-test
           RPC_URL: ${{ fromJson(env.RPC_MAP)[github.event.inputs.chain_key] }}
         run: forge test -vvv --fork-url="$RPC_URL"
