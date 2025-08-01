@@ -119,6 +119,7 @@ fn generate_test_order(request_id: u32) -> Order {
         chain_id: 1,
         total_cycles: None,
         proving_started_at: None,
+        cached_id: Default::default(),
     }
 }
 

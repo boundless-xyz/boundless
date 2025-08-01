@@ -1065,6 +1065,7 @@ pub(crate) mod tests {
                 boundless_market_address: self.market_address,
                 chain_id: self.anvil.chain_id(),
                 total_cycles: None,
+                cached_id: Default::default(),
             })
         }
     }
