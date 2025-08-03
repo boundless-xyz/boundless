@@ -794,7 +794,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
 
@@ -842,7 +841,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
 
@@ -958,7 +956,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
 
@@ -1021,7 +1018,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
 
@@ -1133,7 +1129,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
 
@@ -1248,7 +1243,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
 
@@ -1371,7 +1365,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
 
         // add first order and aggregate
@@ -1411,7 +1404,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
 
         db.add_order(&order2).await.unwrap();
@@ -1484,7 +1476,6 @@ mod tests {
             chain_id: 1,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         db.add_order(&expired_order).await.unwrap();
 
@@ -1526,7 +1517,6 @@ mod tests {
             chain_id: 1,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         db.add_order(&valid_order).await.unwrap();
 

@@ -818,7 +818,6 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
-            cached_id: Default::default(),
         };
         let order_id = order.id();
         db.add_order(&order).await.unwrap();
