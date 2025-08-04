@@ -41,7 +41,7 @@ chmod 400 <stack_name>-keypair.pem`
 ### 1. Install Dependencies
 
 ```bash
-cd infra/bento-custom
+cd infra/prover-cluster
 npm install
 ```
 
@@ -121,16 +121,16 @@ sudo systemctl restart boundless-broker.service
 
 ```bash
 # Check service status
-aws ecs describe-services --cluster bento-custom-cluster --services bento-custom-exec-agents-service
-aws ecs describe-services --cluster bento-custom-cluster --services bento-custom-snark-agent-service
-aws ecs describe-services --cluster bento-custom-cluster --services bento-custom-gpu-provers-service
-aws ecs describe-services --cluster bento-custom-aux-cluster --services bento-custom-bento-api-service
+aws ecs describe-services --cluster prover-cluster --services prover-cluster-exec-agents-service
+aws ecs describe-services --cluster prover-cluster --services prover-cluster-snark-agent-service
+aws ecs describe-services --cluster prover-cluster --services prover-cluster-gpu-provers-service
+aws ecs describe-services --cluster prover-cluster-aux-cluster --services prover-cluster-bento-api-service
 
 # View logs
-aws logs tail bento-custom-exec-agents-logs --follow
-aws logs tail bento-custom-snark-agent-logs --follow
-aws logs tail bento-custom-gpu-provers-logs --follow
-aws logs tail bento-custom-bento-api-logs --follow
+aws logs tail prover-cluster-exec-agents-logs --follow
+aws logs tail prover-cluster-snark-agent-logs --follow
+aws logs tail prover-cluster-gpu-provers-logs --follow
+aws logs tail prover-cluster-bento-api-logs --follow
 ```
 
 ## Monitoring
@@ -156,10 +156,10 @@ aws sns subscribe --topic-arn $(pulumi stack output alertsTopicArn) --protocol e
 aws logs tail /aws/ec2/boundless-broker --follow
 
 # ECS service logs
-aws logs tail bento-custom-exec-agents-logs --follow
-aws logs tail bento-custom-snark-agent-logs --follow
-aws logs tail bento-custom-gpu-provers-logs --follow
-aws logs tail bento-custom-bento-api-logs --follow
+aws logs tail prover-cluster-exec-agents-logs --follow
+aws logs tail prover-cluster-snark-agent-logs --follow
+aws logs tail prover-cluster-gpu-provers-logs --follow
+aws logs tail prover-cluster-bento-api-logs --follow
 ```
 
 ## Configuration Updates
@@ -168,11 +168,11 @@ aws logs tail bento-custom-bento-api-logs --follow
 
 ```bash
 # Update SSM parameter
-aws ssm put-parameter --name "/boundless/bento-custom/broker-config" --value '{"segmentSize": 21, ...}' --type String --overwrite
+aws ssm put-parameter --name "/boundless/prover-cluster/broker-config" --value '{"segmentSize": 21, ...}' --type String --overwrite
 
 # Update secrets
-aws secretsmanager update-secret --secret-id bento-custom-broker-private-key --secret-string "new-private-key"
-aws secretsmanager update-secret --secret-id bento-custom-rpc-url --secret-string "new-rpc-url"
+aws secretsmanager update-secret --secret-id prover-cluster-broker-private-key --secret-string "new-private-key"
+aws secretsmanager update-secret --secret-id prover-cluster-rpc-url --secret-string "new-rpc-url"
 
 # Restart broker
 aws ssm send-command --instance-ids $BROKER_INSTANCE_ID --document-name "AWS-RunShellScript" --parameters 'commands=["sudo systemctl restart boundless-broker.service"]'
@@ -191,17 +191,17 @@ PULUMI_CONFIG_PASSPHRASE=<your-passphrase> pulumi up
 
 ```bash
 # Scale services
-aws ecs update-service --cluster bento-custom-cluster --service bento-custom-gpu-provers-service --desired-count 12
-aws ecs update-service --cluster bento-custom-cluster --service bento-custom-exec-agents-service --desired-count 2
-aws ecs update-service --cluster bento-custom-aux-cluster --service bento-custom-bento-api-service --desired-count 2
+aws ecs update-service --cluster prover-cluster --service prover-cluster-gpu-provers-service --desired-count 12
+aws ecs update-service --cluster prover-cluster --service prover-cluster-exec-agents-service --desired-count 2
+aws ecs update-service --cluster prover-cluster-aux-cluster --service prover-cluster-bento-api-service --desired-count 2
 ```
 
 ### Auto Scaling Groups
 
 ```bash
 # Scale underlying instances
-aws autoscaling update-auto-scaling-group --auto-scaling-group-name bento-custom-gpu-asg --desired-capacity 12
-aws autoscaling update-auto-scaling-group --auto-scaling-group-name bento-custom-exec-asg --desired-capacity 2
+aws autoscaling update-auto-scaling-group --auto-scaling-group-name prover-cluster-gpu-asg --desired-capacity 12
+aws autoscaling update-auto-scaling-group --auto-scaling-group-name prover-cluster-exec-asg --desired-capacity 2
 ```
 
 ## Troubleshooting
@@ -216,8 +216,8 @@ aws autoscaling update-auto-scaling-group --auto-scaling-group-name bento-custom
 
 2. **ECS services not starting**
    ```bash
-   aws logs tail bento-custom-<component>-logs --since 1h
-   aws ecs describe-services --cluster bento-custom-cluster --services bento-custom-<component>-service
+   aws logs tail prover-cluster-<component>-logs --since 1h
+   aws ecs describe-services --cluster prover-cluster --services prover-cluster-<component>-service
    ```
 
 3. **Database connection errors**
@@ -232,9 +232,9 @@ aws autoscaling update-auto-scaling-group --auto-scaling-group-name bento-custom
 aws ssm send-command --instance-ids $BROKER_INSTANCE_ID --document-name "AWS-RunShellScript" --parameters 'commands=["df -h"]'
 
 # Check service status
-aws ecs describe-services --cluster bento-custom-cluster --services bento-custom-exec-agents-service
-aws rds describe-db-instances --db-instance-identifier bento-custom-postgres
-aws elasticache describe-cache-clusters --cache-cluster-id bento-custom-redis
+aws ecs describe-services --cluster prover-cluster --services prover-cluster-exec-agents-service
+aws rds describe-db-instances --db-instance-identifier prover-cluster-postgres
+aws elasticache describe-cache-clusters --cache-cluster-id prover-cluster-redis
 ```
 
 ## Backup

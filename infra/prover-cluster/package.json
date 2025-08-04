@@ -1,5 +1,5 @@
 {
-  "name": "bento-custom-cluster",
+  "name": "prover-cluster",
   "version": "1.0.0",
   "description": "Custom Bento prover cluster infrastructure",
   "main": "index.ts",
