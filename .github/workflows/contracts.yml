@@ -15,7 +15,9 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  FOUNDRY_VERSION: v1.2.2
+  FOUNDRY_VERSION: v1.2.3
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "2.3.0"
 
 jobs:
   contracts-changed:
@@ -37,6 +39,8 @@ jobs:
               - 'foundry.toml'
             test:
               - 'contracts/test/**'
+            scripts:
+              - 'contracts/scripts/**'
 
   gas-snapshots-check:
     runs-on: ubuntu-latest
@@ -80,7 +84,7 @@ jobs:
       - name: install foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: "v1.0.0"
+          version: ${{ env.FOUNDRY_VERSION }}
 
       - name: checkout main code
         uses: actions/checkout@v4
@@ -116,3 +120,160 @@ jobs:
         env:
           FOUNDRY_PROFILE: reference-contract
           FOUNDRY_OUT: contracts/reference-contract/out
+
+  deployment-scripts:
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    needs: contracts-changed
+    if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' || needs.contracts-changed.outputs.scripts == 'true'}}
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: install npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install yq (GitHub binary)
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.46.1/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install tomlkit
+        run: pip install tomlkit
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.0.0
+
+      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      
+      - uses: risc0/risc0/.github/actions/sccache@352dea62857ba57331053cd0986a12c1a4708732
+        with:
+          key: ${{ matrix.os }}-${{ matrix.feature }}
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: checkout main code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: recursive
+
+      - name: Forge build on main branch
+        run: forge build
+        env:
+          FOUNDRY_PROFILE: reference-contract
+          FOUNDRY_OUT: contracts/out
+
+      - name: Upload build-info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info-deployment
+          path: contracts/out/build-info/
+
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download build-info artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-info-deployment
+          path: contracts/build-info-reference
+
+      - name: forge build
+        run: forge build
+
+      - name: cargo install boundless-cli
+        run: cargo install boundless-cli --path crates/boundless-cli --locked
+
+      - name: cargo install just
+        run: cargo install just
+
+      - name: cargo build
+        run: cargo build --locked
+
+      - name: spin up local network
+        run: just localnet up
+        env:
+          CI: 1
+          RISC0_DEV_MODE: 1
+          REPO_ROOT: ${{ github.workspace }}
+      
+      - name: deploy script
+        run: ./contracts/scripts/manage DeployBoundlessMarket --broadcast
+        env:
+          CHAIN_KEY: anvil
+          # This key is a prefunded address for the anvil test configuration (index 0)
+          DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+          PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+          ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+      - name: forge test after new deployment
+        env:
+          CHAIN_KEY: anvil
+          RISC0_DEV_MODE: 1
+        run: ./contracts/scripts/test
+
+      - name: forge clean
+        run: forge clean
+        env:
+          FOUNDRY_OUT: contracts/out
+      
+      - name: upgrade script
+        run: ./contracts/scripts/manage UpgradeBoundlessMarket --broadcast
+        env:
+          CHAIN_KEY: anvil
+          # This key is a prefunded address for the anvil test configuration (index 0)
+          DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+          PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+          ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+      - name: forge test after upgrade
+        env:
+          CHAIN_KEY: anvil
+          RISC0_DEV_MODE: 1
+        run: ./contracts/scripts/test
+
+      - name: rollback script
+        run: ./contracts/scripts/manage RollbackBoundlessMarket --broadcast
+        env:
+          CHAIN_KEY: anvil
+          # This key is a prefunded address for the anvil test configuration (index 0)
+          DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+          PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+          ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+      - name: forge test after rollback
+        env:
+          CHAIN_KEY: anvil
+          RISC0_DEV_MODE: 1
+        run: ./contracts/scripts/test
+
+      - name: Cleanup
+        if: always()
+        run: just localnet down
+        env:
+          CI: 1
+
+      - name: sccache stats
+        run: sccache --show-stats

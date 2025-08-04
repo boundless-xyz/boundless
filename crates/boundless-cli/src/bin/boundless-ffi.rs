@@ -24,13 +24,11 @@ use alloy::{
     primitives::{Address, Bytes, Signature, U256},
     sol_types::SolValue,
 };
-use anyhow::{ensure, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use boundless_cli::{DefaultProver, OrderFulfilled};
-use boundless_market::{
-    contracts::{eip712_domain, ProofRequest},
-    storage::fetch_url,
-};
+use boundless_market::contracts::{eip712_domain, ProofRequest};
 use clap::Parser;
+use url::Url;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about = "Utility for use with Forge FFI cheatcode. See https://getfoundry.sh/reference/cheatcodes/ffi", long_about = None)]
@@ -56,6 +54,41 @@ struct MainArgs {
     /// Hex encoded request' signature
     #[clap(long)]
     signature: String,
+    #[clap(long, env = "IPFS_GATEWAY")]
+    ipfs_gateway: Option<String>,
+    #[clap(long, env = "PINATA_JWT")]
+    pinata_jwt: Option<String>,
+}
+
+async fn fetch_url(url_str: impl AsRef<str>, token: Option<String>) -> anyhow::Result<Vec<u8>> {
+    tracing::debug!("Fetching URL: {}", url_str.as_ref());
+    let url = Url::parse(url_str.as_ref())?;
+
+    match url.scheme() {
+        "http" | "https" => fetch_http(&url, token).await,
+        "file" => fetch_file(&url).await,
+        _ => bail!("unsupported URL scheme: {}", url.scheme()),
+    }
+}
+
+async fn fetch_http(url: &Url, token: Option<String>) -> anyhow::Result<Vec<u8>> {
+    let response = if let Some(jwt) = token {
+        reqwest::Client::new().get(url.as_str()).bearer_auth(jwt).send().await?
+    } else {
+        reqwest::get(url.as_str()).await?
+    };
+    let status = response.status();
+    if !status.is_success() {
+        bail!("HTTP request failed with status: {}", status);
+    }
+
+    Ok(response.bytes().await?.to_vec())
+}
+
+async fn fetch_file(url: &Url) -> anyhow::Result<Vec<u8>> {
+    let path = std::path::Path::new(url.path());
+    let data = tokio::fs::read(path).await?;
+    Ok(data)
 }
 
 /// Print the result of fulfilling a proof request using the RISC Zero zkVM default prover.
@@ -65,8 +98,16 @@ async fn main() -> Result<()> {
     let args = MainArgs::parse();
     // Take stdout is ensure no extra data is written to it.
     let mut stdout = take_stdout()?;
-    let set_builder_program = fetch_url(&args.set_builder_url).await?;
-    let assessor_program = fetch_url(&args.assessor_url).await?;
+    let (set_builder_url, assessor_url) = if let Some(gateway) = args.ipfs_gateway {
+        (
+            format!("{}/ipfs/{}", gateway, args.set_builder_url.split('/').next_back().unwrap()),
+            format!("{}/ipfs/{}", gateway, args.assessor_url.split('/').next_back().unwrap()),
+        )
+    } else {
+        (args.set_builder_url, args.assessor_url)
+    };
+    let set_builder_program = fetch_url(set_builder_url, args.pinata_jwt.clone()).await?;
+    let assessor_program = fetch_url(assessor_url, args.pinata_jwt).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
     let prover = DefaultProver::new(
         set_builder_program,

@@ -177,7 +177,6 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 2. Dry run deployment of the market implementation and proxy:
 
    ```zsh
-   BOUNDLESS_MARKET_OWNER=${ADMIN_ADDRESS:?} \
    bash contracts/scripts/manage DeployBoundlessMarket
    ```
 
@@ -198,8 +197,13 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 5. Test the deployment.
 
    ```bash
-   FOUNDRY_PROFILE=deployment-test forge test --fork-url $RPC_URL
+   bash contracts/scripts/test
    ```
+
+   > [!NOTE]
+   > `BONSAI_API_KEY` and `BONSAI_API_URL` can be set to use bonsai as backend.
+   > Optional `SELECTOR` can be set as part of the request requirements.
+   > Optional `IPFS_GATEWAY` and `PINATA_JWT` envs can be set to bypass rate limits if needed.
 
 ### Upgrade the market contract
 
@@ -213,8 +217,7 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 3. Dry run the upgrade of the market implementation and proxy:
 
    ```zsh
-   BOUNDLESS_MARKET_OWNER=${ADMIN_ADDRESS:?} \
-   FOUNDRY_OUT=contracts/out bash contracts/scripts/manage UpgradeBoundlessMarket
+   bash contracts/scripts/manage UpgradeBoundlessMarket
    ```
 
    > [!IMPORTANT]
@@ -232,11 +235,16 @@ The Boundless market is deployed and upgraded using the **UUPS (Universal Upgrad
 5. Test the deployment.
 
    ```bash
-   FOUNDRY_PROFILE=deployment-test forge test --fork-url $RPC_URL
+   bash contracts/scripts/test
    ```
 
    > [!IMPORTANT]
    > Make sure the Assessor info match what you expect.
+
+   > [!NOTE]
+   > `BONSAI_API_KEY` and `BONSAI_API_URL` can be set to use bonsai as backend.
+   > Optional `SELECTOR` can be set as part of the request requirements.
+   > Optional `IPFS_GATEWAY` and `PINATA_JWT` envs can be set to bypass rate limits if needed.
 
 [yq-install]: https://github.com/mikefarah/yq?tab=readme-ov-file#install
 [alloy-chains]: https://github.com/alloy-rs/chains/blob/main/src/named.rs
