@@ -6,6 +6,27 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 SCRIPT_FILE="${SCRIPT_DIR}/Manage.s.sol"
 REPO_ROOT_DIR="${SCRIPT_DIR:?}/../.."
 FIREBLOCKS=0
+export FOUNDRY_OUT=${FOUNDRY_OUT:-"contracts/out"}
+
+# Check for python3, required for updating the deployment toml
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "❌ python3 is not installed"
+    exit 1
+fi
+
+# Check for tomlkit (Python package), required for updating the deployment toml
+if ! python3 -c "import tomlkit" >/dev/null 2>&1; then
+    echo "❌ tomlkit is not installed for python3"
+    echo "To install: python3 -m pip install tomlkit"
+    exit 1
+fi
+
+# Check for yq
+if ! command -v yq >/dev/null 2>&1; then
+    echo "❌ yq is not installed"
+    echo "Install yq v4+ from: https://github.com/mikefarah/yq"
+    exit 1
+fi
 
 POSITIONAL_ARGS=()
 FORGE_SCRIPT_FLAGS=()

@@ -165,7 +165,6 @@ clean:
 localnet action="up": check-deps
     #!/usr/bin/env bash
     # Localnet-specific variables
-    ANVIL_PORT="8545"
     ANVIL_BLOCK_TIME="2"
     RISC0_DEV_MODE="${RISC0_DEV_MODE:-1}"
     CHAIN_KEY="anvil"
@@ -175,8 +174,24 @@ localnet action="up": check-deps
     PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     ADMIN_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     DEPOSIT_AMOUNT="100000000000000000000"
+    CI=${CI:-0}
     
     if [ "{{action}}" = "up" ]; then
+        # Find an unused port
+        get_free_port() {
+        for port in $(seq 8500 8600); do
+            if ! lsof -i:$port > /dev/null; then
+            echo "$port"
+            return
+            fi
+        done
+        echo "No free port found" >&2
+        exit 1
+        }
+
+        PORT=$(get_free_port)
+        echo "Starting anvil on port $PORT"
+        ANVIL_PORT=$PORT
         mkdir -p {{LOGS_DIR}}
         
         # Create .env.localnet from template if it doesn't exist
@@ -188,14 +203,20 @@ localnet action="up": check-deps
         echo "Building contracts..."
         forge build || { echo "Failed to build contracts"; just localnet down; exit 1; }
         echo "Building Rust project..."
-        cargo build --bin order_stream || { echo "Failed to build order-stream binary"; just localnet down; exit 1; }
-        cargo build --bin boundless || { echo "Failed to build boundless CLI binary"; just localnet down; exit 1; }
+        if [ $CI -eq 1 ]; then
+            echo "Running in CI mode, skipping Rust build."
+            # In CI, we assume the Rust project is already built
+            # and the binaries are available in the target directory.
+        else
+            cargo build --locked --bin order_stream || { echo "Failed to build order-stream binary"; just localnet down; exit 1; }
+            cargo build --locked --bin boundless || { echo "Failed to build boundless CLI binary"; just localnet down; exit 1; }
+        fi
         # Check if Anvil is already running
         if nc -z localhost $ANVIL_PORT; then
             echo "Anvil is already running on port $ANVIL_PORT. Reusing existing instance."
         else
             echo "Starting Anvil..."
-            anvil -b $ANVIL_BLOCK_TIME > {{LOGS_DIR}}/anvil.txt 2>&1 & echo $! >> {{PID_FILE}}
+            anvil -p $ANVIL_PORT -b $ANVIL_BLOCK_TIME > {{LOGS_DIR}}/anvil.txt 2>&1 & echo $! >> {{PID_FILE}}
             sleep 5
         fi
         echo "Deploying contracts..."
@@ -228,32 +249,56 @@ localnet action="up": check-deps
             --rpc-url http://localhost:$ANVIL_PORT \
             $HIT_POINTS_ADDRESS "mint(address, uint256)" $DEFAULT_ADDRESS $DEPOSIT_AMOUNT
 
-        # Start order stream server
-        just test-db setup
-        echo "Starting order stream server..."
-        DATABASE_URL={{DATABASE_URL}} RUST_LOG=$RUST_LOG ./target/debug/order_stream \
-            --rpc-url http://localhost:$ANVIL_PORT \
-            --min-balance-raw 0 \
-            --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
-            --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
-        
-        echo "Depositing stake using boundless CLI..."
-        RPC_URL=http://localhost:$ANVIL_PORT \
-        PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
-        BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
-        SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
-        VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
-        ./target/debug/boundless account deposit-stake 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
-        
-        echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
-        if [ ! -f broker.toml ]; then
-            echo "Creating broker.toml from template..."
-            cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
-            echo "broker.toml created successfully."
+        if [ $CI -eq 1 ]; then
+            REPO_ROOT_DIR=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
+            DEPLOYMENT_SECRETS_PATH="${REPO_ROOT_DIR}/contracts/deployment_secrets.toml"
+            echo "Creating ${DEPLOYMENT_SECRETS_PATH}..."
+            echo "[chains.anvil]" > $DEPLOYMENT_SECRETS_PATH
+            echo "rpc-url = \"http://localhost:${ANVIL_PORT}\"" >> $DEPLOYMENT_SECRETS_PATH
+            echo "etherscan-api-key = \"none\"" >> $DEPLOYMENT_SECRETS_PATH
+            ls -al $DEPLOYMENT_SECRETS_PATH
+            cat $DEPLOYMENT_SECRETS_PATH
+            ASSESSOR_ID=$(r0vm --id --elf target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin)
+            ASSESSOR_ID="0x$ASSESSOR_ID"
+            ASSESSOR_GUEST_BIN_PATH=$(realpath target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin)
+            ASSESSOR_GUEST_URL="file://$ASSESSOR_GUEST_BIN_PATH"
+            echo "Running in CI mode, skipping prover setup."
+            python3 contracts/update_deployment_toml.py \
+                --verifier "$VERIFIER_ADDRESS" \
+                --set-verifier "$SET_VERIFIER_ADDRESS" \
+                --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
+                --stake-token "$HIT_POINTS_ADDRESS" \
+                --assessor-image-id "$ASSESSOR_ID" \
+                --assessor-guest-url "$ASSESSOR_GUEST_URL"
+        else
+            # Start order stream server
+            just test-db setup
+            echo "Starting order stream server..."
+            DATABASE_URL={{DATABASE_URL}} RUST_LOG=$RUST_LOG ./target/debug/order_stream \
+                --rpc-url http://localhost:$ANVIL_PORT \
+                --min-balance-raw 0 \
+                --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
+                --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
+            
+            echo "Depositing stake using boundless CLI..."
+            RPC_URL=http://localhost:$ANVIL_PORT \
+            PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
+            BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
+            SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
+            VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
+            ./target/debug/boundless account deposit-stake 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
+            
+            echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
+            if [ ! -f broker.toml ]; then
+                echo "Creating broker.toml from template..."
+                cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
+                echo "broker.toml created successfully."
+            fi
+            echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
+            echo "To start the broker manually, run:"
+            echo "source .env.localnet && cargo run --bin broker"
         fi
-        echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
-        echo "To start the broker manually, run:"
-        echo "source .env.localnet && cargo run --bin broker"
+        
     elif [ "{{action}}" = "down" ]; then
         if [ -f {{PID_FILE}} ]; then
             while read pid; do
@@ -261,7 +306,11 @@ localnet action="up": check-deps
             done < {{PID_FILE}}
             rm {{PID_FILE}}
         fi
-        just test-db clean
+        if [ $CI -eq 1 ]; then
+            echo "Running in CI mode, skipping test-db cleanup."
+        else
+            just test-db clean
+        fi
     elif [ "{{action}}" = "logs" ]; then
         if [ ! -f {{PID_FILE}} ]; then
             echo "localnet is not running" >/dev/stderr; exit 1
