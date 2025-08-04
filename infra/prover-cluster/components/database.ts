@@ -152,12 +152,7 @@ export async function setupDatabase(
         proxyEndpoint: rdsProxy.endpoint,
         // Use RDS proxy connection with configured password and SSL mode
         connectionUrl: pulumi.all([rdsPassword, rdsProxy.endpoint]).apply(([password, endpoint]) => {
-            // Ensure endpoint includes port - proxy endpoints might not include :5432
-            // const host = endpoint.includes(':') ? endpoint : `${endpoint}:5432`;
-            // let ret = `postgresql://worker:${password}@${host}/taskdb?sslmode=require`;
-            // return encodeURI(ret);
             return pulumi.interpolate`postgresql://worker:${password}@${rdsProxy.endpoint}:5432/taskdb?sslmode=require`;
-            // return pulumi.interpolate`postgresql://worker:${password}@${database.endpoint}/taskdb?sslmode=require`;
         }),
         secret: databaseSecret,
     };

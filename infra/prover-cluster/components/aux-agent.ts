@@ -2,6 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { createEcsTaskRole } from "./iam";
 
+// TODO: Enable typing
 export async function setupAuxAgent(
     name: string,
     network: any,
@@ -48,13 +49,15 @@ export async function setupAuxAgent(
             secrets.dockerToken,
         ]).apply(([dbUrl, redisUrl, s3Bucket, s3AccessKeyId, s3SecretKey, logGroupName, dockerTokenArn]) => JSON.stringify([{
             name: "aux-agent",
+            // TODO: Have this in Pulumi config
             image: "risczero/risc0-bento-agent:2.3.0",
             repositoryCredentials: {
                 credentialsParameter: dockerTokenArn,
             },
             command: ["-t", "aux"],
             essential: true,
-
+            // TODO: Secrets should be provided via secrets parameter
+            // e.g. https://github.com/boundless-xyz/boundless/blob/main/infra/prover/components/bonsaiBroker.ts#L391
             environment: [
                 { name: "DATABASE_URL", value: dbUrl },
                 { name: "REDIS_URL", value: redisUrl },

@@ -161,6 +161,7 @@ export async function setupStorage(
         ),
     });
 
+    // TODO: Consider creating a user here rather than just granting permissions to the roles that need access to this bucket
     // Create access key for the IAM user
     const accessKey = new aws.iam.AccessKey(`${name}-agent-key`, {
         user: agentUser.name,
