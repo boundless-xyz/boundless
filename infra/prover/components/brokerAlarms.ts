@@ -7,6 +7,7 @@ import * as docker_build from '@pulumi/docker-build';
 import * as fs from 'fs';
 
 export const createProverAlarms = (
+  chainId: ChainId,
   serviceName: string,
   logGroup: pulumi.Output<aws.cloudwatch.LogGroup>,
   dependsOn: (pulumi.Resource | pulumi.Input<pulumi.Resource>)[],
@@ -230,9 +231,6 @@ export const createProverAlarms = (
   // Create a metric for errors when fetching images/inputs but don't alarm as could be user error.
   // Note: This is a pattern to match "[B-OP-001]" OR "[B-OP-002]"
   createLogMetricFilter('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error');
-  createErrorCodeAlarm('?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error', Severity.SEV2, {
-    threshold: 3,
-  }, { period: 900 });
 
   // 3 unexpected errors within 5 minutes in the order picker triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-OP-500]"', 'order-picker-unexpected-error', Severity.SEV1, {
@@ -269,10 +267,11 @@ export const createProverAlarms = (
     threshold: 2,
   }, { period: 7200 });
 
-  // 3 lock tx not confirmed errors within 1 hour in the order monitor triggers a SEV2 alarm.
+  // For Sepolia, we see more tx not confirmed errors than other chains, so we use a higher threshold.
+  // Other networks, 3 lock tx not confirmed errors within 1 hour in the order monitor triggers a SEV2 alarm.
   // This may indicate a misconfiguration of the tx timeout config.
   createErrorCodeAlarm('"[B-OM-006]"', 'order-monitor-lock-tx-not-confirmed', Severity.SEV2, {
-    threshold: 3,
+    threshold: chainId == ChainId.ETH_SEPOLIA ? 5 : 3,
   }, { period: 3600 });
 
   // 3 rpc errors within 15 minutes in the order monitor triggers a SEV2 alarm.
@@ -363,12 +362,13 @@ export const createProverAlarms = (
     threshold: 2,
   }, { period: 3600 });
 
-  // 5 individual txn confirmation errors within 1 hour in the submitter triggers a SEV2 alarm. 
+  // 5 (10 on Sepolia since tx confirmation issues happen more frequently) individual txn confirmation
+  // errors within 1 hour in the submitter triggers a SEV2 alarm. 
   // Note, we retry on individual txn confirmation errors, so this does not necessarily indicate
   // the batch was not submitted.
   // This may indicate a misconfiguration of the tx timeout config.
   createErrorCodeAlarm('"[B-SUB-006]"', 'submitter-txn-confirmation-error', Severity.SEV2, {
-    threshold: 5,
+    threshold: chainId == ChainId.ETH_SEPOLIA ? 10 : 5,
   }, { period: 3600 });
 
   // Any 1 unexpected error in the submitter triggers a SEV2 alarm.

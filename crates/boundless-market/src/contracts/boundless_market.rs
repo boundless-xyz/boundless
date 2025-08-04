@@ -45,7 +45,8 @@ use super::{
 /// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
 /// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
 /// TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
-const FRACTION_STAKE_REWARD: u64 = 4;
+const FRACTION_STAKE_NUMERATOR: u64 = 4;
+const FRACTION_STAKE_DENOMINATOR: u64 = 5;
 
 /// Boundless market errors.
 #[derive(Error, Debug)]
@@ -871,7 +872,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             .with_timeout(Some(self.timeout))
             .get_receipt()
             .await
-            .context("failed to confirm tx")?;
+            .context("failed to confirm tx")
+            .map_err(MarketError::TxnConfirmationError)?;
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
@@ -909,7 +911,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             .with_timeout(Some(self.timeout))
             .get_receipt()
             .await
-            .context("failed to confirm tx")?;
+            .context("failed to confirm tx")
+            .map_err(MarketError::TxnConfirmationError)?;
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
@@ -1497,7 +1500,11 @@ impl Offer {
     /// Returns the amount of stake that the protocol awards to the prover who fills an order that
     /// was locked by another prover but not fulfilled by lock expiry.
     pub fn stake_reward_if_locked_and_not_fulfilled(&self) -> U256 {
-        self.lockStake / U256::from(FRACTION_STAKE_REWARD)
+        self.lockStake
+            .checked_mul(U256::from(FRACTION_STAKE_NUMERATOR))
+            .unwrap()
+            .checked_div(U256::from(FRACTION_STAKE_DENOMINATOR))
+            .unwrap()
     }
 }
 
@@ -1649,5 +1656,11 @@ mod tests {
 
         // Price cannot exceed maxPrice
         assert!(offer.time_at_price(ether("3")).is_err());
+    }
+
+    #[test]
+    fn test_stake_reward_if_locked_and_not_fulfilled() {
+        let offer = &test_offer(100);
+        assert_eq!(offer.stake_reward_if_locked_and_not_fulfilled(), ether("0.8"));
     }
 }

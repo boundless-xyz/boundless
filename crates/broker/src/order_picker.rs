@@ -863,7 +863,8 @@ where
     ) -> Result<(u64, u64), OrderPickerErr> {
         // Derive parameters from order
         let order_id = order.id();
-        let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
+        let is_fulfill_after_lock_expire =
+            order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
         let now = now_timestamp();
         let request_expiration = order.expiry();
         let lock_expiry = order.request.lock_expires_at();
@@ -893,16 +894,23 @@ where
             u64::MAX
         } else {
             let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
-            (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
-                .try_into()
-                .context("Failed to convert U256 exec limit to u64")?
+
+            let initial_stake_based_limit =
+                (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
+                    .try_into()
+                    .unwrap_or(u64::MAX);
+
+            tracing::trace!(
+                "Order {order_id} initial stake based limit: {initial_stake_based_limit}"
+            );
+            initial_stake_based_limit
         };
 
         let mut preflight_limit = stake_based_limit;
         let mut prove_limit = stake_based_limit;
 
         // If lock and fulfill, potentially increase that to ETH-based value if higher
-        if !lock_expired {
+        if !is_fulfill_after_lock_expire {
             // Calculate eth-based limit for lock and fulfill orders
             let eth_based_limit = if min_mcycle_price == U256::ZERO {
                 tracing::warn!("min_mcycle_price is 0, setting unlimited exec limit");
@@ -913,7 +921,7 @@ where
                     .saturating_mul(ONE_MILLION)
                     / min_mcycle_price)
                     .try_into()
-                    .context("Failed to convert U256 exec limit to u64")?
+                    .unwrap_or(u64::MAX)
             };
 
             if eth_based_limit > stake_based_limit {
@@ -971,7 +979,7 @@ where
             }
 
             // For preflight, also check fulfill-after-expiry window
-            let new_preflight_limit = if !lock_expired {
+            let new_preflight_limit = if !is_fulfill_after_lock_expire {
                 let fulfill_after_expiry_window = order_expiry.saturating_sub(lock_expiry);
                 let fulfill_after_expiry_limit =
                     calculate_max_cycles_for_time(peak_prove_khz, fulfill_after_expiry_window);
@@ -981,6 +989,7 @@ where
             };
 
             if preflight_limit > new_preflight_limit {
+                tracing::debug!("Order {order_id} preflight limit capped by deadline: {} -> {} cycles ({:.1}s at {} peak_prove_khz)", preflight_limit, new_preflight_limit, prove_window, peak_prove_khz);
                 preflight_limit = new_preflight_limit;
             }
         }
@@ -1428,6 +1437,7 @@ pub(crate) mod tests {
                 boundless_market_address: *boundless_market_address,
                 chain_id,
                 total_cycles: None,
+                cached_id: Default::default(),
             })
         }
 
@@ -1479,6 +1489,7 @@ pub(crate) mod tests {
                 boundless_market_address: *boundless_market_address,
                 chain_id,
                 total_cycles: None,
+                cached_id: Default::default(),
             })
         }
     }
@@ -2318,7 +2329,7 @@ pub(crate) mod tests {
 
         let mut order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: U256::from(4),
+                lock_stake: U256::from(1),
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 bidding_start: now_timestamp() - 100,
                 lock_timeout: 10,
@@ -2329,7 +2340,7 @@ pub(crate) mod tests {
 
         let order_id = order.id();
         let stake_reward = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward, U256::from(1));
+        assert_eq!(stake_reward, U256::from(0));
 
         let locked = ctx.picker.price_order(&mut order).await;
         assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
@@ -2352,14 +2363,14 @@ pub(crate) mod tests {
 
         let order2_id = order2.id();
         let stake_reward2 = order2.request.offer.stake_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward2, U256::from(10));
+        assert_eq!(stake_reward2, U256::from(32));
 
         let locked = ctx.picker.price_order(&mut order2).await;
         assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
 
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!(
-            "Starting preflight execution of {order2_id} with limit of 10 cycles"
+            "Starting preflight execution of {order2_id} with limit of 32 cycles"
         )));
         assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
     }
@@ -2410,6 +2421,7 @@ pub(crate) mod tests {
             total_cycles: order1.total_cycles,
             target_timestamp: order1.target_timestamp,
             expire_timestamp: order1.expire_timestamp,
+            cached_id: Default::default(),
         });
 
         assert_eq!(order1.id(), order2.id(), "Both orders should have the same ID");
@@ -2480,12 +2492,9 @@ pub(crate) mod tests {
         ctx.new_order_tx.send(order1).await.unwrap();
 
         // Wait for the order to be processed and check for the "Added" log
-        tokio::time::timeout(
-            MIN_CAPACITY_CHECK_INTERVAL + Duration::from_secs(1),
-            ctx.priced_orders_rx.recv(),
-        )
-        .await
-        .unwrap();
+        tokio::time::timeout(MIN_CAPACITY_CHECK_INTERVAL * 2, ctx.priced_orders_rx.recv())
+            .await
+            .unwrap();
 
         // Check that we logged the task being added
         assert!(logs_contain("Current pricing tasks: ["));
@@ -2946,7 +2955,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_eth_higher_than_stake() {
         let market_config = crate::config::MarketConf {
-            mcycle_price: "0.01".to_string(),           // 0.01 ETH per mcycle
+            mcycle_price: "0.001".to_string(),          // 0.01 ETH per mcycle
             mcycle_price_stake_token: "10".to_string(), // 10 stake tokens per mcycle
             max_mcycle_limit: None,
             peak_prove_khz: None,
@@ -2976,15 +2985,17 @@ pub(crate) mod tests {
             })
             .await;
 
+        // For lock and fulfill, if the exec limit based on ETH is higher than the exec
+        // limit based on stake, we should use the ETH limit.
         let (preflight_limit, prove_limit) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
-        // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.01 ETH/mcycle = 4.9M cycles
-        // Stake based: 100 stake tokens * 1M / 10 stake_tokens/mcycle = 10M cycles
+        // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.001 ETH/mcycle = 49M cycles
+        // Stake based: (100 stake tokens - 20% stake burn) * 1M / 10 stake_tokens/mcycle = 8M cycles
         // ETH-based is higher, so both should use ETH-based limit
 
-        assert_eq!(preflight_limit, 4_900_000u64);
-        assert_eq!(prove_limit, 4_900_000u64);
+        assert_eq!(preflight_limit, 49_000_000u64);
+        assert_eq!(prove_limit, 49_000_000u64);
     }
 
     #[tokio::test]
@@ -3024,18 +3035,29 @@ pub(crate) mod tests {
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.1 ETH/mcycle = 490k cycles
-        // Stake based: 1000 stake tokens * 1M / 1 stake_token/mcycle = 1000M cycles
+        // Stake based: (1000 stake tokens - 20% burn) * 1M / 1 stake_token/mcycle = 800M cycles
         // Stake-based is higher, demonstrating the bug where preflight != prove limits
 
-        assert_eq!(preflight_limit, 250_000_000u64);
+        let stake_reward_tokens = order
+            .request
+            .offer
+            .stake_reward_if_locked_and_not_fulfilled()
+            .div_ceil(U256::from(1_000_000));
+        let stake_based_limit: u64 = stake_reward_tokens
+            .saturating_mul(U256::from(1_000_000))
+            .div_ceil(U256::from(1))
+            .try_into()
+            .unwrap();
+        assert_eq!(preflight_limit, stake_based_limit);
         assert_eq!(prove_limit, 490_000u64);
     }
 
+    #[traced_test]
     #[tokio::test]
     async fn test_calculate_exec_limits_fulfill_after_expire_stake_only() {
         let market_config = crate::config::MarketConf {
-            mcycle_price: "0.1".to_string(), // Won't be used for FulfillAfterLockExpire
-            mcycle_price_stake_token: "0.1".to_string(), // 0.1 ETH per mcycle
+            mcycle_price: "0.0134".to_string(), // Won't be used for FulfillAfterLockExpire
+            mcycle_price_stake_token: "0.1".to_string(), // 0.1 stake per mcycle
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3057,7 +3079,7 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 max_price: parse_ether("1.0").unwrap(), // Won't be used
-                lock_stake: parse_stake_tokens("1.0"),  // 1 stake token
+                lock_stake: parse_stake_tokens("100"),  // 100 stake tokens
                 lock_timeout: 900,
                 timeout: 1200,
                 ..Default::default()
@@ -3068,11 +3090,17 @@ pub(crate) mod tests {
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // Should only use stake-based pricing for FulfillAfterLockExpire
-        // Stake based: 1.0 stake tokens * 1M / 0.1 stake tokens per mcycle = 10M cycles
-        let expected_cycles = 2_500_000u64;
+        // Stake based: (100 stake tokens - 20% burn) / 0.1 stake tokens per mcycle = 80M cycles
+        let stake_reward_tokens = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
+        tracing::info!("Stake reward tokens: {stake_reward_tokens}");
+        let stake_based_limit: u64 = stake_reward_tokens
+            .saturating_mul(U256::from(1_000_000))
+            .div_ceil(parse_stake_tokens("0.1"))
+            .try_into()
+            .unwrap();
 
-        assert_eq!(preflight_limit, expected_cycles);
-        assert_eq!(prove_limit, expected_cycles);
+        assert_eq!(preflight_limit, stake_based_limit);
+        assert_eq!(prove_limit, stake_based_limit);
     }
 
     #[tokio::test]
@@ -3160,7 +3188,7 @@ pub(crate) mod tests {
 
         // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
         // For LockAndFulfill orders: preflight uses higher limit (stake), prove uses ETH-based
-        assert_eq!(preflight_limit, 250_000_000u64); // Stake-based calculation
+        assert_eq!(preflight_limit, 800_000_000u64); // Stake-based calculation
         assert_eq!(prove_limit, 99_900_000u64); // ETH-based calculation
     }
 

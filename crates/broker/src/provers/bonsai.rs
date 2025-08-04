@@ -47,7 +47,7 @@ pub struct Bonsai {
 impl Bonsai {
     pub fn new(config: ConfigLock, api_url: &str, api_key: &str) -> Result<Self, ProverError> {
         let (
-            risc0_ver,
+            bonsai_r0_zkvm_ver,
             req_retry_count,
             req_retry_sleep_ms,
             status_poll_ms,
@@ -55,7 +55,7 @@ impl Bonsai {
         ) = {
             let config = config.lock_all().unwrap();
             (
-                config.prover.bonsai_r0_zkvm_ver.as_ref().ok_or(ConfigErr::InvalidConfig)?.clone(),
+                config.prover.bonsai_r0_zkvm_ver.clone(),
                 config.prover.req_retry_count,
                 config.prover.req_retry_sleep_ms,
                 config.prover.status_poll_ms,
@@ -64,6 +64,11 @@ impl Bonsai {
         };
 
         let prover_type = if api_key.is_empty() { ProverType::Bento } else { ProverType::Bonsai };
+
+        let risc0_ver = match prover_type {
+            ProverType::Bento => risc0_zkvm::VERSION.to_string(),
+            ProverType::Bonsai => bonsai_r0_zkvm_ver.ok_or(ConfigErr::InvalidConfig)?,
+        };
 
         Ok(Self {
             client: BonsaiClient::from_parts(api_url.into(), api_key.into(), &risc0_ver)?,

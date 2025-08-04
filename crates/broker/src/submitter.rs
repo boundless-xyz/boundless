@@ -491,7 +491,7 @@ where
         fulfillments: &[Fulfillment],
         order_ids: &[&str],
     ) -> Result<(), SubmitterErr> {
-        tracing::warn!("Failed to submit proofs: {err:?} for batch {batch_id}");
+        tracing::warn!("Failed to submit proofs for batch {batch_id}: {err:?} ");
         for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
             if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
             {
@@ -818,6 +818,7 @@ mod tests {
             chain_id,
             total_cycles: None,
             proving_started_at: None,
+            cached_id: Default::default(),
         };
         let order_id = order.id();
         db.add_order(&order).await.unwrap();

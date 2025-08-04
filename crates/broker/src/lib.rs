@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{path::PathBuf, sync::Arc, time::SystemTime};
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+    time::SystemTime,
+};
 
 use crate::storage::create_uri_handler;
 use alloy::{
@@ -204,6 +208,8 @@ struct OrderRequest {
     total_cycles: Option<u64>,
     target_timestamp: Option<u64>,
     expire_timestamp: Option<u64>,
+    #[serde(skip)]
+    cached_id: OnceLock<String>,
 }
 
 impl OrderRequest {
@@ -225,6 +231,7 @@ impl OrderRequest {
             total_cycles: None,
             target_timestamp: None,
             expire_timestamp: None,
+            cached_id: OnceLock::new(),
         }
     }
 
@@ -232,9 +239,15 @@ impl OrderRequest {
     // This structure supports multiple different ProofRequests with the same request_id, and different
     // fulfillment types.
     pub fn id(&self) -> String {
-        let signing_hash =
-            self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap();
-        format_order_id(&self.request.id, &signing_hash, &self.fulfillment_type)
+        self.cached_id
+            .get_or_init(|| {
+                let signing_hash = self
+                    .request
+                    .signing_hash(self.boundless_market_address, self.chain_id)
+                    .unwrap();
+                format_order_id(&self.request.id, &signing_hash, &self.fulfillment_type)
+            })
+            .clone()
     }
 
     fn to_order(&self, status: OrderStatus) -> Order {
@@ -256,6 +269,7 @@ impl OrderRequest {
             compressed_proof_id: None,
             lock_price: None,
             error_msg: None,
+            cached_id: OnceLock::new(),
         }
     }
 
@@ -354,6 +368,8 @@ struct Order {
     lock_price: Option<U256>,
     /// Failure message
     error_msg: Option<String>,
+    #[serde(skip)]
+    cached_id: OnceLock<String>,
 }
 
 impl Order {
@@ -361,9 +377,15 @@ impl Order {
     // This structure supports multiple different ProofRequests with the same request_id, and different
     // fulfillment types.
     pub fn id(&self) -> String {
-        let signing_hash =
-            self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap();
-        format_order_id(&self.request.id, &signing_hash, &self.fulfillment_type)
+        self.cached_id
+            .get_or_init(|| {
+                let signing_hash = self
+                    .request
+                    .signing_hash(self.boundless_market_address, self.chain_id)
+                    .unwrap();
+                format_order_id(&self.request.id, &signing_hash, &self.fulfillment_type)
+            })
+            .clone()
     }
 
     pub fn is_groth16(&self) -> bool {
