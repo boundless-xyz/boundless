@@ -71,10 +71,14 @@ services:
     hostname: ${REDIS_HOST:-redis}
     image: ${REDIS_IMG:-redis:7.2.5-alpine3.19}
     restart: always
-    ports:
-      - 6379:6379
     volumes:
       - redis-data:/data
+    expose:
+      - '6379'
+    # Uncomment if you want to expose this port to the host to be accessible outside of the container
+    # ports:
+    #   - 6379:6379
+
 
   postgres:
     hostname: ${POSTGRES_HOST:-postgres}
@@ -86,8 +90,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     expose:
       - '${POSTGRES_PORT:-5432}'
-    ports:
-      - '${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}'
+    # Uncomment if you want to expose this port to the host to be accessible outside of the container
+    # ports:
+    #   - '${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     command: -p ${POSTGRES_PORT:-5432}
@@ -96,9 +101,13 @@ services:
     hostname: ${MINIO_HOST:-minio}
     image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
     restart: always
-    ports:
-      - '9000:9000'
-      - '9001:9001'
+    expose:
+      - '9000'
+      - '9001'
+    # Uncomment if you want to expose these ports to the host to be accessible outside of the container
+    # ports:
+    #   - '9000:9000'
+    #   - '9001:9001'
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"
@@ -194,6 +203,10 @@ services:
     environment:
       <<: *base-environment
 
+    expose:
+      - '8081'
+    # Comment this out if you do not want this endpoint available outside of this network.
+    # This is exposed by default to be able to manually send requests through boundless or bento cli.
     ports:
       - '8081:8081'
 
