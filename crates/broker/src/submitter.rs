@@ -16,7 +16,10 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
     network::Ethereum,
-    primitives::{utils::format_ether, Address, B256, U256},
+    primitives::{
+        utils::{format_ether, format_units},
+        Address, B256, U256,
+    },
     providers::{Provider, WalletProvider},
     sol_types::{SolStruct, SolValue},
 };
@@ -442,6 +445,7 @@ where
 
         for fulfillment in fulfillments.iter() {
             let order_id = fulfillment_to_order_id.get(&fulfillment.id).unwrap();
+
             if let Err(db_err) = self.db.set_order_complete(order_id).await {
                 tracing::error!(
                     "Failed to set order complete during proof submission: {:x} {db_err:?}",
@@ -452,11 +456,30 @@ where
             let order_price = order_prices
                 .get(order_id)
                 .unwrap_or(&OrderPrice { price: U256::ZERO, stake_reward: U256::ZERO });
+
+            let eth_reward_log = format!("eth_reward: {}", format_ether(order_price.price));
+            let stake_token_decimals = self.market.stake_token_decimals().await?;
+            let stake_reward =
+                format_units(order_price.stake_reward, stake_token_decimals).unwrap();
+            let mut stake_reward_log = format!("stake_reward: {stake_reward}");
+
+            // If we expect a stake reward, check if we won the proof race to be the first secondary prover.
+            if order_price.stake_reward > U256::ZERO {
+                let prover = self.market.get_request_fulfillment_prover(fulfillment.id).await;
+                if let Ok(prover) = prover {
+                    if prover != self.prover_address {
+                        stake_reward_log = format!("stake_reward: 0 (lost secondary prover race to {prover} for {stake_reward})");
+                    }
+                } else {
+                    tracing::warn!("Failed to confirm if we were the first secondary prover for fulfillment {:x}", fulfillment.id);
+                }
+            }
+
             tracing::info!(
-                "✨ Completed order: 0x{:x} fee: {} stake_reward: {} ✨",
+                "✨ Completed order: 0x{:x} {} {} ✨",
                 fulfillment.id,
-                format_ether(order_price.price),
-                format_ether(order_price.stake_reward)
+                eth_reward_log,
+                stake_reward_log
             );
         }
 
