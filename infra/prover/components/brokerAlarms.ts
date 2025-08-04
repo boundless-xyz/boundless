@@ -12,6 +12,7 @@ export const createProverAlarms = (
   logGroup: pulumi.Output<aws.cloudwatch.LogGroup>,
   dependsOn: (pulumi.Resource | pulumi.Input<pulumi.Resource>)[],
   alarmActions: string[],
+  proverType: 'BENTO' | 'BONSAI'
 ): void => {
   const createLogMetricFilter = (
     pattern: string,
@@ -71,13 +72,21 @@ export const createProverAlarms = (
     });
   }
 
+  // Bonsai prover nearing end of life, and db locked is a known issue that we won't fix. Raising threshold.
+  // Unexpected error threshold for entire broker.
+  const brokerUnexpectedErrorThreshold = proverType == 'BENTO' ? 5 : 25;
+  const supervisorUnexpectedErrorThreshold = proverType == 'BENTO' ? 5 : 25;
+  // Unexpected error threshold for individual services.
+  const serviceUnexpectedErrorThreshold = proverType == 'BENTO' ? 2 : 15;
+  const serviceUnexpectedErrorThresholdSev1 = proverType == 'BENTO' ? 3 : 15;
+
   // Alarms across the entire prover.
   // Note: AWS has a limit of 5 filter patterns containing regex for each log group
   // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPattern.html
 
   // [Regex] 5 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('%\[B-[A-Z]+-500\]%', 'unexpected-errors', Severity.SEV2, {
-    threshold: 5,
+    threshold: brokerUnexpectedErrorThreshold,
   }, { period: 300 });
 
   // [Regex] 10 errors of any kind across the entire prover within an hour triggers a SEV2 alarm
@@ -108,7 +117,7 @@ export const createProverAlarms = (
   //
   // 5 supervisor restarts within 15 mins triggers a SEV2 alarm
   createErrorCodeAlarm('"[B-SUP-RECOVER]"', 'supervisor-recover-errors', Severity.SEV2, {
-    threshold: 5,
+    threshold: supervisorUnexpectedErrorThreshold,
   }, { period: 900 });
 
   // 2 supervisor fault within 30 minutes triggers a SEV2 alarm
@@ -124,19 +133,21 @@ export const createProverAlarms = (
   //
   // DB
   //
+  // Bonsai prover nearing end of life, and db locked is a known issue that we won't fix. Raising threshold.
+  const dbLockedErrorThreshold = proverType === 'BENTO' ? 1 : 10;
   // 2 db locked error within 30 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('"[B-DB-001]"', 'db-locked-error', Severity.SEV2, {
-    threshold: 2,
+    threshold: dbLockedErrorThreshold,
   }, { period: 1800 }, "DB locked error 2 times within 30 minutes");
 
   // 2 db pool timeout error within 30 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('"[B-DB-002]"', 'db-pool-timeout-error', Severity.SEV2, {
-    threshold: 2,
+    threshold: dbLockedErrorThreshold,
   }, { period: 1800 }, "DB pool timeout error 2 times within 30 minutes");
 
   // 2 db unexpected error within 30 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('"[B-DB-500]"', 'db-unexpected-error', Severity.SEV2, {
-    threshold: 2,
+    threshold: dbLockedErrorThreshold,
   }, { period: 1800 }, "DB unexpected error 2 times within 30 minutes");
 
   //
@@ -284,12 +295,12 @@ export const createProverAlarms = (
   //
   // Any 2 unexpected errors within 30 minutes in the prover triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-PRO-500]"', 'prover-unexpected-error', Severity.SEV2, {
-    threshold: 2,
+    threshold: serviceUnexpectedErrorThreshold,
   }, { period: 1800 });
 
   // 3 unexpected errors within 5 minutes in the prover triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-PRO-500]"', 'prover-unexpected-error', Severity.SEV1, {
-    threshold: 3,
+    threshold: serviceUnexpectedErrorThresholdSev1,
   }, { period: 300 });
 
   // 2 proving failed errors within 30 minutes in the prover triggers a SEV2 alarm.
@@ -306,12 +317,12 @@ export const createProverAlarms = (
 
   // Any 2 unexpected errors within 30 minutes in the aggregator triggers a SEV2 alarm.
   createErrorCodeAlarm('"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV2, {
-    threshold: 2,
+    threshold: serviceUnexpectedErrorThreshold,
   }, { period: 1800 });
 
   // 3 unexpected errors within 5 minutes in the aggregator triggers a SEV1 alarm.
   createErrorCodeAlarm('"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV1, {
-    threshold: 3,
+    threshold: serviceUnexpectedErrorThresholdSev1,
   }, { period: 300 });
 
   // An edge case to expire in the aggregator, also indicates that a slashed order.
