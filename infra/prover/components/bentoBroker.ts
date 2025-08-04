@@ -633,7 +633,7 @@ reboot
 
         const alarmActions = boundlessAlertsTopicArns ?? [];
 
-        createProverAlarms(chainId, serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions);
+        createProverAlarms(chainId, serviceName, pulumi.output(logGroup), [logGroup, this.instance], alarmActions, 'BENTO');
 
         this.instance.id.apply((instanceId) => {
             new aws.cloudwatch.MetricAlarm(`${serviceName}-cpu-util-${Severity.SEV2}`, {

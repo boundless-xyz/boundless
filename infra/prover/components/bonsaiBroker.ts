@@ -420,7 +420,7 @@ export class BonsaiECSBroker extends pulumi.ComponentResource {
 
     const alarmActions = boundlessAlertsTopicArns ?? [];
 
-    createProverAlarms(chainId, serviceName, logGroup, [service, logGroup], alarmActions);
+    createProverAlarms(chainId, serviceName, logGroup, [service, logGroup], alarmActions, 'BONSAI');
 
     // Alarms for CPUUtilization and MemoryUtilization, alarm if over 80% for 5 consecutive minutes.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-cpu-utilization-alarm`, {
