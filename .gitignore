@@ -2,6 +2,7 @@
 cache/
 out/
 build-info-reference/
+**/node_modules/
 
 # Ignores development broadcast logs
 /broadcast

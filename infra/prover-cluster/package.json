@@ -1,0 +1,21 @@
+{
+  "name": "prover-cluster",
+  "version": "1.0.0",
+  "description": "Custom Bento prover cluster infrastructure",
+  "main": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "pulumi up",
+    "destroy": "pulumi destroy",
+    "preview": "pulumi preview"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^6.0.0",
+    "@pulumi/awsx": "^2.0.0",
+    "@pulumi/pulumi": "^3.0.0"
+  }
+}
