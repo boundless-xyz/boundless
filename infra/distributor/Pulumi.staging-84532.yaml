@@ -18,6 +18,7 @@ config:
     secure: v1:1jzQibAoUrHjn0Iy:ixX10gWEC1WNnq8FVhWfHuqHvOEBys9o63zjaU6OZ6Lr+ooO9sficX9Djf979h1ElPk5CC5sqyzgShtZhkdPLo1YGqufpcdRrzNbAUODIWw=
   distributor:STAKE_THRESHOLD: "10"
   distributor:STAKE_TOP_UP_AMOUNT: "10"
+  distributor:PROVER_STAKE_DONATE_THRESHOLD: "150.0"
   distributor:ETH_RPC_URL:
     secure: v1:Gbts2MDIxPZqVLfr:YTMV0vht0vt6P0Sr50BqmvgUIlh/06F7ZqWbmgGRzz6VStrQEoNiEecYsgMaP765Ai9eAv7m9F6G5DGxju5zl+uTG99hRg1jqog+
   distributor:GH_TOKEN_SECRET:
