@@ -237,6 +237,7 @@ localnet action="up": check-deps
         sed -i.bak "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
         sed -i.bak "s/^export HIT_POINTS_ADDRESS=.*/export HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet
+        sed -i.bak "s/^export RPC_URL=.*/export RPC_URL=\"http:\/\/localhost:$ANVIL_PORT\"/" .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
         
