@@ -307,6 +307,41 @@ export const alarmConfig: ChainStageAlarms = {
               }
             }
           ]
+        },
+        {
+          name: "signal_requestor",
+          address: "0x47c76e56ad9316a5c1ab17cba87a1cc134552183",
+          submissionRate: [
+            {
+              description: "no submitted orders in 3 hours from signal_requestor",
+              severity: Severity.SEV1,
+              metricConfig: {
+                period: 10800
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            },
+            {
+              description: "no submitted orders in 2 hours from signal_requestor",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 7200
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            }
+          ],
+          successRate: [] // Signal rarely gets fulfilled on testnet.
         }
       ],
       provers: [
@@ -518,6 +553,55 @@ export const alarmConfig: ChainStageAlarms = {
             {
               description: "less than 90% success rate for two consecutive hours from og_onchain",
               severity: Severity.SEV1,
+              metricConfig: {
+                period: 3600
+              },
+              alarmConfig: {
+                threshold: 0.90,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
+                comparisonOperator: "LessThanThreshold"
+              }
+            }
+          ]
+        },
+        {
+          name: "signal_requestor",
+          address: "0x734df7809c4ef94da037449c287166d114503198",
+          submissionRate: [
+            {
+              description: "no submitted orders in 2 hours from signal_requestor",
+              severity: Severity.SEV1,
+              metricConfig: {
+                period: 7200
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            },
+            {
+              description: "no submitted orders in 30 minutes from signal_requestor",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 1800
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            }
+          ],
+          successRate: [
+            {
+              description: "less than 90% success rate for two consecutive hours from signal_requestor",
+              severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
