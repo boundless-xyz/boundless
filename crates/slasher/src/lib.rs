@@ -419,7 +419,9 @@ where
                         tracing::warn!("Tx 0x{:x} reverted when slashing request 0x{:x}. Request is already slashed, removing", tx_hash, request_id);
                         self.remove_order(request_id).await?;
                     } else {
-                        tracing::error!("Tx 0x{:x} for request 0x{:x} reverted and request is not slashed already", tx_hash, request_id);
+                        // Only warn as we've seen eventual consistency issues where the request actually was slashed.
+                        // Logic will retry and should succeed in this case. If retrys fail, it will error out.
+                        tracing::warn!("Tx 0x{:x} for request 0x{:x} reverted and request is not slashed already", tx_hash, request_id);
                         return Err(ServiceError::SlashRevert(request_id, tx_hash));
                     }
                 }
@@ -429,7 +431,7 @@ where
                         tracing::warn!("Tx 0x{:x} did not emit expected Slashed event for request 0x{:x} [{}]. Request is already slashed, removing", tx_hash, request_id, err);
                         self.remove_order(request_id).await?;
                     } else {
-                        tracing::error!("Tx 0x{:x} for request 0x{:x} did not emit expected Slashed event [{}]. Request is not slashed already", tx_hash, request_id, err);
+                        tracing::warn!("Tx 0x{:x} for request 0x{:x} did not emit expected Slashed event [{}]. Request is not slashed already", tx_hash, request_id, err);
                         return Err(ServiceError::SlashRevert(request_id, tx_hash));
                     }
                 }
@@ -459,7 +461,8 @@ where
                         return Err(ServiceError::InsufficientFunds(err_msg));
                     } else {
                         // Any other error should be RPC related so we can retry
-                        tracing::error!("Failed to slash request 0x{:x}: {}", request_id, err);
+                        // Only warn as logic will retry. If retrys fail, it will error out.
+                        tracing::warn!("Failed to slash request 0x{:x}: {}", request_id, err);
                         return Err(ServiceError::BoundlessMarketError(err));
                     }
                 }
