@@ -215,7 +215,7 @@ pub async fn deploy_contracts(
 
     // Deploy contracts
     let verifier_router = deploy_verifier_router(&deployer_provider, deployer_address).await?;
-    let (verifier, groth16_selector) = match is_dev_mode() {
+    let (groth16_verifier, groth16_selector) = match is_dev_mode() {
         true => (deploy_mock_verifier(&deployer_provider).await?, [0xFFu8; 4]),
         false => {
             let control_root = ALLOWED_CONTROL_ROOT;
@@ -234,7 +234,8 @@ pub async fn deploy_contracts(
         }
     };
     let set_verifier =
-        deploy_set_verifier(&deployer_provider, verifier, set_builder_id, set_builder_url).await?;
+        deploy_set_verifier(&deployer_provider, verifier_router, set_builder_id, set_builder_url)
+            .await?;
 
     let router_instance = RiscZeroVerifierRouter::RiscZeroVerifierRouterInstance::new(
         verifier_router,
@@ -242,7 +243,7 @@ pub async fn deploy_contracts(
     );
 
     let call = &router_instance
-        .addVerifier(groth16_selector.into(), verifier)
+        .addVerifier(groth16_selector.into(), groth16_verifier)
         .from(deployer_signer.address());
     let _ = call.send().await?;
 
