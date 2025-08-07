@@ -6,7 +6,7 @@ config:
   distributor:DISTRIBUTOR_PRIVATE_KEY:
     secure: v1:wsMaM6eH71PkGoGO:gnW40haQnOPc/SUZaxWYyvQY4tJNe7qjkn7rgbszPuaPczv607usL0t6mXGNtCCTF2uGUaYp6q8TobbS48GS5du7EL3FVm2l3uGGOxSemok=
   distributor:ETH_THRESHOLD: "0.02"
-  distributor:ETH_TOP_UP_AMOUNT: "0.02"
+  distributor:ETH_TOP_UP_AMOUNT: "0.04"
   distributor:GH_TOKEN_SECRET:
     secure: v1:sFcUNPOUWZ1ghOjf:Y3a6CP7X6bTABqL+OxMTKA7yzNFptTWH2+ADn188fYxHTccf0qeaIF8VRfCvJ2iVnMxfoAFsMpW72mf+Gzv3seAzwLHZhbwciJ4WrFKD3bHKydiDAQepnRbogHwcMfGWi7hSkSu72ihW3sm/hQ==
   distributor:ORDER_GENERATOR_KEYS:
@@ -16,11 +16,12 @@ config:
   distributor:PROVER_KEYS:
     secure: v1:EY44pcRVdz2JuCTu:zCzN/MYur9seJdgg5lHbUQ7KoBWjAwEOmVSTNTTo1eqjVwdnREY7CvniVRO9PqEJJweMlxo1Gw8GcaZ2JPUcqGiU4ha7FVXrKDGfhNrIWcAO6IRJ2WAneHwKGBQRIjSMvuYsKXJhPQXzvTjklbKKeAMvGuaDKGM28uUEXSDHzmEYmWz4CEYWs8GHGrx+kje/wQ==
   distributor:SCHEDULE_MINUTES: "360"
+  distributor:PROVER_STAKE_DONATE_THRESHOLD: "150.0"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-prod
   distributor:SLASHER_KEY:
     secure: v1:5h1orYNX17m3Vp3b:R1yCFR4Yks5rPn7nMs180Y7LOHPcksMwlSPBwsZz2sfUrlmpTfWXxlpv5nIewPuy89aAAS2pJQtoybTC+yGCQG50GN4xAaMw9pMPjkIGMys=
-  distributor:STAKE_THRESHOLD: "7"
-  distributor:STAKE_TOP_UP_AMOUNT: "7"
+  distributor:STAKE_THRESHOLD: "25"
+  distributor:STAKE_TOP_UP_AMOUNT: "35"
   distributor:ETH_RPC_URL:
     secure: v1:Ft8qHrOPQTypWl6L:7O1I0MEZmsPG/ptdueEjY1+NyaQf5SWILbDy2B6KWJqN5rmuM1l5FLy9KpsMnwjGinbCMWxEC97eawyILp6LluqF3yYeEzxBKD4e
   distributor:LOG_LEVEL: "info"

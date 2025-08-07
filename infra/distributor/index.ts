@@ -24,6 +24,7 @@ export = () => {
   const ethTopUpAmount = isDev ? getEnvVar("ETH_TOP_UP_AMOUNT") : config.require('ETH_TOP_UP_AMOUNT');
   const stakeTopUpAmount = isDev ? getEnvVar("STAKE_TOP_UP_AMOUNT") : config.require('STAKE_TOP_UP_AMOUNT');
   const proverEthDonateThreshold = isDev ? getEnvVar("PROVER_ETH_DONATE_THRESHOLD") : config.require('PROVER_ETH_DONATE_THRESHOLD');
+  const proverStakeDonateThreshold = isDev ? getEnvVar("PROVER_STAKE_DONATE_THRESHOLD") : config.require('PROVER_STAKE_DONATE_THRESHOLD');
 
   const scheduleMinutes = config.require('SCHEDULE_MINUTES');
 
@@ -201,6 +202,7 @@ export = () => {
     ethTopUpAmount ? `--eth-top-up-amount ${ethTopUpAmount}` : '',
     stakeTopUpAmount ? `--stake-top-up-amount ${stakeTopUpAmount}` : '',
     proverEthDonateThreshold ? `--prover-eth-donate-threshold ${proverEthDonateThreshold}` : '',
+    proverStakeDonateThreshold ? `--prover-stake-donate-threshold ${proverStakeDonateThreshold}` : '',
   ]
 
   if (boundlessMarketAddr && setVerifierAddr) {

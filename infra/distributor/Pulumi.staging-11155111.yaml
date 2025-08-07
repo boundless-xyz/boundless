@@ -15,6 +15,7 @@ config:
   distributor:ETH_TOP_UP_AMOUNT: "20"
   distributor:STAKE_TOP_UP_AMOUNT: "10"
   distributor:PROVER_ETH_DONATE_THRESHOLD: "30"
+  distributor:PROVER_STAKE_DONATE_THRESHOLD: "150.0"
   distributor:SCHEDULE_MINUTES: "360"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
