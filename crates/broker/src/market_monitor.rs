@@ -246,21 +246,21 @@ where
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
-
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
-        // TODO: RPC providers can drop filters over time or flush them
-        // we should try and move this to a subscription filter if we have issue with the RPC
-        // dropping filters
 
-        let event = market
-            .instance()
-            .RequestSubmitted_filter()
-            .watch()
-            .await
-            .context("Failed to subscribe to RequestSubmitted event")?;
+        let create_filter = || async {
+            let event = market
+                .instance()
+                .RequestSubmitted_filter()
+                .watch()
+                .await
+                .context("Failed to subscribe to RequestSubmitted event")?;
+            Ok::<_, anyhow::Error>(event.into_stream())
+        };
+
+        let mut stream = create_filter().await?;
         tracing::info!("Subscribed to RequestSubmitted event");
 
-        let mut stream = event.into_stream();
         loop {
             tokio::select! {
                 log_res = stream.next() => {
@@ -284,9 +284,9 @@ where
                             tracing::warn!("Failed to fetch event log: {event_err:?}");
                         }
                         None => {
-                            return Err(MarketMonitorErr::EventPollingErr(anyhow::anyhow!(
-                                "Event polling exited, polling failed (possible RPC error)"
-                            )));
+                            tracing::warn!("Event stream ended unexpectedly. Recreating subscription...");
+                            stream = create_filter().await?;
+                            tracing::info!("Recreated RequestSubmitted event subscription");
                         }
                     }
                 }
@@ -311,15 +311,20 @@ where
     ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
-        let event = market
-            .instance()
-            .RequestLocked_filter()
-            .watch()
-            .await
-            .context("Failed to subscribe to RequestLocked event")?;
+
+        let create_filter = || async {
+            let event = market
+                .instance()
+                .RequestLocked_filter()
+                .watch()
+                .await
+                .context("Failed to subscribe to RequestLocked event")?;
+            Ok::<_, anyhow::Error>(event.into_stream())
+        };
+
+        let mut stream = create_filter().await?;
         tracing::info!("Subscribed to RequestLocked event");
 
-        let mut stream = event.into_stream();
         loop {
             tokio::select! {
                 log_res = stream.next() => {
@@ -399,9 +404,9 @@ where
                             tracing::warn!("Failed to fetch RequestLocked event log: {event_err:?}");
                         }
                         None => {
-                            return Err(MarketMonitorErr::EventPollingErr(anyhow::anyhow!(
-                                "Event polling exited, polling failed (possible RPC error)",
-                            )));
+                            tracing::warn!("Event stream ended unexpectedly. Recreating subscription...");
+                            stream = create_filter().await?;
+                            tracing::info!("Recreated event subscription");
                         }
                     }
                 }
@@ -421,15 +426,20 @@ where
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
-        let event = market
-            .instance()
-            .RequestFulfilled_filter()
-            .watch()
-            .await
-            .context("Failed to subscribe to RequestFulfilled event")?;
+
+        let create_filter = || async {
+            let event = market
+                .instance()
+                .RequestFulfilled_filter()
+                .watch()
+                .await
+                .context("Failed to subscribe to RequestFulfilled event")?;
+            Ok::<_, anyhow::Error>(event.into_stream())
+        };
+
+        let mut stream = create_filter().await?;
         tracing::info!("Subscribed to RequestFulfilled event");
 
-        let mut stream = event.into_stream();
         loop {
             tokio::select! {
                 log_res = stream.next() => {
@@ -469,9 +479,9 @@ where
                             tracing::warn!("Failed to fetch RequestFulfilled event log: {event_err:?}");
                         }
                         None => {
-                            return Err(MarketMonitorErr::EventPollingErr(anyhow::anyhow!(
-                                "Event polling order fulfillments exited, polling failed (possible RPC error)",
-                            )));
+                            tracing::warn!("Event stream ended unexpectedly. Recreating subscription...");
+                            stream = create_filter().await?;
+                            tracing::info!("Recreated event subscription");
                         }
                     }
                 }
