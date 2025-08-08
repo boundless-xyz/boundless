@@ -44,11 +44,13 @@ ENV SCCACHE_SERVER_PORT=4227
 WORKDIR /src/
 COPY . .
 
-# Install groth16 component
+# Install RISC Zero toolchain
 ENV RISC0_HOME=/usr/local/risc0
-RUN cargo run --package rzup -- --verbose install risc0-groth16
+RUN curl -L https://risc0.github.io/ghpages/dev/install.sh | sh
+ENV PATH="$PATH:/root/.risc0/bin"
+RUN rzup install risc0-groth16
 
-RUN bento/dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
+RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Consider using if building and running on the same CPU
