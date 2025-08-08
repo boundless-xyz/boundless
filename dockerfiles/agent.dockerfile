@@ -46,7 +46,7 @@ COPY . .
 
 # Install RISC Zero toolchain
 ENV RISC0_HOME=/usr/local/risc0
-RUN curl -L https://risc0.github.io/ghpages/dev/install.sh | sh
+RUN curl -L https://risczero.com/install | bash
 ENV PATH="$PATH:/root/.risc0/bin"
 RUN rzup install risc0-groth16
 
