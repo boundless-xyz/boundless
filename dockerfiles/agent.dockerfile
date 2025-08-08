@@ -52,7 +52,7 @@ SHELL ["/bin/bash", "-c"]
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
-    source bento/dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --manifest-path bento/Cargo.toml --release -p workflow -F cuda --bin agent && \
     cp bento/target/release/agent /src/agent && \
     sccache --show-stats
