@@ -10,7 +10,7 @@ ARG S3_CACHE_PREFIX
 
 WORKDIR /src/
 COPY . .
-RUN bento/dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
+RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Prevent sccache collision in compose-builds
@@ -18,7 +18,7 @@ ENV SCCACHE_SERVER_PORT=4230
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_api_sccache \
-    source bento/dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --manifest-path bento/Cargo.toml --release -p api --bin rest_api && \
     cp bento/target/release/rest_api /src/rest_api && \
     sccache --show-stats
