@@ -44,12 +44,6 @@ ENV SCCACHE_SERVER_PORT=4227
 WORKDIR /src/
 COPY . .
 
-# Install RISC Zero toolchain
-ENV RISC0_HOME=/usr/local/risc0
-RUN curl -L https://risczero.com/install | bash
-ENV PATH="$PATH:/root/.risc0/bin"
-RUN rzup install risc0-groth16
-
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
@@ -63,6 +57,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cp bento/target/release/agent /src/agent && \
     sccache --show-stats
 
+FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
 RUN apt-get update -q -y && apt-get install -q -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
@@ -70,7 +65,10 @@ RUN apt-get update -q -y && apt-get install -q -y ca-certificates libssl3 && rm 
 # Main prover
 COPY --from=builder /src/agent /app/agent
 
-# copy rzup directory
-COPY --from=builder /usr/local/risc0 /usr/local/risc0
+# Stark2snark
+COPY --from=binaries /usr/local/sbin/rapidsnark /usr/local/sbin/rapidsnark
+COPY --from=binaries /app/stark_verify /app/stark_verify
+COPY --from=binaries /app/stark_verify.dat /app/stark_verify.dat
+COPY --from=binaries /app/stark_verify_final.zkey /app/stark_verify_final.zkey
 
 ENTRYPOINT ["/app/agent"]
