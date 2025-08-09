@@ -55,7 +55,7 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, format_units, parse_ether, parse_units},
-        Address, FixedBytes, TxKind, B256, U256,
+        Address, Bytes, FixedBytes, TxKind, B256, U256,
     },
     providers::{Provider, ProviderBuilder},
     rpc::types::{TransactionInput, TransactionRequest},
@@ -74,6 +74,7 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     Journal, SessionInfo,
 };
+use serde::{Deserialize, Serialize};
 use shadow_rs::shadow;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -82,7 +83,7 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        Offer, ProofRequest, RequestInputType, Selector,
+        Offer, ProofRequest, RequestInputType, RequestStatus, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -92,6 +93,26 @@ use boundless_market::{
 };
 
 shadow!(build);
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "command", rename_all = "kebab-case")]
+enum Output {
+    Ok,
+    AccountAmount { amount_eth: String },
+    AccountStakeAmount { amount: String, decimals: u8, symbol: String },
+    RequestStatus { status: RequestStatus },
+    RequestSubmitted { request_id: U256, expires_at: u64 },
+    RequestFulfilled { journal: Bytes, seal: Bytes },
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct CliResponse<T: Serialize> {
+    pub(crate) success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) error: Option<String>,
+}
 
 #[derive(Subcommand, Clone, Debug)]
 enum Command {
@@ -401,6 +422,10 @@ struct GlobalConfig {
     #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
     log_level: LevelFilter,
 
+    /// Output in JSON format
+    #[clap(long, global = true)]
+    json: bool,
+
     #[clap(flatten, next_help_heading = "Boundless Deployment")]
     deployment: Option<Deployment>,
 }
@@ -450,37 +475,55 @@ fn private_key_required(cmd: &Command) -> bool {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     let args = match MainArgs::try_parse() {
         Ok(args) => args,
         Err(err) => {
             if err.kind() == clap::error::ErrorKind::DisplayHelp {
-                // If it's a help request, print the help and exit successfully
-                err.print()?;
-                return Ok(());
+                err.print().ok();
+                std::process::exit(0);
             }
             if err.kind() == clap::error::ErrorKind::DisplayVersion {
-                // If it's a version request, print the version and exit successfully
-                err.print()?;
-                return Ok(());
+                err.print().ok();
+                std::process::exit(0);
             }
-            return Err(err.into());
+            eprintln!("{err}");
+            std::process::exit(1);
         }
     };
 
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(
-            EnvFilter::builder()
-                .with_default_directive(args.config.log_level.into())
-                .from_env_lossy(),
-        )
-        .init();
+    if !args.config.json {
+        tracing_subscriber::registry()
+            .with(fmt::layer())
+            .with(
+                EnvFilter::builder()
+                    .with_default_directive(args.config.log_level.into())
+                    .from_env_lossy(),
+            )
+            .init();
+    }
 
-    run(&args).await
+    match run(&args).await {
+        Ok(output) => {
+            if args.config.json {
+                let response = CliResponse { success: true, data: Some(output), error: None };
+                println!("{}", serde_json::to_string_pretty(&response).unwrap());
+            }
+        }
+        Err(e) => {
+            if args.config.json {
+                let response: CliResponse<Output> =
+                    CliResponse { success: false, data: None, error: Some(e.to_string()) };
+                println!("{}", serde_json::to_string_pretty(&response).unwrap());
+            } else {
+                eprintln!("Error: {e}");
+            }
+            std::process::exit(1);
+        }
+    }
 }
 
-pub(crate) async fn run(args: &MainArgs) -> Result<()> {
+pub(crate) async fn run(args: &MainArgs) -> Result<Output> {
     if private_key_required(&args.command) && args.config.private_key.is_none() {
         eprintln!("A private key is required to run this subcommand");
         eprintln!("Please provide a private key with --private-key or the PRIVATE_KEY environment variable");
@@ -492,6 +535,9 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         return handle_config_command(args).await;
     }
     if let Command::Completions { shell } = &args.command {
+        if args.config.json {
+            bail!("The completions command does not support JSON output");
+        }
         // TODO: Because of where this is, running the completions command requires an RPC_URL to
         // be set. We should address this, but its also not a major issue.
         clap_complete::generate(
@@ -500,7 +546,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
             "boundless",
             &mut std::io::stdout(),
         );
-        return Ok(());
+        return Ok(Output::Ok);
     }
 
     let storage_config = match args.command {
@@ -533,13 +579,14 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
 }
 
 /// Handle ops-related commands
-async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result<()> {
+async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result<Output> {
     match cmd {
         OpsCommands::Slash { request_id } => {
             tracing::info!("Slashing prover for request 0x{:x}", request_id);
             client.boundless_market.slash(*request_id).await?;
+
             tracing::info!("Successfully slashed prover for request 0x{:x}", request_id);
-            Ok(())
+            Ok(Output::Ok)
         }
     }
 }
@@ -561,19 +608,19 @@ async fn parse_stake_amount(
 }
 
 /// Handle account-related commands
-async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -> Result<()> {
+async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -> Result<Output> {
     match cmd {
         AccountCommands::Deposit { amount } => {
             tracing::info!("Depositing {} ETH into the market", format_ether(*amount));
             client.boundless_market.deposit(*amount).await?;
             tracing::info!("Successfully deposited {} ETH into the market", format_ether(*amount));
-            Ok(())
+            Ok(Output::AccountAmount { amount_eth: format_ether(*amount) })
         }
         AccountCommands::Withdraw { amount } => {
             tracing::info!("Withdrawing {} ETH from the market", format_ether(*amount));
             client.boundless_market.withdraw(*amount).await?;
             tracing::info!("Successfully withdrew {} ETH from the market", format_ether(*amount));
-            Ok(())
+            Ok(Output::AccountAmount { amount_eth: format_ether(*amount) })
         }
         AccountCommands::Balance { address } => {
             let addr = address.unwrap_or(client.boundless_market.caller());
@@ -583,7 +630,7 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             tracing::info!("Checking balance for address {}", addr);
             let balance = client.boundless_market.balance_of(addr).await?;
             tracing::info!("Balance for address {}: {} ETH", addr, format_ether(balance));
-            Ok(())
+            Ok(Output::AccountAmount { amount_eth: format_ether(balance) })
         }
         AccountCommands::DepositStake { amount } => {
             let (parsed_amount, formatted_amount, symbol) =
@@ -597,13 +644,18 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             {
                 Ok(_) => {
                     tracing::info!("Successfully deposited {formatted_amount} {symbol} as stake");
-                    Ok(())
+                    Ok(Output::AccountStakeAmount {
+                        amount: formatted_amount,
+                        decimals: client.boundless_market.stake_token_decimals().await?,
+                        symbol: symbol.clone(),
+                    })
                 }
                 Err(e) => {
                     if e.to_string().contains("TRANSFER_FROM_FAILED") {
                         let addr = client.boundless_market.caller();
                         Err(anyhow!(
-                            "Failed to deposit stake: Ensure your address ({}) has funds on the {symbol} contract", addr
+                            "Failed to deposit stake: Ensure your address ({}) has funds on the {symbol} contract",
+                            addr
                         ))
                     } else {
                         Err(anyhow!("Failed to deposit stake: {}", e))
@@ -617,7 +669,11 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             tracing::info!("Withdrawing {formatted_amount} {symbol} from stake");
             client.boundless_market.withdraw_stake(parsed_amount).await?;
             tracing::info!("Successfully withdrew {formatted_amount} {symbol} from stake");
-            Ok(())
+            Ok(Output::AccountStakeAmount {
+                amount: formatted_amount,
+                decimals: client.boundless_market.stake_token_decimals().await?,
+                symbol: symbol.clone(),
+            })
         }
         AccountCommands::StakeBalance { address } => {
             let symbol = client.boundless_market.stake_token_symbol().await?;
@@ -631,13 +687,13 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             let balance = format_units(balance, decimals)
                 .map_err(|e| anyhow!("Failed to format stake balance: {}", e))?;
             tracing::info!("Stake balance for address {}: {} {}", addr, balance, symbol);
-            Ok(())
+            Ok(Output::AccountStakeAmount { amount: balance, decimals, symbol })
         }
     }
 }
 
 /// Handle request-related commands
-async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -> Result<()> {
+async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -> Result<Output> {
     match cmd {
         RequestCommands::SubmitOffer(offer_args) => {
             tracing::info!("Submitting new proof request with offer");
@@ -657,7 +713,7 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
             tracing::info!("Checking status for request 0x{:x}", request_id);
             let status = client.boundless_market.get_status(*request_id, *expires_at).await?;
             tracing::info!("Request 0x{:x} status: {:?}", request_id, status);
-            Ok(())
+            Ok(Output::RequestStatus { status })
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
@@ -669,7 +725,7 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                 serde_json::to_string_pretty(&journal)?,
                 serde_json::to_string_pretty(&seal)?
             );
-            Ok(())
+            Ok(Output::RequestFulfilled { journal, seal })
         }
         RequestCommands::VerifyProof { request_id, image_id } => {
             tracing::info!("Verifying proof for request 0x{:x}", request_id);
@@ -686,13 +742,13 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                 .map_err(|_| anyhow::anyhow!("Verification failed"))?;
 
             tracing::info!("Successfully verified proof for request 0x{:x}", request_id);
-            Ok(())
+            Ok(Output::Ok)
         }
     }
 }
 
 /// Handle proving-related commands
-async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -> Result<()> {
+async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -> Result<Output> {
     match cmd {
         ProvingCommands::Execute { request_path, request_id, request_digest, tx_hash } => {
             tracing::info!("Executing proof request");
@@ -723,7 +779,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
 
             tracing::info!("Successfully executed request 0x{:x}", request.id);
             tracing::debug!("Journal: {:?}", journal);
-            Ok(())
+            Ok(Output::Ok)
         }
         ProvingCommands::Fulfill { request_ids, request_digests, tx_hashes, withdraw } => {
             if request_digests.is_some()
@@ -817,7 +873,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             match boundless_market.fulfill(fulfillment_tx).await {
                 Ok(_) => {
                     tracing::info!("Successfully fulfilled requests {}", request_ids_string);
-                    Ok(())
+                    Ok(Output::Ok)
                 }
                 Err(e) => {
                     tracing::error!("Failed to fulfill requests {}: {}", request_ids_string, e);
@@ -844,7 +900,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
 
             client.boundless_market.lock_request(&request, signature, None).await?;
             tracing::info!("Successfully locked request 0x{:x}", request_id);
-            Ok(())
+            Ok(Output::Ok)
         }
         ProvingCommands::Benchmark { request_ids, bonsai_api_url, bonsai_api_key } => {
             benchmark(client, request_ids, bonsai_api_url, bonsai_api_key).await
@@ -858,7 +914,7 @@ async fn benchmark(
     request_ids: &[U256],
     bonsai_api_url: &Option<String>,
     bonsai_api_key: &Option<String>,
-) -> Result<()> {
+) -> Result<Output> {
     tracing::info!("Starting benchmark for {} requests", request_ids.len());
     if request_ids.is_empty() {
         bail!("No request IDs provided");
@@ -1031,7 +1087,7 @@ async fn benchmark(
               total throughput of the orders locked by the broker. It is recommended to set a value \
               lower than this recommmendation, and increase it over time to increase capacity.");
 
-    Ok(())
+    Ok(Output::Ok)
 }
 
 /// Create a PostgreSQL connection pool using environment variables
@@ -1053,7 +1109,7 @@ async fn create_pg_pool() -> Result<sqlx::PgPool, sqlx::Error> {
 }
 
 /// Submit an offer and create a proof request
-async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<()> {
+async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<Output> {
     let request = client.new_request();
 
     // Resolve the program from command line arguments.
@@ -1137,9 +1193,11 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
             serde_json::to_string_pretty(&journal)?,
             serde_json::to_string_pretty(&seal)?
         );
+
+        return Ok(Output::RequestFulfilled { journal, seal });
     }
 
-    Ok(())
+    Ok(Output::RequestSubmitted { request_id, expires_at })
 }
 
 struct SubmitOptions {
@@ -1153,7 +1211,7 @@ async fn submit_request<P, S>(
     request_path: impl AsRef<Path>,
     client: Client<P, S>,
     opts: SubmitOptions,
-) -> Result<()>
+) -> Result<Output>
 where
     P: Provider<Ethereum> + 'static + Clone,
     S: StorageProvider + Clone,
@@ -1238,9 +1296,10 @@ where
             serde_json::to_string_pretty(&journal)?,
             serde_json::to_string_pretty(&seal)?
         );
+        return Ok(Output::RequestFulfilled { journal, seal });
     }
 
-    Ok(())
+    Ok(Output::RequestSubmitted { request_id, expires_at })
 }
 
 /// Execute a proof request using the RISC Zero zkVM executor
@@ -1281,7 +1340,10 @@ fn now_timestamp() -> u64 {
 }
 
 /// Handle config command
-async fn handle_config_command(args: &MainArgs) -> Result<()> {
+async fn handle_config_command(args: &MainArgs) -> Result<Output> {
+    if args.config.json {
+        bail!("The config command does not support JSON output");
+    }
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");
 
@@ -1323,7 +1385,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
         Err(e) => {
             println!("❌ Failed to connect: {e}");
             // Do not run remaining checks, which require an RPC connection.
-            return Ok(());
+            return Ok(Output::Ok);
         }
     };
 
@@ -1331,7 +1393,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
         args.config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
     else {
         println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
-        return Ok(());
+        return Ok(Output::Ok);
     };
 
     // Check market contract
@@ -1409,7 +1471,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
         if market_ok { "✅ Ready to use" } else { "❌ Issues detected" }
     );
 
-    Ok(())
+    Ok(Output::Ok)
 }
 
 #[cfg(test)]
@@ -1418,7 +1480,7 @@ mod tests {
 
     use alloy::primitives::aliases::U96;
     use boundless_market::contracts::{
-        Predicate, PredicateType, RequestId, RequestInput, Requirements,
+        Predicate, PredicateType, RequestId, RequestInput, RequestStatus, Requirements,
     };
 
     use super::*;
@@ -1429,8 +1491,7 @@ mod tests {
         providers::WalletProvider,
     };
     use boundless_market::{
-        contracts::{hit_points::default_allowance, RequestStatus},
-        selector::is_groth16_selector,
+        contracts::hit_points::default_allowance, selector::is_groth16_selector,
     };
     use boundless_market_test_utils::{
         create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx, ECHO_ID, ECHO_PATH,
@@ -1494,6 +1555,7 @@ mod tests {
             deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
+            json: false,
         };
 
         (ctx, anvil, config)
@@ -1962,6 +2024,7 @@ mod tests {
             deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
+            json: false,
         };
 
         // test the Lock command
@@ -2271,6 +2334,7 @@ mod tests {
             deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
+            json: false,
         };
 
         // test the Lock command

@@ -130,6 +130,9 @@ jobs:
       - name: check for changes to files in git index
         run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
 
+      - name: install boundless CLI
+        run: cargo install --locked --path crates/boundless-cli
+        
       - name: cargo test
         run: cargo test --locked --workspace --all-targets -- --include-ignored
         env:
