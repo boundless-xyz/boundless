@@ -82,7 +82,7 @@ The greatest API cost will likely be from the beacon API endpoint.
 For each block between the commitment block and the execution block, Steel will query the full beacon block for verification.
 Please bear in mind that the wider the gap between the execution block and the commitment block, the larger the load on the beacon endpoint will be.
 
-In terms of compute, the number of cycles for the Steel guest will also increase linearly with the number of blocks between the commitment block and the execution block.
+In terms of computation, the number of cycles for the Steel guest will also increase linearly with the number of blocks between the commitment block and the execution block.
 For every extra 24 hours of history, this is just under 500,000 cycles in the Steel guest. .
 
 ## Using Steel History
