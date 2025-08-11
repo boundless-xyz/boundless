@@ -12,7 +12,7 @@ using FulfillmentContextLibrary for FulfillmentContext global;
 struct FulfillmentContext {
     /// @notice Boolean set to true to indicate the request is internally consistent and signed.
     bool valid;
-    /// @notice Boolean set to true to indicate that the request is expired.
+    /// @notice Boolean set to true to indicate that the request has expired.
     bool expired;
     /// @notice The validated price for the request
     uint96 price;
@@ -26,7 +26,7 @@ library FulfillmentContextLibrary {
     uint256 private constant EXPIRED_MASK = 1 << 126;
     uint256 private constant PRICE_MASK = (1 << 96) - 1;
 
-    /// @notice Packs the struct into a single 256-bit slots and sets the flags.
+    /// @notice Packs the struct into a single 256-bit slot and sets the flags.
     /// @param x The FulfillmentContext struct to pack
     /// @return Packed uint256 containing valid bit and price
     function pack(FulfillmentContext memory x) internal pure returns (uint256) {
