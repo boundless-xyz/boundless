@@ -79,7 +79,7 @@ contract BoundlessMarket is
     uint256 public constant ERC1271_MAX_GAS_FOR_CHECK = 100000;
 
     /// @notice When a prover is slashed for failing to fulfill a request, a portion of the stake
-    /// is burned, and the remaining portion is either send to the prover that ultimately fulfilled
+    /// is burned, and the remaining portion is either sent to the prover that ultimately fulfilled
     /// the order, or to the market treasury. This fraction controls that ratio.
     /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
     /// gas of an SLOAD. Can only be changed via contract upgrade.
