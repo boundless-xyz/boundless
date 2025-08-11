@@ -191,7 +191,7 @@ interface IBoundlessMarket {
     /// @return The expiration time of the lock on the request.
     function requestLockDeadline(RequestId requestId) external view returns (uint64);
 
-    /// @notice For a given locked request, returns when request expires.
+    /// @notice For a given locked request, returns when the request expires.
     /// @dev If the request is not locked, this function will revert.
     /// @param requestId The ID of the request.
     /// @return The expiration time of the request.
