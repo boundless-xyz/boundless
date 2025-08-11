@@ -14,7 +14,7 @@ using OfferLibrary for Offer global;
 /// @title Offer Struct and Library
 /// @notice Represents an offer and provides functions to validate and compute offer-related data.
 struct Offer {
-    /// @notice Price at the start of the bidding period, it is minimum price a prover will receive for job.
+    /// @notice Price at the start of the bidding period, it is the minimum price a prover will receive for job.
     uint256 minPrice;
     /// @notice Price at the end of the bidding period, this is the maximum price the client will pay.
     uint256 maxPrice;
