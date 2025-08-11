@@ -35,7 +35,7 @@ For example, an offer might specify:
 The pricing parameters are used to determine the reward that gets paid-out when the request is fulfilled (ie, the proof has been verified).
 
 - During the discovery period (the initial phase of the auction before bidding start), the price is just the minimum Ether price.
-- During the ramp-up period (which immediately follows the discovery period), the price grows linearly up-to the maximum Ether price.
+- During the ramp-up period (which immediately follows the discovery period), the price grows linearly up to the maximum Ether price.
 - After the ramp-up period, the price remains at the maximum Ether price until lock timeout.
 - After the lock timeout, the price in Ether drops to zero.
 - If the request was locked, but not fulfilled, then a portion of the lock stake is slashed from the prover that locked the request and awarded to anyone that fulfills the request before timeout.
