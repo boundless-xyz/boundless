@@ -32,7 +32,7 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum ProvingErr {
-    #[error("{code} Proving failed after retries: {0:?}", code = self.code())]
+    #[error("{code} Proving failed after retries: {0:#}", code = self.code())]
     ProvingFailed(anyhow::Error),
 
     #[error("{code} Request fulfilled by another prover", code = self.code())]
@@ -41,7 +41,7 @@ pub enum ProvingErr {
     #[error("{code} Proving timed out", code = self.code())]
     ProvingTimedOut,
 
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
 

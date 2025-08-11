@@ -28,13 +28,13 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum OffchainMarketMonitorErr {
-    #[error("WebSocket error: {0:?}")]
+    #[error("WebSocket error: {0:#}")]
     WebSocketErr(anyhow::Error),
 
     #[error("{code} Receiver dropped", code = self.code())]
     ReceiverDropped,
 
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 
