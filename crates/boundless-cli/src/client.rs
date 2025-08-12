@@ -12,74 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Programmable interface for the Boundless CLI.
+
 use std::io::Write;
 use std::process::Command;
 
 use alloy_primitives::{
-    utils::{format_ether, parse_ether, parse_units},
+    utils::{parse_ether, parse_units},
     Address, Bytes, U256,
 };
 use anyhow::{anyhow, bail, Context, Error, Ok, Result};
-use serde::{Deserialize, Serialize};
+use boundless_core::storage::{
+    StandardStorageProvider, StandardStorageProviderError, StorageProvider,
+};
 use tempfile::NamedTempFile;
+use tracing::level_filters::LevelFilter;
 use url::Url;
 
 use crate::{
-    contracts::ProofRequest,
-    deployments::Deployment,
-    request_builder::{RequestIdLayer, StandardRequestBuilder},
-    storage::{StandardStorageProvider, StandardStorageProviderError, StorageProviderConfig},
-    util::NotProvided,
-};
-use crate::{
+    request::ProofRequest,
     request_builder::{
-        FinalizerConfigBuilder, OfferLayerConfigBuilder, RequestBuilder,
-        RequestIdLayerConfigBuilder, StorageLayerConfigBuilder,
+        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
+        RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder, StorageLayer,
+        StorageLayerConfigBuilder,
     },
     rpc::RpcProvider,
+    util::NotProvided,
+    AccountCommand, Deployment, JsonCommand, JsonConfig, JsonRequest, OpsCommand, Output,
+    ProvingCommand, RequestCommand, RequestStatus, Response, StorageProviderConfig,
 };
-use crate::{
-    request_builder::{OfferLayer, StorageLayer},
-    storage::StorageProvider,
-};
-
-/// Status of a proof request
-#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
-pub enum RequestStatus {
-    /// The request has expired.
-    Expired,
-    /// The request is locked in and waiting for fulfillment.
-    Locked,
-    /// The request has been fulfilled.
-    Fulfilled,
-    /// The request has an unknown status.
-    ///
-    /// This is used to represent the status of a request
-    /// with no evidence in the state. The request may be
-    /// open for bidding or it may not exist.
-    #[default]
-    Unknown,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "command", rename_all = "kebab-case")]
-enum Output {
-    Ok,
-    AccountAmount { amount_eth: String },
-    AccountStakeAmount { amount: String, decimals: u8, symbol: String },
-    RequestStatus { status: RequestStatus },
-    RequestSubmitted { request_id: U256, expires_at: u64 },
-    RequestFulfilled { journal: Bytes, seal: Bytes },
-}
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct CliResponse<T: Serialize> {
-    pub(crate) success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) data: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) error: Option<String>,
-}
 
 /// Builder for the [Client] with standard implementations for the required components.
 #[derive(Clone)]
@@ -135,10 +96,10 @@ impl<S> ClientBuilder<S> {
         // Resolve the deployment information.
         let chain_id =
             provider.get_chain_id().await.context("failed to query chain ID from RPC provider")?;
-        let deployment =
-            self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id)).with_context(
-                || format!("no deployment provided for unknown chain_id {chain_id}"),
-            )?;
+        let deployment = self
+            .deployment
+            .clone()
+            .ok_or_else(|| anyhow!("deployment is not set on ClientBuilder"))?;
 
         // Check that the chain ID is matches the deployment, to avoid misconfigurations.
         if deployment.chain_id.map(|id| id != chain_id).unwrap_or(false) {
@@ -160,7 +121,7 @@ impl<S> ClientBuilder<S> {
             .build()?;
 
         let client = Client {
-            rpc_url: rpc_url.to_string(),
+            rpc_url: rpc_url.clone(),
             private_key: self.private_key,
             storage_provider: self.storage_provider,
             request_builder: Some(request_builder),
@@ -182,6 +143,7 @@ impl<S> ClientBuilder<S> {
         Self { rpc_url: Some(rpc_url), ..self }
     }
 
+    /// Set the caller address.
     pub fn with_caller(self, caller: Address) -> Self {
         Self { caller: Some(caller), ..self }
     }
@@ -228,7 +190,7 @@ impl<S> ClientBuilder<S> {
     /// Modify the [OfferLayer] configuration used in the [StandardRequestBuilder].
     ///
     /// ```rust
-    /// # use boundless_cli_sdk::client::ClientBuilder;
+    /// # use boundless_cli::client::ClientBuilder;
     /// use alloy_primitives::utils::parse_units;
     ///
     /// ClientBuilder::new().config_offer_layer(|config| config
@@ -249,8 +211,8 @@ impl<S> ClientBuilder<S> {
     /// Modify the [RequestIdLayer] configuration used in the [StandardRequestBuilder].
     ///
     /// ```rust
-    /// # use boundless_cli_sdk::client::ClientBuilder;
-    /// use boundless_cli_sdk::request_builder::RequestIdLayerMode;
+    /// # use boundless_cli::client::ClientBuilder;
+    /// use boundless_cli::request_builder::RequestIdLayerMode;
     ///
     /// ClientBuilder::new().config_request_id_layer(|config| config
     ///     .mode(RequestIdLayerMode::Nonce)
@@ -267,7 +229,7 @@ impl<S> ClientBuilder<S> {
     /// Modify the [StorageLayer] configuration used in the [StandardRequestBuilder].
     ///
     /// ```rust
-    /// # use boundless_cli_sdk::client::ClientBuilder;
+    /// # use boundless_cli::client::ClientBuilder;
     /// ClientBuilder::new().config_storage_layer(|config| config
     ///     .inline_input_max_bytes(10240)
     /// );
@@ -292,11 +254,14 @@ impl<S> ClientBuilder<S> {
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
 pub type StandardClient = Client<StandardStorageProvider, StandardRequestBuilder>;
+/// Alias for a [ClientBuilder] instantiated with the standard implementations provided by this crate.
+pub type StandardClientBuilder = ClientBuilder<StandardStorageProvider>;
 
 #[derive(Debug, Clone)]
+/// Represents a Boundless client that can interact with the Boundless Market.
 pub struct Client<S = StandardStorageProvider, R = StandardRequestBuilder> {
     /// RPC URL of the node to connect to.
-    pub rpc_url: String,
+    pub rpc_url: Url,
     /// Deployment of Boundless that this client is connected to.
     pub deployment: Deployment,
     /// Private key of the account that will be used to sign transactions.
@@ -313,7 +278,7 @@ pub struct Client<S = StandardStorageProvider, R = StandardRequestBuilder> {
 
 impl Client<NotProvided, NotProvided> {
     /// Create a new client with the given RPC URL and deployment.
-    pub fn new(rpc_url: String, boundless_market: Address, set_verifier: Address) -> Self {
+    pub fn new(rpc_url: Url, boundless_market: Address, set_verifier: Address) -> Self {
         Self {
             rpc_url,
             deployment: Deployment {
@@ -431,6 +396,43 @@ impl<S, R> Client<S, R> {
         tracing::debug!("Built request with id {:x}", request.id);
         Ok(request)
     }
+}
+
+impl<S, R> Client<S, R>
+where
+    S: StorageProvider + Clone,
+    S::Error: Into<anyhow::Error>,
+{
+    fn config(&self) -> JsonConfig {
+        JsonConfig {
+            rpc_url: self.rpc_url.clone(),
+            private_key: self.private_key.clone(),
+            json: true,
+            log_level: LevelFilter::INFO,
+            tx_timeout_secs: None,
+            deployment: Some(self.deployment.clone()),
+        }
+    }
+
+    fn run(&self, command: JsonCommand) -> Result<Response<Output>, Error> {
+        check_boundless_cli_installed()?;
+        let json_request = JsonRequest { config: self.config(), command };
+        let mut boundless = Command::new("boundless");
+        let cmd = boundless
+            .arg("--json")
+            .arg(serde_json::to_string(&json_request).context("Failed to serialize JSON request")?);
+        let output = cmd.output().context("Failed to execute command")?;
+        if !output.status.success() {
+            return Err(Error::msg(format!(
+                "Failed to execute command: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        let stdout = String::from_utf8(output.stdout).context("Failed to parse output")?;
+        let response = serde_json::from_str::<Response<Output>>(&stdout)
+            .context("Failed to deserialize output")?;
+        Ok(response)
+    }
 
     /// Build and submit a proof request by sending an onchain transaction.
     pub async fn submit_onchain<Params>(
@@ -449,39 +451,20 @@ impl<S, R> Client<S, R> {
         &self,
         request: &ProofRequest,
     ) -> Result<(U256, u64), Error> {
-        check_boundless_cli_installed()?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg(
-                "Private key is not set. Please set the private key before submitting a request.",
-            )
-        })?;
-
         let temp_file = create_proof_request_yaml_temp_file(request)?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--json")
-            .arg("request")
-            .arg("submit")
-            .arg(temp_file.path());
-        let output = cmd.output().context("Failed to execute command to submit request onchain")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to submit request onchain: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from request submission")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from request submission")?;
+        let command = JsonCommand::Request(RequestCommand::Submit {
+            yaml_request: temp_file.path().to_string_lossy().to_string(),
+            wait: false,
+            offchain: false,
+            no_preflight: true,
+            storage_config: Box::new(
+                self.storage_provider
+                    .clone()
+                    .map_or_else(StorageProviderConfig::default, |s| s.config().clone()),
+            ),
+        });
+
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Request submission failed: {}",
@@ -511,48 +494,20 @@ impl<S, R> Client<S, R> {
         &self,
         request: &ProofRequest,
     ) -> Result<(U256, u64), Error> {
-        check_boundless_cli_installed()?;
-        let order_stream_url = self.deployment.order_stream_url.as_ref().ok_or_else(|| {
-            Error::msg(
-                "Order stream URL is not set. Please set the order stream URL before submitting a request offchain.",
-            )
-        })?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg(
-                "Private key is not set. Please set the private key before submitting a request.",
-            )
-        })?;
-
         let temp_file = create_proof_request_yaml_temp_file(request)?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--order-stream-url")
-            .arg(order_stream_url.to_string())
-            .arg("--json")
-            .arg("request")
-            .arg("submit")
-            .arg(temp_file.path())
-            .arg("--offchain");
-        let output =
-            cmd.output().context("Failed to execute command to submit request offchain")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to submit request offchain: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from request submission")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from request submission")?;
+        let command = JsonCommand::Request(RequestCommand::Submit {
+            yaml_request: temp_file.path().to_string_lossy().to_string(),
+            wait: false,
+            offchain: true,
+            no_preflight: true,
+            storage_config: Box::new(
+                self.storage_provider
+                    .clone()
+                    .map_or_else(StorageProviderConfig::default, |s| s.config().clone()),
+            ),
+        });
+
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Request submission failed: {}",
@@ -571,33 +526,8 @@ impl<S, R> Client<S, R> {
         request_id: U256,
         expires_at: Option<u64>,
     ) -> Result<RequestStatus, Error> {
-        check_boundless_cli_installed()?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--json")
-            .arg("request")
-            .arg("status")
-            .arg(format!("0x{request_id:x}"));
-        if let Some(expires_at) = expires_at {
-            cmd.arg(format!("{expires_at}"));
-        }
-        let output = cmd.output().context("Failed to execute command to get request status")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to get request status: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from request status")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from request status")?;
+        let command = JsonCommand::Request(RequestCommand::Status { request_id, expires_at });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Request status check failed: {}",
@@ -620,19 +550,6 @@ impl<S, R> Client<S, R> {
         check_interval: std::time::Duration,
         expires_at: u64,
     ) -> Result<(Bytes, Bytes), Error> {
-        check_boundless_cli_installed()?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--json")
-            .arg("request")
-            .arg("get-proof")
-            .arg(format!("0x{request_id:x}"));
         loop {
             let status = &self.status(request_id, Some(expires_at))?;
             match status {
@@ -646,18 +563,8 @@ impl<S, R> Client<S, R> {
                 }
             }
         }
-        let output =
-            cmd.output().context("Failed to execute command to fetch request fulfillment")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to fetch request fulfillment: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from request fulfillment")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from request fulfillment")?;
+        let command = JsonCommand::Request(RequestCommand::GetProof { request_id });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Request fulfillment failed: {}",
@@ -672,38 +579,12 @@ impl<S, R> Client<S, R> {
 
     /// Lock a request by its ID.
     pub fn lock_request(&self, request_id: U256) -> Result<(), Error> {
-        check_boundless_cli_installed()?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg(
-                "Private key is not set. Please set the private key before locking a request.",
-            )
-        })?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--json")
-            .arg("proving")
-            .arg("lock")
-            .arg("--request-id")
-            .arg(format!("0x{request_id:x}"));
-        let output = cmd.output().context("Failed to execute command to lock request")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to lock request: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout =
-            String::from_utf8(output.stdout).context("Failed to parse output from request lock")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from request lock")?;
+        let command = JsonCommand::Proving(ProvingCommand::Lock {
+            request_id,
+            request_digest: None,
+            tx_hash: None,
+        });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Request lock failed: {}",
@@ -718,38 +599,13 @@ impl<S, R> Client<S, R> {
 
     /// Fulfill a request by its ID.
     pub fn fulfill(&self, request_id: U256) -> Result<(), Error> {
-        check_boundless_cli_installed()?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg(
-                "Private key is not set. Please set the private key before fulfilling a request.",
-            )
-        })?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--json")
-            .arg("proving")
-            .arg("fulfill")
-            .arg("--request-ids")
-            .arg(format!("0x{request_id:x}"));
-        let output = cmd.output().context("Failed to execute command to fulfill request")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to fulfill request: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from request fulfillment")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from request fulfillment")?;
+        let command = JsonCommand::Proving(ProvingCommand::Fulfill {
+            request_ids: vec![request_id],
+            request_digests: None,
+            tx_hashes: None,
+            withdraw: false,
+        });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Request fulfillment failed: {}",
@@ -763,31 +619,9 @@ impl<S, R> Client<S, R> {
     }
 
     /// Get the balance of an account in the Boundless Market.
-    pub fn balance_of(&self, address: Address) -> Result<U256, Error> {
-        check_boundless_cli_installed()?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--json")
-            .arg("account")
-            .arg("balance")
-            .arg(format!("0x{address:x}"));
-        let output = cmd.output().context("Failed to execute command to get account balance")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to get account balance: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from account balance")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from account balance")?;
+    pub fn balance_of(&self, address: Option<Address>) -> Result<U256, Error> {
+        let command = JsonCommand::Account(AccountCommand::Balance { address });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Account balance check failed: {}",
@@ -802,35 +636,8 @@ impl<S, R> Client<S, R> {
 
     /// Deposit an amount into the Boundless Market account.
     pub fn deposit(&self, amount: U256) -> Result<U256, Error> {
-        check_boundless_cli_installed()?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg("Private key is not set. Please set the private key before depositing.")
-        })?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--json")
-            .arg("account")
-            .arg("deposit")
-            .arg(format_ether(amount).as_str());
-        let output = cmd.output().context("Failed to execute command to deposit")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to deposit: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from account deposit")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from account deposit")?;
+        let command = JsonCommand::Account(AccountCommand::Deposit { amount });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Account deposit failed: {}",
@@ -845,35 +652,8 @@ impl<S, R> Client<S, R> {
 
     /// Withdraw an amount from the Boundless Market account.
     pub fn withdraw(&self, amount: U256) -> Result<U256, Error> {
-        check_boundless_cli_installed()?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg("Private key is not set. Please set the private key before withdrawing.")
-        })?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--json")
-            .arg("account")
-            .arg("withdraw")
-            .arg(format_ether(amount).as_str());
-        let output = cmd.output().context("Failed to execute command to withdraw")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to withdraw: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from account withdrawal")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from account withdrawal")?;
+        let command = JsonCommand::Account(AccountCommand::Withdraw { amount });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Account withdrawal failed: {}",
@@ -888,31 +668,8 @@ impl<S, R> Client<S, R> {
 
     /// Get the stake balance of an account in the Boundless Market.
     pub fn stake_balance_of(&self, address: Address) -> Result<U256, Error> {
-        check_boundless_cli_installed()?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--json")
-            .arg("account")
-            .arg("stake-balance")
-            .arg(format!("0x{address:x}"));
-        let output =
-            cmd.output().context("Failed to execute command to get account stake balance")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to get account stake balance: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from account stake balance")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from account stake balance")?;
+        let command = JsonCommand::Account(AccountCommand::StakeBalance { address: Some(address) });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Account stake balance check failed: {}",
@@ -928,38 +685,9 @@ impl<S, R> Client<S, R> {
     }
 
     /// Deposit stake into the Boundless Market account.
-    pub fn deposit_stake(&self, amount: String) -> Result<U256, Error> {
-        check_boundless_cli_installed()?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg(
-                "Private key is not set. Please set the private key before depositing stake.",
-            )
-        })?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--json")
-            .arg("account")
-            .arg("deposit-stake")
-            .arg(amount);
-        let output = cmd.output().context("Failed to execute command to deposit stake")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to deposit stake: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from account stake deposit")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from account stake deposit")?;
+    pub fn deposit_stake(&self, amount: impl Into<String>) -> Result<U256, Error> {
+        let command = JsonCommand::Account(AccountCommand::DepositStake { amount: amount.into() });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Account stake deposit failed: {}",
@@ -973,38 +701,9 @@ impl<S, R> Client<S, R> {
     }
 
     /// Withdraw stake from the Boundless Market account.
-    pub fn withdraw_stake(&self, amount: String) -> Result<U256, Error> {
-        check_boundless_cli_installed()?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg(
-                "Private key is not set. Please set the private key before withdrawing stake.",
-            )
-        })?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--json")
-            .arg("account")
-            .arg("withdraw-stake")
-            .arg(amount);
-        let output = cmd.output().context("Failed to execute command to withdraw stake")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to withdraw stake: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from account stake withdrawal")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from account stake withdrawal")?;
+    pub fn withdraw_stake(&self, amount: impl Into<String>) -> Result<U256, Error> {
+        let command = JsonCommand::Account(AccountCommand::WithdrawStake { amount: amount.into() });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Account stake withdrawal failed: {}",
@@ -1019,35 +718,8 @@ impl<S, R> Client<S, R> {
 
     /// Slash a request by its ID.
     pub fn slash(&self, request_id: U256) -> Result<(), Error> {
-        check_boundless_cli_installed()?;
-        let private_key = self.private_key.as_ref().ok_or_else(|| {
-            Error::msg("Private key is not set. Please set the private key before slashing.")
-        })?;
-        let mut boundless = Command::new("boundless");
-        let cmd = boundless
-            .arg("--rpc-url")
-            .arg(&self.rpc_url)
-            .arg("--boundless-market-address")
-            .arg(self.deployment.boundless_market_address.to_string())
-            .arg("--set-verifier-address")
-            .arg(self.deployment.set_verifier_address.to_string())
-            .arg("--private-key")
-            .arg(private_key)
-            .arg("--json")
-            .arg("ops")
-            .arg("slash")
-            .arg(format!("0x{request_id:x}"));
-        let output = cmd.output().context("Failed to execute command to slash")?;
-        if !output.status.success() {
-            return Err(Error::msg(format!(
-                "Failed to slash: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .context("Failed to parse output from request slashing")?;
-        let response = serde_json::from_str::<CliResponse<Output>>(&stdout)
-            .context("Failed to deserialize output from request slashing")?;
+        let command = JsonCommand::Ops(OpsCommand::Slash { request_id });
+        let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
                 "Request slashing failed: {}",
@@ -1088,25 +760,14 @@ mod tests {
 
     use super::*;
 
-    use crate::{input::GuestEnv, request_builder::OfferParamsBuilder};
+    use crate::request_builder::OfferParamsBuilder;
+    use crate::GuestEnv;
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
         providers::{Provider, WalletProvider},
     };
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::Deployment as BoundlessMarketDeployment;
     use boundless_market_test_utils::{create_test_ctx, TestCtx, ECHO_PATH};
-
-    fn to_deployment(dep: BoundlessMarketDeployment) -> Deployment {
-        Deployment {
-            chain_id: dep.chain_id,
-            boundless_market_address: dep.boundless_market_address,
-            verifier_router_address: dep.verifier_router_address,
-            set_verifier_address: dep.set_verifier_address,
-            stake_token_address: dep.stake_token_address,
-            order_stream_url: dep.order_stream_url,
-        }
-    }
 
     enum AccountOwner {
         Customer,
@@ -1132,11 +793,21 @@ mod tests {
             AccountOwner::Prover => ctx.prover_signer.clone(),
         };
 
+        let caller = Address::from(**private_key.address());
         let client: StandardClient = ClientBuilder::default()
             .with_rpc_url(anvil.endpoint_url())
-            .with_caller(private_key.address())
+            .with_caller(caller)
             .with_private_key_str(hex::encode(private_key.to_bytes()))
-            .with_deployment(to_deployment(ctx.deployment.clone()))
+            .with_deployment(Deployment {
+                chain_id: ctx.deployment.chain_id,
+                verifier_router_address: None,
+                boundless_market_address: Address::from(**ctx.deployment.boundless_market_address),
+                set_verifier_address: Address::from(**ctx.deployment.set_verifier_address),
+                order_stream_url: None,
+                stake_token_address: Some(Address::from(
+                    **ctx.deployment.stake_token_address.unwrap(),
+                )),
+            })
             .build()
             .await
             .unwrap();
@@ -1151,13 +822,15 @@ mod tests {
         let amount = client.deposit(parse_ether("1").unwrap()).unwrap();
         assert_eq!(amount, parse_ether("1").unwrap());
 
-        let balance = client.balance_of(ctx.prover_signer.address()).unwrap();
+        let balance =
+            client.balance_of(Some(Address::from(**ctx.prover_signer.address()))).unwrap();
         assert_eq!(balance, amount);
 
         let amount = client.withdraw(parse_ether("0.5").unwrap()).unwrap();
         assert_eq!(amount, parse_ether("0.5").unwrap());
 
-        let balance = client.balance_of(ctx.prover_signer.address()).unwrap();
+        let balance =
+            client.balance_of(Some(Address::from(**ctx.prover_signer.address()))).unwrap();
         assert_eq!(balance, parse_ether("0.5").unwrap());
     }
 
@@ -1165,16 +838,18 @@ mod tests {
     async fn test_account_stake() {
         let (ctx, _anvil, client) = setup_test_env(AccountOwner::Prover).await;
 
-        let amount = client.deposit_stake("1".into()).unwrap();
+        let amount = client.deposit_stake("1").unwrap();
         assert_eq!(amount, parse_ether("1").unwrap());
 
-        let balance = client.stake_balance_of(ctx.prover_signer.address()).unwrap();
+        let balance =
+            client.stake_balance_of(Address::from(**ctx.prover_signer.address())).unwrap();
         assert_eq!(balance, amount);
 
-        let amount = client.withdraw_stake("0.5".into()).unwrap();
+        let amount = client.withdraw_stake("0.5").unwrap();
         assert_eq!(amount, parse_ether("0.5").unwrap());
 
-        let balance = client.stake_balance_of(ctx.prover_signer.address()).unwrap();
+        let balance =
+            client.stake_balance_of(Address::from(**ctx.prover_signer.address())).unwrap();
         assert_eq!(balance, parse_ether("0.5").unwrap());
     }
 

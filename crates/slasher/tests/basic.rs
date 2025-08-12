@@ -45,7 +45,7 @@ async fn create_order(
             Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
         ),
         format!("file://{ECHO_PATH}"),
-        RequestInput::builder().build_inline().unwrap(),
+        RequestInput::inline(RequestInput::builder().build_vec().unwrap()),
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),

@@ -14,18 +14,18 @@
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
-    contracts::{Offer, RequestId, Requirements},
+    request::{Offer, RequestId, Requirements},
     rpc::RpcProvider,
-    selector::{ProofType, SupportedSelectors},
-    util::now_timestamp,
+    selector::{proof_type, ProofType},
 };
 use alloy_primitives::{
     utils::{format_units, Unit},
     U256,
 };
 use anyhow::{ensure, Context};
-use clap::Args;
+use boundless_core::util::now_timestamp;
 use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
 
 /// Configuration for the [OfferLayer].
 ///
@@ -78,10 +78,6 @@ pub struct OfferLayerConfig {
     /// Estimated gas used for ERC-1271 signature verification.
     #[builder(default = "100_000")]
     pub smart_contract_sig_verify_gas_estimate: u64,
-
-    /// Supported proof types and their corresponding selectors.
-    #[builder(setter(into), default)]
-    pub supported_selectors: SupportedSelectors,
 }
 
 #[non_exhaustive]
@@ -122,42 +118,35 @@ impl From<RpcProvider> for OfferLayer {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug, Default, Builder, Args)]
+#[derive(Clone, Debug, Default, Builder, Serialize, Deserialize)]
 /// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
 /// defaults set in the [OfferLayerConfig].
 pub struct OfferParams {
     /// Minimum price willing to pay for the proof, in wei.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub min_price: Option<U256>,
 
     /// Maximum price willing to pay for the proof, in wei.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub max_price: Option<U256>,
 
     /// Timestamp when bidding will start for this request.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub bidding_start: Option<u64>,
 
     /// Duration in seconds for the price to ramp up from min to max.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub ramp_up_period: Option<u32>,
 
     /// Time in seconds that a prover has to fulfill a locked request.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub lock_timeout: Option<u32>,
 
     /// Maximum time in seconds that a request can remain active.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub timeout: Option<u32>,
 
     /// Amount of the stake token that the prover must stake when locking a request.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub lock_stake: Option<U256>,
 }
@@ -247,10 +236,7 @@ impl OfferLayer {
                 .context("callback gas limit too large for u64")?;
         }
 
-        let proof_type = self
-            .config
-            .supported_selectors
-            .proof_type(requirements.selector)
+        let proof_type = proof_type(requirements.selector)
             .context("cannot estimate gas usage for request with unsupported selector")?;
         if let ProofType::Groth16 = proof_type {
             gas_usage_estimate += self.config.groth16_verify_gas_estimate;

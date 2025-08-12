@@ -48,23 +48,39 @@ use std::{
     num::ParseIntError,
     ops::Deref,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, format_units, parse_ether, parse_units},
-        Address, Bytes, FixedBytes, TxKind, B256, U256,
+        Address, FixedBytes, TxKind, B256, U256,
     },
     providers::{Provider, ProviderBuilder},
     rpc::types::{TransactionInput, TransactionRequest},
     signers::local::PrivateKeySigner,
     sol_types::SolValue,
 };
+use alloy_primitives::Bytes;
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
+use boundless_cli::{
+    convert_timestamp, level_filter_serde, private_key_signer_serde, DefaultProver, OrderFulfilled,
+};
+use boundless_core::{
+    storage::{fetch_url, StorageProvider, StorageProviderConfig},
+    util::now_timestamp,
+};
+use boundless_market::{
+    contracts::{
+        boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
+        Offer, ProofRequest, RequestInputType, Selector,
+    },
+    request_builder::{OfferParams, RequirementParams},
+    selector::ProofType,
+    Client, Deployment, GuestEnv, StandardClient,
+};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -80,41 +96,11 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
-use boundless_market::{
-    contracts::{
-        boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        Offer, ProofRequest, RequestInputType, RequestStatus, Selector,
-    },
-    input::GuestEnv,
-    request_builder::{OfferParams, RequirementParams},
-    selector::ProofType,
-    storage::{fetch_url, StorageProvider, StorageProviderConfig},
-    Client, Deployment, StandardClient,
-};
+use boundless_cli::{Output, Response};
 
 shadow!(build);
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "command", rename_all = "kebab-case")]
-enum Output {
-    Ok,
-    AccountAmount { amount_eth: String },
-    AccountStakeAmount { amount: String, decimals: u8, symbol: String },
-    RequestStatus { status: RequestStatus },
-    RequestSubmitted { request_id: U256, expires_at: u64 },
-    RequestFulfilled { journal: Bytes, seal: Bytes },
-}
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct CliResponse<T: Serialize> {
-    pub(crate) success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) data: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) error: Option<String>,
-}
-
-#[derive(Subcommand, Clone, Debug)]
+#[derive(Subcommand, Clone, Debug, Serialize, Deserialize)]
 enum Command {
     /// Account management commands
     #[command(subcommand)]
@@ -136,10 +122,11 @@ enum Command {
     Config {},
 
     /// Print shell completions (e.g. for bash or zsh) to stdout.
+    #[serde(skip)]
     Completions { shell: Shell },
 }
 
-#[derive(Subcommand, Clone, Debug)]
+#[derive(Subcommand, Clone, Debug, Serialize, Deserialize)]
 enum OpsCommands {
     /// Slash a prover for a given request
     Slash {
@@ -148,7 +135,7 @@ enum OpsCommands {
     },
 }
 
-#[derive(Subcommand, Clone, Debug)]
+#[derive(Subcommand, Clone, Debug, Serialize, Deserialize)]
 enum AccountCommands {
     /// Deposit funds into the market
     Deposit {
@@ -186,7 +173,7 @@ enum AccountCommands {
     },
 }
 
-#[derive(Subcommand, Clone, Debug)]
+#[derive(Subcommand, Clone, Debug, Serialize, Deserialize)]
 enum RequestCommands {
     /// Submit a proof request constructed with the given offer, input, and image
     SubmitOffer(Box<SubmitOfferArgs>),
@@ -238,7 +225,7 @@ enum RequestCommands {
     },
 }
 
-#[derive(Subcommand, Clone, Debug)]
+#[derive(Subcommand, Clone, Debug, Serialize, Deserialize)]
 enum ProvingCommands {
     /// Execute a proof request using the RISC Zero zkVM executor
     Execute {
@@ -328,7 +315,7 @@ enum ProvingCommands {
     },
 }
 
-#[derive(Args, Clone, Debug)]
+#[derive(Args, Clone, Debug, Serialize, Deserialize)]
 struct SubmitOfferArgs {
     /// Optional identifier for the request
     id: Option<u32>,
@@ -362,7 +349,7 @@ struct SubmitOfferArgs {
     storage_config: StorageProviderConfig,
 }
 
-#[derive(Args, Clone, Debug)]
+#[derive(Args, Clone, Debug, Serialize, Deserialize)]
 #[group(required = true, multiple = false)]
 struct SubmitOfferInput {
     /// Input for the guest, given as a string.
@@ -373,7 +360,7 @@ struct SubmitOfferInput {
     input_file: Option<PathBuf>,
 }
 
-#[derive(Args, Clone, Debug)]
+#[derive(Args, Clone, Debug, Serialize, Deserialize)]
 #[group(required = true, multiple = false)]
 struct SubmitOfferProgram {
     /// Program binary to use as the guest image, given as a path.
@@ -390,7 +377,7 @@ struct SubmitOfferProgram {
     url: Option<Url>,
 }
 
-#[derive(Args, Clone, Debug)]
+#[derive(Args, Clone, Debug, Serialize, Deserialize)]
 struct SubmitOfferRequirements {
     /// Address of the callback to use in the requirements.
     #[clap(long, requires = "callback_gas_limit")]
@@ -404,7 +391,7 @@ struct SubmitOfferRequirements {
 }
 
 /// Common configuration options for all commands
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Serialize, Deserialize)]
 struct GlobalConfig {
     /// URL of the Ethereum RPC endpoint
     #[clap(short, long, env = "RPC_URL")]
@@ -412,6 +399,7 @@ struct GlobalConfig {
 
     /// Private key of the wallet (without 0x prefix)
     #[clap(long, env = "PRIVATE_KEY", global = true, hide_env_values = true)]
+    #[serde(with = "private_key_signer_serde")]
     private_key: Option<PrivateKeySigner>,
 
     /// Ethereum transaction timeout in seconds.
@@ -420,6 +408,7 @@ struct GlobalConfig {
 
     /// Log level (error, warn, info, debug, trace)
     #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
+    #[serde(with = "level_filter_serde")]
     log_level: LevelFilter,
 
     /// Output in JSON format
@@ -431,6 +420,12 @@ struct GlobalConfig {
 }
 
 #[derive(Parser, Debug)]
+struct JsonOnlyArgs {
+    #[clap(long)]
+    json: String,
+}
+
+#[derive(Parser, Debug, Serialize, Deserialize, Clone)]
 #[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for Boundless", long_about = CLI_LONG_ABOUT)]
 struct MainArgs {
     /// Subcommand to run
@@ -476,44 +471,52 @@ fn private_key_required(cmd: &Command) -> bool {
 
 #[tokio::main]
 async fn main() {
-    let args = match MainArgs::try_parse() {
-        Ok(args) => args,
-        Err(err) => {
-            if err.kind() == clap::error::ErrorKind::DisplayHelp {
-                err.print().ok();
-                std::process::exit(0);
+    let json_args = JsonOnlyArgs::try_parse();
+    let args = if json_args.is_ok() {
+        serde_json::from_str::<MainArgs>(&json_args.unwrap().json)
+            .expect("Failed to parse JSON request")
+    } else {
+        match MainArgs::try_parse() {
+            Ok(args) => args,
+            Err(err) => {
+                if err.kind() == clap::error::ErrorKind::DisplayHelp {
+                    err.print().ok();
+                    std::process::exit(0);
+                }
+                if err.kind() == clap::error::ErrorKind::DisplayVersion {
+                    err.print().ok();
+                    std::process::exit(0);
+                }
+                eprintln!("{err}");
+                std::process::exit(1);
             }
-            if err.kind() == clap::error::ErrorKind::DisplayVersion {
-                err.print().ok();
-                std::process::exit(0);
-            }
-            eprintln!("{err}");
-            std::process::exit(1);
         }
     };
 
-    if !args.config.json {
+    // JSON-in mode: read and fully replace args with the JSON payload
+    let config = args.config;
+    if !config.json {
         tracing_subscriber::registry()
             .with(fmt::layer())
             .with(
                 EnvFilter::builder()
-                    .with_default_directive(args.config.log_level.into())
+                    .with_default_directive(config.log_level.into())
                     .from_env_lossy(),
             )
             .init();
     }
 
-    match run(&args).await {
+    match run(&config, &args.command).await {
         Ok(output) => {
-            if args.config.json {
-                let response = CliResponse { success: true, data: Some(output), error: None };
+            if config.json {
+                let response = Response { success: true, data: Some(output), error: None };
                 println!("{}", serde_json::to_string_pretty(&response).unwrap());
             }
         }
         Err(e) => {
-            if args.config.json {
-                let response: CliResponse<Output> =
-                    CliResponse { success: false, data: None, error: Some(e.to_string()) };
+            if config.json {
+                let response: Response<Output> =
+                    Response { success: false, data: None, error: Some(e.to_string()) };
                 println!("{}", serde_json::to_string_pretty(&response).unwrap());
             } else {
                 eprintln!("Error: {e}");
@@ -523,19 +526,19 @@ async fn main() {
     }
 }
 
-pub(crate) async fn run(args: &MainArgs) -> Result<Output> {
-    if private_key_required(&args.command) && args.config.private_key.is_none() {
+pub(crate) async fn run(config: &GlobalConfig, command: &Command) -> Result<Output> {
+    if private_key_required(command) && config.private_key.is_none() {
         eprintln!("A private key is required to run this subcommand");
         eprintln!("Please provide a private key with --private-key or the PRIVATE_KEY environment variable");
         bail!("Private key required");
     }
 
     // If the config command is being run, don't create a client.
-    if let Command::Config {} = &args.command {
-        return handle_config_command(args).await;
+    if let Command::Config {} = &command {
+        return handle_config_command(config).await;
     }
-    if let Command::Completions { shell } = &args.command {
-        if args.config.json {
+    if let Command::Completions { shell } = &command {
+        if config.json {
             bail!("The completions command does not support JSON output");
         }
         // TODO: Because of where this is, running the completions command requires an RPC_URL to
@@ -549,7 +552,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Output> {
         return Ok(Output::Ok);
     }
 
-    let storage_config = match args.command {
+    let storage_config = match command {
         Command::Request(ref req_cmd) => match **req_cmd {
             RequestCommands::Submit { ref storage_config, .. } => (**storage_config).clone(),
             RequestCommands::SubmitOffer(ref args) => args.storage_config.clone(),
@@ -559,16 +562,16 @@ pub(crate) async fn run(args: &MainArgs) -> Result<Output> {
     };
 
     let client = Client::builder()
-        .with_signer(args.config.private_key.clone())
-        .with_rpc_url(args.config.rpc_url.clone())
-        .with_deployment(args.config.deployment.clone())
+        .with_signer(config.private_key.clone())
+        .with_rpc_url(config.rpc_url.clone())
+        .with_deployment(config.deployment.clone())
         .with_storage_provider_config(&storage_config)?
-        .with_timeout(args.config.tx_timeout)
+        .with_timeout(config.tx_timeout)
         .build()
         .await
         .context("Failed to build Boundless client")?;
 
-    match &args.command {
+    match &command {
         Command::Account(account_cmd) => handle_account_command(account_cmd, client).await,
         Command::Request(request_cmd) => handle_request_command(request_cmd, client).await,
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, client).await,
@@ -713,7 +716,7 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
             tracing::info!("Checking status for request 0x{:x}", request_id);
             let status = client.boundless_market.get_status(*request_id, *expires_at).await?;
             tracing::info!("Request 0x{:x} status: {:?}", request_id, status);
-            Ok(Output::RequestStatus { status })
+            Ok(Output::RequestStatus { status: status.into() })
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
@@ -725,7 +728,10 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                 serde_json::to_string_pretty(&journal)?,
                 serde_json::to_string_pretty(&seal)?
             );
-            Ok(Output::RequestFulfilled { journal, seal })
+            Ok(Output::RequestFulfilled {
+                journal: Bytes::from(journal.to_vec()),
+                seal: Bytes::from(seal.to_vec()),
+            })
         }
         RequestCommands::VerifyProof { request_id, image_id } => {
             tracing::info!("Verifying proof for request 0x{:x}", request_id);
@@ -1191,7 +1197,10 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
             serde_json::to_string_pretty(&seal)?
         );
 
-        return Ok(Output::RequestFulfilled { journal, seal });
+        return Ok(Output::RequestFulfilled {
+            journal: Bytes::from(journal.to_vec()),
+            seal: Bytes::from(seal.to_vec()),
+        });
     }
 
     Ok(Output::RequestSubmitted { request_id, expires_at })
@@ -1293,7 +1302,10 @@ where
             serde_json::to_string_pretty(&journal)?,
             serde_json::to_string_pretty(&seal)?
         );
-        return Ok(Output::RequestFulfilled { journal, seal });
+        return Ok(Output::RequestFulfilled {
+            journal: Bytes::from(journal.to_vec()),
+            seal: Bytes::from(seal.to_vec()),
+        });
     }
 
     Ok(Output::RequestSubmitted { request_id, expires_at })
@@ -1331,36 +1343,31 @@ fn r0vm_is_installed() -> Result<()> {
     }
 }
 
-// Get current timestamp with appropriate error handling
-fn now_timestamp() -> u64 {
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("Time went backwards").as_secs()
-}
-
 /// Handle config command
-async fn handle_config_command(args: &MainArgs) -> Result<Output> {
-    if args.config.json {
+async fn handle_config_command(config: &GlobalConfig) -> Result<Output> {
+    if config.json {
         bail!("The config command does not support JSON output");
     }
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");
 
     // Show configuration
-    println!("RPC URL: {}", args.config.rpc_url);
+    println!("RPC URL: {}", config.rpc_url);
     println!(
         "Wallet Address: {}",
-        args.config
+        config
             .private_key
             .as_ref()
             .map(|sk| sk.address().to_string())
             .unwrap_or("[no wallet provided]".to_string())
     );
-    if let Some(timeout) = args.config.tx_timeout {
+    if let Some(timeout) = config.tx_timeout {
         println!("Transaction Timeout: {} seconds", timeout.as_secs());
     } else {
         println!("Transaction Timeout: <not set>");
     }
-    println!("Log Level: {:?}", args.config.log_level);
-    if let Some(ref deployment) = args.config.deployment {
+    println!("Log Level: {:?}", config.log_level);
+    if let Some(ref deployment) = config.deployment {
         println!("Using custom Boundless deployment");
         println!("Chain ID: {:?}", deployment.chain_id);
         println!("Boundless Market Address: {}", deployment.boundless_market_address);
@@ -1372,7 +1379,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<Output> {
     // Validate RPC connection
     println!("\n=== Environment Validation ===\n");
     print!("Testing RPC connection... ");
-    let provider = ProviderBuilder::new().connect_http(args.config.rpc_url.clone());
+    let provider = ProviderBuilder::new().connect_http(config.rpc_url.clone());
 
     let chain_id = match provider.get_chain_id().await {
         Ok(chain_id) => {
@@ -1387,7 +1394,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<Output> {
     };
 
     let Some(deployment) =
-        args.config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+        config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
     else {
         println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
         return Ok(Output::Ok);
@@ -1475,16 +1482,14 @@ async fn handle_config_command(args: &MainArgs) -> Result<Output> {
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
-    use alloy::primitives::aliases::U96;
+    use super::*;
     use boundless_market::contracts::{
         Predicate, PredicateType, RequestId, RequestInput, RequestStatus, Requirements,
     };
 
-    use super::*;
-
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
-        primitives::utils::format_units,
+        primitives::{aliases::U96, utils::format_units},
         providers::WalletProvider,
     };
     use boundless_market::{
@@ -1508,7 +1513,9 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             format!("file://{ECHO_PATH}"),
-            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+            RequestInput::inline(
+                RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_vec().unwrap(),
+            ),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
@@ -1603,14 +1610,10 @@ mod tests {
     async fn test_deposit_withdraw() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
-        let mut args = MainArgs {
-            config,
-            command: Command::Account(Box::new(AccountCommands::Deposit {
-                amount: default_allowance(),
-            })),
-        };
+        let command =
+            Command::Account(Box::new(AccountCommands::Deposit { amount: default_allowance() }));
 
-        run(&args).await.unwrap();
+        run(&config, &command).await.unwrap();
         assert!(logs_contain(&format!(
             "Depositing {} ETH",
             format_units(default_allowance(), "ether").unwrap()
@@ -1623,10 +1626,10 @@ mod tests {
         let balance = ctx.prover_market.balance_of(ctx.customer_signer.address()).await.unwrap();
         assert_eq!(balance, default_allowance());
 
-        args.command = Command::Account(Box::new(AccountCommands::Balance {
+        let command = Command::Account(Box::new(AccountCommands::Balance {
             address: Some(ctx.customer_signer.address()),
         }));
-        run(&args).await.unwrap();
+        run(&config, &command).await.unwrap();
         assert!(logs_contain(&format!(
             "Checking balance for address {}",
             ctx.customer_signer.address()
@@ -1637,10 +1640,10 @@ mod tests {
             format_units(default_allowance(), "ether").unwrap()
         )));
 
-        args.command =
+        let command =
             Command::Account(Box::new(AccountCommands::Withdraw { amount: default_allowance() }));
 
-        run(&args).await.unwrap();
+        run(&config, &command).await.unwrap();
         assert!(logs_contain(&format!(
             "Withdrawing {} ETH",
             format_units(default_allowance(), "ether").unwrap()
@@ -1660,17 +1663,14 @@ mod tests {
         let (_ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         let amount = U256::from(10000000000000000000000_u128);
-        let mut args = MainArgs {
-            config,
-            command: Command::Account(Box::new(AccountCommands::Deposit { amount })),
-        };
+        let command = Command::Account(Box::new(AccountCommands::Deposit { amount }));
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&config, &command).await.unwrap_err();
         assert!(err.to_string().contains("Insufficient funds"));
 
-        args.command = Command::Account(Box::new(AccountCommands::Withdraw { amount }));
+        let command = Command::Account(Box::new(AccountCommands::Withdraw { amount }));
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&config, &command).await.unwrap_err();
         assert!(err.to_string().contains("InsufficientBalance"));
     }
 
@@ -1679,14 +1679,11 @@ mod tests {
     async fn test_deposit_withdraw_stake() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Prover).await;
 
-        let mut args = MainArgs {
-            config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
-                amount: format_ether(default_allowance()),
-            })),
-        };
+        let command = Command::Account(Box::new(AccountCommands::DepositStake {
+            amount: format_ether(default_allowance()),
+        }));
 
-        run(&args).await.unwrap();
+        run(&config, &command).await.unwrap();
         assert!(logs_contain(&format!(
             "Depositing {} HP as stake",
             format_ether(default_allowance())
@@ -1700,10 +1697,10 @@ mod tests {
             ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap();
         assert_eq!(balance, default_allowance());
 
-        args.command = Command::Account(Box::new(AccountCommands::StakeBalance {
+        let command = Command::Account(Box::new(AccountCommands::StakeBalance {
             address: Some(ctx.prover_signer.address()),
         }));
-        run(&args).await.unwrap();
+        run(&config, &command).await.unwrap();
         assert!(logs_contain(&format!(
             "Checking stake balance for address {}",
             ctx.prover_signer.address()
@@ -1714,11 +1711,11 @@ mod tests {
             format_units(default_allowance(), "ether").unwrap()
         )));
 
-        args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
+        let command = Command::Account(Box::new(AccountCommands::WithdrawStake {
             amount: format_ether(default_allowance()),
         }));
 
-        run(&args).await.unwrap();
+        run(&config, &command).await.unwrap();
         assert!(logs_contain(&format!(
             "Withdrawing {} HP from stake",
             format_ether(default_allowance())
@@ -1740,19 +1737,15 @@ mod tests {
 
         // Use amount below denom min
         let amount = "0.00000000000000000000000001".to_string();
-        let args = MainArgs {
-            config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
-                amount: amount.clone(),
-            })),
-        };
+        let command =
+            Command::Account(Box::new(AccountCommands::DepositStake { amount: amount.clone() }));
 
         // Sanity check to make sure that the amount is below the denom min
         let decimals = ctx.customer_market.stake_token_decimals().await?;
         let parsed_amount: U256 = parse_units(&amount, decimals).unwrap().into();
         assert_eq!(parsed_amount, U256::from(0));
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&config, &command).await.unwrap_err();
         assert!(err.to_string().contains("Amount is below the denomination minimum"));
 
         Ok(())
@@ -1763,24 +1756,21 @@ mod tests {
     async fn test_fail_deposit_withdraw_stake() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
-        let mut args = MainArgs {
-            config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
-                amount: format_ether(default_allowance()),
-            })),
-        };
+        let command = Command::Account(Box::new(AccountCommands::DepositStake {
+            amount: format_ether(default_allowance()),
+        }));
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&config, &command).await.unwrap_err();
         assert!(err.to_string().contains(&format!(
             "Failed to deposit stake: Ensure your address ({}) has funds on the HP contract",
             ctx.customer_signer.address()
         )));
 
-        args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
+        let command = Command::Account(Box::new(AccountCommands::WithdrawStake {
             amount: format_ether(default_allowance()),
         }));
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&config, &command).await.unwrap_err();
         assert!(err.to_string().contains("InsufficientBalance"));
     }
 
@@ -1790,17 +1780,14 @@ mod tests {
         let (_ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         // Submit a request onchain
-        let args = MainArgs {
-            config,
-            command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Box::new(StorageProviderConfig::dev_mode()),
-                yaml_request: "../../request.yaml".to_string().into(),
-                wait: false,
-                offchain: false,
-                no_preflight: false,
-            })),
-        };
-        run(&args).await.unwrap();
+        let command = Command::Request(Box::new(RequestCommands::Submit {
+            storage_config: Box::new(StorageProviderConfig::dev_mode()),
+            yaml_request: "../../request.yaml".to_string().into(),
+            wait: false,
+            offchain: false,
+            no_preflight: false,
+        }));
+        run(&config, &command).await.unwrap();
         assert!(logs_contain("Submitting request onchain"));
         assert!(logs_contain("Submitted request"));
     }
@@ -1815,17 +1802,14 @@ mod tests {
         ctx.customer_market.deposit(parse_ether("1").unwrap()).await.unwrap();
 
         // Submit a request offchain
-        let args = MainArgs {
-            config,
-            command: Command::Request(Box::new(RequestCommands::Submit {
-                storage_config: Box::new(StorageProviderConfig::dev_mode()),
-                yaml_request: "../../request.yaml".to_string().into(),
-                wait: false,
-                offchain: true,
-                no_preflight: true,
-            })),
-        };
-        run(&args).await.unwrap();
+        let command = Command::Request(Box::new(RequestCommands::Submit {
+            storage_config: Box::new(StorageProviderConfig::dev_mode()),
+            yaml_request: "../../request.yaml".to_string().into(),
+            wait: false,
+            offchain: true,
+            no_preflight: true,
+        }));
+        run(&config, &command).await.unwrap();
         assert!(logs_contain("Submitting request offchain"));
         assert!(logs_contain("Submitted request"));
 
@@ -1839,30 +1823,26 @@ mod tests {
         let (_ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         // Submit a request onchain
-        let args = MainArgs {
-            config,
-            command: Command::Request(Box::new(RequestCommands::SubmitOffer(Box::new(
-                SubmitOfferArgs {
-                    storage_config: StorageProviderConfig::dev_mode(),
-                    id: None,
-                    wait: false,
-                    offchain: false,
-                    encode_input: false,
-                    input: SubmitOfferInput {
-                        input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),
-                        input_file: None,
-                    },
-                    program: SubmitOfferProgram { path: Some(PathBuf::from(ECHO_PATH)), url: None },
-                    requirements: SubmitOfferRequirements {
-                        callback_address: None,
-                        callback_gas_limit: None,
-                        proof_type: ProofType::Any,
-                    },
-                    offer_params: OfferParams::default(),
+        let command =
+            Command::Request(Box::new(RequestCommands::SubmitOffer(Box::new(SubmitOfferArgs {
+                storage_config: StorageProviderConfig::dev_mode(),
+                id: None,
+                wait: false,
+                offchain: false,
+                encode_input: false,
+                input: SubmitOfferInput {
+                    input: Some(hex::encode([0x41, 0x41, 0x41, 0x41])),
+                    input_file: None,
                 },
-            )))),
-        };
-        run(&args).await.unwrap();
+                program: SubmitOfferProgram { path: Some(PathBuf::from(ECHO_PATH)), url: None },
+                requirements: SubmitOfferRequirements {
+                    callback_address: None,
+                    callback_gas_limit: None,
+                    proof_type: ProofType::Any,
+                },
+                offer_params: OfferParams::default(),
+            }))));
+        run(&config, &command).await.unwrap();
         assert!(logs_contain("Submitting request onchain"));
         assert!(logs_contain("Submitted request"));
     }
@@ -1884,15 +1864,12 @@ mod tests {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         // Create a new args struct to test the Status command
-        let status_args = MainArgs {
-            config,
-            command: Command::Request(Box::new(RequestCommands::Status {
-                request_id: request.id,
-                expires_at: None,
-            })),
-        };
+        let command = Command::Request(Box::new(RequestCommands::Status {
+            request_id: request.id,
+            expires_at: None,
+        }));
 
-        run(&status_args).await.unwrap();
+        run(&config, &command).await.unwrap();
 
         assert!(logs_contain(&format!("Request 0x{:x} status: Unknown", request.id)));
     }
@@ -1931,14 +1908,11 @@ mod tests {
             .unwrap();
 
         // Create a new args struct to test the Status command
-        let status_args = MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::Status {
-                request_id: request.id,
-                expires_at: None,
-            })),
-        };
-        run(&status_args).await.unwrap();
+        let command = Command::Request(Box::new(RequestCommands::Status {
+            request_id: request.id,
+            expires_at: None,
+        }));
+        run(&config, &command).await.unwrap();
         assert!(logs_contain(&format!("Request 0x{:x} status: Locked", request.id)));
 
         loop {
@@ -1955,12 +1929,7 @@ mod tests {
         }
 
         // test the Slash command
-        run(&MainArgs {
-            config,
-            command: Command::Ops(Box::new(OpsCommands::Slash { request_id: request.id })),
-        })
-        .await
-        .unwrap();
+        run(&config, &command).await.unwrap();
         assert!(logs_contain(&format!(
             "Successfully slashed prover for request 0x{:x}",
             request.id
@@ -1987,29 +1956,29 @@ mod tests {
         serde_yaml::to_writer(request_file, &request).unwrap();
 
         // send the request onchain
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::Submit {
+        run(
+            &config,
+            &Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
                 wait: false,
                 offchain: false,
                 no_preflight: true,
             })),
-        })
+        )
         .await
         .unwrap();
 
         // test the Execute command
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Proving(Box::new(ProvingCommands::Execute {
+        run(
+            &config,
+            &Command::Proving(Box::new(ProvingCommands::Execute {
                 request_path: None,
                 request_id: Some(request_id),
                 request_digest: None,
                 tx_hash: None,
             })),
-        })
+        )
         .await
         .unwrap();
 
@@ -2025,77 +1994,68 @@ mod tests {
         };
 
         // test the Lock command
-        run(&MainArgs {
-            config: prover_config,
-            command: Command::Proving(Box::new(ProvingCommands::Lock {
+        run(
+            &prover_config,
+            &Command::Proving(Box::new(ProvingCommands::Lock {
                 request_id,
                 request_digest: None,
                 tx_hash: None,
             })),
-        })
+        )
         .await
         .unwrap();
         assert!(logs_contain(&format!("Successfully locked request 0x{:x}", request.id)));
 
         // test the Status command
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::Status {
-                request_id,
-                expires_at: None,
-            })),
-        })
+        run(
+            &config,
+            &Command::Request(Box::new(RequestCommands::Status { request_id, expires_at: None })),
+        )
         .await
         .unwrap();
         assert!(logs_contain(&format!("Request 0x{:x} status: Locked", request.id)));
 
         // test the Fulfill command
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+        run(
+            &config,
+            &Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: vec![request_id],
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: false,
             })),
-        })
+        )
         .await
         .unwrap();
 
         assert!(logs_contain(&format!("Successfully fulfilled requests 0x{:x}", request.id)));
 
         // test the Status command
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::Status {
-                request_id,
-                expires_at: None,
-            })),
-        })
+        run(
+            &config,
+            &Command::Request(Box::new(RequestCommands::Status { request_id, expires_at: None })),
+        )
         .await
         .unwrap();
         assert!(logs_contain(&format!("Request 0x{:x} status: Fulfilled", request.id)));
 
         // test the GetProof command
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::GetProof { request_id })),
-        })
-        .await
-        .unwrap();
+        run(&config, &Command::Request(Box::new(RequestCommands::GetProof { request_id })))
+            .await
+            .unwrap();
         assert!(logs_contain(&format!(
             "Successfully retrieved proof for request 0x{:x}",
             request.id
         )));
 
         // test the Verify command
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::VerifyProof {
+        run(
+            &config,
+            &Command::Request(Box::new(RequestCommands::VerifyProof {
                 request_id,
                 image_id: request.requirements.imageId,
             })),
-        })
+        )
         .await
         .unwrap();
         assert!(logs_contain(&format!(
@@ -2122,15 +2082,15 @@ mod tests {
         }
 
         // test the Fulfill command
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+        run(
+            &config,
+            &Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: request_ids.clone(),
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: false,
             })),
-        })
+        )
         .await
         .unwrap();
 
@@ -2140,13 +2100,13 @@ mod tests {
 
         for request_id in request_ids {
             // test the Status command
-            run(&MainArgs {
-                config: config.clone(),
-                command: Command::Request(Box::new(RequestCommands::Status {
+            run(
+                &config,
+                &Command::Request(Box::new(RequestCommands::Status {
                     request_id,
                     expires_at: None,
                 })),
-            })
+            )
             .await
             .unwrap();
             assert!(logs_contain(&format!("Request 0x{request_id:x} status: Fulfilled")));
@@ -2186,29 +2146,29 @@ mod tests {
         serde_yaml::to_writer(request_file, &request).unwrap();
 
         // send the request onchain
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::Submit {
+        run(
+            &config,
+            &Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
                 wait: false,
                 offchain: false,
                 no_preflight: true,
             })),
-        })
+        )
         .await
         .unwrap();
 
         // fulfill the request
-        run(&MainArgs {
-            config,
-            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+        run(
+            &config,
+            &Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: vec![request.id],
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: false,
             })),
-        })
+        )
         .await
         .unwrap();
 
@@ -2240,29 +2200,29 @@ mod tests {
         serde_yaml::to_writer(request_file, &request).unwrap();
 
         // send the request onchain
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::Submit {
+        run(
+            &config,
+            &Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
                 wait: false,
                 offchain: false,
                 no_preflight: true,
             })),
-        })
+        )
         .await
         .unwrap();
 
         // fulfill the request
-        run(&MainArgs {
-            config,
-            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+        run(
+            &config,
+            &Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: vec![request.id],
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: false,
             })),
-        })
+        )
         .await
         .unwrap();
 
@@ -2297,29 +2257,29 @@ mod tests {
         serde_yaml::to_writer(request_file, &request).unwrap();
 
         // send the request offchain
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Request(Box::new(RequestCommands::Submit {
+        run(
+            &config,
+            &Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Box::new(StorageProviderConfig::dev_mode()),
                 yaml_request: request_path,
                 wait: false,
                 offchain: true,
                 no_preflight: true,
             })),
-        })
+        )
         .await
         .unwrap();
 
         // test the Execute command
-        run(&MainArgs {
-            config: config.clone(),
-            command: Command::Proving(Box::new(ProvingCommands::Execute {
+        run(
+            &config,
+            &Command::Proving(Box::new(ProvingCommands::Execute {
                 request_path: None,
                 request_id: Some(request_id),
                 request_digest: None,
                 tx_hash: None,
             })),
-        })
+        )
         .await
         .unwrap();
 
@@ -2335,28 +2295,28 @@ mod tests {
         };
 
         // test the Lock command
-        run(&MainArgs {
-            config: prover_config,
-            command: Command::Proving(Box::new(ProvingCommands::Lock {
+        run(
+            &prover_config,
+            &Command::Proving(Box::new(ProvingCommands::Lock {
                 request_id,
                 request_digest: None,
                 tx_hash: None,
             })),
-        })
+        )
         .await
         .unwrap();
         assert!(logs_contain(&format!("Successfully locked request 0x{:x}", request.id)));
 
         // test the Fulfill command
-        run(&MainArgs {
-            config,
-            command: Command::Proving(Box::new(ProvingCommands::Fulfill {
+        run(
+            &config,
+            &Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: vec![request_id],
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: true,
             })),
-        })
+        )
         .await
         .unwrap();
 

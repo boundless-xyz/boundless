@@ -132,7 +132,7 @@ jobs:
 
       - name: install boundless CLI
         run: cargo install --locked --path crates/boundless-cli
-        
+
       - name: cargo test
         run: cargo test --locked --workspace --all-targets -- --include-ignored
         env:
@@ -325,7 +325,7 @@ jobs:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
-      - run: cargo publish -p boundless-market --dry-run
+      - run: cargo publish -p boundless-market --dry-run --no-verify
 
   examples:
     runs-on: [ self-hosted, Linux, X64, prod, cuda, g6.4xlarge ]

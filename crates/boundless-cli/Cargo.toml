@@ -13,38 +13,48 @@ build = "build.rs"
 shadow-rs = "1.1"
 
 [dependencies]
-alloy = { workspace = true, features = ["full"] }
+alloy = { workspace = true, features = ["full"], optional = true }
+alloy-primitives = { version = ">=0.8", features = ["serde"] }
 anyhow = { workspace = true }
-bincode = { workspace = true }
-bonsai-sdk = { workspace = true }
-boundless-assessor = { workspace = true }
-boundless-market = { workspace = true }
-bytemuck = { workspace = true }
-chrono = { workspace = true }
-clap = { workspace = true }
-clap_complete = { workspace = true }
-futures = { version = "0.3" }
+bincode = { workspace = true, optional = true }
+bonsai-sdk = { workspace = true, optional = true }
+boundless-assessor = { workspace = true, optional = true }
+boundless-market = { workspace = true, optional = true }
+boundless-core = { workspace = true }
+bytemuck = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+clap_complete = { workspace = true, optional = true }
+derive_builder = "0.20.2"
+futures = { version = "0.3", optional = true }
 hex = { workspace = true }
-libc = "0.2.159"
+libc = { version = "0.2.159", optional = true }
 reqwest = { workspace = true }
-risc0-aggregation = { workspace = true }
-risc0-ethereum-contracts = { workspace = true }
+rand = { workspace = true }
+risc0-aggregation = { workspace = true, optional = true }
+risc0-ethereum-contracts = { workspace = true, optional = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+serde_with = { version = "3.14" }
+sha2 = { workspace = true }
 shadow-rs = { version = "1.1", default-features = false }
-sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
+sqlx = { workspace = true, optional = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-url = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 
 [[bin]]
 name = "boundless"
+required-features = ["cli"]
 
 [[bin]]
 name = "boundless-ffi"
+required-features = ["cli"]
 
 [dev-dependencies]
 boundless-market = { workspace = true }
@@ -55,7 +65,24 @@ tempfile = { workspace = true }
 tracing-test = { workspace = true }
 
 [features]
+default = ["cli"]
+cli = [
+  "alloy",
+  "bincode",
+  "bonsai-sdk",
+  "boundless-assessor",
+  "boundless-market",
+  "bytemuck",
+  "chrono",
+  "clap",
+  "clap_complete",
+  "futures",
+  "libc",
+  "risc0-aggregation",
+  "risc0-ethereum-contracts",
+  "sqlx",
+]
 # Enables the prove feature on risc0-zkvm to build the prover directly into this CLI.
-prove = ["risc0-zkvm/prove"]
+prove = ["cli", "risc0-zkvm/prove"]
 # Enables the cuda feature on risc0-zkvm to build the prover directly into this CLI, with CUDA support.
 cuda = ["prove", "risc0-zkvm/cuda"]

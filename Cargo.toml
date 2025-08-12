@@ -4,7 +4,7 @@ members = [
     "crates/assessor",
     "crates/bench",
     "crates/boundless-cli",
-    "crates/boundless-cli-sdk",
+    "crates/boundless-core",
     "crates/boundless-market",
     "crates/boundless-market/test-utils",
     "crates/broker",
@@ -31,7 +31,7 @@ boundless-assessor = { version = "0.14.0", path = "crates/assessor" }
 boundless-cli = { version = "0.14.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.14.0", path = "crates/boundless-market" }
 boundless-market-test-utils = { path = "crates/boundless-market/test-utils" }
-boundless-cli-sdk = { version = "0.14.0", path = "crates/boundless-cli-sdk" }
+boundless-core = { version = "0.14.0", path = "crates/boundless-core" }
 distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }

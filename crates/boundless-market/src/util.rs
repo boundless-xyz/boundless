@@ -22,23 +22,3 @@
 /// [Client]: crate::client::Client
 #[derive(Copy, Clone, Debug)]
 pub enum NotProvided {}
-
-/// A very small utility function to get the current unix timestamp.
-// TODO(#379): Avoid drift relative to the chain's timestamps.
-#[cfg(not(target_os = "zkvm"))]
-pub(crate) fn now_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
-
-/// Returns `true` if the dev mode environment variable is enabled.
-#[cfg(not(target_os = "zkvm"))]
-pub(crate) fn is_dev_mode() -> bool {
-    std::env::var("RISC0_DEV_MODE")
-        .ok()
-        .map(|x| x.to_lowercase())
-        .filter(|x| x == "1" || x == "true" || x == "yes")
-        .is_some()
-}

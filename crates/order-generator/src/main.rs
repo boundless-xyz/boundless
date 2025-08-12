@@ -24,9 +24,8 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{
-    balance_alerts_layer::BalanceAlertConfig, client::Client, deployments::Deployment,
-    input::GuestEnv, request_builder::OfferParams, storage::fetch_url,
-    storage::StorageProviderConfig,
+    balance_alerts_layer::BalanceAlertConfig, client::Client, deployments::Deployment, fetch_url,
+    request_builder::OfferParams, GuestEnv, StorageProviderConfig,
 };
 use clap::Parser;
 use rand::Rng;
@@ -327,7 +326,7 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
+    use boundless_market::{contracts::IBoundlessMarket, StorageProviderConfig};
     use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
     use tracing_test::traced_test;
 

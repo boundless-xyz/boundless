@@ -1,6 +1,6 @@
 [package]
-name = "boundless-cli-sdk"
-description = "Minimal SDK for Boundless, the universal ZK protocol"
+name = "boundless-core"
+description = "Core functionalities for Boundless, the universal ZK protocol"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }
@@ -8,12 +8,7 @@ homepage = { workspace = true }
 repository = { workspace = true }
 license = "Apache-2.0"
 
-[lib]
-path = "src/mod.rs"
-
 [dependencies]
-alloy-chains = { workspace = true }
-alloy-primitives = { version = ">=0.8", features = ["serde"] }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 aws-sdk-s3 = "1.34"
@@ -22,28 +17,20 @@ clap = { workspace = true }
 derive_builder = "0.20.2"
 hex = { workspace = true }
 httpmock = "0.7"
-rand = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_with = { version = "3.14" }
-serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
-url = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
-alloy = { workspace = true, features = ["full"] }
-alloy-primitives = { workspace = true, features = ["serde"] }
-boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true }
-order-stream = { workspace = true }
-tempfile = { workspace = true }
 
 [features]
 default = []

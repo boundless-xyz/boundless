@@ -30,9 +30,7 @@ use url::Url;
 
 use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
-    input::GuestEnv,
-    storage::{StandardStorageProvider, StorageProvider},
-    util::NotProvided,
+    GuestEnv, NotProvided, StandardStorageProvider, StorageProvider,
 };
 mod preflight_layer;
 mod storage_layer;
@@ -546,7 +544,7 @@ impl RequestParams {
     /// [RequestParams::with_requirements] after this function will overwrite the change.
     pub fn with_groth16_proof(self) -> Self {
         let mut requirements = self.requirements;
-        requirements.selector = match crate::util::is_dev_mode() {
+        requirements.selector = match boundless_core::util::is_dev_mode() {
             true => Some((Selector::FakeReceipt as u32).into()),
             false => Some((Selector::groth16_latest() as u32).into()),
         };
@@ -632,6 +630,7 @@ mod tests {
         providers::{DynProvider, Provider},
         rpc::types::TransactionRequest,
     };
+    use boundless_core::storage::{fetch_url, MockStorageProvider, StorageProvider};
     use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
     use tracing_test::traced_test;
     use url::Url;
@@ -647,10 +646,8 @@ mod tests {
             boundless_market::BoundlessMarketService, Predicate, RequestInput, RequestInputType,
             Requirements,
         },
-        input::GuestEnv,
-        storage::{fetch_url, MockStorageProvider, StorageProvider},
         util::NotProvided,
-        StandardStorageProvider,
+        GuestEnv, StandardStorageProvider,
     };
     use alloy_primitives::U256;
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};

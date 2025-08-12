@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::{contracts::RequestId, rpc::RpcProvider};
+use crate::request::RequestId;
+use crate::rpc::RpcProvider;
 use derive_builder::Builder;
 
 /// Mode for generating request IDs.
@@ -52,6 +53,7 @@ pub struct RequestIdLayerConfig {
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct RequestIdLayer {
+    /// [RpcProvider] used to interact with the blockchain.
     pub provider: RpcProvider,
     /// Configuration controlling ID generation behavior.
     pub config: RequestIdLayerConfig,

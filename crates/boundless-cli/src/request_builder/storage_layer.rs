@@ -14,10 +14,7 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::RequestInput,
-    input::GuestEnv,
-    storage::{StandardStorageProvider, StorageProvider},
-    util::NotProvided,
+    request::RequestInput, util::NotProvided, GuestEnv, StandardStorageProvider, StorageProvider,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;

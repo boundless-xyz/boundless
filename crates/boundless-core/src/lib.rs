@@ -12,13 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Boundless SDK
-pub mod client;
-pub mod contracts;
-pub mod deployments;
 pub mod input;
-pub mod request_builder;
-pub mod rpc;
-pub mod selector;
 pub mod storage;
 pub mod util;

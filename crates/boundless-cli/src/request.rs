@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! The Boundless CLI is a command-line interface for interacting with Boundless.
+
 use std::{fmt, ops::Not};
 
 use alloy_primitives::{
     aliases::{U160, U32, U96},
     Address, Bytes, FixedBytes, Uint, B256, U256,
+};
+use boundless_core::{
+    input::GuestEnvBuilder,
+    util::{is_dev_mode, now_timestamp},
 };
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
@@ -24,75 +30,109 @@ use serde_with::DisplayFromStr;
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
-use crate::{
-    input::GuestEnvBuilder,
-    selector::Selector,
-    util::{is_dev_mode, now_timestamp},
-};
+use crate::selector::Selector;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Represents a proof request that can be sent to the Boundless Market.
 pub struct ProofRequest {
+    /// Identifier for the request.
     pub id: RequestId,
+    /// Requirements for the request, including image ID, predicate, and selector.
     pub requirements: Requirements,
+    /// URL of the image to be processed.
+    ///
+    /// This URL should point to a location where the image can be fetched.
     pub image_url: String,
+    /// Input data for the request, which can be inline or a URL.
     pub input: RequestInput,
+    /// Offer details for the request.
     pub offer: Offer,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Represents the input data for a proof request.
 pub struct RequestInput {
+    /// Type of the input data, which can be inline or a URL.
     pub input_type: RequestInputType,
+    /// The actual data for the input, which can be bytes or a URL.
     pub data: Bytes,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+/// Represents the type of input data for a proof request.
 pub enum RequestInputType {
+    /// Inline input data, which is directly included in the request.
     Inline,
+    /// URL input data, which points to a location where the data can be fetched.
     Url,
+    /// Invalid input type, used for deserialization errors.
     __Invalid,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Represents an offer for a proof request.
 pub struct Offer {
+    /// Minimum price for the offer.
     pub min_price: Uint<256, 4>,
+    /// Maximum price for the offer.
     pub max_price: Uint<256, 4>,
+    /// Start time for bidding.
     pub bidding_start: u64,
+    /// Duration for ramping up the price.
     pub ramp_up_period: u32,
+    /// Timeout for the lock.
     pub lock_timeout: u32,
+    /// Overall timeout for the offer.
     pub timeout: u32,
+    /// Stake required to lock the offer.
     pub lock_stake: Uint<256, 4>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Represents the requirements for a proof request.
 pub struct Requirements {
+    /// Image ID identifying the program to be executed.
     pub image_id: FixedBytes<32>,
+    /// Callback to be executed when the proof is fulfilled.
     pub callback: Callback,
+    /// Predicate specifying what conditions the proof must satisfy.
     pub predicate: Predicate,
+    /// Selector specifying the type of proof required.
     pub selector: FixedBytes<4>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Represents a predicate for a proof request.
 pub struct Predicate {
+    /// Type of the predicate, which can be a digest match or a prefix match.
     pub predicate_type: PredicateType,
+    /// Data associated with the predicate, which can be a digest or a prefix.
     pub data: Bytes,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+/// Represents the type of predicate for a proof request.
 pub enum PredicateType {
+    /// Digest match predicate.
     DigestMatch,
+    /// Prefix match predicate.
     PrefixMatch,
+    /// Invalid predicate type, used for deserialization errors.
     __Invalid,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Represents a callback to be executed when the proof is fulfilled.
 pub struct Callback {
+    /// Address of the contract to call when the proof is fulfilled.
     pub addr: Address,
+    /// Gas limit for the callback when the proof is fulfilled.
     pub gas_limit: Uint<96, 2>,
 }
 
@@ -437,8 +477,8 @@ impl Requirements {
     /// to the latest groth16 version.
     pub fn with_groth16_proof(self) -> Self {
         match is_dev_mode() {
-            true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
-            false => Self { selector: FixedBytes::from(Selector::groth16_latest() as u32), ..self },
+            true => Self { selector: Selector::fake_receipt(), ..self },
+            false => Self { selector: Selector::groth16_latest(), ..self },
         }
     }
 }
@@ -511,7 +551,7 @@ impl RequestInput {
     /// # Example
     ///
     /// ```
-    /// use boundless_cli_sdk::contracts::RequestInput;
+    /// use boundless_cli::request::RequestInput;
     ///
     /// let input_vec = RequestInput::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
     /// let input = RequestInput::inline(input_vec);

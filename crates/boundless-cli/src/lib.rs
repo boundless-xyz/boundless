@@ -16,429 +16,328 @@
 
 #![deny(missing_docs)]
 
-use alloy::{
-    primitives::{Address, Bytes},
-    sol_types::{SolStruct, SolValue},
-};
-use anyhow::{bail, Context, Result};
-use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_assessor::{AssessorInput, Fulfillment};
-use chrono::{DateTime, Local};
-use risc0_aggregation::{
-    merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
-};
-use risc0_ethereum_contracts::encode_seal;
-use risc0_zkvm::{
-    compute_image_id, default_prover,
-    sha::{Digest, Digestible},
-    ExecutorEnv, ProverOpts, Receipt, ReceiptClaim,
-};
+pub mod client;
+#[cfg(feature = "cli")]
+pub mod prover;
+pub mod request;
+pub use request::RequestInput;
+pub mod request_builder;
+pub(crate) mod rpc;
+pub mod selector;
+pub mod util;
 
-use boundless_market::{
-    contracts::{
-        AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
-        Fulfillment as BoundlessFulfillment, RequestInputType,
+pub use boundless_core::input::{GuestEnv, GuestEnvBuilder};
+pub use boundless_core::storage::{
+    fetch_url, StandardStorageProvider, StorageProvider, StorageProviderConfig,
+};
+#[cfg(feature = "cli")]
+pub use prover::*;
+
+use alloy_primitives::{Address, Bytes, B256, U256};
+use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use tracing::level_filters::LevelFilter;
+use url::Url;
+
+#[cfg(feature = "cli")]
+use boundless_market::contracts::RequestStatus as BoundlessRequestStatus;
+
+use crate::{request_builder::OfferParams, selector::ProofType};
+
+/// Configuration for a deployment of the Boundless Market.
+// NOTE: See https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717 about clap usage.
+#[non_exhaustive]
+#[derive(Clone, Debug, Default, Builder, Serialize, Deserialize)]
+pub struct Deployment {
+    /// EIP-155 chain ID of the network.
+    #[builder(setter(into, strip_option), default)]
+    pub chain_id: Option<u64>,
+
+    /// Address of the [BoundlessMarket] contract.
+    ///
+    /// [BoundlessMarket]: crate::contracts::IBoundlessMarket
+    #[builder(setter(into))]
+    pub boundless_market_address: Address,
+
+    /// Address of the [RiscZeroVerifierRouter] contract.
+    ///
+    /// The verifier router implements [IRiscZeroVerifier]. Each network has a canonical router,
+    /// that is deployed by the core team. You can additionally deploy and manage your own verifier
+    /// instead. See the [Boundless docs for more details].
+    ///
+    /// [RiscZeroVerifierRouter]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroVerifierRouter.sol
+    /// [IRiscZeroVerifier]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/IRiscZeroVerifier.sol
+    /// [Boundless docs for more details]: https://docs.beboundless.xyz/developers/smart-contracts/verifier-contracts
+    #[builder(setter(strip_option), default)]
+    pub verifier_router_address: Option<Address>,
+
+    /// Address of the [RiscZeroSetVerifier] contract.
+    ///
+    /// [RiscZeroSetVerifier]: https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroSetVerifier.sol
+    #[builder(setter(into))]
+    pub set_verifier_address: Address,
+
+    /// Address of the stake token contract. The staking token is an ERC-20.
+    #[builder(setter(strip_option), default)]
+    pub stake_token_address: Option<Address>,
+
+    /// URL for the offchain [order stream service].
+    ///
+    /// [order stream service]: crate::order_stream_client
+    #[builder(setter(into, strip_option), default)]
+    pub order_stream_url: Option<Cow<'static, str>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct JsonRequest {
+    pub config: JsonConfig,
+    pub command: JsonCommand,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct JsonConfig {
+    pub rpc_url: Url,
+    pub private_key: Option<String>,
+    pub tx_timeout_secs: Option<u64>,
+    #[serde(with = "level_filter_serde")]
+    pub log_level: LevelFilter,
+    pub json: bool,
+    pub deployment: Option<Deployment>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) enum JsonCommand {
+    Account(AccountCommand),
+    Ops(OpsCommand),
+    Request(RequestCommand),
+    Proving(ProvingCommand),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) enum AccountCommand {
+    Deposit { amount: U256 },
+    Withdraw { amount: U256 },
+    Balance { address: Option<Address> },
+    DepositStake { amount: String },
+    WithdrawStake { amount: String },
+    StakeBalance { address: Option<Address> },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) enum OpsCommand {
+    Slash { request_id: U256 },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) enum RequestCommand {
+    Submit {
+        yaml_request: String,
+        wait: bool,
+        offchain: bool,
+        no_preflight: bool,
+        storage_config: Box<StorageProviderConfig>,
     },
-    input::GuestEnv,
-    selector::{is_groth16_selector, SupportedSelectors},
-    storage::fetch_url,
-    ProofRequest,
-};
-
-alloy::sol!(
-    #[sol(all_derives)]
-    /// The fulfillment of an order.
-    struct OrderFulfilled {
-        /// The root of the set.
-        bytes32 root;
-        /// The seal of the root.
-        bytes seal;
-        /// The fulfillments of the order.
-        BoundlessFulfillment[] fills;
-        /// The fulfillment of the assessor.
-        AssessorReceipt assessorReceipt;
-    }
-);
-
-impl OrderFulfilled {
-    /// Creates a new [OrderFulfilled],
-    pub fn new(
-        fills: Vec<BoundlessFulfillment>,
-        root_receipt: Receipt,
-        assessor_receipt: AssessorReceipt,
-    ) -> Result<Self> {
-        let state = GuestState::decode(&root_receipt.journal.bytes)?;
-        let root = state.mmr.finalized_root().context("failed to get finalized root")?;
-
-        let root_seal = encode_seal(&root_receipt)?;
-
-        Ok(OrderFulfilled {
-            root: <[u8; 32]>::from(root).into(),
-            seal: root_seal.into(),
-            fills,
-            assessorReceipt: assessor_receipt,
-        })
-    }
+    SubmitOffer {
+        id: Option<u32>,
+        program_path: Option<String>,
+        program_url: Option<Url>,
+        wait: bool,
+        offchain: bool,
+        encode_input: bool,
+        input: Option<String>,
+        input_file: Option<String>,
+        callback_address: Option<Address>,
+        callback_gas_limit: Option<u64>,
+        proof_type: ProofType,
+        offer: Box<OfferParams>,
+        storage_config: Box<StorageProviderConfig>,
+    },
+    Status {
+        request_id: U256,
+        expires_at: Option<u64>,
+    },
+    GetProof {
+        request_id: U256,
+    },
+    VerifyProof {
+        request_id: U256,
+        image_id: B256,
+    },
 }
 
-/// Converts a timestamp to a [DateTime] in the local timezone.
-pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
-    let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
-    t.with_timezone(&Local)
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) enum ProvingCommand {
+    Execute {
+        request_path: Option<String>,
+        request_id: Option<U256>,
+        request_digest: Option<B256>,
+        tx_hash: Option<B256>,
+    },
+    Fulfill {
+        request_ids: Vec<U256>,
+        request_digests: Option<Vec<B256>>,
+        tx_hashes: Option<Vec<B256>>,
+        withdraw: bool,
+    },
+    Lock {
+        request_id: U256,
+        request_digest: Option<B256>,
+        tx_hash: Option<B256>,
+    },
+    Benchmark {
+        request_ids: Vec<U256>,
+        bonsai_api_url: Option<String>,
+        bonsai_api_key: Option<String>,
+    },
 }
 
-/// The default prover implementation.
-/// This [DefaultProver] uses the default zkVM prover.
-/// The selection of the zkVM prover is based on environment variables.
-///
-/// The `RISC0_PROVER` environment variable, if specified, will select the
-/// following [Prover] implementation:
-/// * `bonsai`: [BonsaiProver] to prove on Bonsai.
-/// * `local`: LocalProver to prove locally in-process. Note: this
-///   requires the `prove` feature flag.
-/// * `ipc`: [ExternalProver] to prove using an `r0vm` sub-process. Note: `r0vm`
-///   must be installed. To specify the path to `r0vm`, use `RISC0_SERVER_PATH`.
-///
-/// If `RISC0_PROVER` is not specified, the following rules are used to select a
-/// [Prover]:
-/// * [BonsaiProver] if the `BONSAI_API_URL` and `BONSAI_API_KEY` environment
-///   variables are set unless `RISC0_DEV_MODE` is enabled.
-/// * LocalProver if the `prove` feature flag is enabled.
-/// * [ExternalProver] otherwise.
-pub struct DefaultProver {
-    set_builder_program: Vec<u8>,
-    set_builder_image_id: Digest,
-    assessor_program: Vec<u8>,
-    address: Address,
-    domain: EIP712DomainSaltless,
-    supported_selectors: SupportedSelectors,
+/// Status of a proof request
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub enum RequestStatus {
+    /// The request has expired.
+    Expired,
+    /// The request is locked in and waiting for fulfillment.
+    Locked,
+    /// The request has been fulfilled.
+    Fulfilled,
+    /// The request has an unknown status.
+    ///
+    /// This is used to represent the status of a request
+    /// with no evidence in the state. The request may be
+    /// open for bidding or it may not exist.
+    #[default]
+    Unknown,
 }
 
-impl DefaultProver {
-    /// Creates a new [DefaultProver].
-    pub fn new(
-        set_builder_program: Vec<u8>,
-        assessor_program: Vec<u8>,
-        address: Address,
-        domain: EIP712DomainSaltless,
-    ) -> Result<Self> {
-        let set_builder_image_id = compute_image_id(&set_builder_program)?;
-        let supported_selectors =
-            SupportedSelectors::default().with_set_builder_image_id(set_builder_image_id);
-        Ok(Self {
-            set_builder_program,
-            set_builder_image_id,
-            assessor_program,
-            address,
-            domain,
-            supported_selectors,
-        })
-    }
-
-    // Proves the given [program] with the given [input] and [assumptions].
-    // The [opts] parameter specifies the prover options.
-    pub(crate) async fn prove(
-        &self,
-        program: Vec<u8>,
-        input: Vec<u8>,
-        assumptions: Vec<Receipt>,
-        opts: ProverOpts,
-    ) -> Result<Receipt> {
-        let receipt = tokio::task::spawn_blocking(move || {
-            let mut env = ExecutorEnv::builder();
-            env.write_slice(&input);
-            for assumption_receipt in assumptions.iter() {
-                env.add_assumption(assumption_receipt.clone());
-            }
-            let env = env.build()?;
-
-            default_prover().prove_with_opts(env, &program, &opts)
-        })
-        .await??
-        .receipt;
-        Ok(receipt)
-    }
-
-    pub(crate) async fn compress(&self, succinct_receipt: &Receipt) -> Result<Receipt> {
-        let prover = default_prover();
-        if prover.get_name() == "bonsai" {
-            return compress_with_bonsai(succinct_receipt).await;
-        }
-        if is_dev_mode() {
-            return Ok(succinct_receipt.clone());
-        }
-
-        let receipt = succinct_receipt.clone();
-        tokio::task::spawn_blocking(move || {
-            default_prover().compress(&ProverOpts::groth16(), &receipt)
-        })
-        .await?
-    }
-
-    // Finalizes the set builder.
-    pub(crate) async fn finalize(
-        &self,
-        claims: Vec<ReceiptClaim>,
-        assumptions: Vec<Receipt>,
-    ) -> Result<Receipt> {
-        let input = GuestState::initial(self.set_builder_image_id)
-            .into_input(claims, true)
-            .context("Failed to build set builder input")?;
-        let encoded_input = bytemuck::pod_collect_to_vec(&risc0_zkvm::serde::to_vec(&input)?);
-
-        self.prove(
-            self.set_builder_program.clone(),
-            encoded_input,
-            assumptions,
-            ProverOpts::groth16(),
-        )
-        .await
-    }
-
-    // Proves the assessor.
-    pub(crate) async fn assessor(
-        &self,
-        fills: Vec<Fulfillment>,
-        receipts: Vec<Receipt>,
-    ) -> Result<Receipt> {
-        let assessor_input =
-            AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
-
-        let stdin = GuestEnv::builder().write_frame(&assessor_input.encode()).stdin;
-
-        self.prove(self.assessor_program.clone(), stdin, receipts, ProverOpts::succinct()).await
-    }
-
-    /// Fulfills a list of orders, returning the relevant data:
-    /// * A list of [Fulfillment] of the orders.
-    /// * The [Receipt] of the root set.
-    /// * The [SetInclusionReceipt] of the assessor.
-    pub async fn fulfill(
-        &self,
-        orders: &[(ProofRequest, Bytes)],
-    ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
-        let orders_jobs = orders.iter().cloned().map(|(req, sig)| async move {
-            let order_program = fetch_url(&req.imageUrl).await?;
-            let order_input: Vec<u8> = match req.input.inputType {
-                RequestInputType::Inline => GuestEnv::decode(&req.input.data)?.stdin,
-                RequestInputType::Url => {
-                    GuestEnv::decode(
-                        &fetch_url(
-                            std::str::from_utf8(&req.input.data)
-                                .context("input url is not utf8")?,
-                        )
-                        .await?,
-                    )?
-                    .stdin
-                }
-                _ => bail!("Unsupported input type"),
-            };
-
-            let selector = req.requirements.selector;
-            if !self.supported_selectors.is_supported(selector) {
-                bail!("Unsupported selector {}", req.requirements.selector);
-            };
-
-            let order_receipt = self
-                .prove(order_program.clone(), order_input.clone(), vec![], ProverOpts::succinct())
-                .await?;
-
-            let order_journal = order_receipt.journal.bytes.clone();
-            let order_image_id = compute_image_id(&order_program)?;
-            let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
-            let order_claim_digest = order_claim.digest();
-
-            let fill = Fulfillment {
-                request: req.clone(),
-                signature: sig.into(),
-                journal: order_journal.clone(),
-            };
-
-            Ok::<_, anyhow::Error>((order_receipt, order_claim, order_claim_digest, fill))
-        });
-
-        let results = futures::future::join_all(orders_jobs).await;
-        let mut receipts = Vec::new();
-        let mut claims = Vec::new();
-        let mut claim_digests = Vec::new();
-        let mut fills = Vec::new();
-
-        for (i, result) in results.into_iter().enumerate() {
-            if let Err(e) = result {
-                tracing::warn!("Failed to prove request 0x{:x}: {}", orders[i].0.id, e);
-                continue;
-            }
-            let (receipt, claim, claim_digest, fill) = result?;
-            receipts.push(receipt);
-            claims.push(claim);
-            claim_digests.push(claim_digest);
-            fills.push(fill);
-        }
-
-        let assessor_receipt = self.assessor(fills.clone(), receipts.clone()).await?;
-        let assessor_journal = assessor_receipt.journal.bytes.clone();
-        let assessor_image_id = compute_image_id(&self.assessor_program)?;
-        let assessor_claim = ReceiptClaim::ok(assessor_image_id, assessor_journal.clone());
-        let assessor_receipt_journal: AssessorJournal =
-            AssessorJournal::abi_decode(&assessor_journal)?;
-
-        receipts.push(assessor_receipt);
-        claims.push(assessor_claim.clone());
-        claim_digests.push(assessor_claim.digest());
-
-        let root_receipt = self.finalize(claims.clone(), receipts.clone()).await?;
-
-        let verifier_parameters =
-            SetInclusionReceiptVerifierParameters { image_id: self.set_builder_image_id };
-
-        let mut boundless_fills = Vec::new();
-
-        for i in 0..fills.len() {
-            let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
-                claims[i].clone(),
-                merkle_path(&claim_digests, i),
-                verifier_parameters.digest(),
-            );
-            let (req, _sig) = &orders[i];
-            let order_seal = if is_groth16_selector(req.requirements.selector) {
-                let receipt = self.compress(&receipts[i]).await?;
-                encode_seal(&receipt)?
-            } else {
-                order_inclusion_receipt.abi_encode_seal()?
-            };
-
-            let fulfillment = BoundlessFulfillment {
-                id: req.id,
-                requestDigest: req.eip712_signing_hash(&self.domain.alloy_struct()),
-                imageId: req.requirements.imageId,
-                journal: fills[i].journal.clone().into(),
-                seal: order_seal.into(),
-            };
-
-            boundless_fills.push(fulfillment);
-        }
-
-        let assessor_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
-            assessor_claim,
-            merkle_path(&claim_digests, claim_digests.len() - 1),
-            verifier_parameters.digest(),
-        );
-
-        let assessor_receipt = AssessorReceipt {
-            seal: assessor_inclusion_receipt.abi_encode_seal()?.into(),
-            prover: self.address,
-            selectors: assessor_receipt_journal.selectors,
-            callbacks: assessor_receipt_journal.callbacks,
-        };
-
-        Ok((boundless_fills, root_receipt, assessor_receipt))
-    }
-}
-
-async fn compress_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
-    let client = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
-    let encoded_receipt = bincode::serialize(succinct_receipt)?;
-    let receipt_id = client.upload_receipt(encoded_receipt).await?;
-    let snark_id = client.create_snark(receipt_id).await?;
-    loop {
-        let status = snark_id.status(&client).await?;
-        match status.status.as_ref() {
-            "RUNNING" => {
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                continue;
-            }
-            "SUCCEEDED" => {
-                let receipt_buf = client.download(&status.output.unwrap()).await?;
-                let snark_receipt: Receipt = bincode::deserialize(&receipt_buf)?;
-                return Ok(snark_receipt);
-            }
-            status_code => {
-                let err_msg = status.error_msg.unwrap_or_default();
-                return Err(anyhow::anyhow!(
-                    "snark proving failed with status {status_code}: {err_msg}"
-                ));
-            }
+#[cfg(feature = "cli")]
+impl From<BoundlessRequestStatus> for RequestStatus {
+    fn from(status: BoundlessRequestStatus) -> Self {
+        match status {
+            BoundlessRequestStatus::Expired => RequestStatus::Expired,
+            BoundlessRequestStatus::Locked => RequestStatus::Locked,
+            BoundlessRequestStatus::Fulfilled => RequestStatus::Fulfilled,
+            _ => RequestStatus::Unknown,
         }
     }
 }
 
-// Returns `true` if the dev mode environment variable is enabled.
-fn is_dev_mode() -> bool {
-    std::env::var("RISC0_DEV_MODE")
-        .ok()
-        .map(|x| x.to_lowercase())
-        .filter(|x| x == "1" || x == "true" || x == "yes")
-        .is_some()
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "command", rename_all = "kebab-case")]
+/// Output of the CLI commands.
+pub enum Output {
+    /// Indicates that the CLI command was successful.
+    Ok,
+    /// The account balance in ether.
+    AccountAmount {
+        /// The account balance amount in ether.
+        amount_eth: String,
+    },
+    /// The account stake amount.
+    AccountStakeAmount {
+        /// The account stake amount.
+        amount: String,
+        /// The number of decimals for the stake amount.
+        decimals: u8,
+        /// The symbol for the stake amount (e.g. "HP" or "USDC").
+        symbol: String,
+    },
+    /// The status of the proof request.
+    RequestStatus {
+        /// The status of the request.
+        status: RequestStatus,
+    },
+    /// The ID and expiration time of the submitted request.
+    RequestSubmitted {
+        /// The ID of the request.
+        request_id: U256,
+        /// The expiration time of the request.
+        expires_at: u64,
+    },
+    /// The journal and seal of the fulfilled request.
+    RequestFulfilled {
+        /// The journal of the fulfilled request.
+        journal: Bytes,
+        /// The seal of the fulfilled request.
+        seal: Bytes,
+    },
 }
 
-#[cfg(test)]
-mod tests {
+#[derive(Serialize, Deserialize)]
+/// Response structure for CLI commands.
+pub struct Response<T: Serialize> {
+    /// Indicates whether the command was successful.
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The data returned by the command, if any.
+    pub data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The error message, if any.
+    pub error: Option<String>,
+}
+
+#[cfg(feature = "cli")]
+/// Serializes a private key signer to a hex string, or `None` if the signer is not present.
+pub mod private_key_signer_serde {
+    use alloy::signers::local::PrivateKeySigner;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// Serializes a private key signer to a hex string, or `None` if the signer is not present.
+    pub fn serialize<S>(key: &Option<PrivateKeySigner>, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match key {
+            Some(pk) => {
+                // The address isn't enough — we want the secret key
+                let hex_str = format!("0x{}", hex::encode(pk.to_bytes()));
+                s.serialize_str(&hex_str)
+            }
+            None => s.serialize_none(),
+        }
+    }
+
+    /// Deserializes a private key signer from a hex string, or `None` if the string is empty.
+    pub fn deserialize<'de, D>(d: D) -> Result<Option<PrivateKeySigner>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt = Option::<String>::deserialize(d)?;
+        match opt {
+            Some(hex_str) => {
+                let s = hex_str.strip_prefix("0x").unwrap_or(&hex_str);
+                let bytes = hex::decode(s).map_err(serde::de::Error::custom)?;
+                let pk = PrivateKeySigner::from_bytes(&alloy::primitives::FixedBytes(
+                    bytes[..32].try_into().unwrap(),
+                ))
+                .map_err(serde::de::Error::custom)?;
+                Ok(Some(pk))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
+/// Serializes a logging level filter to a string.
+pub mod level_filter_serde {
     use super::*;
-    use alloy::{
-        primitives::{FixedBytes, Signature},
-        signers::local::PrivateKeySigner,
-    };
-    use boundless_market::contracts::{
-        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
-        UNSPECIFIED_SELECTOR,
-    };
-    use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
-    use risc0_ethereum_contracts::selector::Selector;
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::str::FromStr;
 
-    async fn setup_proving_request_and_signature(
-        signer: &PrivateKeySigner,
-        selector: Option<Selector>,
-    ) -> (ProofRequest, Signature) {
-        let request = ProofRequest::new(
-            RequestId::new(signer.address(), 0),
-            Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
-                .with_selector(match selector {
-                    Some(selector) => FixedBytes::from(selector as u32),
-                    None => UNSPECIFIED_SELECTOR,
-                }),
-            format!("file://{ECHO_PATH}"),
-            RequestInput::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
-            Offer::default(),
-        );
-
-        let signature = request.sign_request(signer, Address::ZERO, 1).await.unwrap();
-        (request, signature)
+    /// Serializes a logging level filter to a string.
+    pub fn serialize<S>(lf: &LevelFilter, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        s.serialize_str(lf.to_string().as_str())
     }
 
-    #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
-    async fn test_fulfill_with_selector() {
-        let signer = PrivateKeySigner::random();
-        let (request, signature) =
-            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V2_2)).await;
-
-        let domain = eip712_domain(Address::ZERO, 1);
-        let prover = DefaultProver::new(
-            SET_BUILDER_ELF.to_vec(),
-            ASSESSOR_GUEST_ELF.to_vec(),
-            Address::ZERO,
-            domain,
-        )
-        .expect("failed to create prover");
-
-        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
-    }
-
-    #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
-    async fn test_fulfill() {
-        let signer = PrivateKeySigner::random();
-        let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
-
-        let domain = eip712_domain(Address::ZERO, 1);
-        let prover = DefaultProver::new(
-            SET_BUILDER_ELF.to_vec(),
-            ASSESSOR_GUEST_ELF.to_vec(),
-            Address::ZERO,
-            domain,
-        )
-        .expect("failed to create prover");
-
-        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+    /// Deserializes a logging level filter from a string.
+    pub fn deserialize<'de, D>(d: D) -> Result<LevelFilter, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(d)?;
+        LevelFilter::from_str(&s).map_err(serde::de::Error::custom)
     }
 }

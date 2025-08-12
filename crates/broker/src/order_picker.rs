@@ -1335,11 +1335,11 @@ pub(crate) mod tests {
         signers::local::PrivateKeySigner,
     };
     use async_trait::async_trait;
+    use boundless_core::storage::{MockStorageProvider, StorageProvider};
     use boundless_market::contracts::{
         Callback, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
         Requirements,
     };
-    use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use boundless_market_test_utils::{
         deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
         ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID,
@@ -1414,10 +1414,12 @@ pub(crate) mod tests {
                         },
                     ),
                     image_url,
-                    RequestInput::builder()
-                        .write_slice(&[0x41, 0x41, 0x41, 0x41])
-                        .build_inline()
-                        .unwrap(),
+                    RequestInput::inline(
+                        RequestInput::builder()
+                            .write_slice(&[0x41, 0x41, 0x41, 0x41])
+                            .build_vec()
+                            .unwrap(),
+                    ),
                     Offer {
                         minPrice: params.min_price,
                         maxPrice: params.max_price,
@@ -1463,13 +1465,15 @@ pub(crate) mod tests {
                         },
                     ),
                     image_url,
-                    RequestInput::builder()
-                        .write(&cycles)
-                        .unwrap()
-                        .write(&1u64)
-                        .unwrap() // nonce
-                        .build_inline()
-                        .unwrap(),
+                    RequestInput::inline(
+                        RequestInput::builder()
+                            .write(&cycles)
+                            .unwrap()
+                            .write(&1u64)
+                            .unwrap() // nonce
+                            .build_vec()
+                            .unwrap(),
+                    ),
                     Offer {
                         minPrice: params.min_price,
                         maxPrice: params.max_price,

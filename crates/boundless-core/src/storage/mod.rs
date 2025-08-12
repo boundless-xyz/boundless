@@ -34,6 +34,7 @@ pub use file::{TempFileStorageProvider, TempFileStorageProviderError};
 pub use mock::{MockStorageError, MockStorageProvider};
 pub use pinata::{PinataStorageProvider, PinataStorageProviderError};
 pub use s3::{S3StorageProvider, S3StorageProviderError};
+use serde::{Deserialize, Serialize};
 
 #[async_trait]
 /// A trait for uploading risc0-zkvm programs and input files to a storage provider.
@@ -52,6 +53,9 @@ pub trait StorageProvider {
     /// Returns the URL which can be used to publicly access the uploaded input. This URL can be
     /// included in a request sent to Boundless.
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error>;
+
+    /// Returns the configuration for the storage provider.
+    fn config(&self) -> StorageProviderConfig;
 }
 
 #[async_trait]
@@ -65,6 +69,10 @@ impl<S: StorageProvider + Sync + ?Sized> StorageProvider for Box<S> {
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
         self.deref().upload_input(input).await
     }
+
+    fn config(&self) -> StorageProviderConfig {
+        self.deref().config()
+    }
 }
 
 #[async_trait]
@@ -77,6 +85,10 @@ impl<S: StorageProvider + Sync + Send + ?Sized> StorageProvider for Arc<S> {
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
         self.deref().upload_input(input).await
+    }
+
+    fn config(&self) -> StorageProviderConfig {
+        self.deref().config()
     }
 }
 
@@ -120,7 +132,7 @@ pub enum StandardStorageProviderError {
     NoProvider,
 }
 
-#[derive(Default, Clone, Debug, ValueEnum)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize, ValueEnum)]
 #[non_exhaustive]
 /// The type of storage provider to use.
 pub enum StorageProviderType {
@@ -140,7 +152,7 @@ pub enum StorageProviderType {
 
 /// Configuration for the storage provider.
 #[non_exhaustive]
-#[derive(Clone, Default, Debug, Args, Builder)]
+#[derive(Clone, Default, Debug, Serialize, Deserialize, Args, Builder)]
 pub struct StorageProviderConfig {
     /// Storage provider to use [possible values: s3, pinata, file]
     ///
@@ -250,6 +262,16 @@ impl StorageProvider for StandardStorageProvider {
             #[cfg(feature = "test-utils")]
             Self::Mock(provider) => provider.upload_input(input).await?,
         })
+    }
+
+    fn config(&self) -> StorageProviderConfig {
+        match self {
+            Self::S3(provider) => provider.config(),
+            Self::Pinata(provider) => provider.config(),
+            Self::File(provider) => provider.config(),
+            #[cfg(feature = "test-utils")]
+            Self::Mock(provider) => provider.config(),
+        }
     }
 }
 

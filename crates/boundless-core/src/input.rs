@@ -15,9 +15,8 @@
 use bytemuck::Pod;
 use risc0_zkvm::serde::to_vec;
 use risc0_zkvm::ExecutorEnv;
+use rmp_serde;
 use serde::{Deserialize, Serialize};
-
-use crate::contracts::RequestInput;
 
 // Input version.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -167,11 +166,6 @@ impl GuestEnvBuilder {
         self.build_env().encode()
     }
 
-    /// Build and encode the [GuestEnv] into an inline [RequestInput] for inclusion in a proof request.
-    pub fn build_inline(self) -> Result<RequestInput, Error> {
-        Ok(RequestInput::inline(self.build_env().encode()?))
-    }
-
     /// Write input data.
     ///
     /// This function will serialize `data` using the RISC Zero default codec that
@@ -181,7 +175,7 @@ impl GuestEnvBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_cli_sdk::GuestEnv;
+    /// use boundless_core::GuestEnv;
     /// use serde::Serialize;
     ///
     /// #[derive(Serialize)]
@@ -209,7 +203,7 @@ impl GuestEnvBuilder {
     /// # Example
     ///
     /// ```
-    /// use boundless_cli_sdk::GuestEnv;
+    /// use boundless_core::GuestEnv;
     ///
     /// let slice1 = [0, 1, 2, 3];
     /// let slice2 = [3, 2, 1, 0];

@@ -22,6 +22,8 @@ use reqwest::Url;
 use sha2::{Digest as _, Sha256};
 use tempfile::TempDir;
 
+use crate::storage::StorageProviderType;
+
 use super::{StorageProvider, StorageProviderConfig};
 
 #[derive(Clone, Debug)]
@@ -67,6 +69,14 @@ impl TempFileStorageProvider {
         })
     }
 
+    pub fn config(&self) -> StorageProviderConfig {
+        StorageProviderConfig {
+            storage_provider: StorageProviderType::File,
+            file_path: Some(self.temp_dir.path().to_path_buf()),
+            ..StorageProviderConfig::default()
+        }
+    }
+
     async fn save_file(
         &self,
         data: impl AsRef<[u8]>,
@@ -97,6 +107,10 @@ impl StorageProvider for TempFileStorageProvider {
         let filename = format!("{}.input", hex::encode(digest.as_slice()));
         let file_url = self.save_file(input, &filename).await?;
         Ok(file_url)
+    }
+
+    fn config(&self) -> StorageProviderConfig {
+        self.config()
     }
 }
 

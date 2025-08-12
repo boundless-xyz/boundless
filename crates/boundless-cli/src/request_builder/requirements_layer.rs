@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
-use crate::contracts::{Callback, Predicate, Requirements};
+use crate::request::{Callback, Predicate, Requirements};
 use alloy_primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
-use clap::Args;
 use derive_builder::Builder;
 use risc0_zkvm::{compute_image_id, Journal};
 use risc0_zkvm::{sha::Digestible, Digest};
@@ -32,34 +31,29 @@ const DEFAULT_CALLBACK_GAS_LIMT: u64 = 100000u64;
 pub struct RequirementsLayer {}
 
 #[non_exhaustive]
-#[derive(Clone, Debug, Default, Builder, Args)]
+#[derive(Clone, Debug, Default, Builder)]
 /// A partial [Requirements], with all the fields as optional. Used in the [RequirementsLayer] to
 /// provide explicit settings.
 ///
 /// Does not include the predicate, which is created by [RequirementsLayer].
 pub struct RequirementParams {
     /// Predicate specifying what conditions the proof must satisfy.
-    #[clap(skip)]
     #[builder(setter(strip_option, into), default)]
     pub predicate: Option<Predicate>,
 
     /// Image ID identifying the program to be executed.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub image_id: Option<B256>,
 
     /// Address of the contract to call when the proof is fulfilled.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub callback_address: Option<Address>,
 
     /// Gas limit for the callback when the proof is fulfilled.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub callback_gas_limit: Option<u64>,
 
     /// Selector specifying the type of proof required.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub selector: Option<FixedBytes<4>>,
 }

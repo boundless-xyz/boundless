@@ -534,8 +534,8 @@ mod tests {
         contracts::{
             hit_points::default_allowance, Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
-        input::GuestEnv,
         order_stream_client::{order_stream, OrderStreamClient},
+        GuestEnv, RequestInput,
     };
     use boundless_market_test_utils::{create_test_ctx, TestCtx};
 
@@ -594,7 +594,7 @@ mod tests {
             RequestId::new(*addr, idx),
             Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
             "http://image_uri.null",
-            GuestEnv::builder().build_inline().unwrap(),
+            RequestInput::inline(GuestEnv::builder().build_vec().unwrap()),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

@@ -400,7 +400,7 @@ pub async fn upload_input_uri(
     Ok(match request.input.inputType {
         boundless_market::contracts::RequestInputType::Inline => prover
             .upload_input(
-                boundless_market::input::GuestEnv::decode(&request.input.data)
+                boundless_market::GuestEnv::decode(&request.input.data)
                     .with_context(|| "Failed to decode input")?
                     .stdin,
             )
@@ -426,7 +426,7 @@ pub async fn upload_input_uri(
                 .await
                 .context("URL handling failed")?;
 
-            let input_data = boundless_market::input::GuestEnv::decode(
+            let input_data = boundless_market::GuestEnv::decode(
                 &input_uri
                     .fetch()
                     .await

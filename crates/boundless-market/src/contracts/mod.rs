@@ -29,6 +29,8 @@ use alloy_primitives::{
     Address, Bytes, FixedBytes, B256, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
+#[cfg(not(target_os = "zkvm"))]
+use boundless_core::util::now_timestamp;
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
 use std::time::Duration;
@@ -47,7 +49,7 @@ use risc0_zkvm::sha::Digest;
 pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
 
 #[cfg(not(target_os = "zkvm"))]
-use crate::{input::GuestEnvBuilder, util::now_timestamp};
+use crate::GuestEnvBuilder;
 
 #[cfg(not(target_os = "zkvm"))]
 const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
@@ -547,7 +549,7 @@ impl Requirements {
     /// to `Groth16V2_2`.
     #[cfg(not(target_os = "zkvm"))]
     pub fn with_groth16_proof(self) -> Self {
-        match crate::util::is_dev_mode() {
+        match boundless_core::util::is_dev_mode() {
             true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
             false => Self { selector: FixedBytes::from(Selector::Groth16V2_2 as u32), ..self },
         }
@@ -873,7 +875,7 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             imageUrl: "https://dev.null".to_string(),
-            input: RequestInput::builder().build_inline().unwrap(),
+            input: RequestInput::inline(RequestInput::builder().build_vec().unwrap()),
             offer: Offer {
                 minPrice: U256::from(0),
                 maxPrice: U256::from(1),

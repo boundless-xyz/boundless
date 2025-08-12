@@ -24,6 +24,8 @@ use reqwest::{
 };
 use sha2::{Digest as _, Sha256};
 
+use crate::storage::StorageProviderType;
+
 use super::{StorageProvider, StorageProviderConfig};
 
 /// Storage provider that uploads inputs and inputs to IPFS via Pinata.
@@ -189,5 +191,15 @@ impl StorageProvider for PinataStorageProvider {
         let digest = Sha256::digest(input);
         let filename = format!("{}.input", hex::encode(digest.as_slice()));
         self.upload(input, filename).await
+    }
+
+    fn config(&self) -> StorageProviderConfig {
+        StorageProviderConfig {
+            storage_provider: StorageProviderType::Pinata,
+            pinata_jwt: Some(self.pinata_jwt.clone()),
+            pinata_api_url: Some(self.pinata_api_url.clone()),
+            ipfs_gateway_url: Some(self.ipfs_gateway_url.clone()),
+            ..StorageProviderConfig::default()
+        }
     }
 }

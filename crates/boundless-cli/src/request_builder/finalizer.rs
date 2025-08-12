@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::request::{Offer, ProofRequest, RequestId, RequestInput, Requirements};
+
 use super::{Adapt, Layer, RequestParams};
-use crate::{
-    contracts::RequestInput,
-    contracts::{Offer, ProofRequest, RequestId, Requirements},
-    util::now_timestamp,
-};
 use anyhow::{bail, Context};
+use boundless_core::util::now_timestamp;
 use derive_builder::Builder;
 use url::Url;
 

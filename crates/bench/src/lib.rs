@@ -31,9 +31,8 @@ use boundless_market::{
     client::ClientBuilder,
     contracts::{Offer, Predicate, ProofRequest, Requirements},
     deployments::Deployment,
-    input::GuestEnv,
     request_builder::OfferParams,
-    storage::StorageProviderConfig,
+    GuestEnv, RequestInput, StorageProviderConfig,
 };
 use clap::Parser;
 use futures::future::try_join_all;
@@ -260,10 +259,9 @@ pub async fn run(args: &MainArgs) -> Result<()> {
 
             for i in (i..bench.requests_count as usize).step_by(threads) {
                 let bidding_start = now_timestamp() + 10;
-                let request_input = GuestEnv::builder()
-                    .write(&(i as u64))?
-                    .write(&bidding_start)?
-                    .build_inline()?;
+                let request_input = RequestInput::inline(
+                    GuestEnv::builder().write(&(i as u64))?.write(&bidding_start)?.build_vec()?,
+                );
                 let journal = Journal::new(bytemuck::pod_collect_to_vec(&to_vec(&(
                     i as u64,
                     bidding_start,
@@ -453,7 +451,7 @@ mod tests {
 
     use alloy::{node_bindings::Anvil, primitives::Address};
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::StorageProviderConfig;
+    use boundless_market::StorageProviderConfig;
     use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
     use broker::{config::Config, Args, Broker};
     use tracing_test::traced_test;

@@ -51,11 +51,8 @@ pub mod deployments;
 #[cfg(not(target_os = "zkvm"))]
 pub use deployments::Deployment;
 
-/// Input module for serializing input.
 #[cfg(not(target_os = "zkvm"))]
-pub mod input;
-#[cfg(not(target_os = "zkvm"))]
-pub use input::{GuestEnv, GuestEnvBuilder};
+pub use boundless_core::input::{GuestEnv, GuestEnvBuilder};
 
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]
@@ -75,11 +72,10 @@ pub mod request_builder;
 #[cfg(not(target_os = "zkvm"))]
 pub mod selector;
 
-/// Storage module for interacting with the storage provider.
 #[cfg(not(target_os = "zkvm"))]
-pub mod storage;
-#[cfg(not(target_os = "zkvm"))]
-pub use storage::{StandardStorageProvider, StorageProvider, StorageProviderConfig};
+pub use boundless_core::storage::{
+    fetch_url, StandardStorageProvider, StorageProvider, StorageProviderConfig,
+};
 
 /// Utility functions and types used elsewhere.
 pub(crate) mod util;
