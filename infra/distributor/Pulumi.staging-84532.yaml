@@ -12,7 +12,7 @@ config:
   distributor:PROVER_ETH_DONATE_THRESHOLD: "10"
   distributor:PROVER_KEYS:
     secure: v1:2vOtFYU4tCpTWOtn:YKw9Zc/qts4XmbSpkeWKq5tXCkPOmp8dhaE9HjoMnPKLaX91QjJEZZHZSEAiDbBRpqD/8mTQisxm0BQhSYNJoy0u22a8Bq89jZYiMGHQCP7RuOgXZ//TPd+ZdGPAWKf79Lf8m63sXSd7Zuzgu4z6RbC7T2Nn7+gSN9Ztt6iqQeZT06g1swLsQpeuEzYiVrl7Eg==
-  distributor:SCHEDULE_MINUTES: "360"
+  distributor:SCHEDULE_MINUTES: "240"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   distributor:SLASHER_KEY:
     secure: v1:1jzQibAoUrHjn0Iy:ixX10gWEC1WNnq8FVhWfHuqHvOEBys9o63zjaU6OZ6Lr+ooO9sficX9Djf979h1ElPk5CC5sqyzgShtZhkdPLo1YGqufpcdRrzNbAUODIWw=
