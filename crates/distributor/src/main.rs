@@ -244,7 +244,8 @@ async fn run(args: &MainArgs) -> Result<()> {
             if let Err(e) = prover_client.boundless_market.withdraw_stake(withdraw_amount).await {
                 tracing::error!(
                     "Failed to withdraw stake from boundless market for prover {}: {:?}. Skipping.",
-                    prover_address, e
+                    prover_address,
+                    e
                 );
                 continue;
             }
@@ -259,7 +260,11 @@ async fn run(args: &MainArgs) -> Result<()> {
             let stake_token = distributor_client.boundless_market.stake_token_address().await?;
             let stake_token_contract = IERC20::new(stake_token, prover_provider.clone());
 
-            let pending_tx = match stake_token_contract.transfer(distributor_address, withdraw_amount).send().await {
+            let pending_tx = match stake_token_contract
+                .transfer(distributor_address, withdraw_amount)
+                .send()
+                .await
+            {
                 Ok(tx) => tx,
                 Err(e) => {
                     tracing::error!(
@@ -329,7 +334,11 @@ async fn run(args: &MainArgs) -> Result<()> {
                 format_units(prover_stake_balance_market, stake_token_decimals)?,
                 format_units(prover_stake_balance_contract, stake_token_decimals)?
             );
-            let pending_tx = match stake_token_contract.transfer(prover_address, transfer_amount).send().await {
+            let pending_tx = match stake_token_contract
+                .transfer(prover_address, transfer_amount)
+                .send()
+                .await
+            {
                 Ok(tx) => tx,
                 Err(e) => {
                     tracing::error!(
@@ -367,10 +376,12 @@ async fn run(args: &MainArgs) -> Result<()> {
             if let Err(e) = prover_client
                 .boundless_market
                 .deposit_stake_with_permit(prover_stake_balance_contract, prover_key)
-                .await {
+                .await
+            {
                 tracing::error!(
                     "Failed to deposit stake to boundless market for prover {}: {:?}. Skipping.",
-                    prover_address, e
+                    prover_address,
+                    e
                 );
                 continue;
             }
