@@ -43,7 +43,8 @@ pub enum ProofType {
 /// A struct to hold the supported selectors.
 #[derive(Clone, Debug)]
 pub struct SupportedSelectors {
-    selectors: HashMap<FixedBytes<4>, ProofType>,
+    /// A map of selectors to their proof type.
+    pub selectors: HashMap<FixedBytes<4>, ProofType>,
 }
 
 impl Default for SupportedSelectors {
