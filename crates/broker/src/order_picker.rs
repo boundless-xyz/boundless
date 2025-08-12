@@ -562,7 +562,8 @@ where
                                         Ok(PreflightCacheValue::Skip {
                                             cached_limit: exec_limit_cycles,
                                         })
-                                    } else if err_msg.contains("Guest panicked") {
+                                    } else if err_msg.contains("Guest panicked") || err_msg.contains("GuestPanic") {
+                                        // Error message from bento and bonsai respectively for guest failures
                                         tracing::debug!("Skipping order {order_id_clone} due to guest panic (invalid request): {}", err_msg);
                                         Ok(PreflightCacheValue::Skip {
                                             // Use max cached limit, to avoid re-running preflight
