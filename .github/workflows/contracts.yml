@@ -27,7 +27,7 @@ jobs:
       foundry: ${{ steps.changes.outputs.foundry }}
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - uses: dorny/paths-filter@v3.0.0
         id: changes
@@ -53,7 +53,7 @@ jobs:
           node-version: 20
 
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -87,7 +87,7 @@ jobs:
           version: ${{ env.FOUNDRY_VERSION }}
 
       - name: checkout main code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           submodules: recursive
@@ -105,7 +105,7 @@ jobs:
           path: contracts/out/build-info/
 
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -134,7 +134,7 @@ jobs:
             device: cpu
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: install npm
         uses: actions/setup-node@v4
@@ -172,7 +172,7 @@ jobs:
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       - name: checkout main code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           submodules: recursive
@@ -190,7 +190,7 @@ jobs:
           path: contracts/out/build-info/
 
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 

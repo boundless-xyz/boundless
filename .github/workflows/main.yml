@@ -66,7 +66,7 @@ jobs:
           POSTGRES_PASSWORD: password
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Full history is required by license-check.py
           fetch-depth: 0
@@ -152,7 +152,7 @@ jobs:
     if: needs.files-changed.outputs.main == 'true'
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: setup sccache + s3
@@ -186,7 +186,7 @@ jobs:
     needs: files-changed
     if: needs.files-changed.outputs.docs == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: restore lychee cache
         id: restore-cache
@@ -230,7 +230,7 @@ jobs:
             feature: default
             device: cpu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
 
@@ -258,7 +258,7 @@ jobs:
     if: needs.files-changed.outputs.main == 'true'
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -285,7 +285,7 @@ jobs:
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
       - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
@@ -314,7 +314,7 @@ jobs:
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
       - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
@@ -340,7 +340,7 @@ jobs:
       NVCC_APPEND_FLAGS: -arch=sm_89
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -425,7 +425,7 @@ jobs:
     if: needs.files-changed.outputs.docker == 'true'
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -473,7 +473,7 @@ jobs:
     if: needs.files-changed.outputs.infra == 'true'
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0  # Fetch all history
 
@@ -505,7 +505,7 @@ jobs:
     if: needs.files-changed.outputs.deployments == 'true'
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: install python
         uses: actions/setup-python@v4
@@ -527,7 +527,7 @@ jobs:
 
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - uses: dorny/paths-filter@v3.0.0
         id: changes
