@@ -180,10 +180,28 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .with_to(distributor_address)
                 .with_value(transfer_amount);
 
-            let pending_tx = prover_provider.send_transaction(tx).await?;
+            let pending_tx = match prover_provider.send_transaction(tx).await {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to send ETH transfer transaction from prover {} to distributor: {:?}. Skipping.",
+                        prover_address, e
+                    );
+                    continue;
+                }
+            };
 
             // Wait for the transaction to be confirmed
-            let receipt = pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await?;
+            let receipt = match pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await {
+                Ok(receipt) => receipt,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to watch ETH transfer transaction from prover {} to distributor: {:?}. Skipping.",
+                        prover_address, e
+                    );
+                    continue;
+                }
+            };
 
             tracing::info!(
                 "Transfer completed: {:x} from prover {} for {} ETH to distributor",
@@ -223,7 +241,14 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .await?;
 
             // Withdraw stake from market to prover
-            prover_client.boundless_market.withdraw_stake(withdraw_amount).await?;
+            if let Err(e) = prover_client.boundless_market.withdraw_stake(withdraw_amount).await {
+                tracing::error!(
+                    "Failed to withdraw stake from boundless market for prover {}: {:?}. Skipping.",
+                    prover_address,
+                    e
+                );
+                continue;
+            }
 
             tracing::info!(
                 "Withdrawn {} stake from market for prover {}. Now transferring to distributor",
@@ -235,10 +260,28 @@ async fn run(args: &MainArgs) -> Result<()> {
             let stake_token = distributor_client.boundless_market.stake_token_address().await?;
             let stake_token_contract = IERC20::new(stake_token, prover_provider.clone());
 
-            let pending_tx =
-                stake_token_contract.transfer(distributor_address, withdraw_amount).send().await?;
+            let pending_tx = match stake_token_contract
+                .transfer(distributor_address, withdraw_amount)
+                .send()
+                .await
+            {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to send stake transfer transaction from prover {} to distributor: {:?}. Skipping.",
+                        prover_address, e
+                    );
+                    continue;
+                }
+            };
 
-            pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await?;
+            if let Err(e) = pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await {
+                tracing::error!(
+                    "Failed to watch stake transfer transaction from prover {} to distributor: {:?}. Skipping.",
+                    prover_address, e
+                );
+                continue;
+            }
 
             tracing::info!(
                 "Stake transfer completed from prover {} for {} stake to distributor",
@@ -291,10 +334,31 @@ async fn run(args: &MainArgs) -> Result<()> {
                 format_units(prover_stake_balance_market, stake_token_decimals)?,
                 format_units(prover_stake_balance_contract, stake_token_decimals)?
             );
-            let pending_tx =
-                stake_token_contract.transfer(prover_address, transfer_amount).send().await?;
+            let pending_tx = match stake_token_contract
+                .transfer(prover_address, transfer_amount)
+                .send()
+                .await
+            {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to send stake transfer transaction from distributor to prover {}: {:?}. Skipping.",
+                        prover_address, e
+                    );
+                    continue;
+                }
+            };
 
-            let receipt = pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await?;
+            let receipt = match pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await {
+                Ok(receipt) => receipt,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to watch stake transfer transaction from distributor to prover {}: {:?}. Skipping.",
+                        prover_address, e
+                    );
+                    continue;
+                }
+            };
 
             tracing::info!("Stake transfer completed: {:x} from distributor to prover {}. About to deposit stake", receipt, prover_address);
 
@@ -309,10 +373,18 @@ async fn run(args: &MainArgs) -> Result<()> {
             prover_stake_balance_contract =
                 stake_token_contract.balanceOf(prover_address).call().await?;
 
-            prover_client
+            if let Err(e) = prover_client
                 .boundless_market
                 .deposit_stake_with_permit(prover_stake_balance_contract, prover_key)
-                .await?;
+                .await
+            {
+                tracing::error!(
+                    "Failed to deposit stake to boundless market for prover {}: {:?}. Skipping.",
+                    prover_address,
+                    e
+                );
+                continue;
+            }
             tracing::info!("Stake deposit completed for prover {}", prover_address);
         }
     }
@@ -360,9 +432,27 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .with_to(address)
                 .with_value(transfer_amount);
 
-            let pending_tx = distributor_client.provider().send_transaction(tx).await?;
+            let pending_tx = match distributor_client.provider().send_transaction(tx).await {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to send ETH transfer transaction from distributor to {}: {:?}. Skipping.",
+                        address, e
+                    );
+                    continue;
+                }
+            };
 
-            let receipt = pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await?;
+            let receipt = match pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await {
+                Ok(receipt) => receipt,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to watch ETH transfer transaction from distributor to {}: {:?}. Skipping.",
+                        address, e
+                    );
+                    continue;
+                }
+            };
 
             tracing::info!(
                 "ETH transfer completed: {:x}. {} ETH from distributor to {}",

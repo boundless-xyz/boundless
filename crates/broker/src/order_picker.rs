@@ -352,7 +352,13 @@ where
 
         if !self.supported_selectors.is_supported(order.request.requirements.selector) {
             tracing::info!(
-                "Removing order {order_id} because it has an unsupported selector requirement"
+                "Removing order {order_id} because it has an unsupported selector requirement. Requested: {:x}. Supported: {:?}",
+                order.request.requirements.selector,
+                self.supported_selectors
+                    .selectors
+                    .iter()
+                    .map(|(k, v)| format!("{k:x} ({v:?})"))
+                    .collect::<Vec<_>>()
             );
 
             return Ok(Skip);
