@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::request::{Offer, ProofRequest, RequestId, RequestInput, Requirements};
+
 use super::{Adapt, Layer, RequestParams};
-use crate::{
-    contracts::RequestInput,
-    contracts::{Offer, ProofRequest, RequestId, Requirements},
-};
 use anyhow::{bail, Context};
 use boundless_core::util::now_timestamp;
 use derive_builder::Builder;
@@ -81,8 +79,8 @@ impl Layer<(Url, RequestInput, Requirements, Offer, RequestId)> for Finalizer {
     ) -> Result<Self::Output, Self::Error> {
         let request = ProofRequest {
             requirements,
-            id: request_id.into(),
-            imageUrl: program_url.into(),
+            id: request_id,
+            image_url: program_url.into(),
             input,
             offer,
         };

@@ -21,6 +21,7 @@ aws-sdk-s3 = { workspace = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
+boundless-core = { workspace = true }
 boundless-market = { workspace = true }
 boundless-market-test-utils = { workspace = true, optional = true }
 chrono = { workspace = true }

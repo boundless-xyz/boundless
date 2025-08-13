@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bonsai_sdk::SdkErr;
-use boundless_market::input::GuestEnv;
+use boundless_market::GuestEnv;
 use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

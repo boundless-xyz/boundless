@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! The Boundless CLI is a command-line interface for interacting with Boundless.
+
 use std::{
     borrow::Cow,
     fmt,
@@ -19,19 +21,15 @@ use std::{
     future::Future,
 };
 
-use alloy::{
-    network::Ethereum,
-    providers::{DynProvider, Provider},
+use boundless_core::{
+    input::GuestEnv,
+    storage::{StandardStorageProvider, StorageProvider},
+    util::is_dev_mode,
 };
 use derive_builder::Builder;
-use risc0_ethereum_contracts::selector::Selector;
 use risc0_zkvm::{Digest, Journal};
 use url::Url;
 
-use crate::{
-    contracts::{ProofRequest, RequestId, RequestInput},
-    GuestEnv, NotProvided, StandardStorageProvider, StorageProvider,
-};
 mod preflight_layer;
 mod storage_layer;
 
@@ -49,6 +47,12 @@ pub use offer_layer::{
 };
 mod finalizer;
 pub use finalizer::{Finalizer, FinalizerConfig, FinalizerConfigBuilder};
+
+use crate::{
+    request::{ProofRequest, RequestId, RequestInput},
+    selector::Selector,
+    util::NotProvided,
+};
 
 /// A trait for building proof requests, used by the [Client][crate::Client].
 ///
@@ -166,7 +170,7 @@ where
 /// the input for the next.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<P = DynProvider, S = StandardStorageProvider> {
+pub struct StandardRequestBuilder<S = StandardStorageProvider> {
     /// Handles uploading and preparing program and input data.
     #[builder(setter(into))]
     pub storage_layer: StorageLayer<S>,
@@ -181,36 +185,34 @@ pub struct StandardRequestBuilder<P = DynProvider, S = StandardStorageProvider> 
 
     /// Generates and manages request identifiers.
     #[builder(setter(into))]
-    pub request_id_layer: RequestIdLayer<P>,
+    pub request_id_layer: RequestIdLayer,
 
     /// Configures offer parameters for the request.
     #[builder(setter(into))]
-    pub offer_layer: OfferLayer<P>,
+    pub offer_layer: OfferLayer,
 
     /// Finalizes and validates the complete request.
     #[builder(setter(into), default)]
     pub finalizer: Finalizer,
 }
 
-impl StandardRequestBuilder<NotProvided, NotProvided> {
+impl StandardRequestBuilder<NotProvided> {
     /// Creates a new builder for constructing a [StandardRequestBuilder].
     ///
     /// This is the entry point for creating a request builder with specific
     /// provider and storage implementations.
     ///
     /// # Type Parameters
-    /// * `P` - An Ethereum RPC provider, using alloy.
     /// * `S` - The storage provider type for storing programs and inputs.
-    pub fn builder<P: Clone, S: Clone>() -> StandardRequestBuilderBuilder<P, S> {
+    pub fn builder<S: Clone>() -> StandardRequestBuilderBuilder<S> {
         Default::default()
     }
 }
 
-impl<P, S> Layer<RequestParams> for StandardRequestBuilder<P, S>
+impl<S> Layer<RequestParams> for StandardRequestBuilder<S>
 where
     S: StorageProvider,
     S::Error: std::error::Error + Send + Sync + 'static,
-    P: Provider<Ethereum> + 'static + Clone,
 {
     type Output = ProofRequest;
     type Error = anyhow::Error;
@@ -232,10 +234,7 @@ where
     }
 }
 
-impl<P> Layer<RequestParams> for StandardRequestBuilder<P, NotProvided>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl Layer<RequestParams> for StandardRequestBuilder<NotProvided> {
     type Output = ProofRequest;
     type Error = anyhow::Error;
 
@@ -342,9 +341,9 @@ impl RequestParams {
     /// Can be constructed with [GuestEnvBuilder][crate::GuestEnvBuilder].
     ///
     /// ```rust
-    /// # use boundless_market::request_builder::RequestParams;
+    /// # use boundless_cli::request_builder::RequestParams;
     /// # const ECHO_ELF: &[u8] = b"";
-    /// use boundless_market::GuestEnv;
+    /// use boundless_cli::GuestEnv;
     ///
     /// RequestParams::new()
     ///     .with_program(ECHO_ELF)
@@ -367,7 +366,7 @@ impl RequestParams {
     /// If the [GuestEnv] is already set, this replaces it.
     ///
     /// ```rust
-    /// # use boundless_market::request_builder::RequestParams;
+    /// # use boundless_cli::request_builder::RequestParams;
     /// # const ECHO_ELF: &[u8] = b"";
     /// RequestParams::new()
     ///     .with_program(ECHO_ELF)
@@ -392,7 +391,7 @@ impl RequestParams {
     /// Set the program URL, where provers can download the program to be proven.
     ///
     /// ```rust
-    /// # use boundless_market::request_builder::RequestParams;
+    /// # use boundless_cli::request_builder::RequestParams;
     /// # || -> anyhow::Result<()> {
     /// RequestParams::new()
     ///     .with_program_url("https://fileserver.example/guest.bin")?;
@@ -428,7 +427,7 @@ impl RequestParams {
     /// This is a convenience method that creates a [RequestInput] with URL type.
     ///
     /// ```rust
-    /// # use boundless_market::request_builder::RequestParams;
+    /// # use boundless_cli::request_builder::RequestParams;
     /// # || -> anyhow::Result<()> {
     /// RequestParams::new()
     ///     .with_input_url("https://fileserver.example/input.bin")?;
@@ -494,7 +493,10 @@ impl RequestParams {
     /// The request ID contains the requestor's address and a unique index,
     /// and is used to track the request throughout its lifecycle.
     pub fn require_request_id(&self) -> Result<&RequestId, MissingFieldError> {
-        self.request_id.as_ref().ok_or(MissingFieldError::with_hint("request_id", "can be set using .with_request_id(...), and can be generated by boundless_market::Client"))
+        self.request_id.as_ref().ok_or(MissingFieldError::with_hint(
+            "request_id",
+            "can be set using .with_request_id(...), and can be generated by boundless_cli::Client",
+        ))
     }
 
     /// Sets the request ID for the proof request.
@@ -509,7 +511,7 @@ impl RequestParams {
     /// offer, or a partial offer via [OfferParams].
     ///
     /// ```rust
-    /// # use boundless_market::request_builder::{RequestParams, OfferParams};
+    /// # use boundless_cli::request_builder::{RequestParams, OfferParams};
     /// use alloy::primitives::utils::parse_units;
     ///
     /// RequestParams::new()
@@ -527,7 +529,7 @@ impl RequestParams {
     /// the complete requirements, or partial requirements via [RequirementParams].
     ///
     /// ```rust
-    /// # use boundless_market::request_builder::{RequestParams, RequirementParams};
+    /// # use boundless_cli::request_builder::{RequestParams, RequirementParams};
     /// use alloy::primitives::address;
     ///
     /// RequestParams::new()
@@ -544,9 +546,9 @@ impl RequestParams {
     /// [RequestParams::with_requirements] after this function will overwrite the change.
     pub fn with_groth16_proof(self) -> Self {
         let mut requirements = self.requirements;
-        requirements.selector = match boundless_core::util::is_dev_mode() {
-            true => Some((Selector::FakeReceipt as u32).into()),
-            false => Some((Selector::groth16_latest() as u32).into()),
+        requirements.selector = match is_dev_mode() {
+            true => Some(Selector::fake_receipt()),
+            false => Some(Selector::groth16_latest()),
         };
         Self { requirements, ..self }
     }
@@ -624,15 +626,11 @@ mod tests {
     use std::sync::Arc;
 
     use alloy::{
-        network::TransactionBuilder,
-        node_bindings::Anvil,
-        primitives::Address,
-        providers::{DynProvider, Provider},
+        network::TransactionBuilder, node_bindings::Anvil, providers::Provider,
         rpc::types::TransactionRequest,
     };
-    use boundless_core::storage::{fetch_url, MockStorageProvider, StorageProvider};
+    use alloy_primitives::Address;
     use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
-    use tracing_test::traced_test;
     use url::Url;
 
     use super::{
@@ -642,32 +640,31 @@ mod tests {
     };
 
     use crate::{
-        contracts::{
-            boundless_market::BoundlessMarketService, Predicate, RequestInput, RequestInputType,
-            Requirements,
-        },
+        request::{Predicate, RequestInput, RequestInputType, Requirements},
+        rpc::RpcProvider,
         util::NotProvided,
-        GuestEnv, StandardStorageProvider,
     };
     use alloy_primitives::U256;
+    use boundless_core::{
+        input::GuestEnv,
+        storage::{fetch_url, MockStorageProvider, StandardStorageProvider, StorageProvider},
+    };
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
 
     #[tokio::test]
-    #[traced_test]
     async fn basic() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let storage = Arc::new(MockStorageProvider::start());
-        let market = BoundlessMarketService::new(
-            test_ctx.deployment.boundless_market_address,
-            test_ctx.customer_provider.clone(),
-            test_ctx.customer_signer.address(),
+        let provider = RpcProvider::new(
+            url::Url::parse(&anvil.endpoint()).unwrap(),
+            Address::from(**test_ctx.customer_signer.address()),
         );
 
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(Some(storage))
-            .offer_layer(test_ctx.customer_provider.clone())
-            .request_id_layer(market)
+            .offer_layer(provider.clone())
+            .request_id_layer(provider.clone())
             .build()?;
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
@@ -677,47 +674,43 @@ mod tests {
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn with_offer_layer_settings() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let storage = Arc::new(MockStorageProvider::start());
-        let market = BoundlessMarketService::new(
-            test_ctx.deployment.boundless_market_address,
-            test_ctx.customer_provider.clone(),
-            test_ctx.customer_signer.address(),
+        let provider = RpcProvider::new(
+            url::Url::parse(&anvil.endpoint()).unwrap(),
+            Address::from(**test_ctx.customer_signer.address()),
         );
 
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(Some(storage))
             .offer_layer(OfferLayer::new(
-                test_ctx.customer_provider.clone(),
+                provider.clone(),
                 OfferLayerConfig::builder().ramp_up_period(27).build()?,
             ))
-            .request_id_layer(market)
+            .request_id_layer(provider.clone())
             .build()?;
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
-        assert_eq!(request.offer.rampUpPeriod, 27);
+        assert_eq!(request.offer.ramp_up_period, 27);
         Ok(())
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn without_storage_provider() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
-        let market = BoundlessMarketService::new(
-            test_ctx.deployment.boundless_market_address,
-            test_ctx.customer_provider.clone(),
-            test_ctx.customer_signer.address(),
+        let provider = RpcProvider::new(
+            url::Url::parse(&anvil.endpoint()).unwrap(),
+            Address::from(**test_ctx.customer_signer.address()),
         );
 
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(None::<NotProvided>)
-            .offer_layer(test_ctx.customer_provider.clone())
-            .request_id_layer(market)
+            .offer_layer(provider.clone())
+            .request_id_layer(provider.clone())
             .build()?;
 
         // Try building the reqeust by providing the program.
@@ -731,14 +724,13 @@ mod tests {
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         assert_eq!(
-            request.requirements.imageId,
+            request.requirements.image_id,
             risc0_zkvm::compute_image_id(ECHO_ELF)?.as_bytes()
         );
         Ok(())
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_storage_layer() -> anyhow::Result<()> {
         let storage = Arc::new(MockStorageProvider::start());
         let layer = StorageLayer::new(
@@ -750,13 +742,12 @@ mod tests {
 
         // Program should be uploaded and input inline.
         assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
-        assert_eq!(request_input.inputType, RequestInputType::Inline);
+        assert_eq!(request_input.input_type, RequestInputType::Inline);
         assert_eq!(request_input.data, env.encode()?);
         Ok(())
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_storage_layer_no_provider() -> anyhow::Result<()> {
         let layer = StorageLayer::<NotProvided>::from(
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
@@ -766,13 +757,12 @@ mod tests {
         let request_input = layer.process(&env).await?;
 
         // Program should be uploaded and input inline.
-        assert_eq!(request_input.inputType, RequestInputType::Inline);
+        assert_eq!(request_input.input_type, RequestInputType::Inline);
         assert_eq!(request_input.data, env.encode()?);
         Ok(())
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_storage_layer_large_input() -> anyhow::Result<()> {
         let storage = Arc::new(MockStorageProvider::start());
         let layer = StorageLayer::new(
@@ -784,14 +774,13 @@ mod tests {
 
         // Program and input should be uploaded and input inline.
         assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
-        assert_eq!(request_input.inputType, RequestInputType::Url);
+        assert_eq!(request_input.input_type, RequestInputType::Url);
         let fetched_input = fetch_url(String::from_utf8(request_input.data.to_vec())?).await?;
         assert_eq!(fetched_input, env.encode()?);
         Ok(())
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_storage_layer_large_input_no_provider() -> anyhow::Result<()> {
         let layer = StorageLayer::from(
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
@@ -807,7 +796,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_preflight_layer() -> anyhow::Result<()> {
         let storage = MockStorageProvider::start();
         let program_url = storage.upload_program(ECHO_ELF).await?;
@@ -826,7 +814,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_requirements_layer() -> anyhow::Result<()> {
         let layer = RequirementsLayer::default();
         let program = ECHO_ELF;
@@ -843,40 +830,36 @@ mod tests {
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_request_id_layer_rand() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await?;
-        let market = BoundlessMarketService::new(
-            test_ctx.deployment.boundless_market_address,
-            test_ctx.customer_provider.clone(),
-            test_ctx.customer_signer.address(),
+        let provider = RpcProvider::new(
+            url::Url::parse(&anvil.endpoint()).unwrap(),
+            Address::from(**test_ctx.customer_signer.address()),
         );
-        let layer = RequestIdLayer::from(market.clone());
+        let layer = RequestIdLayer::from(provider.clone());
         assert_eq!(layer.config.mode, RequestIdLayerMode::Rand);
         let id = layer.process(()).await?;
-        assert_eq!(id.addr, test_ctx.customer_signer.address());
+        assert_eq!(id.addr, Address::from(**test_ctx.customer_signer.address()));
         assert!(!id.smart_contract_signed);
         Ok(())
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_request_id_layer_nonce() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await?;
-        let market = BoundlessMarketService::new(
-            test_ctx.deployment.boundless_market_address,
-            test_ctx.customer_provider.clone(),
-            test_ctx.customer_signer.address(),
+        let provider = RpcProvider::new(
+            url::Url::parse(&anvil.endpoint()).unwrap(),
+            Address::from(**test_ctx.customer_signer.address()),
         );
         let layer = RequestIdLayer::new(
-            market.clone(),
+            provider.clone(),
             RequestIdLayerConfig::builder().mode(RequestIdLayerMode::Nonce).build()?,
         );
 
         let id = layer.process(()).await?;
-        assert_eq!(id.addr, test_ctx.customer_signer.address());
+        assert_eq!(id.addr, Address::from(**test_ctx.customer_signer.address()));
         // The customer address has sent no transactions.
         assert_eq!(id.index, 0);
         assert!(!id.smart_contract_signed);
@@ -884,12 +867,12 @@ mod tests {
         // Send a tx then check that the index increments.
         let tx = TransactionRequest::default()
             .with_from(test_ctx.customer_signer.address())
-            .with_to(Address::ZERO)
+            .with_to(alloy::primitives::Address::ZERO)
             .with_value(U256::from(1));
         test_ctx.customer_provider.send_transaction(tx).await?.watch().await?;
 
         let id = layer.process(()).await?;
-        assert_eq!(id.addr, test_ctx.customer_signer.address());
+        assert_eq!(id.addr, Address::from(**test_ctx.customer_signer.address()));
         // The customer address has sent one transaction.
         assert_eq!(id.index, 1);
         assert!(!id.smart_contract_signed);
@@ -898,35 +881,37 @@ mod tests {
     }
 
     #[tokio::test]
-    #[traced_test]
     async fn test_offer_layer_estimates() -> anyhow::Result<()> {
         // Use Anvil-backed provider for gas price
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await?;
-        let provider = test_ctx.customer_provider.clone();
+        let provider = RpcProvider::new(
+            url::Url::parse(&anvil.endpoint()).unwrap(),
+            Address::from(**test_ctx.customer_signer.address()),
+        );
         let layer = OfferLayer::from(provider.clone());
         // Build minimal requirements and request ID
         let image_id = compute_image_id(ECHO_ELF).unwrap();
         let predicate = Predicate::digest_match(Journal::new(b"hello".to_vec()).digest());
         let requirements = Requirements::new(image_id, predicate);
-        let request_id = RequestId::new(test_ctx.customer_signer.address(), 0);
+        let request_id = RequestId::new(Address::from(**test_ctx.customer_signer.address()), 0);
 
         // Zero cycles
         let offer_params = OfferParams::default();
         let offer_zero_mcycles =
             layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
-        assert_eq!(offer_zero_mcycles.minPrice, U256::ZERO);
+        assert_eq!(offer_zero_mcycles.min_price, U256::ZERO);
         // Defaults from builder
-        assert_eq!(offer_zero_mcycles.rampUpPeriod, 60);
-        assert_eq!(offer_zero_mcycles.lockTimeout, 600);
+        assert_eq!(offer_zero_mcycles.ramp_up_period, 60);
+        assert_eq!(offer_zero_mcycles.lock_timeout, 600);
         assert_eq!(offer_zero_mcycles.timeout, 1200);
         // Max price should be non-negative, to account for fixed costs.
-        assert!(offer_zero_mcycles.maxPrice > U256::ZERO);
+        assert!(offer_zero_mcycles.max_price > U256::ZERO);
 
         // Now create an offer for 100 Mcycles.
         let offer_more_mcycles =
             layer.process((&requirements, &request_id, Some(100u64 << 20), &offer_params)).await?;
-        assert!(offer_more_mcycles.maxPrice > offer_zero_mcycles.maxPrice);
+        assert!(offer_more_mcycles.max_price > offer_zero_mcycles.max_price);
 
         // Check that overrides are respected.
         let min_price = U256::from(1u64);
@@ -934,10 +919,10 @@ mod tests {
         let offer_params = OfferParams::builder().max_price(max_price).min_price(min_price).into();
         let offer_zero_mcycles =
             layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
-        assert_eq!(offer_zero_mcycles.maxPrice, max_price);
-        assert_eq!(offer_zero_mcycles.minPrice, min_price);
-        assert_eq!(offer_zero_mcycles.rampUpPeriod, 60);
-        assert_eq!(offer_zero_mcycles.lockTimeout, 600);
+        assert_eq!(offer_zero_mcycles.max_price, max_price);
+        assert_eq!(offer_zero_mcycles.min_price, min_price);
+        assert_eq!(offer_zero_mcycles.ramp_up_period, 60);
+        assert_eq!(offer_zero_mcycles.lock_timeout, 600);
         assert_eq!(offer_zero_mcycles.timeout, 1200);
         Ok(())
     }
@@ -967,7 +952,7 @@ mod tests {
             RequestParams::new().with_input_url("https://fileserver.example/input.bin").unwrap();
 
         let input = params.request_input.unwrap();
-        assert_eq!(input.inputType, RequestInputType::Url);
+        assert_eq!(input.input_type, RequestInputType::Url);
         assert_eq!(input.data.as_ref(), "https://fileserver.example/input.bin".as_bytes());
 
         // Test with parsed URL
@@ -975,7 +960,7 @@ mod tests {
         let params = RequestParams::new().with_input_url(url).unwrap();
 
         let input = params.request_input.unwrap();
-        assert_eq!(input.inputType, RequestInputType::Url);
+        assert_eq!(input.input_type, RequestInputType::Url);
         assert_eq!(input.data.as_ref(), "https://fileserver.example/input2.bin".as_bytes());
     }
 
@@ -983,5 +968,5 @@ mod tests {
     trait AssertSend: Send {}
 
     // The StandardRequestBuilder must be Send such that a Client can be sent between threads.
-    impl AssertSend for StandardRequestBuilder<DynProvider, StandardStorageProvider> {}
+    impl AssertSend for StandardRequestBuilder<StandardStorageProvider> {}
 }

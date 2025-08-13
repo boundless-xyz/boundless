@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::contracts::{RequestInput, RequestInputType};
-use crate::GuestEnv;
+use crate::request::{RequestInput, RequestInputType};
 use anyhow::{bail, ensure, Context};
-use boundless_core::storage::fetch_url;
+use boundless_core::{input::GuestEnv, storage::fetch_url};
 use risc0_zkvm::{default_executor, sha::Digestible, SessionInfo};
 use url::Url;
 
@@ -38,7 +37,7 @@ pub struct PreflightLayer {}
 
 impl PreflightLayer {
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
-        let env = match input.inputType {
+        let env = match input.input_type {
             RequestInputType::Inline => GuestEnv::decode(&input.data)?,
             RequestInputType::Url => {
                 let input_url =

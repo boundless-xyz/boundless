@@ -647,7 +647,7 @@ mod tests {
             hit_points::default_allowance, Offer, Predicate, PredicateType, ProofRequest,
             RequestId, RequestInput, RequestInputType, Requirements,
         },
-        input::GuestEnv,
+        GuestEnv,
     };
     use boundless_market_test_utils::{
         deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,

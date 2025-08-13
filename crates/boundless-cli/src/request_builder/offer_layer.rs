@@ -14,20 +14,16 @@
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
-    contracts::{Offer, RequestId, Requirements},
-    selector::{ProofType, SupportedSelectors},
+    request::{Offer, RequestId, Requirements},
+    rpc::RpcProvider,
+    selector::{proof_type, ProofType},
 };
-use alloy::{
-    network::Ethereum,
-    primitives::{
-        utils::{format_units, Unit},
-        U256,
-    },
-    providers::Provider,
+use alloy_primitives::{
+    utils::{format_units, Unit},
+    U256,
 };
 use anyhow::{ensure, Context};
 use boundless_core::util::now_timestamp;
-use clap::Args;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
@@ -82,10 +78,6 @@ pub struct OfferLayerConfig {
     /// Estimated gas used for ERC-1271 signature verification.
     #[builder(default = "100_000")]
     pub smart_contract_sig_verify_gas_estimate: u64,
-
-    /// Supported proof types and their corresponding selectors.
-    #[builder(setter(into), default)]
-    pub supported_selectors: SupportedSelectors,
 }
 
 #[non_exhaustive]
@@ -95,9 +87,9 @@ pub struct OfferLayerConfig {
 /// This layer uses an Ethereum provider to estimate gas costs and sets appropriate
 /// pricing parameters for the proof request. It combines cycle count estimates with
 /// gas price information to determine minimum and maximum prices for the request.
-pub struct OfferLayer<P> {
+pub struct OfferLayer {
     /// The Ethereum provider used for gas price estimation.
-    pub provider: P,
+    pub provider: RpcProvider,
 
     /// Configuration for offer generation.
     pub config: OfferLayerConfig,
@@ -119,49 +111,42 @@ impl Default for OfferLayerConfig {
     }
 }
 
-impl<P: Clone> From<P> for OfferLayer<P> {
-    fn from(provider: P) -> Self {
+impl From<RpcProvider> for OfferLayer {
+    fn from(provider: RpcProvider) -> Self {
         OfferLayer { provider, config: Default::default() }
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug, Default, Builder, Args, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Builder, Serialize, Deserialize)]
 /// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
 /// defaults set in the [OfferLayerConfig].
 pub struct OfferParams {
     /// Minimum price willing to pay for the proof, in wei.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub min_price: Option<U256>,
 
     /// Maximum price willing to pay for the proof, in wei.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub max_price: Option<U256>,
 
     /// Timestamp when bidding will start for this request.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub bidding_start: Option<u64>,
 
     /// Duration in seconds for the price to ramp up from min to max.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub ramp_up_period: Option<u32>,
 
     /// Time in seconds that a prover has to fulfill a locked request.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub lock_timeout: Option<u32>,
 
     /// Maximum time in seconds that a request can remain active.
-    #[clap(long)]
     #[builder(setter(strip_option), default)]
     pub timeout: Option<u32>,
 
     /// Amount of the stake token that the prover must stake when locking a request.
-    #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub lock_stake: Option<U256>,
 }
@@ -170,12 +155,12 @@ impl From<Offer> for OfferParams {
     fn from(value: Offer) -> Self {
         Self {
             timeout: Some(value.timeout),
-            min_price: Some(value.minPrice),
-            max_price: Some(value.maxPrice),
-            lock_stake: Some(value.lockStake),
-            lock_timeout: Some(value.lockTimeout),
-            bidding_start: Some(value.biddingStart),
-            ramp_up_period: Some(value.rampUpPeriod),
+            min_price: Some(value.min_price),
+            max_price: Some(value.max_price),
+            lock_stake: Some(value.lock_stake),
+            lock_timeout: Some(value.lock_timeout),
+            bidding_start: Some(value.bidding_start),
+            ramp_up_period: Some(value.ramp_up_period),
         }
     }
 }
@@ -200,12 +185,12 @@ impl TryFrom<OfferParams> for Offer {
     fn try_from(value: OfferParams) -> Result<Self, Self::Error> {
         Ok(Self {
             timeout: value.timeout.ok_or(MissingFieldError::new("timeout"))?,
-            minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?,
-            maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?,
-            lockStake: value.lock_stake.ok_or(MissingFieldError::new("lock_stake"))?,
-            lockTimeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
-            biddingStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
-            rampUpPeriod: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
+            min_price: value.min_price.ok_or(MissingFieldError::new("min_price"))?,
+            max_price: value.max_price.ok_or(MissingFieldError::new("max_price"))?,
+            lock_stake: value.lock_stake.ok_or(MissingFieldError::new("lock_stake"))?,
+            lock_timeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
+            bidding_start: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
+            ramp_up_period: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
         })
     }
 }
@@ -220,15 +205,12 @@ impl OfferParams {
     }
 }
 
-impl<P> OfferLayer<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl OfferLayer {
     /// Creates a new [OfferLayer] with the given provider and configuration.
     ///
     /// The provider is used to fetch current gas prices for estimating transaction costs,
     /// which are factored into the offer pricing.
-    pub fn new(provider: P, config: OfferLayerConfig) -> Self {
+    pub fn new(provider: RpcProvider, config: OfferLayerConfig) -> Self {
         Self { provider, config }
     }
 
@@ -250,14 +232,11 @@ where
             gas_usage_estimate += self.config.smart_contract_sig_verify_gas_estimate;
         }
         if let Some(callback) = requirements.callback.as_option() {
-            gas_usage_estimate +=
-                u64::try_from(callback.gasLimit).context("callback gas limit too large for u64")?;
+            gas_usage_estimate += u64::try_from(callback.gas_limit)
+                .context("callback gas limit too large for u64")?;
         }
 
-        let proof_type = self
-            .config
-            .supported_selectors
-            .proof_type(requirements.selector)
+        let proof_type = proof_type(requirements.selector)
             .context("cannot estimate gas usage for request with unsupported selector")?;
         if let ProofType::Groth16 = proof_type {
             gas_usage_estimate += self.config.groth16_verify_gas_estimate;
@@ -285,10 +264,7 @@ where
     }
 }
 
-impl<P> Layer<(&Requirements, &RequestId, Option<u64>, &OfferParams)> for OfferLayer<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl Layer<(&Requirements, &RequestId, Option<u64>, &OfferParams)> for OfferLayer {
     type Output = Offer;
     type Error = anyhow::Error;
 
@@ -344,25 +320,22 @@ where
             .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
 
         Ok(Offer {
-            minPrice: min_price,
-            maxPrice: max_price,
-            biddingStart: bidding_start,
-            rampUpPeriod: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
-            lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
+            min_price,
+            max_price,
+            bidding_start,
+            ramp_up_period: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
+            lock_timeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
             timeout: params.timeout.unwrap_or(self.config.timeout),
-            lockStake: params.lock_stake.unwrap_or(self.config.lock_stake),
+            lock_stake: params.lock_stake.unwrap_or(self.config.lock_stake),
         })
     }
 }
 
-impl<P> Adapt<OfferLayer<P>> for RequestParams
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+impl Adapt<OfferLayer> for RequestParams {
     type Output = RequestParams;
     type Error = anyhow::Error;
 
-    async fn process_with(self, layer: &OfferLayer<P>) -> Result<Self::Output, Self::Error> {
+    async fn process_with(self, layer: &OfferLayer) -> Result<Self::Output, Self::Error> {
         tracing::trace!("Processing {self:?} with OfferLayer");
 
         let requirements: Requirements = self

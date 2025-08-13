@@ -17,18 +17,19 @@
 use std::collections::HashMap;
 
 use alloy_primitives::FixedBytes;
+use boundless_core::util::is_dev_mode;
 use clap::ValueEnum;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::selector::{Selector, SelectorType};
 use risc0_zkvm::sha::{Digest, Digestible};
+use serde::{Deserialize, Serialize};
 
 use crate::contracts::UNSPECIFIED_SELECTOR;
-use crate::util::is_dev_mode;
 
 /// Define the selector types.
 ///
 /// This is used to indicate the type of proof that is being requested.
-#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ProofType {
     /// Any proof type.

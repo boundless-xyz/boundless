@@ -12,185 +12,134 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(not(target_os = "zkvm"))]
-use std::str::FromStr;
-use std::{borrow::Cow, ops::Not};
+//! The Boundless CLI is a command-line interface for interacting with Boundless.
 
-#[cfg(not(target_os = "zkvm"))]
-use alloy::{
-    contract::Error as ContractErr,
-    primitives::{Signature, SignatureError},
-    signers::Signer,
-    sol_types::{Error as DecoderErr, SolInterface, SolStruct},
-    transports::TransportError,
-};
+use std::{fmt, ops::Not};
+
 use alloy_primitives::{
     aliases::{U160, U32, U96},
-    Address, Bytes, FixedBytes, B256, U256,
+    Address, Bytes, FixedBytes, Uint, B256, U256,
 };
-use alloy_sol_types::{eip712_domain, Eip712Domain};
-#[cfg(not(target_os = "zkvm"))]
-use boundless_core::util::now_timestamp;
+use boundless_core::{
+    input::GuestEnvBuilder,
+    util::{is_dev_mode, now_timestamp},
+};
+use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_os = "zkvm"))]
-use std::time::Duration;
-#[cfg(not(target_os = "zkvm"))]
-use thiserror::Error;
-#[cfg(not(target_os = "zkvm"))]
-use token::{
-    IHitPoints::{self, IHitPointsErrors},
-    IERC20::IERC20Errors,
-};
+use serde_with::DisplayFromStr;
+use sha2::{Digest as _, Sha256};
 use url::Url;
 
-use risc0_zkvm::sha::Digest;
+use crate::selector::Selector;
 
-#[cfg(not(target_os = "zkvm"))]
-pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
-
-#[cfg(not(target_os = "zkvm"))]
-use crate::GuestEnvBuilder;
-
-#[cfg(not(target_os = "zkvm"))]
-const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
-
-// boundless_market_generated.rs contains the Boundless contract types
-// with alloy derive statements added.
-// See the build.rs script in this crate for more details.
-include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
-pub use boundless_market_contract::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
-    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, IBoundlessMarket,
-    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
-    PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
-};
-
-#[allow(missing_docs)]
-#[cfg(not(target_os = "zkvm"))]
-pub mod token {
-    use alloy::{
-        primitives::{Signature, B256},
-        signers::Signer,
-        sol_types::SolStruct,
-    };
-    use anyhow::Result;
-    use serde::Serialize;
-
-    alloy::sol!(
-        #![sol(rpc, all_derives)]
-        "src/contracts/artifacts/IHitPoints.sol"
-    );
-
-    alloy::sol! {
-        #[derive(Debug, Serialize)]
-        struct Permit {
-            address owner;
-            address spender;
-            uint256 value;
-            uint256 nonce;
-            uint256 deadline;
-        }
-    }
-
-    alloy::sol! {
-        #[derive(Debug)]
-        #[sol(rpc)]
-        interface IERC20 {
-            error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed);
-            error ERC20InvalidSender(address sender);
-            error ERC20InvalidReceiver(address receiver);
-            error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed);
-            error ERC20InvalidApprover(address approver);
-            error ERC20InvalidSpender(address spender);
-            function approve(address spender, uint256 value) external returns (bool);
-            function balanceOf(address account) external view returns (uint256);
-            function symbol() external view returns (string memory);
-            function decimals() external view returns (uint8);
-        }
-    }
-
-    alloy::sol! {
-        #[sol(rpc)]
-        interface IERC20Permit {
-            function nonces(address owner) external view returns (uint256);
-            function DOMAIN_SEPARATOR() external view returns (bytes32);
-        }
-    }
-
-    impl Permit {
-        /// Signs the [Permit] with the given signer and EIP-712 domain separator.
-        ///
-        /// The content to be signed is the hash of the magic bytes 0x1901
-        /// concatenated with the domain separator and the `hashStruct` result:
-        /// `keccak256("\x19\x01" ‖ domainSeparator ‖ hashStruct(permit))`
-        pub async fn sign(
-            &self,
-            signer: &impl Signer,
-            domain_separator: B256,
-        ) -> Result<Signature> {
-            let struct_hash = self.eip712_hash_struct();
-            let prefix: &[u8] = &[0x19, 0x01];
-            let signing_bytes = prefix
-                .iter()
-                .chain(domain_separator.as_slice())
-                .chain(struct_hash.as_slice())
-                .cloned()
-                .collect::<Vec<u8>>();
-            let signing_hash = alloy::primitives::keccak256(signing_bytes);
-
-            Ok(signer.sign_hash(&signing_hash).await?)
-        }
-    }
-}
-
-/// Status of a proof request
-#[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[cfg(not(target_os = "zkvm"))]
-pub enum RequestStatus {
-    /// The request has expired.
-    Expired,
-    /// The request is locked in and waiting for fulfillment.
-    Locked,
-    /// The request has been fulfilled.
-    Fulfilled,
-    /// The request has an unknown status.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Represents a proof request that can be sent to the Boundless Market.
+pub struct ProofRequest {
+    /// Identifier for the request.
+    pub id: RequestId,
+    /// Requirements for the request, including image ID, predicate, and selector.
+    pub requirements: Requirements,
+    /// URL of the image to be processed.
     ///
-    /// This is used to represent the status of a request
-    /// with no evidence in the state. The request may be
-    /// open for bidding or it may not exist.
-    #[default]
-    Unknown,
+    /// This URL should point to a location where the image can be fetched.
+    pub image_url: String,
+    /// Input data for the request, which can be inline or a URL.
+    pub input: RequestInput,
+    /// Offer details for the request.
+    pub offer: Offer,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
-/// EIP-712 domain separator without the salt field.
-pub struct EIP712DomainSaltless {
-    /// The name of the domain.
-    pub name: Cow<'static, str>,
-    /// The protocol version.
-    pub version: Cow<'static, str>,
-    /// The chain ID.
-    pub chain_id: u64,
-    /// The address of the verifying contract.
-    pub verifying_contract: Address,
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Represents the input data for a proof request.
+pub struct RequestInput {
+    /// Type of the input data, which can be inline or a URL.
+    pub input_type: RequestInputType,
+    /// The actual data for the input, which can be bytes or a URL.
+    pub data: Bytes,
 }
 
-impl EIP712DomainSaltless {
-    /// Returns the EIP-712 domain with the salt field set to zero.
-    pub fn alloy_struct(&self) -> Eip712Domain {
-        eip712_domain! {
-            name: self.name.clone(),
-            version: self.version.clone(),
-            chain_id: self.chain_id,
-            verifying_contract: self.verifying_contract,
-        }
-    }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+/// Represents the type of input data for a proof request.
+pub enum RequestInputType {
+    /// Inline input data, which is directly included in the request.
+    Inline,
+    /// URL input data, which points to a location where the data can be fetched.
+    Url,
+    /// Invalid input type, used for deserialization errors.
+    __Invalid,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Represents an offer for a proof request.
+pub struct Offer {
+    /// Minimum price for the offer.
+    pub min_price: Uint<256, 4>,
+    /// Maximum price for the offer.
+    pub max_price: Uint<256, 4>,
+    /// Start time for bidding.
+    pub bidding_start: u64,
+    /// Duration for ramping up the price.
+    pub ramp_up_period: u32,
+    /// Timeout for the lock.
+    pub lock_timeout: u32,
+    /// Overall timeout for the offer.
+    pub timeout: u32,
+    /// Stake required to lock the offer.
+    pub lock_stake: Uint<256, 4>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Represents the requirements for a proof request.
+pub struct Requirements {
+    /// Image ID identifying the program to be executed.
+    pub image_id: FixedBytes<32>,
+    /// Callback to be executed when the proof is fulfilled.
+    pub callback: Callback,
+    /// Predicate specifying what conditions the proof must satisfy.
+    pub predicate: Predicate,
+    /// Selector specifying the type of proof required.
+    pub selector: FixedBytes<4>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Represents a predicate for a proof request.
+pub struct Predicate {
+    /// Type of the predicate, which can be a digest match or a prefix match.
+    pub predicate_type: PredicateType,
+    /// Data associated with the predicate, which can be a digest or a prefix.
+    pub data: Bytes,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+/// Represents the type of predicate for a proof request.
+pub enum PredicateType {
+    /// Digest match predicate.
+    DigestMatch,
+    /// Prefix match predicate.
+    PrefixMatch,
+    /// Invalid predicate type, used for deserialization errors.
+    __Invalid,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Represents a callback to be executed when the proof is fulfilled.
+pub struct Callback {
+    /// Address of the contract to call when the proof is fulfilled.
+    pub addr: Address,
+    /// Gas limit for the callback when the proof is fulfilled.
+    pub gas_limit: Uint<96, 2>,
 }
 
 /// Structured represent of a request ID.
 ///
 /// This struct can be packed and unpacked from a U256 value.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RequestId {
     /// Address of the wallet or contract authorizing the request.
@@ -240,6 +189,13 @@ impl RequestId {
     }
 }
 
+impl fmt::LowerHex for RequestId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let u256: U256 = self.clone().into();
+        write!(f, "{u256:#x}")
+    }
+}
+
 impl TryFrom<U256> for RequestId {
     type Error = RequestError;
 
@@ -263,6 +219,29 @@ impl From<RequestId> for U256 {
     }
 }
 
+impl Serialize for RequestId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let u256: U256 = self.clone().into();
+        serde_with::As::<DisplayFromStr>::serialize(&u256, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for RequestId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as U256 string
+        let u256_str = String::deserialize(deserializer)?;
+        let u256 = U256::from_str_radix(&u256_str, 10).map_err(serde::de::Error::custom)?;
+
+        RequestId::try_from(u256).map_err(serde::de::Error::custom)
+    }
+}
+
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 /// Errors that can occur when creating a proof request.
@@ -275,10 +254,13 @@ pub enum RequestError {
     #[error("request ID has client address of all zeroes")]
     ClientAddrIsZero,
 
+    /// The client address does not match with the expected address.
+    #[error("request ID has client address {0}, but expected {1}")]
+    AddressMismatch(Address, Address),
+
     /// The signature is invalid.
-    #[cfg(not(target_os = "zkvm"))]
     #[error("signature error: {0}")]
-    SignatureError(#[from] alloy::signers::Error),
+    SignatureError(#[from] alloy_primitives::SignatureError),
 
     /// The image URL is empty.
     #[error("image URL must not be empty")]
@@ -351,13 +333,6 @@ pub enum RequestError {
     DigestMismatch,
 }
 
-#[cfg(not(target_os = "zkvm"))]
-impl From<SignatureError> for RequestError {
-    fn from(err: alloy::primitives::SignatureError) -> Self {
-        RequestError::SignatureError(err.into())
-    }
-}
-
 impl ProofRequest {
     /// Creates a new proof request with the given parameters.
     ///
@@ -370,9 +345,9 @@ impl ProofRequest {
         offer: impl Into<Offer>,
     ) -> Self {
         Self {
-            id: request_id.into(),
+            id: request_id,
             requirements: requirements.into(),
-            imageUrl: image_url.into(),
+            image_url: image_url.into(),
             input: input.into(),
             offer: offer.into(),
         }
@@ -380,12 +355,12 @@ impl ProofRequest {
 
     /// Returns the client address from the request ID.
     pub fn client_address(&self) -> Address {
-        RequestId::from_lossy(self.id).addr
+        self.id.addr
     }
 
     /// Returns the time, in seconds since the UNIX epoch, at which the request expires.
     pub fn expires_at(&self) -> u64 {
-        self.offer.biddingStart + self.offer.timeout as u64
+        self.offer.bidding_start + self.offer.timeout as u64
     }
 
     /// Returns true if the expiration time has passed, according to the system clock.
@@ -399,14 +374,13 @@ impl ProofRequest {
 
     /// Returns the time, in seconds since the UNIX epoch, at which the request lock expires.
     pub fn lock_expires_at(&self) -> u64 {
-        self.offer.biddingStart + self.offer.lockTimeout as u64
+        self.offer.bidding_start + self.offer.lock_timeout as u64
     }
 
     /// Returns true if the lock expiration time has passed, according to the system clock.
     ///
     /// NOTE: If the system clock has significant has drifted relative to the chain's clock, this
     /// may not give the correct result.
-    #[cfg(not(target_os = "zkvm"))]
     pub fn is_lock_expired(&self) -> bool {
         self.lock_expires_at() < now_timestamp()
     }
@@ -414,7 +388,7 @@ impl ProofRequest {
     /// Return true if the request ID indicates that it is authorized by a smart contract, rather
     /// than an EOA (i.e. an ECDSA key).
     pub fn is_smart_contract_signed(&self) -> bool {
-        RequestId::from_lossy(self.id).smart_contract_signed
+        self.id.smart_contract_signed
     }
 
     /// Check that the request is valid and internally consistent.
@@ -425,39 +399,39 @@ impl ProofRequest {
     /// NOTE: This does not check whether the request has expired. You can use
     /// [ProofRequest::is_lock_expired] to do so.
     pub fn validate(&self) -> Result<(), RequestError> {
-        if RequestId::from_lossy(self.id).addr == Address::ZERO {
+        if self.id.addr == Address::ZERO {
             return Err(RequestError::ClientAddrIsZero);
         }
-        if self.imageUrl.is_empty() {
+        if self.image_url.is_empty() {
             return Err(RequestError::EmptyImageUrl);
         }
-        Url::parse(&self.imageUrl).map(|_| ())?;
+        Url::parse(&self.image_url).map(|_| ())?;
 
-        if self.requirements.imageId == B256::default() {
+        if self.requirements.image_id == B256::default() {
             return Err(RequestError::ImageIdIsZero);
         }
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
         }
-        if self.offer.lockTimeout == 0 {
+        if self.offer.lock_timeout == 0 {
             return Err(RequestError::OfferLockTimeoutIsZero);
         }
-        if self.offer.rampUpPeriod > self.offer.lockTimeout {
+        if self.offer.ramp_up_period > self.offer.lock_timeout {
             return Err(RequestError::OfferRampUpGreaterThanLockTimeout);
         }
-        if self.offer.lockTimeout > self.offer.timeout {
+        if self.offer.lock_timeout > self.offer.timeout {
             return Err(RequestError::OfferLockTimeoutGreaterThanTimeout);
         }
-        if self.offer.timeout - self.offer.lockTimeout >= 1 << 24 {
+        if self.offer.timeout - self.offer.lock_timeout >= 1 << 24 {
             return Err(RequestError::OfferTimeoutRangeTooLarge);
         }
-        if self.offer.maxPrice == U256::ZERO {
+        if self.offer.max_price == U256::ZERO {
             return Err(RequestError::OfferMaxPriceIsZero);
         }
-        if self.offer.maxPrice < self.offer.minPrice {
+        if self.offer.max_price < self.offer.min_price {
             return Err(RequestError::OfferMaxPriceIsLessThanMin);
         }
-        if self.offer.biddingStart == 0 {
+        if self.offer.bidding_start == 0 {
             return Err(RequestError::OfferBiddingStartIsZero);
         }
 
@@ -465,57 +439,11 @@ impl ProofRequest {
     }
 }
 
-#[cfg(not(target_os = "zkvm"))]
-impl ProofRequest {
-    /// Signs the request with the given signer and EIP-712 domain derived from the given
-    /// contract address and chain ID.
-    pub async fn sign_request(
-        &self,
-        signer: &impl Signer,
-        contract_addr: Address,
-        chain_id: u64,
-    ) -> Result<Signature, RequestError> {
-        let domain = eip712_domain(contract_addr, chain_id);
-        let hash = self.eip712_signing_hash(&domain.alloy_struct());
-        Ok(signer.sign_hash(&hash).await?)
-    }
-
-    /// Returns the EIP-712 signing hash for the request.
-    pub fn signing_hash(
-        &self,
-        contract_addr: Address,
-        chain_id: u64,
-    ) -> Result<FixedBytes<32>, RequestError> {
-        let domain = eip712_domain(contract_addr, chain_id);
-        let hash = self.eip712_signing_hash(&domain.alloy_struct());
-        Ok(hash)
-    }
-
-    /// Verifies the request signature with the given signer and EIP-712 domain derived from
-    /// the given contract address and chain ID.
-    pub fn verify_signature(
-        &self,
-        signature: &Bytes,
-        contract_addr: Address,
-        chain_id: u64,
-    ) -> Result<(), RequestError> {
-        let sig = Signature::try_from(signature.as_ref())?;
-        let domain = eip712_domain(contract_addr, chain_id);
-        let hash = self.eip712_signing_hash(&domain.alloy_struct());
-        let addr = sig.recover_address_from_prehash(&hash)?;
-        if addr == self.client_address() {
-            Ok(())
-        } else {
-            Err(SignatureError::FromBytes("Address mismatch").into())
-        }
-    }
-}
-
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
     pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
         Self {
-            imageId: <[u8; 32]>::from(image_id.into()).into(),
+            image_id: <[u8; 32]>::from(image_id.into()).into(),
             predicate,
             callback: Callback::default(),
             selector: UNSPECIFIED_SELECTOR,
@@ -524,7 +452,7 @@ impl Requirements {
 
     /// Sets the image ID.
     pub fn with_image_id(self, image_id: impl Into<Digest>) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), ..self }
+        Self { image_id: <[u8; 32]>::from(image_id.into()).into(), ..self }
     }
 
     /// Sets the predicate.
@@ -546,12 +474,11 @@ impl Requirements {
     ///
     /// This will set the selector to the appropriate value based on the current environment.
     /// In dev mode, the selector will be set to `FakeReceipt`, otherwise it will be set
-    /// to `Groth16V2_2`.
-    #[cfg(not(target_os = "zkvm"))]
+    /// to the latest groth16 version.
     pub fn with_groth16_proof(self) -> Self {
-        match boundless_core::util::is_dev_mode() {
-            true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
-            false => Self { selector: FixedBytes::from(Selector::Groth16V2_2 as u32), ..self },
+        match is_dev_mode() {
+            true => Self { selector: Selector::fake_receipt(), ..self },
+            false => Self { selector: Selector::groth16_latest(), ..self },
         }
     }
 }
@@ -561,7 +488,7 @@ impl Predicate {
     /// fulfillment will contain a journal with the same digest.
     pub fn digest_match(digest: impl Into<Digest>) -> Self {
         Self {
-            predicateType: PredicateType::DigestMatch,
+            predicate_type: PredicateType::DigestMatch,
             data: digest.into().as_bytes().to_vec().into(),
         }
     }
@@ -569,13 +496,13 @@ impl Predicate {
     /// Returns a predicate to match the journal prefix. This ensures that the request's
     /// fulfillment will contain a journal with the same prefix.
     pub fn prefix_match(prefix: impl Into<Bytes>) -> Self {
-        Self { predicateType: PredicateType::PrefixMatch, data: prefix.into() }
+        Self { predicate_type: PredicateType::PrefixMatch, data: prefix.into() }
     }
 }
 
 impl Callback {
     /// Constant representing a none callback (i.e. no call will be made).
-    pub const NONE: Self = Self { addr: Address::ZERO, gasLimit: U96::ZERO };
+    pub const NONE: Self = Self { addr: Address::ZERO, gas_limit: U96::ZERO };
 
     /// Sets the address of the callback.
     pub fn with_addr(self, addr: impl Into<Address>) -> Self {
@@ -584,7 +511,7 @@ impl Callback {
 
     /// Sets the gas limit of the callback.
     pub fn with_gas_limit(self, gas_limit: u64) -> Self {
-        Self { gasLimit: U96::from(gas_limit), ..self }
+        Self { gas_limit: U96::from(gas_limit), ..self }
     }
 
     /// Returns true if this is a none callback (i.e. no call will be made).
@@ -624,19 +551,19 @@ impl RequestInput {
     /// # Example
     ///
     /// ```
-    /// use boundless_market::contracts::RequestInput;
+    /// use boundless_cli::request::RequestInput;
     ///
     /// let input_vec = RequestInput::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
     /// let input = RequestInput::inline(input_vec);
     /// # anyhow::Ok(())
     /// ```
     pub fn inline(data: impl Into<Bytes>) -> Self {
-        Self { inputType: RequestInputType::Inline, data: data.into() }
+        Self { input_type: RequestInputType::Inline, data: data.into() }
     }
 
     /// Sets the input type to URL and the data to the given URL.
     pub fn url(url: impl Into<String>) -> Self {
-        Self { inputType: RequestInputType::Url, data: url.into().as_bytes().to_vec().into() }
+        Self { input_type: RequestInputType::Url, data: url.into().as_bytes().to_vec().into() }
     }
 }
 
@@ -650,22 +577,22 @@ impl From<Url> for RequestInput {
 impl Offer {
     /// Sets the offer minimum price.
     pub fn with_min_price(self, min_price: U256) -> Self {
-        Self { minPrice: min_price, ..self }
+        Self { min_price, ..self }
     }
 
     /// Sets the offer maximum price.
     pub fn with_max_price(self, max_price: U256) -> Self {
-        Self { maxPrice: max_price, ..self }
+        Self { max_price, ..self }
     }
 
     /// Sets the offer lock-in stake.
     pub fn with_lock_stake(self, lock_stake: U256) -> Self {
-        Self { lockStake: lock_stake, ..self }
+        Self { lock_stake, ..self }
     }
 
     /// Sets the offer bidding start time, in seconds since the UNIX epoch.
     pub fn with_bidding_start(self, bidding_start: u64) -> Self {
-        Self { biddingStart: bidding_start, ..self }
+        Self { bidding_start, ..self }
     }
 
     /// Sets the offer timeout as seconds from the bidding start before expiring.
@@ -675,45 +602,39 @@ impl Offer {
 
     /// Sets the offer lock-in timeout as seconds from the bidding start before expiring.
     pub fn with_lock_timeout(self, lock_timeout: u32) -> Self {
-        Self { lockTimeout: lock_timeout, ..self }
+        Self { lock_timeout, ..self }
     }
 
     /// Sets the duration (in seconds) during which the auction price increases linearly
     /// from the minimum to the maximum price. After this period, the price remains at maximum.
     pub fn with_ramp_up_period(self, ramp_up_period: u32) -> Self {
-        Self { rampUpPeriod: ramp_up_period, ..self }
+        Self { ramp_up_period, ..self }
     }
 
     /// Sets the offer minimum price based on the desired price per million cycles.
     pub fn with_min_price_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
         let min_price = mcycle_price * U256::from(mcycle);
-        Self { minPrice: min_price, ..self }
+        Self { min_price, ..self }
     }
 
     /// Sets the offer maximum price based on the desired price per million cycles.
     pub fn with_max_price_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
         let max_price = mcycle_price * U256::from(mcycle);
-        Self { maxPrice: max_price, ..self }
+        Self { max_price, ..self }
     }
 
     /// Sets the offer lock-in stake based on the desired price per million cycles.
     pub fn with_lock_stake_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
         let lock_stake = mcycle_price * U256::from(mcycle);
-        Self { lockStake: lock_stake, ..self }
+        Self { lock_stake, ..self }
     }
 }
-
-use sha2::{Digest as _, Sha256};
-#[cfg(not(target_os = "zkvm"))]
-use IBoundlessMarket::IBoundlessMarketErrors;
-#[cfg(not(target_os = "zkvm"))]
-use IRiscZeroSetVerifier::IRiscZeroSetVerifierErrors;
 
 impl Predicate {
     /// Evaluates the predicate against the given journal.
     #[inline]
     pub fn eval(&self, journal: impl AsRef<[u8]>) -> bool {
-        match self.predicateType {
+        match self.predicate_type {
             PredicateType::DigestMatch => self.data.as_ref() == Sha256::digest(journal).as_slice(),
             PredicateType::PrefixMatch => journal.as_ref().starts_with(&self.data),
             PredicateType::__Invalid => panic!("invalid PredicateType"),
@@ -721,211 +642,16 @@ impl Predicate {
     }
 }
 
-#[cfg(not(target_os = "zkvm"))]
-/// The Boundless market module.
-pub mod boundless_market;
-#[cfg(not(target_os = "zkvm"))]
-/// The Hit Points module.
-pub mod hit_points;
-
-#[cfg(not(target_os = "zkvm"))]
-#[derive(Error, Debug)]
-/// Errors that can occur when interacting with the contracts.
-pub enum TxnErr {
-    /// Error from the SetVerifier contract.
-    #[error("SetVerifier error: {0:?}")]
-    SetVerifierErr(IRiscZeroSetVerifierErrors),
-
-    /// Error from the BoundlessMarket contract.
-    #[error("BoundlessMarket Err: {0:?}")]
-    BoundlessMarketErr(IBoundlessMarket::IBoundlessMarketErrors),
-
-    /// Error from the HitPoints contract.
-    #[error("HitPoints Err: {0:?}")]
-    HitPointsErr(IHitPoints::IHitPointsErrors),
-
-    /// Error from the ERC20 contract.
-    #[error("IERC20 Err: {0:?}")]
-    ERC20Err(token::IERC20::IERC20Errors),
-
-    /// Missing data while decoding the error response from the contract.
-    #[error("decoding err, missing data, code: {0} msg: {1}")]
-    MissingData(i64, String),
-
-    /// Error decoding the error response from the contract.
-    #[error("decoding err: bytes decoding")]
-    BytesDecode,
-
-    /// Error from the contract.
-    #[error("contract error: {0}")]
-    ContractErr(ContractErr),
-
-    /// ABI decoder error.
-    #[error("abi decoder error: {0} - {1}")]
-    DecodeErr(DecoderErr, Bytes),
-}
-
-// TODO: Deduplicate the code from the following two conversion methods.
-#[cfg(not(target_os = "zkvm"))]
-impl From<ContractErr> for TxnErr {
-    fn from(err: ContractErr) -> Self {
-        match &err {
-            ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
-                let Some(data) = &ts_err.data else {
-                    return TxnErr::MissingData(ts_err.code, ts_err.message.to_string());
-                };
-
-                let data = data.get().trim_matches('"');
-
-                let Ok(data) = Bytes::from_str(data) else {
-                    return Self::BytesDecode;
-                };
-
-                // Trial deocde the error with each possible contract ABI.
-                if let Ok(decoded_error) = IBoundlessMarketErrors::abi_decode(&data) {
-                    Self::BoundlessMarketErr(decoded_error)
-                } else if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data) {
-                    Self::HitPointsErr(decoded_error)
-                } else if let Ok(decoded_error) = IRiscZeroSetVerifierErrors::abi_decode(&data) {
-                    Self::SetVerifierErr(decoded_error)
-                } else if let Ok(decoded_error) = IERC20Errors::abi_decode(&data) {
-                    Self::ERC20Err(decoded_error)
-                } else {
-                    Self::ContractErr(err)
-                }
-            }
-            _ => Self::ContractErr(err),
-        }
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
-fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
-    match err {
-        ContractErr::TransportError(TransportError::ErrorResp(ts_err)) => {
-            let Some(data) = ts_err.data else {
-                return Err(TxnErr::MissingData(ts_err.code, ts_err.message.to_string()));
-            };
-
-            let data = data.get().trim_matches('"');
-
-            let Ok(data) = Bytes::from_str(data) else {
-                return Err(TxnErr::BytesDecode);
-            };
-
-            let decoded_error = match T::abi_decode(&data) {
-                Ok(res) => res,
-                Err(err) => {
-                    return Err(TxnErr::DecodeErr(err, data));
-                }
-            };
-
-            Ok(decoded_error)
-        }
-        _ => Err(TxnErr::ContractErr(err)),
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
-impl IHitPointsErrors {
-    pub(crate) fn decode_error(err: ContractErr) -> TxnErr {
-        match decode_contract_err(err) {
-            Ok(res) => TxnErr::HitPointsErr(res),
-            Err(decode_err) => decode_err,
-        }
-    }
-}
-
-#[cfg(not(target_os = "zkvm"))]
-/// The EIP-712 domain separator for the Boundless Market contract.
-pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP712DomainSaltless {
-    EIP712DomainSaltless {
-        name: "IBoundlessMarket".into(),
-        version: "1".into(),
-        chain_id,
-        verifying_contract: addr,
-    }
-}
-
 /// Constant to specify when no selector is specified.
 pub const UNSPECIFIED_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0; 4]);
-
-#[cfg(feature = "test-utils")]
-#[allow(missing_docs)]
-pub mod bytecode;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::signers::local::PrivateKeySigner;
+    use std::str::FromStr;
 
-    async fn create_order(
-        signer: &impl Signer,
-        signer_addr: Address,
-        order_id: u32,
-        contract_addr: Address,
-        chain_id: u64,
-    ) -> (ProofRequest, [u8; 65]) {
-        let request_id = RequestId::u256(signer_addr, order_id);
-
-        let req = ProofRequest {
-            id: request_id,
-            requirements: Requirements::new(
-                Digest::ZERO,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
-            imageUrl: "https://dev.null".to_string(),
-            input: RequestInput::inline(RequestInput::builder().build_vec().unwrap()),
-            offer: Offer {
-                minPrice: U256::from(0),
-                maxPrice: U256::from(1),
-                biddingStart: 0,
-                timeout: 1000,
-                rampUpPeriod: 1,
-                lockTimeout: 1000,
-                lockStake: U256::from(0),
-            },
-        };
-
-        let client_sig = req.sign_request(signer, contract_addr, chain_id).await.unwrap();
-
-        (req, client_sig.as_bytes())
-    }
-
-    #[tokio::test]
-    async fn validate_sig() {
-        let signer: PrivateKeySigner =
-            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
-        let order_id: u32 = 1;
-        let contract_addr = Address::ZERO;
-        let chain_id = 1;
-        let signer_addr = signer.address();
-
-        let (req, client_sig) =
-            create_order(&signer, signer_addr, order_id, contract_addr, chain_id).await;
-
-        req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "SignatureError")]
-    async fn invalid_sig() {
-        let signer: PrivateKeySigner =
-            "6f142508b4eea641e33cb2a0161221105086a84584c74245ca463a49effea30b".parse().unwrap();
-        let order_id: u32 = 1;
-        let contract_addr = Address::ZERO;
-        let chain_id = 1;
-        let signer_addr = signer.address();
-
-        let (req, mut client_sig) =
-            create_order(&signer, signer_addr, order_id, contract_addr, chain_id).await;
-
-        client_sig[0] = 1;
-        req.verify_signature(&Bytes::from(client_sig), contract_addr, chain_id).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_request_id() {
+    #[test]
+    fn test_request_id() {
         // Test case 1: Regular signature
         let raw_id1 =
             U256::from_str("3130239009558586413752262552917257075388277690201777635428").unwrap();
