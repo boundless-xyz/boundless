@@ -14,7 +14,6 @@
 
 //! Programmable interface for the Boundless CLI.
 
-use std::io::Write;
 use std::process::Command;
 
 use alloy_primitives::{
@@ -25,21 +24,13 @@ use anyhow::{anyhow, bail, Context, Error, Ok, Result};
 use boundless_core::storage::{
     StandardStorageProvider, StandardStorageProviderError, StorageProvider,
 };
-use tempfile::NamedTempFile;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
 use crate::{
-    request::ProofRequest,
-    request_builder::{
-        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
-        RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder, StorageLayer,
-        StorageLayerConfigBuilder,
-    },
-    rpc::RpcProvider,
-    util::NotProvided,
-    AccountCommand, Deployment, JsonCommand, JsonConfig, JsonRequest, OpsCommand, Output,
-    ProvingCommand, RequestCommand, RequestStatus, Response, StorageProviderConfig, SubmitOffer,
+    rpc::RpcProvider, util::NotProvided, AccountCommand, Deployment, JsonCommand, JsonConfig,
+    JsonRequest, OpsCommand, Output, ProvingCommand, RequestCommand, RequestParams, RequestStatus,
+    Response, StorageProviderConfig,
 };
 
 /// Builder for the [Client] with standard implementations for the required components.
@@ -47,32 +38,13 @@ use crate::{
 pub struct ClientBuilder<S = NotProvided> {
     deployment: Option<Deployment>,
     rpc_url: Option<Url>,
-    caller: Option<Address>,
     private_key: Option<String>,
     storage_provider: Option<S>,
-    /// Configuration builder for [OfferLayer], part of [StandardRequestBuilder].
-    pub offer_layer_config: OfferLayerConfigBuilder,
-    /// Configuration builder for [StorageLayer], part of [StandardRequestBuilder].
-    pub storage_layer_config: StorageLayerConfigBuilder,
-    /// Configuration builder for [RequestIdLayer], part of [StandardRequestBuilder].
-    pub request_id_layer_config: RequestIdLayerConfigBuilder,
-    /// Configuration builder for [Finalizer][crate::request_builder::Finalizer], part of [StandardRequestBuilder].
-    pub request_finalizer_config: FinalizerConfigBuilder,
 }
 
 impl<S> Default for ClientBuilder<S> {
     fn default() -> Self {
-        Self {
-            deployment: None,
-            rpc_url: None,
-            caller: None,
-            private_key: None,
-            storage_provider: None,
-            offer_layer_config: Default::default(),
-            storage_layer_config: Default::default(),
-            request_id_layer_config: Default::default(),
-            request_finalizer_config: Default::default(),
-        }
+        Self { deployment: None, rpc_url: None, private_key: None, storage_provider: None }
     }
 }
 
@@ -85,13 +57,12 @@ impl ClientBuilder {
 
 impl<S> ClientBuilder<S> {
     /// Build the client
-    pub async fn build(self) -> Result<Client<S, StandardRequestBuilder<S>>>
+    pub async fn build(self) -> Result<Client<S>>
     where
         S: Clone,
     {
         let rpc_url = self.rpc_url.clone().context("rpc_url is not set on ClientBuilder")?;
-        let caller = self.caller.context("caller is not set on ClientBuilder")?;
-        let provider = RpcProvider::new(rpc_url.clone(), caller);
+        let provider = RpcProvider::new(rpc_url.clone());
 
         // Resolve the deployment information.
         let chain_id =
@@ -106,25 +77,10 @@ impl<S> ClientBuilder<S> {
             bail!("provided deployment does not match chain_id reported by RPC provider: {chain_id} != {}", deployment.chain_id.unwrap());
         }
 
-        // Build the RequestBuilder.
-        let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(StorageLayer::new(
-                self.storage_provider.clone(),
-                self.storage_layer_config.build()?,
-            ))
-            .offer_layer(OfferLayer::new(provider.clone(), self.offer_layer_config.build()?))
-            .request_id_layer(RequestIdLayer::new(
-                provider.clone(),
-                self.request_id_layer_config.build()?,
-            ))
-            .finalizer(self.request_finalizer_config.build()?)
-            .build()?;
-
         let client = Client {
             rpc_url: rpc_url.clone(),
             private_key: self.private_key,
             storage_provider: self.storage_provider,
-            request_builder: Some(request_builder),
             deployment,
         };
 
@@ -141,11 +97,6 @@ impl<S> ClientBuilder<S> {
     /// Set the RPC URL
     pub fn with_rpc_url(self, rpc_url: Url) -> Self {
         Self { rpc_url: Some(rpc_url), ..self }
-    }
-
-    /// Set the caller address.
-    pub fn with_caller(self, caller: Address) -> Self {
-        Self { caller: Some(caller), ..self }
     }
 
     /// Set the signer from the given private key.
@@ -165,12 +116,7 @@ impl<S> ClientBuilder<S> {
             storage_provider,
             deployment: self.deployment,
             rpc_url: self.rpc_url,
-            caller: self.caller,
             private_key: self.private_key,
-            request_finalizer_config: self.request_finalizer_config,
-            request_id_layer_config: self.request_id_layer_config,
-            storage_layer_config: self.storage_layer_config,
-            offer_layer_config: self.offer_layer_config,
         }
     }
 
@@ -186,80 +132,16 @@ impl<S> ClientBuilder<S> {
         };
         Ok(self.with_storage_provider(storage_provider))
     }
-
-    /// Modify the [OfferLayer] configuration used in the [StandardRequestBuilder].
-    ///
-    /// ```rust
-    /// # use boundless_cli::client::ClientBuilder;
-    /// use alloy_primitives::utils::parse_units;
-    ///
-    /// ClientBuilder::new().config_offer_layer(|config| config
-    ///     .max_price_per_cycle(parse_units("0.1", "gwei").unwrap())
-    ///     .ramp_up_period(36)
-    ///     .lock_timeout(120)
-    ///     .timeout(300)
-    /// );
-    /// ```
-    pub fn config_offer_layer(
-        mut self,
-        f: impl FnOnce(&mut OfferLayerConfigBuilder) -> &mut OfferLayerConfigBuilder,
-    ) -> Self {
-        f(&mut self.offer_layer_config);
-        self
-    }
-
-    /// Modify the [RequestIdLayer] configuration used in the [StandardRequestBuilder].
-    ///
-    /// ```rust
-    /// # use boundless_cli::client::ClientBuilder;
-    /// use boundless_cli::request_builder::RequestIdLayerMode;
-    ///
-    /// ClientBuilder::new().config_request_id_layer(|config| config
-    ///     .mode(RequestIdLayerMode::Nonce)
-    /// );
-    /// ```
-    pub fn config_request_id_layer(
-        mut self,
-        f: impl FnOnce(&mut RequestIdLayerConfigBuilder) -> &mut RequestIdLayerConfigBuilder,
-    ) -> Self {
-        f(&mut self.request_id_layer_config);
-        self
-    }
-
-    /// Modify the [StorageLayer] configuration used in the [StandardRequestBuilder].
-    ///
-    /// ```rust
-    /// # use boundless_cli::client::ClientBuilder;
-    /// ClientBuilder::new().config_storage_layer(|config| config
-    ///     .inline_input_max_bytes(10240)
-    /// );
-    /// ```
-    pub fn config_storage_layer(
-        mut self,
-        f: impl FnOnce(&mut StorageLayerConfigBuilder) -> &mut StorageLayerConfigBuilder,
-    ) -> Self {
-        f(&mut self.storage_layer_config);
-        self
-    }
-
-    /// Modify the [Finalizer][crate::request_builder::Finalizer] configuration used in the [StandardRequestBuilder].
-    pub fn config_request_finalizer(
-        mut self,
-        f: impl FnOnce(&mut FinalizerConfigBuilder) -> &mut FinalizerConfigBuilder,
-    ) -> Self {
-        f(&mut self.request_finalizer_config);
-        self
-    }
 }
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
-pub type StandardClient = Client<StandardStorageProvider, StandardRequestBuilder>;
+pub type StandardClient = Client<StandardStorageProvider>;
 /// Alias for a [ClientBuilder] instantiated with the standard implementations provided by this crate.
 pub type StandardClientBuilder = ClientBuilder<StandardStorageProvider>;
 
 #[derive(Debug, Clone)]
 /// Represents a Boundless client that can interact with the Boundless Market.
-pub struct Client<S = StandardStorageProvider, R = StandardRequestBuilder> {
+pub struct Client<S = StandardStorageProvider> {
     /// RPC URL of the node to connect to.
     pub rpc_url: Url,
     /// Deployment of Boundless that this client is connected to.
@@ -270,13 +152,9 @@ pub struct Client<S = StandardStorageProvider, R = StandardRequestBuilder> {
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
     pub storage_provider: Option<S>,
-    /// [RequestBuilder] to construct [ProofRequest].
-    ///
-    /// If not provided, requests must be fully constructed before handing them to this client.
-    pub request_builder: Option<R>,
 }
 
-impl Client<NotProvided, NotProvided> {
+impl Client<NotProvided> {
     /// Create a new client with the given RPC URL and deployment.
     pub fn new(rpc_url: Url, boundless_market: Address, set_verifier: Address) -> Self {
         Self {
@@ -291,12 +169,11 @@ impl Client<NotProvided, NotProvided> {
             },
             private_key: None,
             storage_provider: None,
-            request_builder: None,
         }
     }
 }
 
-impl<S, R> Client<S, R> {
+impl<S> Client<S> {
     /// Set the Boundless market address
     pub fn with_boundless_market(self, boundless_market: Address) -> Self {
         Self {
@@ -368,37 +245,9 @@ impl<S, R> Client<S, R> {
             .await
             .map_err(|_| anyhow!("Failed to upload input"))?)
     }
-
-    /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
-    pub fn new_request<Params>(&self) -> Params
-    where
-        R: RequestBuilder<Params>,
-        Params: Default,
-    {
-        Params::default()
-    }
-
-    /// Build a proof request from the given parameters.
-    ///
-    /// Requires a a [RequestBuilder] to be provided.
-    pub async fn build_request<Params>(
-        &self,
-        params: impl Into<Params>,
-    ) -> Result<ProofRequest, Error>
-    where
-        R: RequestBuilder<Params>,
-        R::Error: Into<anyhow::Error>,
-    {
-        let request_builder =
-            self.request_builder.as_ref().context("request_builder is not set on Client")?;
-        tracing::debug!("Building request");
-        let request = request_builder.build(params).await.map_err(Into::into)?;
-        tracing::debug!("Built request with id {:x}", request.id);
-        Ok(request)
-    }
 }
 
-impl<S, R> Client<S, R>
+impl<S> Client<S>
 where
     S: StorageProvider + Clone,
     S::Error: Into<anyhow::Error>,
@@ -434,36 +283,9 @@ where
         Ok(response)
     }
 
-    /// Build and submit a proof request by sending an onchain transaction.
-    pub async fn submit_onchain<Params>(
-        &self,
-        params: impl Into<Params>,
-    ) -> Result<(U256, u64), Error>
-    where
-        R: RequestBuilder<Params>,
-        R::Error: Into<anyhow::Error>,
-    {
-        self.submit_request_onchain(&self.build_request(params).await?).await
-    }
-
-    /// Submit a proof request in an onchain transaction.
-    pub async fn submit_request_onchain(
-        &self,
-        request: &ProofRequest,
-    ) -> Result<(U256, u64), Error> {
-        let temp_file = create_proof_request_yaml_temp_file(request)?;
-        let command = JsonCommand::Request(RequestCommand::Submit {
-            yaml_request: temp_file.path().to_string_lossy().to_string(),
-            wait: false,
-            offchain: false,
-            no_preflight: true,
-            storage_config: Box::new(
-                self.storage_provider
-                    .clone()
-                    .map_or_else(StorageProviderConfig::default, |s| s.config().clone()),
-            ),
-        });
-
+    /// Submit a request to the Boundless Market.
+    pub async fn submit_request(&self, params: &RequestParams) -> Result<(U256, u64), Error> {
+        let command = JsonCommand::Request(RequestCommand::SubmitOffer(Box::new(params.clone())));
         let response = self.run(command)?;
         if !response.success {
             return Err(Error::msg(format!(
@@ -475,65 +297,6 @@ where
             return Ok((request_id, expires_at));
         }
         Err(Error::msg("Request submission failed"))
-    }
-
-    /// Build and submit a proof request offchain via the order stream service.
-    pub async fn submit_offchain<Params>(
-        &self,
-        params: impl Into<Params>,
-    ) -> Result<(U256, u64), Error>
-    where
-        R: RequestBuilder<Params>,
-        R::Error: Into<anyhow::Error>,
-    {
-        self.submit_request_offchain(&self.build_request(params).await?).await
-    }
-
-    /// Submit a proof request offchain via the order stream service.
-    pub async fn submit_request_offchain(
-        &self,
-        request: &ProofRequest,
-    ) -> Result<(U256, u64), Error> {
-        let temp_file = create_proof_request_yaml_temp_file(request)?;
-        let command = JsonCommand::Request(RequestCommand::Submit {
-            yaml_request: temp_file.path().to_string_lossy().to_string(),
-            wait: false,
-            offchain: true,
-            no_preflight: true,
-            storage_config: Box::new(
-                self.storage_provider
-                    .clone()
-                    .map_or_else(StorageProviderConfig::default, |s| s.config().clone()),
-            ),
-        });
-
-        let response = self.run(command)?;
-        if !response.success {
-            return Err(Error::msg(format!(
-                "Request submission failed: {}",
-                response.error.unwrap_or_else(|| "Unknown error".to_string())
-            )));
-        }
-        if let Some(Output::RequestSubmitted { request_id, expires_at }) = response.data {
-            return Ok((request_id, expires_at));
-        }
-        Err(Error::msg("Request submission failed"))
-    }
-
-    /// Submit an offer to the Boundless Market.
-    pub async fn submit_offer(&self, offer: &SubmitOffer) -> Result<(U256, u64), Error> {
-        let command = JsonCommand::Request(RequestCommand::SubmitOffer(Box::new(offer.clone())));
-        let response = self.run(command)?;
-        if !response.success {
-            return Err(Error::msg(format!(
-                "Offer submission failed: {}",
-                response.error.unwrap_or_else(|| "Unknown error".to_string())
-            )));
-        }
-        if let Some(Output::RequestSubmitted { request_id, expires_at }) = response.data {
-            return Ok((request_id, expires_at));
-        }
-        Err(Error::msg("Offer submission failed"))
     }
 
     /// Get the status of a request by its ID.
@@ -758,26 +521,13 @@ fn check_boundless_cli_installed() -> Result<()> {
     Ok(())
 }
 
-fn create_proof_request_yaml_temp_file(proof_request: &ProofRequest) -> Result<NamedTempFile> {
-    let yaml_string =
-        serde_yaml::to_string(proof_request).context("Failed to serialize ProofRequest to YAML")?;
-    let mut temp_file = NamedTempFile::new().context("Failed to create temporary file")?;
-    temp_file
-        .write_all(yaml_string.as_bytes())
-        .context("Failed to write YAML to temporary file")?;
-    temp_file.flush().context("Failed to flush temporary file")?;
-
-    Ok(temp_file)
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use super::*;
 
-    use crate::GuestEnv;
-    use crate::{request_builder::OfferParamsBuilder, SubmitOfferBuilder};
+    use crate::{GuestEnv, OfferParamsBuilder, RequestParamsBuilder};
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
         providers::{Provider, WalletProvider},
@@ -809,10 +559,8 @@ mod tests {
             AccountOwner::Prover => ctx.prover_signer.clone(),
         };
 
-        let caller = Address::from(**private_key.address());
         let client: StandardClient = ClientBuilder::default()
             .with_rpc_url(anvil.endpoint_url())
-            .with_caller(caller)
             .with_private_key_str(hex::encode(private_key.to_bytes()))
             .with_deployment(Deployment {
                 chain_id: ctx.deployment.chain_id,
@@ -874,21 +622,21 @@ mod tests {
     async fn test_slash() {
         let (_ctx, _anvil, client) = setup_test_env(AccountOwner::Customer).await;
 
-        let request_params = client
-            .new_request()
+        let params = RequestParamsBuilder::default()
             .with_program_url(Url::parse(&format!("file://{ECHO_PATH}")).unwrap())
-            .unwrap()
-            .with_env(GuestEnv::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]))
-            .with_offer(
+            .with_stdin(
+                GuestEnv::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_vec().unwrap(),
+            )
+            .with_offer_params(
                 OfferParamsBuilder::default()
                     .lock_stake(U256::from(0))
-                    .timeout(30)
                     .lock_timeout(30)
-                    .ramp_up_period(0),
-            );
-        let request = client.build_request(request_params).await.unwrap();
+                    .timeout(30),
+            )
+            .build()
+            .unwrap();
 
-        let (request_id, expires_at) = client.submit_request_onchain(&request).await.unwrap();
+        let (request_id, expires_at) = client.submit_request(&params).await.unwrap();
 
         client.lock_request(request_id).unwrap();
 
@@ -909,37 +657,7 @@ mod tests {
     async fn test_e2e() {
         let (_ctx, _anvil, client) = setup_test_env(AccountOwner::Customer).await;
 
-        let request_params = client
-            .new_request()
-            .with_program_url(Url::parse(&format!("file://{ECHO_PATH}")).unwrap())
-            .unwrap()
-            .with_env(GuestEnv::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]))
-            .with_offer(OfferParamsBuilder::default().lock_stake(U256::from(0)));
-        let request = client.build_request(request_params).await.unwrap();
-
-        let (request_id, expires_at) = client.submit_request_onchain(&request).await.unwrap();
-        assert_eq!(request_id, request.id.into());
-
-        let status = client.status(request_id, Some(expires_at)).unwrap();
-        assert_eq!(status, RequestStatus::Unknown);
-        client.lock_request(request_id).unwrap();
-        let status = client.status(request_id, Some(expires_at)).unwrap();
-        assert_eq!(status, RequestStatus::Locked);
-        client.fulfill(request_id).unwrap();
-        let (_journal, _seal) = client
-            .wait_for_request_fulfillment(request_id, std::time::Duration::from_secs(1), expires_at)
-            .await
-            .unwrap();
-        let status = client.status(request_id, Some(expires_at)).unwrap();
-        assert_eq!(status, RequestStatus::Fulfilled);
-    }
-
-    #[tokio::test]
-    #[ignore = "Requires RISC0_DEV_MODE=1"]
-    async fn test_e2e_submit_offer() {
-        let (_ctx, _anvil, client) = setup_test_env(AccountOwner::Customer).await;
-
-        let offer = SubmitOfferBuilder::default()
+        let params = RequestParamsBuilder::default()
             .with_program_url(Url::parse(&format!("file://{ECHO_PATH}")).unwrap())
             .with_stdin(
                 GuestEnv::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_vec().unwrap(),
@@ -948,7 +666,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let (request_id, expires_at) = client.submit_offer(&offer).await.unwrap();
+        let (request_id, expires_at) = client.submit_request(&params).await.unwrap();
 
         let status = client.status(request_id, Some(expires_at)).unwrap();
         assert_eq!(status, RequestStatus::Unknown);

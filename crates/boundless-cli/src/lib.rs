@@ -19,11 +19,7 @@
 pub mod client;
 #[cfg(feature = "cli")]
 pub mod prover;
-pub mod request;
-pub use request::RequestInput;
-pub mod request_builder;
 pub(crate) mod rpc;
-pub mod selector;
 pub mod util;
 
 pub use boundless_core::input::{GuestEnv, GuestEnvBuilder};
@@ -44,7 +40,20 @@ use url::Url;
 #[cfg(feature = "cli")]
 use boundless_market::contracts::RequestStatus as BoundlessRequestStatus;
 
-use crate::{request_builder::OfferParams, selector::ProofType};
+/// Define the selector types.
+///
+/// This is used to indicate the type of proof that is being requested.
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ProofType {
+    /// Any proof type.
+    #[default]
+    Any,
+    /// Groth16 proof type.
+    Groth16,
+    /// Inclusion proof type.
+    Inclusion,
+}
 
 /// Configuration for a deployment of the Boundless Market.
 // NOTE: See https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717 about clap usage.
@@ -56,8 +65,6 @@ pub struct Deployment {
     pub chain_id: Option<u64>,
 
     /// Address of the [BoundlessMarket] contract.
-    ///
-    /// [BoundlessMarket]: crate::contracts::IBoundlessMarket
     #[builder(setter(into))]
     pub boundless_market_address: Address,
 
@@ -84,8 +91,6 @@ pub struct Deployment {
     pub stake_token_address: Option<Address>,
 
     /// URL for the offchain [order stream service].
-    ///
-    /// [order stream service]: crate::order_stream_client
     #[builder(setter(into, strip_option), default)]
     pub order_stream_url: Option<Cow<'static, str>>,
 }
@@ -139,7 +144,7 @@ pub(crate) enum RequestCommand {
         no_preflight: bool,
         storage_config: Box<StorageProviderConfig>,
     },
-    SubmitOffer(Box<SubmitOffer>),
+    SubmitOffer(Box<RequestParams>),
     Status {
         request_id: U256,
         expires_at: Option<u64>,
@@ -197,15 +202,15 @@ pub enum RequestStatus {
     Unknown,
 }
 
-/// Parameters for submitting an offer.
+/// Parameters for submitting a request.
 #[derive(Clone, Debug, Default, Builder, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct SubmitOffer {
+pub struct RequestParams {
     #[builder(setter(into, strip_option, prefix = "with"), default)]
-    /// The ID of the offer.
+    /// The ID of the request.
     id: Option<u32>,
     #[builder(setter(into, prefix = "with"), default)]
-    /// The program to use for the offer.
+    /// The program to use for the request.
     program: SubmitOfferProgram,
     #[builder(setter(into, prefix = "with"), default)]
     /// Whether to wait for the request to be fulfilled.
@@ -217,17 +222,65 @@ pub struct SubmitOffer {
     /// Whether to encode the input.
     encode_input: bool,
     #[builder(setter(into, prefix = "with"), default)]
-    /// The input to use for the offer.
+    /// The input to use for the request.
     input: SubmitOfferInput,
     #[builder(setter(into, prefix = "with"), default)]
-    /// The requirements for the offer.
+    /// The requirements for the request.
     requirements: SubmitOfferRequirements,
     #[builder(setter(into, strip_option, prefix = "with"), default)]
-    /// The offer parameters to use for the offer.
+    /// The offer parameters to use for the request.
     offer_params: Option<OfferParams>,
     #[builder(setter(into, prefix = "with"), default)]
-    /// The storage provider configuration to use for the offer.
+    /// The storage provider configuration to use for the request.
     storage_config: StorageProviderConfig,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Debug, Default, Builder, Serialize, Deserialize)]
+/// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
+/// defaults set in the [OfferLayerConfig].
+pub struct OfferParams {
+    /// Minimum price willing to pay for the proof, in wei.
+    #[builder(setter(strip_option, into), default)]
+    pub min_price: Option<U256>,
+
+    /// Maximum price willing to pay for the proof, in wei.
+    #[builder(setter(strip_option, into), default)]
+    pub max_price: Option<U256>,
+
+    /// Timestamp when bidding will start for this request.
+    #[builder(setter(strip_option), default)]
+    pub bidding_start: Option<u64>,
+
+    /// Duration in seconds for the price to ramp up from min to max.
+    #[builder(setter(strip_option), default)]
+    pub ramp_up_period: Option<u32>,
+
+    /// Time in seconds that a prover has to fulfill a locked request.
+    #[builder(setter(strip_option), default)]
+    pub lock_timeout: Option<u32>,
+
+    /// Maximum time in seconds that a request can remain active.
+    #[builder(setter(strip_option), default)]
+    pub timeout: Option<u32>,
+
+    /// Amount of the stake token that the prover must stake when locking a request.
+    #[builder(setter(strip_option, into), default)]
+    pub lock_stake: Option<U256>,
+}
+
+impl From<OfferParamsBuilder> for OfferParams {
+    fn from(value: OfferParamsBuilder) -> Self {
+        // Builder should be infallible.
+        value.build().expect("implementation error in OfferParams")
+    }
+}
+
+// Allows for a nicer builder pattern in RequestParams.
+impl From<&mut OfferParamsBuilder> for OfferParams {
+    fn from(value: &mut OfferParamsBuilder) -> Self {
+        value.clone().into()
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -262,7 +315,7 @@ struct SubmitOfferInput {
     input_file: Option<PathBuf>,
 }
 
-impl SubmitOfferBuilder {
+impl RequestParamsBuilder {
     /// Seth the program for the offer using a local path.
     pub fn with_program_path<P: Into<PathBuf>>(&mut self, path: P) -> &mut Self {
         self.program = Some(SubmitOfferProgram { path: Some(path.into()), url: None });
