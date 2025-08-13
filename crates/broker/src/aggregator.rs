@@ -200,7 +200,6 @@ impl AggregatorService {
             let proof_id = order
                 .proof_id
                 .with_context(|| format!("Missing proof_id for order: {order_id}"))?;
-
             assumptions.push(proof_id.clone());
 
             let journal = self

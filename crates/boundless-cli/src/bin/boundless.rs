@@ -87,7 +87,7 @@ use boundless_market::{
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
-    selector::ProofType,
+    selector::{is_shrink_bitvm2_selector, ProofType},
     storage::{fetch_url, StorageProvider, StorageProviderConfig},
     Client, Deployment, StandardClient,
 };
@@ -1135,6 +1135,7 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
         ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_7 as u32),
         ProofType::Groth16 => requirements.selector(Selector::Groth16V2_2 as u32),
         ProofType::Any => &mut requirements,
+        ProofType::ShrinkBitvm2 => requirements.selector(Selector::ShrinkBitvm2V0_1 as u32),
         ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty),
     };
     let request = request.with_requirements(requirements);
@@ -1242,6 +1243,14 @@ where
         //     request.requirements.predicate.predicateType,
         //     hex::encode(&request.requirements.predicate.data)
         // );
+
+        // TODO(ec2): fixme
+        // if is_shrink_bitvm2_selector(request.requirements.selector) && journal.len() != 32 {
+        //     bail!(
+        //         "Preflight failed: Journal must be exactly 32 bytes for Shrink Bitvm2, got {} bytes",
+        //         journal.len()
+        //     );
+        // }
 
         tracing::info!("Preflight check passed");
     } else {

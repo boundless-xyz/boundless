@@ -11,6 +11,7 @@ boundless-market = { workspace = true }
 clap = { workspace = true }
 guest-util = { workspace = true }
 risc0-zkvm = { workspace = true }
+shrink_bitvm2 = { path = "/home/etu/boundless/crates/shrink_bitvm2" }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

@@ -29,3 +29,6 @@ url = "2.5"
 # Always optimize; otherwise, local proving takes much longer to run
 [profile.dev]
 opt-level = 3
+
+[patch.crates-io]
+risc0-ethereum-contracts = { path = "/home/etu/risc0-ethereum/contracts" }

@@ -13,7 +13,6 @@ guest-util = { path = "../../crates/guest/util" }
 boundless-market = { path = "../../crates/boundless-market" }
 boundless-market-test-utils = { path = "../../crates/boundless-market/test-utils" }
 broker = { path = "../../crates/broker" }
-
 # risc0 monorepo dependencies.
 risc0-zkvm = { version = "2.3", default-features = false }
 
@@ -29,3 +28,6 @@ url = "2.5"
 # Always optimize; otherwise, local proving takes much longer to run
 [profile.dev]
 opt-level = 3
+
+[patch.crates-io]
+risc0-ethereum-contracts = { path = "/home/etu/risc0-ethereum/contracts" }

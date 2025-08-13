@@ -31,6 +31,8 @@ hex = { workspace = true }
 http-cache-reqwest = "0.15.1"
 moka = { version = "0.12", features = ["future"] }
 notify = "6.1"
+num-bigint = { version = "0.4", features = ["std"] }
+num-traits = "0.2.19"
 rand = { workspace = true }
 reqwest = { workspace = true }
 reqwest-middleware = "0.4.1"
@@ -41,6 +43,7 @@ risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"
+shrink_bitvm2 = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite", "postgres", "runtime-tokio", "json", "migrate", "macros"] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
@@ -51,6 +54,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 url = { workspace = true }
 uuid = { workspace = true }
+
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
@@ -67,8 +71,18 @@ rand = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
 serial_test = "3.2"
 temp-env = { version = "0.3", features = ["async_closure"] }
+test-log = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }
+
+risc0-groth16 = { version = "2.0.2", features = ["prove"] }
+ark-bn254 = "0.5.0"
+ark-ff = "0.5.0"
+ark-groth16 = { version = "0.5.0" }
+ark-serialize = "0.5.0"
+ark-ec = "0.5.0"
+blake3 = { version = "1.5.0" }
+
 
 [features]
 test-utils = ["dep:boundless-market-test-utils"]
