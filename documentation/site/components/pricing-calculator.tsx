@@ -1,36 +1,92 @@
 import NumberFlow from "@number-flow/react";
-import { useEffect, useState } from "react";
-import { useBlockNumber, usePublicClient } from "wagmi";
+import { useState } from "react";
 
-const SEPOLIA_CHAIN_ID = 11_155_111;
+type Network = "base-mainnet" | "base-sepolia";
 
 type PricingInputs = {
-  programCycles: number;
-  desiredTimeMinutes: number;
+  programMegaCycles: number;
+  proofDeliveryTime: number;
 };
 
-function calculateSuggestion(cycles: number, minutes: number, blocksPerMinute: number) {
-  const basePrice = (cycles / 1_000_000) * 0.0001;
-  const biddingStartDelay = Math.ceil(cycles / (30 * 1_000_000)); // cycles / 30MHz in blocks
+type NetworkConfig = {
+  name: string;
+  blocksPerMinute: number;
+  currencySymbol: string;
+};
+
+const NETWORK_CONFIGS: Record<Network, NetworkConfig> = {
+  "base-mainnet": {
+    name: "Base Mainnet",
+    blocksPerMinute: 30, // ~2 second block time
+    currencySymbol: "ETH",
+  },
+  "base-sepolia": {
+    name: "Base Sepolia Testnet",
+    blocksPerMinute: 30,
+    currencySymbol: "Base SepETH",
+  },
+};
+
+function calculateSuggestion(
+  programMegaCycles: number,
+  proofDeliveryTime: number,
+  networkConfig: NetworkConfig,
+) {
+  // from Jacob E: hardcode 100 million wei/cycle for max price
+  // 10e8 wei / cycle = 10e14 wei / mcycle
+  // max price in wei * 10e-18 = max price in eth
+  const maxPriceInWei = programMegaCycles  * 1e14
+  const maxPrice = maxPriceInWei * 1e-18 ;
+
+  // allow people to execute before bidding go up
+  const biddingStartDelay = Math.ceil(programMegaCycles / 30); // assuming 30 Mhz execution trace gen
+
+  // assume 1000 MCycles = $10 USD lock stake
+  const lockInStakeUSDC = Math.max(5, ( programMegaCycles / 1000 ) * 10);
 
   return {
-    minPrice: basePrice,
-    maxPrice: basePrice * 2,
+    minPrice: 0,
+    maxPrice: Math.min(0.1, maxPrice), // set to 0.1 ETH max
     biddingStartDelay,
-    rampUpBlocks: Math.min(100, Math.ceil(minutes * 0.5 * blocksPerMinute)), // Cap at 100 blocks
-    timeoutBlocks: Math.ceil(minutes * blocksPerMinute),
-    lockInStake: basePrice * 4,
+    rampUpBlocks: Math.min(100, Math.ceil(proofDeliveryTime * 0.5 * networkConfig.blocksPerMinute)),
+    lockTimeoutBlocks: Math.ceil(proofDeliveryTime * networkConfig.blocksPerMinute),
+    lockInStake: lockInStakeUSDC,
   };
 }
 
 export default function PricingCalculator() {
-  const { data: blockNumber } = useBlockNumber({ chainId: SEPOLIA_CHAIN_ID });
-  const publicClient = usePublicClient({ chainId: SEPOLIA_CHAIN_ID });
-  const [blocksPerMinute, setBlocksPerMinute] = useState<number | undefined>(undefined);
+  const [network, setNetwork] = useState<Network>("base-mainnet");
   const [inputs, setInputs] = useState<PricingInputs>({
-    programCycles: 1_000_000,
-    desiredTimeMinutes: 10,
+    programMegaCycles: 10,
+    proofDeliveryTime: 10,
   });
+  const [copied, setCopied] = useState(false);
+
+  const networkConfig = NETWORK_CONFIGS[network];
+  const suggestion = calculateSuggestion(
+    inputs.programMegaCycles,
+    inputs.proofDeliveryTime,
+    networkConfig,
+  );
+
+  const yamlConfig = `offer:
+    min_price: ${suggestion.minPrice * 1e18} # wei
+    max_price: ${suggestion.maxPrice * 1e18} # wei
+    biddingStart: ${suggestion.biddingStartDelay} # blocks
+    rampUpPeriod: ${suggestion.rampUpBlocks} # blocks
+    timeout: 2700 # seconds
+    lockTimeout: ${suggestion.lockTimeoutBlocks} # blocks
+    lockStake: ${suggestion.lockInStake * 1e6} # USDC`;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(yamlConfig);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
 
   const handleNumericInput = (e, field: keyof PricingInputs) => {
     const value = e.target.value.replace(/[^0-9]/g, "");
@@ -40,150 +96,188 @@ export default function PricingCalculator() {
     }));
   };
 
-  useEffect(() => {
-    async function calculateBlocksPerMinute() {
-      if (!blockNumber || !publicClient) {
-        return;
-      }
-
-      try {
-        // Get current block timestamp
-        const currentBlock = await publicClient.getBlock();
-
-        // Get block from ~5 minutes ago
-        const pastBlock = await publicClient.getBlock({
-          blockNumber: blockNumber - 25n, // ~5 minutes worth of blocks
-        });
-
-        if (currentBlock.timestamp && pastBlock.timestamp) {
-          const timeDiffMinutes = (Number(currentBlock.timestamp) - Number(pastBlock.timestamp)) / 60;
-          const blockDiff = Number(currentBlock.number - pastBlock.number);
-          const actualBlocksPerMinute = blockDiff / timeDiffMinutes;
-
-          setBlocksPerMinute(Math.round(actualBlocksPerMinute));
-        }
-      } catch (error) {
-        console.error("Failed to calculate blocks per minute:", error);
-      }
-    }
-
-    calculateBlocksPerMinute();
-  }, [blockNumber, publicClient]);
-
-  const suggestion = blocksPerMinute
-    ? calculateSuggestion(inputs.programCycles, inputs.desiredTimeMinutes, blocksPerMinute)
-    : null;
-
   return (
     <div className="my-8 rounded-lg border border-[var(--vocs-color_border);] p-6">
-      {suggestion ? (
-        <>
-          <h3 className="mb-4 font-semibold text-lg">Request Parameters Calculator</h3>
+      <div className="space-y-4">
 
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="programCycles" className="mb-1 block text-sm">
-                Program Cycles
-              </label>
-              <input
-                id="programCycles"
-                value={inputs.programCycles}
-                onChange={(e) => handleNumericInput(e, "programCycles")}
-                className="w-full rounded border border-[var(--vocs-color_border);] px-3 py-2"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="desiredTimeMinutes" className="mb-1 block text-sm">
-                Desired Proof Time (in minutes)
-              </label>
-              <input
-                id="desiredTimeMinutes"
-                value={inputs.desiredTimeMinutes}
-                onChange={(e) => handleNumericInput(e, "desiredTimeMinutes")}
-                className="w-full rounded border border-[var(--vocs-color_border);] px-3 py-2"
-              />
-            </div>
-
-            <div className="pt-4">
-              <h4 className="mb-2 font-medium">Suggested Parameters</h4>
-              <div className="rounded border border-[var(--vocs-color_border);] bg-muted p-4">
-                <dl className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <dt>Minimum Price:</dt>
-                    <dd>
-                      <NumberFlow
-                        className="font-mono"
-                        format={{
-                          minimumFractionDigits: 8,
-                        }}
-                        value={suggestion.minPrice}
-                        suffix=" Sepolia ETH"
-                      />
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt>Maximum Price:</dt>
-                    <dd>
-                      <NumberFlow
-                        format={{
-                          minimumFractionDigits: 8,
-                        }}
-                        className="font-mono"
-                        value={suggestion.maxPrice}
-                        suffix=" Sepolia ETH"
-                      />
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt>Bidding Start Delay:</dt>
-                    <dd>
-                      <NumberFlow
-                        className="font-mono"
-                        value={suggestion.biddingStartDelay}
-                        suffix={suggestion.biddingStartDelay === 1 ? " block" : " blocks"}
-                      />
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt>Ramp-up Period:</dt>
-                    <dd>
-                      <NumberFlow
-                        className="font-mono"
-                        value={suggestion.rampUpBlocks}
-                        suffix={suggestion.rampUpBlocks === 1 ? " block" : " blocks"}
-                      />
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt>Timeout:</dt>
-                    <dd>
-                      <NumberFlow
-                        className="font-mono"
-                        value={suggestion.timeoutBlocks}
-                        suffix={suggestion.timeoutBlocks === 1 ? " block" : " blocks"}
-                      />
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt>Lock-in Stake:</dt>
-                    <dd>
-                      <NumberFlow
-                        format={{
-                          minimumFractionDigits: 8,
-                        }}
-                        className="font-mono"
-                        value={suggestion.lockInStake}
-                        suffix=" Sepolia ETH"
-                      />
-                    </dd>
-                  </div>
-                </dl>
-              </div>
+        {/* Network Dropdown */}
+        <div>
+          <label htmlFor="network-select" className="mb-2 block font-medium text-sm">
+            Network
+          </label>
+          <div className="relative">
+            <select
+              id="network-select"
+              value={network}
+              onChange={(e) => setNetwork(e.target.value as Network)}
+              className="w-full rounded border border-[var(--vocs-color_border);] bg-white px-3 py-2 pr-10"
+              style={{ appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none' }}
+            >
+              <option value="base-sepolia">Base Sepolia</option>
+              <option value="base-mainnet">Base Mainnet</option>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
           </div>
-        </>
-      ) : null}
+        </div>
+
+        {/* Program Cycles input in MCycles */}
+        <div>
+          <label htmlFor="programMegaCycles" className="mb-1 block text-sm">
+            Program Cycles (MCycles)
+          </label>
+          <input
+            id="programMegaCycles"
+            value={inputs.programMegaCycles}
+            onChange={(e) => handleNumericInput(e, "programMegaCycles")}
+            className="w-full rounded border border-[var(--vocs-color_border);] px-3 py-2"
+          />
+        </div>
+
+        {/* Proof Delivery Time in minutes */}
+        <div>
+          <label htmlFor="proofDeliveryTime" className="mb-1 block text-sm">
+            Desired Proof Delivery Time (minutes)
+          </label>
+          <input
+            id="proofDeliveryTime"
+            value={inputs.proofDeliveryTime}
+            onChange={(e) => handleNumericInput(e, "proofDeliveryTime")}
+            className="w-full rounded border border-[var(--vocs-color_border);] px-3 py-2"
+          />
+        </div>
+
+        {/* Suggested Offer Parameters */}
+        <div className="pt-4">
+          <h4 className="mb-2 font-medium">Suggested Offer Parameters</h4>
+          <div className="rounded border border-[var(--vocs-color_border);] bg-muted p-4">
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <dt>Minimum Price:</dt>
+                <dd>
+                  <NumberFlow
+                    className="font-mono"
+                    format={{
+                      minimumFractionDigits: 8,
+                    }}
+                    value={suggestion.minPrice}
+                    suffix={` ${networkConfig.currencySymbol}`}
+                  />
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Maximum Price:</dt>
+                <dd>
+                  <NumberFlow
+                    format={{
+                      minimumFractionDigits: 8,
+                    }}
+                    className="font-mono"
+                    value={suggestion.maxPrice}
+                    suffix={` ${networkConfig.currencySymbol}`}
+                  />
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Bidding Start Delay:</dt>
+                <dd>
+                  <NumberFlow
+                    className="font-mono"
+                    value={suggestion.biddingStartDelay}
+                    suffix={suggestion.biddingStartDelay === 1 ? " block" : " blocks"}
+                  />
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Ramp-up Period:</dt>
+                <dd>
+                  <NumberFlow
+                    className="font-mono"
+                    value={suggestion.rampUpBlocks}
+                    suffix={suggestion.rampUpBlocks === 1 ? " block" : " blocks"}
+                  />
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Timeout:</dt>
+                <dd>
+                  <NumberFlow
+                    className="font-mono"
+                    value={suggestion.lockTimeoutBlocks}
+                    suffix={suggestion.lockTimeoutBlocks === 1 ? " block" : " blocks"}
+                  />
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Lock-in Stake:</dt>
+                <dd>
+                  <NumberFlow
+                    format={{
+                      minimumFractionDigits: 6,
+                      maximumFractionDigits: 6,
+                    }}
+                    className="font-mono"
+                    value={suggestion.lockInStake}
+                    suffix=" USDC"
+                  />
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        {/* Request YAML Configuration Generator */}
+        <div className="pt-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h4 className="font-medium">
+              Offer Parameters {" "}
+              <a
+                href="https://github.com/boundless-xyz/boundless/blob/main/request.yaml"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--vocs-color_textAccent)] underline hover:opacity-80"
+              >
+              (request.yaml)
+              </a>
+            </h4>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="flex items-center gap-1 rounded border border-[var(--vocs-color_border);] px-2 py-1 text-xs transition-colors hover:bg-muted"
+            >
+              {copied ? (
+                <>
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  Copy
+                </>
+              )}
+            </button>
+          </div>
+          <div className="rounded border border-[var(--vocs-color_border);] bg-muted p-4">
+            <pre className="overflow-x-auto text-sm">
+              <code className="language-yaml">
+                {yamlConfig}
+              </code>
+            </pre>
+          </div>
+        </div>
+
+
+
+
+      </div>
     </div>
   );
 }
