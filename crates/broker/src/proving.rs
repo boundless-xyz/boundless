@@ -454,7 +454,7 @@ mod tests {
     };
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Offer, Predicate, PredicateType, ProofRequest, RequestInput, RequestInputType, Requirements,
+        Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
     use boundless_market_test_utils::{ECHO_ELF, ECHO_ID};
     use chrono::Utc;
@@ -476,13 +476,11 @@ mod tests {
             target_timestamp: Some(0),
             request: ProofRequest {
                 id: request_id,
-                requirements: Requirements::new(
+                requirements: Requirements::new(Predicate::prefix_match(
                     Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                    Bytes::default(),
+                )),
+
                 imageUrl: "http://risczero.com/image".into(),
                 input: RequestInput {
                     inputType: RequestInputType::Inline,
@@ -630,13 +628,11 @@ mod tests {
             target_timestamp: Some(0),
             request: ProofRequest {
                 id: order_id,
-                requirements: Requirements::new(
+                requirements: Requirements::new(Predicate::prefix_match(
                     Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                    Bytes::default(),
+                )),
+
                 imageUrl: "http://risczero.com/image".into(),
                 input: RequestInput {
                     inputType: RequestInputType::Inline,

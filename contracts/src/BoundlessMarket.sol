@@ -24,8 +24,10 @@ import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
+import {CallbackData} from "./types/CallbackData.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
+import {PredicateType} from "./types/Predicate.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequest, LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
@@ -239,6 +241,7 @@ contract BoundlessMarket is
         }
         bytes32[] memory leaves = new bytes32[](fills.length);
         bool[] memory hasSelector = new bool[](fills.length);
+        PredicateType[] memory predicateTypes = new PredicateType[](fills.length);
 
         // Check the selector constraints.
         // NOTE: The assessor guest adds non-zero selector values to the list.
@@ -255,16 +258,16 @@ contract BoundlessMarket is
         // Verify the application receipts.
         for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
+            predicateTypes[i] = fill.predicateType;
 
-            bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, claimDigest).eip712Digest();
+            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, fill.claimDigest).eip712Digest();
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
             if (!hasSelector[i]) {
-                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
+                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, fill.claimDigest));
             } else {
-                VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigest));
+                VERIFIER.verifyIntegrity(Receipt(fill.seal, fill.claimDigest));
             }
         }
 
@@ -278,6 +281,7 @@ contract BoundlessMarket is
                     root: batchRoot,
                     callbacks: assessorReceipt.callbacks,
                     selectors: assessorReceipt.selectors,
+                    predicateTypes: predicateTypes,
                     prover: assessorReceipt.prover
                 })
             )
@@ -333,10 +337,36 @@ contract BoundlessMarket is
             }
 
             uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
-            if (callbackIndexPlusOne > 0) {
-                AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
-                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+
+            // We do not support callbacks for claim digest matches because we cant authenticate the journal.
+            if (fill.predicateType != PredicateType.ClaimDigestMatch) {
+                // In the case this is a not a claim digest match, we need to authenticate the journal, since we actually have it
+                (bytes32 imageId, bytes calldata journal) = _decodeCallbackData(fill.callbackData);
+                bytes32 calculatedClaimDigest = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
+                if (fill.claimDigest != calculatedClaimDigest) {
+                    revert ClaimDigestMismatch(fill.claimDigest, calculatedClaimDigest);
+                }
+
+                if (callbackIndexPlusOne > 0) {
+                    AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
+                    _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
+                }
             }
+        }
+    }
+
+    function _decodeCallbackData(bytes calldata data) internal pure returns (bytes32 imageId, bytes calldata journal) {
+        assembly {
+            // Extract imageId (first 32 bytes after length)
+            imageId := calldataload(add(data.offset, 0x20))
+
+            // Extract journal offset and create calldata slice
+            let journalOffset := calldataload(add(data.offset, 0x40))
+            let journalPtr := add(data.offset, add(0x20, journalOffset))
+            let journalLength := calldataload(journalPtr)
+
+            journal.offset := add(journalPtr, 0x20)
+            journal.length := journalLength
         }
     }
 

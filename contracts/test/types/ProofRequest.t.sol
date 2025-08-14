@@ -12,6 +12,7 @@ import {Requirements} from "../../src/types/Requirements.sol";
 import {Input, InputType} from "../../src/types/Input.sol";
 import {Predicate, PredicateType, PredicateLibrary} from "../../src/types/Predicate.sol";
 import {Callback} from "../../src/types/Callback.sol";
+import {CallbackType} from "../../src/types/CallbackType.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Account} from "../../src/types/Account.sol";
 import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";
@@ -70,12 +71,8 @@ contract ProofRequestTest is Test {
         defaultProofRequest = ProofRequest({
             id: RequestIdLibrary.from(wallet, idx),
             requirements: Requirements({
-                imageId: APP_IMAGE_ID,
-                predicate: Predicate({
-                    predicateType: PredicateType.DigestMatch,
-                    data: abi.encode(sha256(bytes("GUEST JOURNAL")))
-                }),
-                callback: Callback({gasLimit: 0, addr: address(0)}),
+                predicate: PredicateLibrary.createDigestMatchPredicate(APP_IMAGE_ID, sha256(bytes("GUEST JOURNAL"))),
+                callback: Callback({gasLimit: 0, addr: address(0), callbackType: CallbackType.JournalRequired}),
                 selector: bytes4(0)
             }),
             imageUrl: "https://image.dev.null",

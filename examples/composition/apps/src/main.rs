@@ -21,11 +21,12 @@ use crate::ICounter::ICounterInstance;
 use alloy::{
     primitives::{Address, B256},
     signers::local::PrivateKeySigner,
-    sol_types::SolCall,
+    sol_types::{SolCall, SolValue},
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::{
-    input::GuestEnv, request_builder::OfferParams, Client, Deployment, StorageProviderConfig,
+    contracts::boundless_market_contract::CallbackData, input::GuestEnv,
+    request_builder::OfferParams, Client, Deployment, StorageProviderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
@@ -93,11 +94,12 @@ async fn run(args: Args) -> Result<()> {
         .await
         .context("failed to build boundless client")?;
 
+    let input = format!("{:?}", SystemTime::now());
     // Request an un-aggregated proof from the Boundless market using the ECHO guest.
     let echo_request = client
         .new_request()
         .with_program(ECHO_ELF)
-        .with_stdin(format!("{:?}", SystemTime::now()).as_bytes())
+        .with_stdin(input.as_bytes())
         .with_groth16_proof();
 
     // Submit the request to the Boundless market
@@ -106,18 +108,21 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (echo_journal, echo_seal) = client
+    let (callback_data, echo_seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
             expires_at,
         )
         .await?;
+    let CallbackData { imageId: cb_image_id, journal: echo_journal } =
+        CallbackData::abi_decode(&callback_data)?;
     tracing::info!("Request {:x} fulfilled", request_id);
+    assert_eq!(Digest::from(<[u8; 32]>::from(cb_image_id)), Digest::from(ECHO_ID));
 
     // Decode the resulting RISC0-ZKVM receipt.
     let Ok(ContractReceipt::Base(echo_receipt)) =
-        risc0_ethereum_contracts::receipt::decode_seal(echo_seal, ECHO_ID, echo_journal.clone())
+        risc0_ethereum_contracts::receipt::decode_seal(echo_seal, ECHO_ID, echo_journal)
     else {
         bail!("did not receive requested unaggregated receipt")
     };
@@ -138,7 +143,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (identity_journal, identity_seal) = client
+    let (identity_callback_data, identity_seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
@@ -146,6 +151,8 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
     tracing::info!("Request {:x} fulfilled", request_id);
+    let CallbackData { journal: identity_journal, .. } =
+        CallbackData::abi_decode(&identity_callback_data)?;
     debug_assert_eq!(&identity_journal, echo_claim_digest.as_bytes());
 
     // Interact with the Counter contract by calling the increment function.

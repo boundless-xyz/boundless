@@ -622,7 +622,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Address, U256},
+        primitives::{Address, Bytes, U256},
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
         sol_types::eip712_domain,
@@ -631,8 +631,8 @@ mod tests {
         contracts::{
             boundless_market::{BoundlessMarketService, FulfillmentTx},
             hit_points::default_allowance,
-            AssessorReceipt, Offer, Predicate, PredicateType, ProofRequest, RequestInput,
-            RequestInputType, Requirements,
+            AssessorReceipt, Offer, Predicate, ProofRequest, RequestInput, RequestInputType,
+            Requirements,
         },
         input::GuestEnv,
     };
@@ -675,10 +675,10 @@ mod tests {
         let max_price = 10;
         let proving_request = ProofRequest {
             id: boundless_market.request_id_from_nonce().await.unwrap(),
-            requirements: Requirements::new(
+            requirements: Requirements::new(Predicate::prefix_match(
                 Digest::ZERO,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+                Bytes::default(),
+            )),
             imageUrl: "test".to_string(),
             input: RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             offer: Offer {
@@ -808,21 +808,18 @@ mod tests {
             .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
-        // retrieve journal and seal from the fulfilled request
-        let (journal, seal) =
+        // retrieve callback data and seal from the fulfilled request
+        let (callback_data, seal) =
             ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
-        assert_eq!(journal, fulfillment.journal);
+        assert_eq!(callback_data, fulfillment.callbackData);
         assert_eq!(seal, fulfillment.seal);
     }
 
     async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(ctx.customer_signer.address(), idx),
-            Requirements::new(
-                Digest::from(ECHO_ID),
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default())),
             "http://image_uri.null",
             GuestEnv::builder().build_inline().unwrap(),
             Offer {

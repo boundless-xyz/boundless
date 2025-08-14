@@ -17,13 +17,17 @@ use std::{future::Future, path::PathBuf};
 use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
-    primitives::{aliases::U96, utils, utils::parse_ether, Address, FixedBytes, U256},
+    primitives::{
+        aliases::U96,
+        utils::{self, parse_ether},
+        Address, Bytes, FixedBytes, U256,
+    },
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, Offer, Predicate, PredicateType, ProofRequest,
+        hit_points::default_allowance, Callback, CallbackType, Offer, Predicate, ProofRequest,
         RequestId, RequestInput, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
@@ -56,10 +60,9 @@ fn generate_request(
     callback: Option<Callback>,
     offer: Option<Offer>,
 ) -> ProofRequest {
-    let mut requirements = Requirements::new(
-        Digest::from(ECHO_ID),
-        Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-    );
+    let mut requirements =
+        Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default()));
+
     if proof_type == ProofType::Groth16 {
         requirements = requirements.with_groth16_proof();
     }
@@ -241,7 +244,11 @@ async fn simple_e2e_with_callback() {
     .await
     .unwrap();
 
-    let callback = Callback { addr: callback_address, gasLimit: U96::from(100000) };
+    let callback = Callback {
+        addr: callback_address,
+        gasLimit: U96::from(100000),
+        callbackType: CallbackType::JournalRequired,
+    };
 
     // Start broker
     let config = new_config(1).await;

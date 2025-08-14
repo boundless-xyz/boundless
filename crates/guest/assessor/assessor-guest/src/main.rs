@@ -13,13 +13,10 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};
 use boundless_assessor::{process_tree, AssessorInput};
 use boundless_market::contracts::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, RequestId,
-    UNSPECIFIED_SELECTOR,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, CallbackType,
+    RequestId, UNSPECIFIED_SELECTOR,
 };
-use risc0_zkvm::{
-    guest::env,
-    sha::{Digest, Digestible},
-};
+use risc0_zkvm::{guest::env, sha::Digest};
 
 risc0_zkvm::guest::entry!(main);
 
@@ -40,20 +37,23 @@ fn main() {
     let mut callbacks: Vec<AssessorCallback> = Vec::<AssessorCallback>::new();
     // list of optional Selectors specified as part of the requests requirements
     let mut selectors = Vec::<AssessorSelector>::new();
+    // list of predicate types used to verify the requirements of each request
+    let mut predicate_types = Vec::with_capacity(input.fills.len());
 
     let eip_domain_separator = input.domain.alloy_struct();
     // For each fill we
     // - verify the request's signature
     // - evaluate the request's requirements
-    // - verify the integrity of its claim
     // - record the callback if it exists
     // - record the selector if it is present
+    // NOTE: We no longer verify integrity of the claim. That is done on chain.
     // We additionally collect the request and claim digests.
     for (index, fill) in input.fills.iter().enumerate() {
         // Attempt to decode the request ID. If this fails, there may be flags that are not handled
         // by this guest. This check is not strictly needed, but reduces the chance of accidentally
         // failing to enforce a constraint.
         RequestId::try_from(fill.request.id).unwrap();
+        predicate_types.push(fill.request.requirements.predicate.predicateType);
 
         // ECDSA signatures are always checked here.
         // Smart contract signatures (via EIP-1271) are checked on-chain either when a request is locked,
@@ -64,8 +64,7 @@ fn main() {
             fill.verify_signature(&eip_domain_separator).expect("signature does not verify")
         };
         fill.evaluate_requirements().expect("requirements not met");
-        env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
-        let claim_digest = fill.receipt_claim().digest();
+        let claim_digest = fill.claim_digest().expect("failed to get claim digest");
         let commit = AssessorCommitment {
             index: U256::from(index),
             id: fill.request.id,
@@ -74,13 +73,26 @@ fn main() {
         }
         .eip712_hash_struct();
         leaves.push(Digest::from_bytes(*commit));
-        if fill.request.requirements.callback.addr != Address::ZERO {
-            callbacks.push(AssessorCallback {
-                index: index.try_into().expect("callback index overflow"),
-                addr: fill.request.requirements.callback.addr,
-                gasLimit: fill.request.requirements.callback.gasLimit,
-            });
+
+        let callback = &fill.request.requirements.callback;
+
+        match callback.callbackType {
+            CallbackType::JournalRequired => {
+                assert!(
+                    callback.addr != Address::ZERO,
+                    "requested callback, but address is zero..."
+                );
+                callbacks.push(AssessorCallback {
+                    index: index.try_into().expect("callback index overflow"),
+                    addr: callback.addr,
+                    gasLimit: callback.gasLimit,
+                    callbackType: callback.callbackType,
+                });
+            }
+            CallbackType::None => {}
+            _ => panic!("invalid callback type"),
         }
+
         if fill.request.requirements.selector != UNSPECIFIED_SELECTOR {
             selectors.push(AssessorSelector {
                 index: index.try_into().expect("selector index overflow"),
@@ -95,6 +107,7 @@ fn main() {
     let journal = AssessorJournal {
         callbacks,
         selectors,
+        predicateTypes: predicate_types,
         root: <[u8; 32]>::from(root).into(),
         prover: input.prover_address,
     };

@@ -16,7 +16,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {SmartContractRequestor} from "../src/SmartContractRequestor.sol";
 import {ProofRequest} from "boundless-market/types/ProofRequest.sol";
-import {PredicateType} from "boundless-market/types/Predicate.sol";
+import {PredicateLibrary} from "boundless-market/types/Predicate.sol";
 import {ImageID} from "boundless-market/libraries/UtilImageID.sol";
 import {RequestId, RequestIdLibrary} from "boundless-market/types/RequestId.sol";
 import {IBoundlessMarket} from "boundless-market/IBoundlessMarket.sol";
@@ -81,7 +81,9 @@ contract SmartContractRequestorTest is Test {
     function test_IsValidSignatureInvalidImageId() public view {
         // Create a proof request with invalid image ID
         ProofRequest memory request = _createValidProofRequest(START_DAY + 1);
-        request.requirements.imageId = bytes32(0);
+        (bytes32 imageId, bytes32 journalDigest) = abi.decode(request.requirements.predicate.data, (bytes32, bytes32));
+        imageId = bytes32(0);
+        request.requirements.predicate = PredicateLibrary.createDigestMatchPredicate(imageId, journalDigest);
         bytes memory signature = abi.encode(request);
         bytes32 requestHash = _hashTypedData(request.eip712Digest());
 
@@ -92,9 +94,8 @@ contract SmartContractRequestorTest is Test {
 
     function _createValidProofRequest(uint32 daysSinceEpoch) internal pure returns (ProofRequest memory) {
         ProofRequest memory request;
-        request.requirements.imageId = ImageID.ECHO_ID;
-        request.requirements.predicate.predicateType = PredicateType.DigestMatch;
-        request.requirements.predicate.data = abi.encodePacked(sha256(abi.encodePacked(daysSinceEpoch)));
+        request.requirements.predicate =
+            PredicateLibrary.createDigestMatchPredicate(ImageID.ECHO_ID, sha256(abi.encodePacked(daysSinceEpoch)));
         request.id = RequestIdLibrary.from(address(0), daysSinceEpoch, true);
         return request;
     }

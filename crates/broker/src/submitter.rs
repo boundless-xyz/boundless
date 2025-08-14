@@ -27,10 +27,12 @@ use anyhow::{anyhow, Context, Result};
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
-        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
+        boundless_market_contract::CallbackData,
+        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment, PredicateType,
     },
     selector::is_groth16_selector,
 };
+use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
@@ -274,6 +276,8 @@ where
                         "Failed to get order from DB for submission, order NOT finalized",
                     )?;
 
+                let order_img_id =
+                    Digest::from_hex(order_img_id).context("Failed to decode order image ID")?;
                 let mut stake_reward = U256::ZERO;
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price
@@ -290,6 +294,10 @@ where
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
 
+                // NOTE: We assume here that the order execution ended with exit code 0.
+                let order_claim =
+                    ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
+                let order_claim_digest = order_claim.digest();
                 let seal = if is_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
@@ -299,15 +307,10 @@ where
                         .await
                         .context("Failed to fetch and encode g16 proof")?
                 } else {
-                    // NOTE: We assume here that the order execution ended with exit code 0.
-                    let order_claim = ReceiptClaim::ok(
-                        order_img_id.0,
-                        MaybePruned::Pruned(order_journal.digest()),
-                    );
                     let order_claim_index = aggregation_state
                         .claim_digests
                         .iter()
-                        .position(|claim| *claim == order_claim.digest())
+                        .position(|claim| *claim == order_claim_digest)
                         .ok_or(anyhow!(
                             "Failed to find order claim {order_claim:x?} in aggregated claims"
                         ))?;
@@ -317,7 +320,7 @@ where
                     );
                     tracing::debug!(
                         "Merkle path for order {order_id} : {:x?} : {order_path:x?}",
-                        order_claim.digest()
+                        order_claim_digest
                     );
                     let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                         order_claim,
@@ -333,12 +336,30 @@ where
                     .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
                 let request_id = order_request.id;
                 fulfillment_to_order_id.insert(request_id, order_id);
+                let predicate_type = order_request.requirements.predicate.predicateType;
+
+                let (claim_digest, callback_data) = match predicate_type {
+                    PredicateType::ClaimDigestMatch => (
+                        order_request.requirements.predicate.data.0.as_ref().try_into().unwrap(),
+                        vec![],
+                    ),
+                    _ => (
+                        order_claim_digest,
+                        CallbackData {
+                            imageId: <[u8; 32]>::from(order_img_id).into(),
+                            journal: order_journal.into(),
+                        }
+                        .abi_encode(),
+                    ),
+                };
+
                 fulfillments.push(Fulfillment {
                     id: request_id,
                     requestDigest: request_digest,
-                    imageId: order_img_id,
-                    journal: order_journal.into(),
+                    callbackData: callback_data.into(),
+                    claimDigest: <[u8; 32]>::from(claim_digest).into(),
                     seal: seal.into(),
+                    predicateType: predicate_type,
                 });
                 anyhow::Ok(())
             };
@@ -637,14 +658,14 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::U256,
+        primitives::{Bytes, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, Offer, Predicate, PredicateType, ProofRequest,
+            hit_points::default_allowance, FulfillmentClaimData, Offer, Predicate, ProofRequest,
             RequestId, RequestInput, RequestInputType, Requirements,
         },
         input::GuestEnv,
@@ -740,10 +761,7 @@ mod tests {
 
         let order_request = ProofRequest::new(
             RequestId::new(customer_addr, market_customer.index_from_nonce().await.unwrap()),
-            Requirements::new(
-                echo_id,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(echo_id, Bytes::default())),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -769,7 +787,10 @@ mod tests {
             fills: vec![Fulfillment {
                 request: order_request.clone(),
                 signature: client_sig.into(),
-                journal: echo_receipt.journal.bytes.clone(),
+                fulfillment_data: FulfillmentClaimData::from_image_id_and_journal(
+                    echo_id,
+                    echo_receipt.journal.bytes.clone(),
+                ),
             }],
             prover_address: prover_addr,
         };

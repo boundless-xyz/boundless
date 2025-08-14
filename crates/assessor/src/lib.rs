@@ -9,8 +9,14 @@
 
 use alloy_primitives::{Address, Keccak256, Signature, SignatureError};
 use alloy_sol_types::{Eip712Domain, SolStruct};
-use boundless_market::contracts::{EIP712DomainSaltless, ProofRequest, RequestError};
-use risc0_zkvm::{sha::Digest, ReceiptClaim};
+use boundless_market::contracts::{
+    CallbackType, EIP712DomainSaltless, FulfillmentClaimData, PredicateType, ProofRequest,
+    RequestError,
+};
+use risc0_zkvm::{
+    sha::{Digest, Digestible},
+    ReceiptClaim,
+};
 use serde::{Deserialize, Serialize};
 
 /// Errors that may occur in the assessor.
@@ -39,8 +45,8 @@ pub enum Error {
     },
 
     /// Predicate evaluation failure from [ProofRequest] [Requirements]
-    #[error("predicate evaluation failed")]
-    PredicateEvaluationError,
+    #[error("fulfillment requirements evaluation failed")]
+    RequirementsEvaluationError,
 }
 
 /// Fulfillment contains a signed request, including offer and requirements,
@@ -52,8 +58,8 @@ pub struct Fulfillment {
     pub request: ProofRequest,
     /// The EIP-712 signature over the request.
     pub signature: Vec<u8>,
-    /// The journal of the request.
-    pub journal: Vec<u8>,
+    /// The fulfillment data of the request.
+    pub fulfillment_data: FulfillmentClaimData,
 }
 
 impl Fulfillment {
@@ -77,15 +83,28 @@ impl Fulfillment {
     }
     /// Evaluates the requirements of the request.
     pub fn evaluate_requirements(&self) -> Result<(), Error> {
-        if !self.request.requirements.predicate.eval(&self.journal) {
-            return Err(Error::PredicateEvaluationError);
+        let requirements = &self.request.requirements;
+
+        if requirements.predicate.predicateType == PredicateType::ClaimDigestMatch
+            && requirements.callback.callbackType != CallbackType::None
+        {
+            return Err(Error::RequirementsEvaluationError);
+        }
+
+        if !self.request.requirements.predicate.eval(&self.fulfillment_data) {
+            return Err(Error::RequirementsEvaluationError);
         }
         Ok(())
     }
-    /// Returns a [ReceiptClaim] for the fulfillment.
-    pub fn receipt_claim(&self) -> ReceiptClaim {
-        let image_id = Digest::from_bytes(self.request.requirements.imageId.0);
-        ReceiptClaim::ok(image_id, self.journal.clone())
+
+    /// Returns the claim digest for the fulfillment.
+    pub fn claim_digest(&self) -> Result<Digest, Error> {
+        match self.fulfillment_data {
+            FulfillmentClaimData::ClaimDigest(digest) => Ok(digest),
+            FulfillmentClaimData::ImageIdAndJournal(image_id, ref journal) => {
+                Ok(ReceiptClaim::ok(image_id, <Vec<u8>>::from(journal.clone())).digest())
+            }
+        }
     }
 }
 
@@ -161,8 +180,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
-        RequestInputType, Requirements,
+        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType,
+        Requirements,
     };
     use guest_assessor::ASSESSOR_GUEST_ELF;
     use guest_util::{ECHO_ELF, ECHO_ID};
@@ -175,10 +194,7 @@ mod tests {
     fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(signer, id),
-            Requirements::new(
-                Digest::from_bytes(image_id.0),
-                Predicate { predicateType: PredicateType::PrefixMatch, data: prefix.into() },
-            ),
+            Requirements::new(Predicate::prefix_match(Digest::from_bytes(image_id.0), prefix)),
             "test",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
@@ -207,7 +223,10 @@ mod tests {
         let claim = Fulfillment {
             request: proving_request,
             signature: signature.as_bytes().to_vec(),
-            journal: vec![1, 2, 3],
+            fulfillment_data: FulfillmentClaimData::ImageIdAndJournal(
+                Digest::from_bytes(B256::ZERO.0),
+                vec![1].into(),
+            ),
         };
 
         claim.verify_signature(&eip712_domain(Address::ZERO, 1).alloy_struct()).unwrap();
@@ -225,16 +244,12 @@ mod tests {
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
-    ) -> (ProofRequest, Vec<u8>) {
-        let request = proving_request(
-            1,
-            signer.address(),
-            to_b256(ECHO_ID.into()),
-            "test".as_bytes().to_vec(),
-        );
+    ) -> (ProofRequest, B256, Vec<u8>) {
+        let image_id = to_b256(ECHO_ID.into());
+        let request = proving_request(1, signer.address(), image_id, "test".as_bytes().to_vec());
         let signature =
             request.sign_request(signer, Address::ZERO, 1).await.unwrap().as_bytes().to_vec();
-        (request, signature)
+        (request, image_id, signature)
     }
 
     fn echo(input: &str) -> Receipt {
@@ -273,14 +288,18 @@ mod tests {
     async fn test_assessor_e2e_singleton() {
         let signer = PrivateKeySigner::random();
         // 1. Mock and sign a request
-        let (request, signature) = setup_proving_request_and_signature(&signer).await;
+        let (request, image_id, signature) = setup_proving_request_and_signature(&signer).await;
 
         // 2. Prove the request via the application guest
         let application_receipt = echo("test");
         let journal = application_receipt.journal.bytes.clone();
 
         // 3. Prove the Assessor
-        let claims = vec![Fulfillment { request, signature, journal }];
+        let claims = vec![Fulfillment {
+            request,
+            signature,
+            fulfillment_data: FulfillmentClaimData::from_image_id_and_journal(*image_id, journal),
+        }];
         assessor(claims, vec![application_receipt]);
     }
 
@@ -289,12 +308,16 @@ mod tests {
     async fn test_assessor_e2e_two_leaves() {
         let signer = PrivateKeySigner::random();
         // 1. Mock and sign a request
-        let (request, signature) = setup_proving_request_and_signature(&signer).await;
+        let (request, image_id, signature) = setup_proving_request_and_signature(&signer).await;
 
         // 2. Prove the request via the application guest
         let application_receipt = echo("test");
         let journal = application_receipt.journal.bytes.clone();
-        let claim = Fulfillment { request, signature, journal };
+        let claim = Fulfillment {
+            request,
+            signature,
+            fulfillment_data: FulfillmentClaimData::from_image_id_and_journal(*image_id, journal),
+        };
 
         // 3. Prove the Assessor reusing the same leaf twice
         let claims = vec![claim.clone(), claim];

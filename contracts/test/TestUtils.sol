@@ -26,14 +26,22 @@ library TestUtils {
         address prover
     ) internal pure returns (ReceiptClaim memory) {
         bytes32[] memory leaves = new bytes32[](fills.length);
+        PredicateType[] memory predicateTypes = new PredicateType[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
-            bytes32 claimDigest = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
-            leaves[i] = AssessorCommitment(i, fills[i].id, fills[i].requestDigest, claimDigest).eip712Digest();
+            predicateTypes[i] = fills[i].predicateType;
+            leaves[i] = AssessorCommitment(i, fills[i].id, fills[i].requestDigest, fills[i].claimDigest).eip712Digest();
         }
         bytes32 root = MerkleProofish.processTree(leaves);
 
-        bytes memory journal =
-            abi.encode(AssessorJournal({root: root, selectors: selectors, callbacks: callbacks, prover: prover}));
+        bytes memory journal = abi.encode(
+            AssessorJournal({
+                root: root,
+                selectors: selectors,
+                callbacks: callbacks,
+                predicateTypes: predicateTypes,
+                prover: prover
+            })
+        );
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 
@@ -54,7 +62,7 @@ library TestUtils {
     {
         bytes32[] memory claimDigests = new bytes32[](fills.length);
         for (uint256 i = 0; i < fills.length; i++) {
-            claimDigests[i] = ReceiptClaimLib.ok(fills[i].imageId, sha256(fills[i].journal)).digest();
+            claimDigests[i] = fills[i].claimDigest;
         }
         // compute the merkle tree of the batch
         (batchRoot, tree) = computeMerkleTree(claimDigests);

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
-use crate::contracts::{Callback, Predicate, Requirements};
+use crate::contracts::{Callback, CallbackType, Predicate, Requirements};
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
 use clap::Args;
@@ -53,6 +53,11 @@ pub struct RequirementParams {
     #[builder(setter(strip_option, into), default)]
     pub callback_address: Option<Address>,
 
+    /// Type of the callback to call when the proof is fulfilled.
+    #[clap(skip)]
+    #[builder(setter(strip_option, into), default)]
+    pub callback_type: Option<CallbackType>,
+
     /// Gas limit for the callback when the proof is fulfilled.
     #[clap(long)]
     #[builder(setter(strip_option), default)]
@@ -66,12 +71,14 @@ pub struct RequirementParams {
 
 impl From<Requirements> for RequirementParams {
     fn from(value: Requirements) -> Self {
+        let image_id = value.predicate.image_id().map(<[u8; 32]>::from).map(Into::into);
         Self {
             predicate: Some(value.predicate),
-            image_id: Some(value.imageId),
             selector: Some(value.selector),
             callback_address: Some(value.callback.addr),
             callback_gas_limit: Some(value.callback.gasLimit.to()),
+            callback_type: Some(value.callback.callbackType),
+            image_id,
         }
     }
 }
@@ -85,14 +92,11 @@ impl TryFrom<RequirementParams> for Requirements {
                 "predicate",
                 "please provide a Predicate with requirements e.g. a digest match on a journal",
             ))?,
-            imageId: value.image_id.ok_or(MissingFieldError::with_hint(
-                "image_id",
-                "please provide the image ID for the program to be proven",
-            ))?,
             selector: value.selector.unwrap_or_default(),
             callback: Callback {
                 addr: value.callback_address.unwrap_or_default(),
                 gasLimit: U96::from(value.callback_gas_limit.unwrap_or_default()),
+                callbackType: value.callback_type.unwrap_or_default(),
             },
         })
     }
@@ -152,8 +156,10 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         &self,
         (image_id, journal, params): (Digest, &Journal, &RequirementParams),
     ) -> Result<Self::Output, Self::Error> {
-        let predicate =
-            params.predicate.clone().unwrap_or_else(|| Predicate::digest_match(journal.digest()));
+        let predicate = params
+            .predicate
+            .clone()
+            .unwrap_or_else(|| Predicate::digest_match(image_id, journal.digest()));
         if let Some(params_image_id) = params.image_id {
             ensure!(
                 image_id == Digest::from(<[u8; 32]>::from(params_image_id)),
@@ -165,16 +171,12 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
             .map(|addr| Callback {
                 addr,
                 gasLimit: U96::from(params.callback_gas_limit.unwrap_or(DEFAULT_CALLBACK_GAS_LIMT)),
+                callbackType: params.callback_type.unwrap_or(CallbackType::JournalRequired),
             })
             .unwrap_or_default();
         let selector = params.selector.unwrap_or_default();
 
-        Ok(Requirements {
-            imageId: <[u8; 32]>::from(image_id).into(),
-            predicate,
-            callback,
-            selector,
-        })
+        Ok(Requirements { predicate, callback, selector })
     }
 }
 

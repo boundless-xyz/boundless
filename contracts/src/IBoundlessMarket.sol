@@ -165,6 +165,10 @@ interface IBoundlessMarket {
     /// @dev selector efc954a6
     error BatchSizeExceedsLimit(uint256 batchSize, uint256 limit);
 
+    /// @notice Error when a journal is provided but does not match the claim digest
+    /// TODO(ec2): selector
+    error ClaimDigestMismatch(bytes32 expected, bytes32 calculated);
+
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
     /// @param requestId The ID of the request.

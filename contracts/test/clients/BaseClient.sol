@@ -16,6 +16,7 @@ import {BoundlessMarketLib} from "../../src/libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "../../src/libraries/MerkleProofish.sol";
 import {RequestId} from "../../src/types/RequestId.sol";
 import {Callback} from "../../src/types/Callback.sol";
+import {CallbackType} from "../../src/types/CallbackType.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {Account} from "../../src/types/Account.sol";
 import {RequestLock} from "../../src/types/RequestLock.sol";
@@ -24,7 +25,7 @@ import {Fulfillment} from "../../src/types/Fulfillment.sol";
 import {AssessorJournal} from "../../src/types/AssessorJournal.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Requirements} from "../../src/types/Requirements.sol";
-import {Predicate, PredicateType} from "../../src/types/Predicate.sol";
+import {PredicateLibrary, PredicateType} from "../../src/types/Predicate.sol";
 import {Input, InputType} from "../../src/types/Input.sol";
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 
@@ -78,10 +79,9 @@ abstract contract BaseClient {
 
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
-            imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))}),
+            predicate: PredicateLibrary.createDigestMatchPredicate(bytes32(APP_IMAGE_ID), sha256(APP_JOURNAL)),
             selector: bytes4(0),
-            callback: Callback({addr: address(0), gasLimit: 0})
+            callback: Callback({addr: address(0), gasLimit: 0, callbackType: CallbackType.JournalRequired})
         });
     }
 
