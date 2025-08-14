@@ -13,7 +13,7 @@ export = () => {
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
-  const chainId = isDev ? getEnvVar("CHAIN_ID") : config.require('CHAIN_ID');
+  const chainId = pulumi.output(isDev ? getEnvVar("CHAIN_ID") : config.require('CHAIN_ID'));
 
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const dockerDir = config.require('DOCKER_DIR');
@@ -70,6 +70,6 @@ export = () => {
     boundlessAlertsTopicArns: alertsTopicArns,
     serviceMetricsNamespace,
     marketMetricsNamespace,
-  }, { parent: indexer, dependsOn: [indexer, indexer.dbUrlSecret, indexer.dbUrlSecretVersion] });
+  }, { parent: indexer, dependsOn: [indexer, indexer.dbUrlSecret, indexer.dbUrlSecretVersion].filter(Boolean) });
 
 };
