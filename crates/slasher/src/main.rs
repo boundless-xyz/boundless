@@ -60,6 +60,9 @@ struct MainArgs {
     /// Transaction timeout in seconds.
     #[clap(long, default_value = "120")]
     tx_timeout: u64,
+    /// Maximum block range to query in a single request.
+    #[clap(long, default_value = "500")]
+    max_block_range: u64,
 }
 
 fn parse_address(s: &str) -> Result<Address, String> {
@@ -98,6 +101,7 @@ async fn main() -> Result<()> {
             balance_error_threshold: args.error_balance_below,
             skip_addresses: args.skip_addresses,
             tx_timeout: Duration::from_secs(args.tx_timeout),
+            max_block_range: args.max_block_range,
         },
     )
     .await?;
