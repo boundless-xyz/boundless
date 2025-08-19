@@ -5,11 +5,12 @@
 //! Shared library for the Mint Calculator guest between guest and host.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ops::{Add, AddAssign},
 };
 
 use alloy_primitives::{Address, ChainId, U256};
+use risc0_povw::PovwLogId;
 use risc0_steel::{
     ethereum::{EthChainSpec, EthEvmEnv, EthEvmInput},
     Commitment, StateDb, SteelVerifier,
@@ -88,7 +89,43 @@ impl MultiblockEthEvmEnv<StateDb, Commitment> {
     }
 }
 
+/// A filter for [PovwLogId] used to select which work logs to include in the mint proof.
+///
+/// The default value of this filter sets it to include all log IDs. If the filter is constructed
+/// with a list of values, then it will only include those values.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct WorkLogFilter(Option<BTreeSet<PovwLogId>>);
+
+impl WorkLogFilter {
+    /// Construct a [WorkLogFilter] that includes all log IDs.
+    pub const fn any() -> Self {
+        Self(None)
+    }
+
+    /// Check whether to filter indicates that the given log ID should be included.
+    pub fn includes(&self, log_id: PovwLogId) -> bool {
+        self.0.as_ref().map(|set| set.contains(&log_id)).unwrap_or(true)
+    }
+}
+
+impl<T: AsRef<[PovwLogId]>> From<T> for WorkLogFilter {
+    /// Construct a [WorkLogFilter] from the given slice of log IDs. Only the given log IDs will be
+    /// included in the filter. If the slice is empty, no log IDs will be included.
+    fn from(value: T) -> Self {
+        Self::from_iter(value.as_ref().iter().cloned())
+    }
+}
+
+impl FromIterator<PovwLogId> for WorkLogFilter {
+    /// Construct a [WorkLogFilter] from the given iterator of log IDs. Only the given log IDs will
+    /// be included in the filter. If the iterator is empty, no log IDs will be included.
+    fn from_iter<T: IntoIterator<Item = PovwLogId>>(iter: T) -> Self {
+        Self(Some(BTreeSet::from_iter(iter)))
+    }
+}
+
 #[derive(Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Input {
     /// Address of the PoVW accounting contract to query.
     ///
@@ -104,6 +141,13 @@ pub struct Input {
     pub chain_id: ChainId,
     /// Input for constructing a [MultiblockEthEvmEnv] to query a sequence of blocks.
     pub env: MultiblockEthEvmInput,
+    /// Filter for the work log IDs to be included in this mint calculation.
+    ///
+    /// If not specified, all work logs with updates in the given blocks will be included. If
+    /// specified, only the given set of work log IDs will be included. This is useful in cases
+    /// where the processing of an epoch must be broken up into multiple proofs, and multiple
+    /// onchain transactions.
+    pub work_log_filter: WorkLogFilter,
 }
 
 impl FixedPoint {
@@ -317,6 +361,7 @@ pub mod host {
             provider: P,
             chain_spec: &'static EthChainSpec,
             block_refs: impl IntoIterator<Item = impl Into<BlockNumberOrTag>>,
+            work_log_filter: impl Into<WorkLogFilter>,
         ) -> anyhow::Result<Self>
         where
             P: Provider + Clone + 'static,
@@ -349,6 +394,7 @@ pub mod host {
                 povw_contract_address,
                 chain_id: chain_spec.chain_id,
                 env: envs.into_input().await.context("failed to convert env to input")?,
+                work_log_filter: work_log_filter.into(),
             })
         }
     }

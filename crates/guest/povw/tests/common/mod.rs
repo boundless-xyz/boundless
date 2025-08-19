@@ -14,15 +14,15 @@ use alloy::{
     primitives::{Address, FixedBytes},
     providers::{ext::AnvilApi, DynProvider, Provider, ProviderBuilder},
     rpc::types::TransactionReceipt,
+    signers::Signer,
     signers::local::PrivateKeySigner,
+    sol_types::SolValue,
     sol,
 };
-use alloy_signer::Signer;
-use alloy_sol_types::SolValue;
 use anyhow::bail;
 use boundless_povw_guests::{
     log_updater::{self, IPovwAccounting, LogBuilderJournal, WorkLogUpdate},
-    mint_calculator::{self, host::IPovwMint::IPovwMintInstance},
+    mint_calculator::{self, host::IPovwMint::IPovwMintInstance, WorkLogFilter},
     BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID,
     BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
@@ -102,7 +102,7 @@ pub async fn test_ctx_with(
     let token_contract = MockERC20Mint::deploy(provider.clone()).await?;
     println!("MockERC20 deployed at: {:?}", token_contract.address());
 
-    // Deploy PovwAccounting contract (needs verifier and log builder ID)
+    // Deploy PovwAccounting contract (needs verifier and log updater ID)
     let povw_contract = PovwAccounting::deploy(
         provider.clone(),
         *mock_verifier.address(),
@@ -311,6 +311,7 @@ impl TestCtx {
             self.provider.clone(),
             chain_spec,
             sorted_blocks,
+            WorkLogFilter::any(),
         )
         .await?;
 
