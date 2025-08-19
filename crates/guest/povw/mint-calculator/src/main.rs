@@ -8,10 +8,11 @@ use boundless_povw_guests::log_updater::IPovwAccounting;
 use boundless_povw_guests::mint_calculator::{
     FixedPoint, Input, MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate,
 };
+use boundless_povw_guests::zkc::{IZKCRewards, IZKC};
 use risc0_steel::ethereum::{
     EthChainSpec, ANVIL_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
 };
-use risc0_steel::Event;
+use risc0_steel::{Contract, Event};
 use risc0_zkvm::guest::env;
 
 static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(|| {
@@ -41,33 +42,33 @@ fn main() {
     let envs = input.env.into_env(chain_spec);
 
     // Construct a mapping with the total work value for each finalized epoch.
-    let mut epochs = BTreeMap::<u32, U256>::new();
+    let mut epochs = BTreeMap::<U256, U256>::new();
     for env in envs.0.values() {
         // Query all `EpochFinalized` events of the PoVW accounting contract.
         // NOTE: If it is a bottleneck, this can be optimized by taking a hint from the host as to
         // which blocks contain these events.
         let epoch_finalized_events = Event::new::<IPovwAccounting::EpochFinalized>(env)
-            .address(input.povw_contract_address)
+            .address(input.povw_accounting_address)
             .query();
 
         for epoch_finalized_event in epoch_finalized_events {
-            let epoch_number = epoch_finalized_event.epoch.to::<u32>();
+            let epoch_number = epoch_finalized_event.epoch;
             let None = epochs.insert(epoch_number, epoch_finalized_event.totalWork) else {
                 panic!("multiple epoch finalized events for epoch {epoch_number}");
             };
         }
     }
 
-    // Construct the mapping of mints, as recipient address to mint proportion pairs, and the
-    // mapping of work log id to (initial commit, final commit) pairs.
-    let mut mints = BTreeMap::<Address, FixedPoint>::new();
+    // Construct the mapping of calculated rewards, with the key as (epoch, recipient) pairs and
+    // the value as a FixedPoint fraction indicating the portion of the PoVW epoch reward to assign
+    let mut rewards_weights = BTreeMap::<U256, BTreeMap<Address, FixedPoint>>::new();
     let mut updates = BTreeMap::<Address, (B256, B256)>::new();
     for env in envs.0.values() {
         // Query all `WorkLogUpdated` events of the PoVW accounting contract.
         // NOTE: If it is a bottleneck, this can be optimized by taking a hint from the host as to
         // which blocks contain these events.
         let update_events = Event::new::<IPovwAccounting::WorkLogUpdated>(env)
-            .address(input.povw_contract_address)
+            .address(input.povw_accounting_address)
             .query();
 
         for update_event in update_events {
@@ -92,7 +93,7 @@ fn main() {
                 }
             }
 
-            let epoch_number = update_event.epochNumber.to::<u32>();
+            let epoch_number = update_event.epochNumber;
             let epoch_total_work = *epochs.get(&epoch_number).unwrap_or_else(|| {
                 panic!("no epoch finalized event processed for epoch number {epoch_number}")
             });
@@ -100,14 +101,53 @@ fn main() {
             if update_event.updateValue > U256::ZERO {
                 // NOTE: epoch_total_work must be greater than zero at this point, since it at
                 // least contains this update, which has a non-zero value.
-                *mints.entry(update_event.valueRecipient).or_default() +=
+                *rewards_weights
+                    .entry(epoch_number)
+                    .or_default()
+                    .entry(update_event.valueRecipient)
+                    .or_default() +=
                     FixedPoint::fraction(update_event.updateValue, epoch_total_work);
             }
         }
     }
 
+    // Calculate the rewards for each recipient by assigning the portion of each epoch rewards they
+    // earned, capped by their max allowed reward in that epoch.
+    let mut rewards = BTreeMap::<Address, U256>::new();
+    // The calculator needs to query values from the chain state. This must be done from a block
+    // that is later than the end of every epoch in the mint. We use the latest epoch.
+    let lastest_env = envs.0.last_key_value().unwrap().1;
+    let zkc_contract = Contract::new(input.zkc_address, lastest_env);
+    let zkc_rewards_contract = Contract::new(input.zkc_rewards_address, lastest_env);
+    for (epoch, epoch_reward_weights) in rewards_weights {
+        // Call the ZKC contract to get the total PoVW emissions and end time for the epoch.
+        let epoch_emissions =
+            zkc_contract.call_builder(&IZKC::getPoVWEmissionsForEpochCall { epoch }).call();
+        let epoch_end_time = zkc_contract.call_builder(&IZKC::getEpochEndTimeCall { epoch }).call();
+
+        for (recipient, weight) in epoch_reward_weights {
+            // Calculate the maximum rewards, based on the povw value alone.
+            let uncapped_reward = weight.mul_unwrap(epoch_emissions);
+
+            // Get the reward cap for this recipient in the given epoch. Note that the reward cap
+            // is determined at the end of the epoch.
+            let reward_cap = zkc_rewards_contract
+                .call_builder(&IZKCRewards::getPastPoVWRewardCapCall {
+                    account: recipient,
+                    timepoint: epoch_end_time,
+                })
+                .call();
+
+            // Apply the cap and add the reward to the final mapping.
+            let reward = U256::min(uncapped_reward, reward_cap);
+            if reward > U256::ZERO {
+                *rewards.entry(recipient).or_default() += reward;
+            }
+        }
+    }
+
     let journal = MintCalculatorJournal {
-        mints: mints
+        mints: rewards
             .into_iter()
             .map(|(recipient, value)| MintCalculatorMint { recipient, value })
             .collect(),
@@ -119,7 +159,9 @@ fn main() {
                 updatedCommit: commits.1,
             })
             .collect(),
-        povwContractAddress: input.povw_contract_address,
+        zkcAddress: input.zkc_address,
+        zkcRewardsAddress: input.zkc_rewards_address,
+        povwAccountingAddress: input.povw_accounting_address,
         steelCommit: envs.commitment().unwrap().clone(),
     };
     env::commit_slice(&journal.abi_encode());

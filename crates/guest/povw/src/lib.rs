@@ -7,3 +7,4 @@ include!(concat!(env!("OUT_DIR"), "/methods.rs"));
 
 pub mod log_updater;
 pub mod mint_calculator;
+pub mod zkc;

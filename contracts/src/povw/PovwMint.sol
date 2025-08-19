@@ -10,18 +10,6 @@ import {PovwAccounting, EMPTY_LOG_ROOT} from "./PovwAccounting.sol";
 import {IZKC, IZKCRewards} from "./IZKC.sol";
 import {Steel} from "risc0/steel/Steel.sol";
 
-struct FixedPoint {
-    uint256 value;
-}
-
-library FixedPointLib {
-    uint8 private constant BITS = 128;
-
-    function mulUnwrap(FixedPoint memory self, uint256 rhs) internal pure returns (uint256) {
-        return Math.mulShr(self.value, rhs, BITS, Math.Rounding.Trunc);
-    }
-}
-
 /// An update to the commitment for the processing of a work log.
 struct MintCalculatorUpdate {
     /// Work log ID associated that is updated.
@@ -36,12 +24,11 @@ struct MintCalculatorUpdate {
 struct MintCalculatorMint {
     /// Address of the recipient for the mint.
     address recipient;
-    /// Value of the mint towards the recipient, as a fraction of the epoch reward.
-    // NOTE: This may be larger than 1 when aggregating rewards across multiple epochs.
-    // TODO(povw): This only works if the epoch reward is constant per epoch.
-    FixedPoint value;
+    /// Value of the rewards to credit towards the recipient.
+    uint256 value;
 }
 
+// TODO(povw): The three contract addresses could be collasped to one bytes32 value via hashing.
 /// Journal committed by the mint calculator guest, which contains update and mint actions.
 struct MintCalculatorJournal {
     /// Updates the work log commitments.
@@ -49,9 +36,11 @@ struct MintCalculatorJournal {
     /// Mints to issue.
     MintCalculatorUpdate[] updates;
     /// Address of the queried PovwAccounting contract. Must be checked to be equal to the expected address.
-    address povwContractAddress;
+    address povwAccountingAddress;
     /// Address of the queried IZKCRewards contract. Must be checked to be equal to the expected address.
     address zkcRewardsAddress;
+    /// Address of the queried IZKC contract. Must be checked to be equal to the expected address.
+    address zkcAddress;
     /// A Steel commitment. Must be a valid commitment in the current chain.
     Steel.Commitment steelCommit;
 }
@@ -61,12 +50,10 @@ struct MintCalculatorJournal {
 /// This contract consumes updates produced by the mint calculator guest, mints token rewards, and
 /// maintains state to ensure that any given token reward is minted at most once.
 contract PovwMint {
-    using FixedPointLib for FixedPoint;
-
     /// @dev selector 0x36ce79a0
     error InvalidSteelCommitment();
-    /// @dev selector 0x82db2de2
-    error IncorrectPovwAddress(address expected, address received);
+    /// @dev selector 0x98d6328f
+    error IncorrectSteelContractAddress(address expected, address received);
     /// @dev selector 0xf4a2b615
     error IncorrectInitialUpdateCommit(bytes32 expected, bytes32 received);
 
@@ -74,10 +61,6 @@ contract PovwMint {
     IZKC internal immutable TOKEN;
     IZKCRewards internal immutable TOKEN_REWARDS;
     PovwAccounting internal immutable ACCOUNTING;
-
-    // TODO(povw): Extract to a shared library along with EPOCH_LENGTH.
-    // NOTE: Example value of 100 tokens per epoch, assuming 18 decimals.
-    uint256 public constant EPOCH_REWARD = 100 * 10 ** 18;
 
     /// @notice Image ID of the mint calculator guest.
     /// @dev The mint calculator ensures:
@@ -118,11 +101,17 @@ contract PovwMint {
         if (!Steel.validateCommitment(journal.steelCommit)) {
             revert InvalidSteelCommitment();
         }
-        if (journal.povwContractAddress != address(ACCOUNTING)) {
-            revert IncorrectPovwAddress({expected: address(ACCOUNTING), received: journal.povwContractAddress});
+        if (journal.povwAccountingAddress != address(ACCOUNTING)) {
+            revert IncorrectSteelContractAddress({
+                expected: address(ACCOUNTING),
+                received: journal.povwAccountingAddress
+            });
+        }
+        if (journal.zkcAddress != address(TOKEN)) {
+            revert IncorrectSteelContractAddress({expected: address(TOKEN), received: journal.zkcAddress});
         }
         if (journal.zkcRewardsAddress != address(TOKEN_REWARDS)) {
-            revert IncorrectPovwAddress({expected: address(ACCOUNTING), received: journal.povwContractAddress});
+            revert IncorrectSteelContractAddress({expected: address(TOKEN_REWARDS), received: journal.zkcRewardsAddress});
         }
 
         // Ensure the initial commit for each update is correct and update the final commit.
@@ -144,8 +133,7 @@ contract PovwMint {
         // Issue all of the mint calls indicated in the journal.
         for (uint256 i = 0; i < journal.mints.length; i++) {
             MintCalculatorMint memory mintData = journal.mints[i];
-            uint256 mintValue = mintData.value.mulUnwrap(EPOCH_REWARD);
-            TOKEN.mintPoVWRewardsForRecipient(mintData.recipient, mintValue);
+            TOKEN.mintPoVWRewardsForRecipient(mintData.recipient, mintData.value);
         }
     }
 }

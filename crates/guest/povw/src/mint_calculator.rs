@@ -26,22 +26,19 @@ alloy_sol_types::sol! {
         bytes32 updatedCommit;
     }
 
-    #[derive(Debug, Default)]
-    struct FixedPoint {
-        uint256 value;
-    }
-
     #[derive(Debug)]
     struct MintCalculatorMint {
         address recipient;
-        FixedPoint value;
+        uint256 value;
     }
 
     #[derive(Debug)]
     struct MintCalculatorJournal {
         MintCalculatorMint[] mints;
         MintCalculatorUpdate[] updates;
-        address povwContractAddress;
+        address povwAccountingAddress;
+        address zkcRewardsAddress;
+        address zkcAddress;
         Commitment steelCommit;
     }
 }
@@ -138,7 +135,15 @@ pub struct Input {
     /// running, and so the behavior of the contract may deviate from expected. If the prover did
     /// supply the wrong address, the proof will be rejected by the minting contract when it checks
     /// the address written to the journal.
-    pub povw_contract_address: Address,
+    pub povw_accounting_address: Address,
+    /// Address of the IZKC contract to query.
+    ///
+    /// See note on `povw_accounting_address` above about safety.
+    pub zkc_address: Address,
+    /// Address of the IZKCRewards contract to query.
+    ///
+    /// See note on `povw_accounting_address` above about safety.
+    pub zkc_rewards_address: Address,
     /// EIP-155 chain ID for the chain being queried.
     ///
     /// This chain ID is used to select the [ChainSpec][risc0_steel::config::ChainSpec] that will
@@ -155,6 +160,9 @@ pub struct Input {
     pub work_log_filter: WorkLogFilter,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FixedPoint(U256);
+
 impl FixedPoint {
     pub const BITS: usize = 128;
     pub const BASE: U256 = U256::ONE.checked_shl(Self::BITS).unwrap();
@@ -168,11 +176,11 @@ impl FixedPoint {
     pub fn fraction(num: U256, dem: U256) -> Self {
         let fraction = num.checked_mul(Self::BASE).unwrap() / dem;
         assert!(fraction <= Self::BASE, "expected fractional value is greater than one");
-        Self { value: fraction }
+        Self(fraction)
     }
 
     pub fn mul_unwrap(&self, x: U256) -> U256 {
-        self.value.checked_mul(x).unwrap().wrapping_shr(Self::BITS)
+        self.0.checked_mul(x).unwrap().wrapping_shr(Self::BITS)
     }
 }
 
@@ -180,13 +188,13 @@ impl Add for FixedPoint {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self { value: self.value + rhs.value }
+        Self(self.0.checked_add(rhs.0).unwrap())
     }
 }
 
 impl AddAssign for FixedPoint {
     fn add_assign(&mut self, rhs: Self) {
-        self.value += rhs.value
+        self.0 = self.0.checked_add(rhs.0).unwrap()
     }
 }
 
@@ -362,7 +370,9 @@ pub mod host {
         // TODO(povw): Provide a way to do this with Beacon commits. Also, its not really ideal to
         // have to pass in each of the block numbers here.
         pub async fn build<P>(
-            povw_contract_address: Address,
+            povw_accounting_address: Address,
+            zkc_address: Address,
+            zkc_rewards_address: Address,
             provider: P,
             chain_spec: &'static EthChainSpec,
             block_refs: impl IntoIterator<Item = impl Into<BlockNumberOrTag>>,
@@ -383,20 +393,25 @@ pub mod host {
 
             for env in envs.0.values_mut() {
                 Event::preflight::<IPovwAccounting::EpochFinalized>(env)
-                    .address(povw_contract_address)
+                    .address(povw_accounting_address)
                     .query()
                     .await
                     .context("failed to query EpochFinalized events")?;
             }
             for env in envs.0.values_mut() {
                 Event::preflight::<IPovwAccounting::WorkLogUpdated>(env)
-                    .address(povw_contract_address)
+                    .address(povw_accounting_address)
                     .query()
                     .await
                     .context("failed to query WorkLogUpdated events")?;
             }
+
+            // TODO(povw): Add the preflight for the calls from the final env.
+
             Ok(Self {
-                povw_contract_address,
+                povw_accounting_address,
+                zkc_address,
+                zkc_rewards_address,
                 chain_id: chain_spec.chain_id,
                 env: envs.into_input().await.context("failed to convert env to input")?,
                 work_log_filter: work_log_filter.into(),
