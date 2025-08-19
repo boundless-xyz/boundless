@@ -380,6 +380,7 @@ contract BoundlessMarketTest is Test {
 
         for (uint8 i = 0; i < requests.length; i++) {
             bytes32 claimDigest;
+            FulfillmentDataType fillType;
             bytes memory fulfillmentData;
             bytes memory journal = journals[i];
             PredicateType predicateType = requests[i].requirements.predicate.predicateType;
@@ -387,8 +388,10 @@ contract BoundlessMarketTest is Test {
             if (predicateType != PredicateType.ClaimDigestMatch) {
                 claimDigest = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
                 fulfillmentData = abi.encode(CallbackData({imageId: imageId, journal: journal}));
+                fillType = FulfillmentDataType.ImageIdAndJournal;
             } else {
                 claimDigest = bytesToBytes32(requests[i].requirements.predicate.data);
+                fillType = FulfillmentDataType.None;
             }
             Fulfillment memory fill = Fulfillment({
                 id: requests[i].id,
@@ -397,9 +400,9 @@ contract BoundlessMarketTest is Test {
                 ),
                 claimDigest: claimDigest,
                 fulfillmentData: fulfillmentData,
+                fulfillmentDataType: fillType,
                 seal: bytes(""),
-                predicateType: predicateType,
-                fulfillmentDataType: FulfillmentDataType.ImageIdAndJournal
+                predicateType: predicateType
             });
             fills[i] = fill;
             if (requests[i].requirements.selector != bytes4(0)) {
@@ -868,7 +871,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x03ACaf40482882feD244b288699C66Cc2B2e1489)
+                IBoundlessMarket.InsufficientBalance.selector, address(0xc62E3b806D3750d2C89fF568e3c9A9D8E6D2619A)
             )
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
@@ -892,7 +895,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // the way it is hashed for signatures. Find a good way to avoid this.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x96f1A0216373E86A42508A7b479539DE34111Cc7)
+                IBoundlessMarket.InsufficientBalance.selector, address(0x2342A914306E62d082692F86bc79DcFf8729fa99)
             )
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
@@ -2489,7 +2492,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-    // Fulfill a batch of locked requests with no journal
+    // Fulfill a batch of locked ClaimDigestMatch requests with no journal
     function testFulfillLockedRequestsNoJournal() public {
         // Provide a batch definition as an array of clients and how many requests each submits.
         uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
@@ -2501,6 +2504,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory journals = new bytes[](batchSize);
         uint256 expectedRevenue = 0;
         uint256 idx = 0;
+
         for (uint256 i = 0; i < batch.length; i++) {
             Client client = getClient(i);
 
@@ -2539,7 +2543,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         }
         boundlessMarket.fulfill(fills, assessorReceipt);
         vm.snapshotGasLastCall(string.concat("fulfill (no journal): a batch of ", vm.toString(batchSize)));
-
         for (uint256 i = 0; i < fills.length; i++) {
             // Check that the proof was submitted
             expectRequestFulfilled(fills[i].id);
@@ -2610,8 +2613,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         request.requirements = Requirements({
             predicate: PredicateLibrary.createDigestMatchPredicate(bytes32(APP_IMAGE_ID_2), sha256(APP_JOURNAL_2)),
             selector: bytes4(0),
-            callback: Callback({addr: address(0), gasLimit: 0}),
-            fulfillmentDataType: FulfillmentDataType.ImageIdAndJournal
+            callback: Callback({addr: address(0), gasLimit: 0})
         });
         boundlessMarket.lockRequestWithSignature(
             request, client.sign(request), testProver.signLockRequest(LockRequest({request: request}))

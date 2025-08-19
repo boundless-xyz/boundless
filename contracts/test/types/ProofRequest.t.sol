@@ -73,8 +73,7 @@ contract ProofRequestTest is Test {
             requirements: Requirements({
                 predicate: PredicateLibrary.createDigestMatchPredicate(APP_IMAGE_ID, sha256(bytes("GUEST JOURNAL"))),
                 callback: Callback({gasLimit: 0, addr: address(0)}),
-                selector: bytes4(0),
-                fulfillmentDataType: FulfillmentDataType.ImageIdAndJournal
+                selector: bytes4(0)
             }),
             imageUrl: "https://image.dev.null",
             input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),

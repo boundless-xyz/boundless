@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
-use crate::contracts::boundless_market_contract::FulfillmentDataType;
 use crate::contracts::{Callback, Predicate, Requirements};
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
@@ -63,11 +62,6 @@ pub struct RequirementParams {
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub selector: Option<FixedBytes<4>>,
-
-    /// Type of the data that is deliever when a proof is fulfilled.
-    #[clap(skip)]
-    #[builder(setter(strip_option, into), default)]
-    pub fulfillment_data_type: Option<FulfillmentDataType>,
 }
 
 impl From<Requirements> for RequirementParams {
@@ -78,7 +72,6 @@ impl From<Requirements> for RequirementParams {
             selector: Some(value.selector),
             callback_address: Some(value.callback.addr),
             callback_gas_limit: Some(value.callback.gasLimit.to()),
-            fulfillment_data_type: Some(value.fulfillmentDataType),
             image_id,
         }
     }
@@ -98,7 +91,6 @@ impl TryFrom<RequirementParams> for Requirements {
                 addr: value.callback_address.unwrap_or_default(),
                 gasLimit: U96::from(value.callback_gas_limit.unwrap_or_default()),
             },
-            fulfillmentDataType: value.fulfillment_data_type.unwrap_or(FulfillmentDataType::None),
         })
     }
 }
@@ -175,15 +167,8 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
             })
             .unwrap_or_default();
         let selector = params.selector.unwrap_or_default();
-        let fulfillment_data_type =
-            params.fulfillment_data_type.unwrap_or(FulfillmentDataType::None);
 
-        Ok(Requirements {
-            predicate,
-            callback,
-            selector,
-            fulfillmentDataType: fulfillment_data_type,
-        })
+        Ok(Requirements { predicate, callback, selector })
     }
 }
 

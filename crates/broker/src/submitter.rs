@@ -29,6 +29,7 @@ use boundless_market::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
         boundless_market_contract::CallbackData,
         encode_seal, AssessorJournal, AssessorReceipt, Fulfillment, FulfillmentDataType,
+        PredicateType,
     },
     selector::is_groth16_selector,
 };
@@ -338,24 +339,24 @@ where
                 fulfillment_to_order_id.insert(request_id, order_id);
                 let predicate_type = order_request.requirements.predicate.predicateType;
 
-                let (claim_digest, fulfillment_data) = match order_request
-                    .requirements
-                    .fulfillmentDataType
-                {
-                    FulfillmentDataType::None => (
+                // For now, we default to not providing journals with claim digest match, but you could if it is a R0 ZKVM commit digest.
+                let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
+                    PredicateType::ClaimDigestMatch => (
                         order_request.requirements.predicate.data.0.as_ref().try_into().unwrap(),
                         vec![],
+                        FulfillmentDataType::None,
                     ),
-                    FulfillmentDataType::ImageIdAndJournal => (
+                    PredicateType::PrefixMatch | PredicateType::DigestMatch => (
                         order_claim_digest,
                         CallbackData {
                             imageId: <[u8; 32]>::from(order_img_id).into(),
                             journal: order_journal.into(),
                         }
                         .abi_encode(),
+                        FulfillmentDataType::ImageIdAndJournal,
                     ),
                     _ => {
-                        panic!("Invalid fulfillment type");
+                        return Err(anyhow!("Invalid predicate type: {predicate_type:?}"));
                     }
                 };
 
@@ -363,7 +364,7 @@ where
                     id: request_id,
                     requestDigest: request_digest,
                     fulfillmentData: fulfillment_data.into(),
-                    fulfillmentDataType: order_request.requirements.fulfillmentDataType,
+                    fulfillmentDataType: fulfillment_data_type,
                     claimDigest: <[u8; 32]>::from(claim_digest).into(),
                     seal: seal.into(),
                     predicateType: predicate_type,

@@ -521,12 +521,7 @@ impl ProofRequest {
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
     pub fn new(predicate: Predicate) -> Self {
-        Self {
-            predicate,
-            callback: Callback::default(),
-            selector: UNSPECIFIED_SELECTOR,
-            fulfillmentDataType: FulfillmentDataType::None,
-        }
+        Self { predicate, callback: Callback::default(), selector: UNSPECIFIED_SELECTOR }
     }
 
     /// Sets the predicate.

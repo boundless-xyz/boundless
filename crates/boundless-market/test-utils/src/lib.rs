@@ -30,7 +30,8 @@ use boundless_market::{
         boundless_market_contract::CallbackData,
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
-        AssessorCommitment, AssessorJournal, Fulfillment, PredicateType, ProofRequest,
+        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentDataType, PredicateType,
+        ProofRequest,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -442,8 +443,10 @@ pub fn mock_singleton(
     .unwrap();
 
     let predicate_type = request.requirements.predicate.predicateType;
-    let (claim_digest, fulfillment_data) = match predicate_type {
-        PredicateType::ClaimDigestMatch => (<[u8; 32]>::from(app_claim_digest).into(), vec![]),
+    let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
+        PredicateType::ClaimDigestMatch => {
+            (<[u8; 32]>::from(app_claim_digest).into(), vec![], FulfillmentDataType::None)
+        }
         PredicateType::PrefixMatch | PredicateType::DigestMatch => (
             <[u8; 32]>::from(app_claim_digest).into(),
             CallbackData {
@@ -454,6 +457,7 @@ pub fn mock_singleton(
                 journal: app_journal.bytes.into(),
             }
             .abi_encode(),
+            FulfillmentDataType::ImageIdAndJournal,
         ),
         _ => panic!("unsupported predicate type"),
     };
@@ -462,7 +466,7 @@ pub fn mock_singleton(
         requestDigest: request_digest,
         claimDigest: claim_digest,
         fulfillmentData: fulfillment_data.into(),
-        fulfillmentDataType: request.requirements.fulfillmentDataType,
+        fulfillmentDataType: fulfillment_data_type,
         seal: set_inclusion_seal.into(),
         predicateType: predicate_type,
     };

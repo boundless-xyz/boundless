@@ -10,8 +10,7 @@
 use alloy_primitives::{Address, Keccak256, Signature, SignatureError};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use boundless_market::contracts::{
-    boundless_market_contract::FulfillmentDataType, EIP712DomainSaltless, FulfillmentClaimData,
-    PredicateType, ProofRequest, RequestError,
+    EIP712DomainSaltless, FulfillmentClaimData, ProofRequest, RequestError,
 };
 use risc0_zkvm::{
     sha::{Digest, Digestible},
@@ -83,12 +82,6 @@ impl Fulfillment {
     }
     /// Evaluates the requirements of the request.
     pub fn evaluate_requirements(&self) -> Result<(), Error> {
-        // If ClaimDigestMatch, a journal cannot be provided because it would be unautheticatable.
-        if self.request.requirements.predicate.predicateType == PredicateType::ClaimDigestMatch {
-            if self.request.requirements.fulfillmentDataType != FulfillmentDataType::None {
-                return Err(Error::RequirementsEvaluationError);
-            }
-        }
         if !self.request.requirements.predicate.eval(&self.fulfillment_data) {
             return Err(Error::RequirementsEvaluationError);
         }

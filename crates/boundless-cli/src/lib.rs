@@ -311,29 +311,35 @@ impl DefaultProver {
                 order_inclusion_receipt.abi_encode_seal()?
             };
 
-            let (claim_digest, fulfillment_data) = match req.requirements.fulfillmentDataType {
-                FulfillmentDataType::None => (
-                    <[u8; 32]>::from(fills[i].fulfillment_data.claim_digest().unwrap()).into(),
-                    vec![],
-                ),
-                FulfillmentDataType::ImageIdAndJournal => (
-                    <[u8; 32]>::from(claims[i].digest()).into(),
-                    CallbackData {
-                        imageId: <[u8; 32]>::from(fills[i].fulfillment_data.image_id().unwrap())
+            // For now, we default to not providing journals with claim digest match, but you could if it is a R0 ZKVM commit digest.
+            let (claim_digest, fulfillment_data, fulfillment_data_type) =
+                match req.requirements.predicate.predicateType {
+                    PredicateType::ClaimDigestMatch => (
+                        <[u8; 32]>::from(fills[i].fulfillment_data.claim_digest().unwrap()).into(),
+                        vec![],
+                        FulfillmentDataType::None,
+                    ),
+                    PredicateType::PrefixMatch | PredicateType::DigestMatch => (
+                        <[u8; 32]>::from(claims[i].digest()).into(),
+                        CallbackData {
+                            imageId: <[u8; 32]>::from(
+                                fills[i].fulfillment_data.image_id().unwrap(),
+                            )
                             .into(),
-                        journal: fills[i].fulfillment_data.journal().unwrap().clone(),
+                            journal: fills[i].fulfillment_data.journal().unwrap().clone(),
+                        }
+                        .abi_encode(),
+                        FulfillmentDataType::ImageIdAndJournal,
+                    ),
+                    _ => {
+                        bail!("Invalid predicate type");
                     }
-                    .abi_encode(),
-                ),
-                _ => {
-                    bail!("Invalid fulfillment type");
-                }
-            };
+                };
 
             let fulfillment = BoundlessFulfillment {
                 claimDigest: claim_digest,
                 fulfillmentData: fulfillment_data.into(),
-                fulfillmentDataType: req.requirements.fulfillmentDataType,
+                fulfillmentDataType: fulfillment_data_type,
                 id: req.id,
                 requestDigest: req.eip712_signing_hash(&self.domain.alloy_struct()),
                 seal: order_seal.into(),

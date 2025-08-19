@@ -80,8 +80,7 @@ abstract contract BaseClient {
         return Requirements({
             predicate: PredicateLibrary.createDigestMatchPredicate(bytes32(APP_IMAGE_ID), sha256(APP_JOURNAL)),
             selector: bytes4(0),
-            callback: Callback({addr: address(0), gasLimit: 0}),
-            fulfillmentDataType: FulfillmentDataType.ImageIdAndJournal
+            callback: Callback({addr: address(0), gasLimit: 0})
         });
     }
 

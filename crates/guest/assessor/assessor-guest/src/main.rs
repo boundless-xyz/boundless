@@ -13,8 +13,8 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};
 use boundless_assessor::{process_tree, AssessorInput};
 use boundless_market::contracts::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, FulfillmentDataType,
-    RequestId, UNSPECIFIED_SELECTOR,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, RequestId,
+    UNSPECIFIED_SELECTOR,
 };
 use risc0_zkvm::{guest::env, sha::Digest};
 
@@ -76,10 +76,10 @@ fn main() {
 
         let callback = &fill.request.requirements.callback;
 
-        if fill.request.requirements.callback.addr != Address::ZERO
-            && fill.request.requirements.fulfillmentDataType
-                == FulfillmentDataType::ImageIdAndJournal
-        {
+        // Note that this allows for callbacks to be specified even in the case of
+        // ClaimDigestMatch predicates where the journal cannot be provided.
+        // This is ok because it will fail on chain checks if a journal is indeed provided.
+        if fill.request.requirements.callback.addr != Address::ZERO {
             callbacks.push(AssessorCallback {
                 index: index.try_into().expect("callback index overflow"),
                 addr: callback.addr,

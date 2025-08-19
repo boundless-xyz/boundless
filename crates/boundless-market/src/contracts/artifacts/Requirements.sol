@@ -14,12 +14,10 @@ struct Requirements {
     Callback callback;
     Predicate predicate;
     bytes4 selector;
-    FulfillmentDataType fulfillmentDataType;
 }
 
 library RequirementsLibrary {
-    string constant REQUIREMENTS_TYPE =
-        "Requirements(Callback callback,Predicate predicate,bytes4 selector,uint8 fulfillmentDataType)";
+    string constant REQUIREMENTS_TYPE = "Requirements(Callback callback,Predicate predicate,bytes4 selector)";
     bytes32 constant REQUIREMENTS_TYPEHASH =
         keccak256(abi.encodePacked(REQUIREMENTS_TYPE, CallbackLibrary.CALLBACK_TYPE, PredicateLibrary.PREDICATE_TYPE));
 
@@ -32,8 +30,7 @@ library RequirementsLibrary {
                 REQUIREMENTS_TYPEHASH,
                 CallbackLibrary.eip712Digest(requirements.callback),
                 PredicateLibrary.eip712Digest(requirements.predicate),
-                requirements.selector,
-                requirements.fulfillmentDataType
+                requirements.selector
             )
         );
     }
