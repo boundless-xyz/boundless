@@ -15,6 +15,7 @@ use boundless_povw_guests::{
     },
     BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
+use common::MintOptions;
 use risc0_povw::WorkLog;
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
@@ -832,7 +833,7 @@ async fn zero_valued_update() -> anyhow::Result<()> {
     println!("EpochFinalized event verified: epoch={}, totalWork=0", finalized_event.epoch);
 
     // Run the mint process - should complete successfully
-    ctx.run_mint_for_epochs(&[finalized_event.epoch.to()]).await?;
+    ctx.run_mint_with_opts(MintOptions::builder().epochs([finalized_event.epoch.to()])).await?;
 
     // Verify no tokens were minted (recipient balance should remain zero)
     let zero_update_balance = ctx.token_contract.balanceOf(signer.address()).call().await?;

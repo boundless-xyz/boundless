@@ -6,7 +6,7 @@
 // its own dead code analysis and so will report code used only by the other as dead.
 #![allow(dead_code)]
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{borrow::Cow, collections::BTreeSet, sync::Arc, ops::Deref};
 
 use alloy::{
     network::EthereumWallet,
@@ -26,6 +26,7 @@ use boundless_povw_guests::{
     BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID,
     BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
+use derive_builder::Builder;
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_steel::ethereum::{EthChainSpec, ANVIL_CHAIN_SPEC};
 use risc0_zkvm::{
@@ -225,22 +226,13 @@ impl TestCtx {
         Ok(epoch_finalized_events[0].inner.data.clone())
     }
 
-    pub async fn build_mint_input(&self) -> anyhow::Result<mint_calculator::Input> {
-        self.build_mint_input_for_epochs(&[]).await
-    }
+    pub async fn build_mint_input(&self, opts: impl Into<MintOptions>) -> anyhow::Result<mint_calculator::Input> {
+        let MintOptions { epochs, chain_spec, work_log_filter } = opts.into();
 
-    pub async fn build_mint_input_for_epochs(
-        &self,
-        epochs: &[u32],
-    ) -> anyhow::Result<mint_calculator::Input> {
-        self.build_mint_input_for_epochs_with_chain_spec(epochs, &ANVIL_CHAIN_SPEC).await
-    }
+        // NOTE: This implementation includes all events for the specified epochs, and not just the
+        // ones that related to the ids in the work_log_filter, to provide extra events and test
+        // the filtering.
 
-    pub async fn build_mint_input_for_epochs_with_chain_spec(
-        &self,
-        epochs: &[u32],
-        chain_spec: &'static EthChainSpec,
-    ) -> anyhow::Result<mint_calculator::Input> {
         // Query for WorkLogUpdated and EpochFinalized events, recording the block numbers that include these events.
         let latest_block = self.provider.get_block_number().await?;
         let epoch_filter_str =
@@ -248,9 +240,9 @@ impl TestCtx {
         println!("Running mint operation for blocks: 0 to {latest_block}, filtering for {epoch_filter_str}");
 
         // Query for WorkLogUpdated events
-        let work_log_filter =
+        let work_log_event_filter =
             self.povw_contract.WorkLogUpdated_filter().from_block(0).to_block(latest_block);
-        let work_log_events = work_log_filter.query().await?;
+        let work_log_events = work_log_event_filter.query().await?;
         println!("Found {} total WorkLogUpdated events", work_log_events.len());
 
         // Query for EpochFinalized events
@@ -311,7 +303,7 @@ impl TestCtx {
             self.provider.clone(),
             chain_spec,
             sorted_blocks,
-            WorkLogFilter::any(),
+            work_log_filter,
         )
         .await?;
 
@@ -320,10 +312,10 @@ impl TestCtx {
     }
 
     pub async fn run_mint(&self) -> anyhow::Result<TransactionReceipt> {
-        self.run_mint_for_epochs(&[]).await
+        self.run_mint_with_opts(MintOptions::default()).await
     }
 
-    pub async fn run_mint_for_epochs(&self, epochs: &[u32]) -> anyhow::Result<TransactionReceipt> {
+    pub async fn run_mint_with_opts(&self, opts: impl Into<MintOptions>) -> anyhow::Result<TransactionReceipt> {
         let mint_input = self.build_mint_input_for_epochs(epochs).await?;
 
         // Execute the mint calculator guest
@@ -350,6 +342,48 @@ impl TestCtx {
         println!("Mint transaction sent: {:?}", mint_tx.tx_hash());
 
         Ok(mint_tx.get_receipt().await?)
+    }
+}
+
+#[derive(Clone, Debug, Builder)]
+#[builder(build_fn(name = "build_inner", private))]
+pub struct MintOptions {
+    #[builder(setter(into), default)]
+    epochs: Vec<u32>,
+    #[builder(setter(into), default = "&ANVIL_CHAIN_SPEC")]
+    chain_spec: &'static EthChainSpec,
+    #[builder(setter(into), default)]
+    work_log_filter: WorkLogFilter,
+}
+
+impl Default for MintOptions {
+    fn default() -> Self {
+        Self::builder().build()
+    }
+}
+
+impl MintOptions {
+    pub fn builder() -> MintOptionsBuilder {
+        Default::default()
+    }
+}
+
+impl MintOptionsBuilder {
+    fn build(&self) -> MintOptions {
+        // Auto-generated build-inner is infallible because all fields have defaults.
+        self.build_inner().unwrap()
+    }
+}
+
+impl From<&mut MintOptionsBuilder> for MintOptions {
+    fn from(value: &mut MintOptionsBuilder) -> Self {
+        value.build()
+    }
+}
+
+impl From<MintOptionsBuilder> for MintOptions {
+    fn from(value: MintOptionsBuilder) -> Self {
+        value.build()
     }
 }
 

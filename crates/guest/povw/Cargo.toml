@@ -24,6 +24,7 @@ serde = "1"
 [dev-dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 bytemuck = "1.23"
+derive_builder = "0.20.2"
 rand = "0.9"
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { git = "https://github.com/risc0/risc0", branch = "victor/povw-round-2", default-features = false, features = ["client", "unstable"] }

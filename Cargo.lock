@@ -2744,6 +2744,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "bytemuck",
+ "derive_builder",
  "postcard",
  "rand 0.9.2",
  "risc0-build 2.3.1",
