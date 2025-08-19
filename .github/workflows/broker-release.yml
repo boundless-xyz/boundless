@@ -54,6 +54,9 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -73,16 +76,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build Broker
+      - name: Build Broker Components
+        env:
+          PATH: /home/runner/.cargo/bin:$PATH
         run: |
+          # Build broker
           cargo build --release --target ${{ matrix.target }} --bin broker
-          mkdir -p binaries/${{ matrix.artifact_name }}
-          cp target/${{ matrix.target }}/release/broker binaries/${{ matrix.artifact_name }}/broker
 
-      - name: Build Broker Stress Test
-        run: |
+          # Build broker stress test
           cargo build --release --target ${{ matrix.target }} --bin broker-stress
+
+          # Create binaries directory
+          mkdir -p binaries/${{ matrix.artifact_name }}
+
+          # Copy binaries
+          cp target/${{ matrix.target }}/release/broker binaries/${{ matrix.artifact_name }}/broker
           cp target/${{ matrix.target }}/release/broker-stress binaries/${{ matrix.artifact_name }}/broker-stress
+
+      - name: sccache stats
+        run: sccache --show-stats
 
       - name: Create checksums
         working-directory: binaries/${{ matrix.artifact_name }}
@@ -174,84 +186,24 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload Broker (Linux AMD64)
+      - name: Upload Broker Binaries
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./release-assets/broker
-          asset_name: broker-linux-amd64
+          asset_name: broker-${{ matrix.artifact_name }}
           asset_content_type: application/octet-stream
 
-      - name: Upload Broker (Linux ARM64)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/broker
-          asset_name: broker-linux-arm64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Broker (macOS Intel)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/broker
-          asset_name: broker-darwin-amd64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Broker (macOS Apple Silicon)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/broker
-          asset_name: broker-darwin-arm64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Broker Stress Test (Linux AMD64)
+      - name: Upload Broker Stress Test Binaries
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./release-assets/broker-stress
-          asset_name: broker-stress-linux-amd64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Broker Stress Test (Linux ARM64)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/broker-stress
-          asset_name: broker-stress-linux-arm64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Broker Stress Test (macOS Intel)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/broker-stress
-          asset_name: broker-stress-darwin-amd64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Broker Stress Test (macOS Apple Silicon)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/broker-stress
-          asset_name: broker-stress-darwin-arm64
+          asset_name: broker-stress-${{ matrix.artifact_name }}
           asset_content_type: application/octet-stream
 
       - name: Upload SHA256 checksums

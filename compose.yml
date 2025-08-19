@@ -2,7 +2,8 @@ name: bento
 # Anchors:
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-  REDIS_URL: redis://${REDIS_HOST:-redis}:6379
+  # KeyDB connection (Redis-compatible protocol)
+  REDIS_URL: keydb://${REDIS_HOST:-redis}:6379
   S3_URL: http://${MINIO_HOST:-minio}:9000
   S3_BUCKET: ${MINIO_BUCKET:-workflow}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
@@ -81,15 +82,15 @@ x-broker-common: &broker-common
 services:
   redis:
     hostname: ${REDIS_HOST:-redis}
-    image: ${REDIS_IMG:-redis:7.2.5-alpine3.19}
+    image: ${REDIS_IMG:-eqalpha/keydb:alpine-x86_64_v6.3.4}
     restart: always
     ports:
       - 6379:6379
     volumes:
       - redis-data:/data
-    command: redis-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
+    command: keydb-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes --server-threads 4 --multi-threading yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "keydb-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5

@@ -30,6 +30,35 @@ where
     }
 }
 
+/// Batch set multiple keys with expiry using Redis pipelining
+pub async fn batch_set_keys_with_expiry<T>(
+    conn: &mut deadpool_redis::Connection,
+    key_value_pairs: Vec<(String, T)>,
+    ttl: Option<u64>,
+) -> RedisResult<()>
+where
+    T: ToRedisArgs + Send + Sync + 'static,
+{
+    if key_value_pairs.is_empty() {
+        return Ok(());
+    }
+
+    // Use Redis pipelining for bulk operations
+    let mut pipe = redis::pipe();
+
+    for (key, value) in key_value_pairs {
+        if let Some(expiry) = ttl {
+            pipe.set_ex(key, value, expiry);
+        } else {
+            pipe.set(key, value);
+        }
+    }
+
+    // Execute the pipeline
+    pipe.query_async::<_, ()>(conn).await?;
+    Ok(())
+}
+
 /// Scan and delete all keys at a given prefix
 pub async fn scan_and_delete(conn: &mut Connection, prefix: &str) -> RedisResult<()> {
     // Initialize the cursor for SCAN
