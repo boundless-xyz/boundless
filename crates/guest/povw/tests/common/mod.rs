@@ -6,7 +6,7 @@
 // its own dead code analysis and so will report code used only by the other as dead.
 #![allow(dead_code)]
 
-use std::{borrow::Cow, collections::BTreeSet, sync::Arc, ops::Deref};
+use std::{collections::BTreeSet, sync::Arc};
 
 use alloy::{
     network::EthereumWallet,
@@ -316,7 +316,7 @@ impl TestCtx {
     }
 
     pub async fn run_mint_with_opts(&self, opts: impl Into<MintOptions>) -> anyhow::Result<TransactionReceipt> {
-        let mint_input = self.build_mint_input_for_epochs(epochs).await?;
+        let mint_input = self.build_mint_input(opts).await?;
 
         // Execute the mint calculator guest
         let mint_journal = execute_mint_calculator_guest(&mint_input)?;
@@ -350,7 +350,7 @@ impl TestCtx {
 pub struct MintOptions {
     #[builder(setter(into), default)]
     epochs: Vec<u32>,
-    #[builder(setter(into), default = "&ANVIL_CHAIN_SPEC")]
+    #[builder(default = "&ANVIL_CHAIN_SPEC")]
     chain_spec: &'static EthChainSpec,
     #[builder(setter(into), default)]
     work_log_filter: WorkLogFilter,

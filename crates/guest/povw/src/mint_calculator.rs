@@ -102,6 +102,11 @@ impl WorkLogFilter {
         Self(None)
     }
 
+    /// Construct a [WorkLogFilter] that does not include any log IDs.
+    pub const fn none() -> Self {
+        Self(Some(BTreeSet::new()))
+    }
+
     /// Check whether to filter indicates that the given log ID should be included.
     pub fn includes(&self, log_id: PovwLogId) -> bool {
         self.0.as_ref().map(|set| set.contains(&log_id)).unwrap_or(true)

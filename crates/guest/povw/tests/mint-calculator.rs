@@ -11,7 +11,7 @@ use alloy_sol_types::SolValue;
 use boundless_povw_guests::{
     log_updater::LogBuilderJournal,
     mint_calculator::{
-        FixedPoint, MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate,
+        FixedPoint, MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate, WorkLogFilter,
     },
     BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
@@ -169,7 +169,7 @@ async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
     assert_eq!(finalized_event1.totalWork, U256::from(50));
 
     // First mint for first epoch
-    let mint_receipt1 = ctx.run_mint_for_epochs(&[first_epoch]).await?;
+    let mint_receipt1 = ctx.run_mint_with_opts(MintOptions::builder().epochs([first_epoch])).await?;
     println!("First mint completed with {} gas used", mint_receipt1.gas_used);
 
     let balance_after_first_mint = ctx.token_contract.balanceOf(signer.address()).call().await?;
@@ -202,7 +202,7 @@ async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
     assert_eq!(finalized_event2.totalWork, U256::from(75));
 
     // Second mint for second epoch
-    let mint_receipt2 = ctx.run_mint_for_epochs(&[second_epoch]).await?;
+    let mint_receipt2 = ctx.run_mint_with_opts(MintOptions::builder().epochs([second_epoch])).await?;
     println!("Second mint completed with {} gas used", mint_receipt2.gas_used);
 
     let final_balance = ctx.token_contract.balanceOf(signer.address()).call().await?;
@@ -262,7 +262,7 @@ async fn cross_epoch_mint() -> anyhow::Result<()> {
     assert_eq!(finalized_event2.totalWork, U256::from(60));
 
     // Single mint covering both epochs
-    let mint_receipt = ctx.run_mint_for_epochs(&[first_epoch, second_epoch]).await?;
+    let mint_receipt = ctx.run_mint_with_opts(MintOptions::builder().epochs([first_epoch, second_epoch])).await?;
     println!("Cross-epoch mint completed with {} gas used", mint_receipt.gas_used);
 
     let final_balance = ctx.token_contract.balanceOf(signer.address()).call().await?;
@@ -354,7 +354,7 @@ async fn reject_wrong_povw_address() -> anyhow::Result<()> {
     ctx1.advance_epochs(1).await?;
     ctx1.finalize_epoch().await?;
 
-    let mint_input = ctx1.build_mint_input().await?;
+    let mint_input = ctx1.build_mint_input(MintOptions::default()).await?;
 
     // Execute the mint calculator guest
     let mint_journal = common::execute_mint_calculator_guest(&mint_input)?;
@@ -421,7 +421,7 @@ async fn reject_mint_with_only_latter_epoch() -> anyhow::Result<()> {
     ctx.finalize_epoch().await?;
 
     // Try to mint using only the second epoch - should fail
-    let result = ctx.run_mint_for_epochs(&[second_epoch]).await;
+    let result = ctx.run_mint_with_opts(MintOptions::builder().epochs([second_epoch])).await;
     assert!(result.is_err(), "Should reject mint with incomplete chain");
     let err = result.unwrap_err();
     println!("Contract correctly rejected incomplete chain: {err}");
@@ -485,7 +485,7 @@ async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
     ctx.finalize_epoch().await?;
 
     // Try to mint using first and third epochs (skipping second) - should fail
-    let result = ctx.run_mint_for_epochs(&[first_epoch, third_epoch]).await;
+    let result = ctx.run_mint_with_opts(MintOptions::builder().epochs([first_epoch, third_epoch])).await;
     assert!(result.is_err(), "Should reject mint with skipped epoch");
     let err = result.unwrap_err();
     println!("Contract correctly rejected skipped epoch: {err}");
@@ -521,7 +521,7 @@ async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
     ctx.advance_epochs(1).await?;
 
     // Try to mint without finalizing the epoch - should fail
-    let result = ctx.run_mint_for_epochs(&[current_epoch]).await;
+    let result = ctx.run_mint_with_opts(MintOptions::builder().epochs([current_epoch])).await;
     assert!(result.is_err(), "Should reject mint with unfinalized epoch");
     let err = result.unwrap_err();
     println!("Contract correctly rejected unfinalized epoch: {err}");
@@ -554,12 +554,11 @@ async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
     let finalize_event = ctx.finalize_epoch().await?;
 
     // Build the input using the wrong chain spec, Sepolia when Anvil is expected.
-    let mint_input = ctx
-        .build_mint_input_for_epochs_with_chain_spec(
-            &[finalize_event.epoch.to()],
-            &ETH_SEPOLIA_CHAIN_SPEC,
-        )
-        .await?;
+    let mint_input = ctx.build_mint_input(
+        MintOptions::builder()
+            .epochs([finalize_event.epoch.to()])
+            .chain_spec(&ETH_SEPOLIA_CHAIN_SPEC)
+    ).await?;
 
     // Execute the mint calculator guest
     let mint_journal = common::execute_mint_calculator_guest(&mint_input)?;
@@ -858,10 +857,157 @@ async fn zero_valued_update() -> anyhow::Result<()> {
     ctx.advance_epochs(1).await?;
     let finalized_event = ctx.finalize_epoch().await?;
 
-    ctx.run_mint_for_epochs(&[finalized_event.epoch.to()]).await?;
+    ctx.run_mint_with_opts(MintOptions::builder().epochs([finalized_event.epoch.to()])).await?;
 
     // Verify tokens were minted this time.
     let final_balance = ctx.token_contract.balanceOf(signer.address()).call().await?;
     assert_eq!(final_balance, ctx.mint_contract.EPOCH_REWARD().call().await?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
+    let ctx = common::text_ctx().await?;
+
+    let initial_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    println!("Initial epoch: {initial_epoch}");
+
+    let signer_a = PrivateKeySigner::random();
+    let signer_b = PrivateKeySigner::random();
+
+    // Work log A: 30 work units
+    let update_a = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(30)
+        .work_log_id(signer_a.address())
+        .build()
+        .unwrap();
+
+    // Work log B: 70 work units
+    let update_b = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(70)
+        .work_log_id(signer_b.address())
+        .build()
+        .unwrap();
+
+    let event_a = ctx.post_work_log_update(&signer_a, &update_a, signer_a.address()).await?;
+    let event_b = ctx.post_work_log_update(&signer_b, &update_b, signer_b.address()).await?;
+
+    println!("Work log A: {} work units for {:?}", event_a.updateValue, event_a.workLogId);
+    println!("Work log B: {} work units for {:?}", event_b.updateValue, event_b.workLogId);
+
+    // Advance time and finalize epoch
+    ctx.advance_epochs(1).await?;
+    let finalized_event = ctx.finalize_epoch().await?;
+
+    // Total work should be 30 + 70 = 100
+    assert_eq!(finalized_event.totalWork, U256::from(100));
+    println!("Total work in epoch: {}", finalized_event.totalWork);
+
+    // First mint: Filter for work log A only
+    let mint_receipt_a = ctx.run_mint_with_opts(
+        MintOptions::builder()
+            .epochs([finalized_event.epoch.to()])
+            .work_log_filter([signer_a.address().into()])
+    ).await?;
+    println!("Mint A transaction succeeded with {} gas used", mint_receipt_a.gas_used);
+
+    // Check balances after first mint
+    let balance_a_after_first = ctx.token_contract.balanceOf(signer_a.address()).call().await?;
+    let balance_b_after_first = ctx.token_contract.balanceOf(signer_b.address()).call().await?;
+    let epoch_reward = ctx.mint_contract.EPOCH_REWARD().call().await?;
+
+    // Expected: signer A gets 30% of epoch reward, signer B gets nothing yet
+    let expected_a = epoch_reward * U256::from(30) / U256::from(100);
+    let tolerance = U256::from(10);
+
+    assert_eq!(balance_b_after_first, U256::ZERO, "Signer B should have received nothing in first mint");
+    assert!(
+        balance_a_after_first.abs_diff(expected_a) <= tolerance,
+        "Signer A should receive ~30% of epoch reward, got {balance_a_after_first}, expected {expected_a}"
+    );
+    println!("After first mint: A has {balance_a_after_first} tokens, B has {balance_b_after_first} tokens");
+
+    // Second mint: Filter for work log B only
+    let mint_receipt_b = ctx.run_mint_with_opts(
+        MintOptions::builder()
+            .epochs([finalized_event.epoch.to()])
+            .work_log_filter([signer_b.address().into()])
+    ).await?;
+    println!("Mint B transaction succeeded with {} gas used", mint_receipt_b.gas_used);
+
+    // Check final balances
+    let balance_a_final = ctx.token_contract.balanceOf(signer_a.address()).call().await?;
+    let balance_b_final = ctx.token_contract.balanceOf(signer_b.address()).call().await?;
+
+    // Expected: signer B gets 70% of epoch reward, signer A balance unchanged
+    let expected_b = epoch_reward * U256::from(70) / U256::from(100);
+
+    assert_eq!(balance_a_final, balance_a_after_first, "Signer A balance should be unchanged after second mint");
+    assert!(
+        balance_b_final.abs_diff(expected_b) <= tolerance,
+        "Signer B should receive ~70% of epoch reward, got {balance_b_final}, expected {expected_b}"
+    );
+
+    println!(
+        "Final balances: A has {balance_a_final} tokens (~30%), B has {balance_b_final} tokens (~70%)"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn filter_empty_no_mints_issued() -> anyhow::Result<()> {
+    let ctx = common::text_ctx().await?;
+
+    let initial_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    println!("Initial epoch: {initial_epoch}");
+
+    let signer = PrivateKeySigner::random();
+
+    // Create work log with significant update value
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(50)
+        .work_log_id(signer.address())
+        .build()
+        .unwrap();
+
+    let work_log_event = ctx.post_work_log_update(&signer, &update, signer.address()).await?;
+    println!("Work log update posted: {} work units for {:?}", work_log_event.updateValue, work_log_event.workLogId);
+
+    // Advance time and finalize epoch
+    ctx.advance_epochs(1).await?;
+    let finalized_event = ctx.finalize_epoch().await?;
+
+    // The epoch should be finalized with 50 total work
+    assert_eq!(finalized_event.epoch, U256::from(initial_epoch));
+    assert_eq!(finalized_event.totalWork, U256::from(50));
+    println!("EpochFinalized event verified: epoch={}, totalWork={}", finalized_event.epoch, finalized_event.totalWork);
+
+    // Run mint with empty WorkLogFilter (no work log IDs included)
+    let mint_receipt = ctx.run_mint_with_opts(
+        MintOptions::builder()
+            .epochs([finalized_event.epoch.to()])
+            .work_log_filter(WorkLogFilter::none())
+    ).await?;
+    println!("Mint transaction with empty filter succeeded with {} gas used", mint_receipt.gas_used);
+
+    // Verify no tokens were minted (signer balance should remain zero)
+    let signer_balance = ctx.token_contract.balanceOf(signer.address()).call().await?;
+    assert_eq!(
+        signer_balance,
+        U256::ZERO,
+        "No tokens should be minted when using empty work log filter"
+    );
+    println!("Verified: signer balance remains zero with empty filter");
+
     Ok(())
 }
