@@ -1101,7 +1101,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         Err(MarketError::RequestNotFound(request_id))
     }
 
-    /// Returns CallbackData containing the journal and image id (if available) and seal if the request is fulfilled.
+    /// Returns fulfillment data containing the journal and image id (if available) and seal if the request is fulfilled.
     pub async fn get_request_fulfillment(
         &self,
         request_id: U256,
@@ -1109,9 +1109,9 @@ impl<P: Provider> BoundlessMarketService<P> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (callback_data, seal, _) =
+                let (fulfillment_data, seal, _) =
                     self.query_fulfilled_event(request_id, None, None).await?;
-                Ok((callback_data, seal))
+                Ok((fulfillment_data, seal))
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
@@ -1171,9 +1171,9 @@ impl<P: Provider> BoundlessMarketService<P> {
             match status {
                 RequestStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 RequestStatus::Fulfilled => {
-                    let (callback_data, seal, _) =
+                    let (fulfillment_data, seal, _) =
                         self.query_fulfilled_event(request_id, None, None).await?;
-                    return Ok((callback_data, seal));
+                    return Ok((fulfillment_data, seal));
                 }
                 _ => {
                     tracing::info!(

@@ -1159,15 +1159,15 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
     // Wait for fulfillment if requested
     if args.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (journal, seal) = client
+        let (fulfillment_data, seal) = client
             .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
-            "Journal: {} - Seal: {}",
-            serde_json::to_string_pretty(&journal)?,
+            "Fulfillment Data: {} - Seal: {}",
+            serde_json::to_string_pretty(&fulfillment_data)?,
             serde_json::to_string_pretty(&seal)?
         );
     }

@@ -406,6 +406,7 @@ impl IndexerDb for AnyDb {
         .bind(format!("{:x}", fill.requestDigest))
         .bind(format!("{:x}", fill.id))
         .bind(format!("{prover_address:x}"))
+        // TODO(ec2): fix this
         .bind(format!("{:x}", fill.fulfillmentData))
         .bind(format!("{:x}", fill.claimDigest))
         .bind(format!("{:x}", fill.seal))
@@ -735,8 +736,8 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment, Offer, Predicate, PredicateType, ProofRequest, RequestId,
-        RequestInput, Requirements,
+        AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, PredicateType,
+        ProofRequest, RequestId, RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
 
@@ -871,7 +872,8 @@ mod tests {
             requestDigest: B256::ZERO,
             id: U256::from(1),
             claimDigest: B256::ZERO,
-            callbackData: Bytes::default(),
+            fulfillmentData: Bytes::default(),
+            fulfillmentDataType: FulfillmentDataType::None,
             seal: Bytes::default(),
             predicateType: PredicateType::PrefixMatch,
         };

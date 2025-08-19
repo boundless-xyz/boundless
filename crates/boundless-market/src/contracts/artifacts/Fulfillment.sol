@@ -6,13 +6,9 @@ pragma solidity ^0.8.20;
 
 import {RequestId} from "./RequestId.sol";
 import {PredicateType} from "./Predicate.sol";
+import {FulfillmentDataType} from "./FulfillmentData.sol";
 
 using FulfillmentLibrary for Fulfillment global;
-
-enum FulfillmentDataType {
-    None,
-    ImageIdAndJournal
-}
 
 /// @title Fulfillment Struct and Library
 /// @notice Represents the information posted by the prover to fulfill a request and get paid.

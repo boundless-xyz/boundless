@@ -34,7 +34,7 @@ import {HitPoints} from "../src/HitPoints.sol";
 
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {Callback} from "../src/types/Callback.sol";
-import {CallbackData} from "../src/types/CallbackData.sol";
+import {FulfillmentData, FulfillmentDataLibrary} from "../src/types/FulfillmentData.sol";
 import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
@@ -45,7 +45,8 @@ import {ProofRequest} from "../src/types/ProofRequest.sol";
 import {LockRequest} from "../src/types/LockRequest.sol";
 import {Account} from "../src/types/Account.sol";
 import {RequestLock} from "../src/types/RequestLock.sol";
-import {Fulfillment, FulfillmentDataType} from "../src/types/Fulfillment.sol";
+import {Fulfillment} from "../src/types/Fulfillment.sol";
+import {FulfillmentDataType} from "../src/types/FulfillmentData.sol";
 import {AssessorReceipt} from "../src/types/AssessorReceipt.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 import {Offer} from "../src/types/Offer.sol";
@@ -387,7 +388,7 @@ contract BoundlessMarketTest is Test {
             bytes32 imageId = bytesToBytes32(requests[i].requirements.predicate.data);
             if (predicateType != PredicateType.ClaimDigestMatch) {
                 claimDigest = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
-                fulfillmentData = abi.encode(CallbackData({imageId: imageId, journal: journal}));
+                fulfillmentData = abi.encode(FulfillmentData({imageId: imageId, journal: journal}));
                 fillType = FulfillmentDataType.ImageIdAndJournal;
             } else {
                 claimDigest = bytesToBytes32(requests[i].requirements.predicate.data);
@@ -2928,7 +2929,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory clientSignatures = new bytes[](1);
         clientSignatures[0] = clientSignature;
 
-        CallbackData memory fulfillmentData = abi.decode(fill.fulfillmentData, (CallbackData));
+        FulfillmentData memory fulfillmentData = FulfillmentDataLibrary.decode(fill.fulfillmentData);
         bytes32 claimDigest = ReceiptClaimLib.ok(fulfillmentData.imageId, sha256(fulfillmentData.journal)).digest();
 
         // If no selector is specified, we expect the call to verifyIntegrity to use the default
@@ -2964,7 +2965,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory clientSignatures = new bytes[](1);
         clientSignatures[0] = clientSignature;
 
-        CallbackData memory fulfillmentData = abi.decode(fill.fulfillmentData, (CallbackData));
+        FulfillmentData memory fulfillmentData = FulfillmentDataLibrary.decode(fill.fulfillmentData);
         bytes32 claimDigest = ReceiptClaimLib.ok(fulfillmentData.imageId, sha256(fulfillmentData.journal)).digest();
 
         // If a selector is specified, we expect the call to verifyIntegrity to not use the default

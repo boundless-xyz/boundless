@@ -12,7 +12,7 @@ import {Requirements} from "../../src/types/Requirements.sol";
 import {Input, InputType} from "../../src/types/Input.sol";
 import {Predicate, PredicateType, PredicateLibrary} from "../../src/types/Predicate.sol";
 import {Callback} from "../../src/types/Callback.sol";
-import {FulfillmentDataType} from "../../src/types/Fulfillment.sol";
+import {FulfillmentDataType} from "../../src/types/FulfillmentData.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Account} from "../../src/types/Account.sol";
 import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";

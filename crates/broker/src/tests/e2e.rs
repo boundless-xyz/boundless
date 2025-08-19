@@ -27,8 +27,8 @@ use alloy::{
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, CallbackType, Offer, Predicate, ProofRequest,
-        RequestId, RequestInput, Requirements,
+        hit_points::default_allowance, Callback, Offer, Predicate, ProofRequest, RequestId,
+        RequestInput, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},
@@ -244,11 +244,7 @@ async fn simple_e2e_with_callback() {
     .await
     .unwrap();
 
-    let callback = Callback {
-        addr: callback_address,
-        gasLimit: U96::from(100000),
-        callbackType: CallbackType::JournalRequired,
-    };
+    let callback = Callback { addr: callback_address, gasLimit: U96::from(100000) };
 
     // Start broker
     let config = new_config(1).await;

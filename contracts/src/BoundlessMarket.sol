@@ -24,8 +24,9 @@ import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
-import {CallbackData} from "./types/CallbackData.sol";
-import {Fulfillment, FulfillmentDataType} from "./types/Fulfillment.sol";
+import {FulfillmentData} from "./types/FulfillmentData.sol";
+import {Fulfillment} from "./types/Fulfillment.sol";
+import {FulfillmentData, FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {PredicateType} from "./types/Predicate.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
@@ -370,18 +371,16 @@ contract BoundlessMarket is
         assembly {
             // Extract imageId (first 32 bytes after length)
             imageId := calldataload(add(data.offset, 0x20))
-
             // Extract journal offset and create calldata slice
             let journalOffset := calldataload(add(data.offset, 0x40))
             let journalPtr := add(data.offset, add(0x20, journalOffset))
             let journalLength := calldataload(journalPtr)
-
             journal.offset := add(journalPtr, 0x20)
             journal.length := journalLength
         }
     }
-
     /// @inheritdoc IBoundlessMarket
+
     function priceAndFulfillAndWithdraw(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,

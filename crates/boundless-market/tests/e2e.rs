@@ -210,11 +210,11 @@ async fn test_e2e() {
         .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
-    // retrieve callback data and seal from the fulfilled request
-    let (callback_data, seal) =
+    // retrieve fulfillment data data and seal from the fulfilled request
+    let (fulfillment_data, seal) =
         ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
-    assert_eq!(callback_data, fulfillment.callbackData);
+    assert_eq!(fulfillment_data, fulfillment.fulfillmentData);
     assert_eq!(seal, fulfillment.seal);
 }
 
@@ -277,11 +277,11 @@ async fn test_e2e_merged_submit_fulfill() {
         .await
         .unwrap();
 
-    // retrieve callback data and seal from the fulfilled request
-    let (callback_data, seal) =
+    // retrieve fulfillment data  and seal from the fulfilled request
+    let (fulfillment_data, seal) =
         ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
-    assert_eq!(callback_data, fulfillments[0].callbackData);
+    assert_eq!(fulfillment_data, fulfillments[0].fulfillmentData);
     assert_eq!(seal, fulfillments[0].seal);
 }
 
@@ -333,10 +333,10 @@ async fn test_e2e_price_and_fulfill_batch() {
         .unwrap();
 
     // retrieve callback data and seal from the fulfilled request
-    let (callback_data, seal) =
+    let (fulfillment_data, seal) =
         ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
-    assert_eq!(callback_data, fulfillments[0].callbackData);
+    assert_eq!(fulfillment_data, fulfillments[0].fulfillmentData);
     assert_eq!(seal, fulfillments[0].seal);
 }
 
@@ -406,11 +406,11 @@ async fn test_e2e_no_payment() {
         let balance_after = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         assert!(balance_before == balance_after);
 
-        // retrieve callback data and seal from the fulfilled request
-        let (callback_data, seal) =
+        // retrieve fulfillment data and seal from the fulfilled request
+        let (fulfillment_data, seal) =
             ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
-        assert_eq!(callback_data, fulfillment.callbackData);
+        assert_eq!(fulfillment_data, fulfillment.fulfillmentData);
         assert_eq!(seal, fulfillment.seal);
     }
 
