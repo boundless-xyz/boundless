@@ -71,6 +71,12 @@ fn main() {
             .query();
 
         for update_event in update_events {
+            // Check the work log ID filter to see if this event should be processed.
+            if !input.work_log_filter.includes(update_event.workLogId.into()) {
+                continue;
+            }
+
+            // Insert or update the work log commitment for work log ID in the event.
             match updates.entry(update_event.workLogId) {
                 btree_map::Entry::Vacant(entry) => {
                     entry.insert((update_event.initialCommit, update_event.updatedCommit));
