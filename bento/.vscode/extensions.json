@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "tamasfe.even-better-toml",
+    "rust-lang.rust-analyzer",
+    "GitHub.vscode-pull-request-github",
+    "fill-labs.dependi",
+    "stkb.rewrap",
+    "biomejs.biome"
+  ]
+}

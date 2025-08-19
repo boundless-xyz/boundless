@@ -93,6 +93,7 @@ pub struct SlashServiceConfig {
     pub balance_error_threshold: Option<U256>,
     pub skip_addresses: Vec<Address>,
     pub tx_timeout: Duration,
+    pub max_block_range: u64,
 }
 
 impl SlashService<ProviderWallet> {
@@ -152,12 +153,25 @@ where
                         continue;
                     }
 
-                    tracing::info!("Processing blocks from {} to {}", from_block, to_block);
+                    // Cap the processing range to max_block_range
+                    let chunk_to =
+                        std::cmp::min(from_block + self.config.max_block_range - 1, to_block);
 
-                    match self.process_blocks(from_block, to_block).await {
+                    if chunk_to < to_block {
+                        tracing::info!(
+                            "Processing blocks from {} to {} (chunked, current block: {})",
+                            from_block,
+                            chunk_to,
+                            to_block,
+                        );
+                    } else {
+                        tracing::info!("Processing blocks from {} to {}", from_block, chunk_to);
+                    }
+
+                    match self.process_blocks(from_block, chunk_to).await {
                         Ok(_) => {
                             attempt = 0;
-                            from_block = to_block + 1;
+                            from_block = chunk_to + 1;
                         }
                         Err(e) => match e {
                             // Irrecoverable errors

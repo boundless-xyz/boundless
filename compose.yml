@@ -11,12 +11,17 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
 
 x-agent-common: &agent-common
-  image: risczero/risc0-bento-agent:2.3.1@sha256:7873f18005efff03fc5399f1bdcb6760cda7ffbd4fdd4d9c39aedee8972e0a0d
+  build:
+    context: .
+    dockerfile: dockerfiles/agent.dockerfile
   restart: always
   depends_on:
-    - postgres
-    - redis
-    - minio
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
   environment:
     <<: *base-environment
 
@@ -26,7 +31,6 @@ x-exec-agent-common: &exec-agent-common
   cpus: 3
   environment:
     <<: *base-environment
-    LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-/usr/local/cuda-12.2/compat/}
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
   entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} --redis-ttl ${REDIS_TTL:-57600}
 
@@ -49,14 +53,22 @@ x-broker-environment: &broker-environment
 x-broker-common: &broker-common
   restart: always
   depends_on:
-    - rest_api
-    - gpu_prove_agent0
-    - exec_agent0
-    - exec_agent1
-    - aux_agent
-    - snark_agent
-    - redis
-    - postgres
+    rest_api:
+      condition: service_healthy
+    gpu_prove_agent0:
+      condition: service_started
+    exec_agent0:
+      condition: service_started
+    exec_agent1:
+      condition: service_started
+    aux_agent:
+      condition: service_started
+    snark_agent:
+      condition: service_started
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
   profiles: [broker]
   build:
     context: .
@@ -75,6 +87,13 @@ services:
       - 6379:6379
     volumes:
       - redis-data:/data
+    command: redis-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   postgres:
     hostname: ${POSTGRES_HOST:-postgres}
@@ -85,20 +104,30 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-worker}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     expose:
-      - '${POSTGRES_PORT:-5432}'
+      - "${POSTGRES_PORT:-5432}"
     ports:
-      - '${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}'
+      - "${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     command: -p ${POSTGRES_PORT:-5432}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-worker} -d ${POSTGRES_DB:-taskdb}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   minio:
     hostname: ${MINIO_HOST:-minio}
     image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
     restart: always
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - "9000:9000"
+      - "9001:9001"
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"
@@ -116,7 +145,7 @@ services:
     image: ${GRAFANA_IMG:-grafana/grafana:11.0.0}
     restart: unless-stopped
     ports:
-      - '3000:3000'
+      - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
@@ -148,7 +177,6 @@ services:
     cpus: 1
     environment:
       <<: *base-environment
-      LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-/usr/local/cuda-12.2/compat/}
 
     entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
 
@@ -166,7 +194,7 @@ services:
           devices:
             - driver: nvidia
               # TODO: how to scale this with N gpus?
-              device_ids: ['0']
+              device_ids: ["0"]
               capabilities: [gpu]
 
   snark_agent:
@@ -174,7 +202,6 @@ services:
     entrypoint: /app/agent -t snark --redis-ttl ${REDIS_TTL:-57600}
     environment:
       <<: *base-environment
-      LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-/usr/local/cuda-12.2/compat/}
 
     ulimits:
       # Needed for stark_verify bin
@@ -182,11 +209,15 @@ services:
       stack: 90000000
 
   rest_api:
-    image: risczero/risc0-bento-rest-api:2.3.1@sha256:71dafe532d4e1ada47989b63cf04b2e2bae6b62eebb5d47973e875e2eddf6c3a
+    build:
+      context: .
+      dockerfile: dockerfiles/rest_api.dockerfile
     restart: always
     depends_on:
-      - postgres
-      - minio
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
     mem_limit: 1G
     cpus: 1
@@ -195,9 +226,15 @@ services:
       <<: *base-environment
 
     ports:
-      - '8081:8081'
+      - "8081:8081"
 
     entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   broker:
     <<: *broker-common
