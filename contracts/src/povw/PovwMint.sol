@@ -4,11 +4,10 @@
 
 pragma solidity ^0.8.24;
 
-import {IERC20} from "openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {Math} from "openzeppelin/contracts/utils/math/Math.sol";
 import {PovwAccounting, EMPTY_LOG_ROOT} from "./PovwAccounting.sol";
-import {IERC20Mint} from "./IERC20Mint.sol";
+import {IZKC, IZKCRewards} from "./IZKC.sol";
 import {Steel} from "risc0/steel/Steel.sol";
 
 struct FixedPoint {
@@ -51,6 +50,8 @@ struct MintCalculatorJournal {
     MintCalculatorUpdate[] updates;
     /// Address of the queried PovwAccounting contract. Must be checked to be equal to the expected address.
     address povwContractAddress;
+    /// Address of the queried IZKCRewards contract. Must be checked to be equal to the expected address.
+    address zkcRewardsAddress;
     /// A Steel commitment. Must be a valid commitment in the current chain.
     Steel.Commitment steelCommit;
 }
@@ -70,7 +71,8 @@ contract PovwMint {
     error IncorrectInitialUpdateCommit(bytes32 expected, bytes32 received);
 
     IRiscZeroVerifier internal immutable VERIFIER;
-    IERC20Mint internal immutable TOKEN;
+    IZKC internal immutable TOKEN;
+    IZKCRewards internal immutable TOKEN_REWARDS;
     PovwAccounting internal immutable ACCOUNTING;
 
     // TODO(povw): Extract to a shared library along with EPOCH_LENGTH.
@@ -94,11 +96,18 @@ contract PovwMint {
     /// It ensure that any given work log update can be used in at most one mint.
     mapping(address => bytes32) internal lastCommit;
 
-    constructor(IRiscZeroVerifier verifier, PovwAccounting povw, bytes32 mintCalculatorId, IERC20Mint token) {
+    constructor(
+        IRiscZeroVerifier verifier,
+        PovwAccounting povw,
+        bytes32 mintCalculatorId,
+        IZKC token,
+        IZKCRewards tokenRewards
+    ) {
         VERIFIER = verifier;
         MINT_CALCULATOR_ID = mintCalculatorId;
-        TOKEN = token;
         ACCOUNTING = povw;
+        TOKEN = token;
+        TOKEN_REWARDS = tokenRewards;
     }
 
     /// @notice Mint tokens as a reward for verifiable work.
@@ -110,6 +119,9 @@ contract PovwMint {
             revert InvalidSteelCommitment();
         }
         if (journal.povwContractAddress != address(ACCOUNTING)) {
+            revert IncorrectPovwAddress({expected: address(ACCOUNTING), received: journal.povwContractAddress});
+        }
+        if (journal.zkcRewardsAddress != address(TOKEN_REWARDS)) {
             revert IncorrectPovwAddress({expected: address(ACCOUNTING), received: journal.povwContractAddress});
         }
 
@@ -133,7 +145,7 @@ contract PovwMint {
         for (uint256 i = 0; i < journal.mints.length; i++) {
             MintCalculatorMint memory mintData = journal.mints[i];
             uint256 mintValue = mintData.value.mulUnwrap(EPOCH_REWARD);
-            TOKEN.mint(mintData.recipient, mintValue);
+            TOKEN.mintPoVWRewardsForRecipient(mintData.recipient, mintValue);
         }
     }
 }

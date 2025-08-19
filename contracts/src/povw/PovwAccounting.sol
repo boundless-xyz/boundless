@@ -6,6 +6,7 @@ pragma solidity ^0.8.24;
 
 import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {IZKC} from "./IZKC.sol";
 
 /// An update to a work log.
 struct WorkLogUpdate {
@@ -34,9 +35,11 @@ struct Journal {
     bytes32 eip712Domain;
 }
 
+// TODO(povw): If we can guarentee that the epoch number will never be greater than uint160, this
+// could be compressed into one slot.
 struct PendingEpoch {
     uint96 totalWork;
-    uint32 number;
+    uint256 number;
 }
 
 bytes32 constant EMPTY_LOG_ROOT = hex"b26927f749929e8484785e36e7ec93d5eeae4b58182f76f1e760263ab67f540c";
@@ -54,6 +57,7 @@ contract PovwAccounting is EIP712 {
     /// The log updater achieves some of these properties by verifying a proof from the log builder.
     bytes32 public immutable LOG_UPDATER_ID;
 
+    IZKC internal immutable TOKEN;
     uint256 public constant EPOCH_LENGTH = 7 days;
 
     mapping(address => bytes32) internal workLogRoots;
@@ -81,29 +85,31 @@ contract PovwAccounting is EIP712 {
         address valueRecipient
     );
 
-    constructor(IRiscZeroVerifier verifier, bytes32 logUpdaterId) EIP712("PovwAccounting", "1") {
+    constructor(IRiscZeroVerifier verifier, IZKC token, bytes32 logUpdaterId) EIP712("PovwAccounting", "1") {
         VERIFIER = verifier;
+        TOKEN = token;
         LOG_UPDATER_ID = logUpdaterId;
 
-        pendingEpoch = PendingEpoch({number: currentEpoch(), totalWork: 0});
-    }
-
-    function currentEpoch() public view returns (uint32) {
-        // NOTE: Casting to uint32 should never overflow with the value block.timestamp being a UNIX
-        // timestamp (seconds since Jan 1 1970) and the epoch length being a day or more.
-        return uint32(block.timestamp / EPOCH_LENGTH);
+        pendingEpoch = PendingEpoch({number: TOKEN.getCurrentEpoch(), totalWork: 0});
     }
 
     /// Finalize the pending epoch, logging the finalized epoch number and total work.
     function finalizeEpoch() public {
-        require(pendingEpoch.number < currentEpoch(), "pending epoch has not ended");
+        uint256 newEpoch = TOKEN.getCurrentEpoch();
+        require(pendingEpoch.number < newEpoch, "pending epoch has not ended");
 
+        _finalizePendingEpoch(newEpoch);
+    }
+
+    /// End the pending epoch and start the new epoch. This function should
+    /// only be called after checking that the pending epoch has ended.
+    function _finalizePendingEpoch(uint256 newEpoch) internal {
         // Emit the epoch finalized event, accessed with Steel to construct the mint authorization.
         emit EpochFinalized(uint256(pendingEpoch.number), uint256(pendingEpoch.totalWork));
 
         // NOTE: This may cause the epoch number to increase by more than 1, if no updates occurred in
         // an interim epoch. Any interim epoch that was skipped will have no work associated with it.
-        pendingEpoch = PendingEpoch({number: currentEpoch(), totalWork: 0});
+        pendingEpoch = PendingEpoch({number: newEpoch, totalWork: 0});
     }
 
     /// @notice Update a work log and log an event with the associated update value.
@@ -119,8 +125,9 @@ contract PovwAccounting is EIP712 {
         address valueRecipient,
         bytes calldata seal
     ) public {
-        if (pendingEpoch.number < currentEpoch()) {
-            finalizeEpoch();
+        uint256 currentEpoch = TOKEN.getCurrentEpoch();
+        if (pendingEpoch.number < currentEpoch) {
+            _finalizePendingEpoch(currentEpoch);
         }
 
         // Fetch the initial commit value, substituting with the precomputed empty root if new.
@@ -149,7 +156,7 @@ contract PovwAccounting is EIP712 {
         // one update in an epoch.
         emit WorkLogUpdated(
             workLogId,
-            currentEpoch(),
+            currentEpoch,
             update.initialCommit,
             update.updatedCommit,
             uint256(updateValue),
