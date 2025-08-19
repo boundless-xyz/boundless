@@ -17,8 +17,8 @@ use boundless_povw_guests::{
     log_updater::{Input, LogBuilderJournal, WorkLogUpdate},
     BOUNDLESS_POVW_LOG_UPDATER_ID,
 };
-use risc0_povw::WorkLog;
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
+use risc0_povw::WorkLog;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
 
 mod common;
@@ -29,13 +29,13 @@ async fn basic() -> anyhow::Result<()> {
     let chain_id = 31337;
     let contract_address = address!("0x0000000000000000000000000000000000000f00");
 
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: Digest::new(rand::random()),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 5,
-        work_log_id: signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(Digest::new(rand::random()))
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(5)
+        .work_log_id(signer.address())
+        .build()?;
 
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
         .sign(&signer, contract_address, chain_id)
@@ -68,13 +68,13 @@ async fn reject_wrong_signer() -> anyhow::Result<()> {
     let chain_id = 31337;
     let contract_address = address!("0x0000000000000000000000000000000000000f00");
 
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: Digest::new(rand::random()),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 5,
-        work_log_id: signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(Digest::new(rand::random()))
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(5)
+        .work_log_id(signer.address())
+        .build()?;
 
     let wrong_signer = PrivateKeySigner::random();
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
@@ -102,13 +102,13 @@ async fn reject_wrong_chain_id() -> anyhow::Result<()> {
     let wrong_chain_id = 1; // Different chain ID
     let contract_address = address!("0x0000000000000000000000000000000000000f00");
 
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: Digest::new(rand::random()),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 5,
-        work_log_id: signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(Digest::new(rand::random()))
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(5)
+        .work_log_id(signer.address())
+        .build()?;
 
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
         .sign(&signer, contract_address, wrong_chain_id)
@@ -134,13 +134,13 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
     let wrong_chain_id = 1; // Different from Anvil's chain ID (31337)
 
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 10,
-        work_log_id: signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(10)
+        .work_log_id(signer.address())
+        .build()?;
 
     // Sign with wrong chain ID but execute with that same wrong chain ID
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
@@ -188,13 +188,13 @@ async fn reject_wrong_contract_address() -> anyhow::Result<()> {
     let contract_address = address!("0x0000000000000000000000000000000000000f00");
     let wrong_contract_address = address!("0x0000000000000000000000000000000000000bad");
 
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: Digest::new(rand::random()),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 5,
-        work_log_id: signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(Digest::new(rand::random()))
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(5)
+        .work_log_id(signer.address())
+        .build()?;
 
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
         .sign(&signer, wrong_contract_address, chain_id)
@@ -220,25 +220,25 @@ async fn reject_invalid_initial_commit() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
 
     // First, post a valid update to establish a work log state
-    let first_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 10,
-        work_log_id: signer.address().into(),
-    };
+    let first_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(10)
+        .work_log_id(signer.address())
+        .build()?;
 
     let _first_event = ctx.post_work_log_update(&signer, &first_update, signer.address()).await?;
 
     // Now try to post a second update with wrong initial commit
     let wrong_initial_commit = Digest::new(rand::random()); // Should be first_update.updated_commit
-    let second_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: wrong_initial_commit,
-        updated_commit: Digest::new(rand::random()),
-        update_value: 15,
-        work_log_id: signer.address().into(),
-    };
+    let second_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(wrong_initial_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(15)
+        .work_log_id(signer.address())
+        .build()?;
 
     // This should fail when posted to contract due to wrong initial commit
     let result = ctx.post_work_log_update(&signer, &second_update, signer.address()).await;
@@ -257,13 +257,13 @@ async fn reject_duplicate_update() -> anyhow::Result<()> {
     let ctx = common::text_ctx().await?;
     let signer = PrivateKeySigner::random();
 
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 10,
-        work_log_id: signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(10)
+        .work_log_id(signer.address())
+        .build()?;
 
     // Post the update successfully first time
     let _first_event = ctx.post_work_log_update(&signer, &update, signer.address()).await?;
@@ -286,13 +286,13 @@ async fn reject_invalid_work_log_id() -> anyhow::Result<()> {
     let chain_id = 31337;
     let contract_address = address!("0x0000000000000000000000000000000000000f00");
 
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: Digest::new(rand::random()),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 5,
-        work_log_id: Address::ZERO.into(), // Invalid zero address
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(Digest::new(rand::random()))
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(5)
+        .work_log_id(Address::ZERO) // Invalid zero address
+        .build()?;
 
     let signature = boundless_povw_guests::log_updater::WorkLogUpdate::from_log_builder_journal(
         update.clone(),
@@ -320,13 +320,13 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
     let ctx = common::text_ctx().await?;
     let signer = PrivateKeySigner::random();
 
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 10,
-        work_log_id: signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(10)
+        .work_log_id(signer.address())
+        .build()?;
 
     // Execute guest to get valid journal
     let signature = boundless_povw_guests::log_updater::WorkLogUpdate::from_log_builder_journal(
@@ -385,13 +385,13 @@ async fn contract_integration() -> anyhow::Result<()> {
 
     // Construct and sign a WorkLogUpdate.
     let signer = PrivateKeySigner::random();
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 10,
-        work_log_id: signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(10)
+        .work_log_id(signer.address())
+        .build()?;
 
     let update_event = ctx.post_work_log_update(&signer, &update, signer.address()).await?;
 
@@ -427,25 +427,25 @@ async fn two_updates_same_epoch_same_log_id() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
 
     // First update
-    let first_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 10,
-        work_log_id: signer.address().into(),
-    };
+    let first_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(10)
+        .work_log_id(signer.address())
+        .build()?;
 
     let first_event = ctx.post_work_log_update(&signer, &first_update, signer.address()).await?;
     println!("First WorkLogUpdated event: updateValue={}", first_event.updateValue);
 
     // Second update (chained from first)
-    let second_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: first_update.updated_commit, // Chain from first update
-        updated_commit: Digest::new(rand::random()),
-        update_value: 15,
-        work_log_id: signer.address().into(), // Same log ID
-    };
+    let second_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(first_update.updated_commit) // Chain from first update
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(15)
+        .work_log_id(signer.address()) // Same log ID
+        .build()?;
 
     let second_event = ctx.post_work_log_update(&signer, &second_update, signer.address()).await?;
     println!("Second WorkLogUpdated event: updateValue={}", second_event.updateValue);
@@ -479,13 +479,13 @@ async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
     let signer2 = PrivateKeySigner::random();
 
     // First update with first log ID
-    let first_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 20,
-        work_log_id: signer1.address().into(),
-    };
+    let first_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(20)
+        .work_log_id(signer1.address())
+        .build()?;
 
     let first_event = ctx.post_work_log_update(&signer1, &first_update, signer1.address()).await?;
     println!(
@@ -494,13 +494,13 @@ async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
     );
 
     // Second update with different log ID
-    let second_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 30,
-        work_log_id: signer2.address().into(),
-    };
+    let second_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(30)
+        .work_log_id(signer2.address())
+        .build()?;
 
     let second_event =
         ctx.post_work_log_update(&signer2, &second_update, signer2.address()).await?;
@@ -538,13 +538,13 @@ async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
 
     // First update in first epoch
-    let first_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 40,
-        work_log_id: signer.address().into(),
-    };
+    let first_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(40)
+        .work_log_id(signer.address())
+        .build()?;
 
     let first_event = ctx.post_work_log_update(&signer, &first_update, signer.address()).await?;
     println!(
@@ -564,13 +564,13 @@ async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
     assert_eq!(first_finalized_event.totalWork, U256::from(40));
 
     // Second update in second epoch (chained from first)
-    let second_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: first_update.updated_commit, // Chain from first update
-        updated_commit: Digest::new(rand::random()),
-        update_value: 60,
-        work_log_id: signer.address().into(), // Same log ID
-    };
+    let second_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(first_update.updated_commit) // Chain from first update
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(60)
+        .work_log_id(signer.address()) // Same log ID
+        .build()?;
 
     let second_event = ctx.post_work_log_update(&signer, &second_update, signer.address()).await?;
     println!(
@@ -649,30 +649,30 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
         }
     };
 
-    let first_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 40,
-        work_log_id: signer.address().into(),
-    };
+    let first_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(40)
+        .work_log_id(signer.address())
+        .build()?;
 
     // Second update in second epoch (chained from first)
-    let second_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: first_update.updated_commit,
-        updated_commit: Digest::new(rand::random()),
-        update_value: 60,
-        work_log_id: signer.address().into(),
-    };
+    let second_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(first_update.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(60)
+        .work_log_id(signer.address())
+        .build()?;
 
-    let third_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: second_update.updated_commit,
-        updated_commit: Digest::new(rand::random()),
-        update_value: 20,
-        work_log_id: signer.address().into(),
-    };
+    let third_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(second_update.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(20)
+        .work_log_id(signer.address())
+        .build()?;
 
     // First update: from the initial state.
     assert!(measure_update_gas(first_update).await? < 65000);
@@ -698,13 +698,13 @@ async fn separate_value_recipient() -> anyhow::Result<()> {
     println!("Initial epoch: {initial_epoch}");
 
     // Work log is controlled by work_log_signer but rewards go to value_recipient
-    let update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 25,
-        work_log_id: work_log_signer.address().into(),
-    };
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(25)
+        .work_log_id(work_log_signer.address())
+        .build()?;
 
     let update_event =
         ctx.post_work_log_update(&work_log_signer, &update, value_recipient.address()).await?;
@@ -729,26 +729,26 @@ async fn multiple_recipients_same_work_log() -> anyhow::Result<()> {
     println!("Initial epoch: {initial_epoch}");
 
     // First update: same work log, recipient1 gets rewards
-    let first_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: WorkLog::EMPTY.commit(),
-        updated_commit: Digest::new(rand::random()),
-        update_value: 30,
-        work_log_id: work_log_signer.address().into(),
-    };
+    let first_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(30)
+        .work_log_id(work_log_signer.address())
+        .build()?;
 
     let first_event =
         ctx.post_work_log_update(&work_log_signer, &first_update, recipient1.address()).await?;
     println!("First update: recipient1 gets {} work units", first_event.updateValue);
 
     // Second update: same work log (chained), recipient2 gets rewards
-    let second_update = LogBuilderJournal {
-        self_image_id: RISC0_POVW_LOG_BUILDER_ID.into(),
-        initial_commit: first_update.updated_commit,
-        updated_commit: Digest::new(rand::random()),
-        update_value: 20,
-        work_log_id: work_log_signer.address().into(),
-    };
+    let second_update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(first_update.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(20)
+        .work_log_id(work_log_signer.address())
+        .build()?;
 
     let second_event =
         ctx.post_work_log_update(&work_log_signer, &second_update, recipient2.address()).await?;

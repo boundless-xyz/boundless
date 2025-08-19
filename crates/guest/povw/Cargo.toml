@@ -16,14 +16,13 @@ alloy-sol-types = "1.0"
 anyhow = "1.0"
 borsh = { version = "1.5", default-features = false, features = ["std", "derive"] }
 postcard = { version = "1.1", features = ["alloc"] }
-risc0-povw = { git = "https://github.com/risc0/risc0", branch = "victor/povw-round-2" }
+risc0-povw = { git = "https://github.com/risc0/risc0", branch = "victor/povw-round-2", default-features = false, features = ["guest"] }
 risc0-steel = { git = "https://github.com/risc0/risc0-ethereum", branch = "victor/patch-jul18" }
 ruint = { version = "1.15", default-features = false, features = ["borsh", "std"] }
 serde = "1"
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
-anyhow = { workspace = true }
 bytemuck = "1.23"
 rand = "0.9"
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }

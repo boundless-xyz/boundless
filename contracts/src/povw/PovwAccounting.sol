@@ -39,7 +39,7 @@ struct PendingEpoch {
     uint32 number;
 }
 
-bytes32 constant EMPTY_LOG_ROOT = hex"180fedca06656cb910077013ad2679695090269fad1589e290162fe90e97d4aa";
+bytes32 constant EMPTY_LOG_ROOT = hex"b26927f749929e8484785e36e7ec93d5eeae4b58182f76f1e760263ab67f540c";
 
 contract PovwAccounting is EIP712 {
     IRiscZeroVerifier public immutable VERIFIER;
