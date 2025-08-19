@@ -527,7 +527,7 @@ where
                             .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?;
 
                         // Note: this is skipping the execution for orders from these addresses.
-                        // This can be risky, as it is possible the sender may not send a proof 
+                        // This can be risky, as it is possible the sender may not send a proof
                         // that is provable in time or for a different cycle count. If using this,
                         // ensure that you trust the sender and that the cycle count for these
                         // orders is consistent.
@@ -536,12 +536,57 @@ where
                             tracing::info!("Defaulting signal job cycles for order {order_id_clone}");
                             return Ok(PreflightCacheValue::Success { exec_session_id: "signal-default".to_string(), cycle_count: 54_000_000_000, image_id, input_id })
                         }
-                        if request.client_address() == address!("0x3ee7d9175ec8bb9e16e8fd3abdef5a354b247528") 
+                        if request.client_address() == address!("0x3ee7d9175ec8bb9e16e8fd3abdef5a354b247528")
                             || request.client_address() == address!("0x89f12aba0bcda3e708b1129eb2557b96f57b0de6") {
                             // Cycle count can be estimated by the stake amount for this specific requestor.
                             let cycle_count = u64::try_from(request.offer.lockStake).unwrap_or(u64::MAX).saturating_mul(1_000_000).div_ceil(1500);
                             tracing::info!("Defaulting Kailua cycles ({cycle_count}) for order {order_id_clone}");
                             return Ok(PreflightCacheValue::Success { exec_session_id: "signal-default".to_string(), cycle_count, image_id, input_id })
+                        }
+                        // Order generator requestors - extract cycle count from input
+                        if request.client_address() == address!("0x2546c553d857d20658ece248f7c7d0861a240681")
+                            || request.client_address() == address!("0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db0")
+                        {
+                            // For order generators, the input is a GuestEnv with stdin containing:
+                            // - First 8 bytes: cycle count (little-endian u64)
+                            // - Next 8 bytes: nonce (little-endian u64)
+
+                            // Early return if not inline input type
+                            if !matches!(request.input.inputType, RequestInputType::Inline) {
+                                tracing::warn!("Order generator request {order_id_clone} has non-inline input type, falling back to preflight");
+                                // Fall through to normal preflight
+                            } else if let Ok(guest_env) = boundless_market::input::GuestEnv::decode(&request.input.data) {
+                                // Try to extract cycle count from stdin
+                                match guest_env.stdin.get(..8) {
+                                    Some(bytes) => {
+                                        let mut cycle_count = u64::from_le_bytes(bytes.try_into().unwrap());
+
+                                        // There is ~3-5% overhead from user to total cycle count, adjusting to be safe.
+                                        cycle_count = cycle_count.saturating_mul(21).div_ceil(20);
+
+                                        // TODO have this be configurable in general from the broker
+                                        if cycle_count < 400_000_000 {
+                                            tracing::debug!("Skipping order {order_id_clone} for being too few cycles ({cycle_count})");
+                                            return Ok(PreflightCacheValue::Skip {
+                                                cached_limit: u64::MAX,
+                                            });
+                                        }
+
+                                        tracing::info!("Extracted order generator cycles ({cycle_count}) for order {order_id_clone}");
+                                        return Ok(PreflightCacheValue::Success {
+                                            exec_session_id: "signal-default".to_string(),
+                                            cycle_count,
+                                            image_id,
+                                            input_id,
+                                        });
+                                    }
+                                    None => {
+                                        tracing::warn!("Order generator request {order_id_clone} has insufficient stdin data (len={}), falling back to preflight", guest_env.stdin.len());
+                                    }
+                                }
+                            } else {
+                                tracing::warn!("Order generator request {order_id_clone} failed to decode GuestEnv, falling back to preflight");
+                            }
                         }
 
                         // TODO add a future timeout here to put a upper bound on how long to preflight for
