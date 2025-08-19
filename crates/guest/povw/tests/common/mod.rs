@@ -26,7 +26,7 @@ use boundless_povw_guests::{
     BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID,
     BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
-use risc0_povw_guests::RISC0_POVW_LOG_BUILDER_ID;
+use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_steel::ethereum::{EthChainSpec, ANVIL_CHAIN_SPEC};
 use risc0_zkvm::{
     default_executor, sha::Digestible, ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, Receipt,

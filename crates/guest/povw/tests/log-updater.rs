@@ -18,7 +18,7 @@ use boundless_povw_guests::{
     BOUNDLESS_POVW_LOG_UPDATER_ID,
 };
 use risc0_povw::WorkLog;
-use risc0_povw_guests::RISC0_POVW_LOG_BUILDER_ID;
+use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
 
 mod common;

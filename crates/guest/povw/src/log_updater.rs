@@ -10,8 +10,7 @@ use anyhow::bail;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 // Re-export types from risc0_povw for use in the log updater guest.
-pub use risc0_povw::guest::Journal as LogBuilderJournal;
-pub use risc0_povw_guests::RISC0_POVW_LOG_BUILDER_ID;
+pub use risc0_povw::guest::{RISC0_POVW_LOG_BUILDER_ID, Journal as LogBuilderJournal};
 use ruint::aliases::U160;
 use serde::{Deserialize, Serialize};
 

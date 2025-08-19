@@ -17,7 +17,7 @@ use boundless_povw_guests::{
     }, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
 use risc0_povw::WorkLog;
-use risc0_povw_guests::RISC0_POVW_LOG_BUILDER_ID;
+use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
 
