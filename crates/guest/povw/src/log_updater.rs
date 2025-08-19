@@ -14,8 +14,6 @@ pub use risc0_povw::guest::{Journal as LogBuilderJournal, RISC0_POVW_LOG_BUILDER
 use ruint::aliases::U160;
 use serde::{Deserialize, Serialize};
 
-// TODO(povw): Provide a way to fix RISC0_POVW_LOG_BUILDER_ID value to a reproducible build for deployment.
-
 // NOTE: Copied from PovwAccounting.sol. Must be kept in sync.
 // TODO(povw): Avoid copying this data type here.
 sol! {
