@@ -8,24 +8,26 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IZKC, IZKCRewards} from "../src/povw/IZKC.sol";
 
+struct EpochEmissionsUpdate {
+    uint256 epoch;
+    uint256 emissions;
+}
+
 contract MockZKC is IZKC, ERC20, ERC20Permit {
     uint256 public constant EPOCH_DURATION = 2 days;
 
-    constructor() ERC20("Mock ZKC", "MOCK_ZKC") ERC20Permit("Mock ZKC") {}
+    EpochEmissionsUpdate[] internal epochEmissionsUpdates;
 
-    function mintPoVWRewardsForRecipient(address recipient, uint256 amount) external {
-        _mint(recipient, amount);
-    }
-
-    function getPoVWEmissionsForEpoch(uint256) external view returns (uint256) {
-        return 100 * 10 ** decimals();
+    constructor() ERC20("Mock ZKC", "MOCK_ZKC") ERC20Permit("Mock ZKC") {
+        // When the contract is created, the emissions rate is initially set to 100.
+        epochEmissionsUpdates.push(EpochEmissionsUpdate({epoch: 0, emissions: 100 * 10 ** decimals()}));
     }
 
     /// Get the current epoch number for the ZKC system.
     ///
     /// The epoch number is guaranteed to be a monotonic increasing function, and is guaranteed to
     /// be stable withing a block.
-    function getCurrentEpoch() external view returns (uint256) {
+    function getCurrentEpoch() public view returns (uint256) {
         return block.timestamp / EPOCH_DURATION;
     }
 
@@ -40,25 +42,59 @@ contract MockZKC is IZKC, ERC20, ERC20Permit {
     function getEpochEndTime(uint256 epoch) public pure returns (uint256) {
         return getEpochStartTime(epoch + 1) - 1;
     }
+
+    // This function only exists on the mock contract.
+    function setPoVWEmissionsPerEpoch(uint256 emissions) external {
+        epochEmissionsUpdates.push(EpochEmissionsUpdate({epoch: getCurrentEpoch(), emissions: emissions}));
+    }
+
+    function getPoVWEmissionsForEpoch(uint256 epoch) external view returns (uint256) {
+        require(epoch < getCurrentEpoch(), "epoch must be past");
+
+        for (uint256 i = 0; i < epochEmissionsUpdates.length; i++) {
+            EpochEmissionsUpdate storage update = epochEmissionsUpdates[i];
+            if (update.epoch < getCurrentEpoch()) {
+                return update.emissions;
+            }
+        }
+        revert("unreachable");
+    }
+
+    function mintPoVWRewardsForRecipient(address recipient, uint256 amount) external {
+        _mint(recipient, amount);
+    }
+}
+
+struct RewardsCapUpdate {
+    uint256 timepoint;
+    uint256 cap;
 }
 
 contract MockZKCRewards is IZKCRewards {
-    mapping(address => uint256) internal rewardsPovwPerEpochCap;
-
-    function getPoVWRewardCap(address account) external view returns (uint256) {
-        uint256 cap = rewardsPovwPerEpochCap[account];
-        if (cap == 0) {
-            return type(uint256).max;
-        }
-        return cap;
-    }
+    mapping(address => RewardsCapUpdate[]) internal rewardsPovwPerEpochCapUpdates;
 
     // This function only exists on the mock contract. Setting to 0 resets the cap to uint256 max.
     function setPoVWRewardCap(address account, uint256 cap) external {
-        rewardsPovwPerEpochCap[account] = cap;
+        rewardsPovwPerEpochCapUpdates[account].push(RewardsCapUpdate({timepoint: block.timestamp, cap: cap}));
     }
 
-    function getPastPoVWRewardCap(address, uint256) external pure returns (uint256) {
-        revert("getPastPoVWRewardCap uimplemented");
+    function getPoVWRewardCap(address account) external view returns (uint256) {
+        return getPastPoVWRewardCap(account, block.timestamp);
+    }
+
+    function getPastPoVWRewardCap(address account, uint256 timepoint) public view returns (uint256) {
+        require(timepoint <= block.timestamp, "timepoint must be less than current timestamp");
+
+        RewardsCapUpdate[] storage updates = rewardsPovwPerEpochCapUpdates[account];
+        // No cap has been set for the given account.
+        if (updates.length == 0) {
+            return type(uint256).max;
+        }
+        for (uint256 i = 0; i < updates.length; i++) {
+            if (updates[i].timepoint <= block.timestamp) {
+                return updates[i].cap;
+            }
+        }
+        revert("unreachable");
     }
 }
