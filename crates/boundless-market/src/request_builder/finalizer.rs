@@ -15,7 +15,8 @@
 use super::{Adapt, Layer, RequestParams};
 use crate::{
     contracts::{
-        FulfillmentData, Offer, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
+        FulfillmentClaimData, Offer, PredicateType, ProofRequest, RequestId, RequestInput,
+        Requirements,
     },
     util::now_timestamp,
 };
@@ -140,7 +141,7 @@ impl Adapt<Finalizer> for RequestParams {
                     }
                     // If the predicate is not ClaimDigestMatch, we verify it against FulfillmentData.
                     _ => {
-                        let fulfillment_data = FulfillmentData::from_image_id_and_journal(
+                        let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
                             image_id,
                             journal.bytes.clone(),
                         );

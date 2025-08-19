@@ -86,7 +86,7 @@ jobs:
         with:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      
+
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
@@ -138,7 +138,7 @@ jobs:
 
       - name: sccache stats
         run: sccache --show-stats
-  
+
   rust-pkg-check:
     runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
@@ -366,7 +366,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      
+
       - name: Install cargo-sort
         uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
         with:
@@ -444,6 +444,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: 'us-west-2'
+          role-duration-seconds: 14400
           role-to-assume: 'arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access'
           output-credentials: true
 

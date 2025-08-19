@@ -12,6 +12,10 @@ using ReceiptClaimLib for ReceiptClaim;
 
 /// @title Predicate Struct and Library
 /// @notice Represents a predicate and provides functions to create and evaluate predicates.
+/// Data field is used to store the specific data associated with the predicate.
+/// - DigestMatch: (bytes32, bytes32) -> abi.encodePacked(imageId, journalHash)
+/// - PrefixMatch: (bytes32, bytes) -> abi.encodePacked(imageId, prefix)
+/// - ClaimDigestMatch: (bytes32) -> abi.encode(claimDigest)
 struct Predicate {
     PredicateType predicateType;
     bytes data;
@@ -30,6 +34,7 @@ library PredicateLibrary {
     /// @notice Creates a digest match predicate.
     /// @param hash The hash to match.
     /// @return A Predicate struct with type DigestMatch and the provided hash.
+
     function createDigestMatchPredicate(bytes32 imageId, bytes32 hash) internal pure returns (Predicate memory) {
         return Predicate({predicateType: PredicateType.DigestMatch, data: abi.encodePacked(imageId, hash)});
     }
@@ -49,7 +54,7 @@ library PredicateLibrary {
     /// @param claimDigest The claimDigest to match.
     /// @return A Predicate struct with type ClaimDigestMatch and the provided claimDigest.
     function createClaimDigestMatchPredicate(bytes32 claimDigest) internal pure returns (Predicate memory) {
-        return Predicate({predicateType: PredicateType.ClaimDigestMatch, data: abi.encode(claimDigest)});
+        return Predicate({predicateType: PredicateType.ClaimDigestMatch, data: abi.encodePacked(claimDigest)});
     }
 
     /// @notice Evaluates the predicate against the given journal and journal digest.

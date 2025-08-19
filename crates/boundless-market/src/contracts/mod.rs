@@ -61,9 +61,10 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
     AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
-    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, IBoundlessMarket,
-    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
-    PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
+    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, FulfillmentDataType,
+    IBoundlessMarket, Input as RequestInput, InputType as RequestInputType, LockRequest, Offer,
+    Predicate, PredicateType, ProofRequest, RequestLock, Requirements,
+    Selector as AssessorSelector,
 };
 
 #[allow(missing_docs)]
@@ -572,14 +573,14 @@ impl Requirements {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 /// TODO(ec2): doc
-pub enum FulfillmentData {
+pub enum FulfillmentClaimData {
     /// TODO(ec2): doc
     ClaimDigest(Digest),
     /// TODO(ec2): doc
     ImageIdAndJournal(Digest, Bytes),
 }
 
-impl FulfillmentData {
+impl FulfillmentClaimData {
     /// TODO(ec2): doc
     pub fn from_claim_digest(claim_digest: impl Into<Digest>) -> Self {
         Self::ClaimDigest(claim_digest.into())
@@ -679,7 +680,7 @@ impl Predicate {
 
     #[inline]
     /// TODO(ec2): doc
-    pub fn eval(&self, fulfillment_data: &FulfillmentData) -> bool {
+    pub fn eval(&self, fulfillment_data: &FulfillmentClaimData) -> bool {
         match self.predicateType {
             PredicateType::DigestMatch => {
                 let (image_id, journal_digest) = self.data.as_ref().split_at(32);
@@ -710,10 +711,6 @@ impl Predicate {
                             .as_bytes()
             }
             PredicateType::ClaimDigestMatch => {
-                // self.data.as_ref()
-                //     == ReceiptClaim::ok(Digest::from_bytes(image_id.0), journal.as_ref().to_vec())
-                //         .digest()
-                //         .as_bytes()
                 self.data.as_ref()
                     == fulfillment_data
                         .claim_digest()

@@ -21,6 +21,7 @@ import {Account} from "../../src/types/Account.sol";
 import {RequestLock} from "../../src/types/RequestLock.sol";
 import {LockRequest} from "../../src/types/LockRequest.sol";
 import {Fulfillment} from "../../src/types/Fulfillment.sol";
+import {FulfillmentDataType} from "../../src/types/FulfillmentData.sol";
 import {AssessorJournal} from "../../src/types/AssessorJournal.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Requirements} from "../../src/types/Requirements.sol";

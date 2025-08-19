@@ -6,6 +6,7 @@ pragma solidity ^0.8.20;
 
 import {RequestId} from "./RequestId.sol";
 import {PredicateType} from "./Predicate.sol";
+import {FulfillmentDataType} from "./FulfillmentData.sol";
 
 using FulfillmentLibrary for Fulfillment global;
 
@@ -17,13 +18,14 @@ struct Fulfillment {
     /// @notice EIP-712 digest of request struct.
     bytes32 requestDigest;
     /// @notice The `PredicateType` of the request that is being fulfilled.
-    /// @dev When the `PredicateType` is `ClaimDigestMatch`, the imageIdOrClaimDigest field is the claim digest,
-    /// and otherwise it is the image ID of the guest that was executed.
+    /// @dev When the `PredicateType` is `ClaimDigestMatch`, there callbacks are not supported
     PredicateType predicateType;
     /// @notice Claim Digest
     bytes32 claimDigest;
-    /// @notice The callback data, if requested.
-    bytes callbackData;
+    /// @notice The type of data included in the fulfillment
+    FulfillmentDataType fulfillmentDataType;
+    /// @notice The fulfillment data
+    bytes fulfillmentData;
     /// @notice Cryptographic proof for the validity of the execution results.
     /// @dev This will be sent to the `IRiscZeroVerifier` associated with this contract.
     bytes seal;

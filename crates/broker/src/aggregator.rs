@@ -16,7 +16,7 @@ use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
-    contracts::{eip712_domain, FulfillmentData, PredicateType},
+    contracts::{eip712_domain, FulfillmentClaimData, PredicateType},
     input::GuestEnv,
 };
 use chrono::Utc;
@@ -187,7 +187,6 @@ impl AggregatorService {
 
     async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
         let mut fills = vec![];
-        let mut assumptions = vec![];
 
         for order_id in order_ids {
             let order = self
@@ -200,7 +199,6 @@ impl AggregatorService {
             let proof_id = order
                 .proof_id
                 .with_context(|| format!("Missing proof_id for order: {order_id}"))?;
-            assumptions.push(proof_id.clone());
 
             let journal = self
                 .prover
@@ -210,10 +208,10 @@ impl AggregatorService {
                 .with_context(|| format!("{proof_id} journal missing"))?;
 
             let fulfillment_data = match order.request.requirements.predicate.predicateType {
-                PredicateType::ClaimDigestMatch => FulfillmentData::from_claim_digest(
+                PredicateType::ClaimDigestMatch => FulfillmentClaimData::from_claim_digest(
                     order.request.requirements.predicate.claim_digest().unwrap(),
                 ),
-                _ => FulfillmentData::from_image_id_and_journal(
+                _ => FulfillmentClaimData::from_image_id_and_journal(
                     Digest::from_hex(order.image_id.unwrap()).unwrap(),
                     journal,
                 ),
@@ -239,7 +237,7 @@ impl AggregatorService {
 
         let proof_res = self
             .prover
-            .prove_and_monitor_stark(&self.assessor_guest_id.to_string(), &input_id, assumptions)
+            .prove_and_monitor_stark(&self.assessor_guest_id.to_string(), &input_id, vec![])
             .await
             .context("Failed to prove assesor stark")?;
 

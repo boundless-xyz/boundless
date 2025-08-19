@@ -24,8 +24,9 @@ import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
-import {CallbackData} from "./types/CallbackData.sol";
+import {FulfillmentData} from "./types/FulfillmentData.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
+import {FulfillmentData, FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {PredicateType} from "./types/Predicate.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
@@ -337,32 +338,49 @@ contract BoundlessMarket is
             }
 
             uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
-            // We do not support callbacks for claim digest matches.
-            if ((fill.predicateType != PredicateType.ClaimDigestMatch) && (callbackIndexPlusOne > 0)) {
-                (bytes32 imageId, bytes calldata journal) = _decodeCallbackData(fill.callbackData);
 
-                AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
-                _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
+            if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
+                (bytes32 imageId, bytes calldata journal) = _decodeFulfillmentData(fill.fulfillmentData);
+                bytes32 calculatedClaimDigest = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
+
+                if (fill.claimDigest != calculatedClaimDigest) {
+                    revert ClaimDigestMismatch(fill.claimDigest, calculatedClaimDigest);
+                }
+                // We should only get to this point if the journal has been authenticated because the claimDigest
+                // passed the integrity check in verifyDelivery and we just recalculated it from the imageId and journal
+                // and compared to make sure they match.
+                // That is to say, if the claimDigest isn't a Risc0 zkvm claimDigest (e.g. blake3), journals
+                // cannot be authenticated and therefore we cannot use them in a callback and we revert with ClaimDigestMismatch.
+                if (callbackIndexPlusOne > 0) {
+                    AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
+                    _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
+                }
+            } else if (fill.fulfillmentDataType == FulfillmentDataType.None) {
+                // Nothing to do
+            } else {
+                revert UnsupportedFulfillmentData();
             }
         }
     }
 
-    function _decodeCallbackData(bytes calldata data) internal pure returns (bytes32 imageId, bytes calldata journal) {
+    function _decodeFulfillmentData(bytes calldata data)
+        internal
+        pure
+        returns (bytes32 imageId, bytes calldata journal)
+    {
         assembly {
             // Extract imageId (first 32 bytes after length)
             imageId := calldataload(add(data.offset, 0x20))
-
             // Extract journal offset and create calldata slice
             let journalOffset := calldataload(add(data.offset, 0x40))
             let journalPtr := add(data.offset, add(0x20, journalOffset))
             let journalLength := calldataload(journalPtr)
-
             journal.offset := add(journalPtr, 0x20)
             journal.length := journalLength
         }
     }
-
     /// @inheritdoc IBoundlessMarket
+
     function priceAndFulfillAndWithdraw(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,

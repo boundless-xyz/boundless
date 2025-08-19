@@ -4,7 +4,6 @@ CREATE TABLE IF NOT EXISTS proof_requests (
     client_address      TEXT      NOT NULL,  -- Ethereum address
     
     -- Requirements fields
-    -- image_id            TEXT      NOT NULL, -- 32-byte image ID (hex encoded)
     predicate_type      TEXT      NOT NULL, -- Type of predicate (e.g., 'DigestMatch', 'PrefixMatch')
     predicate_data      TEXT      NOT NULL, -- Predicate data (hex encoded)
     callback_address    TEXT,               -- Optional callback contract address

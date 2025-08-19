@@ -68,7 +68,7 @@ use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
-use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
+use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier, Receipt};
 use risc0_zkvm::{
     compute_image_id, default_executor,
     sha::{Digest, Digestible},
@@ -82,7 +82,8 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        Offer, ProofRequest, RequestInputType, Selector,
+        boundless_market_contract::CallbackData,
+        Offer, PredicateType, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -661,29 +662,60 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
-            let (journal, seal) =
+            let (callback_data, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
             tracing::info!(
-                "Journal: {} - Seal: {}",
-                serde_json::to_string_pretty(&journal)?,
+                "Callback Data: {} - Seal: {}",
+                serde_json::to_string_pretty(&callback_data)?,
                 serde_json::to_string_pretty(&seal)?
             );
             Ok(())
         }
         RequestCommands::VerifyProof { request_id, image_id } => {
             tracing::info!("Verifying proof for request 0x{:x}", request_id);
-            let (journal, seal) =
-                client.boundless_market.get_request_fulfillment(*request_id).await?;
-            let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
+
             let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
             let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
+            let (callback_data, seal) =
+                client.boundless_market.get_request_fulfillment(*request_id).await?;
+            let (req, _) = client.boundless_market.get_submitted_request(*request_id, None).await?;
+            let predicate = req.requirements.predicate;
+            match predicate.predicateType {
+                PredicateType::ClaimDigestMatch => {
+                    let claim_digest = <FixedBytes<32>>::try_from(predicate.data.as_ref())?;
+                    verifier
+                        .verifyIntegrity(Receipt { seal, claimDigest: claim_digest })
+                        .call()
+                        .await
+                        .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+                    todo!()
+                }
+                PredicateType::DigestMatch | PredicateType::PrefixMatch => {
+                    let CallbackData { imageId, journal } =
+                        CallbackData::abi_decode(&callback_data)?;
+                    ensure!(
+                        imageId == *image_id,
+                        "Image ID mismatch: expected {:?}, got {:?}",
+                        imageId,
+                        *image_id
+                    );
+                    let journal_digest =
+                        <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
 
-            verifier
-                .verify(seal, *image_id, journal_digest)
-                .call()
-                .await
-                .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+                    verifier
+                        .verify(seal, *image_id, journal_digest)
+                        .call()
+                        .await
+                        .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+                }
+                _ => {
+                    bail!(
+                        "Unsupported predicate type for verification: {:?}",
+                        predicate.predicateType
+                    );
+                }
+            }
 
             tracing::info!("Successfully verified proof for request 0x{:x}", request_id);
             Ok(())
@@ -1128,15 +1160,15 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
     // Wait for fulfillment if requested
     if args.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (journal, seal) = client
+        let (fulfillment_data, seal) = client
             .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
-            "Journal: {} - Seal: {}",
-            serde_json::to_string_pretty(&journal)?,
+            "Fulfillment Data: {} - Seal: {}",
+            serde_json::to_string_pretty(&fulfillment_data)?,
             serde_json::to_string_pretty(&seal)?
         );
     }

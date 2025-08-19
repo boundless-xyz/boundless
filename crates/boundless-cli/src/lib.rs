@@ -37,8 +37,8 @@ use risc0_zkvm::{
 use boundless_market::{
     contracts::{
         boundless_market_contract::CallbackData, AssessorJournal, AssessorReceipt,
-        EIP712DomainSaltless, Fulfillment as BoundlessFulfillment, FulfillmentData, PredicateType,
-        RequestInputType,
+        EIP712DomainSaltless, Fulfillment as BoundlessFulfillment, FulfillmentClaimData,
+        FulfillmentDataType, PredicateType, RequestInputType,
     },
     input::GuestEnv,
     selector::{is_groth16_selector, is_shrink_bitvm2_selector, SupportedSelectors},
@@ -275,10 +275,10 @@ impl DefaultProver {
             let order_claim_digest = order_claim.digest();
 
             let fulfillment_data = match req.requirements.predicate.predicateType {
-                PredicateType::ClaimDigestMatch => FulfillmentData::from_claim_digest(
+                PredicateType::ClaimDigestMatch => FulfillmentClaimData::from_claim_digest(
                     req.requirements.predicate.claim_digest().unwrap(),
                 ),
-                _ => FulfillmentData::from_image_id_and_journal(order_image_id, order_journal),
+                _ => FulfillmentClaimData::from_image_id_and_journal(order_image_id, order_journal),
             };
             let fill =
                 Fulfillment { request: req.clone(), signature: sig.into(), fulfillment_data };
@@ -338,30 +338,40 @@ impl DefaultProver {
             } else {
                 order_inclusion_receipt.abi_encode_seal()?
             };
-            let predicate_type = req.requirements.predicate.predicateType;
 
-            let (claim_digest, callback_data) = match predicate_type {
-                PredicateType::ClaimDigestMatch => (
-                    <[u8; 32]>::from(fills[i].fulfillment_data.claim_digest().unwrap()).into(),
-                    vec![],
-                ),
-                _ => (
-                    <[u8; 32]>::from(claims[i].digest()).into(),
-                    CallbackData {
-                        imageId: <[u8; 32]>::from(fills[i].fulfillment_data.image_id().unwrap())
+            // For now, we default to not providing journals with claim digest match, but you could if it is a R0 ZKVM commit digest.
+            let (claim_digest, fulfillment_data, fulfillment_data_type) =
+                match req.requirements.predicate.predicateType {
+                    PredicateType::ClaimDigestMatch => (
+                        <[u8; 32]>::from(fills[i].fulfillment_data.claim_digest().unwrap()).into(),
+                        vec![],
+                        FulfillmentDataType::None,
+                    ),
+                    PredicateType::PrefixMatch | PredicateType::DigestMatch => (
+                        <[u8; 32]>::from(claims[i].digest()).into(),
+                        CallbackData {
+                            imageId: <[u8; 32]>::from(
+                                fills[i].fulfillment_data.image_id().unwrap(),
+                            )
                             .into(),
-                        journal: fills[i].fulfillment_data.journal().unwrap().clone(),
+                            journal: fills[i].fulfillment_data.journal().unwrap().clone(),
+                        }
+                        .abi_encode(),
+                        FulfillmentDataType::ImageIdAndJournal,
+                    ),
+                    _ => {
+                        bail!("Invalid predicate type");
                     }
-                    .abi_encode(),
-                ),
-            };
+                };
+
             let fulfillment = BoundlessFulfillment {
                 claimDigest: claim_digest,
-                callbackData: callback_data.into(),
+                fulfillmentData: fulfillment_data.into(),
+                fulfillmentDataType: fulfillment_data_type,
                 id: req.id,
                 requestDigest: req.eip712_signing_hash(&self.domain.alloy_struct()),
                 seal: order_seal.into(),
-                predicateType: predicate_type,
+                predicateType: req.requirements.predicate.predicateType,
             };
 
             boundless_fills.push(fulfillment);

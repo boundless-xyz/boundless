@@ -43,9 +43,9 @@ fn main() {
     // For each fill we
     // - verify the request's signature
     // - evaluate the request's requirements
-    // - verify the integrity of its claim
     // - record the callback if it exists
     // - record the selector if it is present
+    // NOTE: We no longer verify integrity of the claim. That is done on chain.
     // We additionally collect the request and claim digests.
     for (index, fill) in input.fills.iter().enumerate() {
         // Attempt to decode the request ID. If this fails, there may be flags that are not handled
@@ -72,13 +72,20 @@ fn main() {
         }
         .eip712_hash_struct();
         leaves.push(Digest::from_bytes(*commit));
+
+        let callback = &fill.request.requirements.callback;
+
+        // Note that this allows for callbacks to be specified even in the case of
+        // ClaimDigestMatch predicates where the journal cannot be provided.
+        // This is ok because it will fail on chain checks if a journal is indeed provided.
         if fill.request.requirements.callback.addr != Address::ZERO {
             callbacks.push(AssessorCallback {
                 index: index.try_into().expect("callback index overflow"),
-                addr: fill.request.requirements.callback.addr,
-                gasLimit: fill.request.requirements.callback.gasLimit,
+                addr: callback.addr,
+                gasLimit: callback.gasLimit,
             });
         }
+
         if fill.request.requirements.selector != UNSPECIFIED_SELECTOR {
             selectors.push(AssessorSelector {
                 index: index.try_into().expect("selector index overflow"),
