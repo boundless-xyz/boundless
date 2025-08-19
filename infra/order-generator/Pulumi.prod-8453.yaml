@@ -25,7 +25,7 @@ config:
   order-generator-base:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic
   order-generator-base:TX_TIMEOUT: "90"
-  order-generator-offchain:INPUT_MAX_MCYCLES: "1200"
+  order-generator-offchain:INPUT_MAX_MCYCLES: "1500"
   order-generator-offchain:RAMP_UP: "750"
   order-generator-offchain:LOCK_TIMEOUT: "900"
   order-generator-offchain:TIMEOUT: "1500"
@@ -43,4 +43,4 @@ config:
   order-generator-onchain:LOCK_TIMEOUT: "1200"
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:SECONDS_PER_MCYCLE: "8"
-  order-generator-onchain:INPUT_MAX_MCYCLES: "3000"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "3600"
