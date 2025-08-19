@@ -197,8 +197,7 @@ mod tests {
         <[u8; 32]>::from(digest).into()
     }
 
-    #[tokio::test]
-    #[test_log::test]
+    #[test_log::test(tokio::test)]
     async fn test_claim() {
         let signer = PrivateKeySigner::random();
         let proving_request = proving_request(1, signer.address(), B256::ZERO, vec![1]);
@@ -214,7 +213,6 @@ mod tests {
         claim.evaluate_requirements().unwrap();
     }
 
-    #[test]
     #[test_log::test]
     fn test_domain_serde() {
         let domain = eip712_domain(Address::ZERO, 1);
@@ -268,8 +266,7 @@ mod tests {
         assert_eq!(session.exit_code, ExitCode::Halted(0));
     }
 
-    #[tokio::test]
-    #[test_log::test]
+    #[test_log::test(tokio::test)]
     async fn test_assessor_e2e_singleton() {
         let signer = PrivateKeySigner::random();
         // 1. Mock and sign a request
@@ -284,8 +281,7 @@ mod tests {
         assessor(claims, vec![application_receipt]);
     }
 
-    #[tokio::test]
-    #[test_log::test]
+    #[test_log::test(tokio::test)]
     async fn test_assessor_e2e_two_leaves() {
         let signer = PrivateKeySigner::random();
         // 1. Mock and sign a request
