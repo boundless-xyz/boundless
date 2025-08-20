@@ -29,6 +29,8 @@ sol! {
             uint256 updateValue,
             address valueRecipient
         );
+
+        function getWorkLogCommit(address workLogId) external view returns (bytes32);
     }
 
     #[derive(Debug)]

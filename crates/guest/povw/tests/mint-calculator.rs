@@ -536,7 +536,7 @@ async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
     //assert!(err.to_string().contains("no epoch finalized event processed"));
     // TODO(povw): This test currently failed before getting to the guest. Provide a way to advance
     // the preflight (skipping some steps) to build an input to at least let the guest run.
-    assert!(err.to_string().contains("Failed to preflight call: getPoVWEmissionsForEpoch"));
+    assert!(err.to_string().contains("no epoch finalized events processed"));
 
     Ok(())
 }
@@ -567,7 +567,7 @@ async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
     let mint_input = ctx
         .build_mint_input(
             MintOptions::builder()
-                .epochs([finalize_event.epoch.to()])
+                .epochs([finalize_event.epoch])
                 .chain_spec(&ETH_SEPOLIA_CHAIN_SPEC),
         )
         .await?;
@@ -847,7 +847,7 @@ async fn zero_valued_update() -> anyhow::Result<()> {
     println!("EpochFinalized event verified: epoch={}, totalWork=0", finalized_event.epoch);
 
     // Run the mint process - should complete successfully
-    ctx.run_mint_with_opts(MintOptions::builder().epochs([finalized_event.epoch.to()])).await?;
+    ctx.run_mint_with_opts(MintOptions::builder().epochs([finalized_event.epoch])).await?;
 
     // Verify no tokens were minted (recipient balance should remain zero)
     let zero_update_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
@@ -872,7 +872,7 @@ async fn zero_valued_update() -> anyhow::Result<()> {
     ctx.advance_epochs(U256::ONE).await?;
     let finalized_event = ctx.finalize_epoch().await?;
 
-    ctx.run_mint_with_opts(MintOptions::builder().epochs([finalized_event.epoch.to()])).await?;
+    ctx.run_mint_with_opts(MintOptions::builder().epochs([finalized_event.epoch])).await?;
 
     // Verify tokens were minted this time.
     let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
@@ -931,7 +931,7 @@ async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
     let mint_receipt_a = ctx
         .run_mint_with_opts(
             MintOptions::builder()
-                .epochs([finalized_event.epoch.to()])
+                .epochs([finalized_event.epoch])
                 .work_log_filter([signer_a.address().into()]),
         )
         .await?;
@@ -962,7 +962,7 @@ async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
     let mint_receipt_b = ctx
         .run_mint_with_opts(
             MintOptions::builder()
-                .epochs([finalized_event.epoch.to()])
+                .epochs([finalized_event.epoch])
                 .work_log_filter([signer_b.address().into()]),
         )
         .await?;
@@ -1032,7 +1032,7 @@ async fn filter_empty_no_mints_issued() -> anyhow::Result<()> {
     let mint_receipt = ctx
         .run_mint_with_opts(
             MintOptions::builder()
-                .epochs([finalized_event.epoch.to()])
+                .epochs([finalized_event.epoch])
                 .work_log_filter(WorkLogFilter::none()),
         )
         .await?;

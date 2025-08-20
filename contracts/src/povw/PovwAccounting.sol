@@ -163,4 +163,9 @@ contract PovwAccounting is EIP712 {
             update.valueRecipient
         );
     }
+
+    /// Get the current work log commitment for the given work log.
+    function getWorkLogCommit(address workLogId) external view returns (bytes32) {
+        return workLogRoots[workLogId];
+    }
 }

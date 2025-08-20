@@ -10,6 +10,8 @@ import {PovwAccounting, EMPTY_LOG_ROOT} from "./PovwAccounting.sol";
 import {IZKC, IZKCRewards} from "./IZKC.sol";
 import {Steel} from "risc0/steel/Steel.sol";
 
+// TODO(povw): Rename everything referencing "mint" to "reward".
+
 /// An update to the commitment for the processing of a work log.
 struct MintCalculatorUpdate {
     /// Work log ID associated that is updated.
@@ -77,7 +79,7 @@ contract PovwMint {
     /// @notice Mapping from work log ID to the most recent work log commit for which a mint has occurred.
     /// @notice Each time a mint occurs associated with a work log, this value ratchets forward.
     /// It ensure that any given work log update can be used in at most one mint.
-    mapping(address => bytes32) internal lastCommit;
+    mapping(address => bytes32) internal latestCommit;
 
     constructor(
         IRiscZeroVerifier verifier,
@@ -119,7 +121,7 @@ contract PovwMint {
             MintCalculatorUpdate memory update = journal.updates[i];
 
             // On the first mint for a journal, the initialCommit should be equal to the empty root.
-            bytes32 expectedCommit = lastCommit[update.workLogId];
+            bytes32 expectedCommit = latestCommit[update.workLogId];
             if (expectedCommit == bytes32(0)) {
                 expectedCommit = EMPTY_LOG_ROOT;
             }
@@ -127,7 +129,7 @@ contract PovwMint {
             if (update.initialCommit != expectedCommit) {
                 revert IncorrectInitialUpdateCommit({expected: expectedCommit, received: update.initialCommit});
             }
-            lastCommit[update.workLogId] = update.updatedCommit;
+            latestCommit[update.workLogId] = update.updatedCommit;
         }
 
         // Issue all of the mint calls indicated in the journal.

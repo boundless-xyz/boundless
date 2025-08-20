@@ -42,6 +42,7 @@ fn main() {
     let envs = input.env.into_env(chain_spec);
 
     // Construct a mapping with the total work value for each finalized epoch.
+    let mut latest_epoch_finalization_block: Option<u64> = None;
     let mut epochs = BTreeMap::<U256, U256>::new();
     for env in envs.0.values() {
         // Query all `EpochFinalized` events of the PoVW accounting contract.
@@ -51,11 +52,16 @@ fn main() {
             .address(input.povw_accounting_address)
             .query();
 
+        // NOTE: This loop will iterate at most once when querying the real PovwAccounting impl.
         for epoch_finalized_event in epoch_finalized_events {
             let epoch_number = epoch_finalized_event.epoch;
             let None = epochs.insert(epoch_number, epoch_finalized_event.totalWork) else {
                 panic!("multiple epoch finalized events for epoch {epoch_number}");
             };
+
+            // Record the latest block number in which an epoch finalization event occurred.
+            // NOTE: The BTreeMap iterator will visit the blocks in the env by increasing number.
+            latest_epoch_finalization_block = Some(env.header().number);
         }
     }
 
@@ -111,14 +117,40 @@ fn main() {
         }
     }
 
+    // Ensure that for each work log, all epochs they participated in were processed fully. This
+    // is important to avoid to ensure the correct application of the reward cap per epoch, which
+    // is calculated below. Without this check, a prover could split their rewards for a single
+    // epoch into multiple mints to avoid this restriction.
+    //
+    // To ensure this, we check that the work log commit recording on the PovwAccounting contract
+    // at the end of the final epoch is equal to the final update provided for each work log. We
+    // use the env for the block prior to the final epoch finalization event, which serves as a
+    // snapshot of the final state of the PovwAccounting contract at the end of that epoch.
+    let latest_epoch_finalization_block = latest_epoch_finalization_block.unwrap();
+    let completness_check_env = envs.0.get(&(latest_epoch_finalization_block - 1)).unwrap();
+    let povw_accounting_contract =
+        Contract::new(input.povw_accounting_address, completness_check_env);
+    for (work_log_id, (_, updated_commit)) in updates.iter() {
+        let final_commit = povw_accounting_contract
+            .call_builder(&IPovwAccounting::getWorkLogCommitCall { workLogId: *work_log_id })
+            .call();
+        assert_eq!(
+            final_commit,
+            *updated_commit,
+            "final commit at block {} does not match the updated commit: {final_commit} != {updated_commit}",
+            completness_check_env.header().number
+        );
+    }
+
     // Calculate the rewards for each recipient by assigning the portion of each epoch rewards they
     // earned, capped by their max allowed reward in that epoch.
     let mut rewards = BTreeMap::<Address, U256>::new();
     // The calculator needs to query values from the chain state. This must be done from a block
-    // that is later than the end of every epoch in the mint. We use the latest epoch.
-    let lastest_env = envs.0.last_key_value().unwrap().1;
-    let zkc_contract = Contract::new(input.zkc_address, lastest_env);
-    let zkc_rewards_contract = Contract::new(input.zkc_rewards_address, lastest_env);
+    // that is later than the end of every epoch in the mint. We use the latest block in which an
+    // epoch finalization occurred. By construction, this block must be after all epochs processed.
+    let finalization_env = envs.0.get(&latest_epoch_finalization_block).unwrap();
+    let zkc_contract = Contract::new(input.zkc_address, finalization_env);
+    let zkc_rewards_contract = Contract::new(input.zkc_rewards_address, finalization_env);
     for (epoch, epoch_reward_weights) in rewards_weights {
         // Call the ZKC contract to get the total PoVW emissions and end time for the epoch.
         let epoch_emissions =

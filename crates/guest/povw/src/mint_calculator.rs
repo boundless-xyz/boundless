@@ -201,7 +201,7 @@ impl AddAssign for FixedPoint {
 #[cfg(feature = "host")]
 pub mod host {
     use alloy_provider::Provider;
-    use anyhow::Context;
+    use anyhow::{anyhow, Context};
     use risc0_steel::{
         alloy::network::Ethereum,
         beacon::BeaconCommit,
@@ -394,15 +394,24 @@ pub mod host {
                 .await
                 .context("failed to preflight verify_continuity")?;
 
+            let mut latest_epoch_finalization_block: Option<u64> = None;
             for env in envs.0.values_mut() {
-                Event::preflight::<IPovwAccounting::EpochFinalized>(env)
-                    .address(povw_accounting_address)
-                    .query()
-                    .await
-                    .context("failed to query EpochFinalized events")?;
+                let epoch_finalized_events =
+                    Event::preflight::<IPovwAccounting::EpochFinalized>(env)
+                        .address(povw_accounting_address)
+                        .query()
+                        .await
+                        .context("failed to query EpochFinalized events")?;
+
+                if !epoch_finalized_events.is_empty() {
+                    latest_epoch_finalization_block = Some(env.header().number);
+                }
             }
+            let latest_epoch_finalization_block = latest_epoch_finalization_block.unwrap();
+
             // Mapping containing the epochs, and the value recipients in those epochs.
             let mut epoch_recipients = BTreeMap::<U256, BTreeSet<Address>>::new();
+            let mut work_logs = BTreeSet::<Address>::new();
             for env in envs.0.values_mut() {
                 let update_events = Event::preflight::<IPovwAccounting::WorkLogUpdated>(env)
                     .address(povw_accounting_address)
@@ -416,6 +425,7 @@ pub mod host {
                     if !work_log_filter.includes(update_event.data.workLogId.into()) {
                         continue;
                     }
+                    work_logs.insert(update_event.data.workLogId);
                     if update_event.data.updateValue == U256::ZERO {
                         continue;
                     }
@@ -426,13 +436,37 @@ pub mod host {
                 }
             }
 
+            // Preflight the contract calls the guest will make for completeness checks.
+            let completeness_check_env =
+                envs.0.get_mut(&(latest_epoch_finalization_block - 1)).ok_or_else(|| {
+                    anyhow!(
+                        "missing completeness check block {}",
+                        latest_epoch_finalization_block - 1
+                    )
+                })?;
+            let mut povw_accounting_contract =
+                Contract::preflight(povw_accounting_address, completeness_check_env);
+            for work_log_id in work_logs {
+                povw_accounting_contract
+                    .call_builder(&IPovwAccounting::getWorkLogCommitCall { workLogId: work_log_id })
+                    .call()
+                    .await
+                    .with_context(|| {
+                        format!("Failed to preflight call: getWorkLogCommit({work_log_id})")
+                    })?;
+            }
+
             // Preflight the contract calls the guest will make to calculate the reward values.
-            let mut lastest_env_entry = envs.0.last_entry().unwrap();
-            let lastest_env = lastest_env_entry.get_mut();
+            let finalization_env =
+                envs.0.get_mut(&latest_epoch_finalization_block).ok_or_else(|| {
+                    anyhow!(
+                        "missing latest epoch finalization block {latest_epoch_finalization_block}"
+                    )
+                })?;
             for (epoch, recipients) in epoch_recipients {
                 let epoch_end_time = {
                     // NOTE: zkc_contract must be in a limited scope because it holds lastest_env.
-                    let mut zkc_contract = Contract::preflight(zkc_address, lastest_env);
+                    let mut zkc_contract = Contract::preflight(zkc_address, finalization_env);
                     zkc_contract
                         .call_builder(&IZKC::getPoVWEmissionsForEpochCall { epoch })
                         .call()
@@ -451,7 +485,7 @@ pub mod host {
 
                 for recipient in recipients {
                     let mut zkc_rewards_contract =
-                        Contract::preflight(zkc_rewards_address, lastest_env);
+                        Contract::preflight(zkc_rewards_address, finalization_env);
                     let call = IZKCRewards::getPastPoVWRewardCapCall {
                         account: recipient,
                         timepoint: epoch_end_time,

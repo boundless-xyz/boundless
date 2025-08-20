@@ -20,7 +20,7 @@ use alloy::{
     sol_types::SolValue,
 };
 use alloy_primitives::U256;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use boundless_povw_guests::{
     log_updater::{self, IPovwAccounting, LogBuilderJournal, WorkLogUpdate},
     mint_calculator::{self, host::IPovwMint::IPovwMintInstance, WorkLogFilter},
@@ -304,25 +304,28 @@ impl TestCtx {
         );
 
         // Collect and sort unique block numbers that contain filtered events.
-        let mut block_numbers = BTreeSet::new();
+        let mut work_log_update_block_numbers = BTreeSet::new();
         for (event, log) in &filtered_work_log_events {
             if let Some(block_number) = log.block_number {
-                block_numbers.insert(block_number);
+                work_log_update_block_numbers.insert(block_number);
                 println!(
                     "WorkLogUpdated event at block {} (epoch {})",
                     block_number, event.epochNumber
                 );
             }
         }
+        let mut epoch_finalized_block_numbers = BTreeSet::new();
         for (event, log) in &filtered_epoch_finalized_events {
             if let Some(block_number) = log.block_number {
-                block_numbers.insert(block_number);
+                epoch_finalized_block_numbers.insert(block_number);
                 println!("EpochFinalized event at block {} (epoch {})", block_number, event.epoch);
             }
         }
 
-        let sorted_blocks: Vec<u64> = block_numbers.into_iter().collect();
-        println!("Block numbers with events: {sorted_blocks:?}");
+        // Combine the sets of blocks that contain either event, and add the block used for the completeness_check.
+        let completeness_check_block = epoch_finalized_block_numbers.last().ok_or_else(|| anyhow!("no epoch finalized events processed"))? - 1;
+        let mut block_numbers = &work_log_update_block_numbers | &epoch_finalized_block_numbers;
+        block_numbers.insert(completeness_check_block);
 
         // Build the input for the mint_calculator, including input for Steel.
         let mint_input = mint_calculator::Input::build(
@@ -331,7 +334,7 @@ impl TestCtx {
             *self.zkc_rewards_contract.address(),
             self.provider.clone(),
             chain_spec,
-            sorted_blocks,
+            block_numbers,
             work_log_filter,
         )
         .await?;
