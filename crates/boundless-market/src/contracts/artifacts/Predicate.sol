@@ -11,8 +11,8 @@ using PredicateLibrary for Predicate global;
 using ReceiptClaimLib for ReceiptClaim;
 
 /// @title Predicate Struct and Library
-/// @notice Represents a predicate and provides functions to create and evaluate predicates.
-/// Data field is used to store the specific data associated with the predicate.
+/// @notice A predicate is a function over the claim that determines whether it meets the clients requirements.
+/// The data field is used to store the specific data associated with the predicate.
 /// - DigestMatch: (bytes32, bytes32) -> abi.encodePacked(imageId, journalHash)
 /// - PrefixMatch: (bytes32, bytes) -> abi.encodePacked(imageId, prefix)
 /// - ClaimDigestMatch: (bytes32) -> abi.encode(claimDigest)
@@ -34,7 +34,6 @@ library PredicateLibrary {
     /// @notice Creates a digest match predicate.
     /// @param hash The hash to match.
     /// @return A Predicate struct with type DigestMatch and the provided hash.
-
     function createDigestMatchPredicate(bytes32 imageId, bytes32 hash) internal pure returns (Predicate memory) {
         return Predicate({predicateType: PredicateType.DigestMatch, data: abi.encodePacked(imageId, hash)});
     }
@@ -68,30 +67,16 @@ library PredicateLibrary {
         returns (bool)
     {
         if (predicate.predicateType == PredicateType.DigestMatch) {
-            bytes memory dataJournal = sliceToEnd(predicate.data, 32);
+            bytes memory dataJournal = _sliceToEnd(predicate.data, 32);
             return bytes32(dataJournal) == journalDigest;
         } else if (predicate.predicateType == PredicateType.PrefixMatch) {
-            bytes memory dataJournal = sliceToEnd(predicate.data, 32);
+            bytes memory dataJournal = _sliceToEnd(predicate.data, 32);
             return startsWith(journal, dataJournal);
         } else if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
             return bytes32(predicate.data) == ReceiptClaimLib.ok(imageId, journalDigest).digest();
         } else {
             revert("Unreachable code");
         }
-    }
-
-    /// Taken from openzepplin util Bytes.sol
-    function sliceToEnd(bytes memory buffer, uint256 start) internal pure returns (bytes memory) {
-        // sanitize
-        uint256 end = buffer.length;
-
-        // allocate and copy
-        bytes memory result = new bytes(end - start);
-        assembly ("memory-safe") {
-            mcopy(add(result, 0x20), add(buffer, add(start, 0x20)), sub(end, start))
-        }
-
-        return result;
     }
 
     /// @notice Checks if the journal starts with the given prefix.
@@ -120,4 +105,18 @@ library PredicateLibrary {
     function eip712Digest(Predicate memory predicate) internal pure returns (bytes32) {
         return keccak256(abi.encode(PREDICATE_TYPEHASH, predicate.predicateType, keccak256(predicate.data)));
     }
+}
+
+/// Taken from Openzepplin util Bytes.sol
+function _sliceToEnd(bytes memory buffer, uint256 start) pure returns (bytes memory) {
+    // sanitize
+    uint256 end = buffer.length;
+
+    // allocate and copy
+    bytes memory result = new bytes(end - start);
+    assembly ("memory-safe") {
+        mcopy(add(result, 0x20), add(buffer, add(start, 0x20)), sub(end, start))
+    }
+
+    return result;
 }
