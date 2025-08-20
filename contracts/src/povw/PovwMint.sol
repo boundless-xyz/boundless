@@ -8,7 +8,7 @@ import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {Math} from "openzeppelin/contracts/utils/math/Math.sol";
 import {PovwAccounting, EMPTY_LOG_ROOT} from "./PovwAccounting.sol";
 import {IZKC, IZKCRewards} from "./IZKC.sol";
-import {Steel} from "risc0/steel/Steel.sol";
+import {Steel} from "steel/Steel.sol";
 
 // TODO(povw): Rename everything referencing "mint" to "reward".
 
