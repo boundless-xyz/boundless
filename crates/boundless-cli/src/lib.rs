@@ -41,10 +41,11 @@ use boundless_market::{
         FulfillmentDataType, PredicateType, RequestInputType,
     },
     input::GuestEnv,
-    selector::{is_groth16_selector, SupportedSelectors},
+    selector::{is_groth16_selector, is_shrink_bitvm2_selector, SupportedSelectors},
     storage::fetch_url,
     ProofRequest,
 };
+use tempfile::tempdir;
 
 alloy::sol!(
     #[sol(all_derives)]
@@ -174,6 +175,30 @@ impl DefaultProver {
             default_prover().compress(&ProverOpts::groth16(), &receipt)
         })
         .await?
+    }
+
+    pub(crate) async fn shrink_bitvm2(&self, receipt: &Receipt) -> Result<Receipt> {
+        if receipt.journal.bytes.len() != 32 {
+            bail!(
+                "Shrink BitVM2 requires a journal of 32 bytes, got {}",
+                receipt.journal.bytes.len()
+            );
+        }
+        if is_dev_mode() {
+            return Ok(receipt.clone());
+        }
+        let succinct_receipt = receipt.inner.succinct().unwrap();
+        let p254_receipt = risc0_zkvm::recursion::identity_p254(succinct_receipt)
+            .context("identity predicate failed")?;
+        let temp_dir = tempdir().context("Failed to crate tmpdir")?;
+        let receipt = shrink_bitvm2::prove_and_verify(
+            "boundless_cli",
+            temp_dir.path(),
+            p254_receipt,
+            receipt.journal.clone(),
+        )
+        .await?;
+        Ok(receipt)
     }
 
     // Finalizes the set builder.
@@ -307,6 +332,9 @@ impl DefaultProver {
             let order_seal = if is_groth16_selector(req.requirements.selector) {
                 let receipt = self.compress(&receipts[i]).await?;
                 encode_seal(&receipt)?
+            } else if is_shrink_bitvm2_selector(req.requirements.selector) {
+                let receipt = self.shrink_bitvm2(&receipts[i]).await?;
+                encode_seal(&receipt)?
             } else {
                 order_inclusion_receipt.abi_encode_seal()?
             };
@@ -415,6 +443,7 @@ mod tests {
     };
     use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
     use risc0_ethereum_contracts::selector::Selector;
+    use shrink_bitvm2::ShrinkBitvm2ReceiptClaim;
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
@@ -461,6 +490,34 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
 
+        let domain = eip712_domain(Address::ZERO, 1);
+        let prover = DefaultProver::new(
+            SET_BUILDER_ELF.to_vec(),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            domain,
+        )
+        .expect("failed to create prover");
+
+        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+    }
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_shrink() {
+        let input = [255u8; 32].to_vec(); // Example output data
+        let blake3_claim_digest =
+            ShrinkBitvm2ReceiptClaim::ok(Digest::from(ECHO_ID), input.clone()).digest();
+        let signer = PrivateKeySigner::random();
+        let request = ProofRequest::new(
+            RequestId::new(signer.address(), 0),
+            Requirements::new(Predicate::claim_digest_match(blake3_claim_digest))
+                .with_selector(FixedBytes::from(Selector::ShrinkBitvm2V0_1 as u32)),
+            format!("file://{ECHO_PATH}"),
+            RequestInput::builder().write_slice(&input).build_inline().unwrap(),
+            Offer::default(),
+        );
+
+        let signature = request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
         let domain = eip712_domain(Address::ZERO, 1);
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),

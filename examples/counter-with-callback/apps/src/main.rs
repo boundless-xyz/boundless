@@ -21,10 +21,13 @@ use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol_types::SolCall};
 use anyhow::{Context, Result};
 use boundless_market::{
-    request_builder::RequirementParams, Client, Deployment, StorageProviderConfig,
+    contracts::Predicate,
+    request_builder::{OfferParams, RequirementParams},
+    Client, Deployment, StorageProviderConfig,
 };
 use clap::Parser;
-use guest_util::ECHO_ELF;
+use guest_util::{ECHO_ELF, ECHO_ID};
+use risc0_zkvm::{sha::Digestible, Digest, ReceiptClaim};
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
 
@@ -88,21 +91,43 @@ async fn run(args: Args) -> Result<()> {
         .await
         .context("failed to build boundless client")?;
 
-    // We use a timestamp as input to the ECHO guest code as the Counter contract
+    let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
+
+    // Use the current count as input to the ECHO guest code as the Counter contract
     // accepts only unique proofs. Using the same input twice would result in the same proof.
-    let echo_message = format!("{:?}", SystemTime::now());
+    let echo_message = counter
+        .count()
+        .call()
+        .await
+        .with_context(|| format!("failed to call {}", ICounter::countCall::SIGNATURE))?;
+
+    // Shrink Bitvm2 proofs require the input to be 32 bytes
+    let echo_message = echo_message.as_le_bytes();
+
+    // let r0_claim_digest = ReceiptClaim::ok(ECHO_ID, echo_message.to_vec()).digest();
+    let blake3_claim_digest =
+        shrink_bitvm2::blake3_claim_digest(&Digest::from(ECHO_ID), echo_message.as_ref());
 
     // Create a request with a callback to the counter contract
     let request = client
         .new_request()
         .with_program(ECHO_ELF)
-        .with_stdin(echo_message.as_bytes())
+        .with_stdin(echo_message)
         // Add the callback to the counter contract by configuring the requirements
         .with_requirements(
             RequirementParams::builder()
                 .callback_address(args.counter_address)
-                .callback_gas_limit(100_000),
-        );
+                .callback_gas_limit(100_000)
+                .predicate(Predicate::claim_digest_match(blake3_claim_digest)),
+        )
+        .with_offer(
+            OfferParams::builder()
+                .min_price(alloy::primitives::utils::parse_ether("0.001")?)
+                .max_price(alloy::primitives::utils::parse_ether("0.002")?)
+                .timeout(1000)
+                .lock_timeout(1000),
+        )
+        .with_shrink_bitvm2_proof();
 
     // Submit the request to the blockchain
     let (request_id, expires_at) = client.submit_onchain(request).await?;
@@ -112,7 +137,7 @@ async fn run(args: Args) -> Result<()> {
     let (_journal, _seal) = client
         .wait_for_request_fulfillment(
             request_id,
-            Duration::from_secs(5), // check every 5 seconds
+            Duration::from_secs(10), // check every 5 seconds
             expires_at,
         )
         .await?;
@@ -120,7 +145,6 @@ async fn run(args: Args) -> Result<()> {
 
     // We interact with the Counter contract by calling the getCount function to check that the callback
     // was executed correctly.
-    let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
     let count = counter
         .count()
         .call()

@@ -14,11 +14,15 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::{FulfillmentClaimData, Offer, ProofRequest, RequestId, RequestInput, Requirements},
+    contracts::{
+        FulfillmentClaimData, Offer, PredicateType, ProofRequest, RequestId, RequestInput,
+        Requirements,
+    },
     util::now_timestamp,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
+use risc0_zkvm::Digest;
 use url::Url;
 
 #[non_exhaustive]
@@ -130,13 +134,21 @@ impl Adapt<Finalizer> for RequestParams {
         // As an extra consistency check. verify the journal satisfies the required predicate.
         if let Some(ref journal) = self.journal {
             if let Some(image_id) = self.image_id {
-                let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
-                    image_id,
-                    journal.bytes.clone(),
-                );
-                // TODO(ec2): fixme
-                if !requirements.predicate.eval(&fulfillment_data) {
-                    bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = 0x{}", requirements.predicate, hex::encode(journal));
+                match requirements.predicate.predicateType {
+                    // TODO(ec2): fixme
+                    PredicateType::ClaimDigestMatch => {
+                        tracing::debug!("skipping predicate check since claim digest match type")
+                    }
+                    // If the predicate is not ClaimDigestMatch, we verify it against FulfillmentData.
+                    _ => {
+                        let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
+                            image_id,
+                            journal.bytes.clone(),
+                        );
+                        if !requirements.predicate.eval(&fulfillment_data) {
+                            bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = 0x{}", requirements.predicate, hex::encode(journal));
+                        }
+                    }
                 }
             }
         }
