@@ -60,7 +60,8 @@ async fn basic() -> anyhow::Result<()> {
     println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
 
     let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
-    let epoch_reward = ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     assert_eq!(final_balance, epoch_reward, "Minted amount should match expected calculation");
     Ok(())
@@ -117,7 +118,8 @@ async fn proportional_rewards_same_epoch() -> anyhow::Result<()> {
     // Check balances - should be proportional to work done
     let balance1 = ctx.zkc_contract.balanceOf(signer1.address()).call().await?;
     let balance2 = ctx.zkc_contract.balanceOf(signer2.address()).call().await?;
-    let epoch_reward = ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     // Expected: signer1 gets 30%, signer2 gets 70%
     let expected1 = epoch_reward * U256::from(30) / U256::from(100);
@@ -174,7 +176,8 @@ async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
     println!("First mint completed with {} gas used", mint_receipt1.gas_used);
 
     let balance_after_first_mint = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
-    let epoch_reward = ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event1.epoch).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event1.epoch).call().await?;
 
     assert_eq!(
         balance_after_first_mint, epoch_reward,
@@ -269,7 +272,8 @@ async fn cross_epoch_mint() -> anyhow::Result<()> {
     println!("Cross-epoch mint completed with {} gas used", mint_receipt.gas_used);
 
     let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
-    let epoch_reward = ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event2.epoch).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event2.epoch).call().await?;
     let expected_total = epoch_reward * U256::from(2); // Both full epoch rewards
 
     assert_eq!(
@@ -302,10 +306,7 @@ async fn reject_invalid_steel_commitment() -> anyhow::Result<()> {
 
     // Create a mint journal with invalid Steel commitment
     let mint_journal = MintCalculatorJournal {
-        mints: vec![MintCalculatorMint {
-            recipient: signer.address(),
-            value: U256::ONE,
-        }],
+        mints: vec![MintCalculatorMint { recipient: signer.address(), value: U256::ONE }],
         updates: vec![MintCalculatorUpdate {
             workLogId: signer.address(),
             initialCommit: B256::from(<[u8; 32]>::from(update.initial_commit)),
@@ -639,7 +640,8 @@ async fn mint_to_value_recipient() -> anyhow::Result<()> {
         ctx.zkc_contract.balanceOf(work_log_signer.address()).call().await?;
     let value_recipient_balance =
         ctx.zkc_contract.balanceOf(value_recipient.address()).call().await?;
-    let epoch_reward = ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     assert_eq!(
         work_log_signer_balance,
@@ -710,7 +712,8 @@ async fn single_work_log_multiple_recipients() -> anyhow::Result<()> {
     let recipient2_balance = ctx.zkc_contract.balanceOf(recipient2.address()).call().await?;
     let work_log_signer_balance =
         ctx.zkc_contract.balanceOf(work_log_signer.address()).call().await?;
-    let epoch_reward = ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     // Expected: recipient1 gets 30/50 = 60%, recipient2 gets 20/50 = 40%
     let expected_recipient1 = epoch_reward * U256::from(30) / U256::from(50);
@@ -790,7 +793,8 @@ async fn multiple_work_logs_same_recipient() -> anyhow::Result<()> {
         ctx.zkc_contract.balanceOf(work_log_signer1.address()).call().await?;
     let work_log_signer2_balance =
         ctx.zkc_contract.balanceOf(work_log_signer2.address()).call().await?;
-    let epoch_reward = ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     // Shared recipient should get the full epoch reward (100% since they get all the work from both logs)
     // Allow for small rounding errors in fixed-point arithmetic (within 10 wei)
@@ -872,7 +876,10 @@ async fn zero_valued_update() -> anyhow::Result<()> {
 
     // Verify tokens were minted this time.
     let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
-    assert_eq!(final_balance, ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?);
+    assert_eq!(
+        final_balance,
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?
+    );
     Ok(())
 }
 
@@ -933,7 +940,8 @@ async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
     // Check balances after first mint
     let balance_a_after_first = ctx.zkc_contract.balanceOf(signer_a.address()).call().await?;
     let balance_b_after_first = ctx.zkc_contract.balanceOf(signer_b.address()).call().await?;
-    let epoch_reward = ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     // Expected: signer A gets 30% of epoch reward, signer B gets nothing yet
     let expected_a = epoch_reward * U256::from(30) / U256::from(100);
@@ -1041,6 +1049,78 @@ async fn filter_empty_no_mints_issued() -> anyhow::Result<()> {
         "No tokens should be minted when using empty work log filter"
     );
     println!("Verified: signer balance remains zero with empty filter");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn reward_cap() -> anyhow::Result<()> {
+    let ctx = common::text_ctx().await?;
+    let work_log_signer = PrivateKeySigner::random();
+    let value_recipient = PrivateKeySigner::random();
+
+    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    println!("Initial epoch: {initial_epoch}");
+
+    // Set an epoch reward cap for the recipient.
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
+    let capped_epoch_reward = epoch_reward / U256::from(2);
+    ctx.zkc_rewards_contract
+        .setPoVWRewardCap(value_recipient.address(), capped_epoch_reward)
+        .send()
+        .await?
+        .watch()
+        .await?;
+
+    // Work log controlled by work_log_signer, but rewards should go to value_recipient
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(50)
+        .work_log_id(work_log_signer.address())
+        .build()
+        .unwrap();
+
+    let work_log_event =
+        ctx.post_work_log_update(&work_log_signer, &update, value_recipient.address()).await?;
+    println!("Work log update posted for epoch {}", work_log_event.epochNumber);
+
+    // Verify event has correct value recipient
+    assert_eq!(work_log_event.workLogId, work_log_signer.address());
+    assert_eq!(work_log_event.valueRecipient, value_recipient.address());
+
+    // Advance time and finalize epoch
+    ctx.advance_epochs(U256::ONE).await?;
+    let finalized_event = ctx.finalize_epoch().await?;
+
+    assert_eq!(finalized_event.epoch, U256::from(initial_epoch));
+    assert_eq!(finalized_event.totalWork, U256::from(50));
+
+    // Run mint calculation
+    let mint_receipt = ctx.run_mint().await?;
+    println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
+
+    // Check balances - value_recipient should get tokens, not work_log_signer
+    let work_log_signer_balance =
+        ctx.zkc_contract.balanceOf(work_log_signer.address()).call().await?;
+    let value_recipient_balance =
+        ctx.zkc_contract.balanceOf(value_recipient.address()).call().await?;
+
+    assert_eq!(
+        work_log_signer_balance,
+        U256::ZERO,
+        "Work log signer should not receive any tokens"
+    );
+    assert_eq!(
+        value_recipient_balance, capped_epoch_reward,
+        "Value recipient should receive the capped epoch reward"
+    );
+
+    println!(
+        "Verified: work_log_signer balance = {work_log_signer_balance}, value_recipient balance = {value_recipient_balance}"
+    );
 
     Ok(())
 }
