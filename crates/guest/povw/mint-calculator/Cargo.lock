@@ -2898,7 +2898,7 @@ dependencies = [
 [[package]]
 name = "risc0-binfmt"
 version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "anyhow",
  "borsh",
@@ -2919,7 +2919,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-keccak"
 version = "4.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2934,7 +2934,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-recursion"
 version = "4.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2948,7 +2948,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-rv32im"
 version = "4.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "anyhow",
  "bit-vec",
@@ -2966,7 +2966,7 @@ dependencies = [
 [[package]]
 name = "risc0-core"
 version = "2.0.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "bytemuck",
  "rand_core 0.9.3",
@@ -2975,7 +2975,7 @@ dependencies = [
 [[package]]
 name = "risc0-groth16"
 version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2995,7 +2995,7 @@ dependencies = [
 [[package]]
 name = "risc0-povw"
 version = "0.1.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "borsh",
  "bytemuck",
@@ -3033,7 +3033,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkos-v1compat"
 version = "2.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
@@ -3042,7 +3042,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkp"
 version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "anyhow",
  "blake2",
@@ -3066,7 +3066,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkvm"
 version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "anyhow",
  "borsh",
@@ -3094,7 +3094,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkvm-platform"
 version = "2.0.4"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-round-2#1fc1f05636b778e104ea1126de58bcc16aaa14bb"
+source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
 dependencies = [
  "bytemuck",
  "cfg-if",
