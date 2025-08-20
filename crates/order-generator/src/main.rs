@@ -70,8 +70,9 @@ struct MainArgs {
     #[clap(short, long, default_value = "0")]
     lock_stake_raw: U256,
     /// Number of seconds, from the current time, before the auction period starts.
-    #[clap(long, default_value = "30")]
-    bidding_start_delay: u64,
+    /// If not provided, will be calculated based on cycle count assuming 5 MHz prove rate.
+    #[clap(long)]
+    bidding_start_delay: Option<u64>,
     /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
@@ -159,7 +160,6 @@ async fn run(args: &MainArgs) -> Result<()> {
             config
                 .min_price_per_cycle(args.min_price_per_mcycle >> 20)
                 .max_price_per_cycle(args.max_price_per_mcycle >> 20)
-                .bidding_start_delay(args.bidding_start_delay)
         })
         .build()
         .await?;
@@ -229,14 +229,35 @@ async fn handle_request(
     // add 1 minute for each 1M cycles to the original timeout
     // Use the input directly as the estimated cycle count, since we are using a loop program.
     let m_cycles = input >> 20;
-    let lock_timeout =
-        args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    let seconds_for_mcycles = args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    let ramp_up = args.ramp_up + seconds_for_mcycles;
+    let lock_timeout = args.lock_timeout + seconds_for_mcycles;
     // Give equal time for provers that are fulfilling after lock expiry to prove.
-    let timeout: u32 =
-        args.timeout + lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    let timeout: u32 = args.timeout + lock_timeout + seconds_for_mcycles;
 
     // Provide journal and cycles in order to skip preflighting, allowing us to send requests faster.
     let journal = Journal::new([input.to_le_bytes(), nonce.to_le_bytes()].concat());
+
+    // Calculate bidding_start timestamp
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+
+    let bidding_start = if let Some(delay) = args.bidding_start_delay {
+        // Use provided delay
+        now + delay
+    } else {
+        // Calculate delay based on execution time assuming 5MHz exec rate
+        // TODO: Make the execution rate configurable instead of hardcoding 5MHz
+        let exec_time_seconds = m_cycles.div_ceil(5);
+        let delay = std::cmp::max(30, exec_time_seconds);
+
+        tracing::debug!(
+            "Calculated bidding_start_delay: {} seconds (based on {} mcycles at 5MHz exec rate)",
+            delay,
+            m_cycles
+        );
+
+        now + delay
+    };
 
     let request = client
         .new_request()
@@ -247,10 +268,11 @@ async fn handle_request(
         .with_journal(journal)
         .with_offer(
             OfferParams::builder()
-                .ramp_up_period(args.ramp_up)
+                .ramp_up_period(ramp_up)
                 .lock_timeout(lock_timeout)
                 .timeout(timeout)
-                .lock_stake(args.lock_stake_raw),
+                .lock_stake(args.lock_stake_raw)
+                .bidding_start(bidding_start),
         );
 
     // Build the request, including preflight, and assigned the remaining fields.
@@ -349,7 +371,7 @@ mod tests {
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
             max_price_per_mcycle: parse_ether("0.002").unwrap(),
             lock_stake_raw: parse_ether("0.0").unwrap(),
-            bidding_start_delay: 30,
+            bidding_start_delay: None,
             ramp_up: 0,
             timeout: 1000,
             lock_timeout: 1000,
