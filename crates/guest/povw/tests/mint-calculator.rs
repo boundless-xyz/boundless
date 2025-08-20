@@ -535,7 +535,7 @@ async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
     println!("Contract correctly rejected unfinalized epoch: {err}");
     // The mint calculator guest should fail because there's no EpochFinalized event
     //assert!(err.to_string().contains("no epoch finalized event processed"));
-    // TODO(povw): This test currently failed before getting to the guest. Provide a way to advance
+    // TODO(povw): This test currently fails before getting to the guest. Provide a way to advance
     // the preflight (skipping some steps) to build an input to at least let the guest run.
     assert!(err.to_string().contains("no epoch finalized events processed"));
 

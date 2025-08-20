@@ -10,8 +10,6 @@ import {PovwAccounting, EMPTY_LOG_ROOT} from "./PovwAccounting.sol";
 import {IZKC, IZKCRewards} from "./IZKC.sol";
 import {Steel} from "steel/Steel.sol";
 
-// TODO(povw): Rename everything referencing "mint" to "reward".
-
 /// An update to the commitment for the processing of a work log.
 struct MintCalculatorUpdate {
     /// Work log ID associated that is updated.

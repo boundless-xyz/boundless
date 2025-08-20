@@ -4,7 +4,7 @@
 
 pragma solidity ^0.8.24;
 
-// TODO(povw) Use IRewards and ZKC from the ZKC directly.
+// TODO(povw) Use IRewards and ZKC from the zkc repo directly.
 
 /// A subset of the functionality implemented by IRewards in the ZKC repo. This is the subset used
 /// by the PoVW rewards flow, and is copied here as the ZKC repo is not yet public.
