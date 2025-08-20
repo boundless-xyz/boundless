@@ -83,7 +83,7 @@ pub struct TestCtx {
     pub povw_mint_contract: IPovwMintInstance<DynProvider>,
 }
 
-pub async fn text_ctx() -> anyhow::Result<TestCtx> {
+pub async fn test_ctx() -> anyhow::Result<TestCtx> {
     let anvil = Anvil::new().spawn();
     test_ctx_with(Mutex::new(anvil).into(), 0).await
 }

@@ -130,7 +130,7 @@ async fn reject_wrong_chain_id() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
     let signer = PrivateKeySigner::random();
     let wrong_chain_id = 1; // Different from Anvil's chain ID (31337)
 
@@ -216,7 +216,7 @@ async fn reject_wrong_contract_address() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_invalid_initial_commit() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     // First, post a valid update to establish a work log state
@@ -254,7 +254,7 @@ async fn reject_invalid_initial_commit() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_duplicate_update() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let update = LogBuilderJournal::builder()
@@ -317,7 +317,7 @@ async fn reject_invalid_work_log_id() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_wrong_image_id() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let update = LogBuilderJournal::builder()
@@ -378,7 +378,7 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn contract_integration() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
 
     let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
@@ -419,7 +419,7 @@ async fn contract_integration() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn two_updates_same_epoch_same_log_id() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
 
     let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
@@ -470,7 +470,7 @@ async fn two_updates_same_epoch_same_log_id() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
 
     let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
@@ -530,7 +530,7 @@ async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
 
     let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
@@ -601,7 +601,7 @@ async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
 // mock receipt. Using a Groth16 or SetInclusion receipt will have higher gas costs.
 #[tokio::test]
 async fn measure_log_update_gas() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let measure_update_gas = {
@@ -690,7 +690,7 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn separate_value_recipient() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let value_recipient = PrivateKeySigner::random();
 
@@ -720,7 +720,7 @@ async fn separate_value_recipient() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn multiple_recipients_same_work_log() -> anyhow::Result<()> {
-    let ctx = common::text_ctx().await?;
+    let ctx = common::test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let recipient1 = PrivateKeySigner::random();
     let recipient2 = PrivateKeySigner::random();
