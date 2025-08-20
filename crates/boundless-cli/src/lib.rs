@@ -36,7 +36,7 @@ use risc0_zkvm::{
 
 use boundless_market::{
     contracts::{
-        boundless_market_contract::CallbackData, AssessorJournal, AssessorReceipt,
+        boundless_market_contract::FulfillmentData, AssessorJournal, AssessorReceipt,
         EIP712DomainSaltless, Fulfillment as BoundlessFulfillment, FulfillmentClaimData,
         FulfillmentDataType, PredicateType, RequestInputType,
     },
@@ -321,7 +321,7 @@ impl DefaultProver {
                     ),
                     PredicateType::PrefixMatch | PredicateType::DigestMatch => (
                         <[u8; 32]>::from(claims[i].digest()).into(),
-                        CallbackData {
+                        FulfillmentData {
                             imageId: <[u8; 32]>::from(
                                 fills[i].fulfillment_data.image_id().unwrap(),
                             )

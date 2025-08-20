@@ -60,11 +60,10 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
-    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, FulfillmentDataType,
-    IBoundlessMarket, Input as RequestInput, InputType as RequestInputType, LockRequest, Offer,
-    Predicate, PredicateType, ProofRequest, RequestLock, Requirements,
-    Selector as AssessorSelector,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorReceipt, Callback, Fulfillment,
+    FulfillmentContext, FulfillmentData, FulfillmentDataType, IBoundlessMarket,
+    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
+    PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
 };
 
 #[allow(missing_docs)]

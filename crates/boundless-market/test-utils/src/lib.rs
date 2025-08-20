@@ -27,11 +27,10 @@ use anyhow::{Context, Ok, Result};
 use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService,
-        boundless_market_contract::CallbackData,
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
-        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentDataType, PredicateType,
-        ProofRequest,
+        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, FulfillmentDataType,
+        PredicateType, ProofRequest,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -449,7 +448,7 @@ pub fn mock_singleton(
         }
         PredicateType::PrefixMatch | PredicateType::DigestMatch => (
             <[u8; 32]>::from(app_claim_digest).into(),
-            CallbackData {
+            FulfillmentData {
                 imageId: <[u8; 32]>::from(
                     request.requirements.image_id().expect("image ID is required"),
                 )

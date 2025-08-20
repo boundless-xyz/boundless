@@ -82,8 +82,7 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        boundless_market_contract::CallbackData,
-        Offer, PredicateType, ProofRequest, RequestInputType, Selector,
+        FulfillmentData, Offer, PredicateType, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -692,8 +691,8 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                     todo!()
                 }
                 PredicateType::DigestMatch | PredicateType::PrefixMatch => {
-                    let CallbackData { imageId, journal } =
-                        CallbackData::abi_decode(&callback_data)?;
+                    let FulfillmentData { imageId, journal } =
+                        FulfillmentData::abi_decode(&callback_data)?;
                     ensure!(
                         imageId == *image_id,
                         "Image ID mismatch: expected {:?}, got {:?}",
