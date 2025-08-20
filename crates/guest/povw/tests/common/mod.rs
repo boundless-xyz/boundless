@@ -248,7 +248,7 @@ impl TestCtx {
         &self,
         opts: impl Into<MintOptions>,
     ) -> anyhow::Result<mint_calculator::Input> {
-        let MintOptions { epochs, chain_spec, work_log_filter } = opts.into();
+        let MintOptions { epochs, chain_spec, work_log_filter, exclude_blocks } = opts.into();
 
         // NOTE: This implementation includes all events for the specified epochs, and not just the
         // ones that related to the ids in the work_log_filter, to provide extra events and test
@@ -323,9 +323,20 @@ impl TestCtx {
         }
 
         // Combine the sets of blocks that contain either event, and add the block used for the completeness_check.
-        let completeness_check_block = epoch_finalized_block_numbers.last().ok_or_else(|| anyhow!("no epoch finalized events processed"))? - 1;
+        let completeness_check_block = epoch_finalized_block_numbers
+            .last()
+            .ok_or_else(|| anyhow!("no epoch finalized events processed"))?
+            - 1;
         let mut block_numbers = &work_log_update_block_numbers | &epoch_finalized_block_numbers;
         block_numbers.insert(completeness_check_block);
+
+        // Remove excluded blocks, but error if trying to exclude the completeness check block
+        for excluded_block in &exclude_blocks {
+            if *excluded_block == completeness_check_block {
+                bail!("Cannot exclude completeness check block {completeness_check_block}");
+            }
+            block_numbers.remove(excluded_block);
+        }
 
         // Build the input for the mint_calculator, including input for Steel.
         let mint_input = mint_calculator::Input::build(
@@ -389,6 +400,8 @@ pub struct MintOptions {
     chain_spec: &'static EthChainSpec,
     #[builder(setter(into), default)]
     work_log_filter: WorkLogFilter,
+    #[builder(setter(into), default)]
+    exclude_blocks: BTreeSet<u64>,
 }
 
 impl Default for MintOptions {

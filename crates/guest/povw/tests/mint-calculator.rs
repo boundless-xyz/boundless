@@ -4,6 +4,7 @@
 
 use alloy::{
     primitives::{B256, U256},
+    providers::{ext::AnvilApi, Provider},
     signers::local::PrivateKeySigner,
 };
 use alloy_sol_types::SolValue;
@@ -1122,5 +1123,98 @@ async fn reward_cap() -> anyhow::Result<()> {
         "Verified: work_log_signer balance = {work_log_signer_balance}, value_recipient balance = {value_recipient_balance}"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn reject_incomplete_work_log_processing_across_epochs() -> anyhow::Result<()> {
+    let ctx = common::text_ctx().await?;
+    let signer = PrivateKeySigner::random();
+
+    // === First Epoch - Complete Processing ===
+    let first_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    println!("First epoch: {first_epoch}");
+
+    let update1 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(30)
+        .work_log_id(signer.address())
+        .build()
+        .unwrap();
+
+    ctx.post_work_log_update(&signer, &update1, signer.address()).await?;
+    ctx.provider.anvil_mine(Some(1), None).await?; // Force to new block
+    println!("Posted first epoch update");
+
+    // Finalize first epoch
+    ctx.advance_epochs(U256::ONE).await?;
+    ctx.finalize_epoch().await?;
+
+    // === Second Epoch - Incomplete Processing (2 updates, but we'll exclude one) ===
+    let second_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    println!("Second epoch: {second_epoch}");
+
+    // Second update (chains from first)
+    let update2 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(update1.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(40)
+        .work_log_id(signer.address())
+        .build()
+        .unwrap();
+
+    ctx.post_work_log_update(&signer, &update2, signer.address()).await?;
+    ctx.provider.anvil_mine(Some(1), None).await?; // Force to new block
+    println!("Posted second epoch first update");
+
+    // Third update (chains from second) - this will be excluded from mint input
+    let update3 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(update2.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(50)
+        .work_log_id(signer.address())
+        .build()
+        .unwrap();
+
+    // Capture the block number before posting the third update
+    let pre_update3_block = ctx.provider.get_block_number().await?;
+    ctx.post_work_log_update(&signer, &update3, signer.address()).await?;
+    let excluded_block = pre_update3_block + 1; // The block containing update3
+    ctx.provider.anvil_mine(Some(1), None).await?; // Force to new block
+    println!("Posted second epoch second update at block {excluded_block} (will be excluded)");
+
+    // Finalize second epoch
+    ctx.advance_epochs(U256::ONE).await?;
+    ctx.finalize_epoch().await?;
+
+    // === Create Incomplete Mint Input ===
+    // This mint input will include all blocks except the one containing update3
+    let mint_input = ctx
+        .build_mint_input(
+            MintOptions::builder()
+                .epochs([first_epoch, second_epoch])
+                .exclude_blocks([excluded_block]),
+        )
+        .await?;
+
+    println!("Created mint input excluding block {excluded_block}");
+
+    // === Execute Mint Calculator - Should Fail ===
+    let result = common::execute_mint_calculator_guest(&mint_input);
+
+    assert!(result.is_err(), "Mint should fail due to incomplete work log processing");
+
+    let error_msg = result.unwrap_err().to_string();
+    println!("Expected error occurred: {error_msg}");
+
+    // Verify it's specifically the completeness check failure
+    assert!(
+        error_msg.contains("final commit") && error_msg.contains("does not match"),
+        "Error should be about commit mismatch, got: {error_msg}"
+    );
     Ok(())
 }
