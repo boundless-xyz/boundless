@@ -224,7 +224,6 @@ pub mod host {
         interface IPovwMint {
             function mint(bytes calldata journalBytes, bytes calldata seal) external;
             function lastCommit(address) external view returns (bytes32);
-            function EPOCH_REWARD() external view returns (uint256);
         }
     }
 

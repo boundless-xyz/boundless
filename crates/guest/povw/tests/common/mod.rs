@@ -47,6 +47,7 @@ sol!(
 );
 
 sol!(
+    #[allow(clippy::too_many_arguments)]
     #[sol(rpc)]
     MockZKC,
     "../../../out/MockZKC.sol/MockZKC.json"
@@ -283,7 +284,7 @@ impl TestCtx {
         } else {
             work_log_events
                 .into_iter()
-                .filter(|(event, _)| epochs.contains(&event.epochNumber.to::<u32>()))
+                .filter(|(event, _)| epochs.contains(&event.epochNumber))
                 .collect()
         };
 
@@ -292,7 +293,7 @@ impl TestCtx {
         } else {
             epoch_finalized_events
                 .into_iter()
-                .filter(|(event, _)| epochs.contains(&event.epoch.to::<u32>()))
+                .filter(|(event, _)| epochs.contains(&event.epoch))
                 .collect()
         };
 
@@ -380,7 +381,7 @@ impl TestCtx {
 #[builder(build_fn(name = "build_inner", private))]
 pub struct MintOptions {
     #[builder(setter(into), default)]
-    epochs: Vec<u32>,
+    epochs: Vec<U256>,
     #[builder(default = "&ANVIL_CHAIN_SPEC")]
     chain_spec: &'static EthChainSpec,
     #[builder(setter(into), default)]
