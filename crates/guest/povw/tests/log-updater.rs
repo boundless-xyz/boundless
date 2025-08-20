@@ -144,14 +144,14 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
 
     // Sign with wrong chain ID but execute with that same wrong chain ID
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-        .sign(&signer, *ctx.povw_contract.address(), wrong_chain_id)
+        .sign(&signer, *ctx.povw_accounting_contract.address(), wrong_chain_id)
         .await?;
 
     let input = Input {
         update: update.clone(),
         value_recipient: signer.address(),
         signature: signature.as_bytes().to_vec(),
-        contract_address: *ctx.povw_contract.address(),
+        contract_address: *ctx.povw_accounting_contract.address(),
         chain_id: wrong_chain_id, // Consistent but wrong chain ID
     };
     let journal = common::execute_log_updater_guest(&input)?;
@@ -164,7 +164,7 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
     let receipt: risc0_zkvm::Receipt = fake_receipt.try_into()?;
 
     let result = ctx
-        .povw_contract
+        .povw_accounting_contract
         .updateWorkLog(
             journal.update.workLogId,
             journal.update.updatedCommit,
@@ -333,14 +333,14 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
         update.clone(),
         signer.address(),
     )
-    .sign(&signer, *ctx.povw_contract.address(), ctx.chain_id)
+    .sign(&signer, *ctx.povw_accounting_contract.address(), ctx.chain_id)
     .await?;
 
     let input = boundless_povw_guests::log_updater::Input {
         update: update.clone(),
         value_recipient: signer.address(),
         signature: signature.as_bytes().to_vec(),
-        contract_address: *ctx.povw_contract.address(),
+        contract_address: *ctx.povw_accounting_contract.address(),
         chain_id: ctx.chain_id,
     };
 
@@ -356,7 +356,7 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
 
     // Try to submit to contract with wrong image ID - should fail
     let result = ctx
-        .povw_contract
+        .povw_accounting_contract
         .updateWorkLog(
             journal.update.workLogId,
             journal.update.updatedCommit,
@@ -380,7 +380,7 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
 async fn contract_integration() -> anyhow::Result<()> {
     let ctx = common::text_ctx().await?;
 
-    let initial_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Construct and sign a WorkLogUpdate.
@@ -403,14 +403,14 @@ async fn contract_integration() -> anyhow::Result<()> {
     assert_eq!(update_event.updateValue, U256::from(update.update_value));
 
     // Advance time to the next epoch and finalize the initial epoch.
-    let new_epoch = ctx.advance_epochs(1).await?;
+    let new_epoch = ctx.advance_epochs(U256::ONE).await?;
     let finalized_event = ctx.finalize_epoch().await?;
 
     println!("EpochFinalized event: {finalized_event:?}");
     assert_eq!(finalized_event.epoch, U256::from(initial_epoch));
     assert_eq!(finalized_event.totalWork, U256::from(update.update_value));
 
-    let pending_epoch = ctx.povw_contract.pendingEpoch().call().await?;
+    let pending_epoch = ctx.povw_accounting_contract.pendingEpoch().call().await?;
     assert_eq!(pending_epoch.number, new_epoch);
     assert_eq!(pending_epoch.totalWork, U96::ZERO);
 
@@ -421,7 +421,7 @@ async fn contract_integration() -> anyhow::Result<()> {
 async fn two_updates_same_epoch_same_log_id() -> anyhow::Result<()> {
     let ctx = common::text_ctx().await?;
 
-    let initial_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer = PrivateKeySigner::random();
@@ -459,7 +459,7 @@ async fn two_updates_same_epoch_same_log_id() -> anyhow::Result<()> {
     assert_eq!(first_event.updatedCommit, second_event.initialCommit);
 
     // Advance time and finalize epoch
-    ctx.advance_epochs(1).await?;
+    ctx.advance_epochs(U256::ONE).await?;
     let finalized_event = ctx.finalize_epoch().await?;
 
     // Total work should be sum of both updates
@@ -472,7 +472,7 @@ async fn two_updates_same_epoch_same_log_id() -> anyhow::Result<()> {
 async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
     let ctx = common::text_ctx().await?;
 
-    let initial_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer1 = PrivateKeySigner::random();
@@ -519,7 +519,7 @@ async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
     assert_eq!(second_event.initialCommit.as_slice(), WorkLog::EMPTY.commit().as_bytes());
 
     // Advance time and finalize epoch
-    ctx.advance_epochs(1).await?;
+    ctx.advance_epochs(U256::ONE).await?;
     let finalized_event = ctx.finalize_epoch().await?;
 
     // Total work should be sum of both different log updates
@@ -532,7 +532,7 @@ async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
 async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
     let ctx = common::text_ctx().await?;
 
-    let initial_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer = PrivateKeySigner::random();
@@ -553,10 +553,10 @@ async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
     );
 
     // Advance to next epoch and finalize the first epoch
-    ctx.advance_epochs(1).await?;
+    ctx.advance_epochs(U256::ONE).await?;
     let first_finalized_event = ctx.finalize_epoch().await?;
 
-    let second_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    let second_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Advanced to epoch: {second_epoch}");
 
     // Verify first epoch was finalized correctly
@@ -587,7 +587,7 @@ async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
     assert_eq!(first_event.updatedCommit, second_event.initialCommit);
 
     // Advance time and finalize second epoch
-    ctx.advance_epochs(1).await?;
+    ctx.advance_epochs(U256::ONE).await?;
     let second_finalized_event = ctx.finalize_epoch().await?;
 
     // Second epoch should only have work from second update
@@ -612,14 +612,14 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
         async move |update: LogBuilderJournal| -> anyhow::Result<u64> {
             let signature =
                 WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-                    .sign(&signer, *ctx.povw_contract.address(), ctx.chain_id)
+                    .sign(&signer, *ctx.povw_accounting_contract.address(), ctx.chain_id)
                     .await?;
 
             let input = Input {
                 update: update.clone(),
                 value_recipient: signer.address(),
                 signature: signature.as_bytes().to_vec(),
-                contract_address: *ctx.povw_contract.address(),
+                contract_address: *ctx.povw_accounting_contract.address(),
                 chain_id: ctx.chain_id,
             };
             let journal = common::execute_log_updater_guest(&input)?;
@@ -631,7 +631,7 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
 
             // Call the PovwAccounting.updateWorkLog function and confirm that it does not revert.
             let tx_result = ctx
-                .povw_contract
+                .povw_accounting_contract
                 .updateWorkLog(
                     journal.update.workLogId,
                     journal.update.updatedCommit,
@@ -675,15 +675,15 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
         .build()?;
 
     // First update: from the initial state.
-    assert!(measure_update_gas(first_update).await? < 65000);
+    assert!(measure_update_gas(first_update).await? < 95000);
 
     // First update: from the state of a fresh epoch.
-    ctx.advance_epochs(1).await?;
+    ctx.advance_epochs(U256::ONE).await?;
     ctx.finalize_epoch().await?;
-    assert!(measure_update_gas(second_update).await? < 45000);
+    assert!(measure_update_gas(second_update).await? < 70000);
 
     // Second update within the same epoch.
-    assert!(measure_update_gas(third_update).await? < 45000);
+    assert!(measure_update_gas(third_update).await? < 70000);
 
     Ok(())
 }
@@ -694,7 +694,7 @@ async fn separate_value_recipient() -> anyhow::Result<()> {
     let work_log_signer = PrivateKeySigner::random();
     let value_recipient = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Work log is controlled by work_log_signer but rewards go to value_recipient
@@ -725,7 +725,7 @@ async fn multiple_recipients_same_work_log() -> anyhow::Result<()> {
     let recipient1 = PrivateKeySigner::random();
     let recipient2 = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.povw_contract.currentEpoch().call().await?;
+    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // First update: same work log, recipient1 gets rewards

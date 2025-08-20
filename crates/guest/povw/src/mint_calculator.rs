@@ -210,11 +210,14 @@ pub mod host {
             db::{ProofDb, ProviderDb},
             Beacon, BlockNumberOrTag, EvmEnvBuilder, HostCommit,
         },
-        BlockHeaderCommit, Event,
+        BlockHeaderCommit, Contract, Event,
     };
 
     use super::*;
-    use crate::log_updater::IPovwAccounting;
+    use crate::{
+        log_updater::IPovwAccounting,
+        zkc::{IZKCRewards, IZKC},
+    };
 
     alloy_sol_types::sol! {
         #[sol(rpc)]
@@ -381,6 +384,7 @@ pub mod host {
         where
             P: Provider + Clone + 'static,
         {
+            let work_log_filter = work_log_filter.into();
             let mut envs = MultiblockEthEvmEnvBuilder::from(
                 EthEvmEnv::builder().chain_spec(chain_spec).provider(provider),
             )
@@ -398,15 +402,67 @@ pub mod host {
                     .await
                     .context("failed to query EpochFinalized events")?;
             }
+            // Mapping containing the epochs, and the value recipients in those epochs.
+            let mut epoch_recipients = BTreeMap::<U256, BTreeSet<Address>>::new();
             for env in envs.0.values_mut() {
-                Event::preflight::<IPovwAccounting::WorkLogUpdated>(env)
+                let update_events = Event::preflight::<IPovwAccounting::WorkLogUpdated>(env)
                     .address(povw_accounting_address)
                     .query()
                     .await
                     .context("failed to query WorkLogUpdated events")?;
+
+                for update_event in update_events {
+                    // If the work log ID is filtered out or the value is zero, then this update
+                    // can be skipped for deciding which calls to preflight.
+                    if !work_log_filter.includes(update_event.data.workLogId.into()) {
+                        continue;
+                    }
+                    if update_event.data.updateValue == U256::ZERO {
+                        continue;
+                    }
+                    epoch_recipients
+                        .entry(update_event.epochNumber)
+                        .or_default()
+                        .insert(update_event.data.valueRecipient);
+                }
             }
 
-            // TODO(povw): Add the preflight for the calls from the final env.
+            // Preflight the contract calls the guest will make to calculate the reward values.
+            let mut lastest_env_entry = envs.0.last_entry().unwrap();
+            let lastest_env = lastest_env_entry.get_mut();
+            for (epoch, recipients) in epoch_recipients {
+                let epoch_end_time = {
+                    // NOTE: zkc_contract must be in a limited scope because it holds lastest_env.
+                    let mut zkc_contract = Contract::preflight(zkc_address, lastest_env);
+                    zkc_contract
+                        .call_builder(&IZKC::getPoVWEmissionsForEpochCall { epoch })
+                        .call()
+                        .await
+                        .with_context(|| {
+                            format!("Failed to preflight call: getPoVWEmissionsForEpoch({epoch})")
+                        })?;
+                    zkc_contract
+                        .call_builder(&IZKC::getEpochEndTimeCall { epoch })
+                        .call()
+                        .await
+                        .with_context(|| {
+                            format!("Failed to preflight call: getEpochEndTime({epoch})")
+                        })?
+                };
+
+                for recipient in recipients {
+                    let mut zkc_rewards_contract =
+                        Contract::preflight(zkc_rewards_address, lastest_env);
+                    let call = IZKCRewards::getPastPoVWRewardCapCall {
+                        account: recipient,
+                        timepoint: epoch_end_time,
+                    };
+                    zkc_rewards_contract.call_builder(&call)
+                        .call()
+                        .await
+                        .with_context(|| format!("Failed to preflight call: getPastPoVWRewardCap({recipient}, {epoch_end_time})"))?;
+                }
+            }
 
             Ok(Self {
                 povw_accounting_address,
@@ -414,7 +470,7 @@ pub mod host {
                 zkc_rewards_address,
                 chain_id: chain_spec.chain_id,
                 env: envs.into_input().await.context("failed to convert env to input")?,
-                work_log_filter: work_log_filter.into(),
+                work_log_filter,
             })
         }
     }

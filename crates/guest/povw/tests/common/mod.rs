@@ -14,11 +14,12 @@ use alloy::{
     primitives::{Address, FixedBytes},
     providers::{ext::AnvilApi, DynProvider, Provider, ProviderBuilder},
     rpc::types::TransactionReceipt,
-    signers::Signer,
     signers::local::PrivateKeySigner,
-    sol_types::SolValue,
+    signers::Signer,
     sol,
+    sol_types::SolValue,
 };
+use alloy_primitives::U256;
 use anyhow::bail;
 use boundless_povw_guests::{
     log_updater::{self, IPovwAccounting, LogBuilderJournal, WorkLogUpdate},
@@ -46,10 +47,15 @@ sol!(
 );
 
 sol!(
-    #[allow(clippy::too_many_arguments)]
     #[sol(rpc)]
-    MockERC20Mint,
-    "../../../out/MockERC20Mint.sol/MockERC20Mint.json"
+    MockZKC,
+    "../../../out/MockZKC.sol/MockZKC.json"
+);
+
+sol!(
+    #[sol(rpc)]
+    MockZKCRewards,
+    "../../../out/MockZKC.sol/MockZKCRewards.json"
 );
 
 sol!(
@@ -70,7 +76,8 @@ pub struct TestCtx {
     pub anvil: Arc<Mutex<AnvilInstance>>,
     pub chain_id: u64,
     pub provider: DynProvider,
-    pub token_contract: MockERC20Mint::MockERC20MintInstance<DynProvider>,
+    pub zkc_contract: MockZKC::MockZKCInstance<DynProvider>,
+    pub zkc_rewards_contract: MockZKCRewards::MockZKCRewardsInstance<DynProvider>,
     pub povw_accounting_contract: PovwAccounting::PovwAccountingInstance<DynProvider>,
     pub povw_mint_contract: IPovwMintInstance<DynProvider>,
 }
@@ -99,14 +106,19 @@ pub async fn test_ctx_with(
         MockRiscZeroVerifier::deploy(provider.clone(), FixedBytes([0xFFu8; 4])).await?;
     println!("MockRiscZeroVerifier deployed at: {:?}", mock_verifier.address());
 
-    // Deploy MockERC20 token
-    let token_contract = MockERC20Mint::deploy(provider.clone()).await?;
-    println!("MockERC20 deployed at: {:?}", token_contract.address());
+    // Deploy MockZKC
+    let zkc_contract = MockZKC::deploy(provider.clone()).await?;
+    println!("MockZKC deployed at: {:?}", zkc_contract.address());
+
+    // Deploy MockZKCRewards
+    let zkc_rewards_contract = MockZKCRewards::deploy(provider.clone()).await?;
+    println!("MockZKCRewards deployed at: {:?}", zkc_rewards_contract.address());
 
     // Deploy PovwAccounting contract (needs verifier and log updater ID)
     let povw_contract = PovwAccounting::deploy(
         provider.clone(),
         *mock_verifier.address(),
+        *zkc_contract.address(),
         bytemuck::cast::<_, [u8; 32]>(BOUNDLESS_POVW_LOG_UPDATER_ID).into(),
     )
     .await?;
@@ -118,7 +130,8 @@ pub async fn test_ctx_with(
         *mock_verifier.address(),
         *povw_contract.address(),
         bytemuck::cast::<_, [u8; 32]>(BOUNDLESS_POVW_MINT_CALCULATOR_ID).into(),
-        *token_contract.address(),
+        *zkc_contract.address(),
+        *zkc_rewards_contract.address(),
     )
     .await?;
     println!("PovwMint contract deployed at: {:?}", mint_contract.address());
@@ -132,26 +145,30 @@ pub async fn test_ctx_with(
         anvil,
         chain_id,
         provider,
-        token_contract,
+        zkc_contract,
+        zkc_rewards_contract,
         povw_accounting_contract: povw_contract,
         povw_mint_contract: mint_interface,
     })
 }
 
 impl TestCtx {
-    pub async fn advance_epochs(&self, epochs: u32) -> anyhow::Result<u32> {
-        let initial_epoch = self.povw_accounting_contract.currentEpoch().call().await?;
+    pub async fn advance_to_epoch(&self, epoch: U256) -> anyhow::Result<()> {
+        let epoch_start_time = self.zkc_contract.getEpochStartTime(epoch).call().await?;
 
-        // Advance time on the Anvil instance, forward to the next epoch.
-        let epoch_length = self.povw_accounting_contract.EPOCH_LENGTH().call().await?;
-        let advance_time = epochs * epoch_length.to::<u32>();
-
-        self.provider.anvil_increase_time(advance_time as u64).await?;
+        let diff = self.provider.anvil_set_time(epoch_start_time.to::<u64>()).await?;
         self.provider.anvil_mine(Some(1), None).await?;
+        println!("Anvil time advanced by {diff} seconds to advance to epoch {epoch}");
 
-        let new_epoch = self.povw_accounting_contract.currentEpoch().call().await?;
-        assert_eq!(new_epoch, initial_epoch + epochs, "Epoch should have advanced by {epochs}");
-        println!("Time advanced: epoch {initial_epoch} -> {new_epoch}");
+        let new_epoch = self.zkc_contract.getCurrentEpoch().call().await?;
+        assert_eq!(new_epoch, epoch, "Expected epoch to be {epoch}; actually {new_epoch}");
+        Ok(())
+    }
+
+    pub async fn advance_epochs(&self, epochs: U256) -> anyhow::Result<U256> {
+        let initial_epoch = self.zkc_contract.getCurrentEpoch().call().await?;
+        let new_epoch = initial_epoch + epochs;
+        self.advance_to_epoch(new_epoch).await?;
         Ok(new_epoch)
     }
 
@@ -226,7 +243,10 @@ impl TestCtx {
         Ok(epoch_finalized_events[0].inner.data.clone())
     }
 
-    pub async fn build_mint_input(&self, opts: impl Into<MintOptions>) -> anyhow::Result<mint_calculator::Input> {
+    pub async fn build_mint_input(
+        &self,
+        opts: impl Into<MintOptions>,
+    ) -> anyhow::Result<mint_calculator::Input> {
         let MintOptions { epochs, chain_spec, work_log_filter } = opts.into();
 
         // NOTE: This implementation includes all events for the specified epochs, and not just the
@@ -240,14 +260,20 @@ impl TestCtx {
         println!("Running mint operation for blocks: 0 to {latest_block}, filtering for {epoch_filter_str}");
 
         // Query for WorkLogUpdated events
-        let work_log_event_filter =
-            self.povw_accounting_contract.WorkLogUpdated_filter().from_block(0).to_block(latest_block);
+        let work_log_event_filter = self
+            .povw_accounting_contract
+            .WorkLogUpdated_filter()
+            .from_block(0)
+            .to_block(latest_block);
         let work_log_events = work_log_event_filter.query().await?;
         println!("Found {} total WorkLogUpdated events", work_log_events.len());
 
         // Query for EpochFinalized events
-        let epoch_finalized_filter =
-            self.povw_accounting_contract.EpochFinalized_filter().from_block(0).to_block(latest_block);
+        let epoch_finalized_filter = self
+            .povw_accounting_contract
+            .EpochFinalized_filter()
+            .from_block(0)
+            .to_block(latest_block);
         let epoch_finalized_events = epoch_finalized_filter.query().await?;
         println!("Found {} total EpochFinalized events", epoch_finalized_events.len());
 
@@ -300,6 +326,8 @@ impl TestCtx {
         // Build the input for the mint_calculator, including input for Steel.
         let mint_input = mint_calculator::Input::build(
             *self.povw_accounting_contract.address(),
+            *self.zkc_contract.address(),
+            *self.zkc_rewards_contract.address(),
             self.provider.clone(),
             chain_spec,
             sorted_blocks,
@@ -315,7 +343,10 @@ impl TestCtx {
         self.run_mint_with_opts(MintOptions::default()).await
     }
 
-    pub async fn run_mint_with_opts(&self, opts: impl Into<MintOptions>) -> anyhow::Result<TransactionReceipt> {
+    pub async fn run_mint_with_opts(
+        &self,
+        opts: impl Into<MintOptions>,
+    ) -> anyhow::Result<TransactionReceipt> {
         let mint_input = self.build_mint_input(opts).await?;
 
         // Execute the mint calculator guest
