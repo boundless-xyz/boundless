@@ -364,7 +364,9 @@ where
         // For lock expired orders, we don't check the max stake because we can't lock those orders.
         let max_stake = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            parse_ether(&config.market.max_stake).context("Failed to parse max_stake")?
+            parse_units(&config.market.max_stake, self.stake_token_decimals)
+                .context("Failed to parse max_stake")?
+                .into()
         };
 
         if !lock_expired && lockin_stake > max_stake {
@@ -2025,7 +2027,7 @@ pub(crate) mod tests {
 
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: parse_units("11", 18).unwrap().into(),
+                lock_stake: parse_units("11", ctx.picker.stake_token_decimals).unwrap().into(),
                 ..Default::default()
             })
             .await;
