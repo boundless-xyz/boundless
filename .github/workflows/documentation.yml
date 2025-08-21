@@ -58,7 +58,7 @@ jobs:
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: team_7ekBjCLrY6obIej6ulZx7iCg
+          VERCEL_ORG_ID: team_x2TOoPBcvZhOcs3NOcG4IfAo
           VERCEL_PROJECT_ID: prj_52J4bKnmBJxkhM6DQIxXBPsI2L7N
         run: |
           if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
