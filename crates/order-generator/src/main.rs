@@ -251,12 +251,7 @@ async fn handle_request(
     } else {
         // Calculate delay based on execution time using configured execution rate
         // mcycles * 1000 = kcycles, then divide by exec_rate_khz to get seconds
-        let exec_time_seconds = if args.exec_rate_khz > 0 {
-            (m_cycles.saturating_mul(1000)).div_ceil(args.exec_rate_khz)
-        } else {
-            tracing::warn!("Cannot have 0 execution rate, using 5 MHz");
-            (m_cycles.saturating_mul(1000)).div_ceil(5000)
-        };
+        let exec_time_seconds = (m_cycles.saturating_mul(1000)).div_ceil(args.exec_rate_khz);
         let delay = std::cmp::max(30, exec_time_seconds);
 
         tracing::debug!(
