@@ -15,7 +15,7 @@ config:
   order-generator-base:LOCK_STAKE_RAW: "3500000" # $3.50 USDC
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0000010"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0000002"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
@@ -33,6 +33,7 @@ config:
   order-generator-offchain:AUTO_DEPOSIT: "0.015"
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-offchain:EXEC_RATE_KHZ: "1000"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-offchain:PRIVATE_KEY:
@@ -44,3 +45,4 @@ config:
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:SECONDS_PER_MCYCLE: "5"
   order-generator-onchain:INPUT_MAX_MCYCLES: "5400"
+  order-generator-onchain:EXEC_RATE_KHZ: "1000"

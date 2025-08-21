@@ -37,6 +37,7 @@ config:
   order-generator-offchain:AUTO_DEPOSIT: "15"
   order-generator-offchain:WARN_BALANCE_BELOW: "35"
   order-generator-offchain:ERROR_BALANCE_BELOW: "15"
+  order-generator-offchain:EXEC_RATE_KHZ: "500"
   order-generator-onchain:WARN_BALANCE_BELOW: "35"
   order-generator-onchain:ERROR_BALANCE_BELOW: "15"
   order-generator-onchain:PRIVATE_KEY:
@@ -49,3 +50,4 @@ config:
   order-generator-onchain:SECONDS_PER_MCYCLE: "15"
   order-generator-onchain:INPUT_MAX_MCYCLES: "500"
   order-generator-onchain:INTERVAL: "1800"
+  order-generator-onchain:EXEC_RATE_KHZ: "500"
