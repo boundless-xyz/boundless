@@ -630,8 +630,8 @@ mod tests {
             .with_offer_params(
                 OfferParamsBuilder::default()
                     .lock_stake(U256::from(0))
-                    .lock_timeout(30)
-                    .timeout(30),
+                    .lock_timeout(60)
+                    .timeout(60),
             )
             .build()
             .unwrap();
