@@ -26,6 +26,7 @@ export = () => {
   const interval = config.require('INTERVAL');
   const retries = config.require('RETRIES');
   const skipAddresses = config.get('SKIP_ADDRESSES');
+  const maxBlockRange = config.get('MAX_BLOCK_RANGE');
 
   const baseStackName = config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
@@ -209,6 +210,9 @@ export = () => {
   }
   if (errorBalanceBelow) {
     slasherArgs.push(`--error-balance-below ${errorBalanceBelow}`);
+  }
+  if (maxBlockRange) {
+    slasherArgs.push(`--max-block-range ${maxBlockRange}`);
   }
 
   const service = new awsx.ecs.FargateService(

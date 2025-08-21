@@ -77,5 +77,6 @@ runs:
       id: aws-creds
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-region: '${{ inputs.aws_region }}'
-        role-to-assume: 'arn:aws:iam::${{ inputs.aws_account }}:role/${{ inputs.aws_role }}'
+        aws-region: "${{ inputs.aws_region }}"
+        role-duration-seconds: 14400
+        role-to-assume: "arn:aws:iam::${{ inputs.aws_account }}:role/${{ inputs.aws_role }}"
