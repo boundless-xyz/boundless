@@ -88,7 +88,7 @@ struct MainArgs {
     #[clap(long, default_value = "20")]
     seconds_per_mcycle: u32,
     /// Execution rate in kHz for calculating bidding start delays.
-    /// Default is 2000 kHz (2 MHz). For mainnet, use 1000 kHz (1 MHz).
+    /// Default is 2000 kHz (2 MHz).
     #[clap(long, default_value = "2000", env)]
     exec_rate_khz: u64,
     /// Program binary file to use as the guest image, given as a path.
