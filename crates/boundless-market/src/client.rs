@@ -619,6 +619,7 @@ where
     pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError>
     where
         St: StorageProvider,
+        <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
     {
         Ok(self
             .storage_provider
@@ -626,13 +627,14 @@ where
             .context("Storage provider not set")?
             .upload_program(program)
             .await
-            .map_err(|_| anyhow!("Failed to upload program"))?)
+            .context("Failed to upload program")?)
     }
 
     /// Upload input to the storage provider.
     pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError>
     where
         St: StorageProvider,
+        <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
     {
         Ok(self
             .storage_provider
@@ -640,7 +642,7 @@ where
             .context("Storage provider not set")?
             .upload_input(input)
             .await
-            .map_err(|_| anyhow!("Failed to upload input"))?)
+            .context("Failed to upload input")?)
     }
 
     /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
