@@ -47,7 +47,7 @@ jobs:
         run: exit 1
 
   rust:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -140,7 +140,7 @@ jobs:
         run: sccache --show-stats
 
   rust-pkg-check:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -175,7 +175,7 @@ jobs:
         run: cargo check --locked -p broker --bin broker
 
   link-check:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -221,7 +221,7 @@ jobs:
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
   format:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -246,7 +246,7 @@ jobs:
       - run: dprint check
 
   foundry:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -301,7 +301,7 @@ jobs:
 
   # Check that cargo publish can package the boundless-market crate
   check-publish:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -325,7 +325,7 @@ jobs:
       - run: cargo publish -p boundless-market --dry-run
 
   examples:
-    runs-on: [ self-hosted, Linux, X64, prod, cuda, g6.4xlarge ]
+    runs-on: [ self-hosted, Linux, X64, test, cuda, g6.4xlarge ]
     strategy:
       fail-fast: false
       matrix:
@@ -413,7 +413,7 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
   docker:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -462,7 +462,7 @@ jobs:
         run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
 
   infra:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
     strategy:
       # Run only on Linux with CPU.
       matrix:
