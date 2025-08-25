@@ -295,6 +295,9 @@ pub struct RequestParams {
     /// Contents of the [Journal] that results from the execution.
     pub journal: Option<Journal>,
 
+    /// Claim digest that results from execution.
+    pub claim_digest: Option<Digest>,
+
     /// [RequestId] to use for the proof request.
     pub request_id: Option<RequestId>,
 
@@ -540,6 +543,18 @@ impl RequestParams {
         Self { requirements: value.into(), ..self }
     }
 
+    /// TODO(ec2): doc
+    pub fn with_claim_digest(self, value: impl Into<Digest>) -> Self {
+        Self { claim_digest: Some(value.into()), ..self }
+    }
+
+    /// TODO(ec2): doc
+    pub fn require_claim_digest(&self) -> Result<Digest, MissingFieldError> {
+        self.claim_digest.ok_or(MissingFieldError::with_hint(
+            "claim_digest",
+            "can be set using .with_claim_digest(...), and is calculated from the program",
+        ))
+    }
     /// Request a stand-alone Groth16 proof for this request.
     ///
     /// This is a convinience method to set the selector on the requirements. Note that calling
@@ -644,8 +659,8 @@ mod tests {
 
     use crate::{
         contracts::{
-            boundless_market::BoundlessMarketService, Predicate, RequestInput, RequestInputType,
-            Requirements,
+            boundless_market::BoundlessMarketService, FulfillmentClaimData, Predicate,
+            RequestInput, RequestInputType, Requirements,
         },
         input::GuestEnv,
         storage::{fetch_url, MockStorageProvider, StorageProvider},
@@ -734,8 +749,8 @@ mod tests {
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         assert_eq!(
-            request.requirements.imageId,
-            risc0_zkvm::compute_image_id(ECHO_ELF)?.as_bytes()
+            request.requirements.image_id().unwrap(),
+            risc0_zkvm::compute_image_id(ECHO_ELF)?
         );
         Ok(())
     }
@@ -836,12 +851,19 @@ mod tests {
         let bytes = b"journal_data".to_vec();
         let journal = Journal::new(bytes.clone());
         let req = layer.process((program, &journal, &Default::default())).await?;
-
+        let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
+            req.image_id().unwrap(),
+            journal.bytes.clone(),
+        );
         // Predicate should match the same journal
-        assert!(req.predicate.eval(&journal));
+        assert!(req.predicate.eval(&fulfillment_data));
         // And should not match different data
         let other = Journal::new(b"other_data".to_vec());
-        assert!(!req.predicate.eval(&other));
+        let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
+            req.image_id().unwrap(),
+            other.bytes.clone(),
+        );
+        assert!(!req.predicate.eval(&fulfillment_data));
         Ok(())
     }
 
@@ -910,8 +932,8 @@ mod tests {
         let layer = OfferLayer::from(provider.clone());
         // Build minimal requirements and request ID
         let image_id = compute_image_id(ECHO_ELF).unwrap();
-        let predicate = Predicate::digest_match(Journal::new(b"hello".to_vec()).digest());
-        let requirements = Requirements::new(image_id, predicate);
+        let predicate = Predicate::digest_match(image_id, Journal::new(b"hello".to_vec()).digest());
+        let requirements = Requirements::new(predicate);
         let request_id = RequestId::new(test_ctx.customer_signer.address(), 0);
 
         // Zero cycles

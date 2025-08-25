@@ -29,7 +29,8 @@ use boundless_market::{
         boundless_market::BoundlessMarketService,
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
-        AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
+        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, FulfillmentDataType,
+        PredicateType, ProofRequest,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -404,8 +405,13 @@ pub fn mock_singleton(
         claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
     }
     .eip712_hash_struct();
-    let assessor_journal =
-        AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
+    let assessor_journal = AssessorJournal {
+        selectors: vec![],
+        root: assessor_root,
+        prover,
+        callbacks: vec![],
+        predicateTypes: vec![request.requirements.predicate.predicateType],
+    };
     let assesor_receipt_claim = ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
     let assessor_claim_digest = assesor_receipt_claim.digest();
 
@@ -435,16 +441,37 @@ pub fn mock_singleton(
     .abi_encode_seal()
     .unwrap();
 
+    let predicate_type = request.requirements.predicate.predicateType;
+    let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
+        PredicateType::ClaimDigestMatch => {
+            (<[u8; 32]>::from(app_claim_digest).into(), vec![], FulfillmentDataType::None)
+        }
+        PredicateType::PrefixMatch | PredicateType::DigestMatch => (
+            <[u8; 32]>::from(app_claim_digest).into(),
+            FulfillmentData {
+                imageId: <[u8; 32]>::from(
+                    request.requirements.image_id().expect("image ID is required"),
+                )
+                .into(),
+                journal: app_journal.bytes.into(),
+            }
+            .abi_encode(),
+            FulfillmentDataType::ImageIdAndJournal,
+        ),
+        _ => panic!("unsupported predicate type"),
+    };
     let fulfillment = Fulfillment {
         id: request.id,
         requestDigest: request_digest,
-        imageId: to_b256(Digest::from(ECHO_ID)),
-        journal: app_journal.bytes.into(),
+        claimDigest: claim_digest,
+        fulfillmentData: fulfillment_data.into(),
+        fulfillmentDataType: fulfillment_data_type,
         seal: set_inclusion_seal.into(),
+        predicateType: predicate_type,
     };
 
     let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
-        ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
+        assesor_receipt_claim,
         merkle_path(&[app_claim_digest, assessor_claim_digest], 1),
         verifier_parameters.digest(),
     )

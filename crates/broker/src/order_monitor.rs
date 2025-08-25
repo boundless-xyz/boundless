@@ -963,6 +963,7 @@ pub(crate) mod tests {
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
     use alloy::node_bindings::AnvilInstance;
+    use alloy::primitives::Bytes;
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -977,8 +978,7 @@ pub(crate) mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
-        Requirements,
+        Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use boundless_market_test_utils::{
         deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
@@ -1027,13 +1027,7 @@ pub(crate) mod tests {
 
             let request = ProofRequest::new(
                 RequestId::new(self.signer.address(), request_id),
-                Requirements::new(
-                    Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
                 "http://risczero.com/image",
                 RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
                 Offer {

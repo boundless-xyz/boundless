@@ -296,6 +296,7 @@ impl IndexerDb for AnyDb {
         let predicate_type = match request.requirements.predicate.predicateType {
             PredicateType::DigestMatch => "DigestMatch",
             PredicateType::PrefixMatch => "PrefixMatch",
+            PredicateType::ClaimDigestMatch => "ClaimDigestMatch",
             _ => return Err(DbError::BadTransaction("Invalid predicate type".to_string())),
         };
         let input_type = match request.input.inputType {
@@ -309,7 +310,6 @@ impl IndexerDb for AnyDb {
                 request_digest,
                 request_id, 
                 client_address,
-                image_id,
                 predicate_type,
                 predicate_data,
                 callback_address,
@@ -327,13 +327,12 @@ impl IndexerDb for AnyDb {
                 tx_hash,
                 block_number,
                 block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             ON CONFLICT (request_digest) DO NOTHING",
         )
         .bind(format!("{request_digest:x}"))
         .bind(format!("{:x}", request.id))
         .bind(format!("{:x}", request.client_address()))
-        .bind(format!("{:x}", request.requirements.imageId))
         .bind(predicate_type)
         .bind(format!("{:x}", request.requirements.predicate.data))
         .bind(format!("{:x}", request.requirements.callback.addr))
@@ -407,8 +406,9 @@ impl IndexerDb for AnyDb {
         .bind(format!("{:x}", fill.requestDigest))
         .bind(format!("{:x}", fill.id))
         .bind(format!("{prover_address:x}"))
-        .bind(format!("{:x}", fill.imageId))
-        .bind(format!("{:x}", fill.journal))
+        // TODO(ec2): fix this
+        .bind(format!("{:x}", fill.fulfillmentData))
+        .bind(format!("{:x}", fill.claimDigest))
         .bind(format!("{:x}", fill.seal))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -736,8 +736,8 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment, Offer, Predicate, PredicateType, ProofRequest, RequestId,
-        RequestInput, Requirements,
+        AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, PredicateType,
+        ProofRequest, RequestId, RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
 
@@ -745,10 +745,7 @@ mod tests {
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, id),
-            Requirements::new(
-                Digest::default(),
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
             "https://image_url.dev",
             RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
@@ -874,9 +871,11 @@ mod tests {
         let fill = Fulfillment {
             requestDigest: B256::ZERO,
             id: U256::from(1),
-            imageId: B256::ZERO,
-            journal: Bytes::default(),
+            claimDigest: B256::ZERO,
+            fulfillmentData: Bytes::default(),
+            fulfillmentDataType: FulfillmentDataType::None,
             seal: Bytes::default(),
+            predicateType: PredicateType::PrefixMatch,
         };
 
         let prover_address = Address::ZERO;

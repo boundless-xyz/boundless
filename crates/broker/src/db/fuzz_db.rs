@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, Bytes, U256};
 use chrono::Utc;
 use elsa::sync::FrozenVec;
 use proptest::prelude::*;
@@ -33,8 +33,7 @@ use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
 use super::{BrokerDb, SqliteDb};
 
 use boundless_market::contracts::{
-    Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
-    Requirements,
+    Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
 };
 
 // Add new state tracking structure
@@ -90,10 +89,7 @@ fn generate_test_order(request_id: u32) -> Order {
         target_timestamp: None,
         request: ProofRequest::new(
             RequestId::new(Address::ZERO, request_id),
-            Requirements::new(
-                Digest::ZERO,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
             "test",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
@@ -214,7 +210,7 @@ proptest! {
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();
                                         if let Some(order) = order {
-                                            if order.proof_id.is_some() && order.lock_price.is_some() {
+                                            if order.proof_id.is_some() && order.lock_price.is_some() && order.image_id.is_some() {
                                                 db.get_submission_order(id).await.unwrap();
                                             }
                                         }

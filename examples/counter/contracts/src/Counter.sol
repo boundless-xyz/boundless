@@ -15,7 +15,7 @@
 pragma solidity ^0.8.13;
 
 import {ICounter} from "./ICounter.sol";
-import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
+import {IRiscZeroVerifier, Receipt} from "risc0/IRiscZeroVerifier.sol";
 
 error AlreadyVerified(bytes32 received);
 
@@ -35,13 +35,13 @@ contract Counter is ICounter {
         VERIFIER = verifier;
     }
 
-    function increment(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) public {
-        if (verified[journalDigest]) {
-            revert AlreadyVerified({received: journalDigest});
+    function increment(bytes calldata seal, bytes32 claimDigest) public {
+        if (verified[claimDigest]) {
+            revert AlreadyVerified({received: claimDigest});
         }
 
-        VERIFIER.verify(seal, imageId, journalDigest);
-        verified[journalDigest] = true;
+        VERIFIER.verifyIntegrity(Receipt({seal: seal, claimDigest: claimDigest}));
+        verified[claimDigest] = true;
         count[msg.sender] += 1;
         emit Increment(msg.sender, count[msg.sender]);
     }

@@ -24,6 +24,6 @@ pragma solidity ^0.8.13;
 interface ICounter {
     event Increment(address indexed who, uint256 count);
 
-    function increment(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external;
+    function increment(bytes calldata seal, bytes32 claimDigest) external;
     function getCount(address who) external view returns (uint256);
 }

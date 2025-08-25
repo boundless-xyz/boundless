@@ -39,7 +39,7 @@ contract CounterTest is RiscZeroCheats, Test {
     function test_Increment() public {
         RiscZeroReceipt memory receipt = verifier.mockProve(IMAGE_ID, sha256(MOCK_JOURNAL));
 
-        counter.increment(receipt.seal, IMAGE_ID, sha256(MOCK_JOURNAL));
+        counter.increment(receipt.seal, receipt.claimDigest);
         assertEq(counter.count(address(this)), 1);
     }
 }

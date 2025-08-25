@@ -26,7 +26,7 @@ use alloy::{
 };
 use alloy_primitives::{
     aliases::{U160, U32, U96},
-    Address, Bytes, FixedBytes, B256, U256,
+    Address, Bytes, FixedBytes, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,10 @@ use token::{
 };
 use url::Url;
 
-use risc0_zkvm::sha::Digest;
+use risc0_zkvm::{
+    sha::{Digest, Digestible},
+    ReceiptClaim,
+};
 
 #[cfg(not(target_os = "zkvm"))]
 pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
@@ -57,8 +60,8 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
-    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, IBoundlessMarket,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorReceipt, Callback, Fulfillment,
+    FulfillmentContext, FulfillmentData, FulfillmentDataType, IBoundlessMarket,
     Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
     PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
 };
@@ -430,9 +433,10 @@ impl ProofRequest {
         }
         Url::parse(&self.imageUrl).map(|_| ())?;
 
-        if self.requirements.imageId == B256::default() {
-            return Err(RequestError::ImageIdIsZero);
-        }
+        // TODO(ec2): fixme
+        // if self.requirements.imageId == B256::default() {
+        //     return Err(RequestError::ImageIdIsZero);
+        // }
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
         }
@@ -459,6 +463,11 @@ impl ProofRequest {
         }
 
         Ok(())
+    }
+
+    /// TODO(ec2): docs
+    pub fn image_id(&self) -> Option<Digest> {
+        self.requirements.image_id()
     }
 }
 
@@ -510,18 +519,8 @@ impl ProofRequest {
 
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
-    pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
-        Self {
-            imageId: <[u8; 32]>::from(image_id.into()).into(),
-            predicate,
-            callback: Callback::default(),
-            selector: UNSPECIFIED_SELECTOR,
-        }
-    }
-
-    /// Sets the image ID.
-    pub fn with_image_id(self, image_id: impl Into<Digest>) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), ..self }
+    pub fn new(predicate: Predicate) -> Self {
+        Self { predicate, callback: Callback::default(), selector: UNSPECIFIED_SELECTOR }
     }
 
     /// Sets the predicate.
@@ -551,22 +550,164 @@ impl Requirements {
             false => Self { selector: FixedBytes::from(Selector::Groth16V2_2 as u32), ..self },
         }
     }
+
+    /// Returns image id from the predicate type. Returns none if claim digest match. Panics if
+    /// the predicate data is not long enough.
+    pub fn image_id(&self) -> Option<Digest> {
+        self.predicate.image_id()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+/// TODO(ec2): doc
+pub enum FulfillmentClaimData {
+    /// TODO(ec2): doc
+    ClaimDigest(Digest),
+    /// TODO(ec2): doc
+    ImageIdAndJournal(Digest, Bytes),
+}
+
+impl FulfillmentClaimData {
+    /// TODO(ec2): doc
+    pub fn from_claim_digest(claim_digest: impl Into<Digest>) -> Self {
+        Self::ClaimDigest(claim_digest.into())
+    }
+    /// TODO(ec2): doc
+    pub fn from_image_id_and_journal(
+        image_id: impl Into<Digest>,
+        journal: impl Into<Bytes>,
+    ) -> Self {
+        Self::ImageIdAndJournal(image_id.into(), journal.into())
+    }
+    /// TODO(ec2): doc
+    pub fn to_bytes(self) -> Bytes {
+        match self {
+            Self::ClaimDigest(digest) => digest.as_bytes().to_vec().into(),
+            Self::ImageIdAndJournal(image_id, journal) => {
+                let mut data = image_id.as_bytes().to_vec();
+                data.extend_from_slice(journal.as_ref());
+                data.into()
+            }
+        }
+    }
+    /// TODO(ec2): doc
+    pub fn image_id(&self) -> Option<Digest> {
+        match self {
+            Self::ClaimDigest(_) => None,
+            Self::ImageIdAndJournal(image_id, _) => Some(*image_id),
+        }
+    }
+    /// TODO(ec2): doc
+    pub fn journal(&self) -> Option<&Bytes> {
+        match self {
+            Self::ClaimDigest(_) => None,
+            Self::ImageIdAndJournal(_, journal) => Some(journal),
+        }
+    }
+    /// TODO(ec2): doc
+    pub fn claim_digest(&self) -> Option<Digest> {
+        match self {
+            Self::ClaimDigest(digest) => Some(*digest),
+            Self::ImageIdAndJournal(image_id, journal) => {
+                Some(ReceiptClaim::ok(*image_id, journal.as_ref().to_vec()).digest())
+            }
+        }
+    }
 }
 
 impl Predicate {
     /// Returns a predicate to match the journal digest. This ensures that the request's
     /// fulfillment will contain a journal with the same digest.
-    pub fn digest_match(digest: impl Into<Digest>) -> Self {
-        Self {
-            predicateType: PredicateType::DigestMatch,
-            data: digest.into().as_bytes().to_vec().into(),
-        }
+    pub fn digest_match(image_id: impl Into<Digest>, digest: impl Into<Digest>) -> Self {
+        let mut image_id = image_id.into().as_bytes().to_vec();
+        let digest = digest.into().as_bytes().to_vec();
+        image_id.append(&mut digest.clone());
+        let data = image_id;
+        Self { predicateType: PredicateType::DigestMatch, data: data.into() }
     }
 
     /// Returns a predicate to match the journal prefix. This ensures that the request's
     /// fulfillment will contain a journal with the same prefix.
-    pub fn prefix_match(prefix: impl Into<Bytes>) -> Self {
-        Self { predicateType: PredicateType::PrefixMatch, data: prefix.into() }
+    pub fn prefix_match(image_id: impl Into<Digest>, prefix: impl Into<Bytes>) -> Self {
+        let mut image_id = image_id.into().as_bytes().to_vec();
+        let prefix = prefix.into().as_ref().to_vec();
+        image_id.append(&mut prefix.clone());
+        let data = image_id;
+        Self { predicateType: PredicateType::PrefixMatch, data: data.into() }
+    }
+
+    /// Returns a predicate to match the claim digest. This ensures that the request's
+    /// fulfillment will contain a claim with the same digest.
+    pub fn claim_digest_match(claim_digest: impl Into<Digest>) -> Self {
+        Self {
+            predicateType: PredicateType::ClaimDigestMatch,
+            data: claim_digest.into().as_bytes().to_vec().into(),
+        }
+    }
+
+    /// Returns image id. Returns none if claim digest match. Panics if
+    /// the predicate data is not long enough.
+    pub fn image_id(&self) -> Option<Digest> {
+        match self.predicateType {
+            PredicateType::DigestMatch | PredicateType::PrefixMatch => {
+                Some(Digest::from_bytes(self.data.as_ref()[..32].try_into().unwrap()))
+            }
+            _ => None,
+        }
+    }
+
+    /// TODO(ec2): doc
+    pub fn claim_digest(&self) -> Option<Digest> {
+        if self.predicateType == PredicateType::ClaimDigestMatch {
+            Some(Digest::from_bytes(self.data.as_ref().try_into().unwrap()))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    /// TODO(ec2): doc
+    pub fn eval(&self, fulfillment_data: &FulfillmentClaimData) -> bool {
+        match self.predicateType {
+            PredicateType::DigestMatch => {
+                let (image_id, journal_digest) = self.data.as_ref().split_at(32);
+                journal_digest
+                    == Sha256::digest(
+                        fulfillment_data
+                            .journal()
+                            .expect("fulfillment data doesnt have journal, but is digest match"),
+                    )
+                    .as_slice()
+                    && image_id
+                        == fulfillment_data
+                            .image_id()
+                            .expect("fulfillment data doesnt have image id, but is digest match")
+                            .as_bytes()
+            }
+            PredicateType::PrefixMatch => {
+                let (image_id, journal) = self.data.as_ref().split_at(32);
+                fulfillment_data
+                    .journal()
+                    .expect("fulfillment data doesnt have journal, but is prefix match")
+                    .as_ref()
+                    .starts_with(journal)
+                    && image_id
+                        == fulfillment_data
+                            .image_id()
+                            .expect("fulfillment data doesnt have image id, but is prefix match")
+                            .as_bytes()
+            }
+            PredicateType::ClaimDigestMatch => {
+                self.data.as_ref()
+                    == fulfillment_data
+                        .claim_digest()
+                        .expect(
+                            "fulfillment data doesnt have claim digest, but is claim digest match",
+                        )
+                        .as_bytes()
+            }
+            PredicateType::__Invalid => panic!("invalid PredicateType"),
+        }
     }
 }
 
@@ -705,18 +846,6 @@ use sha2::{Digest as _, Sha256};
 use IBoundlessMarket::IBoundlessMarketErrors;
 #[cfg(not(target_os = "zkvm"))]
 use IRiscZeroSetVerifier::IRiscZeroSetVerifierErrors;
-
-impl Predicate {
-    /// Evaluates the predicate against the given journal.
-    #[inline]
-    pub fn eval(&self, journal: impl AsRef<[u8]>) -> bool {
-        match self.predicateType {
-            PredicateType::DigestMatch => self.data.as_ref() == Sha256::digest(journal).as_slice(),
-            PredicateType::PrefixMatch => journal.as_ref().starts_with(&self.data),
-            PredicateType::__Invalid => panic!("invalid PredicateType"),
-        }
-    }
-}
 
 #[cfg(not(target_os = "zkvm"))]
 /// The Boundless market module.
@@ -867,10 +996,10 @@ mod tests {
 
         let req = ProofRequest {
             id: request_id,
-            requirements: Requirements::new(
+            requirements: Requirements::new(Predicate::prefix_match(
                 Digest::ZERO,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+                Bytes::default(),
+            )),
             imageUrl: "https://dev.null".to_string(),
             input: RequestInput::builder().build_inline().unwrap(),
             offer: Offer {

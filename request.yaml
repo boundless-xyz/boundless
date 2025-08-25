@@ -5,10 +5,10 @@ id: 0 # if set to 0, gets overwritten by a random id
 # Specifies the requirements for the delivered proof, including the program that must be run,
 # and the constraints on the journal's value, which define the statement to be proven.
 requirements:
-    imageId: "53cb4210cf2f5bf059e3a4f7bcbb8e21ddc5c11a690fd79e87947f9fec5522a3"
     predicate:
         predicateType: PrefixMatch
-        data: "53797374"
+        # concat(imageId, prefix) = concat(53cb4210cf2f5bf059e3a4f7bcbb8e21ddc5c11a690fd79e87947f9fec5522a3, 53797374)
+        data: "53cb4210cf2f5bf059e3a4f7bcbb8e21ddc5c11a690fd79e87947f9fec5522a353797374"
     callback:
         addr: "0x0000000000000000000000000000000000000000"
         gasLimit: 0

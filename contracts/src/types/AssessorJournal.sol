@@ -5,6 +5,7 @@
 pragma solidity ^0.8.20;
 
 import {AssessorCallback} from "./AssessorCallback.sol";
+import {PredicateType} from "./Predicate.sol";
 import {Selector} from "./Selector.sol";
 
 /// @title Assessor Journal Struct
@@ -17,6 +18,8 @@ struct AssessorJournal {
     /// @notice The (optional) selectors for the requests committed by the assessor.
     /// @dev This is used to verify the fulfillment of the request against its selector's seal.
     Selector[] selectors;
+    /// @notice The list of `PredicateType` for each request.
+    PredicateType[] predicateTypes;
     /// @notice Root of the Merkle tree committing to the set of proven claims.
     /// @dev In the case of a batch of size one, this may simply be the eip712Digest of the `AssessorCommitment`.
     bytes32 root;

@@ -22,7 +22,7 @@ import {Input, InputType} from "../src/types/Input.sol";
 import {Requirements} from "../src/types/Requirements.sol";
 import {Offer} from "../src/types/Offer.sol";
 import {ProofRequest} from "../src/types/ProofRequest.sol";
-import {Predicate, PredicateType} from "../src/types/Predicate.sol";
+import {PredicateLibrary} from "../src/types/Predicate.sol";
 import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
 import {RequestLock} from "../src/types/RequestLock.sol";
 
@@ -105,7 +105,10 @@ contract DeploymentTest is Test {
     function testRouterIsDeployed() external view {
         require(address(verifier) != address(0), "no verifier (router) address is set");
         require(keccak256(address(verifier).code) != keccak256(bytes("")), "verifier code is empty");
-        require(address(verifier) == address(BoundlessMarket(address(boundlessMarket)).VERIFIER()), "verifier address does not match boundless market");
+        require(
+            address(verifier) == address(BoundlessMarket(address(boundlessMarket)).VERIFIER()),
+            "verifier address does not match boundless market"
+        );
     }
 
     function testSetVerifierIsDeployed() external view {
@@ -191,9 +194,7 @@ contract DeploymentTest is Test {
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, address(testProver), result.fills[0]);
 
-        boundlessMarket.priceAndFulfill(
-            requests, clientSignatures, result.fills, result.assessorReceipt
-        );
+        boundlessMarket.priceAndFulfill(requests, clientSignatures, result.fills, result.assessorReceipt);
         Fulfillment memory fill = result.fills[0];
         assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
     }
@@ -230,8 +231,7 @@ contract Client {
 
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
-            imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.PrefixMatch, data: hex"53797374"}),
+            predicate: PredicateLibrary.createPrefixMatchPredicate(bytes32(APP_IMAGE_ID), hex"53797374"),
             callback: Callback({gasLimit: 0, addr: address(0)}),
             selector: bytes4(0)
         });
