@@ -31,6 +31,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true }
 workflow-common = { workspace = true }
+rand = "0.9.2"
+ruint = "1.0"
 
 [[bin]]
 name = "agent"

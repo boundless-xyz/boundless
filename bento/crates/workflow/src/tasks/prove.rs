@@ -4,6 +4,7 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
+    povw::PovwConfig,
     redis::{self, AsyncCommands},
     tasks::{deserialize_obj, serialize_obj, RECUR_RECEIPT_PATH, SEGMENTS_PATH},
     Agent,
@@ -36,23 +37,40 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
     tracing::debug!("Completed proof: {job_id} - {index}");
 
-    tracing::debug!("lifting {job_id} - {index}");
-    let lift_receipt = agent
-        .prover
-        .as_ref()
-        .context("Missing prover from resolve task")?
-        .lift(&segment_receipt)
-        .with_context(|| format!("Failed to lift segment {index}"))?;
+    let lift_receipt = if let Some(_povw_config) = PovwConfig::from_env() {
+        tracing::debug!("POVW lifting {job_id} - {index}");
+        if let Some(prover) = agent.prover.as_ref() {
+            if let Ok(povw_lift_receipt) = prover.lift_povw(&segment_receipt) {
+                tracing::debug!("Used POVW lift method");
+                serialize_obj(&povw_lift_receipt).context("Failed to serialize POVW lifted receipt")?
+            } else {
+                // POVW lift method not available, fall back to regular lift
+                tracing::warn!("POVW lift method not available, using regular lift");
+                let regular_lift_receipt = prover.lift(&segment_receipt)
+                    .with_context(|| format!("Failed to lift segment {index}"))?;
+                serialize_obj(&regular_lift_receipt).context("Failed to serialize regular lifted receipt")?
+            }
+        } else {
+            return Err(anyhow::anyhow!("Missing prover from prove task"));
+        }
+    } else {
+        tracing::debug!("lifting {job_id} - {index}");
+        let regular_lift_receipt = agent
+            .prover
+            .as_ref()
+            .context("Missing prover from prove task")?
+            .lift(&segment_receipt)
+            .with_context(|| format!("Failed to lift segment {index}"))?;
+        serialize_obj(&regular_lift_receipt).context("Failed to serialize regular lifted receipt")?
+    };
 
     tracing::debug!("lifting complete {job_id} - {index}");
 
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
-    // Write out lifted receipt
-    let lift_asset = serialize_obj(&lift_receipt).expect("Failed to serialize the segment");
     redis::set_key_with_expiry(
         &mut conn,
         &output_key,
-        lift_asset,
+        lift_receipt,
         Some(agent.args.redis_ttl),
     )
     .await?;

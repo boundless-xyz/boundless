@@ -9,8 +9,11 @@
   "rust-analyzer.checkOnSave": true,
   "rust-analyzer.check.command": "clippy",
   "rust-analyzer.check.extraEnv": {
-    "RISC0_SKIP_BUILD": "1"
+    "RISC0_SKIP_BUILD": "1",
+    "RUST_BACKTRACE": "1"
   },
+  "rust-analyzer.cargo.buildScripts.enable": true,
+  "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.linkedProjects": [
     "Cargo.toml"
   ],

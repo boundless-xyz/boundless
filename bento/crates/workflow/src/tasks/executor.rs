@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use crate::{
+    povw::PovwConfig,
     redis::{self},
     tasks::{read_image_id, serialize_obj, COPROC_CB_PATH, RECEIPT_PATH, SEGMENTS_PATH},
     Agent, Args, TaskType,
@@ -26,8 +27,9 @@ use workflow_common::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
     },
-    CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, KeccakReq, ProveReq, ResolveReq,
-    SnarkReq, UnionReq, AUX_WORK_TYPE, COPROC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
+    CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinPovwReq, JoinReq, KeccakReq,
+    ProveReq, ResolveReq, SnarkReq, UnionReq, AUX_WORK_TYPE, COPROC_WORK_TYPE, JOIN_WORK_TYPE,
+    PROVE_WORK_TYPE,
 };
 // use tempfile::NamedTempFile;
 use tokio::task::{JoinHandle, JoinSet};
@@ -52,6 +54,7 @@ async fn process_task(
     assumptions: &[String],
     compress_type: CompressType,
     keccak_req: Option<KeccakReq>,
+    povw_config: Option<&PovwConfig>,
 ) -> Result<()> {
     match tree_task.command {
         TaskCmd::Keccak => {
@@ -72,7 +75,7 @@ async fn process_task(
                 args.prove_timeout,
             )
             .await
-            .expect("create_task failure during keccak task creation");
+            .context("Failed to create task")?;
         }
         TaskCmd::Segment => {
             let task_def = serde_json::to_value(TaskType::Prove(ProveReq {
@@ -108,12 +111,26 @@ async fn process_task(
             .context("create_task failure during segment creation")?;
         }
         TaskCmd::Join => {
-            let task_def = serde_json::to_value(TaskType::Join(JoinReq {
-                idx: tree_task.task_number,
-                left: tree_task.depends_on[0],
-                right: tree_task.depends_on[1],
-            }))
-            .context("Failed to serialize join task-type")?;
+            let task_def = if let Some(povw_cfg) = povw_config {
+                // Create POVW-aware join task
+                serde_json::to_value(TaskType::JoinPovw(JoinPovwReq {
+                    idx: tree_task.task_number,
+                    left: tree_task.depends_on[0],
+                    right: tree_task.depends_on[1],
+                    povw_log_id: povw_cfg.log_id_string(),
+                    povw_job_number: povw_cfg.job_number,
+                }))
+                .context("Failed to serialize POVW join task-type")?
+            } else {
+                // Create regular join task
+                serde_json::to_value(TaskType::Join(JoinReq {
+                    idx: tree_task.task_number,
+                    left: tree_task.depends_on[0],
+                    right: tree_task.depends_on[1],
+                }))
+                .context("Failed to serialize join task-type")?
+            };
+
             let prereqs = serde_json::json!([
                 format!("{}", tree_task.depends_on[0]),
                 format!("{}", tree_task.depends_on[1])
@@ -261,11 +278,6 @@ impl CoprocessorCallback for Coprocessor {
         self.tx.blocking_send(SenderType::Keccak(request))?;
         Ok(())
     }
-
-    fn prove_zkr(&mut self, _request: risc0_zkvm::ProveZkrRequest) -> Result<()> {
-        // TODO: Implement ZKR proving when needed
-        Ok(())
-    }
 }
 
 enum SenderType {
@@ -281,6 +293,21 @@ enum SenderType {
 pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Result<ExecutorResp> {
     let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
+
+    // Initialize POVW configuration (only if environment variable is set)
+    let povw_config = PovwConfig::from_env();
+
+    if let Some(ref povw_cfg) = povw_config {
+        tracing::info!(
+            "POVW enabled: log_id=0x{:X}, job_number={}",
+            povw_cfg.log_id,
+            povw_cfg.job_number
+        );
+    } else {
+        tracing::info!("POVW not enabled (POVW_LOG_ID not set)");
+    }
+
+    let povw_config_copy = povw_config.clone();
 
     // Fetch ELF binary data
     let elf_key = format!("{ELF_BUCKET_DIR}/{}", request.image);
@@ -479,6 +506,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &assumptions,
                             compress_type,
                             None,
+                            povw_config.as_ref(),
                         )
                         .await
                         .expect("Failed to process task and insert into taskdb");
@@ -519,6 +547,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &assumptions,
                             compress_type,
                             Some(req),
+                            povw_config.as_ref(),
                         )
                         .await
                         .expect("Failed to process task and insert into taskdb");
@@ -547,6 +576,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     &assumptions,
                     compress_type,
                     None,
+                    povw_config.as_ref(),
                 )
                 .await
                 .expect("Failed to process task and insert into taskdb");
@@ -576,6 +606,11 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 .session_limit(Some(exec_limit))
                 .coprocessor_callback(coproc)
                 .segment_limit_po2(segment_po2)
+                .povw(
+                    povw_config_copy
+                        .map(|cfg| cfg.to_tuple())
+                        .unwrap_or((ruint::aliases::U160::ZERO, 0)),
+                )
                 .build()?;
 
             let mut exec = ExecutorImpl::from_elf(env, &elf_data)?;

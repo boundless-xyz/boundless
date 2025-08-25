@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) mod executor;
 pub(crate) mod finalize;
 pub(crate) mod join;
+pub(crate) mod join_povw;
 pub(crate) mod keccak;
 pub(crate) mod prove;
 pub(crate) mod resolve;

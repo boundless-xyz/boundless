@@ -93,6 +93,21 @@ pub struct JoinReq {
     pub right: usize,
 }
 
+/// POVW Join Request (includes POVW metadata)
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct JoinPovwReq {
+    /// Node index
+    pub idx: usize,
+    /// index of the left branch
+    pub left: usize,
+    /// index of the right branch
+    pub right: usize,
+    /// POVW work log ID
+    pub povw_log_id: String,
+    /// POVW job number
+    pub povw_job_number: u64,
+}
+
 /// Union Request
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UnionReq {
@@ -156,6 +171,8 @@ pub enum TaskType {
     Prove(ProveReq),
     /// Join task
     Join(JoinReq),
+    /// POVW Join task (with POVW metadata)
+    JoinPovw(JoinPovwReq),
     /// Resolve task
     Resolve(ResolveReq),
     /// Finalize task
@@ -176,6 +193,7 @@ impl TaskType {
             Self::Executor(_) => "executor".into(),
             Self::Prove(_) => "prove-lift".into(),
             Self::Join(_) => "join".into(),
+            Self::JoinPovw(_) => "join-povw".into(),
             Self::Resolve(_) => "resolve".into(),
             Self::Finalize(_) => "finalize".into(),
             Self::Snark(_) => "snark".into(),

@@ -1,16 +1,17 @@
 // Copyright 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
+// Use of this source code as governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
 use crate::{
+    povw::PovwConfig,
     redis::{self, AsyncCommands},
     tasks::{deserialize_obj, serialize_obj, RECEIPT_PATH, RECUR_RECEIPT_PATH},
     Agent,
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown};
+use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim};
 use uuid::Uuid;
 use workflow_common::{ResolveReq, KECCAK_RECEIPT_PATH};
 
@@ -32,7 +33,29 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
         })?;
 
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
-    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&receipt)?;
+
+    // Try to deserialize as POVW receipt first, then fall back to regular receipt
+    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = if let Some(_povw_config) = PovwConfig::from_env() {
+        // POVW is enabled, try to deserialize as POVW receipt first
+        if let Ok(povw_receipt) = deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&receipt) {
+            tracing::debug!("Detected POVW receipt in resolve, unwrapping...");
+
+            // Unwrap the POVW receipt to get the ReceiptClaim for processing
+            if let Some(prover) = agent.prover.as_ref() {
+                prover.unwrap_povw(&povw_receipt)
+                    .context("POVW unwrap method not available - POVW functionality requires RISC Zero POVW support")?
+            } else {
+                return Err(anyhow::anyhow!("No prover available for POVW unwrapping"));
+            }
+        } else {
+            // Fall back to regular receipt if POVW deserialization fails
+            tracing::warn!("Failed to deserialize as POVW receipt, trying regular receipt");
+            deserialize_obj(&receipt)?
+        }
+    } else {
+        // POVW not enabled, use regular receipt
+        deserialize_obj(&receipt)?
+    };
 
     let mut assumptions_len: Option<u64> = None;
     if conditional_receipt
@@ -61,7 +84,7 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                     assumptions
                         .len()
                         .try_into()
-                        .context("Failed to convert to u64")?,
+                        .context("Failed to convert to u64")?
                 );
 
                 let mut union_claim = String::new();
@@ -100,10 +123,38 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         .await
                         .context("corroborating receipt not found: key {assumption_key}")?;
 
-                    let assumption_receipt: SuccinctReceipt<Unknown> =
+                    // Try to deserialize assumption receipt as POVW first, then fall back to regular
+                    let assumption_receipt: SuccinctReceipt<Unknown> = if let Some(_povw_config) = PovwConfig::from_env() {
+                        // POVW is enabled, try to deserialize as POVW receipt first
+                        if let Ok(povw_assumption_receipt) = deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&assumption_bytes) {
+                            tracing::debug!("Detected POVW assumption receipt, unwrapping...");
+
+                            // Unwrap the POVW receipt to get the ReceiptClaim for processing
+                            if let Some(prover) = agent.prover.as_ref() {
+                                let _unwrapped = prover.unwrap_povw(&povw_assumption_receipt)
+                                    .context("POVW unwrap method not available for assumption receipt")?;
+                                // For now, we'll use the original assumption bytes since we can't easily convert types
+                                // This is a workaround until we have a better way to handle type conversion
+                                tracing::warn!("POVW assumption receipt unwrapped but type conversion not fully implemented");
+                                deserialize_obj(&assumption_bytes).with_context(|| {
+                                    format!("could not deserialize assumption receipt: {assumption_key}")
+                                })?
+                            } else {
+                                return Err(anyhow::anyhow!("No prover available for POVW unwrapping of assumption receipt"));
+                            }
+                        } else {
+                            // Fall back to regular receipt if POVW deserialization fails
+                            tracing::warn!("Failed to deserialize assumption as POVW receipt, trying regular receipt");
+                            deserialize_obj(&assumption_bytes).with_context(|| {
+                                format!("could not deserialize assumption receipt: {assumption_key}")
+                            })?
+                        }
+                    } else {
+                        // POVW not enabled, use regular receipt
                         deserialize_obj(&assumption_bytes).with_context(|| {
                             format!("could not deserialize assumption receipt: {assumption_key}")
-                        })?;
+                        })?
+                    };
 
                     // Resolve
                     conditional_receipt = agent

@@ -23,6 +23,7 @@ use taskdb::ReadyTask;
 use tokio::time;
 use workflow_common::{TaskType, COPROC_WORK_TYPE};
 
+mod povw;
 mod redis;
 mod tasks;
 
@@ -228,9 +229,7 @@ impl Agent {
             let term_sig_copy = term_sig.clone();
             let db_pool_copy = self.db_pool.clone();
             tokio::spawn(async move {
-                Self::poll_for_requeue(term_sig_copy, db_pool_copy)
-                    .await
-                    .expect("Requeue failed")
+                Self::poll_for_requeue(term_sig_copy, db_pool_copy).await.expect("Requeue failed")
             });
         }
 
@@ -287,18 +286,46 @@ impl Agent {
                     .context("Executor failed")?,
             )
             .context("Failed to serialize prove response")?,
-            TaskType::Prove(req) => serde_json::to_value(
-                tasks::prove::prover(self, &task.job_id, &task.task_id, &req)
-                    .await
-                    .context("Prove failed")?,
-            )
-            .context("Failed to serialize prove response")?,
+            TaskType::Prove(req) => {
+                let result = tasks::prove::prover(self, &task.job_id, &task.task_id, &req).await;
+                match result {
+                    Ok(response) => serde_json::to_value(response)
+                        .context("Failed to serialize prove response")?,
+                    Err(e) => {
+                        // Check if it's a connection error and provide better context
+                        let error_msg = if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                            match io_err.kind() {
+                                std::io::ErrorKind::ConnectionRefused => {
+                                    "Redis connection refused - service may be down or unreachable"
+                                        .to_string()
+                                }
+                                std::io::ErrorKind::ConnectionReset => {
+                                    "Redis connection reset - network issue or service restart"
+                                        .to_string()
+                                }
+                                std::io::ErrorKind::TimedOut => {
+                                    "Redis connection timed out - service may be overloaded"
+                                        .to_string()
+                                }
+                                _ => format!("Redis connection error: {io_err}"),
+                            }
+                        } else {
+                            format!("Prove failed: {e}")
+                        };
+                        return Err(anyhow::anyhow!(error_msg));
+                    }
+                }
+            }
             TaskType::Join(req) => serde_json::to_value(
-                tasks::join::join(self, &task.job_id, &req)
-                    .await
-                    .context("Join failed")?,
+                tasks::join::join(self, &task.job_id, &req).await.context("Join failed")?,
             )
             .context("Failed to serialize join response")?,
+            TaskType::JoinPovw(req) => serde_json::to_value(
+                tasks::join_povw::join_povw(self, &task.job_id, &req)
+                    .await
+                    .context("POVW Join failed")?,
+            )
+            .context("Failed to serialize POVW join response")?,
             TaskType::Resolve(req) => serde_json::to_value(
                 tasks::resolve::resolver(self, &task.job_id, &req)
                     .await
@@ -324,9 +351,7 @@ impl Agent {
             )
             .context("failed to serialize keccak response")?,
             TaskType::Union(req) => serde_json::to_value(
-                tasks::union::union(self, &task.job_id, &req)
-                    .await
-                    .context("Union failed")?,
+                tasks::union::union(self, &task.job_id, &req).await.context("Union failed")?,
             )
             .context("failed to serialize union response")?,
         };
