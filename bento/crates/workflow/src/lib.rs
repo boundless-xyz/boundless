@@ -1,7 +1,6 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
-// as found in the LICENSE-BSL file.
+// All rights reserved.
 
 #![deny(missing_docs)]
 
@@ -10,24 +9,24 @@
 use crate::redis::RedisPool;
 use anyhow::{Context, Result};
 use clap::Parser;
-use risc0_zkvm::{get_prover_server, ProverOpts, ProverServer, VerifierContext};
+use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 use taskdb::ReadyTask;
 use tokio::time;
-use workflow_common::{TaskType, COPROC_WORK_TYPE};
+use workflow_common::{COPROC_WORK_TYPE, TaskType};
 
 mod redis;
 mod tasks;
 
 pub use workflow_common::{
-    s3::S3Client, AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
+    AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, s3::S3Client,
 };
 
 /// Workflow agent
@@ -228,9 +227,7 @@ impl Agent {
             let term_sig_copy = term_sig.clone();
             let db_pool_copy = self.db_pool.clone();
             tokio::spawn(async move {
-                Self::poll_for_requeue(term_sig_copy, db_pool_copy)
-                    .await
-                    .expect("Requeue failed")
+                Self::poll_for_requeue(term_sig_copy, db_pool_copy).await.expect("Requeue failed")
             });
         }
 
@@ -286,25 +283,47 @@ impl Agent {
                     .await
                     .context("Executor failed")?,
             )
-            .context("Failed to serialize prove response")?,
+            .context("Failed to serialize executor response")?,
             TaskType::Prove(req) => serde_json::to_value(
                 tasks::prove::prover(self, &task.job_id, &task.task_id, &req)
                     .await
                     .context("Prove failed")?,
             )
             .context("Failed to serialize prove response")?,
-            TaskType::Join(req) => serde_json::to_value(
-                tasks::join::join(self, &task.job_id, &req)
-                    .await
-                    .context("Join failed")?,
-            )
-            .context("Failed to serialize join response")?,
-            TaskType::Resolve(req) => serde_json::to_value(
-                tasks::resolve::resolver(self, &task.job_id, &req)
-                    .await
-                    .context("Resolve failed")?,
-            )
-            .context("Failed to serialize join response")?,
+            TaskType::Join(req) => {
+                // Route to POVW or regular join based on environment variable
+                if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+                    serde_json::to_value(
+                        tasks::join_povw::join_povw(self, &task.job_id, &req)
+                            .await
+                            .context("POVW join failed")?,
+                    )
+                    .context("Failed to serialize POVW join response")?
+                } else {
+                    serde_json::to_value(
+                        tasks::join::join(self, &task.job_id, &req).await.context("Join failed")?,
+                    )
+                    .context("Failed to serialize join response")?
+                }
+            }
+            TaskType::Resolve(req) => {
+                // Route to POVW or regular resolve based on environment variable
+                if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+                    serde_json::to_value(
+                        tasks::resolve_povw::resolve_povw(self, &task.job_id, &req)
+                            .await
+                            .context("POVW resolve failed")?,
+                    )
+                    .context("Failed to serialize POVW resolve response")?
+                } else {
+                    serde_json::to_value(
+                        tasks::resolve::resolver(self, &task.job_id, &req)
+                            .await
+                            .context("Resolve failed")?,
+                    )
+                    .context("Failed to serialize resolve response")?
+                }
+            }
             TaskType::Finalize(req) => serde_json::to_value(
                 tasks::finalize::finalize(self, &task.job_id, &req)
                     .await
@@ -324,9 +343,7 @@ impl Agent {
             )
             .context("failed to serialize keccak response")?,
             TaskType::Union(req) => serde_json::to_value(
-                tasks::union::union(self, &task.job_id, &req)
-                    .await
-                    .context("Union failed")?,
+                tasks::union::union(self, &task.job_id, &req).await.context("Union failed")?,
             )
             .context("failed to serialize union response")?,
         };

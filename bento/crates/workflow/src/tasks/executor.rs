@@ -1,34 +1,35 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
-// as found in the LICENSE-BSL file.
-
-use std::sync::Arc;
+// All rights reserved.
 
 use crate::{
-    redis::{self},
-    tasks::{read_image_id, serialize_obj, COPROC_CB_PATH, RECEIPT_PATH, SEGMENTS_PATH},
     Agent, Args, TaskType,
+    redis::{self},
+    tasks::{COPROC_CB_PATH, RECEIPT_PATH, SEGMENTS_PATH, read_image_id, serialize_obj},
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
+use risc0_binfmt::PovwLogId;
 use risc0_zkvm::{
-    compute_image_id, sha::Digestible, CoprocessorCallback, ExecutorEnv, ExecutorImpl,
-    InnerReceipt, Journal, NullSegmentRef, ProveKeccakRequest, Receipt, Segment,
+    CoprocessorCallback, ExecutorEnv, ExecutorImpl, InnerReceipt, Journal, NullSegmentRef,
+    ProveKeccakRequest, Receipt, Segment, compute_image_id, sha::Digestible,
 };
 use sqlx::postgres::PgPool;
+use std::str::FromStr;
+use std::sync::Arc;
 use taskdb::planner::{
-    task::{Command as TaskCmd, Task},
     Planner,
+    task::{Command as TaskCmd, Task},
 };
 use tempfile::NamedTempFile;
 use workflow_common::{
+    AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp, FinalizeReq,
+    JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SnarkReq, UnionReq,
     s3::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
     },
-    CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, KeccakReq, ProveReq, ResolveReq,
-    SnarkReq, UnionReq, AUX_WORK_TYPE, COPROC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
 };
+
 // use tempfile::NamedTempFile;
 use tokio::task::{JoinHandle, JoinSet};
 use uuid::Uuid;
@@ -259,11 +260,6 @@ impl Coprocessor {
 impl CoprocessorCallback for Coprocessor {
     fn prove_keccak(&mut self, request: ProveKeccakRequest) -> Result<()> {
         self.tx.blocking_send(SenderType::Keccak(request))?;
-        Ok(())
-    }
-
-    fn prove_zkr(&mut self, _request: risc0_zkvm::ProveZkrRequest) -> Result<()> {
-        // TODO: Implement ZKR proving when needed
         Ok(())
     }
 }
@@ -565,6 +561,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let exec_task: JoinHandle<anyhow::Result<SessionData>> =
         tokio::task::spawn_blocking(move || {
             let mut env = ExecutorEnv::builder();
+            if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+                let log_id = std::env::var("POVW_LOG_ID").context("POVW_LOG_ID is not set")?;
+                let povw_log_id = PovwLogId::from_str(&log_id)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse POVW_LOG_ID: {}", e))?;
+                env.povw((povw_log_id, rand::random()));
+                tracing::debug!("POVW enabled with log_id: {}", log_id);
+            }
+
             for receipt in assumption_receipts {
                 env.add_assumption(receipt);
             }

@@ -1,19 +1,19 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
-// as found in the LICENSE-BSL file.
+// All rights reserved.
 
 use anyhow::Result;
 use sqlx::{
-    types::{JsonValue, Uuid},
     PgPool,
+    types::{JsonValue, Uuid},
 };
 use taskdb::{
+    ReadyTask, TaskState,
     planner::{
-        task::{Command as TaskCmd, Task},
         Planner,
+        task::{Command as TaskCmd, Task},
     },
-    test_helpers, ReadyTask, TaskState,
+    test_helpers,
 };
 
 #[sqlx::test()]
@@ -251,14 +251,16 @@ async fn e2e(pool: PgPool) -> Result<()> {
             .unwrap();
     }
 
-    assert!(taskdb::update_task_done(
-        &pool,
-        &exec_task.job_id,
-        &exec_task.task_id,
-        JsonValue::default(),
-    )
-    .await
-    .unwrap());
+    assert!(
+        taskdb::update_task_done(
+            &pool,
+            &exec_task.job_id,
+            &exec_task.task_id,
+            JsonValue::default(),
+        )
+        .await
+        .unwrap()
+    );
 
     // Validate we have a terminal (finalize) node and its stats are correct:
     let finalize = test_helpers::get_task(&pool, &task.job_id, "finalize")
@@ -330,14 +332,16 @@ async fn e2e(pool: PgPool) -> Result<()> {
         .unwrap()
         .unwrap();
     assert_eq!(final_task.task_id, "finalize");
-    assert!(taskdb::update_task_done(
-        &pool,
-        &final_task.job_id,
-        &final_task.task_id,
-        JsonValue::default(),
-    )
-    .await
-    .unwrap());
+    assert!(
+        taskdb::update_task_done(
+            &pool,
+            &final_task.job_id,
+            &final_task.task_id,
+            JsonValue::default(),
+        )
+        .await
+        .unwrap()
+    );
 
     for task in test_helpers::get_tasks(&pool).await.unwrap() {
         // println!("{:?}", task);

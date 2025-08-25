@@ -1,7 +1,6 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
-// as found in the LICENSE-BSL file.
+// All rights reserved.
 
 use anyhow::{Context, Result};
 use hex::FromHex;
@@ -11,9 +10,11 @@ use serde::{Deserialize, Serialize};
 pub(crate) mod executor;
 pub(crate) mod finalize;
 pub(crate) mod join;
+pub(crate) mod join_povw;
 pub(crate) mod keccak;
 pub(crate) mod prove;
 pub(crate) mod resolve;
+pub(crate) mod resolve_povw;
 pub(crate) mod snark;
 pub(crate) mod union;
 

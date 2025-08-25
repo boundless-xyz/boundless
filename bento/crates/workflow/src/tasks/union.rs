@@ -1,16 +1,15 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
-// as found in the LICENSE-BSL file.
+// All rights reserved.
 
 use crate::{
+    Agent,
     redis::{self, AsyncCommands},
     tasks::{deserialize_obj, serialize_obj},
-    Agent,
 };
 use anyhow::{Context, Result};
 use uuid::Uuid;
-use workflow_common::{UnionReq, KECCAK_RECEIPT_PATH};
+use workflow_common::{KECCAK_RECEIPT_PATH, UnionReq};
 
 /// Run the union operation
 pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<()> {

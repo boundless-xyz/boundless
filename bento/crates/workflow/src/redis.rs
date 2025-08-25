@@ -1,11 +1,10 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
-// as found in the LICENSE-BSL file.
+// All rights reserved.
 
 use anyhow::{Context, Result};
 use deadpool_redis::Connection;
-pub use deadpool_redis::{redis::AsyncCommands, Config, Pool as RedisPool, Runtime};
+pub use deadpool_redis::{Config, Pool as RedisPool, Runtime, redis::AsyncCommands};
 use redis::{RedisResult, ToRedisArgs};
 
 pub fn create_pool(redis_url: &str) -> Result<RedisPool> {
