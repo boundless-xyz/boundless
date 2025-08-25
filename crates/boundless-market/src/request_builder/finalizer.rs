@@ -16,9 +16,9 @@ use super::{Adapt, Layer, RequestParams};
 use crate::{
     contracts::RequestInput,
     contracts::{Offer, ProofRequest, RequestId, Requirements},
-    util::now_timestamp,
 };
 use anyhow::{bail, Context};
+use boundless_core::util::now_timestamp;
 use derive_builder::Builder;
 use url::Url;
 

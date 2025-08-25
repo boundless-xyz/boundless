@@ -21,13 +21,13 @@ use alloy::{
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
+use boundless_core::storage::{MockStorageProvider, StorageProvider};
 use boundless_market::{
     contracts::{
         hit_points::default_allowance, Callback, Offer, Predicate, PredicateType, ProofRequest,
         RequestId, RequestInput, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
-    storage::{MockStorageProvider, StorageProvider},
     Deployment,
 };
 use boundless_market_test_utils::{
@@ -70,7 +70,9 @@ fn generate_request(
         RequestId::new(*addr, id),
         requirements,
         image_url,
-        RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+        RequestInput::inline(
+            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_vec().unwrap(),
+        ),
         offer.unwrap_or(Offer {
             minPrice: parse_ether("0.02").unwrap(),
             maxPrice: parse_ether("0.04").unwrap(),

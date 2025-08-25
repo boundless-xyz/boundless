@@ -14,9 +14,9 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::contracts::{RequestInput, RequestInputType};
-use crate::input::GuestEnv;
-use crate::storage::fetch_url;
+use crate::GuestEnv;
 use anyhow::{bail, ensure, Context};
+use boundless_core::storage::fetch_url;
 use risc0_zkvm::{default_executor, sha::Digestible, SessionInfo};
 use url::Url;
 

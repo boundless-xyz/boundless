@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! The Boundless CLI is a command-line interface for interacting with Boundless.
+
 /// Type used in the [Client] and [StandardRequestBuilder] to indicate that the component in question is not provided.
 ///
 /// Note that this in an [uninhabited type] and cannot be instantiated. When used as

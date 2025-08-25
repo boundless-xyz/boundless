@@ -16,7 +16,6 @@ use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
     selector::{ProofType, SupportedSelectors},
-    util::now_timestamp,
 };
 use alloy::{
     network::Ethereum,
@@ -27,8 +26,10 @@ use alloy::{
     providers::Provider,
 };
 use anyhow::{ensure, Context};
+use boundless_core::util::now_timestamp;
 use clap::Args;
 use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
 
 /// Configuration for the [OfferLayer].
 ///
@@ -125,7 +126,7 @@ impl<P: Clone> From<P> for OfferLayer<P> {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug, Default, Builder, Args)]
+#[derive(Clone, Debug, Default, Builder, Args, Serialize, Deserialize)]
 /// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
 /// defaults set in the [OfferLayerConfig].
 pub struct OfferParams {
