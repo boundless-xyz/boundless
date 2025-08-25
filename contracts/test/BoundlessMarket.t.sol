@@ -19,7 +19,6 @@ import {
     ReceiptClaimLib,
     VerificationFailed
 } from "risc0/IRiscZeroVerifier.sol";
-import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {Client} from "./clients/Client.sol";

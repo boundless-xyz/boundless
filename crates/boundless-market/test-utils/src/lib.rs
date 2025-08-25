@@ -219,6 +219,8 @@ pub async fn deploy_contracts(
         true => (deploy_mock_verifier(&deployer_provider).await?, [0xFFu8; 4]),
         false => {
             let control_root = ALLOWED_CONTROL_ROOT;
+            // Byte order in the contract is opposite that of Rust, because the EVM interprets the
+            // digest as a big-endian uint256.
             let mut bn254_control_id = BN254_IDENTITY_CONTROL_ID;
             bn254_control_id.as_mut_bytes().reverse();
             let verifier_parameters_digest = Groth16ReceiptVerifierParameters::default().digest();
