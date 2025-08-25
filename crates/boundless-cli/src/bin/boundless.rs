@@ -64,7 +64,6 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -79,6 +78,9 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
+use boundless_cli::{
+    commands::povw::PovwCommands, convert_timestamp, DefaultProver, OrderFulfilled,
+};
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
@@ -110,6 +112,9 @@ enum Command {
     /// Operations on the boundless market
     #[command(subcommand)]
     Ops(Box<OpsCommands>),
+
+    #[command(subcommand)]
+    Povw(Box<PovwCommands>),
 
     /// Display configuration and environment variables
     Config {},
@@ -446,6 +451,7 @@ fn private_key_required(cmd: &Command) -> bool {
             ProvingCommands::Lock { .. } => true,
         },
         Command::Completions { .. } => false,
+        Command::Povw(_)  => false,
     }
 }
 
@@ -487,10 +493,6 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         bail!("Private key required");
     }
 
-    // If the config command is being run, don't create a client.
-    if let Command::Config {} = &args.command {
-        return handle_config_command(args).await;
-    }
     if let Command::Completions { shell } = &args.command {
         // TODO: Because of where this is, running the completions command requires an RPC_URL to
         // be set. We should address this, but its also not a major issue.
@@ -503,6 +505,15 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         return Ok(());
     }
 
+    // If the config or povw commands are being run, don't create a client.
+    match &args.command {
+        Command::Config {} => return handle_config_command(args).await,
+        Command::Povw(povw_cmd) => return povw_cmd.run().await,
+        _ => {}
+    }
+
+    // If using one of the subcommands that has a storage config option, use it. Otherwise, use
+    // `Default`, which is to have no storage provider.
     let storage_config = match args.command {
         Command::Request(ref req_cmd) => match **req_cmd {
             RequestCommands::Submit { ref storage_config, .. } => (**storage_config).clone(),
@@ -512,6 +523,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         _ => StorageProviderConfig::default(),
     };
 
+    // Build the client.
     let client = Client::builder()
         .with_signer(args.config.private_key.clone())
         .with_rpc_url(args.config.rpc_url.clone())
@@ -527,6 +539,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         Command::Request(request_cmd) => handle_request_command(request_cmd, client).await,
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, client).await,
         Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
+        Command::Povw(_) => unreachable!(),
         Command::Config {} => unreachable!(),
         Command::Completions { .. } => unreachable!(),
     }

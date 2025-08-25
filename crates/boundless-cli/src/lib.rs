@@ -16,6 +16,10 @@
 
 #![deny(missing_docs)]
 
+// TODO(victor): Break up the code below into modules.
+
+pub mod commands;
+
 use alloy::{
     primitives::{Address, Bytes},
     sol_types::{SolStruct, SolValue},
