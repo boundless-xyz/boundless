@@ -661,12 +661,12 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
-            let (callback_data, seal) =
+            let (fulfillment_data, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
             tracing::info!(
-                "Callback Data: {} - Seal: {}",
-                serde_json::to_string_pretty(&callback_data)?,
+                "Fulfillment Data: {} - Seal: {}",
+                serde_json::to_string_pretty(&fulfillment_data)?,
                 serde_json::to_string_pretty(&seal)?
             );
             Ok(())
@@ -676,7 +676,7 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
 
             let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
             let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
-            let (callback_data, seal) =
+            let (fulfillment_data, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
             let (req, _) = client.boundless_market.get_submitted_request(*request_id, None).await?;
             let predicate = req.requirements.predicate;
@@ -692,7 +692,7 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                 }
                 PredicateType::DigestMatch | PredicateType::PrefixMatch => {
                     let FulfillmentData { imageId, journal } =
-                        FulfillmentData::abi_decode(&callback_data)?;
+                        FulfillmentData::abi_decode(&fulfillment_data)?;
                     ensure!(
                         imageId == *image_id,
                         "Image ID mismatch: expected {:?}, got {:?}",
