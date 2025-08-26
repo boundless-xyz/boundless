@@ -26,7 +26,7 @@ use alloy::{
 };
 use alloy_primitives::{
     aliases::{U160, U32, U96},
-    Address, Bytes, FixedBytes, U256,
+    Address, Bytes, FixedBytes, B256, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
@@ -349,6 +349,10 @@ pub enum RequestError {
     /// Request digest mismatch.
     #[error("request digest mismatch")]
     DigestMismatch,
+
+    /// Predicate data was not created correctly.
+    #[error("malformed predicate data")]
+    MalformedPredicateData,
 }
 
 #[cfg(not(target_os = "zkvm"))]
@@ -433,10 +437,23 @@ impl ProofRequest {
         }
         Url::parse(&self.imageUrl).map(|_| ())?;
 
-        // TODO(ec2): fixme
-        // if self.requirements.imageId == B256::default() {
-        //     return Err(RequestError::ImageIdIsZero);
-        // }
+        match self.requirements.predicate.predicateType {
+            PredicateType::DigestMatch | PredicateType::PrefixMatch => {
+                if self.requirements.predicate.data.len() < 33 {
+                    return Err(RequestError::MalformedPredicateData);
+                }
+                if self.requirements.image_id() == Some(B256::default()) {
+                    return Err(RequestError::ImageIdIsZero);
+                }
+            }
+            PredicateType::ClaimDigestMatch => {
+                if self.requirements.predicate.data.len() != 32 {
+                    return Err(RequestError::MalformedPredicateData);
+                }
+            }
+            PredicateType::__Invalid => return Err(RequestError::MalformedPredicateData),
+        }
+
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
         }
