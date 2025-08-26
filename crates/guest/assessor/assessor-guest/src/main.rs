@@ -37,8 +37,6 @@ fn main() {
     let mut callbacks: Vec<AssessorCallback> = Vec::<AssessorCallback>::new();
     // list of optional Selectors specified as part of the requests requirements
     let mut selectors = Vec::<AssessorSelector>::new();
-    // list of predicate types used to verify the requirements of each request
-    let mut predicate_types = Vec::with_capacity(input.fills.len());
 
     let eip_domain_separator = input.domain.alloy_struct();
     // For each fill we
@@ -53,7 +51,6 @@ fn main() {
         // by this guest. This check is not strictly needed, but reduces the chance of accidentally
         // failing to enforce a constraint.
         RequestId::try_from(fill.request.id).unwrap();
-        predicate_types.push(fill.request.requirements.predicate.predicateType);
 
         // ECDSA signatures are always checked here.
         // Smart contract signatures (via EIP-1271) are checked on-chain either when a request is locked,
@@ -101,7 +98,6 @@ fn main() {
     let journal = AssessorJournal {
         callbacks,
         selectors,
-        predicateTypes: predicate_types,
         root: <[u8; 32]>::from(root).into(),
         prover: input.prover_address,
     };

@@ -366,7 +366,6 @@ where
                     fulfillmentDataType: fulfillment_data_type,
                     claimDigest: <[u8; 32]>::from(claim_digest).into(),
                     seal: seal.into(),
-                    predicateType: predicate_type,
                 });
                 anyhow::Ok(())
             };

@@ -405,13 +405,8 @@ pub fn mock_singleton(
         claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
     }
     .eip712_hash_struct();
-    let assessor_journal = AssessorJournal {
-        selectors: vec![],
-        root: assessor_root,
-        prover,
-        callbacks: vec![],
-        predicateTypes: vec![request.requirements.predicate.predicateType],
-    };
+    let assessor_journal =
+        AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
     let assesor_receipt_claim = ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
     let assessor_claim_digest = assesor_receipt_claim.digest();
 
@@ -467,7 +462,6 @@ pub fn mock_singleton(
         fulfillmentData: fulfillment_data.into(),
         fulfillmentDataType: fulfillment_data_type,
         seal: set_inclusion_seal.into(),
-        predicateType: predicate_type,
     };
 
     let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(

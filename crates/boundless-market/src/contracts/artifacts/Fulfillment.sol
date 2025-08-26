@@ -5,7 +5,6 @@
 pragma solidity ^0.8.20;
 
 import {RequestId} from "./RequestId.sol";
-import {PredicateType} from "./Predicate.sol";
 import {FulfillmentDataType} from "./FulfillmentData.sol";
 
 using FulfillmentLibrary for Fulfillment global;
@@ -17,9 +16,6 @@ struct Fulfillment {
     RequestId id;
     /// @notice EIP-712 digest of request struct.
     bytes32 requestDigest;
-    /// @notice The `PredicateType` of the request that is being fulfilled.
-    /// @dev When the `PredicateType` is `ClaimDigestMatch`, there callbacks are not supported
-    PredicateType predicateType;
     /// @notice Claim Digest
     bytes32 claimDigest;
     /// @notice The type of data included in the fulfillment

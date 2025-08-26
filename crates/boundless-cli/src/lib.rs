@@ -343,7 +343,6 @@ impl DefaultProver {
                 id: req.id,
                 requestDigest: req.eip712_signing_hash(&self.domain.alloy_struct()),
                 seal: order_seal.into(),
-                predicateType: req.requirements.predicate.predicateType,
             };
 
             boundless_fills.push(fulfillment);
