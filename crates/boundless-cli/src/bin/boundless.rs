@@ -98,22 +98,18 @@ shadow!(build);
 enum Command {
     /// Account management commands
     #[command(subcommand)]
-    #[group(requires = "rpc_url")]
     Account(Box<AccountCommands>),
 
     /// Proof request commands
     #[command(subcommand)]
-    #[group(requires = "rpc_url")]
     Request(Box<RequestCommands>),
 
     /// Proof execution commands
     #[command(subcommand)]
-    #[group(requires = "rpc_url")]
     Proving(Box<ProvingCommands>),
 
     /// Operations on the boundless market
     #[command(subcommand)]
-    #[group(requires = "rpc_url")]
     Ops(Box<OpsCommands>),
 
     #[command(subcommand)]
@@ -404,7 +400,7 @@ struct SubmitOfferRequirements {
 struct GlobalConfig {
     /// URL of the Ethereum RPC endpoint
     #[clap(short, long, env = "RPC_URL")]
-    rpc_url: Option<Url>,
+    rpc_url: Url,
 
     /// Private key of the wallet (without 0x prefix)
     #[clap(long, env = "PRIVATE_KEY", global = true, hide_env_values = true)]
@@ -466,6 +462,8 @@ async fn main() -> Result<()> {
 
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     if let Command::Completions { shell } = &args.command {
+        // TODO: Because of where this is, running the completions command requires an RPC_URL to
+        // be set. We should address this, but its also not a major issue.
         clap_complete::generate(
             *shell,
             &mut MainArgs::command(),
@@ -494,11 +492,9 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     };
 
     // Build the client.
-    // NOTE: We should never actually have a case where the RPC URL is not set here.
-    let rpc_url = args.config.rpc_url.clone().context("RPC URL not set; use --rpc-url or set RPC_URL env var")?;
     let client = Client::builder()
         .with_signer(args.config.private_key.clone())
-        .with_rpc_url(rpc_url)
+        .with_rpc_url(args.config.rpc_url.clone())
         .with_deployment(args.config.deployment.clone())
         .with_storage_provider_config(&storage_config)?
         .with_timeout(args.config.tx_timeout)
@@ -1270,13 +1266,8 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");
 
-    let Some(rpc_url) = args.config.rpc_url.clone() else {
-        println!("❌ RPC URL not set; use --rpc-url or set the RPC_URL env var");
-        return Ok(())
-    };
-
     // Show configuration
-    println!("RPC URL: {rpc_url}");
+    println!("RPC URL: {}", args.config.rpc_url);
     println!(
         "Wallet Address: {}",
         args.config
@@ -1303,7 +1294,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
     // Validate RPC connection
     println!("\n=== Environment Validation ===\n");
     print!("Testing RPC connection... ");
-    let provider = ProviderBuilder::new().connect_http(rpc_url);
+    let provider = ProviderBuilder::new().connect_http(args.config.rpc_url.clone());
 
     let chain_id = match provider.get_chain_id().await {
         Ok(chain_id) => {
@@ -1479,7 +1470,7 @@ mod tests {
         };
 
         let config = GlobalConfig {
-            rpc_url: Some(anvil.endpoint_url()),
+            rpc_url: anvil.endpoint_url(),
             private_key: Some(private_key),
             deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
@@ -1947,7 +1938,7 @@ mod tests {
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
         let prover_config = GlobalConfig {
-            rpc_url: Some(anvil.endpoint_url()),
+            rpc_url: anvil.endpoint_url(),
             private_key: Some(ctx.prover_signer.clone()),
             deployment: Some(ctx.deployment),
             tx_timeout: None,
@@ -2256,7 +2247,7 @@ mod tests {
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
         let prover_config = GlobalConfig {
-            rpc_url: Some(anvil.endpoint_url()),
+            rpc_url: anvil.endpoint_url(),
             private_key: Some(ctx.prover_signer.clone()),
             deployment: Some(ctx.deployment),
             tx_timeout: None,
