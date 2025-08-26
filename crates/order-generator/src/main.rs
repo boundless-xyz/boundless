@@ -87,6 +87,10 @@ struct MainArgs {
     /// Additional time in seconds to add to the timeout for each 1M cycles.
     #[clap(long, default_value = "20")]
     seconds_per_mcycle: u32,
+    /// Execution rate in kHz for calculating bidding start delays.
+    /// Default is 2000 kHz (2 MHz).
+    #[clap(long, default_value = "2000", env)]
+    exec_rate_khz: u64,
     /// Program binary file to use as the guest image, given as a path.
     ///
     /// If unspecified, defaults to the included loop guest.
@@ -245,15 +249,16 @@ async fn handle_request(
         // Use provided delay
         now + delay
     } else {
-        // Calculate delay based on execution time assuming 5MHz exec rate
-        // TODO: Make the execution rate configurable instead of hardcoding 5MHz
-        let exec_time_seconds = m_cycles.div_ceil(5);
+        // Calculate delay based on execution time using configured execution rate
+        // mcycles * 1000 = kcycles, then divide by exec_rate_khz to get seconds
+        let exec_time_seconds = (m_cycles.saturating_mul(1000)).div_ceil(args.exec_rate_khz);
         let delay = std::cmp::max(30, exec_time_seconds);
 
         tracing::debug!(
-            "Calculated bidding_start_delay: {} seconds (based on {} mcycles at 5MHz exec rate)",
+            "Calculated bidding_start_delay: {} seconds (based on {} mcycles at {} kHz exec rate)",
             delay,
-            m_cycles
+            m_cycles,
+            args.exec_rate_khz
         );
 
         now + delay
@@ -376,6 +381,7 @@ mod tests {
             timeout: 1000,
             lock_timeout: 1000,
             seconds_per_mcycle: 60,
+            exec_rate_khz: 5000,
             program: Some(LOOP_PATH.parse().unwrap()),
             input: None,
             input_max_mcycles: None,

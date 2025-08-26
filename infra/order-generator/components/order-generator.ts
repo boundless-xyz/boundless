@@ -35,6 +35,7 @@ interface OrderGeneratorArgs {
   txTimeout: string;
   lockTimeout?: string;
   timeout?: string;
+  execRateKhz?: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -188,6 +189,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.secondsPerMCycle) {
       ogArgs.push(`--seconds-per-mcycle ${args.secondsPerMCycle}`);
+    }
+    if (args.execRateKhz) {
+      ogArgs.push(`--exec-rate-khz ${args.execRateKhz}`);
     }
 
     const service = new awsx.ecs.FargateService(

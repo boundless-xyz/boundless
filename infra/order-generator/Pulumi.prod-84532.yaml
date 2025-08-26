@@ -43,3 +43,4 @@ config:
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-base:ETH_RPC_URL:
     secure: v1:c3IwSpIqjiWR/RwL:FcD3SNgl7w62dKYI45In31wZsbl9fiTZRhT6ed/9WpB2gSVEvf90U3xMIPIiQi8Q+dUXzmOgbrNMuesNkDOhdtWUSsCDb+gpkr5Ecwauq3vL/KbjG98=
+
