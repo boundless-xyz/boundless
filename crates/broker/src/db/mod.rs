@@ -1069,7 +1069,7 @@ mod tests {
     use tracing_test::traced_test;
 
     fn create_order_request() -> OrderRequest {
-        OrderRequest::new(
+        let mut request = OrderRequest::new(
             ProofRequest::new(
                 RequestId::new(Address::ZERO, 1),
                 Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
@@ -1089,7 +1089,9 @@ mod tests {
             FulfillmentType::LockAndFulfill,
             Address::ZERO,
             1,
-        )
+        );
+        request.image_id = Some(Digest::ZERO.to_string());
+        request
     }
 
     fn create_order() -> Order {
