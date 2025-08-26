@@ -337,11 +337,6 @@ contract BoundlessMarket is
 
             if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
                 (bytes32 imageId, bytes calldata journal) = _decodeFulfillmentData(fill.fulfillmentData);
-                bytes32 calculatedClaimDigest = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
-
-                if (fill.claimDigest != calculatedClaimDigest) {
-                    revert ClaimDigestMismatch(fill.claimDigest, calculatedClaimDigest);
-                }
                 // We should only get to this point if the journal has been authenticated because the claimDigest
                 // passed the integrity check in verifyDelivery and we just recalculated it from the imageId and journal
                 // and compared to make sure they match.
