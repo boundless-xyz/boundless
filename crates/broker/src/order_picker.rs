@@ -537,7 +537,8 @@ where
                             return Ok(PreflightCacheValue::Success { exec_session_id: "signal-default".to_string(), cycle_count: 54_000_000_000, image_id, input_id })
                         }
                         if request.client_address() == address!("0x3ee7d9175ec8bb9e16e8fd3abdef5a354b247528")
-                            || request.client_address() == address!("0x89f12aba0bcda3e708b1129eb2557b96f57b0de6") {
+                            || request.client_address() == address!("0x89f12aba0bcda3e708b1129eb2557b96f57b0de6")
+                            || request.client_address() == address!("0xf353bda16a83399c11e09615ee7ac326a5a08ccf") {
                             // Cycle count can be estimated by the stake amount for this specific requestor.
                             let cycle_count = u64::try_from(request.offer.lockStake).unwrap_or(u64::MAX).saturating_mul(1_000_000).div_ceil(1500);
                             tracing::info!("Defaulting Kailua cycles ({cycle_count}) for order {order_id_clone}");
