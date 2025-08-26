@@ -20,6 +20,7 @@ use clap::Subcommand;
 #[derive(Subcommand, Clone, Debug)]
 pub enum PovwCommands {
     /// nop
+    #[group(requires = "rpc_url")]
     Nop,
 }
 

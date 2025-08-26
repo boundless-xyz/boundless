@@ -1276,7 +1276,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
     };
 
     // Show configuration
-    println!("RPC URL: {}", rpc_url);
+    println!("RPC URL: {rpc_url}");
     println!(
         "Wallet Address: {}",
         args.config
