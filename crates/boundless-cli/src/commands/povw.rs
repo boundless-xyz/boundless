@@ -14,7 +14,9 @@
 
 //! Commands of the Boundless CLI for Proof of Verifiable Work (PoVW) operations.
 
-use clap::Subcommand;
+use std::path::PathBuf;
+
+use clap::{Subcommand, Args};
 
 /// Commands for Proof of Verifiable Work (PoVW) operations.
 #[derive(Subcommand, Clone, Debug)]
@@ -22,6 +24,9 @@ pub enum PovwCommands {
     /// nop
     #[group(requires = "rpc_url")]
     Nop,
+
+    /// Compress a directory of work receipts into a work log update.
+    ProveUpdate(PovwProveUpdate),
 }
 
 impl PovwCommands {
@@ -29,6 +34,21 @@ impl PovwCommands {
     pub async fn run(&self) -> anyhow::Result<()> {
         match self {
             Self::Nop => Ok(()),
+            Self::ProveUpdate(cmd) => cmd.run(),
         }
+    }
+}
+
+/// Compress a directory of work receipts into a work log update.
+#[derive(Args, Clone, Debug)]
+pub struct PovwProveUpdate {
+    #[arg(long)]
+    work_receipts_dir: PathBuf,
+}
+
+impl PovwProveUpdate {
+    /// Run the [PovwProveUpdate] command.
+    pub fn run(&self) -> anyhow::Result<()> {
+        todo!()
     }
 }
