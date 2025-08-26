@@ -165,10 +165,6 @@ interface IBoundlessMarket {
     /// @dev selector efc954a6
     error BatchSizeExceedsLimit(uint256 batchSize, uint256 limit);
 
-    /// @notice Error when a journal is provided but does not match the claim digest
-    /// TODO(ec2): selector
-    error ClaimDigestMismatch(bytes32 expected, bytes32 calculated);
-
     /// @notice Error when the fulfillment data type is not supported
     /// TODO(ec2): selector
     error UnsupportedFulfillmentData();

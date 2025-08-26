@@ -736,8 +736,8 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, PredicateType,
-        ProofRequest, RequestId, RequestInput, Requirements,
+        AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest,
+        RequestId, RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
 
@@ -875,7 +875,6 @@ mod tests {
             fulfillmentData: Bytes::default(),
             fulfillmentDataType: FulfillmentDataType::None,
             seal: Bytes::default(),
-            predicateType: PredicateType::PrefixMatch,
         };
 
         let prover_address = Address::ZERO;
