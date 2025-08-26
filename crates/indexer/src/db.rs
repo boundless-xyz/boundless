@@ -17,7 +17,8 @@ use std::{str::FromStr, sync::Arc};
 use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
-    AssessorReceipt, Fulfillment, PredicateType, ProofRequest, RequestInputType,
+    AssessorReceipt, Fulfillment, FulfillmentDataType, PredicateType, ProofRequest,
+    RequestInputType,
 };
 use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
@@ -388,27 +389,33 @@ impl IndexerDb for AnyDb {
         prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        let fulfillment_data_type: &'static str = match fill.fulfillmentDataType {
+            FulfillmentDataType::ImageIdAndJournal => "ImageIdAndJournal",
+            FulfillmentDataType::None => "None",
+            _ => return Err(DbError::BadTransaction("Invalid fulfillment data type".to_string())),
+        };
         self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO fulfillments (
                 request_digest,
                 request_id,
                 prover_address,
-                image_id,
-                journal,
+                claim_digest,
+                fulfillment_data_type,
+                fulfillment_data,
                 seal,
                 tx_hash,
                 block_number,
                 block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (request_digest, tx_hash) DO NOTHING",
         )
         .bind(format!("{:x}", fill.requestDigest))
         .bind(format!("{:x}", fill.id))
         .bind(format!("{prover_address:x}"))
-        // TODO(ec2): fix this
-        .bind(format!("{:x}", fill.fulfillmentData))
         .bind(format!("{:x}", fill.claimDigest))
+        .bind(fulfillment_data_type)
+        .bind(format!("{:x}", fill.fulfillmentData))
         .bind(format!("{:x}", fill.seal))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
