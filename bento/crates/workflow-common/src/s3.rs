@@ -179,4 +179,14 @@ impl S3Client {
             Err(err) => Err(err.into()),
         }
     }
+
+    pub async fn bucket_exists(&self) -> Result<bool> {
+        match self.client.head_bucket().bucket(&self.bucket).send().await {
+            Ok(_) => Ok(true),
+            Err(err) => match err.into_service_error() {
+                aws_sdk_s3::operation::head_bucket::HeadBucketError::NotFound(_) => Ok(false),
+                err => Err(err.into()),
+            }
+        }
+    }
 }

@@ -18,6 +18,7 @@ use bonsai_sdk::responses::{
     SnarkReq, SnarkStatusRes, UploadRes,
 };
 use clap::Parser;
+use health::{health_check, HEALTH_PATH};
 use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -33,6 +34,7 @@ use workflow_common::{
     CompressType, ExecutorReq, SnarkReq as WorkflowSnarkReq, TaskType,
 };
 
+mod health;
 mod helpers;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -681,6 +683,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(SNARK_START_PATH, post(prove_groth16))
         .route(SNARK_STATUS_PATH, get(groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
+        .route(HEALTH_PATH, get(health_check))
         .with_state(state)
 }
 
