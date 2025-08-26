@@ -439,7 +439,7 @@ impl ProofRequest {
 
         match self.requirements.predicate.predicateType {
             PredicateType::DigestMatch | PredicateType::PrefixMatch => {
-                if self.requirements.predicate.data.len() < 33 {
+                if self.requirements.predicate.data.len() < 32 {
                     return Err(RequestError::MalformedPredicateData);
                 }
                 if self.requirements.image_id() == Some(<[u8; 32]>::from(B256::default()).into()) {
