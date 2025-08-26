@@ -163,6 +163,16 @@ enum AccountCommands {
         /// if not provided, defaults to the wallet address
         address: Option<Address>,
     },
+    /// Delegate proofs to another address
+    DelegateProofs {
+        /// The target address to delegate proofs to
+        #[clap(long)]
+        target_address: Address,
+        /// The deadline for the delegation signature (Unix timestamp)
+        #[clap(long)]
+        deadline: Option<u64>,
+    },
+
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -633,6 +643,32 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             tracing::info!("Stake balance for address {}: {} {}", addr, balance, symbol);
             Ok(())
         }
+        AccountCommands::DelegateProofs { target_address, deadline } => {
+            let prover_address = client.boundless_market.caller();
+            if prover_address == Address::ZERO {
+                bail!("No prover address available. Please provide a private key.");
+            }
+            
+            let deadline = deadline.unwrap_or_else(|| {
+                // Default to 1 hour from now
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() + 3600
+            });
+
+            tracing::info!("Delegating proofs from {} to {}", prover_address, target_address);
+            
+            // Create the delegation signature
+            let signature = create_delegation_signature(prover_address, *target_address, deadline, &client)?;
+            
+            // Submit the delegation
+            delegate_proofs(&client, prover_address, *target_address, deadline, &signature).await?;
+            
+            tracing::info!("Successfully delegated proofs from {} to {}", prover_address, target_address);
+            Ok(())
+        }
+
     }
 }
 
@@ -2309,3 +2345,57 @@ mod tests {
         order_stream_handle.abort();
     }
 }
+
+/// Create a delegation signature for proof delegation
+fn create_delegation_signature(
+    prover_address: Address,
+    target_address: Address,
+    deadline: u64,
+    client: &StandardClient,
+) -> Result<Vec<u8>> {
+    let signer = client.signer.as_ref()
+        .ok_or_else(|| anyhow!("No signer available"))?;
+    
+    // Create the EIP-712 signature data
+    let domain_separator = keccak256("ProofDelegation(string name,string version,uint256 chainId,address verifyingContract)");
+    let delegation_typehash = keccak256("Delegation(address prover,address target,uint256 nonce,uint256 deadline)");
+    
+    // Get the nonce from the contract
+    let nonce = 0; // TODO: Get actual nonce from contract
+    
+    let struct_hash = keccak256(abi::encode(&[
+        delegation_typehash.into(),
+        prover_address.into(),
+        target_address.into(),
+        nonce.into(),
+        deadline.into(),
+    ]));
+    
+    let hash = keccak256(abi::encode(&[
+        "\x19\x01".into(),
+        domain_separator.into(),
+        struct_hash.into(),
+    ]));
+    
+    let signature = signer.sign_hash(hash.into())?;
+    Ok(signature.to_vec())
+}
+
+/// Delegate proofs to another address
+async fn delegate_proofs(
+    client: &StandardClient,
+    prover_address: Address,
+    target_address: Address,
+    deadline: u64,
+    signature: &[u8],
+) -> Result<()> {
+    let delegation_address = client.deployment.proof_delegation_address
+        .ok_or_else(|| anyhow!("Proof delegation contract address not configured"))?;
+    
+    // Create a simple contract call to delegate proofs
+    // This would need to be implemented with proper contract bindings
+    tracing::warn!("Proof delegation not yet implemented - contract bindings needed");
+    Ok(())
+}
+
+
