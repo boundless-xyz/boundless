@@ -1069,7 +1069,7 @@ mod tests {
     use tracing_test::traced_test;
 
     fn create_order_request() -> OrderRequest {
-        OrderRequest::new(
+        let mut request = OrderRequest::new(
             ProofRequest::new(
                 RequestId::new(Address::ZERO, 1),
                 Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
@@ -1089,7 +1089,9 @@ mod tests {
             FulfillmentType::LockAndFulfill,
             Address::ZERO,
             1,
-        )
+        );
+        request.image_id = Some(Digest::ZERO.to_string());
+        request
     }
 
     fn create_order() -> Order {
@@ -1142,23 +1144,23 @@ mod tests {
         assert!(orders.is_empty());
     }
 
-    // #[sqlx::test]
-    // async fn get_submission_order(pool: SqlitePool) {
-    //     let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-    //     let mut order = create_order();
-    //     order.proof_id = Some("test".to_string());
-    //     order.lock_price = Some(U256::from(10));
-    //     db.add_order(&order).await.unwrap();
+    #[sqlx::test]
+    async fn get_submission_order(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let mut order = create_order();
+        order.proof_id = Some("test".to_string());
+        order.lock_price = Some(U256::from(10));
+        db.add_order(&order).await.unwrap();
 
-    //     let submit_order: (ProofRequest, Bytes, String, B256, U256, FulfillmentType) =
-    //         db.get_submission_order(&order.id()).await.unwrap();
-    //     assert_eq!(submit_order.0, order.request);
-    //     assert_eq!(submit_order.1, order.client_sig);
-    //     assert_eq!(submit_order.2, order.proof_id.unwrap());
-    //     assert_eq!(submit_order.3, order.request.requirements.imageId);
-    //     assert_eq!(submit_order.4, order.lock_price.unwrap());
-    //     assert_eq!(submit_order.5, order.fulfillment_type);
-    // }
+        let submit_order: (ProofRequest, Bytes, String, String, U256, FulfillmentType) =
+            db.get_submission_order(&order.id()).await.unwrap();
+        assert_eq!(submit_order.0, order.request);
+        assert_eq!(submit_order.1, order.client_sig);
+        assert_eq!(submit_order.2, order.proof_id.unwrap());
+        assert_eq!(submit_order.3, order.image_id.unwrap());
+        assert_eq!(submit_order.4, order.lock_price.unwrap());
+        assert_eq!(submit_order.5, order.fulfillment_type);
+    }
 
     #[sqlx::test]
     async fn set_order_failure(pool: SqlitePool) {

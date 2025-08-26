@@ -242,7 +242,6 @@ contract BoundlessMarket is
         }
         bytes32[] memory leaves = new bytes32[](fills.length);
         bool[] memory hasSelector = new bool[](fills.length);
-        PredicateType[] memory predicateTypes = new PredicateType[](fills.length);
 
         // Check the selector constraints.
         // NOTE: The assessor guest adds non-zero selector values to the list.
@@ -259,8 +258,6 @@ contract BoundlessMarket is
         // Verify the application receipts.
         for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
-            predicateTypes[i] = fill.predicateType;
-
             leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, fill.claimDigest).eip712Digest();
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
@@ -282,7 +279,6 @@ contract BoundlessMarket is
                     root: batchRoot,
                     callbacks: assessorReceipt.callbacks,
                     selectors: assessorReceipt.selectors,
-                    predicateTypes: predicateTypes,
                     prover: assessorReceipt.prover
                 })
             )
@@ -340,12 +336,8 @@ contract BoundlessMarket is
             uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
 
             if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
-                (bytes32 imageId, bytes calldata journal) = _decodeFulfillmentData(fill.fulfillmentData);
-                bytes32 calculatedClaimDigest = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
-
-                if (fill.claimDigest != calculatedClaimDigest) {
-                    revert ClaimDigestMismatch(fill.claimDigest, calculatedClaimDigest);
-                }
+                (bytes32 imageId, bytes calldata journal) =
+                    FulfillmentDataLibrary.decodeFulfillmentData(fill.fulfillmentData);
                 // We should only get to this point if the journal has been authenticated because the claimDigest
                 // passed the integrity check in verifyDelivery and we just recalculated it from the imageId and journal
                 // and compared to make sure they match.
@@ -356,31 +348,17 @@ contract BoundlessMarket is
                     _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
                 }
             } else if (fill.fulfillmentDataType == FulfillmentDataType.None) {
-                // Nothing to do
+                // A callback was requested, but it cannot be fulfilled, so revert.
+                if (callbackIndexPlusOne > 0) {
+                    revert UnfulfillableCallback();
+                }
             } else {
                 revert UnsupportedFulfillmentData();
             }
         }
     }
 
-    function _decodeFulfillmentData(bytes calldata data)
-        internal
-        pure
-        returns (bytes32 imageId, bytes calldata journal)
-    {
-        assembly {
-            // Extract imageId (first 32 bytes after length)
-            imageId := calldataload(add(data.offset, 0x20))
-            // Extract journal offset and create calldata slice
-            let journalOffset := calldataload(add(data.offset, 0x40))
-            let journalPtr := add(data.offset, add(0x20, journalOffset))
-            let journalLength := calldataload(journalPtr)
-            journal.offset := add(journalPtr, 0x20)
-            journal.length := journalLength
-        }
-    }
     /// @inheritdoc IBoundlessMarket
-
     function priceAndFulfillAndWithdraw(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,

@@ -118,6 +118,7 @@ export = () => {
   const offchainTimeout = offchainConfig.get('TIMEOUT');
   const offchainSecondsPerMCycle = offchainConfig.get('SECONDS_PER_MCYCLE');
   const offchainInterval = offchainConfig.get('INTERVAL');
+  const offchainExecRateKhz = offchainConfig.get('EXEC_RATE_KHZ');
   new OrderGenerator('offchain', {
     chainId,
     stackName,
@@ -148,6 +149,7 @@ export = () => {
     lockTimeout: offchainLockTimeout,
     timeout: offchainTimeout,
     secondsPerMCycle: offchainSecondsPerMCycle,
+    execRateKhz: offchainExecRateKhz,
   });
 
   const onchainConfig = new pulumi.Config("order-generator-onchain");
@@ -160,6 +162,7 @@ export = () => {
   const onchainTimeout = onchainConfig.get('TIMEOUT');
   const onchainSecondsPerMCycle = onchainConfig.get('SECONDS_PER_MCYCLE');
   const onchainInterval = onchainConfig.get('INTERVAL');
+  const onchainExecRateKhz = onchainConfig.get('EXEC_RATE_KHZ');
   new OrderGenerator('onchain', {
     chainId,
     stackName,
@@ -186,5 +189,6 @@ export = () => {
     txTimeout,
     lockTimeout: onchainLockTimeout,
     timeout: onchainTimeout,
+    execRateKhz: onchainExecRateKhz,
   });
 };

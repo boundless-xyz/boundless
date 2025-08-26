@@ -1035,7 +1035,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             if let Some((event, _)) = logs.first() {
                 return Ok((
-                    event.fulfillment.fulfillmentData.clone(), // TODO(ec2)
+                    event.fulfillment.fulfillmentData.clone(),
                     event.fulfillment.seal.clone(),
                     event.prover,
                 ));
@@ -1155,7 +1155,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         self.query_request_submitted_event(request_id, None, None).await
     }
 
-    /// Returns callback data and seal if the request is fulfilled.
+    /// Returns the fulfillment data and seal if the request is fulfilled.
     ///
     /// This method will poll the status of the request until it is Fulfilled or Expired.
     /// Polling is done at intervals of `retry_interval` until the request is Fulfilled, Expired or

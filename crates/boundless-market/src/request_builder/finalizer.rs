@@ -131,23 +131,16 @@ impl Adapt<Finalizer> for RequestParams {
             .context("failed to build request: offer is incomplete")?;
         let request_id = self.require_request_id().context("failed to build request")?.clone();
 
-        // As an extra consistency check. verify the journal satisfies the required predicate.
-        if let Some(ref journal) = self.journal {
-            if let Some(image_id) = self.image_id {
-                match requirements.predicate.predicateType {
-                    // TODO(ec2): fixme
-                    PredicateType::ClaimDigestMatch => {
-                        tracing::debug!("skipping predicate check since claim digest match type")
-                    }
-                    // If the predicate is not ClaimDigestMatch, we verify it against FulfillmentData.
-                    _ => {
-                        let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
-                            image_id,
-                            journal.bytes.clone(),
-                        );
-                        if !requirements.predicate.eval(&fulfillment_data) {
-                            bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = 0x{}", requirements.predicate, hex::encode(journal));
-                        }
+        // If a callback is requested, we should check that the journal satisfies the required predicate.
+        if !requirements.callback.is_none() {
+            if let Some(ref journal) = self.journal {
+                if let Some(image_id) = self.image_id {
+                    let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
+                        image_id,
+                        journal.bytes.clone(),
+                    );
+                    if !requirements.predicate.eval(&fulfillment_data) {
+                        bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = 0x{}", requirements.predicate, hex::encode(journal));
                     }
                 }
             }

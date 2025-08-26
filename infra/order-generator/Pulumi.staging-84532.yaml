@@ -36,6 +36,7 @@ config:
     secure: v1:n58NIHgSf5klFBbr:xg1KrvaMAIZ3KIb2mf8nkA6FY1ZrzM5uf/Q5/WWXlEaSzySyuwn1j15gRUmo++jBJLRhkkXlwenRdtJ4MmgSvXjiYMxtKAZ9Crvpe++MIr4=
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-offchain:EXEC_RATE_KHZ: "500"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:PRIVATE_KEY:
@@ -50,3 +51,4 @@ config:
   order-generator-onchain:SECONDS_PER_MCYCLE: "15"
   order-generator-onchain:INPUT_MAX_MCYCLES: "500"
   order-generator-onchain:INTERVAL: "1800"
+  order-generator-onchain:EXEC_RATE_KHZ: "500"

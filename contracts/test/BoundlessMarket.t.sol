@@ -402,8 +402,7 @@ contract BoundlessMarketTest is Test {
                 claimDigest: claimDigest,
                 fulfillmentData: fulfillmentData,
                 fulfillmentDataType: fillType,
-                seal: bytes(""),
-                predicateType: predicateType
+                seal: bytes("")
             });
             fills[i] = fill;
             if (requests[i].requirements.selector != bytes4(0)) {

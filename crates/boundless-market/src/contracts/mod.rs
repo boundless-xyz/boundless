@@ -26,7 +26,7 @@ use alloy::{
 };
 use alloy_primitives::{
     aliases::{U160, U32, U96},
-    Address, Bytes, FixedBytes, U256,
+    Address, Bytes, FixedBytes, B256, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
@@ -60,11 +60,10 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
-    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, FulfillmentDataType,
-    IBoundlessMarket, Input as RequestInput, InputType as RequestInputType, LockRequest, Offer,
-    Predicate, PredicateType, ProofRequest, RequestLock, Requirements,
-    Selector as AssessorSelector,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorReceipt, Callback, Fulfillment,
+    FulfillmentContext, FulfillmentData, FulfillmentDataType, IBoundlessMarket,
+    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
+    PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
 };
 
 #[allow(missing_docs)]
@@ -350,6 +349,10 @@ pub enum RequestError {
     /// Request digest mismatch.
     #[error("request digest mismatch")]
     DigestMismatch,
+
+    /// Predicate data was not created correctly.
+    #[error("malformed predicate data")]
+    MalformedPredicateData,
 }
 
 #[cfg(not(target_os = "zkvm"))]
@@ -434,10 +437,23 @@ impl ProofRequest {
         }
         Url::parse(&self.imageUrl).map(|_| ())?;
 
-        // TODO(ec2): fixme
-        // if self.requirements.imageId == B256::default() {
-        //     return Err(RequestError::ImageIdIsZero);
-        // }
+        match self.requirements.predicate.predicateType {
+            PredicateType::DigestMatch | PredicateType::PrefixMatch => {
+                if self.requirements.predicate.data.len() < 32 {
+                    return Err(RequestError::MalformedPredicateData);
+                }
+                if self.requirements.image_id() == Some(<[u8; 32]>::from(B256::default()).into()) {
+                    return Err(RequestError::ImageIdIsZero);
+                }
+            }
+            PredicateType::ClaimDigestMatch => {
+                if self.requirements.predicate.data.len() != 32 {
+                    return Err(RequestError::MalformedPredicateData);
+                }
+            }
+            PredicateType::__Invalid => return Err(RequestError::MalformedPredicateData),
+        }
+
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
         }
@@ -572,27 +588,28 @@ impl Requirements {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-/// TODO(ec2): doc
+/// The data that is used to construct the claim for a fulfillment.
 pub enum FulfillmentClaimData {
-    /// TODO(ec2): doc
+    /// There are certain types of fulfillments where journals cannot be authenticated and
+    /// so we can only check the integrity of the receipt.
     ClaimDigest(Digest),
-    /// TODO(ec2): doc
+    /// Proofs fulfilled with both image id and journal and the claim is calculated from them.
     ImageIdAndJournal(Digest, Bytes),
 }
 
 impl FulfillmentClaimData {
-    /// TODO(ec2): doc
+    /// Create the claim data from a claim digest.
     pub fn from_claim_digest(claim_digest: impl Into<Digest>) -> Self {
         Self::ClaimDigest(claim_digest.into())
     }
-    /// TODO(ec2): doc
+    /// Create the claim data from image_id and journal.
     pub fn from_image_id_and_journal(
         image_id: impl Into<Digest>,
         journal: impl Into<Bytes>,
     ) -> Self {
         Self::ImageIdAndJournal(image_id.into(), journal.into())
     }
-    /// TODO(ec2): doc
+    /// Encodes to bytes.
     pub fn to_bytes(self) -> Bytes {
         match self {
             Self::ClaimDigest(digest) => digest.as_bytes().to_vec().into(),
@@ -603,21 +620,21 @@ impl FulfillmentClaimData {
             }
         }
     }
-    /// TODO(ec2): doc
+    /// Get the image id if it exists.
     pub fn image_id(&self) -> Option<Digest> {
         match self {
             Self::ClaimDigest(_) => None,
             Self::ImageIdAndJournal(image_id, _) => Some(*image_id),
         }
     }
-    /// TODO(ec2): doc
+    /// Get the journal if it exists
     pub fn journal(&self) -> Option<&Bytes> {
         match self {
             Self::ClaimDigest(_) => None,
             Self::ImageIdAndJournal(_, journal) => Some(journal),
         }
     }
-    /// TODO(ec2): doc
+    /// Get the claim digest or calculates it if journal and image id exists.
     pub fn claim_digest(&self) -> Option<Digest> {
         match self {
             Self::ClaimDigest(digest) => Some(*digest),
@@ -669,7 +686,7 @@ impl Predicate {
         }
     }
 
-    /// TODO(ec2): doc
+    /// Returns claim digest if the predicate type is ClaimDigestMatch.
     pub fn claim_digest(&self) -> Option<Digest> {
         if self.predicateType == PredicateType::ClaimDigestMatch {
             Some(Digest::from_bytes(self.data.as_ref().try_into().unwrap()))
@@ -679,7 +696,7 @@ impl Predicate {
     }
 
     #[inline]
-    /// TODO(ec2): doc
+    /// Evaluates the predicate against the fulfillment data.
     pub fn eval(&self, fulfillment_data: &FulfillmentClaimData) -> bool {
         match self.predicateType {
             PredicateType::DigestMatch => {

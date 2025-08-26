@@ -27,11 +27,10 @@ use anyhow::{Context, Ok, Result};
 use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService,
-        boundless_market_contract::CallbackData,
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
-        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentDataType, PredicateType,
-        ProofRequest,
+        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, FulfillmentDataType,
+        PredicateType, ProofRequest,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -446,13 +445,8 @@ pub fn mock_singleton(
         claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
     }
     .eip712_hash_struct();
-    let assessor_journal = AssessorJournal {
-        selectors: vec![],
-        root: assessor_root,
-        prover,
-        callbacks: vec![],
-        predicateTypes: vec![request.requirements.predicate.predicateType],
-    };
+    let assessor_journal =
+        AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
     let assesor_receipt_claim = ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
     let assessor_claim_digest = assesor_receipt_claim.digest();
 
@@ -489,7 +483,7 @@ pub fn mock_singleton(
         }
         PredicateType::PrefixMatch | PredicateType::DigestMatch => (
             <[u8; 32]>::from(app_claim_digest).into(),
-            CallbackData {
+            FulfillmentData {
                 imageId: <[u8; 32]>::from(
                     request.requirements.image_id().expect("image ID is required"),
                 )
@@ -508,7 +502,6 @@ pub fn mock_singleton(
         fulfillmentData: fulfillment_data.into(),
         fulfillmentDataType: fulfillment_data_type,
         seal: set_inclusion_seal.into(),
-        predicateType: predicate_type,
     };
 
     let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
