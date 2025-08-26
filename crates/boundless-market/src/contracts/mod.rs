@@ -559,27 +559,28 @@ impl Requirements {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-/// TODO(ec2): doc
+/// The data that is used to construct the claim for a fulfillment.
 pub enum FulfillmentClaimData {
-    /// TODO(ec2): doc
+    /// There are certain types of fulfillments where journals cannot be authenticated and
+    /// so we can only check the integrity of the receipt.
     ClaimDigest(Digest),
-    /// TODO(ec2): doc
+    /// Proofs fulfilled with both image id and journal and the claim is calculated from them.
     ImageIdAndJournal(Digest, Bytes),
 }
 
 impl FulfillmentClaimData {
-    /// TODO(ec2): doc
+    /// Create the claim data from a claim digest.
     pub fn from_claim_digest(claim_digest: impl Into<Digest>) -> Self {
         Self::ClaimDigest(claim_digest.into())
     }
-    /// TODO(ec2): doc
+    /// Create the claim data from image_id and journal.
     pub fn from_image_id_and_journal(
         image_id: impl Into<Digest>,
         journal: impl Into<Bytes>,
     ) -> Self {
         Self::ImageIdAndJournal(image_id.into(), journal.into())
     }
-    /// TODO(ec2): doc
+    /// Encodes to bytes.
     pub fn to_bytes(self) -> Bytes {
         match self {
             Self::ClaimDigest(digest) => digest.as_bytes().to_vec().into(),
@@ -590,21 +591,21 @@ impl FulfillmentClaimData {
             }
         }
     }
-    /// TODO(ec2): doc
+    /// Get the image id if it exists.
     pub fn image_id(&self) -> Option<Digest> {
         match self {
             Self::ClaimDigest(_) => None,
             Self::ImageIdAndJournal(image_id, _) => Some(*image_id),
         }
     }
-    /// TODO(ec2): doc
+    /// Get the journal if it exists
     pub fn journal(&self) -> Option<&Bytes> {
         match self {
             Self::ClaimDigest(_) => None,
             Self::ImageIdAndJournal(_, journal) => Some(journal),
         }
     }
-    /// TODO(ec2): doc
+    /// Get the claim digest or calculates it if journal and image id exists.
     pub fn claim_digest(&self) -> Option<Digest> {
         match self {
             Self::ClaimDigest(digest) => Some(*digest),
@@ -656,7 +657,7 @@ impl Predicate {
         }
     }
 
-    /// TODO(ec2): doc
+    /// Returns claim digest if the predicate type is ClaimDigestMatch.
     pub fn claim_digest(&self) -> Option<Digest> {
         if self.predicateType == PredicateType::ClaimDigestMatch {
             Some(Digest::from_bytes(self.data.as_ref().try_into().unwrap()))
@@ -666,7 +667,7 @@ impl Predicate {
     }
 
     #[inline]
-    /// TODO(ec2): doc
+    /// Evaluates the predicate against the fulfillment data.
     pub fn eval(&self, fulfillment_data: &FulfillmentClaimData) -> bool {
         match self.predicateType {
             PredicateType::DigestMatch => {

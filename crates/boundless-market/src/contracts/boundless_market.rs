@@ -1035,7 +1035,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             if let Some((event, _)) = logs.first() {
                 return Ok((
-                    event.fulfillment.fulfillmentData.clone(), // TODO(ec2)
+                    event.fulfillment.fulfillmentData.clone(),
                     event.fulfillment.seal.clone(),
                     event.prover,
                 ));
