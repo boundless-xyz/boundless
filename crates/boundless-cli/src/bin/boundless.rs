@@ -46,6 +46,7 @@ use std::{
     fs::File,
     io::BufReader,
     num::ParseIntError,
+    ops::Deref,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -125,7 +126,6 @@ enum Command {
 #[derive(Subcommand, Clone, Debug)]
 enum OpsCommands {
     /// Slash a prover for a given request
-    #[group(requires = "private_key")]
     Slash {
         /// The proof request identifier
         request_id: U256,
@@ -135,14 +135,12 @@ enum OpsCommands {
 #[derive(Subcommand, Clone, Debug)]
 enum AccountCommands {
     /// Deposit funds into the market
-    #[group(requires = "private_key")]
     Deposit {
         /// Amount in ether to deposit
         #[clap(value_parser = parse_ether)]
         amount: U256,
     },
     /// Withdraw funds from the market
-    #[group(requires = "private_key")]
     Withdraw {
         /// Amount in ether to withdraw
         #[clap(value_parser = parse_ether)]
@@ -155,13 +153,11 @@ enum AccountCommands {
         address: Option<Address>,
     },
     /// Deposit stake funds into the market
-    #[group(requires = "private_key")]
     DepositStake {
         /// Amount to deposit in HP or USDC based on the chain ID.
         amount: String,
     },
     /// Withdraw stake funds from the market
-    #[group(requires = "private_key")]
     WithdrawStake {
         /// Amount to withdraw in HP or USDC based on the chain ID.
         amount: String,
@@ -177,11 +173,9 @@ enum AccountCommands {
 #[derive(Subcommand, Clone, Debug)]
 enum RequestCommands {
     /// Submit a proof request constructed with the given offer, input, and image
-    #[group(requires = "private_key")]
     SubmitOffer(Box<SubmitOfferArgs>),
 
     /// Submit a fully specified proof request
-    #[group(requires = "private_key")]
     Submit {
         /// Path to a YAML file containing the request
         yaml_request: PathBuf,
@@ -282,7 +276,6 @@ enum ProvingCommands {
     ///   --request-ids 0x123,0x456,0x789  # Comma-separated list of request IDs
     ///   --request-digests 0xabc,0xdef,0x012  # Optional, must match request_ids length and order
     ///   --tx-hashes 0x111,0x222,0x333  # Optional, must match request_ids length and order
-    #[group(requires = "private_key")]
     Fulfill {
         /// The proof requests identifiers (comma-separated list of hex values)
         #[arg(long, value_delimiter = ',')]
@@ -304,7 +297,6 @@ enum ProvingCommands {
     },
 
     /// Lock a request in the market
-    #[group(requires = "private_key")]
     Lock {
         /// The proof request identifier
         #[arg(long)]
@@ -429,6 +421,40 @@ struct MainArgs {
     config: GlobalConfig,
 }
 
+/// Return true if the subcommand requires a private key.
+// NOTE: It does not appear this is possible with clap natively
+fn private_key_required(cmd: &Command) -> bool {
+    match cmd {
+        Command::Ops(cmd) => match cmd.deref() {
+            OpsCommands::Slash { .. } => true,
+        },
+        Command::Config { .. } => false,
+        Command::Account(cmd) => match cmd.deref() {
+            AccountCommands::Balance { .. } => false,
+            AccountCommands::Deposit { .. } => true,
+            AccountCommands::DepositStake { .. } => true,
+            AccountCommands::StakeBalance { .. } => false,
+            AccountCommands::Withdraw { .. } => true,
+            AccountCommands::WithdrawStake { .. } => true,
+        },
+        Command::Request(cmd) => match cmd.deref() {
+            RequestCommands::GetProof { .. } => false,
+            RequestCommands::Status { .. } => false,
+            RequestCommands::Submit { .. } => true,
+            RequestCommands::SubmitOffer { .. } => true,
+            RequestCommands::VerifyProof { .. } => false,
+        },
+        Command::Proving(cmd) => match cmd.deref() {
+            ProvingCommands::Benchmark { .. } => false,
+            ProvingCommands::Execute { .. } => false,
+            ProvingCommands::Fulfill { .. } => true,
+            ProvingCommands::Lock { .. } => true,
+        },
+        Command::Completions { .. } => false,
+        Command::Povw(_)  => false,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = match MainArgs::try_parse() {
@@ -461,6 +487,12 @@ async fn main() -> Result<()> {
 }
 
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
+    if private_key_required(&args.command) && args.config.private_key.is_none() {
+        eprintln!("A private key is required to run this subcommand");
+        eprintln!("Please provide a private key with --private-key or the PRIVATE_KEY environment variable");
+        bail!("Private key required");
+    }
+
     if let Command::Completions { shell } = &args.command {
         // TODO: Because of where this is, running the completions command requires an RPC_URL to
         // be set. We should address this, but its also not a major issue.
