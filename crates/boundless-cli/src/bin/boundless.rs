@@ -46,7 +46,6 @@ use std::{
     borrow::Cow,
     fs::File,
     io::BufReader,
-    num::ParseIntError,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -57,9 +56,8 @@ use alloy::{
         utils::{format_ether, format_units, parse_ether, parse_units},
         Address, FixedBytes, TxKind, B256, U256,
     },
-    providers::{DynProvider, Provider, ProviderBuilder},
+    providers::{Provider, ProviderBuilder},
     rpc::types::{TransactionInput, TransactionRequest},
-    signers::local::PrivateKeySigner,
     sol_types::SolValue,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
@@ -74,24 +72,23 @@ use risc0_zkvm::{
     Journal, SessionInfo,
 };
 use shadow_rs::shadow;
-use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use boundless_cli::{
-    commands::povw::PovwCommands, convert_timestamp, DefaultProver, OrderFulfilled,
+    commands::povw::PovwCommands, config::GlobalConfig, convert_timestamp, DefaultProver,
+    OrderFulfilled,
 };
 use boundless_market::{
-    client::ClientBuilder,
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
         Offer, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
-    request_builder::{OfferParams, RequirementParams, StandardRequestBuilder},
+    request_builder::{OfferParams, RequirementParams},
     selector::ProofType,
     storage::{fetch_url, StorageProvider, StorageProviderConfig},
-    Client, Deployment, NotProvided, StandardClient,
+    Client, Deployment, StandardClient,
 };
 
 shadow!(build);
@@ -386,100 +383,6 @@ struct SubmitOfferRequirements {
     /// Request a groth16 proof (i.e., a Groth16).
     #[clap(long, default_value = "any")]
     proof_type: ProofType,
-}
-
-/// Common configuration options for all commands
-#[derive(Args, Debug, Clone)]
-struct GlobalConfig {
-    /// URL of the Ethereum RPC endpoint
-    #[clap(short, long, env = "RPC_URL")]
-    rpc_url: Option<Url>,
-
-    /// Private key of the wallet (without 0x prefix)
-    #[clap(long, env = "PRIVATE_KEY", global = true, hide_env_values = true)]
-    private_key: Option<PrivateKeySigner>,
-
-    /// Ethereum transaction timeout in seconds.
-    #[clap(long, env = "TX_TIMEOUT", global = true, value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
-    tx_timeout: Option<Duration>,
-
-    /// Log level (error, warn, info, debug, trace)
-    #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
-    log_level: LevelFilter,
-
-    #[clap(flatten, next_help_heading = "Boundless Deployment")]
-    deployment: Option<Deployment>,
-}
-
-impl GlobalConfig {
-    // NOTE: It does not appear this is possible to specify the required dependencies with clap
-    // natively. There is _some_ ability to use the #[group(requires = _)] attribute to do this,
-    // but experimentation as of August 26, 2025 shows this is error prone and potentially buggy.
-
-    /// Access [Self::rpc_url] or return an error that can be shown to the user.
-    pub fn require_rpc_url(&self) -> Result<Url> {
-        self.rpc_url
-            .clone()
-            .context("Blockchain RPC URL not provided; please set --rpc-url or the RPC_URL env var")
-    }
-
-    /// Access [Self::private_key] or return an error that can be shown to the user.
-    pub fn require_private_key(&self) -> Result<PrivateKeySigner> {
-        self.private_key.clone().context(
-            "Private key not provided; please set --private-key or the PRIVATE_KEY env var",
-        )
-    }
-
-    /// Create a parially initialzed [ClientBuilder] from the options in this struct.
-    ///
-    /// Requures [Self::rpc_url] to be set.
-    pub fn client_builder(&self) -> Result<ClientBuilder> {
-        Ok(Client::builder()
-            .with_rpc_url(self.require_rpc_url()?)
-            .with_deployment(self.deployment.clone())
-            .with_timeout(self.tx_timeout))
-    }
-
-    /// Create a parially initialzed [ClientBuilder] from the options in this struct.
-    ///
-    /// Requures [Self::rpc_url] and [Self::private_key] to be set.
-    pub fn client_builder_with_signer(
-        &self,
-    ) -> Result<ClientBuilder<NotProvided, PrivateKeySigner>> {
-        Ok(self.client_builder()?.with_private_key(self.require_private_key()?))
-    }
-
-    /// Build a Boundless [Client] that can be used to query the Boundless smart contracts.
-    ///
-    /// The client built with this method is not able to sign transactions or requests.jUse
-    /// [Self::build_client_with_signer] if signing is required.
-    pub async fn build_client(
-        &self,
-    ) -> Result<
-        Client<
-            DynProvider,
-            NotProvided,
-            StandardRequestBuilder<DynProvider, NotProvided>,
-            NotProvided,
-        >,
-    > {
-        self.client_builder()?.build().await.context("Failed to build Boundless client")
-    }
-
-    /// Build a Boundless [Client] that can be used to query the Boundless smart contracts, and to
-    /// sign requests and send transactions.
-    pub async fn build_client_with_signer(
-        &self,
-    ) -> Result<
-        Client<
-            DynProvider,
-            NotProvided,
-            StandardRequestBuilder<DynProvider, NotProvided>,
-            PrivateKeySigner,
-        >,
-    > {
-        self.client_builder_with_signer()?.build().await.context("Failed to build Boundless client")
-    }
 }
 
 #[derive(Parser, Debug)]
@@ -1474,16 +1377,13 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
     use alloy::primitives::aliases::U96;
-    use boundless_market::contracts::{
-        Predicate, PredicateType, RequestId, RequestInput, Requirements,
-    };
-
-    use super::*;
-
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
         primitives::utils::format_units,
         providers::WalletProvider,
+    };
+    use boundless_market::contracts::{
+        Predicate, PredicateType, RequestId, RequestInput, Requirements,
     };
     use boundless_market::{
         contracts::{hit_points::default_allowance, RequestStatus},
@@ -1496,7 +1396,10 @@ mod tests {
     use sqlx::PgPool;
     use tempfile::tempdir;
     use tokio::task::JoinHandle;
+    use tracing::level_filters::LevelFilter;
     use tracing_test::traced_test;
+
+    use super::*;
 
     // generate a test request
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {

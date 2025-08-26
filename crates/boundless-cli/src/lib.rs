@@ -19,6 +19,7 @@
 // TODO(victor): Break up the code below into modules.
 
 pub mod commands;
+pub mod config;
 
 use alloy::{
     primitives::{Address, Bytes},
