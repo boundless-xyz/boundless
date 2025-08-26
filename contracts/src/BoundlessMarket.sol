@@ -242,7 +242,6 @@ contract BoundlessMarket is
         }
         bytes32[] memory leaves = new bytes32[](fills.length);
         bool[] memory hasSelector = new bool[](fills.length);
-        PredicateType[] memory predicateTypes = new PredicateType[](fills.length);
 
         // Check the selector constraints.
         // NOTE: The assessor guest adds non-zero selector values to the list.
@@ -259,8 +258,6 @@ contract BoundlessMarket is
         // Verify the application receipts.
         for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
-            predicateTypes[i] = fill.predicateType;
-
             leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, fill.claimDigest).eip712Digest();
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
@@ -282,7 +279,6 @@ contract BoundlessMarket is
                     root: batchRoot,
                     callbacks: assessorReceipt.callbacks,
                     selectors: assessorReceipt.selectors,
-                    predicateTypes: predicateTypes,
                     prover: assessorReceipt.prover
                 })
             )
@@ -356,7 +352,10 @@ contract BoundlessMarket is
                     _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
                 }
             } else if (fill.fulfillmentDataType == FulfillmentDataType.None) {
-                // Nothing to do
+                // A callback was requested, but it cannot be fulfilled, so revert.
+                if (callbackIndexPlusOne > 0) {
+                    revert UnfulfillableCallback();
+                }
             } else {
                 revert UnsupportedFulfillmentData();
             }
