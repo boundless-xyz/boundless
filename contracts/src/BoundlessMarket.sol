@@ -336,7 +336,8 @@ contract BoundlessMarket is
             uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
 
             if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
-                (bytes32 imageId, bytes calldata journal) = _decodeFulfillmentData(fill.fulfillmentData);
+                (bytes32 imageId, bytes calldata journal) =
+                    FulfillmentDataLibrary.decodeFulfillmentData(fill.fulfillmentData);
                 // We should only get to this point if the journal has been authenticated because the claimDigest
                 // passed the integrity check in verifyDelivery and we just recalculated it from the imageId and journal
                 // and compared to make sure they match.
@@ -357,24 +358,7 @@ contract BoundlessMarket is
         }
     }
 
-    function _decodeFulfillmentData(bytes calldata data)
-        internal
-        pure
-        returns (bytes32 imageId, bytes calldata journal)
-    {
-        assembly {
-            // Extract imageId (first 32 bytes after length)
-            imageId := calldataload(add(data.offset, 0x20))
-            // Extract journal offset and create calldata slice
-            let journalOffset := calldataload(add(data.offset, 0x40))
-            let journalPtr := add(data.offset, add(0x20, journalOffset))
-            let journalLength := calldataload(journalPtr)
-            journal.offset := add(journalPtr, 0x20)
-            journal.length := journalLength
-        }
-    }
     /// @inheritdoc IBoundlessMarket
-
     function priceAndFulfillAndWithdraw(
         ProofRequest[] calldata requests,
         bytes[] calldata clientSignatures,
