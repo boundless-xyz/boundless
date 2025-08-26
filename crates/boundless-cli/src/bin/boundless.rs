@@ -82,7 +82,8 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        FulfillmentData, Offer, PredicateType, ProofRequest, RequestInputType, Selector,
+        FulfillmentClaimData, FulfillmentData, Offer, PredicateType, ProofRequest,
+        RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -747,11 +748,36 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             let session_info = execute(&request).await?;
             let journal = session_info.journal.bytes;
 
-            // TODO(ec2): how do we check this?
-            // if !request.requirements.predicate.eval(request.requirements.imageId, &journal) {
-            //     tracing::error!("Predicate evaluation failed for request");
-            //     bail!("Predicate evaluation failed");
-            // }
+            match request.requirements.predicate.predicateType {
+                PredicateType::DigestMatch | PredicateType::PrefixMatch => {
+                    let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
+                        request
+                            .requirements
+                            .image_id()
+                            .ok_or_else(|| anyhow::anyhow!("Missing image ID"))?,
+                        journal.clone(),
+                    );
+                    if !request.requirements.predicate.eval(&fulfillment_data) {
+                        tracing::error!(
+                            "Predicate evaluation failed for request 0x{:x}",
+                            request.id
+                        );
+                        bail!("Predicate evaluation failed");
+                    }
+                }
+                PredicateType::ClaimDigestMatch => {
+                    tracing::debug!(
+                        "Skipping predicate evaluation for request 0x{:x} because it we might not be able to calculate it yet",
+                        request.id
+                    );
+                }
+                _ => {
+                    bail!(
+                        "Unsupported predicate type: {:?}",
+                        request.requirements.predicate.predicateType
+                    );
+                }
+            }
 
             tracing::info!("Successfully executed request 0x{:x}", request.id);
             tracing::debug!("Journal: {:?}", journal);
@@ -1215,7 +1241,7 @@ where
     if opts.preflight {
         tracing::info!("Running request preflight check");
         let session_info = execute(&request).await?;
-        let _journal = session_info.journal.bytes;
+        let journal = session_info.journal.bytes;
 
         // Verify image ID if available
         if let Some(claim) = session_info.receipt_claim {
@@ -1232,15 +1258,36 @@ where
             tracing::debug!("Cannot check image ID; session info doesn't have receipt claim");
         }
 
-        // TODO(ec2): how do we check when we have custom claim digests?
-        // // Verify predicate
-        // ensure!(
-        //     request.requirements.predicate.eval(request.requirements.imageId, &journal),
-        //     "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
-        //     hex::encode(&journal),
-        //     request.requirements.predicate.predicateType,
-        //     hex::encode(&request.requirements.predicate.data)
-        // );
+        match request.requirements.predicate.predicateType {
+            PredicateType::DigestMatch | PredicateType::PrefixMatch => {
+                let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
+                    request
+                        .requirements
+                        .image_id()
+                        .ok_or_else(|| anyhow::anyhow!("Missing image ID"))?,
+                    journal.clone(),
+                );
+                ensure!(
+                    request.requirements.predicate.eval(&fulfillment_data),
+                    "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
+                    hex::encode(&journal),
+                    request.requirements.predicate.predicateType,
+                    hex::encode(&request.requirements.predicate.data)
+                );
+            }
+            PredicateType::ClaimDigestMatch => {
+                tracing::debug!(
+                        "Skipping predicate evaluation for request 0x{:x} because it we might not be able to calculate it yet",
+                        request.id
+                    );
+            }
+            _ => {
+                bail!(
+                    "Unsupported predicate type: {:?}",
+                    request.requirements.predicate.predicateType
+                );
+            }
+        }
 
         tracing::info!("Preflight check passed");
     } else {

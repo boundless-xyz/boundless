@@ -442,7 +442,7 @@ impl ProofRequest {
                 if self.requirements.predicate.data.len() < 33 {
                     return Err(RequestError::MalformedPredicateData);
                 }
-                if self.requirements.image_id() == Some(B256::default()) {
+                if self.requirements.image_id() == Some(<[u8; 32]>::from(B256::default()).into()) {
                     return Err(RequestError::ImageIdIsZero);
                 }
             }
