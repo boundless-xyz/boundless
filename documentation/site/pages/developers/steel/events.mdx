@@ -51,7 +51,7 @@ This allows Steel in the host `preflight` call to populate the EVM environment, 
 
 ### Guest Program
 
-[Example Guest Program](https://github.com/risc0/risc0-ethereum/blob/main/examples/events/methods/guest/src/main.rs)
+[Example Guest Program](https://github.com/boundless-xyz/steel/tree/main/examples/events/methods/guest/src/main.rs)
 
 The guest program requires the usual Steel workflow:
 
@@ -89,7 +89,7 @@ env::commit_slice(&journal.abi_encode());
 
 ### Host Program
 
-[Example Host Program](https://github.com/risc0/risc0-ethereum/blob/main/examples/events/host/src/main.rs)
+[Example Host Program](https://github.com/boundless-xyz/steel/tree/main/examples/events/host/src/main.rs)
 
 The host program preflights the event query using the `Event::preflight` method. This populates the EVM environment with the relevant data ready for verification in the guest.
 
@@ -112,7 +112,7 @@ let evm_input = env.into_input().await?;
 
 ## Running the Events Example
 
-To get started with events, you can use the [Steel Events example](https://github.com/risc0/risc0-ethereum/tree/main/examples/events):
+To get started with events, you can use the [Steel Events example](https://github.com/boundless-xyz/steel/tree/main/examples/events):
 
 ```
 git clone https://github.com/risc0/risc0-ethereum.git && cd risc0-ethereum/examples/events

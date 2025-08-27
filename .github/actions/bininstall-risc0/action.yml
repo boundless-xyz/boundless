@@ -18,7 +18,7 @@ runs:
   using: composite
   steps:
     - name: install rust
-      uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      uses: risc0/risc0/.github/actions/rustup@v3.0.1
       with:
         toolchain: ${{ inputs.toolchain-version }}
 

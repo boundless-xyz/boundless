@@ -17,7 +17,7 @@ use std::{collections::HashSet, fs::File, path::PathBuf, time::Duration};
 use alloy::{
     network::EthereumWallet,
     primitives::{
-        utils::{format_units, parse_ether},
+        utils::{format_units, parse_ether, parse_units},
         U256,
     },
     providers::Provider,
@@ -185,6 +185,8 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         };
     tracing::debug!("Indexer URL: {}", indexer_url);
 
+    let stake_token_decimals = boundless_client.boundless_market.stake_token_decimals().await?;
+
     // Build the first request. We will clone this request, updating the id and bidding start, to
     // create each request sent.
     let inital_request = boundless_client
@@ -196,7 +198,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                 .with_env(env.clone())
                 .with_offer(
                     OfferParams::builder()
-                        .lock_stake(parse_ether(&bench.lockin_stake)?)
+                        .lock_stake(parse_units(&bench.lockin_stake, stake_token_decimals)?)
                         .ramp_up_period(bench.ramp_up)
                         .timeout(bench.timeout)
                         .lock_timeout(bench.lock_timeout),

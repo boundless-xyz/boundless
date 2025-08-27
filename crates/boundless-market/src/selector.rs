@@ -51,7 +51,7 @@ impl Default for SupportedSelectors {
     fn default() -> Self {
         let mut supported_selectors = Self::new()
             .with_selector(UNSPECIFIED_SELECTOR, ProofType::Any)
-            .with_selector(FixedBytes::from(Selector::Groth16V2_2 as u32), ProofType::Groth16);
+            .with_selector(FixedBytes::from(Selector::Groth16V3_0 as u32), ProofType::Groth16);
         if is_dev_mode() {
             supported_selectors = supported_selectors
                 .with_selector(FixedBytes::from(Selector::FakeReceipt as u32), ProofType::Any);
