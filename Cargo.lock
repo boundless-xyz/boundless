@@ -4692,11 +4692,11 @@ dependencies = [
 
 [[package]]
 name = "guest-set-builder"
-version = "0.8.0"
-source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.8.0#32aa0b6f23ddd02dd93fc71717667606e5c7db86"
+version = "0.8.1"
+source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.8.1#439fc11055a16445db850d7f68ec8f7bbe8de911"
 dependencies = [
  "risc0-build",
- "risc0-build-ethereum 3.0.0 (git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.8.0)",
+ "risc0-build-ethereum 3.0.0 (git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.8.1)",
 ]
 
 [[package]]
@@ -8002,9 +8002,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87482bd506d076b92db50f30368b25508299c4ea5448fe873623e25b364ee007"
+checksum = "e4527cd854e964e88fcfcc44841a9d371321c489e088a724f84b76d2b28bb963"
 dependencies = [
  "alloy-primitives 1.3.1",
  "alloy-sol-types",
@@ -8076,7 +8076,7 @@ dependencies = [
 [[package]]
 name = "risc0-build-ethereum"
 version = "3.0.0"
-source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.8.0#32aa0b6f23ddd02dd93fc71717667606e5c7db86"
+source = "git+https://github.com/risc0/risc0-ethereum?tag=aggregation-v0.8.1#439fc11055a16445db850d7f68ec8f7bbe8de911"
 dependencies = [
  "anyhow",
  "risc0-build",
