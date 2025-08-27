@@ -1119,8 +1119,98 @@ async fn reward_cap() -> anyhow::Result<()> {
         "Value recipient should receive the capped epoch reward"
     );
 
-    println!(
-        "Verified: work_log_signer balance = {work_log_signer_balance}, value_recipient balance = {value_recipient_balance}"
+    Ok(())
+}
+
+#[tokio::test]
+async fn reward_cap_two_recipients() -> anyhow::Result<()> {
+    let ctx = common::test_ctx().await?;
+    let work_log_signer = PrivateKeySigner::random();
+    // Create two value recipients. Rewards are doled in the order of the addresses, as an
+    // arbitrary way of deciding when rewards are capped.
+    let (value_recipient1, value_recipient2) = {
+        let mut key1 = PrivateKeySigner::random();
+        let mut key2 = PrivateKeySigner::random();
+        if key1.address() > key2.address() {
+            std::mem::swap(&mut key1, &mut key2);
+        }
+        (key1, key2)
+    };
+
+    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    println!("Initial epoch: {initial_epoch}");
+
+    // Set an epoch reward cap for the recipient.
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
+    let capped_epoch_reward = epoch_reward * U256::from(3) / U256::from(4);
+    ctx.zkc_rewards_contract
+        .setPoVWRewardCap(work_log_signer.address(), capped_epoch_reward)
+        .send()
+        .await?
+        .watch()
+        .await?;
+
+    // Work log controlled by work_log_signer, but rewards should go to value_recipients
+    let update1 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(50)
+        .work_log_id(work_log_signer.address())
+        .build()
+        .unwrap();
+
+    let work_log_event1 =
+        ctx.post_work_log_update(&work_log_signer, &update1, value_recipient1.address()).await?;
+    println!("Work log update posted with value recipient {} for epoch {}", value_recipient1.address(), work_log_event1.epochNumber);
+
+    let update2 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(update1.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(50)
+        .work_log_id(work_log_signer.address())
+        .build()
+        .unwrap();
+
+    let work_log_event2 =
+        ctx.post_work_log_update(&work_log_signer, &update2, value_recipient2.address()).await?;
+    println!("Work log update posted with value recipient {} for epoch {}", value_recipient2.address(), work_log_event2.epochNumber);
+
+    // Advance time and finalize epoch
+    ctx.advance_epochs(U256::ONE).await?;
+    let finalized_event = ctx.finalize_epoch().await?;
+
+    assert_eq!(finalized_event.epoch, U256::from(initial_epoch));
+    assert_eq!(finalized_event.totalWork, U256::from(100));
+
+    // Run mint calculation
+    let mint_receipt = ctx.run_mint().await?;
+    println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
+
+    // Check balances - value_recipient should get tokens, not work_log_signer
+    let work_log_signer_balance =
+        ctx.zkc_contract.balanceOf(work_log_signer.address()).call().await?;
+    let value_recipient1_balance =
+        ctx.zkc_contract.balanceOf(value_recipient1.address()).call().await?;
+    let value_recipient2_balance =
+        ctx.zkc_contract.balanceOf(value_recipient2.address()).call().await?;
+
+    assert_eq!(
+        work_log_signer_balance,
+        U256::ZERO,
+        "Work log signer should not receive any tokens"
+    );
+    assert_eq!(
+        value_recipient1_balance, epoch_reward / U256::from(2),
+        "Value recipient {} should receive half the total reward (cap not reached)",
+        value_recipient1.address(),
+    );
+    assert_eq!(
+        value_recipient2_balance, epoch_reward / U256::from(4),
+        "Value recipient {} should receive a quarter of the total reward (cap exceeded)",
+        value_recipient2.address(),
     );
 
     Ok(())
