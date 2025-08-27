@@ -31,21 +31,22 @@ pub async fn resolve_povw(
         format!("segment data not found for root receipt key: {root_receipt_key}")
     })?;
 
+    // Save the resolved receipt to work receipts bucket for later consumption
+    let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
+    tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
+
+    agent
+        .s3_client
+        .write_to_s3(&work_receipt_key, &receipt.clone())
+        .await
+        .context("Failed to save resolved POVW receipt to work receipts bucket")?;
+
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
 
     // Deserialize as POVW receipt
     let povw_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> =
         deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&receipt)
             .context("Failed to deserialize as POVW receipt")?;
-
-    // Save the resolved receipt to work receipts bucket for later consumption
-    let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}_resolved_povw.bincode");
-    tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
-    agent
-        .s3_client
-        .write_to_s3(&work_receipt_key, &povw_receipt)
-        .await
-        .context("Failed to save resolved POVW receipt to work receipts bucket")?;
 
     // Unwrap the POVW receipt to get the ReceiptClaim for processing
     let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
