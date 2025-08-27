@@ -31,16 +31,6 @@ pub async fn resolve_povw(
         format!("segment data not found for root receipt key: {root_receipt_key}")
     })?;
 
-    // Save the resolved receipt to work receipts bucket for later consumption
-    let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
-    tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
-
-    agent
-        .s3_client
-        .write_to_s3(&work_receipt_key, &receipt.clone())
-        .await
-        .context("Failed to save resolved POVW receipt to work receipts bucket")?;
-
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
 
     // Deserialize as POVW receipt
@@ -82,9 +72,16 @@ pub async fn resolve_povw(
                         "Deserializing union_root_receipt_key: {union_root_receipt_key}"
                     );
                     let union_receipt: Vec<u8> = conn.get(&union_root_receipt_key).await?;
+
+                    // Debug: Check the size and content of the union receipt
+                    tracing::debug!("Union receipt size: {} bytes", union_receipt.len());
+                    if union_receipt.is_empty() {
+                        return Err(anyhow::anyhow!("Union receipt is empty for key: {}", union_root_receipt_key));
+                    }
+
                     let union_receipt: SuccinctReceipt<Unknown> =
                         deserialize_obj(&union_receipt)
-                            .context("Failed to deserialize to SuccinctReceipt<Unknown> type")?;
+                            .with_context(|| format!("Failed to deserialize union receipt (size: {} bytes) from key: {}", union_receipt.len(), union_root_receipt_key))?;
                     union_claim = union_receipt.claim.digest().to_string();
 
                     // Resolve union receipt
@@ -111,7 +108,14 @@ pub async fn resolve_povw(
                         .await
                         .context("corroborating receipt not found: key {assumption_key}")?;
 
-                    let assumption_receipt = deserialize_obj(&assumption_bytes)?;
+                    // Debug: Check the size and content of the assumption receipt
+                    tracing::debug!("Assumption receipt size: {} bytes for key: {}", assumption_bytes.len(), assumption_key);
+                    if assumption_bytes.is_empty() {
+                        return Err(anyhow::anyhow!("Assumption receipt is empty for key: {}", assumption_key));
+                    }
+
+                    let assumption_receipt = deserialize_obj(&assumption_bytes)
+                        .with_context(|| format!("Failed to deserialize assumption receipt (size: {} bytes) from key: {}", assumption_bytes.len(), assumption_key))?;
 
                     // Resolve
                     conditional_receipt = agent
@@ -140,6 +144,16 @@ pub async fn resolve_povw(
     )
     .await
     .context("Failed to set root receipt key with expiry")?;
+
+        // Save the resolved receipt to work receipts bucket for later consumption
+    let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
+    tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
+
+    agent
+        .s3_client
+        .write_to_s3(&work_receipt_key, &receipt)
+        .await
+        .context("Failed to save resolved POVW receipt to work receipts bucket")?;
 
     tracing::info!("POVW resolve operation completed successfully");
     Ok(assumptions_len)
