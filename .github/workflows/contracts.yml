@@ -17,7 +17,7 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   FOUNDRY_VERSION: v1.2.3
   RISC0_TOOLCHAIN_VERSION: 1.88.0
-  RISC0_CRATE_VERSION: "2.3.0"
+  RISC0_CRATE_VERSION: "3.0.1"
 
 jobs:
   contracts-changed:
