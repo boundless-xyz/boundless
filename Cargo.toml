@@ -64,9 +64,9 @@ risc0-build = { version = "3.0", features = ["docker", "unstable"] }
 risc0-circuit-recursion = { version = "4.0" }
 risc0-build-ethereum = { version = "3.0" }
 risc0-ethereum-contracts = { version = "3.0" }
-risc0-zkvm = { version = "3.0", default-features = false }
+risc0-zkvm = { version = "3.0.3", default-features = false }
 risc0-povw = { version = "0.1.1", default-features = false }
-risc0-zkp = { version = "3.0" }
+risc0-zkp = { version = "3.0.2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
