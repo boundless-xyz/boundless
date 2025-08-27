@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 use anyhow::{Context, Result};
 use sqlx::PgPool;
@@ -73,13 +74,7 @@ pub async fn get_or_create_streams(
             .context("Failed to create taskdb gpu join stream")?
     };
 
-    Ok((
-        aux_stream,
-        exec_stream,
-        gpu_prove_stream,
-        gpu_coproc_stream,
-        gpu_join_stream,
-    ))
+    Ok((aux_stream, exec_stream, gpu_prove_stream, gpu_coproc_stream, gpu_join_stream))
 }
 
 pub async fn get_exec_stats(pool: &PgPool, job_id: &Uuid) -> Result<ExecutorResp> {

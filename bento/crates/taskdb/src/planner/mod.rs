@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 pub mod task;
 
@@ -210,23 +211,17 @@ impl Planner {
 
     fn enqueue_join(&mut self, left: usize, right: usize) -> usize {
         let task_number = self.next_task_number();
-        let task_height = 1 + u32::max(
-            self.get_task(left).task_height,
-            self.get_task(right).task_height,
-        );
-        self.tasks
-            .push(Task::new_join(task_number, task_height, left, right));
+        let task_height =
+            1 + u32::max(self.get_task(left).task_height, self.get_task(right).task_height);
+        self.tasks.push(Task::new_join(task_number, task_height, left, right));
         task_number
     }
 
     fn enqueue_union(&mut self, left: usize, right: usize) -> usize {
         let task_number = self.next_task_number();
-        let task_height = 1 + u32::max(
-            self.get_task(left).task_height,
-            self.get_task(right).task_height,
-        );
-        self.tasks
-            .push(Task::new_union(task_number, task_height, left, right));
+        let task_height =
+            1 + u32::max(self.get_task(left).task_height, self.get_task(right).task_height);
+        self.tasks.push(Task::new_union(task_number, task_height, left, right));
         task_number
     }
 

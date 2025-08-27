@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -9,15 +10,11 @@ use workflow::{Agent, Args};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
+    tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
 
     let args = Args::parse();
     let task_stream = args.task_stream.clone();
-    let agent = Agent::new(args)
-        .await
-        .context("Failed to initialize Agent")?;
+    let agent = Agent::new(args).await.context("Failed to initialize Agent")?;
 
     sqlx::migrate!("../taskdb/migrations")
         .run(&agent.db_pool)

@@ -4,15 +4,15 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    redis::{self, AsyncCommands},
-    tasks::{deserialize_obj, serialize_obj, RECUR_RECEIPT_PATH},
     Agent,
+    redis::{self, AsyncCommands},
+    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim};
 use uuid::Uuid;
-use workflow_common::{ResolveReq, KECCAK_RECEIPT_PATH};
+use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq, s3::WORK_RECEIPTS_BUCKET_DIR};
 
 /// Run the POVW resolve operation
 pub async fn resolve_povw(
@@ -33,12 +33,19 @@ pub async fn resolve_povw(
 
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
 
-    // Deserialize as POVW receipt - no fallback
+    // Deserialize as POVW receipt
     let povw_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> =
         deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&receipt)
             .context("Failed to deserialize as POVW receipt")?;
 
-    tracing::debug!("Successfully deserialized POVW receipt");
+    // Save the resolved receipt to work receipts bucket for later consumption
+    let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}_resolved_povw.bincode");
+    tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
+    agent
+        .s3_client
+        .write_to_s3(&work_receipt_key, &povw_receipt)
+        .await
+        .context("Failed to save resolved POVW receipt to work receipts bucket")?;
 
     // Unwrap the POVW receipt to get the ReceiptClaim for processing
     let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =

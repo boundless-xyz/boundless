@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 use crate::{
     Agent,
@@ -45,10 +46,7 @@ pub async fn keccak(
     };
 
     if keccak_req.input.is_empty() {
-        anyhow::bail!(
-            "Received empty keccak input with claim_digest: {}",
-            request.claim_digest
-        );
+        anyhow::bail!("Received empty keccak input with claim_digest: {}", request.claim_digest);
     }
 
     tracing::debug!("Keccak proving {}", request.claim_digest);

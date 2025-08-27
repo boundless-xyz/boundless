@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 use crate::{
     Agent,
@@ -51,9 +52,7 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
         .with_context(|| format!("Journal data not found for key ID: {image_key}"))?;
     let image_id = read_image_id(&image_id_string)?;
 
-    rollup_receipt
-        .verify(image_id)
-        .context("Receipt verification failed")?;
+    rollup_receipt.verify(image_id).context("Receipt verification failed")?;
 
     if !matches!(rollup_receipt.inner, InnerReceipt::Succinct(_)) {
         bail!("rollup_receipt is not Succinct")

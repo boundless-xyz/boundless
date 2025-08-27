@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 use std::time::Instant;
 
@@ -27,11 +28,7 @@ fn taskdb(c: &mut Criterion) {
 
             let start = Instant::now();
             for _i in 0..iters {
-                black_box(
-                    taskdb::create_stream(&db, worker_type, 1, 1.0, user_id)
-                        .await
-                        .unwrap(),
-                );
+                black_box(taskdb::create_stream(&db, worker_type, 1, 1.0, user_id).await.unwrap());
             }
             let elapsed = start.elapsed();
             taskdb::test_helpers::cleanup(&db).await;
@@ -47,17 +44,13 @@ fn taskdb(c: &mut Criterion) {
                 .await
                 .expect("failed to connect to DATABASE_URL");
 
-            let stream_id = taskdb::create_stream(&db, worker_type, 1, 1.0, user_id)
-                .await
-                .unwrap();
+            let stream_id = taskdb::create_stream(&db, worker_type, 1, 1.0, user_id).await.unwrap();
             let task_def = Value::default();
 
             let start = Instant::now();
             for _i in 0..iters {
                 black_box(
-                    taskdb::create_job(&db, &stream_id, &task_def, 1, 1, user_id)
-                        .await
-                        .unwrap(),
+                    taskdb::create_job(&db, &stream_id, &task_def, 1, 1, user_id).await.unwrap(),
                 );
             }
 
@@ -76,13 +69,10 @@ fn taskdb(c: &mut Criterion) {
                 .await
                 .expect("failed to connect to DATABASE_URL");
 
-            let stream_id = taskdb::create_stream(&db, worker_type, 0, 1.0, user_id)
-                .await
-                .unwrap();
+            let stream_id = taskdb::create_stream(&db, worker_type, 0, 1.0, user_id).await.unwrap();
             let task_def = Value::default();
-            let job_id = taskdb::create_job(&db, &stream_id, &task_def, 0, 1, user_id)
-                .await
-                .unwrap();
+            let job_id =
+                taskdb::create_job(&db, &stream_id, &task_def, 0, 1, user_id).await.unwrap();
 
             let start = Instant::now();
             for i in 0..iters {
@@ -116,13 +106,10 @@ fn taskdb(c: &mut Criterion) {
                 .await
                 .expect("failed to connect to DATABASE_URL");
 
-            let stream_id = taskdb::create_stream(&db, worker_type, 0, 1.0, user_id)
-                .await
-                .unwrap();
+            let stream_id = taskdb::create_stream(&db, worker_type, 0, 1.0, user_id).await.unwrap();
             let task_def = Value::default();
-            let job_id = taskdb::create_job(&db, &stream_id, &task_def, 0, 1, user_id)
-                .await
-                .unwrap();
+            let job_id =
+                taskdb::create_job(&db, &stream_id, &task_def, 0, 1, user_id).await.unwrap();
 
             // Pre populate the tasks:
             for i in 0..iters {
@@ -166,13 +153,10 @@ fn taskdb(c: &mut Criterion) {
                 .await
                 .expect("failed to connect to DATABASE_URL");
 
-            let stream_id = taskdb::create_stream(&db, worker_type, 0, 1.0, user_id)
-                .await
-                .unwrap();
+            let stream_id = taskdb::create_stream(&db, worker_type, 0, 1.0, user_id).await.unwrap();
             let task_def = Value::default();
-            let job_id = taskdb::create_job(&db, &stream_id, &task_def, 0, 1, user_id)
-                .await
-                .unwrap();
+            let job_id =
+                taskdb::create_job(&db, &stream_id, &task_def, 0, 1, user_id).await.unwrap();
 
             // Pre populate the tasks:
             for i in 0..iters {
@@ -195,9 +179,7 @@ fn taskdb(c: &mut Criterion) {
                 .await
                 .unwrap();
                 // Complete the first task so the last task triggers a job complete
-                taskdb::update_task_done(&db, &job_id, INIT_TASK, Value::default())
-                    .await
-                    .unwrap();
+                taskdb::update_task_done(&db, &job_id, INIT_TASK, Value::default()).await.unwrap();
             }
             let start = Instant::now();
             for i in 0..iters {

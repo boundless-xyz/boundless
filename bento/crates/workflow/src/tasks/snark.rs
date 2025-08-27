@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 use crate::Agent;
 use anyhow::{Context as _, Result, bail};
@@ -12,10 +13,7 @@ use workflow_common::{
 
 /// Converts a stark, stored in s3 to a snark
 pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<SnarkResp> {
-    let receipt_key = format!(
-        "{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{}.bincode",
-        req.receipt
-    );
+    let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{}.bincode", req.receipt);
     tracing::debug!("Downloading receipt, {receipt_key}");
     let receipt: Receipt = agent
         .s3_client
@@ -46,7 +44,5 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         .await
         .context("Failed to upload final receipt to obj store")?;
 
-    Ok(SnarkResp {
-        snark: job_id.to_string(),
-    })
+    Ok(SnarkResp { snark: job_id.to_string() })
 }
