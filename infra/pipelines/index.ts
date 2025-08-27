@@ -73,6 +73,8 @@ const codePipelineSharedResources = new CodePipelineSharedResources("codePipelin
 const config = new pulumi.Config();
 const boundlessAlertsSlackId = config.requireSecret("BOUNDLESS_ALERTS_SLACK_ID");
 const boundlessAlertsStagingSlackId = config.requireSecret("BOUNDLESS_ALERTS_STAGING_SLACK_ID");
+const boundlessAlertsLaunchSlackId = config.requireSecret("BOUNDLESS_ALERTS_LAUNCH_SLACK_ID");
+const boundlessAlertsStagingLaunchSlackId = config.requireSecret("BOUNDLESS_ALERTS_STAGING_LAUNCH_SLACK_ID");
 const workspaceSlackId = config.requireSecret("WORKSPACE_SLACK_ID");
 const pagerdutyIntegrationUrl = config.requireSecret("PAGERDUTY_INTEGRATION_URL");
 const ssoBaseUrl = config.require("SSO_BASE_URL");
@@ -87,6 +89,8 @@ const notifications = new Notifications("notifications", {
   ],
   prodSlackChannelId: boundlessAlertsSlackId,
   stagingSlackChannelId: boundlessAlertsStagingSlackId,
+  prodLaunchSlackChannelId: boundlessAlertsLaunchSlackId,
+  stagingLaunchSlackChannelId: boundlessAlertsStagingLaunchSlackId,
   slackTeamId: workspaceSlackId,
   pagerdutyIntegrationUrl,
   ssoBaseUrl,
@@ -167,5 +171,7 @@ const distributorPipeline = new DistributorPipeline("distributorPipeline", {
 
 export const bucketName = pulumiStateBucket.bucket.id;
 export const kmsKeyArn = pulumiSecrets.kmsKey.arn;
-export const boundlessAlertsTopicArn = notifications.slackSNSTopic.arn;
-export const boundlessPagerdutyTopicArn = notifications.pagerdutySNSTopic.arn;
+export const boundlessAlertsBetaTopicArn = notifications.slackSNSTopic.arn;
+export const boundlessPagerdutyBetaTopicArn = notifications.pagerdutySNSTopic.arn;
+export const boundlessAlertsTopicArnLaunch = notifications.slackSNSTopicLaunch.arn;
+export const boundlessAlertsTopicArnStagingLaunch = notifications.slackSNSTopicStagingLaunch.arn;
