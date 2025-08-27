@@ -28,7 +28,7 @@ bytemuck = "1.23"
 derive_builder = "0.20.2"
 rand = "0.9"
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
-risc0-zkvm = { git = "https://github.com/risc0/risc0", rev = "076da95cb879e5bcbf70b6586e9fad7a87e3914a", default-features = false, features = ["client", "unstable"] }
+risc0-zkvm = { workspace = true, features = ["client", "unstable"] }
 tokio = { workspace = true }
 
 [build-dependencies]
