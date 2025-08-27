@@ -104,10 +104,10 @@ impl Fulfillment {
         match &self.fulfillment_data {
             FulfillmentClaimData::ClaimDigest(_digest) => Digest::ZERO,
             FulfillmentClaimData::ImageIdAndJournal(image_id, journal) => {
+                let mut b = vec![FulfillmentDataType::ImageIdAndJournal as u8];
+                b.extend_from_slice(&self.fulfillment_data.clone().to_bytes());
                 let mut hasher = Keccak256::new();
-                hasher.update([FulfillmentDataType::ImageIdAndJournal as u8]);
-                hasher.update(image_id.as_bytes());
-                hasher.update(journal.as_ref());
+                hasher.update(b);
                 hasher.finalize().0.into()
             }
         }

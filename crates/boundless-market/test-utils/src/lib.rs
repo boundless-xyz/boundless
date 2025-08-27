@@ -392,6 +392,7 @@ fn fulfillment_data_digest(img_id_and_journal: Option<(Digest, &[u8])>) -> Diges
     match img_id_and_journal {
         Some((image_id, journal)) => {
             let mut hasher = Keccak256::new();
+            hasher.update([FulfillmentDataType::ImageIdAndJournal as u8]);
             hasher.update(image_id.as_bytes());
             hasher.update(journal);
             hasher.finalize().0.into()
