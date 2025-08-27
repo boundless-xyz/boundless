@@ -14,10 +14,7 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::{
-        FulfillmentClaimData, Offer, PredicateType, ProofRequest, RequestId, RequestInput,
-        Requirements,
-    },
+    contracts::{FulfillmentClaimData, Offer, ProofRequest, RequestId, RequestInput, Requirements},
     util::now_timestamp,
 };
 use anyhow::{bail, Context};
@@ -132,9 +129,6 @@ impl Adapt<Finalizer> for RequestParams {
 
         // If a callback is requested, we should check that the journal satisfies the required predicate.
         if !requirements.callback.is_none() {
-            if requirements.predicate.predicateType == PredicateType::ClaimDigestMatch {
-                bail!("cannot use ClaimDigestMatch predicate with a callback; the journal must be provided to the callback");
-            }
             if let Some(ref journal) = self.journal {
                 if let Some(image_id) = self.image_id {
                     let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(

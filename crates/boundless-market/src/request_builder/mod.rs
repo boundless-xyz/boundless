@@ -639,7 +639,8 @@ mod tests {
     use super::{
         Layer, OfferLayer, OfferLayerConfig, OfferParams, PreflightLayer, RequestBuilder,
         RequestId, RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequestParams,
-        RequirementsLayer, StandardRequestBuilder, StorageLayer, StorageLayerConfig,
+        RequirementParams, RequirementsLayer, StandardRequestBuilder, StorageLayer,
+        StorageLayerConfig,
     };
 
     use crate::{
@@ -652,8 +653,8 @@ mod tests {
         util::NotProvided,
         StandardStorageProvider,
     };
-    use alloy_primitives::U256;
-    use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
+    use alloy_primitives::{address, U256};
+    use risc0_zkvm::{compute_image_id, sha::Digestible, Digest, Journal};
 
     #[tokio::test]
     #[traced_test]
@@ -849,6 +850,25 @@ mod tests {
             other.bytes.clone(),
         );
         assert!(!req.predicate.eval(&fulfillment_data));
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_requirements_layer_should_fail() -> anyhow::Result<()> {
+        let layer = RequirementsLayer::default();
+        let program = ECHO_ELF;
+        let bytes = b"journal_data".to_vec();
+        let journal = Journal::new(bytes.clone());
+
+        let params = RequirementParams::builder()
+            .predicate(Predicate::claim_digest_match(Digest::ZERO))
+            .callback_address(address!("0x00000000000000000000000000000000deadbeef"))
+            .build()?;
+
+        let error_msg = layer.process((program, &journal, &params)).await.unwrap_err();
+        assert_eq!(format!("{error_msg}"), "cannot use ClaimDigestMatch predicate with a callback; the journal must be provided to the callback");
+
         Ok(())
     }
 

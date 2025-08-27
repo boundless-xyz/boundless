@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
-use crate::contracts::{Callback, Predicate, Requirements};
+use crate::contracts::{Callback, Predicate, PredicateType, Requirements};
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
-use anyhow::{ensure, Context};
+use anyhow::{bail, ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
 use risc0_zkvm::{compute_image_id, Journal};
@@ -167,7 +167,9 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
             })
             .unwrap_or_default();
         let selector = params.selector.unwrap_or_default();
-
+        if !callback.is_none() && predicate.predicateType == PredicateType::ClaimDigestMatch {
+            bail!("cannot use ClaimDigestMatch predicate with a callback; the journal must be provided to the callback");
+        }
         Ok(Requirements { predicate, callback, selector })
     }
 }
