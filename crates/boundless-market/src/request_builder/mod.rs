@@ -855,7 +855,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_requirements_layer_should_fail() -> anyhow::Result<()> {
+    async fn test_requirements_layer_callback_and_claim_digest_match() -> anyhow::Result<()> {
         let layer = RequirementsLayer::default();
         let program = ECHO_ELF;
         let bytes = b"journal_data".to_vec();

@@ -221,6 +221,24 @@ mod tests {
         )
     }
 
+    fn claim_digest_request(id: u32, signer: Address, claim_digest: Digest) -> ProofRequest {
+        ProofRequest::new(
+            RequestId::new(signer, id),
+            Requirements::new(Predicate::claim_digest_match(claim_digest)),
+            "test",
+            RequestInput { inputType: RequestInputType::Url, data: Default::default() },
+            Offer {
+                minPrice: U256::from(1),
+                maxPrice: U256::from(10),
+                biddingStart: 1741386831,
+                timeout: 1000,
+                rampUpPeriod: 1,
+                lockTimeout: 1000,
+                lockStake: U256::from(0),
+            },
+        )
+    }
+
     fn to_b256(digest: Digest) -> B256 {
         <[u8; 32]>::from(digest).into()
     }
@@ -279,7 +297,7 @@ mod tests {
         )
     }
 
-    fn assessor(claims: Vec<Fulfillment>, receipts: Vec<Receipt>) {
+    fn assessor(claims: Vec<Fulfillment>) {
         let assessor_input = AssessorInput {
             domain: eip712_domain(Address::ZERO, 1),
             fills: claims,
@@ -287,9 +305,7 @@ mod tests {
         };
         let mut env_builder = ExecutorEnv::builder();
         env_builder.write_frame(&assessor_input.encode());
-        for receipt in receipts {
-            env_builder.add_assumption(receipt);
-        }
+
         let env = env_builder.build().unwrap();
         let session = default_executor().execute(env, ASSESSOR_GUEST_ELF).unwrap();
         assert_eq!(session.exit_code, ExitCode::Halted(0));
@@ -312,7 +328,7 @@ mod tests {
             signature,
             fulfillment_data: FulfillmentClaimData::from_image_id_and_journal(*image_id, journal),
         }];
-        assessor(claims, vec![application_receipt]);
+        assessor(claims);
     }
 
     #[tokio::test]
@@ -333,6 +349,41 @@ mod tests {
 
         // 3. Prove the Assessor reusing the same leaf twice
         let claims = vec![claim.clone(), claim];
-        assessor(claims, vec![application_receipt.clone(), application_receipt]);
+        assessor(claims);
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_assessor_claim_digest_match() {
+        let signer = PrivateKeySigner::random();
+        let image_id = to_b256(ECHO_ID.into());
+        let input = "test";
+        let claim_digest = ReceiptClaim::ok(*image_id, input.as_bytes().to_vec()).digest();
+
+        // 1. Mock and sign a request
+        let request = claim_digest_request(1, signer.address(), claim_digest);
+        let signature =
+            request.sign_request(&signer, Address::ZERO, 1).await.unwrap().as_bytes().to_vec();
+        // 2. Prove the request via the application guest
+        let application_receipt = echo(input);
+        let journal = application_receipt.journal.bytes.clone();
+
+        // 3. Prove the Assessor. For ClaimDigestMatch predicate, we can fulfill the request either
+        // with the journal or the claim digest.
+        let claims = vec![
+            Fulfillment {
+                request: request.clone(),
+                signature: signature.clone(),
+                fulfillment_data: FulfillmentClaimData::from_image_id_and_journal(
+                    *image_id, journal,
+                ),
+            },
+            Fulfillment {
+                request,
+                signature,
+                fulfillment_data: FulfillmentClaimData::from_claim_digest(claim_digest),
+            },
+        ];
+        assessor(claims);
     }
 }
