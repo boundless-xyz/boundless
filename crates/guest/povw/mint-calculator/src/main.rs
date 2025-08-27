@@ -82,6 +82,13 @@ fn main() {
             if !input.work_log_filter.includes(update_event.workLogId.into()) {
                 continue;
             }
+            // Get the total work; skip this event if there is not an associated epoch finalization.
+            // NOTE: This prevents events from e.g. the current unfinalized epoch from preventing
+            // the mint. If this check causes a required update to be skipped, then the chaining
+            // check or the completeness check below will fail.
+            let Some(epoch_total_work) = epochs.get(&update_event.epochNumber).copied() else {
+                continue;
+            };
 
             // Insert or update the work log commitment for work log ID in the event.
             match updates.entry(update_event.workLogId) {
@@ -99,16 +106,12 @@ fn main() {
                 }
             }
 
-            let epoch_number = update_event.epochNumber;
-            let epoch_total_work = *epochs.get(&epoch_number).unwrap_or_else(|| {
-                panic!("no epoch finalized event processed for epoch number {epoch_number}")
-            });
             // Update mint value, skipping zero-valued updates.
             if update_event.updateValue > U256::ZERO {
                 // NOTE: epoch_total_work must be greater than zero at this point, since it at
                 // least contains this update, which has a non-zero value.
                 *rewards_weights
-                    .entry(epoch_number)
+                    .entry(update_event.epochNumber)
                     .or_default()
                     .entry(update_event.valueRecipient)
                     .or_default() +=

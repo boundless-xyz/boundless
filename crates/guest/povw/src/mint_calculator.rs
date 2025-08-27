@@ -395,6 +395,7 @@ pub mod host {
                 .context("failed to preflight verify_continuity")?;
 
             let mut latest_epoch_finalization_block: Option<u64> = None;
+            let mut epochs = BTreeSet::<U256>::new();
             for env in envs.0.values_mut() {
                 let epoch_finalized_events =
                     Event::preflight::<IPovwAccounting::EpochFinalized>(env)
@@ -403,7 +404,8 @@ pub mod host {
                         .await
                         .context("failed to query EpochFinalized events")?;
 
-                if !epoch_finalized_events.is_empty() {
+                for epoch_finalized_event in epoch_finalized_events {
+                    epochs.insert(epoch_finalized_event.epoch);
                     latest_epoch_finalization_block = Some(env.header().number);
                 }
             }
@@ -423,6 +425,9 @@ pub mod host {
                     // If the work log ID is filtered out or the value is zero, then this update
                     // can be skipped for deciding which calls to preflight.
                     if !work_log_filter.includes(update_event.data.workLogId.into()) {
+                        continue;
+                    }
+                    if !epochs.contains(&update_event.epochNumber) {
                         continue;
                     }
                     work_logs.insert(update_event.data.workLogId);
