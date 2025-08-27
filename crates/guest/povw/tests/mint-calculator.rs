@@ -1068,7 +1068,7 @@ async fn reward_cap() -> anyhow::Result<()> {
         ctx.zkc_contract.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
     let capped_epoch_reward = epoch_reward / U256::from(2);
     ctx.zkc_rewards_contract
-        .setPoVWRewardCap(value_recipient.address(), capped_epoch_reward)
+        .setPoVWRewardCap(work_log_signer.address(), capped_epoch_reward)
         .send()
         .await?
         .watch()

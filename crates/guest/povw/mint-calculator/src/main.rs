@@ -23,6 +23,13 @@ static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(||
     ])
 });
 
+/// A mapping from epoch number => { work log ID =>  { recipient => { reward weight } } }.
+///
+/// This mapping is structured to have all the information needed to apply the reward cap such that
+/// within a single epoch, and a single work log, the sum of rewards accross all recipients is less
+/// than or equal to the reward cap for the work log.
+type RewardWeightMap = BTreeMap<U256, BTreeMap<Address, BTreeMap<Address, FixedPoint>>>;
+
 // The mint calculator ensures:
 // * An event was logged by the PoVW accounting contract for each log update and epoch finalization.
 //   * Each event is counted at most once.
@@ -67,7 +74,7 @@ fn main() {
 
     // Construct the mapping of calculated rewards, with the key as (epoch, recipient) pairs and
     // the value as a FixedPoint fraction indicating the portion of the PoVW epoch reward to assign
-    let mut rewards_weights = BTreeMap::<U256, BTreeMap<Address, FixedPoint>>::new();
+    let mut rewards_weights = RewardWeightMap::new();
     let mut updates = BTreeMap::<Address, (B256, B256)>::new();
     for env in envs.0.values() {
         // Query all `WorkLogUpdated` events of the PoVW accounting contract.
@@ -109,6 +116,8 @@ fn main() {
                 // least contains this update, which has a non-zero value.
                 *rewards_weights
                     .entry(epoch_number)
+                    .or_default()
+                    .entry(update_event.workLogId)
                     .or_default()
                     .entry(update_event.valueRecipient)
                     .or_default() +=
@@ -157,23 +166,35 @@ fn main() {
             zkc_contract.call_builder(&IZKC::getPoVWEmissionsForEpochCall { epoch }).call();
         let epoch_end_time = zkc_contract.call_builder(&IZKC::getEpochEndTimeCall { epoch }).call();
 
-        for (recipient, weight) in epoch_reward_weights {
-            // Calculate the maximum rewards, based on the povw value alone.
-            let uncapped_reward = weight.mul_unwrap(epoch_emissions);
-
-            // Get the reward cap for this recipient in the given epoch. Note that the reward cap
-            // is determined at the end of the epoch.
+        for (work_log_id, work_log_reward_weights) in epoch_reward_weights {
+            // Get the reward cap for this work log in the given epoch. Note that the reward cap is
+            // determined at the end of the epoch.
+            // NOTE: The reward cap is calculated from the work log ID such that the completness
+            // check above will ensure all events for the epoch are included.
             let reward_cap = zkc_rewards_contract
                 .call_builder(&IZKCRewards::getPastPoVWRewardCapCall {
-                    account: recipient,
+                    account: work_log_id,
                     timepoint: epoch_end_time,
                 })
                 .call();
 
-            // Apply the cap and add the reward to the final mapping.
-            let reward = U256::min(uncapped_reward, reward_cap);
-            if reward > U256::ZERO {
-                *rewards.entry(recipient).or_default() += reward;
+            // Iterate through the list of recipients for this work log, assigning rewards to each.
+            // If the work log's total rewards reach the cap, then rewards are assigned to
+            // recipients based on the sorted order of their addresses.
+            // This ordering is considered arbitrary, and may change in the future. In most cases
+            // we expect a work log to have a single recipient.
+            let mut work_log_reward = U256::ZERO;
+            for (recipient, weight) in work_log_reward_weights {
+                // Calculate the maximum reward, based on the povw value alone.
+                let uncapped_reward = weight.mul_unwrap(epoch_emissions);
+
+                // Apply the cap and add the reward to the final mapping.
+                let reward = U256::min(uncapped_reward, reward_cap.saturating_sub(work_log_reward));
+                if reward > U256::ZERO {
+                    *rewards.entry(recipient).or_default() += reward;
+                }
+
+                work_log_reward += reward;
             }
         }
     }
