@@ -202,7 +202,7 @@ jobs:
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
-          version: '=1.10.8'
+          version: '=1.15.1'
           locked: true
 
       - run: cargo binstall -y --force lychee@0.15.1
@@ -238,7 +238,7 @@ jobs:
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
-          version: '=1.10.8'
+          version: '=1.15.1'
           locked: true
 
       - run: cargo binstall -y --force dprint@0.47.2
