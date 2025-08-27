@@ -59,11 +59,4 @@ library FulfillmentDataLibrary {
             journal.length := journalLength
         }
     }
-
-    /// @notice Encodes the fulfillment data into bytes.
-    /// @param fillData The FulfillmentData struct to encode.
-    /// @return The encoded bytes.
-    function encode(FulfillmentData memory fillData) public pure returns (bytes memory) {
-        return abi.encode(fillData);
-    }
 }

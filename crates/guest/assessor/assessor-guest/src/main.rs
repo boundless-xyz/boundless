@@ -67,6 +67,7 @@ fn main() {
             id: fill.request.id,
             requestDigest: request_digest.into(),
             claimDigest: <[u8; 32]>::from(claim_digest).into(),
+            fulfillmentDataDigest: <[u8; 32]>::from(fill.fulfillment_data_digest()).into(),
         }
         .eip712_hash_struct();
         leaves.push(Digest::from_bytes(*commit));

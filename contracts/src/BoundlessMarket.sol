@@ -258,7 +258,10 @@ contract BoundlessMarket is
         // Verify the application receipts.
         for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
-            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, fill.claimDigest).eip712Digest();
+            bytes32 fulfillmentDataDigest = fill.fulfillmentDataDigest();
+
+            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, fill.claimDigest, fulfillmentDataDigest)
+                .eip712Digest();
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
@@ -336,14 +339,9 @@ contract BoundlessMarket is
             uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
 
             if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
-                (bytes32 imageId, bytes calldata journal) =
-                    FulfillmentDataLibrary.decodeFulfillmentData(fill.fulfillmentData);
-                // We should only get to this point if the journal has been authenticated because the claimDigest
-                // passed the integrity check in verifyDelivery and we just recalculated it from the imageId and journal
-                // and compared to make sure they match.
-                // That is to say, if the claimDigest isn't a Risc0 zkvm claimDigest (e.g. blake3), journals
-                // cannot be authenticated and therefore we cannot use them in a callback and we revert with ClaimDigestMismatch.
                 if (callbackIndexPlusOne > 0) {
+                    (bytes32 imageId, bytes calldata journal) =
+                        FulfillmentDataLibrary.decodeFulfillmentData(fill.fulfillmentData);
                     AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
                     _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
                 }

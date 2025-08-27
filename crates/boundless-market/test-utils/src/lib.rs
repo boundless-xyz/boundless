@@ -21,7 +21,7 @@ use alloy::{
     sol_types::SolCall,
     transports::http::reqwest::Url,
 };
-use alloy_primitives::{B256, U256};
+use alloy_primitives::{Keccak256, B256, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use anyhow::{Context, Ok, Result};
 use boundless_market::{
@@ -388,6 +388,17 @@ pub async fn create_test_ctx_with_rpc_url(
 fn to_b256(digest: Digest) -> B256 {
     <[u8; 32]>::from(digest).into()
 }
+fn fulfillment_data_digest(img_id_and_journal: Option<(Digest, &[u8])>) -> Digest {
+    match img_id_and_journal {
+        Some((image_id, journal)) => {
+            let mut hasher = Keccak256::new();
+            hasher.update(image_id.as_bytes());
+            hasher.update(journal);
+            hasher.finalize().0.into()
+        }
+        None => Digest::ZERO,
+    }
+}
 
 pub fn mock_singleton(
     request: &ProofRequest,
@@ -398,11 +409,14 @@ pub fn mock_singleton(
     let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
     let app_claim_digest = app_receipt_claim.digest();
     let request_digest = request.eip712_signing_hash(&eip712_domain);
+    let fill_data_digest =
+        fulfillment_data_digest(Some((request.image_id().unwrap(), &app_journal.bytes)));
     let assessor_root = AssessorCommitment {
         index: U256::ZERO,
         id: request.id,
         requestDigest: request_digest,
         claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
+        fulfillmentDataDigest: <[u8; 32]>::from(fill_data_digest).into(),
     }
     .eip712_hash_struct();
     let assessor_journal =

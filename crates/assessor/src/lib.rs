@@ -97,6 +97,20 @@ impl Fulfillment {
             }
         }
     }
+
+    /// Returns the fulfillment data digest committed to by the assessor.
+    /// If the fulfillment claim data is of type `ClaimDigest`, the digest is zero.
+    pub fn fulfillment_data_digest(&self) -> Digest {
+        match &self.fulfillment_data {
+            FulfillmentClaimData::ClaimDigest(_digest) => Digest::ZERO,
+            FulfillmentClaimData::ImageIdAndJournal(image_id, journal) => {
+                let mut hasher = Keccak256::new();
+                hasher.update(image_id.as_bytes());
+                hasher.update(journal.as_ref());
+                hasher.finalize().0.into()
+            }
+        }
+    }
 }
 
 /// Input of the Assessor guest.

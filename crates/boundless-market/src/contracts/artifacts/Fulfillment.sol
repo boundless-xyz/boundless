@@ -27,4 +27,17 @@ struct Fulfillment {
     bytes seal;
 }
 
-library FulfillmentLibrary {}
+library FulfillmentLibrary {
+    /// @notice Computes the digest of the fulfillment data that is committed to by the assessor.
+    /// @param fulfillment The Fulfillment struct containing potentially the journal
+    /// @return The keccak256 digest of the fulfillmentData.
+    function fulfillmentDataDigest(Fulfillment memory fulfillment) internal pure returns (bytes32) {
+        if (fulfillment.fulfillmentDataType == FulfillmentDataType.None) {
+            return bytes32(0);
+        } else if (fulfillment.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
+            return keccak256(abi.encodePacked(fulfillment.fulfillmentDataType, fulfillment.fulfillmentData));
+        } else {
+            revert("Unknown fulfillment data type");
+        }
+    }
+}
