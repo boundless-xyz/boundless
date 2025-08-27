@@ -295,9 +295,6 @@ pub struct RequestParams {
     /// Contents of the [Journal] that results from the execution.
     pub journal: Option<Journal>,
 
-    /// Claim digest that results from execution.
-    pub claim_digest: Option<Digest>,
-
     /// [RequestId] to use for the proof request.
     pub request_id: Option<RequestId>,
 
@@ -543,18 +540,6 @@ impl RequestParams {
         Self { requirements: value.into(), ..self }
     }
 
-    /// TODO(ec2): doc
-    pub fn with_claim_digest(self, value: impl Into<Digest>) -> Self {
-        Self { claim_digest: Some(value.into()), ..self }
-    }
-
-    /// TODO(ec2): doc
-    pub fn require_claim_digest(&self) -> Result<Digest, MissingFieldError> {
-        self.claim_digest.ok_or(MissingFieldError::with_hint(
-            "claim_digest",
-            "can be set using .with_claim_digest(...), and is calculated from the program",
-        ))
-    }
     /// Request a stand-alone Groth16 proof for this request.
     ///
     /// This is a convinience method to set the selector on the requirements. Note that calling
