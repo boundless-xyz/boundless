@@ -4,9 +4,9 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    redis::{self, AsyncCommands},
-    tasks::{deserialize_obj, serialize_obj, RECUR_RECEIPT_PATH},
     Agent,
+    redis::{self, AsyncCommands},
+    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
@@ -22,15 +22,12 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
     let left_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.left);
     let right_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.right);
 
-    let left_receipt_bytes: Vec<u8> = conn
-        .get::<_, Vec<u8>>(&left_receipt_key)
+    let (left_receipt_bytes, right_receipt_bytes): (Vec<u8>, Vec<u8>) = conn
+        .mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_receipt_key, &right_receipt_key])
         .await
-        .with_context(|| format!("left receipt not found for key: {left_receipt_key}"))?;
-
-    let right_receipt_bytes: Vec<u8> = conn
-        .get::<_, Vec<u8>>(&right_receipt_key)
-        .await
-        .with_context(|| format!("right receipt not found for key: {right_receipt_key}"))?;
+        .with_context(|| {
+            format!("failed to get receipts for keys: {left_receipt_key}, {right_receipt_key}")
+        })?;
 
     // Deserialize POVW receipts
     let (left_receipt, right_receipt): (
