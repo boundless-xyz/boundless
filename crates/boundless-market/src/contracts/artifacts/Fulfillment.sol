@@ -35,7 +35,7 @@ library FulfillmentLibrary {
         if (fulfillment.fulfillmentDataType == FulfillmentDataType.None) {
             return bytes32(0);
         } else if (fulfillment.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
-            return keccak256(abi.encodePacked(fulfillment.fulfillmentDataType, fulfillment.fulfillmentData));
+            return keccak256(abi.encodePacked(uint8(fulfillment.fulfillmentDataType), fulfillment.fulfillmentData));
         } else {
             revert("Unknown fulfillment data type");
         }
