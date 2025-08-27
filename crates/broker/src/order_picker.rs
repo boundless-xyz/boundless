@@ -362,7 +362,7 @@ where
 
         // Check if the stake is sane and if we can afford it
         // For lock expired orders, we don't check the max stake because we can't lock those orders.
-        let max_stake = {
+        let max_stake: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
             parse_units(&config.market.max_stake, self.stake_token_decimals)
                 .context("Failed to parse max_stake")?
