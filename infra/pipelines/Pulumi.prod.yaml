@@ -6,16 +6,20 @@ config:
   pipelines:DOCKER_PAT:
     secure: v1:T+xEOzjeS7sQw9Nb:dY+euWAR30sMP+DYC4V9lfM3LmSCu/yiYPANKYqgw7hkdM4izqHCvUq/s+8ABEgdSUVjRw==
   pipelines:BOUNDLESS_ALERTS_SLACK_ID:
-    secure: v1:J2ub3a8jGaglZCGc:S/I5GH1h/1w3UsfHCjjInBOGz3nQG7/W9wYf
+    secure: v1:ZjeLYLyEYnxYpHMl:49WYja1GPBzkH7JdKV5UJyjv/Im7qxsStUpa
   pipelines:WORKSPACE_SLACK_ID:
-    secure: v1:vV+qgJdAOlWjWopo:NnPGhM8xj5jRtaKJengh0njuWGTQfw41lmoy
+    secure: v1:WCIxKMQodHB1/8dY:vn9J/+M+7r91/G+uYIFBC31Co740P6JoR4Md
   pipelines:PAGERDUTY_INTEGRATION_URL:
     secure: v1:2E/GhMEBxiNIM0ZP:Ru621fMUaloOvdXAeH5c+E1wwz69G0bcwTYfxVpeib6mL+QjkJFfWoaKb4vowKVfvYeEP2+fWovxX98KBUhT1a6VfgW76s/ms2jWH8/Hs4a3V9S3qlxQtf8bPU069WFVMA==
   pipelines:BOUNDLESS_ALERTS_STAGING_SLACK_ID:
-    secure: v1:gD6/fZ10KbMJ6bnc:/5ZjtnPS7Sl/5ys59cJdUTCixWZdyfaU68QT
+    secure: v1:iJPdXMnkpWW+PR4v:V81O9g4nIBNKLrRo9fCSUvWPV1ArT6Uera5i
   pipelines:SSO_BASE_URL:
     secure: v1:mp7Zj3Vr4nKxLLQN:Q3IdlOsOP/SGJr4ZMVyyKDf5p9PzvbvuiUUlpsxGdu7bVNycztiqWWvRKufGwi6zkOoeorW6azi896WAvLD5Kg==
   pipelines:RUNBOOK_URL:
     secure: v1:6oX3TRTzickOSMk9:JYDw6501xgI+VJmpeMWN3UgqofpVzsquL40NC4XTjYfged/idqzAKlp0QC5fS5Ae4SV9zkcHoFFCl54Y8h88PUDLeaCaSV/IxnGYc6NFH2jEX3PQfmDBx062bRj1ksdmki4=
+  pipelines:BOUNDLESS_ALERTS_STAGING_LAUNCH_SLACK_ID:
+    secure: v1:Evl3B4eQ0vnqgnJA:cNDdYWW9NpBwD2bo3xJ0EPF3o2bloObGRB1t
+  pipelines:BOUNDLESS_ALERTS_LAUNCH_SLACK_ID:
+    secure: v1:N6h3KGSlz8CZOYNZ:D6mqYa81RL9sOakgzSggXy6lD1BHtQOidu+U
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFRXbSyr6AYSMcivVuIOKM1AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM99POLOpwmSAsUSA6AgEQgDtWlwiW1A4Ljv+YiqVnhqlhSZhL08n2udrkFcXJOak8aa7RyAbspSlyMy/J6r9TffIO8mXOioXADQfokg==
