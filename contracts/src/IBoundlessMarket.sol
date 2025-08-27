@@ -165,10 +165,6 @@ interface IBoundlessMarket {
     /// @dev selector efc954a6
     error BatchSizeExceedsLimit(uint256 batchSize, uint256 limit);
 
-    /// @notice Error when the fulfillment data type is not supported
-    /// TODO(ec2): selector
-    error UnsupportedFulfillmentData();
-
     /// @notice Error when the fulfillment has a unfulfillable callback
     /// TODO(ec2): selector
     error UnfulfillableCallback();

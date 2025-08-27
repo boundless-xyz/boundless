@@ -337,21 +337,16 @@ contract BoundlessMarket is
             }
 
             uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
-
-            if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
-                if (callbackIndexPlusOne > 0) {
+            if (callbackIndexPlusOne > 0) {
+                if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
                     (bytes32 imageId, bytes calldata journal) =
                         FulfillmentDataLibrary.decodeFulfillmentData(fill.fulfillmentData);
                     AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
                     _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
-                }
-            } else if (fill.fulfillmentDataType == FulfillmentDataType.None) {
-                // A callback was requested, but it cannot be fulfilled, so revert.
-                if (callbackIndexPlusOne > 0) {
+                } else {
+                    // A callback was requested, but it cannot be fulfilled, so revert.
                     revert UnfulfillableCallback();
                 }
-            } else {
-                revert UnsupportedFulfillmentData();
             }
         }
     }
