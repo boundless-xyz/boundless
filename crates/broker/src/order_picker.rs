@@ -1842,8 +1842,8 @@ pub(crate) mod tests {
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        let min_price = parse_ether("0.00125").unwrap();
+        let max_price = parse_ether("0.00125").unwrap();
 
         // Order should have high enough price with the default selector.
         let order = ctx
