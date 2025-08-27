@@ -329,19 +329,23 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
               evaluationWindowSec: 300,
               scopeDownStatement: {
                 notStatement: {
-                  byteMatchStatement: {
-                    searchString: '/api/v1/health',
-                    fieldToMatch: {
-                      uriPath: {},
-                    },
-                    textTransformations: [
-                      {
-                        priority: 0,
-                        type: 'NONE',
+                  statements: [
+                    {
+                      byteMatchStatement: {
+                        searchString: '/api/v1/health',
+                        fieldToMatch: {
+                          uriPath: {},
+                        },
+                        textTransformations: [
+                          {
+                            priority: 0,
+                            type: 'NONE',
+                          },
+                        ],
+                        positionalConstraint: 'EXACTLY',
                       },
-                    ],
-                    positionalConstraint: 'EXACTLY',
-                  },
+                    },
+                  ],
                 },
               },
             },
