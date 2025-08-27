@@ -355,6 +355,7 @@ jobs:
         uses: ./.github/actions/sccache
 
       - uses: risc0/risc0/.github/actions/cuda@v3.0.1
+      - uses: risc0/risc0/.github/actions/protoc@v3.0.1
       - uses: risc0/risc0/.github/actions/rustup@v3.0.1
 
       - name: install cargo risczero
