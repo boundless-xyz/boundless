@@ -14,6 +14,12 @@ inputs:
     default: '1.88.0'
     type: string
 
+  install-groth16:
+    description: 'Whether to install the risc0-groth16 component; required for Groth16 GPU proving'
+    required: false
+    default: boolean
+    type: bool
+
 runs:
   using: composite
   steps:
@@ -34,6 +40,11 @@ runs:
         rzup install --verbose --force r0vm ${{ inputs.risczero-version }}
         rzup install --verbose --force rust ${{ inputs.toolchain-version }}
         rzup install --verbose --force cpp
+      shell: bash
+
+    - name: install risc0-groth16
+      if: ${{ inputs.install-groth16 }}
+      run: rzup install --verbose --force risc0-groth16
       shell: bash
 
     - name: test r0vm
