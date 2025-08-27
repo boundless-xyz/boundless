@@ -750,7 +750,9 @@ mod tests {
                 Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
             ),
             "https://image_url.dev",
-            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+            RequestInput::inline(
+                RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_vec().unwrap(),
+            ),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),

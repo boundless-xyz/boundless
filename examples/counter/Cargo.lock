@@ -2133,6 +2133,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-core"
+version = "0.14.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "aws-sdk-s3",
+ "bytemuck",
+ "clap",
+ "derive_builder",
+ "hex",
+ "httpmock",
+ "reqwest",
+ "risc0-zkvm",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "boundless-market"
 version = "0.14.0"
 dependencies = [
@@ -2144,6 +2169,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
+ "boundless-core",
  "bytemuck",
  "chrono",
  "clap",
@@ -2207,6 +2233,7 @@ dependencies = [
  "bincode",
  "bonsai-sdk",
  "boundless-assessor",
+ "boundless-core",
  "boundless-market",
  "boundless-market-test-utils",
  "chrono",

@@ -25,6 +25,9 @@ use alloy::{
 };
 use alloy_primitives::{Signature, B256};
 use anyhow::{anyhow, bail, Context, Result};
+use boundless_core::storage::{
+    StandardStorageProvider, StandardStorageProviderError, StorageProvider, StorageProviderConfig,
+};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
@@ -45,11 +48,7 @@ use crate::{
         RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
         StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
     },
-    storage::{
-        StandardStorageProvider, StandardStorageProviderError, StorageProvider,
-        StorageProviderConfig,
-    },
-    util::NotProvided,
+    NotProvided,
 };
 
 /// Builder for the [Client] with standard implementations for the required components.

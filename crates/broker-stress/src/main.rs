@@ -32,7 +32,7 @@ use boundless_market::{
         hit_points::default_allowance, Offer, Predicate, PredicateType, ProofRequest, RequestId,
         RequestInput, RequestInputType, Requirements,
     },
-    input::GuestEnv,
+    GuestEnv,
 };
 use boundless_market_test_utils::{create_test_ctx_with_rpc_url, TestCtx, ECHO_ELF, ECHO_ID};
 use broker::test_utils::BrokerBuilder;

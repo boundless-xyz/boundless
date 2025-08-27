@@ -29,6 +29,8 @@ use sha2::{Digest as _, Sha256};
 use tokio::sync::OnceCell;
 use url::ParseError;
 
+use crate::storage::StorageProviderType;
+
 use super::{StorageProvider, StorageProviderConfig};
 
 #[derive(Clone, Debug)]
@@ -225,5 +227,12 @@ impl StorageProvider for S3StorageProvider {
         let digest = Sha256::digest(input);
         let key = format!("input/{}", hex::encode(digest.as_slice()));
         self.upload(input, &key).await
+    }
+
+    fn config(&self) -> StorageProviderConfig {
+        StorageProviderConfig {
+            storage_provider: StorageProviderType::S3,
+            ..StorageProviderConfig::default()
+        }
     }
 }

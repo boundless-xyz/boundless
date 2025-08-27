@@ -26,6 +26,8 @@ use async_trait::async_trait;
 use httpmock::MockServer;
 use reqwest::Url;
 
+use crate::storage::{StorageProviderConfig, StorageProviderType};
+
 use super::StorageProvider;
 
 /// A `StorageProvider` implementation for testing using [MockServer].
@@ -105,6 +107,10 @@ impl StorageProvider for MockStorageProvider {
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
         tracing::debug!("Mocking upload of input: {} bytes", input.len());
         self.upload_and_mock(input, "input")
+    }
+
+    fn config(&self) -> StorageProviderConfig {
+        StorageProviderConfig { storage_provider: StorageProviderType::None, ..Default::default() }
     }
 }
 

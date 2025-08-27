@@ -25,7 +25,7 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::{
-    input::GuestEnv, request_builder::OfferParams, Client, Deployment, StorageProviderConfig,
+    request_builder::OfferParams, Client, Deployment, GuestEnv, StorageProviderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};

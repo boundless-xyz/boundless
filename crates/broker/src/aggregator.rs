@@ -15,7 +15,7 @@
 use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
-use boundless_market::{contracts::eip712_domain, input::GuestEnv};
+use boundless_market::{contracts::eip712_domain, GuestEnv};
 use chrono::Utc;
 use risc0_aggregation::GuestState;
 use risc0_zkvm::{
