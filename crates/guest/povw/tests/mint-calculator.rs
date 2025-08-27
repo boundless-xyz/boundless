@@ -507,6 +507,57 @@ async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn mint_with_one_finalized_and_one_unfinalized_epoch() -> anyhow::Result<()> {
+    let ctx = common::test_ctx().await?;
+    let signer = PrivateKeySigner::random();
+
+    // First update in first epoch
+    let update1 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(20)
+        .work_log_id(signer.address())
+        .build()
+        .unwrap();
+
+    ctx.post_work_log_update(&signer, &update1, signer.address()).await?;
+    ctx.advance_epochs(U256::ONE).await?;
+    let finalize_event = ctx.finalize_epoch().await?;
+
+    // Post work log update in the seconds epoch but don't finalize the epoch
+    let update2 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(update1.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(25)
+        .work_log_id(signer.address())
+        .build()
+        .unwrap();
+
+    ctx.post_work_log_update(&signer, &update2, signer.address()).await?;
+
+    // Advance time but DO NOT finalize the epoch
+    ctx.advance_epochs(U256::ONE).await?;
+
+    // Single mint covering both epochs
+    ctx.run_mint_with_opts(MintOptions::builder()).await?;
+
+    let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
+    let epoch_reward =
+        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalize_event.epoch).call().await?;
+    let expected_total = epoch_reward * U256::from(1); // Just the reward for the first epoch.
+
+    assert_eq!(
+        final_balance, expected_total,
+        "Final balance should be exactly epoch reward from the finalized epoch"
+    );
+    println!("Final balance after cross-epoch mint: {final_balance} tokens");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
     let ctx = common::test_ctx().await?;
     let signer = PrivateKeySigner::random();
