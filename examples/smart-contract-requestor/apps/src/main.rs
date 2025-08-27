@@ -20,7 +20,9 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{Context, Result};
-use boundless_market::{contracts::FulfillmentData, Client, Deployment, RequestId, StorageProviderConfig};
+use boundless_market::{
+    contracts::FulfillmentData, Client, Deployment, RequestId, StorageProviderConfig,
+};
 use boundless_market_test_utils::ECHO_ELF;
 use clap::Parser;
 use risc0_zkvm::serde::from_slice;
@@ -126,8 +128,7 @@ async fn run(args: Args) -> Result<()> {
             expires_at,
         )
         .await?;
-        let FulfillmentData { journal, .. } =
-        FulfillmentData::abi_decode(&fulfillment_data)?;
+    let FulfillmentData { journal, .. } = FulfillmentData::abi_decode(&fulfillment_data)?;
 
     tracing::info!("Request {:x} fulfilled", request_id);
     tracing::info!("Seal: {:?}", seal);
