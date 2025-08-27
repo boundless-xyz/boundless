@@ -20,7 +20,7 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{Context, Result};
-use boundless_market::{Client, Deployment, RequestId, StorageProviderConfig};
+use boundless_market::{contracts::FulfillmentData, Client, Deployment, RequestId, StorageProviderConfig};
 use boundless_market_test_utils::ECHO_ELF;
 use clap::Parser;
 use risc0_zkvm::serde::from_slice;
@@ -117,15 +117,17 @@ async fn run(args: Args) -> Result<()> {
         client.submit_request_onchain_with_signature(&request, signature).await?;
     tracing::info!("Request {:x} submitted", request_id);
 
-    // Wait for the request to be fulfilled by the market. The market will return the journal and seal.
+    // Wait for the request to be fulfilled by the market. The market will return the fulfillment data and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (journal, seal) = client
+    let (fulfillment_data, seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
             expires_at,
         )
         .await?;
+        let FulfillmentData { journal, .. } =
+        FulfillmentData::abi_decode(&fulfillment_data)?;
 
     tracing::info!("Request {:x} fulfilled", request_id);
     tracing::info!("Seal: {:?}", seal);

@@ -482,7 +482,7 @@ impl ProofRequest {
         Ok(())
     }
 
-    /// TODO(ec2): docs
+    /// Returns the image id if available.
     pub fn image_id(&self) -> Option<Digest> {
         self.requirements.image_id()
     }

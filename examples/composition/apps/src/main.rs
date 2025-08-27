@@ -108,7 +108,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (callback_data, echo_seal) = client
+    let (fulfillment_data, echo_seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
@@ -116,7 +116,7 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
     let FulfillmentData { imageId: cb_image_id, journal: echo_journal } =
-        FulfillmentData::abi_decode(&callback_data)?;
+        FulfillmentData::abi_decode(&fulfillment_data)?;
     tracing::info!("Request {:x} fulfilled", request_id);
     assert_eq!(Digest::from(<[u8; 32]>::from(cb_image_id)), Digest::from(ECHO_ID));
 
@@ -143,7 +143,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (identity_callback_data, identity_seal) = client
+    let (identity_fulfillment_data, identity_seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
@@ -152,7 +152,7 @@ async fn run(args: Args) -> Result<()> {
         .await?;
     tracing::info!("Request {:x} fulfilled", request_id);
     let FulfillmentData { journal: identity_journal, .. } =
-        FulfillmentData::abi_decode(&identity_callback_data)?;
+        FulfillmentData::abi_decode(&identity_fulfillment_data)?;
     debug_assert_eq!(&identity_journal, echo_claim_digest.as_bytes());
 
     // Interact with the Counter contract by calling the increment function.
