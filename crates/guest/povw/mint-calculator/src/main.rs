@@ -171,30 +171,30 @@ fn main() {
             // determined at the end of the epoch.
             // NOTE: The reward cap is calculated from the work log ID such that the completness
             // check above will ensure all events for the epoch are included.
-            let reward_cap = zkc_rewards_contract
+            let mut reward_cap = zkc_rewards_contract
                 .call_builder(&IZKCRewards::getPastPoVWRewardCapCall {
                     account: work_log_id,
                     timepoint: epoch_end_time,
                 })
                 .call();
 
-            // Iterate through the list of recipients for this work log, assigning rewards to each.
+            // Iterate through the list of recipients for this work log, assigning rewards to each
+            // and reducing the remaining cap each time.
             // If the work log's total rewards reach the cap, then rewards are assigned to
-            // recipients based on the sorted order of their addresses.
-            // This ordering is considered arbitrary, and may change in the future. In most cases
-            // we expect a work log to have a single recipient.
-            let mut work_log_reward = U256::ZERO;
+            // recipients based on the sorted order of their addresses. This ordering is considered
+            // arbitrary, and may change in the future. In most cases we expect a work log to have
+            // a single recipient.
             for (recipient, weight) in work_log_reward_weights {
                 // Calculate the maximum reward, based on the povw value alone.
                 let uncapped_reward = weight.mul_unwrap(epoch_emissions);
 
                 // Apply the cap and add the reward to the final mapping.
-                let reward = U256::min(uncapped_reward, reward_cap.saturating_sub(work_log_reward));
+                let reward = U256::min(uncapped_reward, reward_cap);
                 if reward > U256::ZERO {
                     *rewards.entry(recipient).or_default() += reward;
                 }
 
-                work_log_reward += reward;
+                reward_cap = reward_cap.saturating_sub(reward);
             }
         }
     }
