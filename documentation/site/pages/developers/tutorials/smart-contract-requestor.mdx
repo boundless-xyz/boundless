@@ -106,7 +106,7 @@ First we execute the guest program locally with our expected input, to generate 
 let input = days_since_epoch.to_be_bytes();
 let guest_env = GuestEnv::from_stdin(input);
 let input_url = client
-    .upload_input(&guest_env.encode()?)
+    .upload_input(&guest_env)
     .await
     .context("failed to upload input")?;
 
