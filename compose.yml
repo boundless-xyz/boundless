@@ -202,6 +202,13 @@ services:
     entrypoint: /app/agent -t snark --redis-ttl ${REDIS_TTL:-57600}
     environment:
       <<: *base-environment
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
 
     ulimits:
       # Needed for stark_verify bin
