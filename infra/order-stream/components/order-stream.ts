@@ -277,6 +277,12 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       },
       name: `${serviceName}-acl`,
       description: `WebACL for order stream service ${chainId}`,
+      customResponseBodies: {
+        'rate-limit-body': {
+          content: '{"error": "Rate limit exceeded. Please retry after 60 seconds."}',
+          contentType: 'APPLICATION_JSON',
+        },
+      },
       rules: [
         // IP Reputation - AWS managed
         {
@@ -302,12 +308,43 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
           name: 'rate-limit',
           priority: 2,
           action: {
-            block: {},
+            block: {
+              customResponse: {
+                responseCode: 429,
+                customResponseBodyKey: 'rate-limit-body',
+                responseHeaders: [
+                  {
+                    name: 'Retry-After',
+                    value: '60',
+                  },
+                ],
+              },
+            },
           },
           statement: {
             rateBasedStatement: {
               aggregateKeyType: 'IP',
-              limit: 250,
+              limit: 500,
+              evaluationWindowSec: 300,
+              scopeDownStatement: {
+                notStatement: {
+                  statement: {
+                    byteMatchStatement: {
+                      searchString: '/api/v1/health',
+                      fieldToMatch: {
+                        uriPath: {},
+                      },
+                      textTransformations: [
+                        {
+                          priority: 0,
+                          type: 'NONE',
+                        },
+                      ],
+                      positionalConstraint: 'EXACTLY',
+                    },
+                  },
+                },
+              },
             },
           },
           visibilityConfig: {
