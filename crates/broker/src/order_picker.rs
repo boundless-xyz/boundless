@@ -1164,11 +1164,7 @@ where
                             "Queued order {} to be priced. Currently {} queued pricing tasks: {}",
                             order_id,
                             pending_orders.len(),
-                            pending_orders
-                                .iter()
-                                .map(ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join(", ")
+                            format_truncated(pending_orders.iter().map(|o| o.id()))
                         );
                     }
                     Ok(state_change) = order_state_rx.recv() => {
@@ -1294,21 +1290,27 @@ where
     }
 }
 
-/// Format active pricing tasks for logging, limiting to first 3 and showing total count
-fn format_active_tasks(
-    active_tasks: &BTreeMap<U256, BTreeMap<String, CancellationToken>>,
-) -> String {
-    let mut order_iter = active_tasks.values().flat_map(|orders| orders.keys().cloned());
-
-    let first_three: Vec<String> = order_iter.by_ref().take(3).collect();
-    let remaining_count = order_iter.count();
-    let total_count = first_three.len() + remaining_count;
+/// Format orders for logging, limiting to first 3 and showing total count
+fn format_truncated<I, S>(mut iter: I) -> String
+where
+    I: Iterator<Item = S>,
+    S: AsRef<str>,
+{
+    let first_three: Vec<String> = iter.by_ref().take(3).map(|s| s.as_ref().to_string()).collect();
+    let remaining_count = iter.count();
 
     if remaining_count == 0 {
         first_three.join(", ")
     } else {
-        format!("{}, ... ({} total)", first_three.join(", "), total_count)
+        format!("{}, ... ({} total)", first_three.join(", "), first_three.len() + remaining_count)
     }
+}
+
+/// Format active pricing tasks for logging, limiting to first 3 and showing total count
+fn format_active_tasks(
+    active_tasks: &BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+) -> String {
+    format_truncated(active_tasks.values().flat_map(|orders| orders.keys()))
 }
 
 /// Returns the maximum cycles that can be proven within a given time period
