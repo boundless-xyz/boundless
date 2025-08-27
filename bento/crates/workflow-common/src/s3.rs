@@ -1,15 +1,14 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
-// as found in the LICENSE-BSL file.
+// All rights reserved.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use aws_sdk_s3::{
+    Client,
     config::{Builder, Credentials, Region},
     operation::{create_bucket::CreateBucketError, head_object::HeadObjectError},
     primitives::ByteStream,
     types::CreateBucketConfiguration,
-    Client,
 };
 use std::path::Path;
 

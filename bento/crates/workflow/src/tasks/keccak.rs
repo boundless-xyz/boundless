@@ -1,17 +1,16 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright (c) 2025 RISC Zero, Inc.
 //
-// Use of this source code is governed by the Business Source License
-// as found in the LICENSE-BSL file.
+// All rights reserved.
 
 use crate::{
-    redis::{self, AsyncCommands},
-    tasks::{serialize_obj, COPROC_CB_PATH},
     Agent,
+    redis::{self, AsyncCommands},
+    tasks::{COPROC_CB_PATH, serialize_obj},
 };
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use risc0_zkvm::ProveKeccakRequest;
 use uuid::Uuid;
-use workflow_common::{KeccakReq, KECCAK_RECEIPT_PATH};
+use workflow_common::{KECCAK_RECEIPT_PATH, KeccakReq};
 
 fn try_keccak_bytes_to_input(input: &[u8]) -> Result<Vec<[u64; 25]>> {
     let chunks = input.chunks_exact(std::mem::size_of::<[u64; 25]>());
