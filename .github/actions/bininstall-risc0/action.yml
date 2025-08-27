@@ -45,6 +45,7 @@ runs:
     - name: install risc0-groth16
       if: ${{ inputs.install-groth16 }}
       run: rzup install --verbose --force risc0-groth16
+      shell: bash
 
     - name: test r0vm
       shell: bash
