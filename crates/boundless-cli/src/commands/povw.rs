@@ -16,15 +16,14 @@
 
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::{PathBuf, Path},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
-use risc0_binfmt::PovwLogId;
-use risc0_povw::prover::WorkLogUpdateProver;
+use risc0_povw::{PovwLogId, prover::WorkLogUpdateProver};
 use risc0_zkvm::{
-    default_prover, GenericReceipt, Receipt, ReceiptClaim, SuccinctReceipt, WorkClaim,
+    default_prover, GenericReceipt, Receipt, ReceiptClaim, WorkClaim,
 };
 
 /// Commands for Proof of Verifiable Work (PoVW) operations.
@@ -72,10 +71,26 @@ impl PovwProveUpdate {
         let work_receipts = self.load_work_receipts().context("Failed to load work receipts")?;
         tracing::info!("Loaded {} work receipts", work_receipts.len());
 
-        // TODO: Set up the work log update prover
-        // TODO: Load continuation if provided
-        // TODO: Prove the work log update
-        // TODO: Save the output
+        // Set up the work log update prover
+        let mut prover = WorkLogUpdateProver::builder()
+            .prover(default_prover())
+            .log_id(self.log_id)
+            .build()
+            .context("Failed to build WorkLogUpdateProver")?;
+
+        // Load continuation if provided
+        if let Some(continuation_path) = &self.continuation {
+            self.load_continuation(&mut prover, continuation_path)
+                .context("Failed to load continuation")?;
+        }
+
+        // Prove the work log update
+        let prove_info = prover
+            .prove_update(work_receipts)
+            .context("Failed to prove work log update")?;
+
+        // Save the output
+        self.save_receipt(&prove_info.receipt).context("Failed to save receipt")?;
 
         Ok(())
     }
@@ -90,7 +105,7 @@ impl PovwProveUpdate {
 
             // Check for receipt file extensions
             let receipt = self
-                .load_receipt_file(&path)
+                .load_receipt_file(path)
                 .with_context(|| format!("Failed to load receipt from {}", path.display()))?;
             tracing::info!("Loaded receipt from: {}", path.display());
 
@@ -113,5 +128,50 @@ impl PovwProveUpdate {
             .with_context(|| format!("Failed to deserialize receipt from: {}", path.display()))?;
 
         Ok(receipt)
+    }
+
+    /// Load continuation receipt and work log state
+    fn load_continuation(
+        &self,
+        _prover: &mut WorkLogUpdateProver<impl risc0_zkvm::Prover>,
+        continuation_path: impl AsRef<Path>,
+    ) -> Result<()> {
+        let continuation_path = continuation_path.as_ref();
+        let _continuation_data = fs::read(continuation_path).with_context(|| {
+            format!(
+                "Failed to read continuation file: {}",
+                continuation_path.display()
+            )
+        })?;
+
+        // TODO: Load continuation receipt and work log state
+        // This requires the WorkLog state and previous receipt
+        tracing::warn!("Continuation support not fully implemented yet");
+
+        Ok(())
+    }
+
+    /// Save the work log update receipt
+    fn save_receipt(&self, receipt: &Receipt) -> Result<()> {
+        let output_path = self
+            .output
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("work_log_update.receipt"));
+
+        let receipt_data = bincode::serialize(receipt).context("Failed to serialize receipt")?;
+
+        fs::write(&output_path, &receipt_data).with_context(|| {
+            format!("Failed to write receipt to {}", output_path.display())
+        })?;
+
+        tracing::info!(
+            "Successfully created work log update receipt: {}",
+            output_path.display()
+        );
+
+        // Log receipt information
+        tracing::info!("Receipt journal size: {} bytes", receipt.journal.bytes.len());
+
+        Ok(())
     }
 }
