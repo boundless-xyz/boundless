@@ -26,7 +26,7 @@ contract SmartContractClient is BaseClient, Test {
 
     bytes private expectedSignature;
 
-    constructor(Vm.Wallet memory _signer) BaseClient() {
+    constructor(Vm.Wallet memory _signer) {
         expectedSignature = abi.encodePacked(keccak256(abi.encodePacked(_signer.addr)));
         smartWallet = new MockSmartContractWallet(expectedSignature, boundlessMarket, _signer.addr);
         signer = _signer;

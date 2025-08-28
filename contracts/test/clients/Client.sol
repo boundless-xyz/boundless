@@ -22,7 +22,7 @@ Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 contract Client is BaseClient {
     Vm.Wallet public wallet;
 
-    constructor(Vm.Wallet memory _wallet) BaseClient() {
+    constructor(Vm.Wallet memory _wallet) {
         wallet = _wallet;
     }
 
