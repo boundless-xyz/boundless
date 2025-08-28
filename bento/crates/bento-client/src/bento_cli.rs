@@ -69,12 +69,8 @@ async fn main() -> Result<()> {
     };
 
     // Execute STARK workflow
-    let (_session_uuid, receipt_id) =
+    let (_session_uuid, _receipt_id) =
         stark_workflow(&client, image.clone(), input, vec![], args.exec_only).await?;
-
-    let receipt = client.receipt_download(&session).await.context("Failed to download receipt")?;
-    let receipt: Receipt = bincode::deserialize(&receipt).unwrap();
-    receipt.verify(image).unwrap();
 
     // return if exec only and success
     if args.exec_only {
