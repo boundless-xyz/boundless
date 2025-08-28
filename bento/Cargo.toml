@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/api",
-  "crates/bento-client",
-  "crates/sample-guest/common",
-  "crates/sample-guest/methods",
-  "crates/taskdb",
-  "crates/workflow",
-  "crates/workflow-common",
+    "crates/api",
+    "crates/bento-client",
+    "crates/sample-guest/common",
+    "crates/sample-guest/methods",
+    "crates/taskdb",
+    "crates/workflow",
+    "crates/workflow-common",
 ]
 
 [workspace.package]
@@ -28,8 +28,8 @@ deadpool-redis = "0.15"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 rand = "0.8"
 redis = { version = "0.25", features = ["tokio-comp"] }
-risc0-build = { version = "3.0.1" }
 risc0-binfmt = { version = "3.0.1" }
+risc0-build = { version = "3.0.1" }
 risc0-zkvm = { version = "3.0.1", default-features = false }
 sample-guest-common = { path = "crates/sample-guest/common" }
 sample-guest-methods = { path = "crates/sample-guest/methods" }

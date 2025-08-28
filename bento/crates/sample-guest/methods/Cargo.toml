@@ -3,8 +3,8 @@ name = "sample-guest-methods"
 version = "0.1.0"
 edition = "2024"
 
-[build-dependencies]
-risc0-build = { workspace = true }
-
 [package.metadata.risc0]
 methods = ["guest"]
+
+[build-dependencies]
+risc0-build = { workspace = true }
