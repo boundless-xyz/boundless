@@ -184,3 +184,39 @@ impl TaskType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_type_creation() {
+        let resolve_req = ResolveReq { max_idx: 100, union_max_idx: Some(50) };
+
+        // Test that ResolveReq can be created
+        assert_eq!(resolve_req.max_idx, 100);
+        assert_eq!(resolve_req.union_max_idx, Some(50));
+    }
+
+    #[test]
+    fn test_join_req_creation() {
+        let join_req = JoinReq { idx: 1, left: 2, right: 3 };
+
+        // Test that JoinReq can be created
+        assert_eq!(join_req.idx, 1);
+        assert_eq!(join_req.left, 2);
+        assert_eq!(join_req.right, 3);
+    }
+
+    #[test]
+    fn test_keccak_request_creation() {
+        let keccak_req = KeccakReq {
+            claim_digest: Digest::from_bytes([1; 32]),
+            po2: 10,
+            control_root: Digest::from_bytes([2; 32]),
+        };
+
+        // Test that KeccakReq can be created
+        assert_eq!(keccak_req.po2, 10);
+    }
+}

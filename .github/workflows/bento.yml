@@ -1,0 +1,213 @@
+name: Bento Testing
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release-*'
+    paths:
+      - 'bento/**'
+      - '.github/workflows/bento.yml'
+  push:
+    branches:
+      - main
+      - 'release-*'
+    paths:
+      - 'bento/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: read
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "3.0.1"
+  FOUNDRY_VERSION: v1.0.0
+
+jobs:
+  bento-test:
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    services:
+      postgres:
+        image: postgres:latest
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: bento_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Setup sccache + S3
+        uses: ./.github/actions/sccache
+
+      - name: Setup Rust toolchain
+        uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Install cargo-sort
+        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
+        with:
+          crate: cargo-sort
+          version: "1.0"
+
+      - name: Change to bento directory
+        run: cd bento
+
+      - name: Cargo sort check
+        run: cargo sort --workspace --check
+
+      - name: Cargo format check
+        run: cargo fmt --all -- --check
+
+      - name: Cargo check
+        run: cargo check --locked --all-targets
+
+      - name: Cargo clippy
+        env:
+          RUSTFLAGS: "-Dwarnings"
+        run: cargo clippy --locked --all-targets
+
+      - name: Run bento tests
+        run: cargo test --locked --workspace --all-targets -- --include-ignored
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          RISC0_DEV_MODE: true
+          POVW_ENABLED: false
+
+      - name: Test with POVW enabled
+        run: cargo test --locked --workspace --all-targets -- --include-ignored
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          RISC0_DEV_MODE: true
+          POVW_ENABLED: true
+          POVW_LOG_ID: "0000000000000000000000000000000000000000"
+          POVW_JOB_NUMBER: "1"
+
+      - name: Build bento crates individually
+        run: |
+          cargo build --locked -p api
+          cargo build --locked -p bento-client
+          cargo build --locked -p taskdb
+          cargo build --locked -p workflow
+          cargo build --locked -p workflow-common
+
+      - name: Test specific crates
+        run: |
+          cargo test --locked -p taskdb
+          cargo test --locked -p workflow-common
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          RISC0_DEV_MODE: true
+
+      - name: Sccache stats
+        run: sccache --show-stats
+
+  bento-integration:
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    needs: bento-test
+    services:
+      postgres:
+        image: postgres:latest
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: bento_integration_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Setup Rust toolchain
+        uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Change to bento directory
+        run: cd bento
+
+      - name: Run integration tests
+        run: |
+          # Test database migrations
+          cargo sqlx database create
+          cargo sqlx migrate run
+
+          # Test that all crates can be built together
+          cargo build --locked --workspace
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          RISC0_DEV_MODE: true
+
+  bento-docs:
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    needs: bento-test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust toolchain
+        uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+
+      - name: Change to bento directory
+        run: cd bento
+
+      - name: Generate documentation
+        run: cargo doc --locked --workspace --no-deps
+        env:
+          RISC0_DEV_MODE: true
+
+      - name: Check documentation builds
+        run: cargo doc --locked --workspace --no-deps --open
+        env:
+          RUSTFLAGS: "-Dwarnings"
+          RISC0_DEV_MODE: true
