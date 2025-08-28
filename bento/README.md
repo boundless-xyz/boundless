@@ -18,9 +18,11 @@ Bento is designed to handle large-scale ZKP workloads by distributing computatio
 ### Core Components
 
 #### 1. **Workflow Engine** (`crates/workflow`)
+
 The central orchestration service that manages task distribution and execution.
 
 **Key Features:**
+
 - Task polling and distribution
 - Worker management and load balancing
 - Retry logic and failure handling
@@ -28,6 +30,7 @@ The central orchestration service that manages task distribution and execution.
 - Background task monitoring
 
 **Worker Types:**
+
 - `exec` - Executes guest programs and generates segments
 - `prove` - Generates STARK proofs from segments
 - `join` - Composes multiple proofs into larger proofs
@@ -38,9 +41,11 @@ The central orchestration service that manages task distribution and execution.
 - `union` - Combines multiple proof types
 
 #### 2. **Task Database** (`crates/taskdb`)
+
 PostgreSQL-based task management system with sophisticated dependency resolution.
 
 **Features:**
+
 - Job and task lifecycle management
 - Dependency-based task scheduling
 - Retry logic and timeout handling
@@ -48,35 +53,43 @@ PostgreSQL-based task management system with sophisticated dependency resolution
 - Job state management (Running, Done, Failed)
 
 #### 3. **API Service** (`crates/api`)
+
 HTTP API for submitting jobs and managing the Bento cluster.
 
 **Endpoints:**
+
 - Job submission and management
 - Image and input upload
 - Receipt retrieval and verification
 - Cluster status and metrics
 
 #### 4. **Client Library** (`crates/bento-client`)
+
 Rust client library for interacting with Bento services.
 
 **Features:**
+
 - Job submission and monitoring
 - Receipt verification
 - Batch processing support
 
 #### 5. **Workflow Common** (`crates/workflow-common`)
+
 Shared data structures and constants used across the workflow system.
 
 **Components:**
+
 - Task request/response types
 - S3 client for object storage
 - Compression type definitions
 - Work type constants
 
 #### 6. **Sample Guest** (`crates/sample-guest`)
+
 Example RISC Zero guest programs and methods for testing and development.
 
 **Features:**
+
 - Iterative computation examples
 - Composition and Keccak workflows
 - Test vectors for validation
@@ -84,6 +97,7 @@ Example RISC Zero guest programs and methods for testing and development.
 ## 🔧 Technology Stack
 
 ### Core Technologies
+
 - **RISC Zero zkVM**: Zero-knowledge virtual machine for secure computation
 - **Rust**: Primary programming language for performance and safety
 - **PostgreSQL**: Task database with advanced querying capabilities
@@ -91,6 +105,7 @@ Example RISC Zero guest programs and methods for testing and development.
 - **S3/MinIO**: Object storage for images, inputs, and receipts
 
 ### Dependencies
+
 - **sqlx**: Async database toolkit with compile-time query checking
 - **tokio**: Async runtime for high-performance I/O
 - **serde**: Serialization framework
@@ -221,6 +236,7 @@ RUST_LOG=info cargo run --bin bento_cli -- -t http://api.bento.com -c 32
 ```
 
 **CLI Options:**
+
 - `-f, --elf-file`: Path to RISC Zero ELF file
 - `-i, --input-file`: Path to input data file
 - `-c, --iter-count`: Iteration count for test vectors
@@ -242,6 +258,7 @@ cargo run -p workflow -- join --task-stream join
 ```
 
 When POVW is enabled:
+
 - Join operations use `join_povw` instead of regular `join`
 - Resolve operations use `resolve_povw` instead of regular `resolve`
 - Enhanced verification and logging for proof composition
@@ -265,14 +282,14 @@ When POVW is enabled:
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | Required |
-| `REDIS_URL` | Redis connection string | Required |
-| `RISC0_DEV_MODE` | Enable development mode | `false` |
-| `POVW_ENABLED` | Enable POVW support | `false` |
-| `POVW_LOG_ID` | POVW log identifier | Required if POVW enabled |
-| `POVW_JOB_NUMBER` | POVW job number | Required if POVW enabled |
+| Variable          | Description                  | Default                  |
+| ----------------- | ---------------------------- | ------------------------ |
+| `DATABASE_URL`    | PostgreSQL connection string | Required                 |
+| `REDIS_URL`       | Redis connection string      | Required                 |
+| `RISC0_DEV_MODE`  | Enable development mode      | `false`                  |
+| `POVW_ENABLED`    | Enable POVW support          | `false`                  |
+| `POVW_LOG_ID`     | POVW log identifier          | Required if POVW enabled |
+| `POVW_JOB_NUMBER` | POVW job number              | Required if POVW enabled |
 
 ### Agent Configuration
 
