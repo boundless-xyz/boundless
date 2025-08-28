@@ -29,7 +29,7 @@ use risc0_zkvm::{Digest, Journal};
 use url::Url;
 
 use crate::{
-    contracts::{ProofRequest, RequestId, RequestInput},
+    contracts::{Predicate, ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
     storage::{StandardStorageProvider, StorageProvider},
     util::NotProvided,
@@ -550,6 +550,25 @@ impl RequestParams {
             true => Some((Selector::FakeReceipt as u32).into()),
             false => Some((Selector::groth16_latest() as u32).into()),
         };
+        Self { requirements, ..self }
+    }
+
+    /// Request a stand-alone Shrink Bitvm2 proof for this request.
+    ///
+    /// This is a convinience method to set the selector on the requirements. Note that calling
+    /// [RequestParams::with_requirements] after this function will overwrite the change.
+    pub fn with_shrink_bitvm2_proof(self) -> Self {
+        let mut requirements = self.requirements;
+        requirements.selector = match crate::util::is_dev_mode() {
+            true => Some((Selector::FakeReceipt as u32).into()),
+            false => Some((Selector::ShrinkBitvm2V0_1 as u32).into()),
+        };
+        // if let Some(ref predicate) = requirements.predicate {
+        //     if predicate.predicateType == crate::contracts::PredicateType::ClaimDigestMatch {
+        //         // If the predicate is a claim digest match, we need to set the image ID.
+        //         requirements.image_id = Some(predicate.data.0.as_ref().try_into().unwrap());
+        //     }
+        // }
         Self { requirements, ..self }
     }
 }

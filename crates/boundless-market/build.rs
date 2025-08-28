@@ -25,7 +25,7 @@ const EXCLUDE_CONTRACTS: [&str; 2] = [
 ];
 
 // Contracts to copy bytecode for. Used for deploying contracts in tests.
-const ARTIFACT_TARGET_CONTRACTS: [&str; 8] = [
+const ARTIFACT_TARGET_CONTRACTS: [&str; 9] = [
     "BoundlessMarket",
     "HitPoints",
     "RiscZeroMockVerifier",
@@ -33,6 +33,7 @@ const ARTIFACT_TARGET_CONTRACTS: [&str; 8] = [
     "ERC1967Proxy",
     "RiscZeroVerifierRouter",
     "RiscZeroGroth16Verifier",
+    "RiscZeroBitvm2Groth16Verifier",
     "MockCallback",
 ];
 
@@ -264,6 +265,9 @@ fn get_interfaces(contract: &str) -> &str {
             function addVerifier(bytes4 selector, address verifier) {}"#
         }
         "RiscZeroGroth16Verifier" => {
+            r#"constructor(bytes32 control_root, bytes32 bn254_control_id) {}"#
+        }
+        "RiscZeroBitvm2Groth16Verifier" => {
             r#"constructor(bytes32 control_root, bytes32 bn254_control_id) {}"#
         }
         "MockCallback" => {

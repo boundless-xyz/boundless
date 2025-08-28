@@ -14,11 +14,15 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::{FulfillmentClaimData, Offer, ProofRequest, RequestId, RequestInput, Requirements},
+    contracts::{
+        FulfillmentClaimData, Offer, PredicateType, ProofRequest, RequestId, RequestInput,
+        Requirements,
+    },
     util::now_timestamp,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
+use risc0_zkvm::Digest;
 use url::Url;
 
 #[non_exhaustive]
