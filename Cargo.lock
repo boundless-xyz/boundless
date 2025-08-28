@@ -2580,6 +2580,7 @@ dependencies = [
  "reqwest",
  "risc0-aggregation",
  "risc0-ethereum-contracts",
+ "risc0-povw 0.1.1",
  "risc0-zkvm 3.0.3",
  "serde",
  "serde_json",
@@ -2741,7 +2742,7 @@ dependencies = [
  "risc0-build",
  "risc0-build-ethereum 3.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "risc0-ethereum-contracts",
- "risc0-povw",
+ "risc0-povw 0.1.0",
  "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=26ab6a5bddb33dc42b69ed9b8116ef820ce45907)",
  "risc0-zkvm 3.0.3",
  "ruint",
@@ -8442,6 +8443,24 @@ dependencies = [
  "hybrid-array",
  "risc0-binfmt 3.0.0",
  "risc0-zkvm 3.0.0",
+ "ruint",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "risc0-povw"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e57e9d211fe9468722a93706213058eef722e2187f137cf915a9f926b038f65"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "bytemuck",
+ "derive_builder",
+ "hybrid-array",
+ "risc0-binfmt 3.0.2",
+ "risc0-zkvm 3.0.3",
  "ruint",
  "serde",
  "thiserror 1.0.69",
