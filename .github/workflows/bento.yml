@@ -110,9 +110,10 @@ jobs:
           if ! command -v sqlx &> /dev/null; then
             cargo install sqlx-cli --no-default-features --features postgres
           fi
+          pwd
 
           # Create database and run migrations for taskdb
-          cd crates/taskdb
+          cd bento/crates/taskdb
           sqlx database create --database-url "postgres://postgres:password@localhost:5432/bento_test"
           sqlx migrate run --database-url "postgres://postgres:password@localhost:5432/bento_test"
           cd ../..
