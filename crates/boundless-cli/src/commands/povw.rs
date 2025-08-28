@@ -16,15 +16,13 @@
 
 use std::{
     fs,
-    path::{PathBuf, Path},
+    path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use clap::{Args, Subcommand};
-use risc0_povw::{PovwLogId, prover::WorkLogUpdateProver};
-use risc0_zkvm::{
-    default_prover, GenericReceipt, Receipt, ReceiptClaim, WorkClaim,
-};
+use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId};
+use risc0_zkvm::{default_prover, GenericReceipt, Receipt, ReceiptClaim, WorkClaim};
 
 /// Commands for Proof of Verifiable Work (PoVW) operations.
 #[derive(Subcommand, Clone, Debug)]
@@ -65,7 +63,7 @@ pub struct PovwProveUpdate {
 impl PovwProveUpdate {
     /// Run the [PovwProveUpdate] command.
     pub async fn run(&self) -> Result<()> {
-        tracing::info!("Starting PoVW prove-update for log ID: {}", self.log_id);
+        tracing::info!("Starting PoVW prove-update for log ID: {:x}", self.log_id);
 
         // Load work receipt files
         let work_receipts = self.load_work_receipts().context("Failed to load work receipts")?;
@@ -75,6 +73,8 @@ impl PovwProveUpdate {
         let mut prover = WorkLogUpdateProver::builder()
             .prover(default_prover())
             .log_id(self.log_id)
+            .log_builder_program(risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ELF)
+            .context("Failed to build WorkLogUpdateProver")?
             .build()
             .context("Failed to build WorkLogUpdateProver")?;
 
@@ -85,9 +85,8 @@ impl PovwProveUpdate {
         }
 
         // Prove the work log update
-        let prove_info = prover
-            .prove_update(work_receipts)
-            .context("Failed to prove work log update")?;
+        let prove_info =
+            prover.prove_update(work_receipts).context("Failed to prove work log update")?;
 
         // Save the output
         self.save_receipt(&prove_info.receipt).context("Failed to save receipt")?;
@@ -108,6 +107,21 @@ impl PovwProveUpdate {
                 .load_receipt_file(path)
                 .with_context(|| format!("Failed to load receipt from {}", path.display()))?;
             tracing::info!("Loaded receipt from: {}", path.display());
+
+            let work_claim = receipt
+                .claim()
+                .as_value()
+                .context("Loaded receipt has a pruned claim")?
+                .work
+                .as_value()
+                .context("Loaded receipt has a pruned work claim")?
+                .clone();
+            // NOTE: If nonce_max does not have the same log ID as nonce_min, the exec will fail.
+            ensure!(work_claim.nonce_min.log == self.log_id,
+                "Loaded reacipt has a log ID that does not match the specified log ID: loaded: {:x}, specified: {:x}",
+                work_claim.nonce_min.log,
+                self.log_id
+            );
 
             receipts.push(receipt);
         }
@@ -138,10 +152,7 @@ impl PovwProveUpdate {
     ) -> Result<()> {
         let continuation_path = continuation_path.as_ref();
         let _continuation_data = fs::read(continuation_path).with_context(|| {
-            format!(
-                "Failed to read continuation file: {}",
-                continuation_path.display()
-            )
+            format!("Failed to read continuation file: {}", continuation_path.display())
         })?;
 
         // TODO: Load continuation receipt and work log state
@@ -153,24 +164,19 @@ impl PovwProveUpdate {
 
     /// Save the work log update receipt
     fn save_receipt(&self, receipt: &Receipt) -> Result<()> {
-        let output_path = self
-            .output
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("work_log_update.receipt"));
+        let output_path =
+            self.output.clone().unwrap_or_else(|| PathBuf::from("work_log_update.receipt"));
 
         let receipt_data = bincode::serialize(receipt).context("Failed to serialize receipt")?;
 
-        fs::write(&output_path, &receipt_data).with_context(|| {
-            format!("Failed to write receipt to {}", output_path.display())
-        })?;
+        fs::write(&output_path, &receipt_data)
+            .with_context(|| format!("Failed to write receipt to {}", output_path.display()))?;
 
-        tracing::info!(
-            "Successfully created work log update receipt: {}",
-            output_path.display()
-        );
+        tracing::info!("Successfully created work log update receipt: {}", output_path.display());
 
         // Log receipt information
-        tracing::info!("Receipt journal size: {} bytes", receipt.journal.bytes.len());
+        // TODO: Decode the journal to show the information about the work log update.
+        tracing::info!("Receipt journal: {:x?}", receipt.journal);
 
         Ok(())
     }
