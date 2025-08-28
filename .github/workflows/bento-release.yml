@@ -1,0 +1,247 @@
+name: Build and Release Bento Components
+
+on:
+  push:
+    tags:
+      - 'bento-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., bento-v1.0.0)'
+        required: true
+        default: 'bento-v1.0.0'
+      dry_run:
+        description: 'Dry run (build only, no release)'
+        required: false
+        default: 'false'
+
+env:
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "2.3.1"
+  RUST_VERSION: "1.88.0"
+
+jobs:
+  build-bento:
+    name: Build Bento Components
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: linux
+            arch: x64
+            artifact_name: linux-amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install deps
+        run: |
+          # Add NVIDIA repository and install drivers
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev cuda-toolkit-13-0 nvidia-open
+
+          # Debug PATH and verify tools
+          echo "=== PATH Debug ==="
+          echo "PATH: $PATH"
+          echo "=== Tool Locations ==="
+          which gcc || echo "gcc not found"
+          which cc || echo "cc not found"
+          which nvcc || echo "nvcc not found"
+          echo "=== CUDA Paths ==="
+          ls -la /usr/local/cuda/bin/ || echo "CUDA bin not found"
+          ls -la /usr/bin/gcc || echo "System gcc not found"
+
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          target: ${{ matrix.target }}
+          override: true
+          profile: minimal
+
+      - name: Install RISC0 toolchain
+        uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            bento/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Bento Components Bundle
+        working-directory: bento
+        env:
+          CUDA_PATH: /usr/local/cuda
+          CUDA_HOME: /usr/local/cuda
+          PATH: /usr/local/cuda/bin:/usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
+          LD_LIBRARY_PATH: /usr/local/cuda/lib64:$LD_LIBRARY_PATH
+          NVCC_FLAGS: "--generate-code arch=compute_86,code=sm_86 --generate-code arch=compute_89,code=sm_89 --generate-code arch=compute_120,code=sm_120"
+          SCCACHE_CUDA: "1"
+          SCCACHE_CUDA_COMPILER: "nvcc"
+          SCCACHE_CUDA_INCLUDE: "/usr/local/cuda/include"
+          SCCACHE_CUDA_LIB: "/usr/local/cuda/lib64"
+        run: |
+          # Build all components
+          cargo build --release --target ${{ matrix.target }} -F cuda --bin agent
+          cargo build --release --target ${{ matrix.target }} --bin rest_api
+          cargo build --release --target ${{ matrix.target }} --bin bento_cli
+
+          # Create bundle directory in workspace root
+          mkdir -p ../binaries/${{ matrix.artifact_name }}/bento-bundle
+
+          # Copy all components to bundle
+          cp target/${{ matrix.target }}/release/agent ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-agent
+          cp target/${{ matrix.target }}/release/rest_api ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-rest-api
+          cp target/${{ matrix.target }}/release/bento_cli ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-cli
+
+          # Create bundle archive
+          cd ../binaries/${{ matrix.artifact_name }}
+          tar -czf bento-bundle-${{ matrix.artifact_name }}.tar.gz bento-bundle/
+          rm -rf bento-bundle/
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+      - name: Create checksums
+        working-directory: binaries/${{ matrix.artifact_name }}
+        run: |
+          sha256sum bento-bundle-${{ matrix.artifact_name }}.tar.gz > bento-bundle-${{ matrix.artifact_name }}.tar.gz.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bento-binaries-${{ matrix.artifact_name }}
+          path: binaries/${{ matrix.artifact_name }}
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-bento
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/bento-v') && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          for artifact in artifacts/bento-binaries-*; do
+            if [ -d "$artifact" ]; then
+              cp -r "$artifact"/* release-assets/
+            fi
+          done
+          ls -la release-assets/
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_name=Bento Release $VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          release_name: ${{ steps.get_version.outputs.release_name }}
+          body: |
+            ## Bento Components Release
+
+            This release includes a complete bundle of Bento components:
+            - **Bento Agent**: Workflow execution agent (with CUDA support)
+            - **Bento REST API**: REST API server
+            - **Bento Client**: Client library
+
+            ### Supported Platforms
+            - Linux AMD64
+
+            ### Installation
+            Download the appropriate bundle for your platform and extract:
+            ```bash
+            # Download and extract
+            tar -xzf bento-bundle-linux-amd64.tar.gz
+            cd bento-bundle
+
+            # Make executables
+            chmod +x bento-agent
+            chmod +x bento-rest-api
+            chmod +x bento-client
+            ```
+
+            ### Usage
+            ```bash
+            # Run agent
+            ./bento-agent --help
+
+            # Run REST API
+            ./bento-rest-api --help
+
+            # Run client
+            ./bento-client --help
+            ```
+
+            ### Verification
+            Verify the integrity of downloaded bundles using the provided SHA256 checksums.
+          draft: false
+          prerelease: false
+
+      - name: Upload Bento Bundle (Linux AMD64)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/bento-bundle-linux-amd64.tar.gz
+          asset_name: bento-bundle-linux-amd64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload SHA256 checksums
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/bento-bundle-linux-amd64.tar.gz.sha256
+          asset_name: bento-bundle-linux-amd64.tar.gz.sha256
+          asset_content_type: text/plain
