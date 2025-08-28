@@ -6,7 +6,6 @@
 pragma solidity ^0.8.20;
 
 import {console} from "forge-std/console.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -19,49 +18,37 @@ import {
     ReceiptClaimLib,
     VerificationFailed
 } from "risc0/IRiscZeroVerifier.sol";
-import {TestReceipt} from "risc0/../test/TestReceipt.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {Client} from "./clients/Client.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
-import {UnsafeUpgrades, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {Callback} from "../src/types/Callback.sol";
-import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
-import {AssessorJournal} from "../src/types/AssessorJournal.sol";
+import {RequestId} from "../src/types/RequestId.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "../src/libraries/MerkleProofish.sol";
 import {RequestId} from "../src/types/RequestId.sol";
 import {ProofRequest} from "../src/types/ProofRequest.sol";
 import {LockRequest} from "../src/types/LockRequest.sol";
-import {Account} from "../src/types/Account.sol";
-import {RequestLock} from "../src/types/RequestLock.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
 import {AssessorReceipt} from "../src/types/AssessorReceipt.sol";
-import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 import {Offer} from "../src/types/Offer.sol";
 import {Requirements} from "../src/types/Requirements.sol";
 import {Predicate, PredicateType} from "../src/types/Predicate.sol";
-import {Input, InputType} from "../src/types/Input.sol";
 import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
 
-import {ProofRequestLibrary} from "../src/types/ProofRequest.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
 import {MockCallback} from "./MockCallback.sol";
 import {Selector} from "../src/types/Selector.sol";
 
-import {MockSmartContractWallet} from "./clients/MockSmartContractWallet.sol";
 import {SmartContractClient} from "./clients/SmartContractClient.sol";
-import {BaseClient} from "./clients/BaseClient.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -105,28 +92,28 @@ contract BoundlessMarketTest is Test {
     uint256 constant EXPECTED_DEFAULT_MAX_GAS_FOR_VERIFY = 50000;
     uint256 constant EXPECTED_SLASH_BURN_BPS = 2000;
 
-    ReceiptClaim internal APP_CLAIM = ReceiptClaimLib.ok(APP_IMAGE_ID, sha256(APP_JOURNAL));
+    ReceiptClaim internal appClaim = ReceiptClaimLib.ok(APP_IMAGE_ID, sha256(APP_JOURNAL));
 
-    Vm.Wallet internal OWNER_WALLET = vm.createWallet("OWNER");
+    Vm.Wallet internal ownerWallet = vm.createWallet("OWNER");
 
     MockCallback internal mockCallback;
     MockCallback internal mockHighGasCallback;
 
     function setUp() public {
-        vm.deal(OWNER_WALLET.addr, DEFAULT_BALANCE);
+        vm.deal(ownerWallet.addr, DEFAULT_BALANCE);
 
-        vm.startPrank(OWNER_WALLET.addr);
+        vm.startPrank(ownerWallet.addr);
 
         // Deploy the implementation contracts
         verifier = new RiscZeroMockVerifier(bytes4(0));
         setVerifier = new RiscZeroSetVerifier(verifier, SET_BUILDER_IMAGE_ID, "https://set-builder.dev.null");
-        stakeToken = new HitPoints(OWNER_WALLET.addr);
+        stakeToken = new HitPoints(ownerWallet.addr);
 
         // Deploy the UUPS proxy with the implementation
         boundlessMarketSource = address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(stakeToken)));
         proxy = UnsafeUpgrades.deployUUPSProxy(
             boundlessMarketSource,
-            abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
+            abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
         );
         boundlessMarket = BoundlessMarket(proxy);
 
@@ -134,7 +121,7 @@ contract BoundlessMarketTest is Test {
         mockCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 10_000);
         mockHighGasCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 250_000);
 
-        stakeToken.grantMinterRole(OWNER_WALLET.addr);
+        stakeToken.grantMinterRole(ownerWallet.addr);
         stakeToken.grantAuthorizedTransferRole(proxy);
         vm.stopPrank();
 
@@ -152,7 +139,7 @@ contract BoundlessMarketTest is Test {
         stakeTreasuryBalanceSnapshot = type(int256).max;
 
         // Verify that OWNER is the actual owner
-        assertEq(boundlessMarket.owner(), OWNER_WALLET.addr, "OWNER address is not the contract owner after deployment");
+        assertEq(boundlessMarket.owner(), ownerWallet.addr, "OWNER address is not the contract owner after deployment");
     }
 
     function expectedSlashBurnAmount(uint256 amount) internal pure returns (uint96) {
@@ -267,7 +254,7 @@ contract BoundlessMarketTest is Test {
         client.snapshotBalance();
 
         // Mint some stake tokens.
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         stakeToken.mint(clientAddress, DEFAULT_BALANCE);
 
         uint256 deadline = block.timestamp + 1 hours;
@@ -296,7 +283,7 @@ contract BoundlessMarketTest is Test {
         client.snapshotBalance();
 
         // Mint some stake tokens.
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         stakeToken.mint(walletAddress, DEFAULT_BALANCE);
 
         vm.prank(signerAddress);
@@ -558,14 +545,14 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.withdrawFromTreasury(1 ether);
 
-        uint256 initialBalance = OWNER_WALLET.addr.balance;
+        uint256 initialBalance = ownerWallet.addr.balance;
         // Withdraw funds from the treasury
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.Withdrawal(address(boundlessMarket), 1 ether);
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         boundlessMarket.withdrawFromTreasury(1 ether);
         assert(boundlessMarket.balanceOf(address(boundlessMarket)) == 0);
-        assert(OWNER_WALLET.addr.balance == 1 ether + initialBalance);
+        assert(ownerWallet.addr.balance == 1 ether + initialBalance);
     }
 
     function testWithdrawFromStakeTreasury() public {
@@ -580,10 +567,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Withdraw funds from the stake treasury
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.StakeWithdrawal(address(boundlessMarket), expectedWithdrawal);
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         boundlessMarket.withdrawFromStakeTreasury(expectedWithdrawal);
         assert(boundlessMarket.balanceOfStake(address(boundlessMarket)) == 0);
-        assert(stakeToken.balanceOf(OWNER_WALLET.addr) == expectedWithdrawal);
+        assert(stakeToken.balanceOf(ownerWallet.addr) == expectedWithdrawal);
     }
 
     function testWithdrawals() public {
@@ -613,7 +600,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testStakeDeposit() public {
         // Mint some tokens
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         stakeToken.mint(testProverAddress, 2);
 
         // Approve the market to spend the testProver's stakeToken
@@ -640,7 +627,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testStakeDepositWithPermit() public {
         // Mint some tokens
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         stakeToken.mint(testProverAddress, 2);
 
         // Approve the market to spend the testProver's stakeToken
@@ -3856,10 +3843,10 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
 
     function testUnsafeUpgrade() public {
-        vm.startPrank(OWNER_WALLET.addr);
+        vm.startPrank(ownerWallet.addr);
         proxy = UnsafeUpgrades.deployUUPSProxy(
             address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))),
-            abi.encodeCall(BoundlessMarket.initialize, (OWNER_WALLET.addr, "https://assessor.dev.null"))
+            abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
         );
         boundlessMarket = BoundlessMarket(proxy);
         address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
@@ -3868,21 +3855,21 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy, address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))), "", OWNER_WALLET.addr
+            proxy, address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))), "", ownerWallet.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);
 
         assertFalse(implAddressV2 == implAddressV1);
 
-        (bytes32 imageID, string memory imageUrl) = boundlessMarket.imageInfo();
-        assertEq(imageID, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
+        (bytes32 imageId, string memory imageUrl) = boundlessMarket.imageInfo();
+        assertEq(imageId, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
         assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
     }
 
     function testTransferOwnership() public {
         address newOwner = vm.createWallet("NEW_OWNER").addr;
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         boundlessMarket.transferOwnership(newOwner);
 
         vm.prank(newOwner);

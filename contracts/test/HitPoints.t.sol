@@ -5,10 +5,11 @@
 
 pragma solidity ^0.8.24;
 
-import "forge-std/Test.sol";
-import "@openzeppelin/contracts/access/IAccessControl.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "../src/HitPoints.sol";
+import {Test} from "forge-std/Test.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {HitPoints} from "../src/HitPoints.sol";
+import {IHitPoints} from "../src/IHitPoints.sol";
 
 contract HitPointsTest is Test {
     HitPoints public token;
