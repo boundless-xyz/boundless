@@ -418,7 +418,7 @@ struct MainArgs {
     #[command(subcommand)]
     command: Command,
 
-    #[command(flatten)]
+    #[command(flatten, next_help_heading = "Global Options")]
     config: GlobalConfig,
 }
 
