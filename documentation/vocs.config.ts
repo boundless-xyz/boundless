@@ -172,7 +172,7 @@ const DEVELOPERS_ITEMS = [
       },
       {
         text: "OP Kailua Book",
-        link: "https://risc0.github.io/kailua/",
+        link: "https://boundless-xyz.github.io/kailua/",
       },
     ],
   },
