@@ -95,13 +95,18 @@ jobs:
         run: cd bento
 
       - name: Cargo sort check
-        run: cargo sort --workspace --check
+        run: |
+          cd bento
+          cargo sort --workspace --check
 
       - name: Cargo format check
-        run: cargo fmt --all -- --check
+        run: |
+          cd bento
+          cargo fmt --all -- --check
 
       - name: Cargo check
         run: |
+          cd bento
           cargo check
 
       - name: Run database migrations
@@ -123,10 +128,12 @@ jobs:
         env:
           RUSTFLAGS: "-Dwarnings"
         run: |
+          cd bento
           cargo clippy
 
       - name: Run bento tests
         run: |
+          cd bento
           cargo test
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
@@ -136,6 +143,7 @@ jobs:
 
       - name: Test with POVW enabled
         run: |
+          cd bento
           cargo test
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
@@ -155,6 +163,7 @@ jobs:
 
       - name: Test specific crates
         run: |
+          cd bento
           cargo test --locked -p taskdb
           cargo test --locked -p workflow-common
         env:
