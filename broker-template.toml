@@ -198,4 +198,4 @@ withdraw = false
 
 # Optional config, only needed if using bonsai to set the zkVM version header. Not necessary when
 # using Bento as the prover.
-# bonsai_r0_zkvm_ver = "2.3.0"
+# bonsai_r0_zkvm_ver = "3.0.3"
