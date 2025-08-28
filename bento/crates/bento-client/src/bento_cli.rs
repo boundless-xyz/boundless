@@ -72,6 +72,7 @@ async fn main() -> Result<()> {
     let (_session_uuid, receipt_id) =
         stark_workflow(&client, image.clone(), input, vec![], args.exec_only).await?;
 
+    verify_receipt(&client, receipt_id).await?;
     // return if exec only and success
     if args.exec_only {
         return Ok(());

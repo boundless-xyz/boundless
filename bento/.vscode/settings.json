@@ -15,7 +15,14 @@
   "rust-analyzer.cargo.buildScripts.enable": true,
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.linkedProjects": [
-    "Cargo.toml"
+    "Cargo.toml",
+    "crates/api/Cargo.toml",
+    "crates/bento-client/Cargo.toml",
+    "crates/sample-guest/common/Cargo.toml",
+    "crates/sample-guest/methods/Cargo.toml",
+    "crates/taskdb/Cargo.toml",
+    "crates/workflow/Cargo.toml",
+    "crates/workflow-common/Cargo.toml"
   ],
   "rust-analyzer.server.extraEnv": {
     "CC": "clang",
