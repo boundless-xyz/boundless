@@ -126,7 +126,7 @@ Example RISC Zero guest programs and methods for testing and development.
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/risc0/bento.git
+   git clone https://github.com/boundless-xyz/boundless.git
    cd bento
    ```
 
@@ -394,7 +394,7 @@ bento/
 
 ## 🤝 Community
 
-- **GitHub**: [https://github.com/risc0/bento](https://github.com/risc0/bento)
+- **GitHub**: [https://github.com/boundless-xyz/boundless](https://github.com/boundless-xyz/boundless)
 - **Discussions**: GitHub Discussions for questions and ideas
 - **Issues**: Bug reports and feature requests
 - **Contributing**: See CONTRIBUTING.md for development guidelines
