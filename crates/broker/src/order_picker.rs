@@ -1757,7 +1757,7 @@ pub(crate) mod tests {
             .await;
 
         // set a Groth16 selector
-        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_2 as u32);
+        order.request.requirements.selector = FixedBytes::from(Selector::groth16_latest() as u32);
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1842,8 +1842,8 @@ pub(crate) mod tests {
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        let min_price = parse_ether("0.00125").unwrap();
+        let max_price = parse_ether("0.00125").unwrap();
 
         // Order should have high enough price with the default selector.
         let order = ctx
