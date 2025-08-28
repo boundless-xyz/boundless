@@ -78,7 +78,8 @@ contract HitPointsTest is Test {
         token.grantAuthorizedTransferRole(authorized);
 
         vm.prank(user);
-        token.transfer(authorized, 50);
+        bool success = token.transfer(authorized, 50);
+        assertTrue(success);
         assertEq(token.balanceOf(user), 50);
     }
 
@@ -87,7 +88,8 @@ contract HitPointsTest is Test {
         token.grantAuthorizedTransferRole(authorized);
 
         vm.prank(authorized);
-        token.transfer(user, 50);
+        bool success = token.transfer(user, 50);
+        assertTrue(success);
         assertEq(token.balanceOf(authorized), 50);
         assertEq(token.balanceOf(user), 50);
     }
@@ -97,7 +99,8 @@ contract HitPointsTest is Test {
 
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(IHitPoints.UnauthorizedTransfer.selector));
-        token.transfer(authorized, 50);
+        bool success = token.transfer(authorized, 50);
+        assertFalse(success);
     }
 
     function testApproveAndTransferFrom() public {
@@ -108,7 +111,8 @@ contract HitPointsTest is Test {
         token.approve(authorized, 50);
 
         vm.prank(authorized);
-        token.transferFrom(user, authorized, 50);
+        bool success = token.transferFrom(user, authorized, 50);
+        assertTrue(success);
 
         assertEq(token.balanceOf(user), 50);
         assertEq(token.balanceOf(authorized), 50);
@@ -122,7 +126,8 @@ contract HitPointsTest is Test {
 
         vm.prank(authorized);
         vm.expectRevert(abi.encodeWithSelector(IHitPoints.UnauthorizedTransfer.selector));
-        token.transferFrom(user, authorized, 50);
+        bool success = token.transferFrom(user, authorized, 50);
+        assertFalse(success);
     }
 
     function testFuzzMint(address _user, uint256 _amount) public {
@@ -170,7 +175,8 @@ contract HitPointsTest is Test {
 
         // Perform the transfer
         vm.prank(_from);
-        token.transfer(recipient, _amount);
+        bool success = token.transfer(recipient, _amount);
+        assertTrue(success);
 
         // Check balances
         assertEq(token.balanceOf(_from), 0, "Sender balance should be zero");
@@ -201,6 +207,7 @@ contract HitPointsTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IHitPoints.BalanceExceedsLimit.selector, _recipient, existingBalance, transferAmount)
         );
-        token.transfer(_recipient, transferAmount);
+        bool success = token.transfer(_recipient, transferAmount);
+        assertFalse(success);
     }
 }
