@@ -657,12 +657,37 @@ where
             .map_err(|_| anyhow!("Failed to upload input"))?)
     }
 
-    /// Upload program input, provided as bytes, to the storage provider.
+    /// Upload program input, with stdin set to the provided bytes array, to the storage provider.
     ///
     /// Boundless uses a structured input format for guest programs, defined by the [GuestEnv] struct.
     ///
     /// This method is a convenience method that creates a [GuestEnv] struct, where the provided bytes
     /// are set as the stdin, and uploads it to the storage provider.
+    ///
+    /// ```rust
+    /// # use boundless_market::client::Client;
+    /// # use boundless_market::GuestEnv;
+    /// # |client: Client, stdin_bytes: &[u8]| {
+    /// client.upload_input_stdin(stdin_bytes);
+    /// # };
+    /// ```
+    pub async fn upload_input_stdin(&self, stdin_bytes: &[u8]) -> Result<Url, ClientError>
+    where
+        St: StorageProvider,
+    {
+        let guest_env = GuestEnv::from_stdin(stdin_bytes);
+        self.upload_input(&guest_env).await
+    }
+
+    /// Upload program input as the provided bytes array, to the storage provider.
+    ///
+    /// The bytes array _must_ be encoded using the scheme defined in [GuestEnv] in
+    /// order for the input to be used on Boundless.
+    ///
+    /// Note: Typically, you will want to use [upload_input] or [upload_input_stdin], which 
+    /// handle encoding inputs into the structured format that is expected by Boundless provers.
+    /// 
+    /// Note: 
     ///
     /// ```rust
     /// # use boundless_market::client::Client;
@@ -675,11 +700,16 @@ where
     where
         St: StorageProvider,
     {
-        let guest_env = GuestEnv::from_stdin(input_bytes);
-        self.upload_input(&guest_env).await
+        Ok(self
+            .storage_provider
+            .as_ref()
+            .context("Storage provider not set")?
+            .upload_input(input_bytes)
+            .await
+            .map_err(|_| anyhow!("Failed to upload input"))?)
     }
-
-    /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
+    
+    /// Create a new request builder.
     pub fn new_request<Params>(&self) -> Params
     where
         R: RequestBuilder<Params>,
