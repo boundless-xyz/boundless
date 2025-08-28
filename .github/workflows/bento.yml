@@ -47,6 +47,13 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd redis-cli ping
+          --health-interval 10s
 
     steps:
       - name: Checkout code
@@ -94,32 +101,6 @@ jobs:
       - name: Cargo check
         run: |
           cargo check
-
-      - name: Setup Docker services
-        run: |
-          # Start PostgreSQL container
-          docker run -d \
-            --name bento-postgres-test \
-            -e POSTGRES_PASSWORD=password \
-            -e POSTGRES_DB=bento_test \
-            -p 5432:5432 \
-            postgres:latest
-
-          # Wait for PostgreSQL to be ready
-          echo "Waiting for PostgreSQL to be ready..."
-          timeout 60 bash -c 'until docker exec bento-postgres-test pg_isready -U postgres; do sleep 1; done'
-
-          # Start Redis container
-          docker run -d \
-            --name bento-redis-test \
-            -p 6379:6379 \
-            redis:latest
-
-          # Wait for Redis to be ready
-          echo "Waiting for Redis to be ready..."
-          timeout 30 bash -c 'until docker exec bento-redis-test redis-cli ping; do sleep 1; done'
-
-          echo "Docker services are ready!"
 
       - name: Run database migrations
         run: |
