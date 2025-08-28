@@ -400,7 +400,10 @@ mod tests {
 
         // This is a basic test to ensure the module compiles and can be tested
         assert_eq!(std::env::var("POVW_ENABLED").unwrap_or_default(), "true");
-        assert_eq!(std::env::var("POVW_LOG_ID").unwrap_or_default(), "0000000000000000000000000000000000000000");
+        assert_eq!(
+            std::env::var("POVW_LOG_ID").unwrap_or_default(),
+            "0000000000000000000000000000000000000000"
+        );
         assert_eq!(std::env::var("POVW_JOB_NUMBER").unwrap_or_default(), "1");
     }
 
