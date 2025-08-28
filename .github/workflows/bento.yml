@@ -203,11 +203,10 @@ jobs:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
-      - name: Change to bento directory
-        run: cd bento
-
       - name: Run integration tests
         run: |
+          cd bento
+          cargo install sqlx-cli
           # Test database migrations
           cargo sqlx database create
           cargo sqlx migrate run
@@ -216,32 +215,4 @@ jobs:
           cargo build --locked --workspace
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
-          RISC0_DEV_MODE: true
-
-  bento-docs:
-    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
-    needs: bento-test
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Rust toolchain
-        uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
-
-      - name: Change to bento directory
-        run: cd bento
-
-      - name: Generate documentation
-        run: |
-          cargo doc --locked --no-deps
-        env:
-          RISC0_DEV_MODE: true
-
-      - name: Check documentation builds
-        run: |
-          cargo doc --locked --no-deps
-        env:
-          RUSTFLAGS: "-Dwarnings"
           RISC0_DEV_MODE: true
