@@ -261,11 +261,6 @@ impl CoprocessorCallback for Coprocessor {
         self.tx.blocking_send(SenderType::Keccak(request))?;
         Ok(())
     }
-
-    fn prove_zkr(&mut self, _request: risc0_zkvm::ProveZkrRequest) -> Result<()> {
-        // TODO: Implement ZKR proving when needed
-        Ok(())
-    }
 }
 
 enum SenderType {
