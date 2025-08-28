@@ -77,15 +77,6 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    // second round -- composition and keccak
-    let input = IterReq::CompositionKeccakUnion(args.iter_count.unwrap(), METHOD_NAME_ID.into(), 5);
-    let input: Vec<u8> =
-        bytemuck::cast_slice(&to_vec(&input).expect("Failed to r0 to_vec")).to_vec();
-    let (_session_uuid, _receipt_id) =
-        stark_workflow(&client, image, input, vec![receipt_id], args.exec_only)
-            .await
-            .context("STARK proof workflow failure")?;
-
     Ok(())
 }
 
