@@ -92,24 +92,70 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Cargo check
-        run: cargo check --locked --all-targets
+        run: |
+          cargo check
 
+      - name: Setup Docker services
+        run: |
+          # Start PostgreSQL container
+          docker run -d \
+            --name bento-postgres-test \
+            -e POSTGRES_PASSWORD=password \
+            -e POSTGRES_DB=bento_test \
+            -p 5432:5432 \
+            postgres:latest
+
+          # Wait for PostgreSQL to be ready
+          echo "Waiting for PostgreSQL to be ready..."
+          timeout 60 bash -c 'until docker exec bento-postgres-test pg_isready -U postgres; do sleep 1; done'
+
+          # Start Redis container
+          docker run -d \
+            --name bento-redis-test \
+            -p 6379:6379 \
+            redis:latest
+
+          # Wait for Redis to be ready
+          echo "Waiting for Redis to be ready..."
+          timeout 30 bash -c 'until docker exec bento-redis-test redis-cli ping; do sleep 1; done'
+
+          echo "Docker services are ready!"
+
+      - name: Run database migrations
+        run: |
+          # Install sqlx-cli if not present
+          if ! command -v sqlx &> /dev/null; then
+            cargo install sqlx-cli --no-default-features --features postgres
+          fi
+
+          # Create database and run migrations for taskdb
+          cd crates/taskdb
+          sqlx database create --database-url "postgres://postgres:password@localhost:5432/bento_test"
+          sqlx migrate run --database-url "postgres://postgres:password@localhost:5432/bento_test"
+          cd ../..
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
       - name: Cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
-        run: cargo clippy --locked --all-targets
+        run: |
+          cargo clippy
 
       - name: Run bento tests
-        run: cargo test --locked --workspace --all-targets -- --include-ignored
+        run: |
+          cargo test
         env:
-          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
+          REDIS_URL: redis://localhost:6379
           RISC0_DEV_MODE: true
           POVW_ENABLED: false
 
       - name: Test with POVW enabled
-        run: cargo test --locked --workspace --all-targets -- --include-ignored
+        run: |
+          cargo test
         env:
-          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
+          REDIS_URL: redis://localhost:6379
           RISC0_DEV_MODE: true
           POVW_ENABLED: true
           POVW_LOG_ID: "0000000000000000000000000000000000000000"
@@ -128,8 +174,15 @@ jobs:
           cargo test --locked -p taskdb
           cargo test --locked -p workflow-common
         env:
-          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
+          REDIS_URL: redis://localhost:6379
           RISC0_DEV_MODE: true
+
+      - name: Cleanup Docker services
+        if: always()
+        run: |
+          docker stop bento-postgres-test bento-redis-test || true
+          docker rm bento-postgres-test bento-redis-test || true
 
       - name: Sccache stats
         run: sccache --show-stats
@@ -202,12 +255,14 @@ jobs:
         run: cd bento
 
       - name: Generate documentation
-        run: cargo doc --locked --workspace --no-deps
+        run: |
+          cargo doc --locked --no-deps
         env:
           RISC0_DEV_MODE: true
 
       - name: Check documentation builds
-        run: cargo doc --locked --workspace --no-deps --open
+        run: |
+          cargo doc --locked --no-deps
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_DEV_MODE: true
