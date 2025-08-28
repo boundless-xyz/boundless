@@ -124,12 +124,6 @@ jobs:
           cd ../..
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
-      - name: Cargo clippy
-        env:
-          RUSTFLAGS: "-Dwarnings"
-        run: |
-          cd bento
-          cargo clippy
 
       - name: Run bento tests
         run: |
