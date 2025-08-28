@@ -147,14 +147,6 @@ jobs:
           POVW_LOG_ID: "0000000000000000000000000000000000000000"
           POVW_JOB_NUMBER: "1"
 
-      - name: Build bento crates individually
-        run: |
-          cargo build --locked -p api
-          cargo build --locked -p bento-client
-          cargo build --locked -p taskdb
-          cargo build --locked -p workflow
-          cargo build --locked -p workflow-common
-
       - name: Test specific crates
         run: |
           cd bento
