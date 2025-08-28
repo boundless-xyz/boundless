@@ -1,6 +1,6 @@
 // Copyright 2025 RISC Zero, Inc.
 //
-// Use of this source code as governed by the Business Source License
+// Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
 use crate::{
@@ -76,12 +76,20 @@ pub async fn resolve_povw(
                     // Debug: Check the size and content of the union receipt
                     tracing::debug!("Union receipt size: {} bytes", union_receipt.len());
                     if union_receipt.is_empty() {
-                        return Err(anyhow::anyhow!("Union receipt is empty for key: {}", union_root_receipt_key));
+                        return Err(anyhow::anyhow!(
+                            "Union receipt is empty for key: {}",
+                            union_root_receipt_key
+                        ));
                     }
 
-                    let union_receipt: SuccinctReceipt<Unknown> =
-                        deserialize_obj(&union_receipt)
-                            .with_context(|| format!("Failed to deserialize union receipt (size: {} bytes) from key: {}", union_receipt.len(), union_root_receipt_key))?;
+                    let union_receipt: SuccinctReceipt<Unknown> = deserialize_obj(&union_receipt)
+                        .with_context(|| {
+                        format!(
+                            "Failed to deserialize union receipt (size: {} bytes) from key: {}",
+                            union_receipt.len(),
+                            union_root_receipt_key
+                        )
+                    })?;
                     union_claim = union_receipt.claim.digest().to_string();
 
                     // Resolve union receipt
@@ -109,9 +117,16 @@ pub async fn resolve_povw(
                         .context("corroborating receipt not found: key {assumption_key}")?;
 
                     // Debug: Check the size and content of the assumption receipt
-                    tracing::debug!("Assumption receipt size: {} bytes for key: {}", assumption_bytes.len(), assumption_key);
+                    tracing::debug!(
+                        "Assumption receipt size: {} bytes for key: {}",
+                        assumption_bytes.len(),
+                        assumption_key
+                    );
                     if assumption_bytes.is_empty() {
-                        return Err(anyhow::anyhow!("Assumption receipt is empty for key: {}", assumption_key));
+                        return Err(anyhow::anyhow!(
+                            "Assumption receipt is empty for key: {}",
+                            assumption_key
+                        ));
                     }
 
                     let assumption_receipt = deserialize_obj(&assumption_bytes)
@@ -145,7 +160,7 @@ pub async fn resolve_povw(
     .await
     .context("Failed to set root receipt key with expiry")?;
 
-        // Save the resolved receipt to work receipts bucket for later consumption
+    // Save the resolved receipt to work receipts bucket for later consumption
     let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
     tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
 

@@ -1,6 +1,6 @@
 // Copyright 2025 RISC Zero, Inc.
 //
-// Use of this source code as governed by the Business Source License
+// Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
 use crate::{
