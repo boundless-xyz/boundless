@@ -122,7 +122,7 @@ jobs:
           FOUNDRY_OUT: contracts/reference-contract/out
 
   deployment-scripts:
-    runs-on: [ self-hosted, test, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
     needs: contracts-changed
     if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' || needs.contracts-changed.outputs.scripts == 'true'}}
     strategy:
