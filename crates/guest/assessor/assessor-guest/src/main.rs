@@ -74,9 +74,6 @@ fn main() {
 
         let callback = &fill.request.requirements.callback;
 
-        // Note that this allows for callbacks to be specified even in the case of
-        // ClaimDigestMatch predicates where the journal cannot be provided.
-        // This is ok because it will fail on chain checks if a journal is indeed provided.
         if fill.request.requirements.callback.addr != Address::ZERO {
             callbacks.push(AssessorCallback {
                 index: index.try_into().expect("callback index overflow"),
