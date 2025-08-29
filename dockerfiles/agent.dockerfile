@@ -69,6 +69,7 @@ RUN apt-get update -q -y \
 
 # Main prover
 COPY --from=builder /src/agent /app/agent
+COPY --from=builder /usr/local/risc0 /usr/local/risc0
 
 # Stark2snark
 COPY --from=binaries /usr/local/sbin/rapidsnark /usr/local/sbin/rapidsnark
