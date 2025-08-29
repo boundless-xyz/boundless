@@ -362,7 +362,7 @@ where
 
         // Check if the stake is sane and if we can afford it
         // For lock expired orders, we don't check the max stake because we can't lock those orders.
-        let max_stake = {
+        let max_stake: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
             parse_units(&config.market.max_stake, self.stake_token_decimals)
                 .context("Failed to parse max_stake")?
@@ -1757,7 +1757,7 @@ pub(crate) mod tests {
             .await;
 
         // set a Groth16 selector
-        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_2 as u32);
+        order.request.requirements.selector = FixedBytes::from(Selector::groth16_latest() as u32);
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1842,8 +1842,8 @@ pub(crate) mod tests {
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        let min_price = parse_ether("0.00125").unwrap();
+        let max_price = parse_ether("0.00125").unwrap();
 
         // Order should have high enough price with the default selector.
         let order = ctx

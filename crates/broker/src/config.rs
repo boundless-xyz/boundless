@@ -477,12 +477,12 @@ impl ConfigLock {
         Self { config }
     }
 
-    pub fn lock_all(&self) -> Result<std::sync::RwLockReadGuard<Config>, ConfigErr> {
+    pub fn lock_all(&self) -> Result<std::sync::RwLockReadGuard<'_, Config>, ConfigErr> {
         self.config.read().map_err(|_| ConfigErr::LockFailed)
     }
 
     #[cfg(test)]
-    pub fn load_write(&self) -> Result<std::sync::RwLockWriteGuard<Config>, ConfigErr> {
+    pub fn load_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, Config>, ConfigErr> {
         self.config.write().map_err(|_| ConfigErr::LockFailed)
     }
 }
