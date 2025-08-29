@@ -15,6 +15,7 @@
 //! Commands of the Boundless CLI for Proof of Verifiable Work (PoVW) operations.
 
 use std::{
+    borrow::Borrow,
     fs,
     path::{Path, PathBuf},
 };
@@ -25,6 +26,9 @@ use num_enum::TryFromPrimitive;
 use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId, WorkLog};
 use risc0_zkvm::{default_prover, GenericReceipt, Receipt, ReceiptClaim, WorkClaim};
 use serde::{Deserialize, Serialize};
+
+/// Private type alias used to make the function definitions in this file more concise.
+type WorkReceipt = GenericReceipt<WorkClaim<ReceiptClaim>>;
 
 /// Commands for Proof of Verifiable Work (PoVW) operations.
 #[derive(Subcommand, Clone, Debug)]
@@ -129,10 +133,6 @@ impl PovwProveUpdate {
     pub async fn run(&self) -> Result<()> {
         tracing::info!("Starting PoVW prove-update for log ID: {:x}", self.log_id);
 
-        // Load work receipt files
-        let work_receipts = self.load_work_receipts().context("Failed to load work receipts")?;
-        tracing::info!("Loaded {} work receipts", work_receipts.len());
-
         // Set up the work log update prover
         let mut prover_builder = WorkLogUpdateProver::builder().prover(default_prover());
         prover_builder
@@ -143,6 +143,11 @@ impl PovwProveUpdate {
         // Load continuation if provided
         if let Some(continuation_path) = &self.continuation {
             let state = self.load_state(continuation_path)?;
+            tracing::info!(
+                "Loaded work log state from {} with commit {}",
+                continuation_path.display(),
+                state.work_log.commit()
+            );
             prover_builder
                 .work_log(state.work_log, state.receipt)
                 .context("Failed to build prover with given state")?;
@@ -150,68 +155,95 @@ impl PovwProveUpdate {
 
         let mut prover = prover_builder.build().context("Failed to build WorkLogUpdateProver")?;
 
+        // Load work receipt files, filtering out receipt files that we cannot add to the log.
+        let work_receipts = self
+            .load_work_receipts(&prover.work_log)
+            .filter_map(|result| {
+                result.inspect_err(|err| tracing::warn!(?err, "Skipping receipt")).ok()
+            })
+            .collect::<Vec<_>>();
+        tracing::info!("Loaded {} work receipts", work_receipts.len());
+
+        ensure!(!work_receipts.is_empty(), "No work receipts will be processed");
+
         // Prove the work log update
         let prove_info =
             prover.prove_update(work_receipts).context("Failed to prove work log update")?;
 
-        // Save the output
-        // TODO: This needs to save the state, and not just Receipt.
-        self.save_receipt(&prove_info.receipt).context("Failed to save receipt")?;
+        // Save the output state.
+        self.save_state(prover.work_log, prove_info.receipt).context("Failed to save state")?;
+
+        // TODO: What do you do with the constructed update?
 
         Ok(())
     }
 
     /// Load work receipts from the specified directory
-    fn load_work_receipts(&self) -> Result<Vec<GenericReceipt<WorkClaim<ReceiptClaim>>>> {
-        let mut receipts = Vec::new();
-        for path in self.work_receipts.iter() {
+    fn load_work_receipts<'a>(
+        &self,
+        work_log: &'a WorkLog,
+    ) -> impl Iterator<Item = anyhow::Result<WorkReceipt>> + use<'a, '_> {
+        self.work_receipts.iter().map(|path| {
             if !path.is_file() {
                 bail!("Work receipt path is not a file: {}", path.display())
             }
 
             // Check for receipt file extensions
-            let receipt = self
+            let work_receipt = self
                 .load_receipt_file(path)
                 .with_context(|| format!("Failed to load receipt from {}", path.display()))?;
             tracing::info!("Loaded receipt from: {}", path.display());
 
-            let work_claim = receipt
-                .claim()
-                .as_value()
-                .context("Loaded receipt has a pruned claim")?
-                .work
-                .as_value()
-                .context("Loaded receipt has a pruned work claim")?
-                .clone();
-            // NOTE: If nonce_max does not have the same log ID as nonce_min, the exec will fail.
-            ensure!(work_claim.nonce_min.log == self.log_id,
-                "Loaded reacipt has a log ID that does not match the specified log ID: loaded: {:x}, specified: {:x}",
-                work_claim.nonce_min.log,
-                self.log_id
-            );
-
-            receipts.push(receipt);
-        }
-        Ok(receipts)
+            self.check_work_receipt(work_log, work_receipt)
+                .with_context(|| format!("Receipt from path {}", path.display()))
+        })
     }
 
     /// Load a single receipt file
-    fn load_receipt_file(
-        &self,
-        path: impl AsRef<std::path::Path>,
-    ) -> Result<GenericReceipt<WorkClaim<ReceiptClaim>>> {
+    fn load_receipt_file(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<WorkReceipt> {
         let path = path.as_ref();
         let data =
             fs::read(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
 
-        // Deserialize as GenericReceipt<WorkClaim<ReceiptClaim>>
+        // Deserialize as WorkReceipt
         // TODO: Provide a common library implementation of encoding that can be used by Bento,
         // r0vm, and this crate. bincode works, but is fragile to any changes so e.g. adding a
         // version number would help.
-        let receipt: GenericReceipt<WorkClaim<ReceiptClaim>> = bincode::deserialize(&data)
+        let receipt: WorkReceipt = bincode::deserialize(&data)
             .with_context(|| format!("Failed to deserialize receipt from: {}", path.display()))?;
 
         Ok(receipt)
+    }
+
+    fn check_work_receipt<T: Borrow<WorkReceipt>>(
+        &self,
+        work_log: &WorkLog,
+        work_receipt: T,
+    ) -> anyhow::Result<T> {
+        let work_claim = work_receipt
+            .borrow()
+            .claim()
+            .as_value()
+            .context("Loaded receipt has a pruned claim")?
+            .work
+            .as_value()
+            .context("Loaded receipt has a pruned work claim")?
+            .clone();
+
+        // NOTE: If nonce_max does not have the same log ID as nonce_min, the exec will fail.
+        ensure!(
+            work_claim.nonce_min.log == self.log_id,
+            "Receipt has a log ID that does not match the work log: receipt: {:x}, work log: {:x}",
+            work_claim.nonce_min.log,
+            self.log_id
+        );
+
+        ensure!(
+            !work_log.jobs.contains_key(&work_claim.nonce_min.job),
+            "Receipt has job ID that is already in the work log: {}",
+            work_claim.nonce_min.job,
+        );
+        Ok(work_receipt)
     }
 
     /// Load continuation receipt and work log state
@@ -226,17 +258,15 @@ impl PovwProveUpdate {
     }
 
     /// Save the work log update receipt
-    fn save_receipt(&self, receipt: &Receipt) -> Result<()> {
-        let receipt_data = bincode::serialize(receipt).context("Failed to serialize receipt")?;
+    fn save_state(&self, work_log: WorkLog, receipt: Receipt) -> Result<()> {
+        let state = State { log_id: self.log_id, work_log, receipt };
+        let state_data = state.encode().context("Failed to serialize state")?;
 
-        fs::write(&self.output, &receipt_data)
-            .with_context(|| format!("Failed to write receipt to {}", self.output.display()))?;
+        fs::write(&self.output, &state_data)
+            .with_context(|| format!("Failed to write state to {}", self.output.display()))?;
 
-        tracing::info!("Successfully created work log update receipt: {}", self.output.display());
-
-        // Log receipt information
-        // TODO: Decode the journal to show the information about the work log update.
-        tracing::info!("Receipt journal: {:x?}", receipt.journal);
+        tracing::info!("Successfully saved work log state: {}", self.output.display());
+        tracing::info!("Updated commit: {:x?}", state.work_log.commit());
 
         Ok(())
     }
