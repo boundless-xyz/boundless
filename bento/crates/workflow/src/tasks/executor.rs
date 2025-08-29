@@ -563,8 +563,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         tokio::task::spawn_blocking(move || {
             let mut env = ExecutorEnv::builder();
 
-            // Enable POVW if configured (environment variables already validated at startup)
-            if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
+            // Enable POVW if configured (agent POVW setting)
+            if std::env::var("POVW_LOG_ID").is_ok() {
+                let log_id = std::env::var("POVW_LOG_ID").unwrap();
                 let povw_log_id = PovwLogId::from_str(&log_id).unwrap();
                 env.povw((povw_log_id, rand::random()));
             }

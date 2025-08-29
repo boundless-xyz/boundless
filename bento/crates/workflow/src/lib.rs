@@ -163,6 +163,11 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// Check if POVW is enabled for this agent instance
+    pub fn is_povw_enabled(&self) -> bool {
+        std::env::var("POVW_LOG_ID").is_ok()
+    }
+
     /// Initialize the [Agent] from the [Args] config params
     ///
     /// Starts any connection pools and establishes the agents configs
@@ -302,8 +307,8 @@ impl Agent {
             )
             .context("Failed to serialize prove response")?,
             TaskType::Join(req) => {
-                // Route to POVW or regular join based on environment variable
-                if std::env::var("POVW_LOG_ID").is_ok() {
+                // Route to POVW or regular join based on agent POVW setting
+                if self.is_povw_enabled() {
                     serde_json::to_value(
                         tasks::join_povw::join_povw(self, &task.job_id, &req)
                             .await
@@ -318,8 +323,8 @@ impl Agent {
                 }
             }
             TaskType::Resolve(req) => {
-                // Route to POVW or regular resolve based on environment variable
-                if std::env::var("POVW_LOG_ID").is_ok() {
+                // Route to POVW or regular resolve based on agent POVW setting
+                if self.is_povw_enabled() {
                     serde_json::to_value(
                         tasks::resolve_povw::resolve_povw(self, &task.job_id, &req)
                             .await

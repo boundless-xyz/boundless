@@ -9,6 +9,7 @@ use crate::{
     tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
+use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
 use uuid::Uuid;
 use workflow_common::ProveReq;
 
@@ -40,13 +41,13 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
 
-    if std::env::var("POVW_LOG_ID").is_ok() {
-        let lift_receipt = agent
+    if agent.is_povw_enabled() {
+        let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = agent
             .prover
             .as_ref()
             .context("Missing prover from resolve task")?
             .lift_povw(&segment_receipt)
-            .with_context(|| format!("Failed to lift segment {index}"))?;
+            .with_context(|| format!("Failed to POVW lift segment {index}"))?;
 
         tracing::debug!("lifting complete {job_id} - {index}");
 
@@ -56,7 +57,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
             .await?;
     } else {
-        let lift_receipt = agent
+        let lift_receipt: SuccinctReceipt<ReceiptClaim> = agent
             .prover
             .as_ref()
             .context("Missing prover from resolve task")?
