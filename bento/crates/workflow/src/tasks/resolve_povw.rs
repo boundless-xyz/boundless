@@ -6,9 +6,10 @@
 use crate::{
     Agent,
     redis::{self, AsyncCommands},
-    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
+    tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
+use risc0_zkvm::GenericReceipt;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim};
 use uuid::Uuid;
@@ -39,7 +40,12 @@ pub async fn resolve_povw(
             .context("Failed to deserialize as POVW receipt")?;
 
     // Unwrap the POVW receipt to get the ReceiptClaim for processing
-    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
+    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = agent
+        .prover
+        .as_ref()
+        .context("Missing prover from resolve task")?
+        .unwrap_povw(&povw_receipt)
+        .context("POVW unwrap failed")?;
 
     let mut assumptions_len: Option<u64> = None;
     if conditional_receipt.claim.clone().as_value()?.output.is_some() {
@@ -101,13 +107,13 @@ pub async fn resolve_povw(
                         tracing::debug!("Skipping already resolved union claim: {union_claim}");
                         continue;
                     }
-                    let assumption_key =
-                        format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{assumption_claim}");
+                    let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
+                    let assumption_key = format!("{receipts_key}:{assumption_claim}");
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
-                    let assumption_bytes: Vec<u8> = conn
-                        .get(&assumption_key)
-                        .await
-                        .context("corroborating receipt not found: key {assumption_key}")?;
+                    let assumption_bytes: Vec<u8> =
+                        conn.get(&assumption_key).await.with_context(|| {
+                            format!("corroborating receipt not found: key {assumption_key}")
+                        })?;
 
                     // Debug: Check the size and content of the assumption receipt
                     tracing::debug!(
@@ -122,8 +128,14 @@ pub async fn resolve_povw(
                         ));
                     }
 
-                    let assumption_receipt = deserialize_obj(&assumption_bytes)
-                        .with_context(|| format!("Failed to deserialize assumption receipt (size: {} bytes) from key: {}", assumption_bytes.len(), assumption_key))?;
+                    let assumption_receipt: SuccinctReceipt<Unknown> =
+                        deserialize_obj(&assumption_bytes).with_context(|| {
+                            format!(
+                                "Failed to deserialize assumption receipt (size: {} bytes) from key: {}",
+                                assumption_bytes.len(),
+                                assumption_key
+                            )
+                        })?;
 
                     // Resolve
                     conditional_receipt = agent
@@ -157,11 +169,16 @@ pub async fn resolve_povw(
     let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
     tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
 
+    // Also save the original POVW receipt for integration purposes
+    let wrapped_povw_receipt = GenericReceipt::Succinct(povw_receipt);
+    let povw_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}_povw.bincode");
+    tracing::debug!("Saving original POVW receipt to work receipts bucket: {povw_receipt_key}");
+
     agent
         .s3_client
-        .write_to_s3(&work_receipt_key, &receipt)
+        .write_to_s3(&povw_receipt_key, &wrapped_povw_receipt)
         .await
-        .context("Failed to save resolved POVW receipt to work receipts bucket")?;
+        .context("Failed to save original POVW receipt to work receipts bucket")?;
 
     tracing::info!("POVW resolve operation completed successfully");
     Ok(assumptions_len)

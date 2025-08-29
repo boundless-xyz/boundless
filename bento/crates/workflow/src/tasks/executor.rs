@@ -562,12 +562,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let exec_task: JoinHandle<anyhow::Result<SessionData>> =
         tokio::task::spawn_blocking(move || {
             let mut env = ExecutorEnv::builder();
+
+            // Enable POVW if configured (environment variables already validated at startup)
             if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
-                let log_id = std::env::var("POVW_LOG_ID").context("POVW_LOG_ID is not set")?;
-                let povw_log_id = PovwLogId::from_str(&log_id)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse POVW_LOG_ID: {}", e))?;
+                let log_id = std::env::var("POVW_LOG_ID").unwrap();
+                let povw_log_id = PovwLogId::from_str(&log_id).unwrap();
                 env.povw((povw_log_id, rand::random()));
-                tracing::debug!("POVW enabled with log_id: {}", log_id);
             }
 
             for receipt in assumption_receipts {

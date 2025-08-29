@@ -14,6 +14,7 @@ use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
     rc::Rc,
+    str::FromStr,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -166,6 +167,17 @@ impl Agent {
     ///
     /// Starts any connection pools and establishes the agents configs
     pub async fn new(args: Args) -> Result<Self> {
+        // Validate POVW environment variables at startup
+        if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+            let log_id = std::env::var("POVW_LOG_ID")
+                .context("POVW_ENABLED is true but POVW_LOG_ID is not set")?;
+            risc0_binfmt::PovwLogId::from_str(&log_id)
+                .map_err(|e| anyhow::anyhow!("Failed to parse POVW_LOG_ID: {}", e))?;
+            tracing::info!("POVW enabled with log_id: {}", log_id);
+        } else {
+            tracing::debug!("POVW disabled");
+        }
+
         let db_pool = PgPoolOptions::new()
             .max_connections(args.db_max_connections)
             .connect(&args.database_url)
@@ -376,7 +388,6 @@ impl Agent {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_task_routing_povw_disabled() {
@@ -405,11 +416,5 @@ mod tests {
             "0000000000000000000000000000000000000000"
         );
         assert_eq!(std::env::var("POVW_JOB_NUMBER").unwrap_or_default(), "1");
-    }
-
-    #[test]
-    fn test_basic_functionality() {
-        // Test that basic functionality works
-        assert!(true);
     }
 }
