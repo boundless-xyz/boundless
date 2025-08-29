@@ -41,12 +41,6 @@ ENV SCCACHE_SERVER_PORT=4227
 WORKDIR /src/
 COPY . .
 
-# Install groth16 component
-ENV RISC0_HOME=/usr/local/risc0
-RUN curl -L https://risczero.com/install | bash
-ENV PATH="/root/.cargo/bin:${PATH}"
-RUN /root/.risc0/bin/rzup install risc0-groth16
-
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
@@ -59,6 +53,12 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cargo build --manifest-path bento/Cargo.toml --release -p workflow -F cuda --bin agent && \
     cp bento/target/release/agent /src/agent && \
     sccache --show-stats
+
+# Install groth16 component
+ENV RISC0_HOME=/usr/local/risc0
+RUN curl -L https://risczero.com/install | bash
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN /root/.risc0/bin/rzup install risc0-groth16
 
 FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
 FROM ${CUDA_RUNTIME_IMG} AS runtime
