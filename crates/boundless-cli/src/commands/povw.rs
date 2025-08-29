@@ -44,20 +44,36 @@ impl PovwCommands {
 #[derive(Args, Clone, Debug)]
 pub struct PovwProveUpdate {
     /// Serialized work receipt files to add to the work log.
-    #[arg(required = true)]
+    #[arg(required = true, requires = "state")]
     work_receipts: Vec<PathBuf>,
 
-    /// Work log identifier
-    #[arg(long)]
+    /// Work log identifier.
+    ///
+    /// The work log identifier is a 160-bit public key hash (i.e. an Ethereum address) which is
+    /// used to identify the work log. A work log is a collection of work claims, including their
+    /// value and nonces. A single work log can only include a nonce (and so a receipt) once.
+    /// 
+    /// A prover may have one or more work logs, and may set the work log ID equal to their onchain
+    /// prover address, or to a new address just used as the work log ID.
+    #[arg(short, long)]
     log_id: PovwLogId,
 
-    /// Output file for the work log update receipt
-    #[arg(long)]
-    output: Option<PathBuf>,
+    /// Output file for the Log Builder receipt and work log state.
+    #[arg(short, long)]
+    output: PathBuf,
 
-    /// Continuation receipt from previous updates
-    #[arg(long)]
+    /// Continuation state and receipt from a previous log update.
+    ///
+    /// Set this flag to the output file from a previous run to update an existing work log.
+    /// Either this flag or --new must be specified.
+    #[arg(short, long, group = "state")]
     continuation: Option<PathBuf>,
+
+    /// Create a new work log, adding the given receipts to it.
+    ///
+    /// Either this flag or --continuation must be specified.
+    #[arg(short, long, group = "state")]
+    new: bool
 }
 
 impl PovwProveUpdate {
@@ -138,6 +154,9 @@ impl PovwProveUpdate {
             fs::read(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
 
         // Deserialize as GenericReceipt<WorkClaim<ReceiptClaim>>
+        // TODO: Provide a common library implementation of encoding that can be used by Bento,
+        // r0vm, and this crate. bincode works, but is fragile to any changes so e.g. adding a
+        // version number would help.
         let receipt: GenericReceipt<WorkClaim<ReceiptClaim>> = bincode::deserialize(&data)
             .with_context(|| format!("Failed to deserialize receipt from: {}", path.display()))?;
 
@@ -164,15 +183,12 @@ impl PovwProveUpdate {
 
     /// Save the work log update receipt
     fn save_receipt(&self, receipt: &Receipt) -> Result<()> {
-        let output_path =
-            self.output.clone().unwrap_or_else(|| PathBuf::from("work_log_update.receipt"));
-
         let receipt_data = bincode::serialize(receipt).context("Failed to serialize receipt")?;
 
-        fs::write(&output_path, &receipt_data)
-            .with_context(|| format!("Failed to write receipt to {}", output_path.display()))?;
+        fs::write(&self.output, &receipt_data)
+            .with_context(|| format!("Failed to write receipt to {}", self.output.display()))?;
 
-        tracing::info!("Successfully created work log update receipt: {}", output_path.display());
+        tracing::info!("Successfully created work log update receipt: {}", self.output.display());
 
         // Log receipt information
         // TODO: Decode the journal to show the information about the work log update.
