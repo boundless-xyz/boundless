@@ -13,6 +13,7 @@ use workflow_common::{
 
 /// Converts a stark, stored in s3 to a snark
 pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<SnarkResp> {
+    tracing::info!("Converting stark to snark for job: {job_id}");
     let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{}.bincode", req.receipt);
     tracing::debug!("Downloading receipt, {receipt_key}");
     let receipt: Receipt = agent
