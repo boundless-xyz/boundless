@@ -107,7 +107,7 @@ contract BoundlessMarketTest is Test {
         // Deploy the implementation contracts
         verifier = new RiscZeroMockVerifier(bytes4(0));
         setVerifier = new RiscZeroSetVerifier(verifier, SET_BUILDER_IMAGE_ID, "https://set-builder.dev.null");
-        collateralToken = new HitPoints(OWNER_WALLET.addr);
+        collateralToken = new HitPoints(ownerWallet.addr);
 
         // Deploy the UUPS proxy with the implementation
         boundlessMarketSource = address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(collateralToken)));
@@ -121,7 +121,7 @@ contract BoundlessMarketTest is Test {
         mockCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 10_000);
         mockHighGasCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 250_000);
 
-        collateralToken.grantMinterRole(OWNER_WALLET.addr);
+        collateralToken.grantMinterRole(ownerWallet.addr);
         collateralToken.grantAuthorizedTransferRole(proxy);
         vm.stopPrank();
 
@@ -254,7 +254,7 @@ contract BoundlessMarketTest is Test {
         client.snapshotBalance();
 
         // Mint some stake tokens.
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         collateralToken.mint(clientAddress, DEFAULT_BALANCE);
 
         uint256 deadline = block.timestamp + 1 hours;
@@ -283,7 +283,7 @@ contract BoundlessMarketTest is Test {
         client.snapshotBalance();
 
         // Mint some stake tokens.
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         collateralToken.mint(walletAddress, DEFAULT_BALANCE);
 
         vm.prank(signerAddress);
@@ -567,10 +567,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Withdraw funds from the stake treasury
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.CollateralWithdrawal(address(boundlessMarket), expectedWithdrawal);
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         boundlessMarket.withdrawFromCollateralTreasury(expectedWithdrawal);
         assert(boundlessMarket.balanceOfCollateral(address(boundlessMarket)) == 0);
-        assert(collateralToken.balanceOf(OWNER_WALLET.addr) == expectedWithdrawal);
+        assert(collateralToken.balanceOf(ownerWallet.addr) == expectedWithdrawal);
     }
 
     function testWithdrawals() public {
@@ -600,7 +600,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testCollateralDeposit() public {
         // Mint some tokens
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         collateralToken.mint(testProverAddress, 2);
 
         // Approve the market to spend the testProver's collateralToken
@@ -627,7 +627,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testCollateralDepositWithPermit() public {
         // Mint some tokens
-        vm.prank(OWNER_WALLET.addr);
+        vm.prank(ownerWallet.addr);
         collateralToken.mint(testProverAddress, 2);
 
         // Approve the market to spend the testProver's collateralToken
