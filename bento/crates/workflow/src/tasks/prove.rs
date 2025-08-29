@@ -40,7 +40,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
 
-    if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+    if std::env::var("POVW_LOG_ID").is_ok() {
         let lift_receipt = agent
             .prover
             .as_ref()

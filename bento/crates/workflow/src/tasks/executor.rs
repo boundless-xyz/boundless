@@ -564,8 +564,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             let mut env = ExecutorEnv::builder();
 
             // Enable POVW if configured (environment variables already validated at startup)
-            if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
-                let log_id = std::env::var("POVW_LOG_ID").unwrap();
+            if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
                 let povw_log_id = PovwLogId::from_str(&log_id).unwrap();
                 env.povw((povw_log_id, rand::random()));
             }
@@ -686,16 +685,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         user_cycles: session.user_cycles,
         total_cycles: session.total_cycles,
         assumption_count: assumption_count as u64,
-        povw_log_id: if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
-            std::env::var("POVW_LOG_ID").ok()
-        } else {
-            None
-        },
-        povw_job_number: if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
-            std::env::var("POVW_JOB_NUMBER").ok()
-        } else {
-            Some(rand::random::<u64>().to_string())
-        },
+        povw_log_id: std::env::var("POVW_LOG_ID").ok(),
+        povw_job_number: std::env::var("POVW_JOB_NUMBER").ok(),
     };
     Ok(resp)
 }

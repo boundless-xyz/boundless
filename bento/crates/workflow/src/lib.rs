@@ -168,9 +168,7 @@ impl Agent {
     /// Starts any connection pools and establishes the agents configs
     pub async fn new(args: Args) -> Result<Self> {
         // Validate POVW environment variables at startup
-        if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
-            let log_id = std::env::var("POVW_LOG_ID")
-                .context("POVW_ENABLED is true but POVW_LOG_ID is not set")?;
+        if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
             risc0_binfmt::PovwLogId::from_str(&log_id)
                 .map_err(|e| anyhow::anyhow!("Failed to parse POVW_LOG_ID: {}", e))?;
             tracing::info!("POVW enabled with log_id: {}", log_id);
@@ -305,7 +303,7 @@ impl Agent {
             .context("Failed to serialize prove response")?,
             TaskType::Join(req) => {
                 // Route to POVW or regular join based on environment variable
-                if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+                if std::env::var("POVW_LOG_ID").is_ok() {
                     serde_json::to_value(
                         tasks::join_povw::join_povw(self, &task.job_id, &req)
                             .await
@@ -321,7 +319,7 @@ impl Agent {
             }
             TaskType::Resolve(req) => {
                 // Route to POVW or regular resolve based on environment variable
-                if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+                if std::env::var("POVW_LOG_ID").is_ok() {
                     serde_json::to_value(
                         tasks::resolve_povw::resolve_povw(self, &task.job_id, &req)
                             .await
@@ -393,24 +391,22 @@ mod tests {
     fn test_task_routing_povw_disabled() {
         // Test that when POVW is disabled, tasks route to regular functions
         unsafe {
-            std::env::set_var("POVW_ENABLED", "false");
+            std::env::remove_var("POVW_LOG_ID");
         }
 
         // This is a basic test to ensure the module compiles and can be tested
-        assert_eq!(std::env::var("POVW_ENABLED").unwrap_or_default(), "false");
+        assert!(std::env::var("POVW_LOG_ID").is_err());
     }
 
     #[test]
     fn test_task_routing_povw_enabled() {
         // Test that when POVW is enabled, tasks route to POVW functions
         unsafe {
-            std::env::set_var("POVW_ENABLED", "true");
             std::env::set_var("POVW_LOG_ID", "0000000000000000000000000000000000000000");
             std::env::set_var("POVW_JOB_NUMBER", "1");
         }
 
         // This is a basic test to ensure the module compiles and can be tested
-        assert_eq!(std::env::var("POVW_ENABLED").unwrap_or_default(), "true");
         assert_eq!(
             std::env::var("POVW_LOG_ID").unwrap_or_default(),
             "0000000000000000000000000000000000000000"
