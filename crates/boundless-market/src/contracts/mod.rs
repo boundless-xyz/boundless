@@ -587,8 +587,8 @@ impl Requirements {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 /// The data that is used to construct the claim for a fulfillment.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum FulfillmentClaimData {
     /// There are certain types of fulfillments where journals cannot be authenticated and
     /// so we can only check the integrity of the receipt.
@@ -695,7 +695,6 @@ impl Predicate {
         }
     }
 
-    #[inline]
     /// Evaluates the predicate against the fulfillment data.
     pub fn eval(&self, fulfillment_data: &FulfillmentClaimData) -> bool {
         match self.predicateType {
