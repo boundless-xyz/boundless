@@ -684,10 +684,10 @@ where
     /// The bytes array _must_ be encoded using the scheme defined in [GuestEnv] in
     /// order for the input to be used on Boundless.
     ///
-    /// Note: Typically, you will want to use [upload_input] or [upload_input_stdin], which 
+    /// Note: Typically, you will want to use [`Self::upload_input`] or [`Self::upload_input_stdin`], which
     /// handle encoding inputs into the structured format that is expected by Boundless provers.
-    /// 
-    /// Note: 
+    ///
+    /// Note:
     ///
     /// ```rust
     /// # use boundless_market::client::Client;
@@ -708,7 +708,7 @@ where
             .await
             .map_err(|_| anyhow!("Failed to upload input"))?)
     }
-    
+
     /// Create a new request builder.
     pub fn new_request<Params>(&self) -> Params
     where
