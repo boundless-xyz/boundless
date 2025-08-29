@@ -249,9 +249,7 @@ Bento supports optional Proof of Verifiable Work for enhanced security:
 
 ```bash
 # Enable POVW
-export POVW_ENABLED=true
-export POVW_LOG_ID="0000000000000000000000000000000000000000"
-export POVW_JOB_NUMBER=1
+export POVW_LOG_ID="0x0000000000000000000000000000000000000000"
 
 # Start agents with POVW support
 cargo run -p workflow -- join --task-stream join
@@ -287,9 +285,7 @@ When POVW is enabled:
 | `DATABASE_URL`    | PostgreSQL connection string | Required                 |
 | `REDIS_URL`       | Redis connection string      | Required                 |
 | `RISC0_DEV_MODE`  | Enable development mode      | `false`                  |
-| `POVW_ENABLED`    | Enable POVW support          | `false`                  |
-| `POVW_LOG_ID`     | POVW log identifier          | Required if POVW enabled |
-| `POVW_JOB_NUMBER` | POVW job number              | Required if POVW enabled |
+| `POVW_LOG_ID`     | POVW log identifier          | Required to enable POVW  |
 
 ### Agent Configuration
 

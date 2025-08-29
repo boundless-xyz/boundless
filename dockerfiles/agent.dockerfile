@@ -41,6 +41,12 @@ ENV SCCACHE_SERVER_PORT=4227
 WORKDIR /src/
 COPY . .
 
+# Install groth16 component
+ENV RISC0_HOME=/usr/local/risc0
+RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/risc0/risc0/main/install.sh | sh
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rzup install groth16
+
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 

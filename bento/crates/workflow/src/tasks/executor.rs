@@ -564,10 +564,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             let mut env = ExecutorEnv::builder();
 
             // Enable POVW if configured (agent POVW setting)
-            if std::env::var("POVW_LOG_ID").is_ok() {
-                let log_id = std::env::var("POVW_LOG_ID").unwrap();
-                let povw_log_id = PovwLogId::from_str(&log_id).unwrap();
-                env.povw((povw_log_id, rand::random()));
+            if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
+                if let Ok(povw_log_id) = PovwLogId::from_str(&log_id) {
+                    env.povw((povw_log_id, rand::random()));
+                } else {
+                    tracing::warn!("Invalid POVW_LOG_ID format: {}", log_id);
+                }
             }
 
             for receipt in assumption_receipts {
