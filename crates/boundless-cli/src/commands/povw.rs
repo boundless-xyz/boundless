@@ -18,6 +18,7 @@ use std::{
     borrow::Borrow,
     fs,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use anyhow::{bail, ensure, Context, Result};
@@ -58,6 +59,8 @@ pub struct State {
     /// Receipt proving the most recent update. This receipt is used to verify the state loaded
     /// into the guest as part of the continuation of the log builder.
     receipt: Receipt,
+    /// Time at which this state was last updated.
+    updated_at: SystemTime,
 }
 
 /// A one-byte version number tacked on to the front of the encoded state for cross-version compat.
@@ -111,19 +114,19 @@ pub struct PovwProveUpdate {
     log_id: PovwLogId,
 
     /// Output file for the Log Builder receipt and work log state.
-    #[arg(short, long)]
-    output: PathBuf,
+    #[arg(short = 'o', long)]
+    state_out: PathBuf,
 
     /// Continuation state and receipt from a previous log update.
     ///
     /// Set this flag to the output file from a previous run to update an existing work log.
     /// Either this flag or --new must be specified.
-    #[arg(short, long, group = "state")]
-    continuation: Option<PathBuf>,
+    #[arg(short = 'i', long, group = "state")]
+    state_in: Option<PathBuf>,
 
     /// Create a new work log, adding the given receipts to it.
     ///
-    /// Either this flag or --continuation must be specified.
+    /// Either this flag or --state-in must be specified.
     #[arg(short, long, group = "state")]
     new: bool,
 }
@@ -141,7 +144,7 @@ impl PovwProveUpdate {
             .context("Failed to build WorkLogUpdateProver")?;
 
         // Load continuation if provided
-        if let Some(continuation_path) = &self.continuation {
+        if let Some(continuation_path) = &self.state_in {
             let state = self.load_state(continuation_path)?;
             tracing::info!(
                 "Loaded work log state from {} with commit {}",
@@ -259,13 +262,13 @@ impl PovwProveUpdate {
 
     /// Save the work log update receipt
     fn save_state(&self, work_log: WorkLog, receipt: Receipt) -> Result<()> {
-        let state = State { log_id: self.log_id, work_log, receipt };
+        let state = State { log_id: self.log_id, work_log, receipt, updated_at: SystemTime::now() };
         let state_data = state.encode().context("Failed to serialize state")?;
 
-        fs::write(&self.output, &state_data)
-            .with_context(|| format!("Failed to write state to {}", self.output.display()))?;
+        fs::write(&self.state_out, &state_data)
+            .with_context(|| format!("Failed to write state to {}", self.state_out.display()))?;
 
-        tracing::info!("Successfully saved work log state: {}", self.output.display());
+        tracing::info!("Successfully saved work log state: {}", self.state_out.display());
         tracing::info!("Updated commit: {:x?}", state.work_log.commit());
 
         Ok(())
