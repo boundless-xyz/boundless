@@ -32,12 +32,6 @@ library FulfillmentLibrary {
     /// @param fulfillment The Fulfillment struct containing potentially the journal
     /// @return The keccak256 digest of the fulfillmentData.
     function fulfillmentDataDigest(Fulfillment memory fulfillment) internal pure returns (bytes32) {
-        if (fulfillment.fulfillmentDataType == FulfillmentDataType.None) {
-            return bytes32(0);
-        } else if (fulfillment.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
-            return keccak256(abi.encodePacked(uint8(fulfillment.fulfillmentDataType), fulfillment.fulfillmentData));
-        } else {
-            revert("Unknown fulfillment data type");
-        }
+        return keccak256(abi.encodePacked(uint8(fulfillment.fulfillmentDataType), fulfillment.fulfillmentData));
     }
 }

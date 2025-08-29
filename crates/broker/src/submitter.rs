@@ -27,8 +27,8 @@ use anyhow::{anyhow, Context, Result};
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
-        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment, FulfillmentData,
-        FulfillmentDataType, PredicateType,
+        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
+        FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
     selector::is_groth16_selector,
 };
@@ -347,7 +347,7 @@ where
                     ),
                     PredicateType::PrefixMatch | PredicateType::DigestMatch => (
                         order_claim_digest,
-                        FulfillmentData {
+                        FulfillmentDataImageIdAndJournal {
                             imageId: <[u8; 32]>::from(order_img_id).into(),
                             journal: order_journal.into(),
                         }

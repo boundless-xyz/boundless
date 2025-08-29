@@ -61,7 +61,7 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
     AssessorCallback, AssessorCommitment, AssessorJournal, AssessorReceipt, Callback, Fulfillment,
-    FulfillmentContext, FulfillmentData, FulfillmentDataType, IBoundlessMarket,
+    FulfillmentContext, FulfillmentDataImageIdAndJournal, FulfillmentDataType, IBoundlessMarket,
     Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
     PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
 };

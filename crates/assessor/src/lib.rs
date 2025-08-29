@@ -10,8 +10,8 @@
 use alloy_primitives::{Address, Keccak256, Signature, SignatureError};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use boundless_market::contracts::{
-    EIP712DomainSaltless, FulfillmentClaimData, FulfillmentData, FulfillmentDataType, ProofRequest,
-    RequestError,
+    EIP712DomainSaltless, FulfillmentClaimData, FulfillmentDataImageIdAndJournal,
+    FulfillmentDataType, ProofRequest, RequestError,
 };
 use risc0_zkvm::{
     sha::{Digest, Digestible},
@@ -108,7 +108,7 @@ impl Fulfillment {
                 let mut hasher = Keccak256::new();
                 hasher.update([FulfillmentDataType::ImageIdAndJournal as u8]);
                 hasher.update(
-                    FulfillmentData {
+                    FulfillmentDataImageIdAndJournal {
                         imageId: <[u8; 32]>::from(*image_id).into(),
                         journal: journal.clone(),
                     }

@@ -24,9 +24,11 @@ import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
-import {FulfillmentData} from "./types/FulfillmentData.sol";
+import {FulfillmentDataImageIdAndJournal} from "./types/FulfillmentData.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
-import {FulfillmentData, FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
+import {
+    FulfillmentDataImageIdAndJournal, FulfillmentDataLibrary, FulfillmentDataType
+} from "./types/FulfillmentData.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {PredicateType} from "./types/Predicate.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
@@ -340,7 +342,7 @@ contract BoundlessMarket is
             if (callbackIndexPlusOne > 0) {
                 if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
                     (bytes32 imageId, bytes calldata journal) =
-                        FulfillmentDataLibrary.decodeFulfillmentData(fill.fulfillmentData);
+                        FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
                     AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
                     _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
                 } else {

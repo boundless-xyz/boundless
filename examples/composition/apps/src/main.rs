@@ -25,7 +25,7 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_market::{
-    contracts::boundless_market_contract::FulfillmentData, input::GuestEnv,
+    contracts::boundless_market_contract::FulfillmentDataImageIdAndJournal, input::GuestEnv,
     request_builder::OfferParams, Client, Deployment, StorageProviderConfig,
 };
 use clap::Parser;
@@ -115,8 +115,8 @@ async fn run(args: Args) -> Result<()> {
             expires_at,
         )
         .await?;
-    let FulfillmentData { imageId: cb_image_id, journal: echo_journal } =
-        FulfillmentData::abi_decode(&fulfillment_data)?;
+    let FulfillmentDataImageIdAndJournal { imageId: cb_image_id, journal: echo_journal } =
+        FulfillmentDataImageIdAndJournal::abi_decode(&fulfillment_data)?;
     tracing::info!("Request {:x} fulfilled", request_id);
     assert_eq!(Digest::from(<[u8; 32]>::from(cb_image_id)), Digest::from(ECHO_ID));
 
@@ -151,8 +151,8 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
     tracing::info!("Request {:x} fulfilled", request_id);
-    let FulfillmentData { journal: identity_journal, .. } =
-        FulfillmentData::abi_decode(&identity_fulfillment_data)?;
+    let FulfillmentDataImageIdAndJournal { journal: identity_journal, .. } =
+        FulfillmentDataImageIdAndJournal::abi_decode(&identity_fulfillment_data)?;
     debug_assert_eq!(&identity_journal, echo_claim_digest.as_bytes());
 
     // Interact with the Counter contract by calling the increment function.

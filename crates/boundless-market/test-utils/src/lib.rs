@@ -29,8 +29,8 @@ use boundless_market::{
         boundless_market::BoundlessMarketService,
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
-        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, FulfillmentDataType,
-        PredicateType, ProofRequest,
+        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentDataImageIdAndJournal,
+        FulfillmentDataType, PredicateType, ProofRequest,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -398,8 +398,11 @@ fn fulfillment_data_digest(
             let mut hasher = Keccak256::new();
             hasher.update([FulfillmentDataType::ImageIdAndJournal as u8]);
             hasher.update(
-                FulfillmentData { imageId: <[u8; 32]>::from(img_id.into()).into(), journal }
-                    .abi_encode(),
+                FulfillmentDataImageIdAndJournal {
+                    imageId: <[u8; 32]>::from(img_id.into()).into(),
+                    journal,
+                }
+                .abi_encode(),
             );
             hasher.finalize().0.into()
         }
@@ -425,7 +428,7 @@ pub fn mock_singleton(
         }
         PredicateType::PrefixMatch | PredicateType::DigestMatch => (
             <[u8; 32]>::from(app_claim_digest).into(),
-            FulfillmentData {
+            FulfillmentDataImageIdAndJournal {
                 imageId: <[u8; 32]>::from(
                     request.requirements.image_id().expect("image ID is required"),
                 )

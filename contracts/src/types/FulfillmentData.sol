@@ -4,46 +4,39 @@
 // as found in the LICENSE-BSL file.
 pragma solidity ^0.8.24;
 
-using FulfillmentDataLibrary for FulfillmentData global;
+using FulfillmentDataLibrary for FulfillmentDataImageIdAndJournal global;
 
 enum FulfillmentDataType {
     None,
     ImageIdAndJournal
 }
 
-/// @title FulfillmentData Struct and Library
-/// @notice Represents a fulfillment configuration for proof delivery
-struct FulfillmentData {
+/// @title FulfillmentDataImageIdAndJournal Struct and Library
+/// @notice Represents a fulfillment where the image id and journal are delivered
+struct FulfillmentDataImageIdAndJournal {
     /// @notice Image ID of the guest that was verifiably executed to satisfy the request.
     bytes32 imageId;
     /// @notice Journal committed by the guest program execution.
-    /// @dev The journal is checked to satisfy the predicate specified on the request's requirements.
     bytes journal;
 }
 
 library FulfillmentDataLibrary {
-    /// @notice Decodes a bytes calldata into a FulfillmentData struct.
+    /// @notice Decodes a bytes calldata into a FulfillmentDataImageIdAndJournal struct.
     /// @param data The bytes calldata to decode.
-    /// @return fillData The decoded FulfillmentData struct.
-    function decode(bytes calldata data) public pure returns (FulfillmentData memory fillData) {
-        bytes32 imageId;
-        bytes calldata journal;
-        assembly {
-            imageId := calldataload(add(data.offset, 0x20))
-            let journalOffset := calldataload(add(data.offset, 0x40))
-            let journalPtr := add(data.offset, add(0x20, journalOffset))
-            let journalLength := calldataload(journalPtr)
-            journal.offset := add(journalPtr, 0x20)
-            journal.length := journalLength
-        }
-        fillData = FulfillmentData(imageId, journal);
+    /// @return fillData The decoded FulfillmentDataImageIdAndJournal struct.
+    function decodeFulfillmentDataImageIdAndJournal(bytes calldata data)
+        public
+        pure
+        returns (FulfillmentDataImageIdAndJournal memory fillData)
+    {
+        (fillData.imageId, fillData.journal) = decodePackedImageIdAndJournal(data);
     }
 
-    /// @notice Decodes the fulfillment data from a bytes calldata.
+    /// @notice Decodes a bytes calldata into a the image id and journal.
     /// @param data The bytes calldata to decode.
     /// @return imageId The decoded image ID.
     /// @return journal The decoded journal.
-    function decodeFulfillmentData(bytes calldata data)
+    function decodePackedImageIdAndJournal(bytes calldata data)
         internal
         pure
         returns (bytes32 imageId, bytes calldata journal)

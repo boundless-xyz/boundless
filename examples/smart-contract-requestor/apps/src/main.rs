@@ -21,7 +21,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::FulfillmentData, Client, Deployment, RequestId, StorageProviderConfig,
+    contracts::FulfillmentDataImageIdAndJournal, Client, Deployment, RequestId, StorageProviderConfig,
 };
 use boundless_market_test_utils::ECHO_ELF;
 use clap::Parser;
@@ -128,7 +128,7 @@ async fn run(args: Args) -> Result<()> {
             expires_at,
         )
         .await?;
-    let FulfillmentData { journal, .. } = FulfillmentData::abi_decode(&fulfillment_data)?;
+    let FulfillmentDataImageIdAndJournal { journal, .. } = FulfillmentDataImageIdAndJournal::abi_decode(&fulfillment_data)?;
 
     tracing::info!("Request {:x} fulfilled", request_id);
     tracing::info!("Seal: {:?}", seal);

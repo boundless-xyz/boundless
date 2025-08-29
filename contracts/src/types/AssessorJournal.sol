@@ -5,7 +5,6 @@
 pragma solidity ^0.8.20;
 
 import {AssessorCallback} from "./AssessorCallback.sol";
-import {PredicateType} from "./Predicate.sol";
 import {Selector} from "./Selector.sol";
 
 /// @title Assessor Journal Struct
