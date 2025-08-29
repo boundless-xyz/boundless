@@ -686,6 +686,16 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         user_cycles: session.user_cycles,
         total_cycles: session.total_cycles,
         assumption_count: assumption_count as u64,
+        povw_log_id: if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+            std::env::var("POVW_LOG_ID").ok()
+        } else {
+            None
+        },
+        povw_job_number: if std::env::var("POVW_ENABLED").unwrap_or_default() == "true" {
+            std::env::var("POVW_JOB_NUMBER").ok()
+        } else {
+            Some(rand::random::<u64>().to_string())
+        },
     };
     Ok(resp)
 }

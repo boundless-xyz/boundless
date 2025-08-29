@@ -53,8 +53,10 @@ impl std::fmt::Display for ErrMsg {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WorkReceiptInfo {
     pub key: String,
-    pub size: usize,
-    pub last_modified: String,
+    /// PoVW log ID if PoVW is enabled, None otherwise
+    pub povw_log_id: Option<String>,
+    /// PoVW job number if PoVW is enabled, None otherwise
+    pub povw_job_number: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -647,33 +649,6 @@ async fn groth16_download(
     Ok(receipt)
 }
 
-// Work receipt routes
-const LIST_WORK_RECEIPTS_PATH: &str = "/work-receipts";
-async fn list_work_receipts(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<WorkReceiptList>, AppError> {
-    let prefix = Some(format!("{WORK_RECEIPTS_BUCKET_DIR}/"));
-    let objects = state
-        .s3_client
-        .list_objects(prefix.as_deref())
-        .await
-        .context("Failed to list work receipts")?;
-
-    let mut receipts = Vec::new();
-    for key in objects {
-        // Extract filename from key
-        if let Some(filename) = key.rsplit('/').next() {
-            receipts.push(WorkReceiptInfo {
-                key: filename.to_string(),
-                size: 0, // We don't have size info from list_objects
-                last_modified: "Unknown".to_string(), // We don't have timestamp info from list_objects
-            });
-        }
-    }
-
-    Ok(Json(WorkReceiptList { receipts }))
-}
-
 const GET_WORK_RECEIPT_PATH: &str = "/work-receipts/:receipt_id";
 async fn get_work_receipt(
     State(state): State<Arc<AppState>>,
@@ -691,7 +666,7 @@ async fn get_work_receipt(
 
     let receipt = state
         .s3_client
-        .read_buf_from_s3(&receipt_key)
+        .read_buf_from_s3(&format!("{receipt_key}_povw.bincode"))
         .await
         .context("Failed to read from object store")?;
 
@@ -714,7 +689,6 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(SNARK_START_PATH, post(prove_groth16))
         .route(SNARK_STATUS_PATH, get(groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
-        .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
         .with_state(state)
 }

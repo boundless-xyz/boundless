@@ -73,6 +73,10 @@ pub struct ExecutorResp {
     pub total_cycles: u64,
     /// Count of assumptions included
     pub assumption_count: u64,
+    /// PoVW log ID if PoVW is enabled, None otherwise
+    pub povw_log_id: Option<String>,
+    /// PoVW job number if PoVW is enabled, None otherwise
+    pub povw_job_number: Option<String>,
 }
 
 /// prove + lift task definition
