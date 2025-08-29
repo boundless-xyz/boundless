@@ -26,6 +26,7 @@ clap_complete = { workspace = true }
 futures = { version = "0.3" }
 hex = { workspace = true }
 libc = "0.2.159"
+num_enum = "0.7.4"
 reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }

@@ -21,8 +21,10 @@ use std::{
 
 use anyhow::{bail, ensure, Context, Result};
 use clap::{Args, Subcommand};
-use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId};
+use num_enum::TryFromPrimitive;
+use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId, WorkLog};
 use risc0_zkvm::{default_prover, GenericReceipt, Receipt, ReceiptClaim, WorkClaim};
+use serde::{Deserialize, Serialize};
 
 /// Commands for Proof of Verifiable Work (PoVW) operations.
 #[derive(Subcommand, Clone, Debug)]
@@ -40,6 +42,52 @@ impl PovwCommands {
     }
 }
 
+/// State of the work log update process. This is stored as a file between executions of these
+/// commands to allow continuation of building a work log.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct State {
+    /// Work log identifier associated with the work log in this state.
+    log_id: PovwLogId,
+    /// A representation of the Merkle tree of nonces consumed as part of this work log.
+    work_log: WorkLog,
+    /// Receipt proving the most recent update. This receipt is used to verify the state loaded
+    /// into the guest as part of the continuation of the log builder.
+    receipt: Receipt,
+}
+
+/// A one-byte version number tacked on to the front of the encoded state for cross-version compat.
+#[repr(u8)]
+#[non_exhaustive]
+#[derive(Copy, Clone, Debug, TryFromPrimitive)]
+enum StateVersion {
+    V1,
+}
+
+impl State {
+    /// Encode this state into a buffer of bytes.
+    pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
+        let mut buffer = vec![StateVersion::V1 as u8];
+        buffer.extend_from_slice(&bincode::serialize(self)?);
+        Ok(buffer)
+    }
+
+    /// Decode the state from a buffer of bytes.
+    pub fn decode(buffer: impl AsRef<[u8]>) -> anyhow::Result<Self> {
+        let buffer = buffer.as_ref();
+        if buffer.is_empty() {
+            bail!("cannot decode state from empty buffer");
+        }
+        let (&[version], buffer) = buffer.split_at(1) else { unreachable!("can't touch this") };
+        match version.try_into() {
+            Ok(StateVersion::V1) => {
+                bincode::deserialize(buffer).context("failed to deserialize state")
+            }
+            Err(_) => bail!("unknown state version number: {version}"),
+        }
+    }
+}
+
 /// Compress a directory of work receipts into a work log update.
 #[derive(Args, Clone, Debug)]
 pub struct PovwProveUpdate {
@@ -52,7 +100,7 @@ pub struct PovwProveUpdate {
     /// The work log identifier is a 160-bit public key hash (i.e. an Ethereum address) which is
     /// used to identify the work log. A work log is a collection of work claims, including their
     /// value and nonces. A single work log can only include a nonce (and so a receipt) once.
-    /// 
+    ///
     /// A prover may have one or more work logs, and may set the work log ID equal to their onchain
     /// prover address, or to a new address just used as the work log ID.
     #[arg(short, long)]
@@ -73,7 +121,7 @@ pub struct PovwProveUpdate {
     ///
     /// Either this flag or --continuation must be specified.
     #[arg(short, long, group = "state")]
-    new: bool
+    new: bool,
 }
 
 impl PovwProveUpdate {
@@ -86,25 +134,28 @@ impl PovwProveUpdate {
         tracing::info!("Loaded {} work receipts", work_receipts.len());
 
         // Set up the work log update prover
-        let mut prover = WorkLogUpdateProver::builder()
-            .prover(default_prover())
+        let mut prover_builder = WorkLogUpdateProver::builder().prover(default_prover());
+        prover_builder
             .log_id(self.log_id)
             .log_builder_program(risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ELF)
-            .context("Failed to build WorkLogUpdateProver")?
-            .build()
             .context("Failed to build WorkLogUpdateProver")?;
 
         // Load continuation if provided
         if let Some(continuation_path) = &self.continuation {
-            self.load_continuation(&mut prover, continuation_path)
-                .context("Failed to load continuation")?;
+            let state = self.load_state(continuation_path)?;
+            prover_builder
+                .work_log(state.work_log, state.receipt)
+                .context("Failed to build prover with given state")?;
         }
+
+        let mut prover = prover_builder.build().context("Failed to build WorkLogUpdateProver")?;
 
         // Prove the work log update
         let prove_info =
             prover.prove_update(work_receipts).context("Failed to prove work log update")?;
 
         // Save the output
+        // TODO: This needs to save the state, and not just Receipt.
         self.save_receipt(&prove_info.receipt).context("Failed to save receipt")?;
 
         Ok(())
@@ -164,21 +215,14 @@ impl PovwProveUpdate {
     }
 
     /// Load continuation receipt and work log state
-    fn load_continuation(
-        &self,
-        _prover: &mut WorkLogUpdateProver<impl risc0_zkvm::Prover>,
-        continuation_path: impl AsRef<Path>,
-    ) -> Result<()> {
-        let continuation_path = continuation_path.as_ref();
-        let _continuation_data = fs::read(continuation_path).with_context(|| {
-            format!("Failed to read continuation file: {}", continuation_path.display())
+    fn load_state(&self, state_path: impl AsRef<Path>) -> anyhow::Result<State> {
+        let state_path = state_path.as_ref();
+        let state_data = fs::read(state_path).with_context(|| {
+            format!("Failed to read work log state file: {}", state_path.display())
         })?;
 
-        // TODO: Load continuation receipt and work log state
-        // This requires the WorkLog state and previous receipt
-        tracing::warn!("Continuation support not fully implemented yet");
-
-        Ok(())
+        State::decode(&state_data)
+            .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
     }
 
     /// Save the work log update receipt
