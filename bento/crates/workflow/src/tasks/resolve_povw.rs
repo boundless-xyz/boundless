@@ -39,14 +39,7 @@ pub async fn resolve_povw(
             .context("Failed to deserialize as POVW receipt")?;
 
     // Unwrap the POVW receipt to get the ReceiptClaim for processing
-    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
-        if let Some(prover) = agent.prover.as_ref() {
-            prover.unwrap_povw(&povw_receipt).context(
-            "POVW unwrap method not available - POVW functionality requires RISC Zero POVW support",
-        )?
-        } else {
-            return Err(anyhow::anyhow!("No prover available for POVW unwrapping"));
-        };
+    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
 
     let mut assumptions_len: Option<u64> = None;
     if conditional_receipt.claim.clone().as_value()?.output.is_some() {
