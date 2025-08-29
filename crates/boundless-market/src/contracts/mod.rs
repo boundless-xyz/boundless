@@ -438,7 +438,15 @@ impl ProofRequest {
         Url::parse(&self.imageUrl).map(|_| ())?;
 
         match self.requirements.predicate.predicateType {
-            PredicateType::DigestMatch | PredicateType::PrefixMatch => {
+            PredicateType::DigestMatch => {
+                if self.requirements.predicate.data.len() != 64 {
+                    return Err(RequestError::MalformedPredicateData);
+                }
+                if self.requirements.image_id() == Some(Digest::ZERO) {
+                    return Err(RequestError::ImageIdIsZero);
+                }
+            }
+            PredicateType::PrefixMatch => {
                 if self.requirements.predicate.data.len() < 32 {
                     return Err(RequestError::MalformedPredicateData);
                 }
