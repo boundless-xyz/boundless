@@ -24,7 +24,7 @@ import {IHitPoints} from "./IHitPoints.sol";
 
 /// @title HitPoints ERC20
 /// @notice Implementation of a restricted transfer token using ERC20
-contract HitPoints is ERC20, ERC20Burnable,ERC20Permit, IHitPoints, AccessControl, Ownable {
+contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, AccessControl, Ownable {
     // Maximum allowed balance (uint96 max value)
     uint256 constant MAX_BALANCE = type(uint96).max;
     // Role identifier for minting operation
