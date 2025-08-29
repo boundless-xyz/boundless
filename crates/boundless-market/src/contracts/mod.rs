@@ -26,7 +26,7 @@ use alloy::{
 };
 use alloy_primitives::{
     aliases::{U160, U32, U96},
-    Address, Bytes, FixedBytes, B256, U256,
+    Address, Bytes, FixedBytes, U256,
 };
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use serde::{Deserialize, Serialize};
@@ -544,8 +544,12 @@ impl ProofRequest {
 
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
-    pub fn new(predicate: Predicate) -> Self {
-        Self { predicate, callback: Callback::default(), selector: UNSPECIFIED_SELECTOR }
+    pub fn new(predicate: impl Into<Predicate>) -> Self {
+        Self {
+            predicate: predicate.into(),
+            callback: Callback::default(),
+            selector: UNSPECIFIED_SELECTOR,
+        }
     }
 
     /// Sets the predicate.
