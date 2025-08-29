@@ -20,7 +20,7 @@ contract RequestLockTest is Test {
             deadlineDelta: uint24(50),
             requestLockFlags: 0,
             price: 1 ether,
-            stake: 1 ether,
+            collateral: 1 ether,
             requestDigest: bytes32(0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef)
         });
     }
@@ -55,7 +55,7 @@ contract RequestLockTest is Test {
             "Prover paid flag not set correctly"
         );
         assertEq(requestLock.price, 0, "Price not zeroed out");
-        assertEq(requestLock.stake, 0, "Stake not zeroed out");
+        assertEq(requestLock.collateral, 0, "Stake not zeroed out");
         // Request digest is needed for multiple proofs being delivered for a single request,
         // and partial fulfillment use cases.
         assertTrue(requestLock.requestDigest != bytes32(0), "Request digest should not be zero");
@@ -75,7 +75,7 @@ contract RequestLockTest is Test {
         requestLock.setSlashed();
         assertEq(requestLock.requestLockFlags, RequestLockLibrary.SLASHED_FLAG, "Slashed flag not set correctly");
         assertEq(requestLock.price, 0, "Price not zeroed out");
-        assertEq(requestLock.stake, 0, "Stake not zeroed out");
+        assertEq(requestLock.collateral, 0, "Stake not zeroed out");
         assertSlot1Clear();
         // Request digest is needed for multiple proofs being delivered for a single request,
         // and partial fulfillment use cases.
@@ -91,7 +91,7 @@ contract RequestLockTest is Test {
         requestLock.setProverPaidAfterLockDeadline(address(0x456));
         assertTrue(requestLock.isProverPaidAfterLockDeadline());
         assertNotEq(requestLock.price, 0, "Price not zeroed out");
-        assertNotEq(requestLock.stake, 0, "Stake not zeroed out");
+        assertNotEq(requestLock.collateral, 0, "Stake not zeroed out");
     }
 
     function testIsProverPaid() public {
