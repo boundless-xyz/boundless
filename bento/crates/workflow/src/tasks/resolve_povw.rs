@@ -10,9 +10,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
-use risc0_zkvm::Receipt;
-use risc0_zkvm::GenericReceipt;
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim};
+use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim, GenericReceipt};
 use uuid::Uuid;
 use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq, s3::WORK_RECEIPTS_BUCKET_DIR};
 
@@ -159,11 +157,13 @@ pub async fn resolve_povw(
     let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
     tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
 
-    let wrapped_work_receipt: GenericReceipt<SuccinctReceipt<ReceiptClaim>> = GenericReceipt::Succinct(&receipt);
+    // Save the resolved receipt to work receipts bucket for later consumption
+    // Wrap the POVW receipt as GenericReceipt::Succinct for RISC Zero VM integration
+    let wrapped_povw_receipt = GenericReceipt::Succinct(povw_receipt);
 
     agent
         .s3_client
-        .write_to_s3(&work_receipt_key, &wrapped_work_receipt)
+        .write_to_s3(&work_receipt_key, &wrapped_povw_receipt)
         .await
         .context("Failed to save resolved POVW receipt to work receipts bucket")?;
 

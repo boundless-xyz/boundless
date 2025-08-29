@@ -43,9 +43,9 @@ COPY . .
 
 # Install groth16 component
 ENV RISC0_HOME=/usr/local/risc0
-RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/risc0/risc0/main/install.sh | sh
+RUN curl -L https://risczero.com/install | bash
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN rzup install groth16
+RUN /root/.risc0/bin/rzup install risc0-groth16
 
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
