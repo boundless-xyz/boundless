@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
-use crate::contracts::{Callback, Predicate, Requirements};
+use crate::contracts::{Callback, Predicate, PredicateType, Requirements};
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
-use anyhow::{ensure, Context};
+use anyhow::{bail, ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
 use risc0_zkvm::{compute_image_id, Journal};
@@ -66,12 +66,13 @@ pub struct RequirementParams {
 
 impl From<Requirements> for RequirementParams {
     fn from(value: Requirements) -> Self {
+        let image_id = value.predicate.image_id().map(<[u8; 32]>::from).map(Into::into);
         Self {
             predicate: Some(value.predicate),
-            image_id: Some(value.imageId),
             selector: Some(value.selector),
             callback_address: Some(value.callback.addr),
             callback_gas_limit: Some(value.callback.gasLimit.to()),
+            image_id,
         }
     }
 }
@@ -84,10 +85,6 @@ impl TryFrom<RequirementParams> for Requirements {
             predicate: value.predicate.ok_or(MissingFieldError::with_hint(
                 "predicate",
                 "please provide a Predicate with requirements e.g. a digest match on a journal",
-            ))?,
-            imageId: value.image_id.ok_or(MissingFieldError::with_hint(
-                "image_id",
-                "please provide the image ID for the program to be proven",
             ))?,
             selector: value.selector.unwrap_or_default(),
             callback: Callback {
@@ -152,8 +149,10 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         &self,
         (image_id, journal, params): (Digest, &Journal, &RequirementParams),
     ) -> Result<Self::Output, Self::Error> {
-        let predicate =
-            params.predicate.clone().unwrap_or_else(|| Predicate::digest_match(journal.digest()));
+        let predicate = params
+            .predicate
+            .clone()
+            .unwrap_or_else(|| Predicate::digest_match(image_id, journal.digest()));
         if let Some(params_image_id) = params.image_id {
             ensure!(
                 image_id == Digest::from(<[u8; 32]>::from(params_image_id)),
@@ -168,13 +167,10 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
             })
             .unwrap_or_default();
         let selector = params.selector.unwrap_or_default();
-
-        Ok(Requirements {
-            imageId: <[u8; 32]>::from(image_id).into(),
-            predicate,
-            callback,
-            selector,
-        })
+        if !callback.is_none() && predicate.predicateType == PredicateType::ClaimDigestMatch {
+            bail!("cannot use ClaimDigestMatch predicate with a callback; the journal must be provided to the callback");
+        }
+        Ok(Requirements { predicate, callback, selector })
     }
 }
 

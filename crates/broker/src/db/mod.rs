@@ -14,7 +14,7 @@
 
 use std::{default::Default, str::FromStr, sync::Arc};
 
-use alloy::primitives::{ruint::ParseError as RuintParseErr, Bytes, B256, U256};
+use alloy::primitives::{ruint::ParseError as RuintParseErr, Bytes, U256};
 use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::{
@@ -135,7 +135,7 @@ pub trait BrokerDb {
     async fn get_submission_order(
         &self,
         id: &str,
-    ) -> Result<(ProofRequest, Bytes, String, B256, U256, FulfillmentType), DbError>;
+    ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
     async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
     async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError>;
     async fn set_order_complete(&self, id: &str) -> Result<(), DbError>;
@@ -361,14 +361,14 @@ impl BrokerDb for SqliteDb {
     async fn get_submission_order(
         &self,
         id: &str,
-    ) -> Result<(ProofRequest, Bytes, String, B256, U256, FulfillmentType), DbError> {
+    ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             Ok((
                 order.request.clone(),
                 order.client_sig.clone(),
                 order.proof_id.ok_or(DbError::MissingElm("proof_id"))?,
-                order.request.requirements.imageId,
+                order.image_id.ok_or(DbError::MissingElm("image_id"))?,
                 order.lock_price.ok_or(DbError::MissingElm("lock_price"))?,
                 order.fulfillment_type,
             ))
@@ -1062,23 +1062,17 @@ mod tests {
     use crate::ProofRequest;
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Offer, Predicate, PredicateType, RequestId, RequestInput, RequestInputType, Requirements,
+        Offer, Predicate, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
     fn create_order_request() -> OrderRequest {
-        OrderRequest::new(
+        let mut request = OrderRequest::new(
             ProofRequest::new(
                 RequestId::new(Address::ZERO, 1),
-                Requirements::new(
-                    Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
                 "http://risczero.com",
                 RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {
@@ -1095,7 +1089,9 @@ mod tests {
             FulfillmentType::LockAndFulfill,
             Address::ZERO,
             1,
-        )
+        );
+        request.image_id = Some(Digest::ZERO.to_string());
+        request
     }
 
     fn create_order() -> Order {
@@ -1156,12 +1152,12 @@ mod tests {
         order.lock_price = Some(U256::from(10));
         db.add_order(&order).await.unwrap();
 
-        let submit_order: (ProofRequest, Bytes, String, B256, U256, FulfillmentType) =
+        let submit_order: (ProofRequest, Bytes, String, String, U256, FulfillmentType) =
             db.get_submission_order(&order.id()).await.unwrap();
         assert_eq!(submit_order.0, order.request);
         assert_eq!(submit_order.1, order.client_sig);
         assert_eq!(submit_order.2, order.proof_id.unwrap());
-        assert_eq!(submit_order.3, order.request.requirements.imageId);
+        assert_eq!(submit_order.3, order.image_id.unwrap());
         assert_eq!(submit_order.4, order.lock_price.unwrap());
         assert_eq!(submit_order.5, order.fulfillment_type);
     }
