@@ -18,6 +18,7 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.88.0
   RISC0_CRATE_VERSION: "2.3.0"
   FOUNDRY_VERSION: v1.0.0
@@ -539,27 +540,33 @@ jobs:
               - 'dockerfiles/**'
               - 'compose.yml'
               - '.env.broker-template'
+              - '.github/workflows/main.yml'
             # Changes affect the main codebase (rust + contracts).
             main:
               - '*' # run is anything in the root changed.
               - 'crates/**'
               - 'contracts/**'
+              - '.github/workflows/main.yml'
             # Changes that could effect the examples.
             examples:
               - '*' # run is anything in the root changed.
               - 'crates/**'
               - 'contracts/**'
               - 'examples/**'
+              - '.github/workflows/main.yml'
             docs:
               - '*' # run is anything in the root changed.
               - 'crates/**'
               - 'contracts/**'
               - 'documentation/**'
+              - '.github/workflows/main.yml'
             # Changes to infrastructure code
             infra:
               - 'infra/**'
+              - '.github/workflows/main.yml'
             # Changes to deployment configuration files
             deployments:
               - 'contracts/deployment.toml'
               - 'crates/boundless-market/src/deployments.rs'
+              - '.github/workflows/main.yml'
 

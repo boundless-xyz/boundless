@@ -7,7 +7,6 @@ pragma solidity ^0.8.20;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IBoundlessMarket} from "../IBoundlessMarket.sol";
-import {RequestId} from "./RequestId.sol";
 
 using OfferLibrary for Offer global;
 

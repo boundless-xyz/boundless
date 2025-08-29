@@ -5,7 +5,7 @@
 
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Predicate, PredicateLibrary, PredicateType} from "../../src/types/Predicate.sol";
 
 contract PredicateTest is Test {
