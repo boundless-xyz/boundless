@@ -620,6 +620,7 @@ where
     pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError>
     where
         St: StorageProvider,
+        <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
     {
         Ok(self
             .storage_provider
@@ -627,7 +628,7 @@ where
             .context("Storage provider not set")?
             .upload_program(program)
             .await
-            .map_err(|_| anyhow!("Failed to upload program"))?)
+            .context("Failed to upload program")?)
     }
 
     /// Upload program input to the storage provider.
@@ -699,6 +700,7 @@ where
     pub async fn upload_input_bytes(&self, input_bytes: &[u8]) -> Result<Url, ClientError>
     where
         St: StorageProvider,
+        <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
     {
         Ok(self
             .storage_provider
@@ -706,7 +708,7 @@ where
             .context("Storage provider not set")?
             .upload_input(input_bytes)
             .await
-            .map_err(|_| anyhow!("Failed to upload input"))?)
+            .context("Failed to upload input")?)
     }
 
     /// Create a new request builder.
