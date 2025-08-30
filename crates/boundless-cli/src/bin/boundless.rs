@@ -82,8 +82,8 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        FulfillmentClaimData, FulfillmentDataImageIdAndJournal, Offer, PredicateType, ProofRequest,
-        RequestInputType, Selector,
+        FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, Offer, Predicate,
+        PredicateType, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -688,11 +688,12 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
-            let (fulfillment_data, seal) =
+            let (fulfillment_type, fulfillment_data, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
             tracing::info!(
-                "Fulfillment Data: {} - Seal: {}",
+                "Type: {:?}, Fulfillment Data: {} - Seal: {}",
+                fulfillment_type,
                 serde_json::to_string_pretty(&fulfillment_data)?,
                 serde_json::to_string_pretty(&seal)?
             );
@@ -703,21 +704,29 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
 
             let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
             let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
-            let (fulfillment_data, seal) =
+            let (fulfillment_data_type, fulfillment_data, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
             let (req, _) = client.boundless_market.get_submitted_request(*request_id, None).await?;
-            let predicate = req.requirements.predicate;
-            match predicate.predicateType {
-                PredicateType::ClaimDigestMatch => {
-                    let claim_digest = <FixedBytes<32>>::try_from(predicate.data.as_ref())?;
+
+            let predicate = Predicate::try_from(req.requirements.predicate)?;
+
+            match predicate {
+                Predicate::ClaimDigestMatch(claim_digest) => {
                     verifier
-                        .verifyIntegrity(Receipt { seal, claimDigest: claim_digest })
+                        .verifyIntegrity(Receipt {
+                            seal,
+                            claimDigest: <[u8; 32]>::from(claim_digest).into(),
+                        })
                         .call()
                         .await
                         .map_err(|_| anyhow::anyhow!("Verification failed"))?;
-                    todo!()
                 }
-                PredicateType::DigestMatch | PredicateType::PrefixMatch => {
+                _ => {
+                    ensure!(
+                        fulfillment_data_type == FulfillmentDataType::ImageIdAndJournal,
+                        "Expected fulfillment data type ImageIdAndJournal, got {:?}",
+                        fulfillment_data_type
+                    );
                     let FulfillmentDataImageIdAndJournal { imageId, journal } =
                         FulfillmentDataImageIdAndJournal::abi_decode(&fulfillment_data)?;
                     ensure!(
@@ -734,12 +743,6 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                         .call()
                         .await
                         .map_err(|_| anyhow::anyhow!("Verification failed"))?;
-                }
-                _ => {
-                    bail!(
-                        "Unsupported predicate type for verification: {:?}",
-                        predicate.predicateType
-                    );
                 }
             }
 
@@ -771,38 +774,16 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
                 bail!("execute requires either a request file path or request ID")
             };
 
-            let session_info = execute(&request).await?;
+            let (image_id, session_info) = execute(&request).await?;
             let journal = session_info.journal.bytes;
+            let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
-            match request.requirements.predicate.predicateType {
-                PredicateType::DigestMatch | PredicateType::PrefixMatch => {
-                    let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
-                        request
-                            .requirements
-                            .image_id()
-                            .ok_or_else(|| anyhow::anyhow!("Missing image ID"))?,
-                        journal.clone(),
-                    );
-                    if !request.requirements.predicate.eval(&fulfillment_data) {
-                        tracing::error!(
-                            "Predicate evaluation failed for request 0x{:x}",
-                            request.id
-                        );
-                        bail!("Predicate evaluation failed");
-                    }
-                }
-                PredicateType::ClaimDigestMatch => {
-                    tracing::debug!(
-                        "Skipping predicate evaluation for request 0x{:x} because it we might not be able to calculate it yet",
-                        request.id
-                    );
-                }
-                _ => {
-                    bail!(
-                        "Unsupported predicate type: {:?}",
-                        request.requirements.predicate.predicateType
-                    );
-                }
+            let fulfillment_data =
+                FulfillmentData::from_image_id_and_journal(image_id, journal.clone());
+
+            if !predicate.eval(&fulfillment_data) {
+                tracing::error!("Predicate evaluation failed for request 0x{:x}", request.id);
+                bail!("Predicate evaluation failed");
             }
 
             tracing::info!("Successfully executed request 0x{:x}", request.id);
@@ -1244,7 +1225,7 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
     // Wait for fulfillment if requested
     if args.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (fulfillment_data, seal) = client
+        let (_, fulfillment_data, seal) = client
             .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
@@ -1300,54 +1281,43 @@ where
     // Run preflight check if enabled
     if opts.preflight {
         tracing::info!("Running request preflight check");
-        let session_info = execute(&request).await?;
+        let (image_id, session_info) = execute(&request).await?;
         let journal = session_info.journal.bytes;
 
-        // Verify image ID if available
+        // Verify image ID
         if let Some(claim) = session_info.receipt_claim {
-            if let Some(image_id) = request.requirements.image_id() {
-                ensure!(
-                    claim.pre.digest() == image_id,
-                    "Image ID mismatch: requirements ({}) do not match the given program ({})",
-                    image_id,
-                    claim.pre.digest(),
-                );
-            }
+            ensure!(
+                claim.pre.digest() == image_id,
+                "Image ID mismatch: requirements ({}) do not match the given program ({})",
+                image_id,
+                claim.pre.digest(),
+            );
             tracing::debug!("Skipping image ID check, no image ID provided");
         } else {
             tracing::debug!("Cannot check image ID; session info doesn't have receipt claim");
         }
+        let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
-        match request.requirements.predicate.predicateType {
+        let fulfillment_data = match request.requirements.predicate.predicateType {
             PredicateType::DigestMatch | PredicateType::PrefixMatch => {
-                let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
-                    request
-                        .requirements
-                        .image_id()
-                        .ok_or_else(|| anyhow::anyhow!("Missing image ID"))?,
-                    journal.clone(),
-                );
-                ensure!(
-                    request.requirements.predicate.eval(&fulfillment_data),
-                    "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
-                    hex::encode(&journal),
-                    request.requirements.predicate.predicateType,
-                    hex::encode(&request.requirements.predicate.data)
-                );
+                FulfillmentData::from_image_id_and_journal(image_id, journal.clone())
             }
-            PredicateType::ClaimDigestMatch => {
-                tracing::debug!(
-                        "Skipping predicate evaluation for request 0x{:x} because it we might not be able to calculate it yet",
-                        request.id
-                    );
-            }
+            PredicateType::ClaimDigestMatch => FulfillmentData::None,
             _ => {
                 bail!(
                     "Unsupported predicate type: {:?}",
                     request.requirements.predicate.predicateType
                 );
             }
-        }
+        };
+
+        ensure!(
+                    predicate.eval(&fulfillment_data),
+                    "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
+                    hex::encode(&journal),
+                    request.requirements.predicate.predicateType,
+                    hex::encode(&request.requirements.predicate.data)
+                );
 
         tracing::info!("Preflight check passed");
     } else {
@@ -1371,14 +1341,14 @@ where
     // Wait for fulfillment if requested
     if opts.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (journal, seal) = client
+        let (_, fulfillment_data, seal) = client
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
-            "Journal: {} - Seal: {}",
-            serde_json::to_string_pretty(&journal)?,
+            "Fulfillment Data: {} - Seal: {}",
+            serde_json::to_string_pretty(&fulfillment_data)?,
             serde_json::to_string_pretty(&seal)?
         );
     }
@@ -1386,11 +1356,11 @@ where
     Ok(())
 }
 
-/// Execute a proof request using the RISC Zero zkVM executor
-async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
+/// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
+async fn execute(request: &ProofRequest) -> Result<(Digest, SessionInfo)> {
     tracing::info!("Fetching program from {}", request.imageUrl);
     let program = fetch_url(&request.imageUrl).await?;
-
+    let image_id = compute_image_id(&program)?;
     tracing::info!("Processing input");
     let env = match request.input.inputType {
         RequestInputType::Inline => GuestEnv::decode(&request.input.data)?,
@@ -1405,7 +1375,9 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
 
     tracing::info!("Executing program in zkVM");
     r0vm_is_installed()?;
-    default_executor().execute(env.try_into()?, &program)
+    default_executor()
+        .execute(env.try_into()?, &program)
+        .map(|session_info| (image_id, session_info))
 }
 
 fn r0vm_is_installed() -> Result<()> {

@@ -36,9 +36,8 @@ use risc0_zkvm::{
 
 use boundless_market::{
     contracts::{
-        boundless_market_contract::FulfillmentDataImageIdAndJournal, AssessorJournal,
-        AssessorReceipt, EIP712DomainSaltless, Fulfillment as BoundlessFulfillment,
-        FulfillmentClaimData, FulfillmentDataType, PredicateType, RequestInputType,
+        AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
+        Fulfillment as BoundlessFulfillment, FulfillmentData, PredicateType, RequestInputType,
     },
     input::GuestEnv,
     selector::{is_groth16_selector, SupportedSelectors},
@@ -250,10 +249,11 @@ impl DefaultProver {
             let order_claim_digest = order_claim.digest();
 
             let fulfillment_data = match req.requirements.predicate.predicateType {
-                PredicateType::ClaimDigestMatch => FulfillmentClaimData::from_claim_digest(
-                    req.requirements.predicate.claim_digest().unwrap(),
-                ),
-                _ => FulfillmentClaimData::from_image_id_and_journal(order_image_id, order_journal),
+                PredicateType::ClaimDigestMatch => FulfillmentData::None,
+                PredicateType::PrefixMatch | PredicateType::DigestMatch => {
+                    FulfillmentData::from_image_id_and_journal(order_image_id, order_journal)
+                }
+                _ => bail!("Invalid predicate type"),
             };
             let fill =
                 Fulfillment { request: req.clone(), signature: sig.into(), fulfillment_data };
@@ -311,33 +311,12 @@ impl DefaultProver {
                 order_inclusion_receipt.abi_encode_seal()?
             };
 
-            // For now, we default to not providing journals with claim digest match, but you could if it is a R0 ZKVM commit digest.
-            let (claim_digest, fulfillment_data, fulfillment_data_type) =
-                match req.requirements.predicate.predicateType {
-                    PredicateType::ClaimDigestMatch => (
-                        <[u8; 32]>::from(fills[i].fulfillment_data.claim_digest().unwrap()).into(),
-                        vec![],
-                        FulfillmentDataType::None,
-                    ),
-                    PredicateType::PrefixMatch | PredicateType::DigestMatch => (
-                        <[u8; 32]>::from(claims[i].digest()).into(),
-                        FulfillmentDataImageIdAndJournal {
-                            imageId: <[u8; 32]>::from(
-                                fills[i].fulfillment_data.image_id().unwrap(),
-                            )
-                            .into(),
-                            journal: fills[i].fulfillment_data.journal().unwrap().clone(),
-                        }
-                        .abi_encode(),
-                        FulfillmentDataType::ImageIdAndJournal,
-                    ),
-                    _ => {
-                        bail!("Invalid predicate type");
-                    }
-                };
+            let (fulfillment_data_type, fulfillment_data) =
+                fills[i].fulfillment_data.fulfillment_type_and_data();
+            let claim_digest = fills[i].claim_digest()?;
 
             let fulfillment = BoundlessFulfillment {
-                claimDigest: claim_digest,
+                claimDigest: <[u8; 32]>::from(claim_digest).into(),
                 fulfillmentData: fulfillment_data.into(),
                 fulfillmentDataType: fulfillment_data_type,
                 id: req.id,

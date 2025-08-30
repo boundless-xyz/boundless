@@ -21,7 +21,7 @@ use alloy::{
     sol_types::SolCall,
     transports::http::reqwest::Url,
 };
-use alloy_primitives::{Keccak256, B256, U256};
+use alloy_primitives::{B256, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use anyhow::{Context, Ok, Result};
 use boundless_market::{
@@ -29,8 +29,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService,
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
-        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentDataImageIdAndJournal,
-        FulfillmentDataType, PredicateType, ProofRequest,
+        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, Predicate, ProofRequest,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -388,28 +387,6 @@ pub async fn create_test_ctx_with_rpc_url(
 fn to_b256(digest: Digest) -> B256 {
     <[u8; 32]>::from(digest).into()
 }
-fn fulfillment_data_digest(
-    fill_type: FulfillmentDataType,
-    img_id: impl Into<Digest>,
-    journal: Bytes,
-) -> Digest {
-    match fill_type {
-        FulfillmentDataType::ImageIdAndJournal => {
-            let mut hasher = Keccak256::new();
-            hasher.update([FulfillmentDataType::ImageIdAndJournal as u8]);
-            hasher.update(
-                FulfillmentDataImageIdAndJournal {
-                    imageId: <[u8; 32]>::from(img_id.into()).into(),
-                    journal,
-                }
-                .abi_encode(),
-            );
-            hasher.finalize().0.into()
-        }
-        FulfillmentDataType::None => Digest::ZERO,
-        _ => panic!("unsupported fulfillment data type"),
-    }
-}
 
 pub fn mock_singleton(
     request: &ProofRequest,
@@ -422,34 +399,32 @@ pub fn mock_singleton(
     let request_digest = request.eip712_signing_hash(&eip712_domain);
 
     let predicate_type = request.requirements.predicate.predicateType;
-    let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
-        PredicateType::ClaimDigestMatch => {
-            (<[u8; 32]>::from(app_claim_digest).into(), vec![], FulfillmentDataType::None)
+    let predicate = Predicate::try_from(request.requirements.predicate.clone()).unwrap();
+
+    let (claim_digest, fulfillment_data) = match predicate {
+        Predicate::ClaimDigestMatch(_) => {
+            (<[u8; 32]>::from(app_claim_digest).into(), FulfillmentData::None)
         }
-        PredicateType::PrefixMatch | PredicateType::DigestMatch => (
+        Predicate::PrefixMatch(image_id, _) => (
             <[u8; 32]>::from(app_claim_digest).into(),
-            FulfillmentDataImageIdAndJournal {
-                imageId: <[u8; 32]>::from(
-                    request.requirements.image_id().expect("image ID is required"),
-                )
-                .into(),
-                journal: app_journal.clone().bytes.into(),
-            }
-            .abi_encode(),
-            FulfillmentDataType::ImageIdAndJournal,
+            FulfillmentData::from_image_id_and_journal(image_id, app_journal.bytes.clone()),
+        ),
+        Predicate::DigestMatch(image_id, _) => (
+            <[u8; 32]>::from(app_claim_digest).into(),
+            FulfillmentData::from_image_id_and_journal(image_id, app_journal.bytes.clone()),
         ),
         _ => panic!("unsupported predicate type"),
     };
-
-    let fill_data_digest =
-        fulfillment_data_digest(fulfillment_data_type, ECHO_ID, app_journal.bytes.clone().into());
 
     let assessor_root = AssessorCommitment {
         index: U256::ZERO,
         id: request.id,
         requestDigest: request_digest,
         claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
-        fulfillmentDataDigest: <[u8; 32]>::from(fill_data_digest).into(),
+        fulfillmentDataDigest: <[u8; 32]>::from(
+            fulfillment_data.fulfillment_data_digest().unwrap(),
+        )
+        .into(),
     }
     .eip712_hash_struct();
     let assessor_journal =
@@ -482,6 +457,8 @@ pub fn mock_singleton(
     )
     .abi_encode_seal()
     .unwrap();
+
+    let (fulfillment_data_type, fulfillment_data) = fulfillment_data.fulfillment_type_and_data();
 
     let fulfillment = Fulfillment {
         id: request.id,

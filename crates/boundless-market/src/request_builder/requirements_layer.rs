@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
-use crate::contracts::{Callback, Predicate, PredicateType, Requirements};
+use crate::contracts::{Callback, Predicate, Requirements};
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
-use anyhow::{bail, ensure, Context};
+use anyhow::{ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
 use risc0_zkvm::{compute_image_id, Journal};
@@ -66,9 +66,11 @@ pub struct RequirementParams {
 
 impl From<Requirements> for RequirementParams {
     fn from(value: Requirements) -> Self {
-        let image_id = value.predicate.image_id().map(<[u8; 32]>::from).map(Into::into);
+        // TODO(ec2): unwrap
+        let predicate = Predicate::try_from(value.predicate).unwrap();
+        let image_id = predicate.image_id().map(<[u8; 32]>::from).map(Into::into);
         Self {
-            predicate: Some(value.predicate),
+            predicate: Some(predicate),
             selector: Some(value.selector),
             callback_address: Some(value.callback.addr),
             callback_gas_limit: Some(value.callback.gasLimit.to()),
@@ -82,10 +84,13 @@ impl TryFrom<RequirementParams> for Requirements {
 
     fn try_from(value: RequirementParams) -> Result<Self, Self::Error> {
         Ok(Self {
-            predicate: value.predicate.ok_or(MissingFieldError::with_hint(
-                "predicate",
-                "please provide a Predicate with requirements e.g. a digest match on a journal",
-            ))?,
+            predicate: value
+                .predicate
+                .ok_or(MissingFieldError::with_hint(
+                    "predicate",
+                    "please provide a Predicate with requirements e.g. a digest match on a journal",
+                ))?
+                .into(),
             selector: value.selector.unwrap_or_default(),
             callback: Callback {
                 addr: value.callback_address.unwrap_or_default(),
@@ -167,10 +172,7 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
             })
             .unwrap_or_default();
         let selector = params.selector.unwrap_or_default();
-        if !callback.is_none() && predicate.predicateType == PredicateType::ClaimDigestMatch {
-            bail!("cannot use ClaimDigestMatch predicate with a callback; the journal must be provided to the callback");
-        }
-        Ok(Requirements { predicate, callback, selector })
+        Ok(Requirements { predicate: predicate.into(), callback, selector })
     }
 }
 

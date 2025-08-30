@@ -13,8 +13,8 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};
 use boundless_assessor::{process_tree, AssessorInput};
 use boundless_market::contracts::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, RequestId,
-    UNSPECIFIED_SELECTOR,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, FulfillmentData,
+    RequestId, UNSPECIFIED_SELECTOR,
 };
 use risc0_zkvm::{guest::env, sha::Digest};
 
@@ -60,26 +60,32 @@ fn main() {
         } else {
             fill.verify_signature(&eip_domain_separator).expect("signature does not verify")
         };
-        fill.evaluate_requirements().expect("requirements not met");
-        let claim_digest = fill.claim_digest().expect("failed to get claim digest");
+        let claim_digest = fill.evaluate_requirements().expect("requirements not met");
         let commit = AssessorCommitment {
             index: U256::from(index),
             id: fill.request.id,
             requestDigest: request_digest.into(),
             claimDigest: <[u8; 32]>::from(claim_digest).into(),
-            fulfillmentDataDigest: <[u8; 32]>::from(fill.fulfillment_data_digest()).into(),
+            fulfillmentDataDigest: <[u8; 32]>::from(
+                fill.fulfillment_data
+                    .fulfillment_data_digest()
+                    .expect("failed to get fulfillment data digest"),
+            )
+            .into(),
         }
         .eip712_hash_struct();
         leaves.push(Digest::from_bytes(*commit));
 
         let callback = &fill.request.requirements.callback;
 
-        if fill.request.requirements.callback.addr != Address::ZERO {
-            callbacks.push(AssessorCallback {
-                index: index.try_into().expect("callback index overflow"),
-                addr: callback.addr,
-                gasLimit: callback.gasLimit,
-            });
+        if let FulfillmentData::ImageIdAndJournal(_, _) = &fill.fulfillment_data {
+            if fill.request.requirements.callback.addr != Address::ZERO {
+                callbacks.push(AssessorCallback {
+                    index: index.try_into().expect("callback index overflow"),
+                    addr: callback.addr,
+                    gasLimit: callback.gasLimit,
+                });
+            }
         }
 
         if fill.request.requirements.selector != UNSPECIFIED_SELECTOR {

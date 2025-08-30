@@ -33,7 +33,10 @@ use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
 
-use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
+use crate::contracts::{
+    token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20},
+    FulfillmentDataType,
+};
 
 use super::{
     eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
@@ -1006,7 +1009,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
-    ) -> Result<(Bytes, Bytes, Address), MarketError> {
+    ) -> Result<(FulfillmentDataType, Bytes, Bytes, Address), MarketError> {
         let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
             self.event_query_config.block_range * self.event_query_config.max_iterations,
@@ -1035,6 +1038,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             if let Some((event, _)) = logs.first() {
                 return Ok((
+                    event.fulfillment.fulfillmentDataType,
                     event.fulfillment.fulfillmentData.clone(),
                     event.fulfillment.seal.clone(),
                     event.prover,
@@ -1101,17 +1105,17 @@ impl<P: Provider> BoundlessMarketService<P> {
         Err(MarketError::RequestNotFound(request_id))
     }
 
-    /// Returns fulfillment data containing the journal and image id (if available) and seal if the request is fulfilled.
+    /// Returns fulfillment data and seal if the request is fulfilled.
     pub async fn get_request_fulfillment(
         &self,
         request_id: U256,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<(FulfillmentDataType, Bytes, Bytes), MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (fulfillment_data, seal, _) =
+                let (fulfillment_type, fulfillment_data, seal, _) =
                     self.query_fulfilled_event(request_id, None, None).await?;
-                Ok((fulfillment_data, seal))
+                Ok((fulfillment_type, fulfillment_data, seal))
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
@@ -1125,7 +1129,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (_, _, prover) = self.query_fulfilled_event(request_id, None, None).await?;
+                let (_, _, _, prover) = self.query_fulfilled_event(request_id, None, None).await?;
                 Ok(prover)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
@@ -1165,15 +1169,15 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         retry_interval: Duration,
         expires_at: u64,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<(FulfillmentDataType, Bytes, Bytes), MarketError> {
         loop {
             let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
                 RequestStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 RequestStatus::Fulfilled => {
-                    let (fulfillment_data, seal, _) =
+                    let (fulfillment_type, fulfillment_data, seal, _) =
                         self.query_fulfilled_event(request_id, None, None).await?;
-                    return Ok((fulfillment_data, seal));
+                    return Ok((fulfillment_type, fulfillment_data, seal));
                 }
                 _ => {
                     tracing::info!(

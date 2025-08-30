@@ -14,7 +14,9 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::{FulfillmentClaimData, Offer, ProofRequest, RequestId, RequestInput, Requirements},
+    contracts::{
+        FulfillmentData, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+    },
     util::now_timestamp,
 };
 use anyhow::{bail, Context};
@@ -127,19 +129,15 @@ impl Adapt<Finalizer> for RequestParams {
             .context("failed to build request: offer is incomplete")?;
         let request_id = self.require_request_id().context("failed to build request")?.clone();
 
-        // If a callback is requested, we should check that the journal satisfies the required predicate.
-        if !requirements.callback.is_none() {
-            if let Some(ref journal) = self.journal {
-                if let Some(image_id) = self.image_id {
-                    let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
-                        image_id,
-                        journal.bytes.clone(),
-                    );
-                    if !requirements.predicate.eval(&fulfillment_data) {
-                        bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = 0x{}", requirements.predicate, hex::encode(journal));
-                    }
-                }
+        let predicate = <Predicate>::try_from(requirements.predicate.clone())?;
+        let fulfillment_data = match (&self.journal, self.image_id) {
+            (Some(journal), Some(image_id)) => {
+                FulfillmentData::from_image_id_and_journal(image_id, journal.bytes.clone())
             }
+            _ => FulfillmentData::None,
+        };
+        if !predicate.eval(&fulfillment_data) {
+            bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = {:?}", requirements.predicate, self.journal.as_ref().map(hex::encode));
         }
 
         layer.process((program_url, input, requirements, offer, request_id)).await

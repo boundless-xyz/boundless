@@ -8,10 +8,10 @@
 #![deny(missing_docs)]
 
 use alloy_primitives::{Address, Keccak256, Signature, SignatureError};
-use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
+use alloy_sol_types::{Eip712Domain, SolStruct};
 use boundless_market::contracts::{
-    EIP712DomainSaltless, FulfillmentClaimData, FulfillmentDataImageIdAndJournal,
-    FulfillmentDataType, ProofRequest, RequestError,
+    EIP712DomainSaltless, FulfillmentData, FulfillmentDataError, Predicate, PredicateError,
+    ProofRequest, RequestError,
 };
 use risc0_zkvm::{
     sha::{Digest, Digestible},
@@ -47,6 +47,20 @@ pub enum Error {
     /// Predicate evaluation failure from [ProofRequest] [Requirements]
     #[error("fulfillment requirements evaluation failed")]
     RequirementsEvaluationError,
+
+    /// Fulfillment data malformed or invalid
+    #[error("fulfillment data error")]
+    FulfillmentDataError(#[from] FulfillmentDataError),
+
+    /// Predicate error due to malformed data
+    #[error("predicate error: {0}")]
+    PredicateError(#[from] PredicateError),
+
+    /// Invalid combination of fulfillment type and predicate type
+    #[error(
+        "invalid combination of fulfillment type and predicate type, cant compute claim digest"
+    )]
+    InvalidFulfillmentPredicateCombination,
 }
 
 /// Fulfillment contains a signed request, including offer and requirements,
@@ -59,7 +73,7 @@ pub struct Fulfillment {
     /// The EIP-712 signature over the request.
     pub signature: Vec<u8>,
     /// The fulfillment data of the request.
-    pub fulfillment_data: FulfillmentClaimData,
+    pub fulfillment_data: FulfillmentData,
 }
 
 impl Fulfillment {
@@ -81,41 +95,26 @@ impl Fulfillment {
         }
         Ok(hash.into())
     }
-    /// Evaluates the requirements of the request.
-    pub fn evaluate_requirements(&self) -> Result<(), Error> {
-        if !self.request.requirements.predicate.eval(&self.fulfillment_data) {
+
+    /// Evaluates the requirements of the request and returns the claim digest.
+    pub fn evaluate_requirements(&self) -> Result<Digest, Error> {
+        let predicate = Predicate::try_from(self.request.requirements.predicate.clone())?;
+        if !predicate.eval(&self.fulfillment_data) {
             return Err(Error::RequirementsEvaluationError);
         }
-        Ok(())
+
+        self.claim_digest()
     }
 
-    /// Returns the claim digest for the fulfillment.
+    /// Calculates the claim digest or returns from the predicate
     pub fn claim_digest(&self) -> Result<Digest, Error> {
-        match self.fulfillment_data {
-            FulfillmentClaimData::ClaimDigest(digest) => Ok(digest),
-            FulfillmentClaimData::ImageIdAndJournal(image_id, ref journal) => {
-                Ok(ReceiptClaim::ok(image_id, <Vec<u8>>::from(journal.clone())).digest())
+        let predicate = Predicate::try_from(self.request.requirements.predicate.clone())?;
+        match (&self.fulfillment_data, predicate) {
+            (FulfillmentData::None, Predicate::ClaimDigestMatch(claim_digest)) => Ok(claim_digest),
+            (FulfillmentData::ImageIdAndJournal(image_id, journal), _) => {
+                Ok(ReceiptClaim::ok(*image_id, journal.to_vec()).digest())
             }
-        }
-    }
-
-    /// Returns the fulfillment data digest committed to by the assessor.
-    /// If the fulfillment claim data is of type `ClaimDigest`, the digest is zero.
-    pub fn fulfillment_data_digest(&self) -> Digest {
-        match &self.fulfillment_data {
-            FulfillmentClaimData::ClaimDigest(_digest) => Digest::ZERO,
-            FulfillmentClaimData::ImageIdAndJournal(image_id, journal) => {
-                let mut hasher = Keccak256::new();
-                hasher.update([FulfillmentDataType::ImageIdAndJournal as u8]);
-                hasher.update(
-                    FulfillmentDataImageIdAndJournal {
-                        imageId: <[u8; 32]>::from(*image_id).into(),
-                        journal: journal.clone(),
-                    }
-                    .abi_encode(),
-                );
-                hasher.finalize().0.into()
-            }
+            (_, _) => Err(Error::InvalidFulfillmentPredicateCombination),
         }
     }
 }
