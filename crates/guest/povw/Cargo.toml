@@ -15,6 +15,7 @@ alloy-signer = { version = "1.0", optional = true }
 alloy-sol-types = "1.0"
 anyhow = "1.0"
 borsh = { version = "1.5", default-features = false, features = ["std", "derive"] }
+bytemuck = { version = "1.23", features = ["must_cast"] }
 postcard = { version = "1.1", features = ["alloc"] }
 # TODO(povw): Use a released version of risc0 and steel.
 risc0-povw = { git = "https://github.com/risc0/risc0", branch = "victor/povw-patch-povw", default-features = false, features = ["guest"] }
@@ -24,7 +25,6 @@ serde = "1"
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
-bytemuck = "1.23"
 derive_builder = "0.20.2"
 rand = "0.9"
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
@@ -42,7 +42,7 @@ methods = ["mint-calculator", "log-updater"]
 release = false
 
 [features]
-default = ["build-guest", "host"]
+default = ["host"]
 host = ["signer", "risc0-steel/host", "dep:alloy-provider", "dep:alloy-contract"]
 signer = ["dep:alloy-signer"]
 build-guest = [

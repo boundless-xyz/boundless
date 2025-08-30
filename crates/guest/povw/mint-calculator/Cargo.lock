@@ -1004,6 +1004,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "borsh",
+ "bytemuck",
  "postcard",
  "risc0-povw",
  "risc0-steel",
