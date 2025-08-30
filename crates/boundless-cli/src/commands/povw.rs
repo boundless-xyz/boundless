@@ -115,8 +115,11 @@ impl State {
         self.work_log = work_log;
 
         // Verify the Log Builder receipt. Ensure it matches the current state to avoid corruption.
-        log_updater_receipt.verify(RISC0_POVW_LOG_BUILDER_ID).context("Failed to verify Log Builder receipt")?;
-        let log_builder_journal = LogBuilderJournal::decode(&log_updater_receipt.journal).context("Failed to decode Log Builder journal")?;
+        log_updater_receipt
+            .verify(RISC0_POVW_LOG_BUILDER_ID)
+            .context("Failed to verify Log Builder receipt")?;
+        let log_builder_journal = LogBuilderJournal::decode(&log_updater_receipt.journal)
+            .context("Failed to decode Log Builder journal")?;
         ensure!(
             log_builder_journal.work_log_id == self.log_id,
             "Log Builder journal does not match the current state log ID: journal: {:x}, state: {:x}",

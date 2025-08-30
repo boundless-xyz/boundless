@@ -13,8 +13,8 @@ use boundless_povw_guests::{
     log_updater::LogBuilderJournal,
     mint_calculator::{
         MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate, WorkLogFilter,
+        BOUNDLESS_POVW_MINT_CALCULATOR_ID,
     },
-    BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
 use common::MintOptions;
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;

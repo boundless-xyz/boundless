@@ -22,10 +22,14 @@ use alloy::{
 use alloy_primitives::U256;
 use anyhow::{anyhow, bail};
 use boundless_povw_guests::{
-    log_updater::{self, IPovwAccounting, LogBuilderJournal, WorkLogUpdate},
-    mint_calculator::{self, host::IPovwMint::IPovwMintInstance, WorkLogFilter},
-    BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID,
-    BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
+    log_updater::{
+        self, IPovwAccounting, LogBuilderJournal, WorkLogUpdate, BOUNDLESS_POVW_LOG_UPDATER_ELF,
+        BOUNDLESS_POVW_LOG_UPDATER_ID,
+    },
+    mint_calculator::{
+        self, host::IPovwMint::IPovwMintInstance, WorkLogFilter,
+        BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
+    },
 };
 use derive_builder::Builder;
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;

@@ -17,6 +17,12 @@ use risc0_steel::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "build-guest")]
+pub use crate::guest_artifacts::BOUNDLESS_POVW_MINT_CALCULATOR_PATH;
+pub use crate::guest_artifacts::{
+    BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
+};
+
 alloy_sol_types::sol! {
     // Copied from contracts/src/povw/PovwMint.sol
     #[derive(Debug)]

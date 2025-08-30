@@ -2581,6 +2581,7 @@ dependencies = [
  "boundless-assessor",
  "boundless-market",
  "boundless-market-test-utils",
+ "boundless-povw-guests",
  "bytemuck",
  "chrono",
  "clap",

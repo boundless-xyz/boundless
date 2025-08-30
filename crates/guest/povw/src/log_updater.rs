@@ -14,6 +14,10 @@ pub use risc0_povw::guest::{Journal as LogBuilderJournal, RISC0_POVW_LOG_BUILDER
 use ruint::aliases::U160;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "build-guest")]
+pub use crate::guest_artifacts::BOUNDLESS_POVW_LOG_UPDATER_PATH;
+pub use crate::guest_artifacts::{BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID};
+
 // NOTE: Copied from PovwAccounting.sol. Must be kept in sync.
 // TODO(povw): Avoid copying this data type here.
 sol! {

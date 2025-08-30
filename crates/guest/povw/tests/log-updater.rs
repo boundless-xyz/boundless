@@ -13,9 +13,8 @@
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::{address, aliases::U96, Address, B256, U256};
 use alloy_sol_types::SolValue;
-use boundless_povw_guests::{
-    log_updater::{Input, LogBuilderJournal, WorkLogUpdate},
-    BOUNDLESS_POVW_LOG_UPDATER_ID,
+use boundless_povw_guests::log_updater::{
+    Input, LogBuilderJournal, WorkLogUpdate, BOUNDLESS_POVW_LOG_UPDATER_ID,
 };
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_povw::WorkLog;
@@ -158,7 +157,7 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
 
     // Guest execution succeeds with wrong chain ID, but contract should reject
     let fake_receipt = risc0_zkvm::FakeReceipt::new(risc0_zkvm::ReceiptClaim::ok(
-        boundless_povw_guests::BOUNDLESS_POVW_LOG_UPDATER_ID,
+        BOUNDLESS_POVW_LOG_UPDATER_ID,
         journal.abi_encode(),
     ));
     let receipt: risc0_zkvm::Receipt = fake_receipt.try_into()?;
