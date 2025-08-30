@@ -123,11 +123,12 @@ pub struct MarketConf {
     /// execution took, as calculated by running the request in preflight. This is one of the inputs to
     /// decide the minimum price to accept for a request.
     pub mcycle_price: String,
-    /// Mega-cycle price, denominated in the Boundless staking token.
+    /// Mega-cycle price, denominated in the Boundless collateral token.
     ///
     /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
-    /// order when paid in staking tokens, as is the case for orders with an expired lock.
-    pub mcycle_price_stake_token: String,
+    /// order when paid in collateral tokens, as is the case for orders with an expired lock.
+    #[serde(alias = "mcycle_price_collateral_token")]
+    pub mcycle_price_collateral_token: String,
     /// Assumption price (in native token)
     ///
     /// DEPRECATED
@@ -161,10 +162,11 @@ pub struct MarketConf {
     pub min_deadline: u64,
     /// On startup, the number of blocks to look back for possible open orders.
     pub lookback_blocks: u64,
-    /// Max stake amount, denominated in the Boundless staking token.
+    /// Max collateral amount, denominated in the Boundless collateral token.
     ///
-    /// Requests that require a higher stake than this will not be considered.
-    pub max_stake: String,
+    /// Requests that require a higher collateral amount than this will not be considered.
+    #[serde(alias = "max_stake")]
+    pub max_collateral: String,
     /// Optional allow list for customer address.
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
@@ -214,14 +216,16 @@ pub struct MarketConf {
     ///
     /// If the submitter balance drops below this the broker will issue error logs
     pub balance_error_threshold: Option<String>,
-    /// Optional stake balance warning threshold (in stake tokens)
+    /// Optional collateral balance warning threshold (in collateral tokens)
     ///
-    /// If the stake balance drops below this the broker will issue warning logs
-    pub stake_balance_warn_threshold: Option<String>,
-    /// Optional stake balance error threshold (in stake tokens)
+    /// If the collateral balance drops below this the broker will issue warning logs
+    #[serde(alias = "stake_balance_warn_threshold")]
+    pub collateral_balance_warn_threshold: Option<String>,
+    /// Optional collateral balance error threshold (in collateral tokens)
     ///
-    /// If the stake balance drops below this the broker will issue error logs
-    pub stake_balance_error_threshold: Option<String>,
+    /// If the collateral balance drops below this the broker will issue error logs
+    #[serde(alias = "stake_balance_error_threshold")]
+    pub collateral_balance_error_threshold: Option<String>,
     /// Max concurrent proofs
     ///
     /// Maximum number of concurrent proofs that can be processed at once
@@ -259,7 +263,7 @@ impl Default for MarketConf {
         #[allow(deprecated)]
         Self {
             mcycle_price: "0.00001".to_string(),
-            mcycle_price_stake_token: "0.001".to_string(),
+            mcycle_price_collateral_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
             priority_requestor_addresses: None,
@@ -267,7 +271,7 @@ impl Default for MarketConf {
             peak_prove_khz: None,
             min_deadline: 120, // 2 mins
             lookback_blocks: 100,
-            max_stake: "0.1".to_string(),
+            max_collateral: "0.1".to_string(),
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             lockin_priority_gas: None,
@@ -279,8 +283,8 @@ impl Default for MarketConf {
             additional_proof_cycles: defaults::additional_proof_cycles(),
             balance_warn_threshold: None,
             balance_error_threshold: None,
-            stake_balance_warn_threshold: None,
-            stake_balance_error_threshold: None,
+            collateral_balance_warn_threshold: None,
+            collateral_balance_error_threshold: None,
             max_concurrent_proofs: None,
             cache_dir: None,
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
@@ -593,7 +597,7 @@ mod tests {
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1"
-mcycle_price_stake_token = "0.1"
+mcycle_price_collateral_token = "0.1"
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
@@ -618,7 +622,7 @@ block_deadline_buffer_secs = 120"#;
     const CONFIG_TEMPL_2: &str = r#"
 [market]
 mcycle_price = "0.1"
-mcycle_price_stake_token = "0.1"
+mcycle_price_collateral_token = "0.1"
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300
@@ -671,7 +675,7 @@ error = ?"#;
         assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.min_deadline, 300);
         assert_eq!(config.market.lookback_blocks, 100);
-        assert_eq!(config.market.max_stake, "0.1");
+        assert_eq!(config.market.max_collateral, "0.1");
         assert_eq!(config.market.max_file_size, 50_000_000);
         assert_eq!(config.market.lockin_priority_gas, None);
 

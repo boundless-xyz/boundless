@@ -171,9 +171,9 @@ impl From<Offer> for OfferParams {
             timeout: Some(value.timeout),
             min_price: Some(value.minPrice),
             max_price: Some(value.maxPrice),
-            lock_stake: Some(value.lockStake),
+            lock_stake: Some(value.lockCollateral),
             lock_timeout: Some(value.lockTimeout),
-            bidding_start: Some(value.biddingStart),
+            bidding_start: Some(value.rampUpStart),
             ramp_up_period: Some(value.rampUpPeriod),
         }
     }
@@ -201,9 +201,9 @@ impl TryFrom<OfferParams> for Offer {
             timeout: value.timeout.ok_or(MissingFieldError::new("timeout"))?,
             minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?,
             maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?,
-            lockStake: value.lock_stake.ok_or(MissingFieldError::new("lock_stake"))?,
+            lockCollateral: value.lock_stake.ok_or(MissingFieldError::new("lock_stake"))?,
             lockTimeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
-            biddingStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
+            rampUpStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
             rampUpPeriod: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
         })
     }
@@ -345,11 +345,11 @@ where
         Ok(Offer {
             minPrice: min_price,
             maxPrice: max_price,
-            biddingStart: bidding_start,
+            rampUpStart: bidding_start,
             rampUpPeriod: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
             lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
             timeout: params.timeout.unwrap_or(self.config.timeout),
-            lockStake: params.lock_stake.unwrap_or(self.config.lock_stake),
+            lockCollateral: params.lock_stake.unwrap_or(self.config.lock_stake),
         })
     }
 }

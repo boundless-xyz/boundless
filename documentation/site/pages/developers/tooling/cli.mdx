@@ -92,7 +92,7 @@ The rest of this page will assume you've set these are environment variables.
 
 ### account
 
-The `account` command is used to manage your account on the Boundless Market. It allows you to deposit and withdraw Ether, check your balance, and manage your stake.
+The `account` command is used to manage your account on the Boundless Market. It allows you to deposit and withdraw Ether, check your balance, and manage your collateral.
 
 #### deposit
 
@@ -147,50 +147,50 @@ boundless account balance 0xabc123...
 boundless account balance
 ```
 
-#### deposit-stake
+#### deposit-collateral
 
-Deposits USDC into the market as a stake (USDC is used for staking in Boundless):
-
-```
-account deposit-stake <amount>
-```
-
-**Example**:
+Deposits USDC into the market as collateral (USDC is used for collateral in Boundless):
 
 ```
-boundless account deposit-stake 100
-```
-
-This deposits 100 USDC into your staked balance.
-
-
-#### withdraw-stake
-
-Withdraws staked USDC from the market:
-
-```
-account withdraw-stake <amount>
+account deposit-collateral <amount>
 ```
 
 **Example**:
 
 ```
-boundless account withdraw-stake 50
+boundless account deposit-collateral 100
 ```
 
-#### stake-balance
+This deposits 100 USDC into your collateral balance.
 
-Checks the current staked USDC balance for a given address (defaults to your address if none given):
+
+#### withdraw-collateral
+
+Withdraws collateral USDC from the market:
 
 ```
-account stake-balance [address]
+account withdraw-collateral <amount>
 ```
 
 **Example**:
 
 ```
-boundless account stake-balance 0xabc123...
-boundless account stake-balance
+boundless account withdraw-collateral 50
+```
+
+#### collateral-balance
+
+Checks the current collateral USDC balance for a given address (defaults to your address if none given):
+
+```
+account collateral-balance [address]
+```
+
+**Example**:
+
+```
+boundless account collateral-balance 0xabc123...
+boundless account collateral-balance
 ```
 
 ### request
@@ -477,11 +477,11 @@ input:
 offer:
     minPrice: 100000000000000
     maxPrice: 2000000000000000
-    biddingStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
+    rampUpStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
     rampUpPeriod: 300
     timeout: 3600 # 1 hor
     lockTimeout: 2700 # 45 minutes
-    lockStake: 5000000 # 5 USDC tokens
+    lockCollateral: 5000000 # 5 USDC tokens
 ```
 
 To submit a request, export or create a `.env` file with the following environment variables:

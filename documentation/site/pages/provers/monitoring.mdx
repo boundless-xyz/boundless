@@ -24,10 +24,10 @@ The recommended method to monitor your broker's activity and health is via the [
 
 ### Balances
 
-For smooth broker operation, it is critical to monitor both your hot wallet balance of ETH and the market balance of stake.
+For smooth broker operation, it is critical to monitor both your hot wallet balance of ETH and the market balance of collateral.
 If your broker runs out of ETH balance, it will be unable to cover gas costs for transactions and as such it will be unable to lock and fulfill orders.
-If you running low of staking funds on the broker account on the market contract, the broker will be unable to lock-in orders with higher stake values.
-It is strongly recommended to keep your market balance above the brokers configured `max_stake` parameter.
+If you running low of collateral funds on the broker account on the market contract, the broker will be unable to lock-in orders with higher collateral values.
+It is strongly recommended to keep your market balance above the brokers configured `max_collateral` parameter.
 
 ### Broker Logs
 

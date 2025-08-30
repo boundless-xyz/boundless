@@ -12,7 +12,7 @@ set-verifier = "0x0000000000000000000000000000000000000000"
 boundless-market = "0x0000000000000000000000000000000000000000"
 boundless-market-impl = "0x0000000000000000000000000000000000000000"
 boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
-stake-token = "0x0000000000000000000000000000000000000000"
+collateral-token = "0x0000000000000000000000000000000000000000"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
@@ -37,7 +37,7 @@ set-verifier = "0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64"
 boundless-market = "0x13337C76fE2d1750246B68781ecEe164643b98Ec"
 boundless-market-impl = "0x4530b99e5e9944b97a9eb4c5064db1421505e344"
 boundless-market-old-impl = "0x2f77bbb6291e50a757f692b2689cfc575ae260a4"
-stake-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+collateral-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
@@ -62,7 +62,7 @@ set-verifier = "0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64"
 boundless-market = "0x7b36Ed56ec6045679C178205a81AE878d85B773d"
 boundless-market-impl = "0x501b1689eaa5d8df274b234fa7f940a8dc45374b"
 boundless-market-old-impl = "0x947286e7522ef75543ad23253bb6d6ac9f5d97a3"
-stake-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+collateral-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
@@ -87,7 +87,7 @@ set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
 boundless-market = "0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"
 boundless-market-impl = "0x5533618ea16a68036d6842d2ca5072385bdd09d6"
 boundless-market-old-impl = "0x2fcd5653d00badf7b48f22af404f8b72f9130b76"
-stake-token = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+collateral-token = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
@@ -112,7 +112,7 @@ set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
 boundless-market = "0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"
 boundless-market-impl = "0xac852635b620648eb242b5c4e99d92dc8aec8ab2"
 boundless-market-old-impl = "0xfd815cc721f91f345cf217c3f165f483d04dcd98"
-stake-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+collateral-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
@@ -137,7 +137,7 @@ set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
 boundless-market = "0xAD0Bd6C436658aF457736d7224a87d2EF56365C8"
 boundless-market-impl = "0x87602baa3da1668e09e5e3b91976ad4b346ef246"
 boundless-market-old-impl = "0x565d5d72055e4c901f18ad1c3f6fb451c51dbdbe"
-stake-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+collateral-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main

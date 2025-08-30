@@ -30,8 +30,8 @@ struct RequestLock {
     ///
     /// @notice The price that the prover will be paid for fulfilling the request.
     uint96 price;
-    // Prover stake that may be taken if a proof is not delivered by the deadline.
-    uint96 stake;
+    // Prover collateral that may be taken if a proof is not delivered by the deadline.
+    uint96 collateral;
     ///
     /// Storage slot 2
     ///

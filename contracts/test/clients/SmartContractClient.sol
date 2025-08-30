@@ -32,12 +32,12 @@ contract SmartContractClient is BaseClient, Test {
         signer = _signer;
     }
 
-    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, HitPoints _stakeToken)
+    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, HitPoints _collateralToken)
         public
         override
     {
         vm.label(address(smartWallet), _identifier);
-        super.initialize(_identifier, _boundlessMarket, _stakeToken);
+        super.initialize(_identifier, _boundlessMarket, _collateralToken);
     }
 
     function addr() public view override returns (address) {

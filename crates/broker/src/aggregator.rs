@@ -762,11 +762,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -810,11 +810,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -926,11 +926,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 1200,
                 lockTimeout: 1200,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -989,11 +989,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(4),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 1200,
                 lockTimeout: 1200,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -1101,11 +1101,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -1216,11 +1216,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 50,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -1339,11 +1339,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(250000000000000000u64),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 50,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -1464,11 +1464,11 @@ mod tests {
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
-                    biddingStart: 0,
+                    rampUpStart: 0,
                     timeout: 100,
                     lockTimeout: 100,
                     rampUpPeriod: 1,
-                    lockStake: U256::from(0),
+                    lockCollateral: U256::from(0),
                 },
             ),
             image_id: None,
@@ -1506,11 +1506,11 @@ mod tests {
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
-                    biddingStart: 0,
+                    rampUpStart: 0,
                     timeout: 100,
                     lockTimeout: 100,
                     rampUpPeriod: 1,
-                    lockStake: U256::from(0),
+                    lockCollateral: U256::from(0),
                 },
             ),
             image_id: None,
