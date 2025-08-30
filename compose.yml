@@ -8,6 +8,7 @@ x-base-environment: &base-environment
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
   S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
   RUST_LOG: ${RUST_LOG:-info}
+  RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
 
 x-agent-common: &agent-common

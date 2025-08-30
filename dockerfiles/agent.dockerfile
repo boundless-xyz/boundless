@@ -60,7 +60,6 @@ RUN curl -L https://risczero.com/install | bash
 ENV PATH="/root/.cargo/bin:${PATH}"
 RUN /root/.risc0/bin/rzup install risc0-groth16
 
-FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
 RUN apt-get update -q -y \
@@ -70,11 +69,5 @@ RUN apt-get update -q -y \
 # Main prover
 COPY --from=builder /src/agent /app/agent
 COPY --from=builder /usr/local/risc0 /usr/local/risc0
-
-# Stark2snark
-COPY --from=binaries /usr/local/sbin/rapidsnark /usr/local/sbin/rapidsnark
-COPY --from=binaries /app/stark_verify /app/stark_verify
-COPY --from=binaries /app/stark_verify.dat /app/stark_verify.dat
-COPY --from=binaries /app/stark_verify_final.zkey /app/stark_verify_final.zkey
 
 ENTRYPOINT ["/app/agent"]
