@@ -31,6 +31,13 @@ struct Journal {
     bytes32 eip712Domain;
 }
 
+// TODO(povw): If we can guarentee that the epoch number will never be greater than uint160, this
+// could be compressed into one slot.
+struct PendingEpoch {
+    uint96 totalWork;
+    uint256 number;
+}
+
 interface IPovwAccounting {
     /// @notice Event emitted during the finalization of an epoch.
     /// @dev This event is emitted in some block after the end of the epoch, when the finalizeEpoch
@@ -59,6 +66,9 @@ interface IPovwAccounting {
         uint256 updateValue,
         address valueRecipient
     );
+
+    /// Return the number and total work (so far) of the pending epoch.
+    function pendingEpoch() external view returns (PendingEpoch memory);
 
     /// Finalize the pending epoch, logging the finalized epoch number and total work.
     function finalizeEpoch() external;
