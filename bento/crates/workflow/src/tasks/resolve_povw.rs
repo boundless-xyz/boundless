@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim, GenericReceipt};
+use risc0_zkvm::{GenericReceipt, ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim};
 use uuid::Uuid;
 use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq, s3::WORK_RECEIPTS_BUCKET_DIR};
 
@@ -39,7 +39,8 @@ pub async fn resolve_povw(
             .context("Failed to deserialize as POVW receipt")?;
 
     // Unwrap the POVW receipt to get the ReceiptClaim for processing
-    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
+    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
+        agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
 
     let mut assumptions_len: Option<u64> = None;
     if conditional_receipt.claim.clone().as_value()?.output.is_some() {
