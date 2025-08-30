@@ -40,7 +40,7 @@ async fn test_workflow() -> anyhow::Result<()> {
     // Step 3: Use LogUpdaterProver to create a Log Updater receipt
     let log_updater_prover = LogUpdaterProver::builder()
         .prover(default_prover())
-        .contract_address(*ctx.povw_accounting_contract.address())
+        .contract_address(*ctx.povw_accounting.address())
         .chain_id(ctx.chain_id)
         .prover_opts(ProverOpts::default().with_dev_mode(true))
         .verifier_ctx(VerifierContext::default().with_dev_mode(true))
@@ -63,7 +63,7 @@ async fn test_workflow() -> anyhow::Result<()> {
 
     // Call the PovwAccounting.updateWorkLog function
     let tx_result = ctx
-        .povw_accounting_contract
+        .povw_accounting
         .updateWorkLog(
             journal.update.workLogId,
             journal.update.updatedCommit,
