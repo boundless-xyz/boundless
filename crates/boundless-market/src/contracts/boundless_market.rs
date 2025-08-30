@@ -1379,7 +1379,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn balance_of_stake(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
         let account = account.into();
         tracing::trace!("Calling balanceOfStake({})", account);
-        let balance = self.instance.balanceOfCollateral(account).call().await.context("call failed")?;
+        let balance =
+            self.instance.balanceOfCollateral(account).call().await.context("call failed")?;
         Ok(balance)
     }
 

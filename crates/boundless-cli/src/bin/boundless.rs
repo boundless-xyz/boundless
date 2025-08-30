@@ -622,7 +622,9 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
                 .await
             {
                 Ok(_) => {
-                    tracing::info!("Successfully deposited {formatted_amount} {symbol} as collateral");
+                    tracing::info!(
+                        "Successfully deposited {formatted_amount} {symbol} as collateral"
+                    );
                     Ok(())
                 }
                 Err(e) => {

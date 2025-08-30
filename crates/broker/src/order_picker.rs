@@ -882,9 +882,12 @@ where
                 config.market.max_mcycle_limit,
                 config.market.peak_prove_khz,
                 parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?,
-                parse_units(&config.market.mcycle_price_collateral_token, self.stake_token_decimals)
-                    .context("Failed to parse mcycle_price")?
-                    .into(),
+                parse_units(
+                    &config.market.mcycle_price_collateral_token,
+                    self.stake_token_decimals,
+                )
+                .context("Failed to parse mcycle_price")?
+                .into(),
                 config.market.priority_requestor_addresses.clone(),
             )
         };
@@ -2958,7 +2961,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_eth_higher_than_stake() {
         let market_config = crate::config::MarketConf {
-            mcycle_price: "0.001".to_string(),          // 0.01 ETH per mcycle
+            mcycle_price: "0.001".to_string(), // 0.01 ETH per mcycle
             mcycle_price_collateral_token: "10".to_string(), // 10 stake tokens per mcycle
             max_mcycle_limit: None,
             peak_prove_khz: None,
@@ -3094,7 +3097,8 @@ pub(crate) mod tests {
 
         // Should only use stake-based pricing for FulfillAfterLockExpire
         // Stake based: (100 stake tokens - 20% burn) / 0.1 stake tokens per mcycle = 80M cycles
-        let stake_reward_tokens = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+        let stake_reward_tokens =
+            order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
         tracing::info!("Stake reward tokens: {stake_reward_tokens}");
         let stake_based_limit: u64 = stake_reward_tokens
             .saturating_mul(U256::from(1_000_000))

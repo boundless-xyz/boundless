@@ -278,7 +278,8 @@ where
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price
                         .push(UnlockedRequest::new(order_request.clone(), client_sig.clone()));
-                    stake_reward = order_request.offer.collateral_reward_if_locked_and_not_fulfilled();
+                    stake_reward =
+                        order_request.offer.collateral_reward_if_locked_and_not_fulfilled();
                 }
 
                 order_prices.insert(order_id, OrderPrice { price: lock_price, stake_reward });
