@@ -214,7 +214,7 @@ impl PovwProveUpdate {
 
         // Load the continuation state, if provided.
         let state = if let Some(continuation_path) = &self.state_in {
-            let state = self.load_state(continuation_path)?;
+            let state = load_state(continuation_path)?;
             tracing::info!(
                 "Loaded work log state from {} with commit {}",
                 continuation_path.display(),
@@ -258,9 +258,7 @@ impl PovwProveUpdate {
         // Update and save the output state.
         let updated_state =
             state.update(prover.work_log, prove_info.receipt).context("Failed to update state")?;
-        self.save_state(&updated_state).context("Failed to save state")?;
-
-        // TODO: What do you do with the constructed update?
+        save_state(&updated_state, &self.state_out).context("Failed to save state")?;
 
         Ok(())
     }
@@ -277,7 +275,7 @@ impl PovwProveUpdate {
 
             // Check for receipt file extensions
             let work_receipt = self
-                .load_receipt_file(path)
+                .load_work_receipt_file(path)
                 .with_context(|| format!("Failed to load receipt from {}", path.display()))?;
             tracing::info!("Loaded receipt from: {}", path.display());
 
@@ -287,7 +285,7 @@ impl PovwProveUpdate {
     }
 
     /// Load a single receipt file
-    fn load_receipt_file(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<WorkReceipt> {
+    fn load_work_receipt_file(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<WorkReceipt> {
         let path = path.as_ref();
         let data =
             fs::read(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
@@ -332,31 +330,6 @@ impl PovwProveUpdate {
         );
         Ok(work_receipt)
     }
-
-    /// Load continuation receipt and work log state
-    fn load_state(&self, state_path: impl AsRef<Path>) -> anyhow::Result<State> {
-        let state_path = state_path.as_ref();
-        let state_data = fs::read(state_path).with_context(|| {
-            format!("Failed to read work log state file: {}", state_path.display())
-        })?;
-
-        // TODO(povw): Apply some sanity checks here?
-        State::decode(&state_data)
-            .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
-    }
-
-    /// Save the work log update receipt
-    fn save_state(&self, state: &State) -> Result<()> {
-        let state_data = state.encode().context("Failed to serialize state")?;
-
-        fs::write(&self.state_out, &state_data)
-            .with_context(|| format!("Failed to write state to {}", self.state_out.display()))?;
-
-        tracing::info!("Successfully saved work log state: {}", self.state_out.display());
-        tracing::info!("Updated commit: {}", state.work_log.commit());
-
-        Ok(())
-    }
 }
 
 /// Compress a directory of work receipts into a work log update.
@@ -374,3 +347,28 @@ impl PovwSendUpdate {
         todo!()
     }
 }
+
+    /// Load continuation receipt and work log state
+    fn load_state(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
+        let state_path = state_path.as_ref();
+        let state_data = fs::read(state_path).with_context(|| {
+            format!("Failed to read work log state file: {}", state_path.display())
+        })?;
+
+        // TODO(povw): Apply some sanity checks here?
+        State::decode(&state_data)
+            .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
+    }
+
+    /// Save the work log update receipt
+    fn save_state(state: &State, state_path: impl AsRef<Path>) -> Result<()> {
+        let state_data = state.encode().context("Failed to serialize state")?;
+
+        fs::write(state_path.as_ref(), &state_data)
+            .with_context(|| format!("Failed to write state to {}", state_path.as_ref().display()))?;
+
+        tracing::info!("Successfully saved work log state: {}", state_path.as_ref().display());
+        tracing::info!("Updated commit: {}", state.work_log.commit());
+
+        Ok(())
+    }
