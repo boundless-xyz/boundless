@@ -6,7 +6,7 @@
 pragma solidity ^0.8.20;
 
 import {Vm} from "forge-std/Vm.sol";
-import "forge-std/Test.sol";
+import {console2, stdToml} from "forge-std/Test.sol";
 
 struct DeploymentConfig {
     string name;

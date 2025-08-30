@@ -5,16 +5,16 @@
 
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {ProofRequest, ProofRequestLibrary} from "../../src/types/ProofRequest.sol";
+import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {Requirements} from "../../src/types/Requirements.sol";
 import {Input, InputType} from "../../src/types/Input.sol";
-import {Predicate, PredicateType, PredicateLibrary} from "../../src/types/Predicate.sol";
+import {Predicate, PredicateType} from "../../src/types/Predicate.sol";
 import {Callback} from "../../src/types/Callback.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Account} from "../../src/types/Account.sol";
-import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";
+import {RequestIdLibrary} from "../../src/types/RequestId.sol";
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 
 /// @dev Wrapper contract to test ProofRequest library functions. The library functions use
