@@ -122,7 +122,7 @@ contract DeploymentTest is Test {
         require(address(stakeToken) != address(0), "no stake token address is set");
         require(keccak256(address(stakeToken).code) != keccak256(bytes("")), "stake token code is empty");
         require(
-            address(stakeToken) == BoundlessMarket(address(boundlessMarket)).STAKE_TOKEN_CONTRACT(),
+            address(stakeToken) == BoundlessMarket(address(boundlessMarket)).STAKE_TOKEN_CONTRACT,
             "stake token address does not match boundless market"
         );
     }
