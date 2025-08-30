@@ -102,7 +102,9 @@ abstract contract BaseClient {
         console.log("%s collateral balance at block %d: %d", identifier, block.number, newBalance.toUint256());
         int256 expectedBalance = stakeBalanceSnapshot + change;
         require(expectedBalance >= 0, "expected collateral balance cannot be less than 0");
-        console.log("%s expected collateral balance at block %d: %d", identifier, block.number, expectedBalance.toUint256());
+        console.log(
+            "%s expected collateral balance at block %d: %d", identifier, block.number, expectedBalance.toUint256()
+        );
         require(expectedBalance == newBalance, "collateral balance is not equal to expected value");
     }
 }

@@ -55,7 +55,10 @@ interface IBoundlessMarket {
     /// @param collateralTransferred The amount of collateral transferred to either the fulfilling prover or the market.
     /// @param collateralRecipient The address of the collateral recipient. Typically the fulfilling prover, but can be the market.
     event ProverSlashed(
-        RequestId indexed requestId, uint256 collateralBurned, uint256 collateralTransferred, address collateralRecipient
+        RequestId indexed requestId,
+        uint256 collateralBurned,
+        uint256 collateralTransferred,
+        address collateralRecipient
     );
 
     /// @notice Event when a deposit is made to the market.

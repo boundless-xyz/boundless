@@ -176,7 +176,10 @@ contract BoundlessMarketTest is Test {
     }
 
     function expectMarketCollateralTreasuryBalanceChange(int256 change) public view {
-        require(collateralTreasuryBalanceSnapshot != type(int256).max, "market collateral treasury balance snapshot is not set");
+        require(
+            collateralTreasuryBalanceSnapshot != type(int256).max,
+            "market collateral treasury balance snapshot is not set"
+        );
         int256 newBalance = boundlessMarket.balanceOfCollateral(address(boundlessMarket)).toInt256();
         console.log("Market stake treasury balance at block %d: %d", block.number, newBalance.toUint256());
         int256 expectedBalance = collateralTreasuryBalanceSnapshot + change;
@@ -293,7 +296,8 @@ contract BoundlessMarketTest is Test {
 
         vm.prank(signerAddress);
         client.execute(
-            address(boundlessMarket), abi.encodeWithSelector(IBoundlessMarket.depositCollateral.selector, DEFAULT_BALANCE)
+            address(boundlessMarket),
+            abi.encodeWithSelector(IBoundlessMarket.depositCollateral.selector, DEFAULT_BALANCE)
         );
 
         // check balances
@@ -2994,7 +2998,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.snapshotGasLastCall("slash: base case");
 
         expectMarketCollateralBalanceChange(-int256(int96(expectedSlashBurnAmount(request.offer.lockCollateral))));
-        expectMarketCollateralTreasuryBalanceChange(int256(int96(expectedSlashTransferAmount(request.offer.lockCollateral))));
+        expectMarketCollateralTreasuryBalanceChange(
+            int256(int96(expectedSlashTransferAmount(request.offer.lockCollateral)))
+        );
 
         client.expectBalanceChange(0 ether);
         testProver.expectCollateralBalanceChange(-uint256(request.offer.lockCollateral).toInt256());
@@ -3225,7 +3231,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Prover should have their original balance less the stake amount.
         testProver.expectCollateralBalanceChange(-uint256(request.offer.lockCollateral).toInt256());
         // Other prover should receive a portion of the stake
-        otherProver.expectCollateralBalanceChange(uint256(expectedSlashTransferAmount(request.offer.lockCollateral)).toInt256());
+        otherProver.expectCollateralBalanceChange(
+            uint256(expectedSlashTransferAmount(request.offer.lockCollateral)).toInt256()
+        );
 
         expectMarketCollateralTreasuryBalanceChange(0);
         expectMarketBalanceUnchanged();
