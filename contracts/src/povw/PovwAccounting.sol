@@ -78,10 +78,7 @@ contract PovwAccounting is IPovwAccounting, EIP712 {
         }
 
         // Fetch the initial commit value, substituting with the precomputed empty root if new.
-        bytes32 initialCommit = workLogRoots[workLogId];
-        if (initialCommit == bytes32(0)) {
-            initialCommit = EMPTY_LOG_ROOT;
-        }
+        bytes32 initialCommit = getWorkLogCommit(workLogId);
 
         // Verify the receipt from the work log builder, binding the initial root as the currently
         // stored value.
@@ -112,7 +109,11 @@ contract PovwAccounting is IPovwAccounting, EIP712 {
     }
 
     /// @inheritdoc IPovwAccounting
-    function getWorkLogCommit(address workLogId) external view returns (bytes32) {
-        return workLogRoots[workLogId];
+    function getWorkLogCommit(address workLogId) public view returns (bytes32) {
+        bytes32 commit = workLogRoots[workLogId];
+        if (commit == bytes32(0)) {
+            return EMPTY_LOG_ROOT;
+        }
+        return commit;
     }
 }
