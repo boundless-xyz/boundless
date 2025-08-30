@@ -195,11 +195,6 @@ services:
               device_ids: ["0"]
               capabilities: [gpu]
 
-    ulimits:
-      # Needed for stark_verify bin
-      # TODO: this number was just guess and check found
-      stack: 90000000
-
   rest_api:
     build:
       context: .
