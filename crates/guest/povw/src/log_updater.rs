@@ -218,3 +218,133 @@ fn borsh_serialize_address(
     <U160 as BorshSerialize>::serialize(&(*address).into(), writer)?;
     Ok(())
 }
+
+#[cfg(feature = "prover")]
+pub mod prover {
+    use std::{borrow::Cow, convert::Infallible};
+
+    use anyhow::Context;
+    use derive_builder::Builder;
+    use risc0_zkvm::{
+        compute_image_id, Digest, ExecutorEnv, ProveInfo, Prover, ProverOpts, Receipt,
+        VerifierContext,
+    };
+
+    use super::{
+        Input, LogBuilderJournal, BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID,
+    };
+    use alloy_primitives::Address;
+
+    /// A prover for log updates which runs the Log Updater to produce a receipt for
+    /// updating the PoVW accounting smart contract.
+    #[derive(Builder)]
+    #[builder(pattern = "owned")]
+    #[non_exhaustive]
+    pub struct LogUpdaterProver<P> {
+        /// The underlying RISC Zero zkVM [Prover].
+        #[builder(setter(custom))]
+        pub prover: P,
+        /// Address of the PoVW accounting contract.
+        #[builder(setter(into))]
+        pub contract_address: Address,
+        /// EIP-155 chain ID.
+        pub chain_id: u64,
+        /// Image ID for the Log Updater program.
+        ///
+        /// Defaults to the Log Updater program ID that is built into this crate.
+        #[builder(setter(custom), default = "BOUNDLESS_POVW_LOG_UPDATER_ID.into()")]
+        pub log_updater_id: Digest,
+        /// Executable for the Log Updater program.
+        ///
+        /// Defaults to the Log Updater program that is built into this crate.
+        #[builder(setter(custom), default = "BOUNDLESS_POVW_LOG_UPDATER_ELF.into()")]
+        pub log_updater_program: Cow<'static, [u8]>,
+        /// [ProverOpts] to use when proving the log update.
+        #[builder(default)]
+        pub prover_opts: ProverOpts,
+        /// [VerifierContext] to use when proving the log update. This only needs to be set when using
+        /// non-standard verifier parameters.
+        #[builder(default)]
+        pub verifier_ctx: VerifierContext,
+    }
+
+    impl<P> LogUpdaterProverBuilder<P> {
+        /// Set the underlying RISC Zero zkVM [Prover].
+        #[must_use]
+        pub fn prover<Q>(self, prover: Q) -> LogUpdaterProverBuilder<Q> {
+            LogUpdaterProverBuilder {
+                prover: Some(prover),
+                contract_address: self.contract_address,
+                chain_id: self.chain_id,
+                log_updater_id: self.log_updater_id,
+                log_updater_program: self.log_updater_program,
+                prover_opts: self.prover_opts,
+                verifier_ctx: self.verifier_ctx,
+            }
+        }
+
+        /// Set the Log Updater program, returning error if the image ID cannot be calculated.
+        pub fn log_updater_program(
+            self,
+            program: impl Into<Cow<'static, [u8]>>,
+        ) -> anyhow::Result<Self> {
+            let program = program.into();
+            let image_id = compute_image_id(&program)
+                .context("Failed to compute image ID for Log Updater program")?;
+
+            Ok(Self { log_updater_program: Some(program), log_updater_id: Some(image_id), ..self })
+        }
+    }
+
+    impl LogUpdaterProver<Infallible> {
+        /// Create a new builder for [LogUpdaterProver].
+        pub fn builder() -> LogUpdaterProverBuilder<Infallible> {
+            Default::default()
+        }
+    }
+
+    impl<P: Prover> LogUpdaterProver<P> {
+        /// Update the log and produce a proof by running the Log Updater.
+        ///
+        /// Takes a receipt from the Log Builder and a signer, creates the appropriate
+        /// EIP-712 signature, and produces a proof for smart contract verification.
+        pub async fn prove_update(
+            &self,
+            log_builder_receipt: Receipt,
+            signer: &impl alloy_signer::Signer,
+        ) -> anyhow::Result<ProveInfo> {
+            // Decode the LogBuilderJournal from the receipt
+            let log_builder_journal = LogBuilderJournal::decode(&log_builder_receipt.journal.bytes)
+                .context("failed to deserialize LogBuilderJournal from receipt")?;
+
+            // Create the input using the builder pattern with sign_and_build
+            let input = Input::builder()
+                .update(log_builder_journal)
+                .contract_address(self.contract_address)
+                .chain_id(self.chain_id)
+                .sign_and_build(signer)
+                .await
+                .context("failed to create signed input")?;
+
+            // Build the executor environment with the log builder receipt as an assumption
+            let env = ExecutorEnv::builder()
+                .write_frame(&input.encode()?)
+                .add_assumption(log_builder_receipt)
+                .build()
+                .context("failed to build ExecutorEnv")?;
+
+            // Prove the log update
+            let prove_info = self
+                .prover
+                .prove_with_ctx(
+                    env,
+                    &self.verifier_ctx,
+                    &self.log_updater_program,
+                    &self.prover_opts,
+                )
+                .context("failed to prove log update")?;
+
+            Ok(prove_info)
+        }
+    }
+}

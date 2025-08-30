@@ -32,11 +32,11 @@ use boundless_povw_guests::{
     },
 };
 use derive_builder::Builder;
-use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
+use risc0_povw::{guest::RISC0_POVW_LOG_BUILDER_ID, PovwJobId};
 use risc0_steel::ethereum::{EthChainSpec, ANVIL_CHAIN_SPEC};
 use risc0_zkvm::{
-    default_executor, sha::Digestible, ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, Receipt,
-    ReceiptClaim,
+    default_executor, sha::Digestible, Digest, ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt,
+    MaybePruned, Receipt, ReceiptClaim, Work, WorkClaim,
 };
 use tokio::sync::Mutex;
 
@@ -457,10 +457,8 @@ pub fn encode_seal(receipt: &risc0_zkvm::Receipt) -> anyhow::Result<Vec<u8>> {
 pub fn execute_log_updater_guest(
     input: &log_updater::Input,
 ) -> anyhow::Result<log_updater::Journal> {
-    let log_builder_receipt = FakeReceipt::new(ReceiptClaim::ok(
-        RISC0_POVW_LOG_BUILDER_ID,
-        input.update.encode()?,
-    ));
+    let log_builder_receipt =
+        FakeReceipt::new(ReceiptClaim::ok(RISC0_POVW_LOG_BUILDER_ID, input.update.encode()?));
     let env = ExecutorEnv::builder()
         .write_frame(&input.encode()?)
         .add_assumption(log_builder_receipt)
@@ -483,4 +481,26 @@ pub fn execute_mint_calculator_guest(
     let decoded_journal =
         mint_calculator::MintCalculatorJournal::abi_decode(&session_info.journal.bytes)?;
     Ok(decoded_journal)
+}
+
+pub fn make_work_claim(
+    job_id: impl Into<PovwJobId>,
+    num_segments: u32,
+    work_value: u64,
+) -> anyhow::Result<WorkClaim<ReceiptClaim>> {
+    let job_id = job_id.into();
+    let segment_num_max = num_segments
+        .checked_sub(1)
+        .ok_or_else(|| anyhow::anyhow!("num_segments must be greater than 0"))?;
+
+    Ok(WorkClaim {
+        // Use a random claim digest, which stands in for some unknown claim.
+        claim: MaybePruned::Pruned(Digest::new(rand::random())),
+        work: Work {
+            nonce_min: job_id.nonce(0),
+            nonce_max: job_id.nonce(segment_num_max),
+            value: work_value,
+        }
+        .into(),
+    })
 }
