@@ -168,6 +168,20 @@ pub async fn resolve_povw(
         .await
         .context("Failed to save resolved POVW receipt to work receipts bucket")?;
 
+    // Store POVW metadata alongside the receipt
+    let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}_metadata.json");
+    let povw_metadata = serde_json::json!({
+        "povw_log_id": std::env::var("POVW_LOG_ID").unwrap_or_default(),
+        "povw_job_number": std::env::var("POVW_JOB_NUMBER").unwrap_or_default(),
+        "job_id": job_id.to_string()
+    });
+
+    agent
+        .s3_client
+        .write_buf_to_s3(&metadata_key, serde_json::to_vec(&povw_metadata)?)
+        .await
+        .context("Failed to save POVW metadata to work receipts bucket")?;
+
     tracing::info!("POVW resolve operation completed successfully");
     Ok(assumptions_len)
 }

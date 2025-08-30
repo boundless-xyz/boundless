@@ -388,6 +388,16 @@ bento/
 - `GET /receipts/{receipt_id}` - Download a receipt
 - `POST /receipts/verify` - Verify a receipt
 
+### Work Receipts Management
+
+- `GET /work-receipts` - List all work receipts with POVW metadata
+- `GET /work-receipts/{receipt_id}` - Download a specific work receipt
+
+**POVW Metadata**: Each work receipt includes Proof of Verifiable Work (POVW) information:
+- `povw_log_id`: The POVW log identifier for tracking receipt provenance
+- `povw_job_number`: The POVW job number for client-side deduplication
+- Metadata is stored alongside receipts in `{receipt_id}_metadata.json` files
+
 ## 🤝 Community
 
 - **GitHub**: [https://github.com/boundless-xyz/boundless](https://github.com/boundless-xyz/boundless)

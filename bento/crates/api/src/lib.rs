@@ -654,7 +654,7 @@ async fn get_work_receipt(
     State(state): State<Arc<AppState>>,
     Path(receipt_id): Path<String>,
 ) -> Result<Vec<u8>, AppError> {
-    let receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}");
+    let receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}.bincode");
     if !state
         .s3_client
         .object_exists(&receipt_key)
@@ -666,11 +666,108 @@ async fn get_work_receipt(
 
     let receipt = state
         .s3_client
-        .read_buf_from_s3(&format!("{receipt_key}_povw.bincode"))
+        .read_buf_from_s3(&receipt_key)
         .await
         .context("Failed to read from object store")?;
 
     Ok(receipt)
+}
+
+const LIST_WORK_RECEIPTS_PATH: &str = "/work-receipts";
+async fn list_work_receipts(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<WorkReceiptList>, AppError> {
+    // List all objects in the work receipts bucket
+    let objects = state
+        .s3_client
+        .list_objects(Some(WORK_RECEIPTS_BUCKET_DIR))
+        .await
+        .context("Failed to list work receipt objects")?;
+
+    let mut receipts = Vec::new();
+
+    for object_key in objects {
+        // Extract the receipt ID from the object key
+        // Object keys are in format: "work_receipts/{receipt_id}.bincode"
+        if let Some(receipt_id) = object_key.strip_prefix(&format!("{WORK_RECEIPTS_BUCKET_DIR}/")) {
+            if receipt_id.ends_with(".bincode") && !receipt_id.ends_with("_povw.bincode") {
+                let receipt_id = receipt_id.trim_end_matches(".bincode");
+
+                // Try to extract POVW information from the stored receipt
+                let mut povw_log_id = None;
+                let mut povw_job_number = None;
+
+                // Check if there's a corresponding POVW receipt and try to extract metadata
+                let povw_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_povw.bincode");
+                if state.s3_client.object_exists(&povw_key).await.unwrap_or(false) {
+                    // Try to read POVW metadata if it exists
+                    // First check if there's a metadata file
+                    let metadata_key =
+                        format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_metadata.json");
+                    if let Ok(metadata_bytes) =
+                        state.s3_client.read_buf_from_s3(&metadata_key).await
+                    {
+                        if let Ok(metadata) =
+                            serde_json::from_slice::<serde_json::Value>(&metadata_bytes)
+                        {
+                            povw_log_id = metadata
+                                .get("povw_log_id")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            povw_job_number = metadata
+                                .get("povw_job_number")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                        }
+                    }
+
+                    // If no metadata file, try to extract from the receipt itself
+                    if povw_log_id.is_none() || povw_job_number.is_none() {
+                        match state
+                            .s3_client
+                            .read_from_s3::<risc0_zkvm::GenericReceipt<
+                                risc0_zkvm::WorkClaim<risc0_zkvm::ReceiptClaim>,
+                            >>(&povw_key)
+                            .await
+                        {
+                            Ok(_receipt) => {
+                                // For now, use receipt_id as fallback values
+                                // TODO: Extract actual POVW metadata from receipt when available
+                                if povw_log_id.is_none() {
+                                    povw_log_id = Some(receipt_id.to_string());
+                                }
+                                if povw_job_number.is_none() {
+                                    povw_job_number = Some(receipt_id.to_string());
+                                }
+                            }
+                            Err(err) => {
+                                tracing::warn!(
+                                    "Failed to parse POVW receipt for {}: {}",
+                                    receipt_id,
+                                    err
+                                );
+                                // Still mark as having POVW but without metadata
+                                if povw_log_id.is_none() {
+                                    povw_log_id = Some(receipt_id.to_string());
+                                }
+                                if povw_job_number.is_none() {
+                                    povw_job_number = Some(receipt_id.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                receipts.push(WorkReceiptInfo {
+                    key: receipt_id.to_string(),
+                    povw_log_id,
+                    povw_job_number,
+                });
+            }
+        }
+    }
+
+    Ok(Json(WorkReceiptList { receipts }))
 }
 
 pub fn app(state: Arc<AppState>) -> Router {
@@ -690,6 +787,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(SNARK_STATUS_PATH, get(groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
+        .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
         .with_state(state)
 }
 
