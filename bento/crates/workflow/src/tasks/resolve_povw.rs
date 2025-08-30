@@ -170,11 +170,37 @@ pub async fn resolve_povw(
 
     // Store POVW metadata alongside the receipt
     let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}_metadata.json");
-    let povw_metadata = serde_json::json!({
-        "povw_log_id": std::env::var("POVW_LOG_ID").unwrap_or_default(),
-        "povw_job_number": std::env::var("POVW_JOB_NUMBER").unwrap_or_default(),
-        "job_id": job_id.to_string()
+
+    // Only include POVW fields if they are actually set and non-empty
+    let mut metadata_fields = serde_json::Map::new();
+    metadata_fields.insert("job_id".to_string(), serde_json::Value::String(job_id.to_string()));
+
+    if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
+        if !log_id.is_empty() {
+            metadata_fields.insert("povw_log_id".to_string(), serde_json::Value::String(log_id));
+        }
+    }
+
+    // For POVW job number, use environment variable if set, otherwise generate one based on job_id
+    let povw_job_number = if let Ok(job_number) = std::env::var("POVW_JOB_NUMBER") {
+        if !job_number.is_empty() { Some(job_number) } else { None }
+    } else {
+        None
+    };
+
+    // If no POVW job number is set, generate one based on the job_id hash
+    let final_job_number = povw_job_number.unwrap_or_else(|| {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        job_id.hash(&mut hasher);
+        format!("{}", hasher.finish())
     });
+
+    metadata_fields
+        .insert("povw_job_number".to_string(), serde_json::Value::String(final_job_number));
+
+    let povw_metadata = serde_json::Value::Object(metadata_fields);
 
     agent
         .s3_client
