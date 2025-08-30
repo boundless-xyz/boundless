@@ -1435,7 +1435,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
     function testFulfillDeprecatedAssessor() public {
         _testFulfillDeprecatedAssessor(1);
-        vm.warp(block.timestamp + 5 minutes);
+        // Warp past the deprecated assessor expiration time
+        vm.warp(block.timestamp + DEPRECATED_ASSESSOR_DURATION + 1 minutes);
         _testFulfillDeprecatedAssessor(2);
     }
 
