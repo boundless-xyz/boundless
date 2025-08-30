@@ -309,6 +309,9 @@ pub mod prover {
                 .context("failed to build ExecutorEnv")?;
 
             // Prove the log update
+            // NOTE: This may block the current thread for a significant amount of time. It is not
+            // trivial to wrap this statement in e.g. tokio's spawn_blocking because self contains
+            // a VerifierContext which does not implement Send.
             let prove_info = self
                 .prover
                 .prove_with_ctx(
