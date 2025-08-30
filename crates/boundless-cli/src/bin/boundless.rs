@@ -471,7 +471,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         Command::Request(request_cmd) => handle_request_command(request_cmd, &args.config).await,
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, &args.config).await,
         Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, &args.config).await,
-        Command::Povw(povw_cmd) => povw_cmd.run().await,
+        Command::Povw(povw_cmd) => povw_cmd.run(&args.config).await,
         Command::Config {} => handle_config_command(&args.config).await,
         Command::Completions { shell } => generate_shell_completions(shell),
     }

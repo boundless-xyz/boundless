@@ -21,12 +21,18 @@ use std::{
     time::SystemTime,
 };
 
+use alloy::signers::local::PrivateKeySigner;
 use anyhow::{bail, ensure, Context, Result};
 use clap::{Args, Subcommand};
 use num_enum::TryFromPrimitive;
-use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId, WorkLog};
+use risc0_povw::{
+    guest::Journal as LogBuilderJournal, guest::RISC0_POVW_LOG_BUILDER_ID,
+    prover::WorkLogUpdateProver, PovwLogId, WorkLog,
+};
 use risc0_zkvm::{default_prover, GenericReceipt, Receipt, ReceiptClaim, WorkClaim};
 use serde::{Deserialize, Serialize};
+
+use crate::config::GlobalConfig;
 
 /// Private type alias used to make the function definitions in this file more concise.
 type WorkReceipt = GenericReceipt<WorkClaim<ReceiptClaim>>;
@@ -36,13 +42,16 @@ type WorkReceipt = GenericReceipt<WorkClaim<ReceiptClaim>>;
 pub enum PovwCommands {
     /// Compress a directory of work receipts into a work log update.
     ProveUpdate(PovwProveUpdate),
+    /// Send a work log update to the onchain accounting contract.
+    SendUpdate(PovwSendUpdate),
 }
 
 impl PovwCommands {
     /// Run the command.
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         match self {
             Self::ProveUpdate(cmd) => cmd.run().await,
+            Self::SendUpdate(cmd) => cmd.run(global_config).await,
         }
     }
 }
@@ -56,9 +65,12 @@ pub struct State {
     log_id: PovwLogId,
     /// A representation of the Merkle tree of nonces consumed as part of this work log.
     work_log: WorkLog,
-    /// Receipt proving the most recent update. This receipt is used to verify the state loaded
-    /// into the guest as part of the continuation of the log builder.
-    receipt: Receipt,
+    /// Receipt proving the most recent update to the work log. This receipt is used to verify the
+    /// state loaded into the guest as part of the continuation of the log builder.
+    log_builder_receipt: Receipt,
+    /// An ordered list of receipts for authenticated log updates. These receipts are used to post
+    /// work log updates to the onchain accounting contract.
+    log_updater_receipts: Vec<Receipt>,
     /// Time at which this state was last updated.
     updated_at: SystemTime,
 }
@@ -92,6 +104,37 @@ impl State {
             }
             Err(_) => bail!("unknown state version number: {version}"),
         }
+    }
+
+    fn update(
+        &mut self,
+        work_log: WorkLog,
+        log_builder_receipt: Receipt,
+        log_updater_receipt: Receipt,
+    ) -> anyhow::Result<()> {
+        self.work_log = work_log;
+
+        // Verify the Log Builder receipt. Ensure it matches the current state to avoid corruption.
+        log_updater_receipt.verify(RISC0_POVW_LOG_BUILDER_ID).context("Failed to verify Log Builder receipt")?;
+        let log_builder_journal = LogBuilderJournal::decode(&log_updater_receipt.journal).context("Failed to decode Log Builder journal")?;
+        ensure!(
+            log_builder_journal.work_log_id == self.log_id,
+            "Log Builder journal does not match the current state log ID: journal: {:x}, state: {:x}",
+            log_builder_journal.work_log_id,
+            self.log_id,
+        );
+        let work_log_commit = self.work_log.commit();
+        ensure!(
+            log_builder_journal.initial_commit == work_log_commit,
+            "Log Builder journal does not match the current state commit: journal: {}, state: {}",
+            log_builder_journal.initial_commit,
+            work_log_commit,
+        );
+        self.log_builder_receipt = log_builder_receipt;
+
+        self.log_updater_receipts.push(log_updater_receipt);
+        self.updated_at = SystemTime::now();
+        Ok(())
     }
 }
 
@@ -152,7 +195,7 @@ impl PovwProveUpdate {
                 state.work_log.commit()
             );
             prover_builder
-                .work_log(state.work_log, state.receipt)
+                .work_log(state.work_log, state.log_builder_receipt)
                 .context("Failed to build prover with given state")?;
         }
 
@@ -261,16 +304,30 @@ impl PovwProveUpdate {
     }
 
     /// Save the work log update receipt
-    fn save_state(&self, work_log: WorkLog, receipt: Receipt) -> Result<()> {
-        let state = State { log_id: self.log_id, work_log, receipt, updated_at: SystemTime::now() };
+    fn save_state(&self, state: &State) -> Result<()> {
         let state_data = state.encode().context("Failed to serialize state")?;
 
         fs::write(&self.state_out, &state_data)
             .with_context(|| format!("Failed to write state to {}", self.state_out.display()))?;
 
         tracing::info!("Successfully saved work log state: {}", self.state_out.display());
-        tracing::info!("Updated commit: {:x?}", state.work_log.commit());
+        tracing::info!("Updated commit: {}", state.work_log.commit());
 
         Ok(())
+    }
+}
+
+/// Compress a directory of work receipts into a work log update.
+#[derive(Args, Clone, Debug)]
+pub struct PovwSendUpdate {
+    /// Private key used to sign work log updates. This key should have an address equal to the
+    /// work log ID.
+    #[clap(long, env = "WORK_LOG_PRIVATE_KEY", hide_env_values = true)]
+    pub work_log_private_key: Option<PrivateKeySigner>,
+}
+
+impl PovwSendUpdate {
+    pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
+        todo!()
     }
 }

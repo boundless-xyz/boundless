@@ -2492,7 +2492,7 @@ dependencies = [
 [[package]]
 name = "bonsai-sdk"
 version = "1.4.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "duplicate",
  "maybe-async",
@@ -4333,12 +4333,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
-name = "fixedbitset"
-version = "0.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
-
-[[package]]
 name = "flate2"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5195,7 +5189,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5695,7 +5689,7 @@ dependencies = [
  "ena",
  "itertools 0.11.0",
  "lalrpop-util",
- "petgraph 0.6.5",
+ "petgraph",
  "pico-args",
  "regex",
  "regex-syntax 0.8.6",
@@ -5833,7 +5827,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.53.3",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -6597,7 +6591,7 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77e878c846a8abae00dd069496dbe8751b16ac1c3d6bd2a7283a938e8228f90d"
 dependencies = [
- "proc-macro-crate 3.3.0",
+ "proc-macro-crate 1.1.3",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -6961,17 +6955,7 @@ version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
- "fixedbitset 0.4.2",
- "indexmap 2.11.0",
-]
-
-[[package]]
-name = "petgraph"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
-dependencies = [
- "fixedbitset 0.5.7",
+ "fixedbitset",
  "indexmap 2.11.0",
 ]
 
@@ -7365,7 +7349,7 @@ dependencies = [
  "log",
  "multimap",
  "once_cell",
- "petgraph 0.7.1",
+ "petgraph",
  "prettyplease",
  "prost",
  "prost-types",
@@ -7429,7 +7413,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls 0.23.31",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
@@ -7466,7 +7450,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -8071,7 +8055,7 @@ dependencies = [
 [[package]]
 name = "risc0-binfmt"
 version = "3.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "borsh",
@@ -8092,7 +8076,7 @@ dependencies = [
 [[package]]
 name = "risc0-build"
 version = "3.0.4"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -8134,7 +8118,7 @@ dependencies = [
 [[package]]
 name = "risc0-build-kernel"
 version = "2.0.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "cc",
  "directories",
@@ -8147,7 +8131,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-keccak"
 version = "4.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -8168,7 +8152,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-keccak-sys"
 version = "4.0.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "cc",
  "cust",
@@ -8183,7 +8167,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-recursion"
 version = "4.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -8208,7 +8192,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-recursion-sys"
 version = "4.0.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "glob",
  "risc0-build-kernel",
@@ -8220,7 +8204,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-rv32im"
 version = "4.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "bit-vec 0.8.0",
@@ -8253,7 +8237,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-rv32im-sys"
 version = "4.0.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "cc",
  "cust",
@@ -8268,7 +8252,7 @@ dependencies = [
 [[package]]
 name = "risc0-core"
 version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "bytemuck",
  "nvtx",
@@ -8298,7 +8282,7 @@ dependencies = [
 [[package]]
 name = "risc0-groth16"
 version = "3.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -8327,7 +8311,7 @@ dependencies = [
 [[package]]
 name = "risc0-groth16-sys"
 version = "0.1.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "blst",
@@ -8338,7 +8322,7 @@ dependencies = [
 [[package]]
 name = "risc0-povw"
 version = "0.2.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "borsh",
@@ -8411,7 +8395,7 @@ dependencies = [
 [[package]]
 name = "risc0-sys"
 version = "1.5.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "blst",
@@ -8423,7 +8407,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkos-v1compat"
 version = "2.2.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
@@ -8433,7 +8417,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkp"
 version = "3.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "anyhow",
  "blake2",
@@ -8464,7 +8448,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkvm"
 version = "3.0.4"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "addr2line",
  "anyhow",
@@ -8513,7 +8497,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkvm-platform"
 version = "2.2.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "bytemuck",
  "cfg-if",
@@ -8872,7 +8856,7 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 [[package]]
 name = "rzup"
 version = "0.5.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#4a542187d22c31a6e8d9a5293402d2e5a2160956"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#598b6db206adfb894697b45c64c9945fa4f70ef3"
 dependencies = [
  "hex",
  "rsa",
@@ -11084,7 +11068,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0978bf7171b3d90bac376700cb56d606feb40f251a475a5d6634613564460b22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
