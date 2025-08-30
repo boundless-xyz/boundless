@@ -19,42 +19,17 @@ use serde::{Deserialize, Serialize};
 pub use crate::guest_artifacts::BOUNDLESS_POVW_LOG_UPDATER_PATH;
 pub use crate::guest_artifacts::{BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID};
 
-// NOTE: Copied from PovwAccounting.sol. Must be kept in sync.
-// TODO(povw): Avoid copying this data type here.
-sol! {
-    // Copied from contracts/src/povw/PovwAccounting.sol
-    #[derive(Debug)]
-    interface IPovwAccounting {
-        event EpochFinalized(uint256 indexed epoch, uint256 totalWork);
-        event WorkLogUpdated(
-            address indexed workLogId,
-            uint256 epochNumber,
-            bytes32 initialCommit,
-            bytes32 updatedCommit,
-            uint256 updateValue,
-            address valueRecipient
-        );
-
-        function getWorkLogCommit(address workLogId) external view returns (bytes32);
-    }
-
-    #[derive(Debug)]
-    struct WorkLogUpdate {
-        address workLogId;
-        bytes32 initialCommit;
-        bytes32 updatedCommit;
-        uint64 updateValue;
-        address valueRecipient;
-    }
-
-    #[derive(Debug)]
-    struct Journal {
-        WorkLogUpdate update;
-        /// EIP712 domain digest. The verifying contract must validate this to be equal to it own
-        /// expected EIP712 domain digest.
-        bytes32 eip712Domain;
-    }
-}
+// TODO(povw): This will prevent packaging and uploading this crate.
+#[cfg(feature = "host")]
+sol!(
+    #[sol(extra_derives(Debug), rpc)]
+    "../../../contracts/src/povw/IPovwAccounting.sol"
+);
+#[cfg(not(feature = "host"))]
+sol!(
+    #[sol(extra_derives(Debug))]
+    "../../../contracts/src/povw/IPovwAccounting.sol"
+);
 
 impl WorkLogUpdate {
     pub fn from_log_builder_journal(journal: LogBuilderJournal, value_recipient: Address) -> Self {

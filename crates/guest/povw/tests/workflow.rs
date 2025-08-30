@@ -51,9 +51,7 @@ async fn test_workflow() -> anyhow::Result<()> {
 
     // TODO(povw): Provide a more concise way to send the log update.
     // Step 4: Decode the journal and post to the smart contract
-    let journal = LogUpdaterJournal::abi_decode(
-        &log_updater_prove_info.receipt.journal.bytes,
-    )?;
+    let journal = LogUpdaterJournal::abi_decode(&log_updater_prove_info.receipt.journal.bytes)?;
 
     // Verify the journal contains expected values
     assert_eq!(journal.update.workLogId, signer.address());
