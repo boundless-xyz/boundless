@@ -92,8 +92,9 @@ contract DeployBoundlessMarket is BoundlessScript {
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
-        address newImplementation =
-            address(new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, stakeToken));
+        address newImplementation = address(
+            new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, bytes32(0), 0, stakeToken)
+        );
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(
                 newImplementation, abi.encodeCall(BoundlessMarket.initialize, (admin, assessorGuestUrl))
@@ -155,10 +156,11 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         address stakeToken = deploymentConfig.stakeToken.required("stake-token");
         address verifier = deploymentConfig.verifier.required("verifier");
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
+        uint32 deprecatedAssessorDuration = deploymentConfig.deprecatedAssessorDuration;
 
         // Get the current assessor image ID and guest URL
         BoundlessMarket market = BoundlessMarket(marketAddress);
-        (bytes32 currentImageId, string memory currentGuestUrl) = market.imageInfo();
+        (bytes32 deprecatedAssessorImageId, string memory deprecatedGuestUrl) = market.imageInfo();
 
         // Use the assessor image ID recorded in deployment.toml
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
@@ -175,8 +177,13 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         // cp -R out/build-info ../boundless/contracts/build-info-reference
         // ```
         UpgradeOptions memory opts;
-        opts.constructorData =
-            BoundlessMarketLib.encodeConstructorArgs(IRiscZeroVerifier(verifier), assessorImageId, stakeToken);
+        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(
+            IRiscZeroVerifier(verifier),
+            assessorImageId,
+            deprecatedAssessorImageId,
+            deprecatedAssessorDuration,
+            stakeToken
+        );
         opts.referenceContract = "build-info-reference:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
 
@@ -184,7 +191,8 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         // Otherwise, we don't include it to save gas.
         vm.startBroadcast(admin);
         if (
-            assessorImageId != currentImageId || keccak256(bytes(assessorGuestUrl)) != keccak256(bytes(currentGuestUrl))
+            assessorImageId != deprecatedAssessorImageId
+                || keccak256(bytes(assessorGuestUrl)) != keccak256(bytes(deprecatedGuestUrl))
         ) {
             Upgrades.upgradeProxy(
                 marketAddress,

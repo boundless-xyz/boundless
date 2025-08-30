@@ -114,7 +114,8 @@ contract Deploy is Script, RiscZeroCheats {
 
         // Deploy the Boundless market
         bytes32 salt = keccak256(abi.encodePacked("salt"));
-        address newImplementation = address(new BoundlessMarket{salt: salt}(verifier, assessorImageId, stakeToken));
+        address newImplementation =
+            address(new BoundlessMarket{salt: salt}(verifier, assessorImageId, bytes32(0), 0, stakeToken));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(
