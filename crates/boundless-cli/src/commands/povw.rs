@@ -21,15 +21,20 @@ use std::{
     time::SystemTime,
 };
 
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{signers::local::PrivateKeySigner, sol_types::SolValue};
 use anyhow::{bail, ensure, Context, Result};
+use boundless_povw_guests::log_updater::{
+    Journal as LogUpdaterJournal, BOUNDLESS_POVW_LOG_UPDATER_ID,
+};
 use clap::{Args, Subcommand};
 use num_enum::TryFromPrimitive;
 use risc0_povw::{
     guest::Journal as LogBuilderJournal, guest::RISC0_POVW_LOG_BUILDER_ID,
     prover::WorkLogUpdateProver, PovwLogId, WorkLog,
 };
-use risc0_zkvm::{default_prover, GenericReceipt, Receipt, ReceiptClaim, WorkClaim};
+use risc0_zkvm::{
+    default_prover, Digest, GenericReceipt, ProverOpts, Receipt, ReceiptClaim, WorkClaim,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::config::GlobalConfig;
@@ -65,12 +70,13 @@ pub struct State {
     log_id: PovwLogId,
     /// A representation of the Merkle tree of nonces consumed as part of this work log.
     work_log: WorkLog,
-    /// Receipt proving the most recent update to the work log. This receipt is used to verify the
-    /// state loaded into the guest as part of the continuation of the log builder.
-    log_builder_receipt: Receipt,
-    /// An ordered list of receipts for authenticated log updates. These receipts are used to post
-    /// work log updates to the onchain accounting contract.
-    log_updater_receipts: Vec<Receipt>,
+    /// An ordered list of receipts for updates to the work log. The last receipt in this list will
+    /// be used to continue updating the work log. These receipts are used to verify the state
+    /// loaded into the guest as part of the continuation of the log builder.
+    ///
+    /// A list of receipts is kept to ensure that records are not lost that could prevent the
+    /// prover from completing the onchain log update and minting operations.
+    log_builder_receipts: Vec<Receipt>,
     /// Time at which this state was last updated.
     updated_at: SystemTime,
 }
@@ -84,6 +90,16 @@ enum StateVersion {
 }
 
 impl State {
+    /// Initialize a new work log state.
+    pub fn new(log_id: PovwLogId) -> Self {
+        Self {
+            log_id,
+            work_log: WorkLog::EMPTY,
+            log_builder_receipts: Vec::new(),
+            updated_at: SystemTime::now(),
+        }
+    }
+
     /// Encode this state into a buffer of bytes.
     pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
         let mut buffer = vec![StateVersion::V1 as u8];
@@ -106,38 +122,44 @@ impl State {
         }
     }
 
-    fn update(
-        &mut self,
-        work_log: WorkLog,
-        log_builder_receipt: Receipt,
-        log_updater_receipt: Receipt,
-    ) -> anyhow::Result<()> {
-        self.work_log = work_log;
-
+    fn update(mut self, work_log: WorkLog, log_builder_receipt: Receipt) -> anyhow::Result<Self> {
         // Verify the Log Builder receipt. Ensure it matches the current state to avoid corruption.
-        log_updater_receipt
+        log_builder_receipt
             .verify(RISC0_POVW_LOG_BUILDER_ID)
             .context("Failed to verify Log Builder receipt")?;
-        let log_builder_journal = LogBuilderJournal::decode(&log_updater_receipt.journal)
+        let log_builder_journal = LogBuilderJournal::decode(&log_builder_receipt.journal)
             .context("Failed to decode Log Builder journal")?;
+        ensure!(
+            log_builder_journal.self_image_id == Digest::from(RISC0_POVW_LOG_BUILDER_ID),
+            "Log Builder journal self image ID does not match expected value: journal: {}, expected: {}",
+            log_builder_journal.self_image_id,
+            Digest::from(RISC0_POVW_LOG_BUILDER_ID),
+        );
         ensure!(
             log_builder_journal.work_log_id == self.log_id,
             "Log Builder journal does not match the current state log ID: journal: {:x}, state: {:x}",
             log_builder_journal.work_log_id,
             self.log_id,
         );
-        let work_log_commit = self.work_log.commit();
+        let initial_commit = self.work_log.commit();
         ensure!(
-            log_builder_journal.initial_commit == work_log_commit,
+            log_builder_journal.initial_commit == initial_commit,
             "Log Builder journal does not match the current state commit: journal: {}, state: {}",
             log_builder_journal.initial_commit,
-            work_log_commit,
+            initial_commit,
         );
-        self.log_builder_receipt = log_builder_receipt;
+        let updated_commit = work_log.commit();
+        ensure!(
+            log_builder_journal.updated_commit == updated_commit,
+            "Log Builder journal does not match the updated work log commit: journal: {}, updated work log: {}",
+            log_builder_journal.updated_commit,
+            updated_commit,
+        );
 
-        self.log_updater_receipts.push(log_updater_receipt);
+        self.log_builder_receipts.push(log_builder_receipt);
+        self.work_log = work_log;
         self.updated_at = SystemTime::now();
-        Ok(())
+        Ok(self)
     }
 }
 
@@ -183,24 +205,38 @@ impl PovwProveUpdate {
         tracing::info!("Starting PoVW prove-update for log ID: {:x}", self.log_id);
 
         // Set up the work log update prover
-        let mut prover_builder = WorkLogUpdateProver::builder().prover(default_prover());
-        prover_builder
+        let prover_builder = WorkLogUpdateProver::builder()
+            .prover(default_prover())
+            .prover_opts(ProverOpts::succinct())
             .log_id(self.log_id)
             .log_builder_program(risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ELF)
             .context("Failed to build WorkLogUpdateProver")?;
 
-        // Load continuation if provided
-        if let Some(continuation_path) = &self.state_in {
+        // Load the continuation state, if provided.
+        let state = if let Some(continuation_path) = &self.state_in {
             let state = self.load_state(continuation_path)?;
             tracing::info!(
                 "Loaded work log state from {} with commit {}",
                 continuation_path.display(),
                 state.work_log.commit()
             );
+            state
+        } else {
+            tracing::info!("Initializing a new work log with ID {:x}", self.log_id);
+            State::new(self.log_id)
+        };
+
+        // Add the initial state to the prover.
+        let prover_builder = if !state.work_log.is_empty() {
+            let Some(receipt) = state.log_builder_receipts.last() else {
+                bail!("State contains non-empty work log and no log builder receipts")
+            };
             prover_builder
-                .work_log(state.work_log, state.log_builder_receipt)
-                .context("Failed to build prover with given state")?;
-        }
+                .work_log(state.work_log.clone(), receipt.clone())
+                .context("Failed to build prover with given state")?
+        } else {
+            prover_builder
+        };
 
         let mut prover = prover_builder.build().context("Failed to build WorkLogUpdateProver")?;
 
@@ -208,7 +244,7 @@ impl PovwProveUpdate {
         let work_receipts = self
             .load_work_receipts(&prover.work_log)
             .filter_map(|result| {
-                result.inspect_err(|err| tracing::warn!(?err, "Skipping receipt")).ok()
+                result.map_err(|err| tracing::warn!("{:?}", err.context("Skipping receipt"))).ok()
             })
             .collect::<Vec<_>>();
         tracing::info!("Loaded {} work receipts", work_receipts.len());
@@ -219,8 +255,10 @@ impl PovwProveUpdate {
         let prove_info =
             prover.prove_update(work_receipts).context("Failed to prove work log update")?;
 
-        // Save the output state.
-        self.save_state(prover.work_log, prove_info.receipt).context("Failed to save state")?;
+        // Update and save the output state.
+        let updated_state =
+            state.update(prover.work_log, prove_info.receipt).context("Failed to update state")?;
+        self.save_state(&updated_state).context("Failed to save state")?;
 
         // TODO: What do you do with the constructed update?
 
@@ -302,6 +340,7 @@ impl PovwProveUpdate {
             format!("Failed to read work log state file: {}", state_path.display())
         })?;
 
+        // TODO(povw): Apply some sanity checks here?
         State::decode(&state_data)
             .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
     }
@@ -330,7 +369,8 @@ pub struct PovwSendUpdate {
 }
 
 impl PovwSendUpdate {
-    pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
+    /// Run the [PovwSendUpdate] command.
+    pub async fn run(&self, _global_config: &GlobalConfig) -> anyhow::Result<()> {
         todo!()
     }
 }
