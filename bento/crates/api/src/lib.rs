@@ -684,6 +684,7 @@ async fn list_work_receipts(
         .await
         .context("Failed to list work receipt objects")?;
 
+    tracing::info!("Found {} objects in work receipts bucket: {:?}", objects.len(), objects);
     let mut receipts = Vec::new();
 
     for object_key in objects {
@@ -697,31 +698,41 @@ async fn list_work_receipts(
                 let mut povw_log_id = None;
                 let mut povw_job_number = None;
 
-                // Check if there's a corresponding POVW receipt and try to extract metadata
-                let povw_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_povw.bincode");
-                if state.s3_client.object_exists(&povw_key).await.unwrap_or(false) {
-                    // Try to read POVW metadata if it exists
-                    // First check if there's a metadata file
-                    let metadata_key =
-                        format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_metadata.json");
-                    if let Ok(metadata_bytes) =
-                        state.s3_client.read_buf_from_s3(&metadata_key).await
+                // First check if there's a metadata file (this should exist for all receipts)
+                let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_metadata.json");
+                if let Ok(metadata_bytes) = state.s3_client.read_buf_from_s3(&metadata_key).await {
+                    if let Ok(metadata) =
+                        serde_json::from_slice::<serde_json::Value>(&metadata_bytes)
                     {
-                        if let Ok(metadata) =
-                            serde_json::from_slice::<serde_json::Value>(&metadata_bytes)
-                        {
-                            povw_log_id = metadata
-                                .get("povw_log_id")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-                            povw_job_number = metadata
-                                .get("povw_job_number")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-                        }
-                    }
+                        povw_log_id = metadata
+                            .get("povw_log_id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        povw_job_number = metadata
+                            .get("povw_job_number")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
 
-                    // If no metadata file, try to extract from the receipt itself
+                        tracing::debug!(
+                            "Found metadata for {}: log_id={:?}, job_number={:?}",
+                            receipt_id,
+                            povw_log_id,
+                            povw_job_number
+                        );
+                    }
+                } else {
+                    tracing::debug!("No metadata file found for receipt: {}", receipt_id);
+                }
+
+                // Check if there's a corresponding POVW receipt
+                let povw_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_povw.bincode");
+                let has_povw_receipt =
+                    state.s3_client.object_exists(&povw_key).await.unwrap_or(false);
+
+                if has_povw_receipt {
+                    tracing::debug!("POVW receipt found for: {}", receipt_id);
+
+                    // If we don't have metadata but have a POVW receipt, try to extract from the receipt
                     if povw_log_id.is_none() || povw_job_number.is_none() {
                         match state
                             .s3_client
@@ -731,6 +742,10 @@ async fn list_work_receipts(
                             .await
                         {
                             Ok(_receipt) => {
+                                tracing::debug!(
+                                    "Successfully parsed POVW receipt for: {}",
+                                    receipt_id
+                                );
                                 // For now, use receipt_id as fallback values
                                 // TODO: Extract actual POVW metadata from receipt when available
                                 if povw_log_id.is_none() {
@@ -756,6 +771,8 @@ async fn list_work_receipts(
                             }
                         }
                     }
+                } else {
+                    tracing::debug!("No POVW receipt found for: {}", receipt_id);
                 }
 
                 receipts.push(WorkReceiptInfo {
@@ -767,6 +784,7 @@ async fn list_work_receipts(
         }
     }
 
+    tracing::info!("Listed {} work receipts from bucket", receipts.len());
     Ok(Json(WorkReceiptList { receipts }))
 }
 
