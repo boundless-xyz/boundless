@@ -17,6 +17,7 @@ boundless-market = { workspace = true, features = ["test-utils"] }
 guest-assessor = { workspace = true }
 guest-set-builder = { workspace = true }
 guest-util = { workspace = true }
+hex = { workspace = true }
 risc0-aggregation = { workspace = true }
 risc0-circuit-recursion = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }

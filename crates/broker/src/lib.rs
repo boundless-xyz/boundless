@@ -29,7 +29,7 @@ use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::OrderStreamClient,
-    selector::is_groth16_selector,
+    selector::{is_groth16_selector, is_shrink_bitvm2_selector},
     Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -307,6 +307,13 @@ impl std::fmt::Display for OrderRequest {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum CompressionType {
+    None,
+    Groth16,
+    ShrinkBitvm2,
+}
+
 /// An Order represents a proof request and a specific method of fulfillment.
 ///
 /// Requests can be fulfilled in multiple ways, for example by locking then fulfilling them,
@@ -388,8 +395,21 @@ impl Order {
             .clone()
     }
 
-    pub fn is_groth16(&self) -> bool {
+    fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
+    }
+
+    fn is_shrink_bitvm2(&self) -> bool {
+        is_shrink_bitvm2_selector(self.request.requirements.selector)
+    }
+    pub fn compression_type(&self) -> CompressionType {
+        if self.is_groth16() {
+            CompressionType::Groth16
+        } else if self.is_shrink_bitvm2() {
+            CompressionType::ShrinkBitvm2
+        } else {
+            CompressionType::None
+        }
     }
 }
 
@@ -752,28 +772,31 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if is_dev_mode() {
-            tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
-            Receipts generated from this process are invalid and should never be used in production.");
-            Arc::new(provers::DefaultProver::new())
-        } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
-            (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
-        {
-            tracing::info!("Configured to run with Bonsai backend");
-            Arc::new(
-                provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
-                    .context("Failed to construct Bonsai client")?,
-            )
-        } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
-            tracing::info!("Configured to run with Bento backend");
+        // let prover: provers::ProverObj = if is_dev_mode() {
+        //     tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
+        //     Receipts generated from this process are invalid and should never be used in production.");
+        //     Arc::new(provers::DefaultProver::new())
+        // } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
+        //     (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
+        // {
+        //     tracing::info!("Configured to run with Bonsai backend");
+        //     Arc::new(
+        //         provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
+        //             .context("Failed to construct Bonsai client")?,
+        //     )
+        // } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
+        //     tracing::info!("Configured to run with Bento backend");
 
-            Arc::new(
-                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "")
-                    .context("Failed to initialize Bento client")?,
-            )
-        } else {
-            Arc::new(provers::DefaultProver::new())
-        };
+        //     Arc::new(
+        //         provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "")
+        //             .context("Failed to initialize Bento client")?,
+        //     )
+        // } else {
+        //     tracing::warn!("LOCAL PROBVER!!");
+        //     Arc::new(provers::DefaultProver::new())
+        // };
+
+        let prover: provers::ProverObj = Arc::new(provers::DefaultProver::new());
 
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 

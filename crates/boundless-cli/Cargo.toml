@@ -34,7 +34,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 shadow-rs = { version = "1.1", default-features = false }
+shrink_bitvm2 = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
@@ -53,6 +55,8 @@ order-stream = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tempfile = { workspace = true }
 tracing-test = { workspace = true }
+test-log = { workspace = true }
+shrink_bitvm2 = { workspace = true }
 
 [features]
 # Enables the prove feature on risc0-zkvm to build the prover directly into this CLI.

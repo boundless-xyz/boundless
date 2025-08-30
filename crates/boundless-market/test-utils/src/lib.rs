@@ -36,6 +36,7 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
+use hex::FromHex;
 use risc0_aggregation::{
     merkle_path, merkle_root, GuestState, SetInclusionReceipt,
     SetInclusionReceiptVerifierParameters,
@@ -93,6 +94,18 @@ pub async fn deploy_groth16_verifier<P: Provider>(
         RiscZeroGroth16Verifier::deploy(deployer_provider, control_root, bn254_control_id)
             .await
             .context("failed to deploy RiscZeroGroth16Verifier")?;
+    Ok(*instance.address())
+}
+
+pub async fn deploy_bitvm2_verifier<P: Provider>(
+    deployer_provider: P,
+    control_root: B256,
+    bn254_control_id: B256,
+) -> Result<Address> {
+    let instance =
+        RiscZeroBitvm2Groth16Verifier::deploy(deployer_provider, control_root, bn254_control_id)
+            .await
+            .context("failed to deploy RiscZeroBitvm2Groth16Verifier")?;
     Ok(*instance.address())
 }
 
@@ -223,6 +236,7 @@ pub async fn deploy_contracts(
             let mut bn254_control_id = BN254_IDENTITY_CONTROL_ID;
             bn254_control_id.as_mut_bytes().reverse();
             let verifier_parameters_digest = Groth16ReceiptVerifierParameters::default().digest();
+            println!("g16 verifier_parameters_digest {verifier_parameters_digest}");
             (
                 deploy_groth16_verifier(
                     &deployer_provider,
@@ -234,6 +248,7 @@ pub async fn deploy_contracts(
             )
         }
     };
+
     let set_verifier =
         deploy_set_verifier(&deployer_provider, verifier_router, set_builder_id, set_builder_url)
             .await?;
@@ -243,6 +258,31 @@ pub async fn deploy_contracts(
         deployer_provider.clone(),
     );
 
+    match is_dev_mode() {
+        true => println!("Skipping Bitvm2 verifier deployment in dev mode"),
+        false => {
+            let control_root = ALLOWED_CONTROL_ROOT;
+            let mut bn254_control_id = BN254_IDENTITY_CONTROL_ID;
+            bn254_control_id.as_mut_bytes().reverse();
+            let verifier_parameters_digest = Digest::from_hex(
+                "b72859b60cfe0bb13cbde70859fbc67ef9dbd5410bbe66bdb7be64a3dcf6814e",
+            )
+            .unwrap();
+            let bvm2_verifier = deploy_bitvm2_verifier(
+                &deployer_provider,
+                <[u8; 32]>::from(control_root).into(),
+                <[u8; 32]>::from(bn254_control_id).into(),
+            )
+            .await?;
+
+            let bvm2_selector = verifier_parameters_digest.as_bytes()[..4].try_into()?;
+
+            let call = &router_instance
+                .addVerifier(bvm2_selector, bvm2_verifier)
+                .from(deployer_signer.address());
+            let _ = call.send().await?;
+        }
+    }
     let call = &router_instance
         .addVerifier(groth16_selector.into(), groth16_verifier)
         .from(deployer_signer.address());

@@ -7,7 +7,6 @@
 #![no_std]
 
 extern crate alloc;
-
 use alloc::vec::Vec;
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};

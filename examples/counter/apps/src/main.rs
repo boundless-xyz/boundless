@@ -22,12 +22,12 @@ use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol_types::So
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{Predicate, PredicateType},
-    request_builder::RequirementParams,
+    request_builder::{OfferParams, RequirementParams},
     Client, Deployment, StorageProviderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
-use risc0_zkvm::{sha::Digestible, ReceiptClaim};
+use risc0_zkvm::{sha::Digestible, Digest, ReceiptClaim};
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
 
@@ -94,31 +94,64 @@ async fn run(args: Args) -> Result<()> {
         .await
         .context("failed to build boundless client")?;
 
-    // Use the default ECHO program with timestamp input
-    // We use a timestamp as input to the ECHO guest code as the Counter contract
-    // accepts only unique proofs. Using the same input twice would result in the same proof.
-    let echo_message = format!("{:?}", SystemTime::now());
+    let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
 
-    let r0_claim_digest = ReceiptClaim::ok(ECHO_ID, echo_message.as_bytes().to_vec()).digest();
+    // Use the current count as input to the ECHO guest code as the Counter contract
+    // accepts only unique proofs. Using the same input twice would result in the same proof.
+
+    let start_count = counter
+        .getCount(client.caller())
+        .call()
+        .await
+        .with_context(|| format!("failed to call {}", ICounter::getCountCall::SIGNATURE))?;
+
+    // Shrink Bitvm2 proofs require the input to be 32 bytes
+    let echo_message = start_count.as_le_bytes();
+
+    // let r0_claim_digest = ReceiptClaim::ok(ECHO_ID, echo_message.as_bytes().to_vec()).digest();
+    let blake3_claim_digest =
+        shrink_bitvm2::blake3_claim_digest(&Digest::from(ECHO_ID), echo_message.as_ref());
 
     // Build the request based on whether program URL is provided
     let request = if let Some(program_url) = args.program_url {
         // Use the provided URL
-        client.new_request().with_program_url(program_url)?.with_stdin(echo_message.as_bytes())
+        client
+            .new_request()
+            .with_program_url(program_url)?
+            .with_stdin(echo_message)
+            .with_requirements(
+                RequirementParams::builder()
+                    .predicate(Predicate::claim_digest_match(blake3_claim_digest))
+                    .build()
+                    .unwrap(),
+            )
+            .with_offer(
+                OfferParams::builder()
+                    .min_price(alloy::primitives::utils::parse_ether("0.001")?)
+                    .max_price(alloy::primitives::utils::parse_ether("0.002")?)
+                    .timeout(1000)
+                    .lock_timeout(1000),
+            )
+            .with_shrink_bitvm2_proof()
     } else {
         client
             .new_request()
             .with_program(ECHO_ELF)
-            .with_stdin(echo_message.as_bytes())
+            .with_stdin(echo_message)
             .with_requirements(
                 RequirementParams::builder()
-                    .predicate(Predicate {
-                        predicateType: PredicateType::ClaimDigestMatch,
-                        data: r0_claim_digest.as_bytes().to_vec().into(),
-                    })
+                    .predicate(Predicate::claim_digest_match(blake3_claim_digest))
                     .build()
                     .unwrap(),
             )
+            .with_offer(
+                OfferParams::builder()
+                    .min_price(alloy::primitives::utils::parse_ether("0.001")?)
+                    .max_price(alloy::primitives::utils::parse_ether("0.002")?)
+                    .timeout(1000)
+                    .lock_timeout(1000),
+            )
+            .with_shrink_bitvm2_proof()
     };
 
     let (request_id, expires_at) = client.submit_onchain(request).await?;
@@ -137,9 +170,7 @@ async fn run(args: Args) -> Result<()> {
 
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.
-    let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
-    let call_increment =
-        counter.increment(seal, <[u8; 32]>::from(r0_claim_digest).into()).from(client.caller());
+    let call_increment = counter.increment(seal, blake3_claim_digest.into()).from(client.caller());
 
     // By calling the increment function, we verify the seal against the published roots
     // of the SetVerifier contract.
