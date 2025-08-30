@@ -8,8 +8,7 @@
 mod common;
 
 use alloy::signers::local::PrivateKeySigner;
-use alloy_sol_types::SolValue;
-use boundless_povw_guests::log_updater::{prover::LogUpdaterProver, Journal as LogUpdaterJournal};
+use boundless_povw_guests::log_updater::{prover::LogUpdaterProver};
 use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId};
 use risc0_zkvm::{default_prover, FakeReceipt, ProverOpts, VerifierContext};
 
@@ -49,37 +48,19 @@ async fn test_workflow() -> anyhow::Result<()> {
     let log_updater_prove_info =
         log_updater_prover.prove_update(log_builder_receipt, &signer).await?;
 
-    // TODO(povw): Provide a more concise way to send the log update.
-    // Step 4: Decode the journal and post to the smart contract
-    let journal = LogUpdaterJournal::abi_decode(&log_updater_prove_info.receipt.journal.bytes)?;
-
-    // Verify the journal contains expected values
-    assert_eq!(journal.update.workLogId, signer.address());
-    assert_eq!(journal.update.updateValue, 1 << 20); // 1M value from work
-    assert_eq!(journal.update.valueRecipient, signer.address());
-
-    // Encode the receipt for the smart contract
-    let seal = common::encode_seal(&log_updater_prove_info.receipt)?;
-
-    // Call the PovwAccounting.updateWorkLog function
-    let tx_result = ctx
+    // Step 4: Post the proven log update to the smart contract
+    let tx_receipt = ctx
         .povw_accounting
-        .updateWorkLog(
-            journal.update.workLogId,
-            journal.update.updatedCommit,
-            journal.update.updateValue,
-            journal.update.valueRecipient,
-            seal.into(),
-        )
+        .update_work_log(&log_updater_prove_info.receipt)?
         .send()
+        .await?
+        .get_receipt()
         .await?;
 
-    // Verify the transaction succeeded
-    let receipt = tx_result.get_receipt().await?;
-    assert!(receipt.status());
+    assert!(tx_receipt.status());
 
     // Query for the expected WorkLogUpdated event
-    let logs = receipt.logs();
+    let logs = tx_receipt.logs();
     let work_log_updated_events = logs
         .iter()
         .filter_map(|log| {
