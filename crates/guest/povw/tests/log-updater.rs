@@ -36,17 +36,12 @@ async fn basic() -> anyhow::Result<()> {
         .work_log_id(signer.address())
         .build()?;
 
-    let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-        .sign(&signer, contract_address, chain_id)
+    let input = Input::builder()
+        .update(update.clone())
+        .contract_address(contract_address)
+        .chain_id(chain_id)
+        .sign_and_build(&signer)
         .await?;
-
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id,
-    };
     let journal = common::execute_log_updater_guest(&input)?;
 
     assert_eq!(journal.update.workLogId, signer.address());
@@ -80,13 +75,13 @@ async fn reject_wrong_signer() -> anyhow::Result<()> {
         .sign(&wrong_signer, contract_address, chain_id)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id,
-    };
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(contract_address)
+        .chain_id(chain_id)
+        .build()?;
     let err = common::execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("recovered signer does not match expected"));
@@ -113,13 +108,13 @@ async fn reject_wrong_chain_id() -> anyhow::Result<()> {
         .sign(&signer, contract_address, wrong_chain_id)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id, // Correct chain ID in input, but signature was for wrong one
-    };
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(contract_address)
+        .chain_id(chain_id) // Correct chain ID in input, but signature was for wrong one
+        .build()?;
     let err = common::execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("recovered signer does not match expected"));
@@ -146,13 +141,13 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
         .sign(&signer, *ctx.povw_accounting_contract.address(), wrong_chain_id)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address: *ctx.povw_accounting_contract.address(),
-        chain_id: wrong_chain_id, // Consistent but wrong chain ID
-    };
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(*ctx.povw_accounting_contract.address())
+        .chain_id(wrong_chain_id) // Consistent but wrong chain ID
+        .build()?;
     let journal = common::execute_log_updater_guest(&input)?;
 
     // Guest execution succeeds with wrong chain ID, but contract should reject
@@ -199,13 +194,13 @@ async fn reject_wrong_contract_address() -> anyhow::Result<()> {
         .sign(&signer, wrong_contract_address, chain_id)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address, // Correct contract address in input, but signature was for wrong one
-        chain_id,
-    };
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(contract_address) // Correct contract address in input, but signature was for wrong one
+        .chain_id(chain_id)
+        .build()?;
     let err = common::execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("recovered signer does not match expected"));
@@ -300,13 +295,13 @@ async fn reject_invalid_work_log_id() -> anyhow::Result<()> {
     .sign(&signer, contract_address, chain_id)
     .await?;
 
-    let input = boundless_povw_guests::log_updater::Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id,
-    };
+    let input = boundless_povw_guests::log_updater::Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(contract_address)
+        .chain_id(chain_id)
+        .build()?;
     let err = common::execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("recovered signer does not match expected"));
@@ -328,20 +323,12 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
         .build()?;
 
     // Execute guest to get valid journal
-    let signature = boundless_povw_guests::log_updater::WorkLogUpdate::from_log_builder_journal(
-        update.clone(),
-        signer.address(),
-    )
-    .sign(&signer, *ctx.povw_accounting_contract.address(), ctx.chain_id)
-    .await?;
-
-    let input = boundless_povw_guests::log_updater::Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address: *ctx.povw_accounting_contract.address(),
-        chain_id: ctx.chain_id,
-    };
+    let input = boundless_povw_guests::log_updater::Input::builder()
+        .update(update.clone())
+        .contract_address(*ctx.povw_accounting_contract.address())
+        .chain_id(ctx.chain_id)
+        .sign_and_build(&signer)
+        .await?;
 
     let journal = common::execute_log_updater_guest(&input)?;
 
@@ -609,18 +596,12 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
         let signer = signer.clone();
 
         async move |update: LogBuilderJournal| -> anyhow::Result<u64> {
-            let signature =
-                WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-                    .sign(&signer, *ctx.povw_accounting_contract.address(), ctx.chain_id)
-                    .await?;
-
-            let input = Input {
-                update: update.clone(),
-                value_recipient: signer.address(),
-                signature: signature.as_bytes().to_vec(),
-                contract_address: *ctx.povw_accounting_contract.address(),
-                chain_id: ctx.chain_id,
-            };
+            let input = Input::builder()
+                .update(update.clone())
+                .contract_address(*ctx.povw_accounting_contract.address())
+                .chain_id(ctx.chain_id)
+                .sign_and_build(&signer)
+                .await?;
             let journal = common::execute_log_updater_guest(&input)?;
             let fake_receipt: Receipt = FakeReceipt::new(ReceiptClaim::ok(
                 BOUNDLESS_POVW_LOG_UPDATER_ID,

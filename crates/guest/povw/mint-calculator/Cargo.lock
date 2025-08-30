@@ -1005,6 +1005,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "bytemuck",
+ "derive_builder",
  "postcard",
  "risc0-povw",
  "risc0-steel",

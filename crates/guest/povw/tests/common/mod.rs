@@ -23,7 +23,7 @@ use alloy_primitives::U256;
 use anyhow::{anyhow, bail};
 use boundless_povw_guests::{
     log_updater::{
-        self, IPovwAccounting, LogBuilderJournal, WorkLogUpdate, BOUNDLESS_POVW_LOG_UPDATER_ELF,
+        self, IPovwAccounting, LogBuilderJournal, BOUNDLESS_POVW_LOG_UPDATER_ELF,
         BOUNDLESS_POVW_LOG_UPDATER_ID,
     },
     mint_calculator::{
@@ -183,18 +183,14 @@ impl TestCtx {
         update: &LogBuilderJournal,
         value_recipient: Address,
     ) -> anyhow::Result<IPovwAccounting::WorkLogUpdated> {
-        let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), value_recipient)
-            .sign(signer, *self.povw_accounting_contract.address(), self.chain_id)
-            .await?;
-
         // Use execute_log_updater_guest to get a Journal.
-        let input = log_updater::Input {
-            update: update.clone(),
-            value_recipient,
-            signature: signature.as_bytes().to_vec(),
-            contract_address: *self.povw_accounting_contract.address(),
-            chain_id: self.chain_id,
-        };
+        let input = log_updater::Input::builder()
+            .update(update.clone())
+            .value_recipient(value_recipient)
+            .contract_address(*self.povw_accounting_contract.address())
+            .chain_id(self.chain_id)
+            .sign_and_build(signer)
+            .await?;
         let journal = execute_log_updater_guest(&input)?;
         println!("Guest execution completed, journal: {journal:#?}");
 
@@ -463,10 +459,10 @@ pub fn execute_log_updater_guest(
 ) -> anyhow::Result<log_updater::Journal> {
     let log_builder_receipt = FakeReceipt::new(ReceiptClaim::ok(
         RISC0_POVW_LOG_BUILDER_ID,
-        borsh::to_vec(&input.update)?,
+        input.update.encode()?,
     ));
     let env = ExecutorEnv::builder()
-        .write_frame(&borsh::to_vec(input)?)
+        .write_frame(&input.encode()?)
         .add_assumption(log_builder_receipt)
         .build()?;
     let session_info = default_executor().execute(env, BOUNDLESS_POVW_LOG_UPDATER_ELF)?;

@@ -10,6 +10,7 @@ use anyhow::bail;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 // Re-export types from risc0_povw for use in the log updater guest.
+use derive_builder::Builder;
 pub use risc0_povw::guest::{Journal as LogBuilderJournal, RISC0_POVW_LOG_BUILDER_ID};
 use ruint::aliases::U160;
 use serde::{Deserialize, Serialize};
@@ -111,13 +112,15 @@ impl WorkLogUpdate {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[non_exhaustive]
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct Input {
     /// Work log update built by the log builder guest.
     ///
     /// This update is verified and used to construct the [WorkLogUpdate] sent to the PoVW
     /// accounting smart contract by the log updater guest.
     pub update: LogBuilderJournal,
+
     /// Address that will receive any value associated with this update.
     ///
     /// The issuance of value to this address is authorized by holder of the key associated with
@@ -126,20 +129,80 @@ pub struct Input {
         deserialize_with = "borsh_deserialize_address",
         serialize_with = "borsh_serialize_address"
     )]
+    #[builder(setter(into))]
     pub value_recipient: Address,
+
     /// EIP-712 ECDSA signature using the private key associated with the work log ID.
     ///
     /// This signature is verified by the log updater guest to authorize the update. Authorization
     /// is required to avoid third-parties posting conflicting updates to any given work log.
+    #[builder(setter(into))]
     pub signature: Vec<u8>,
+
     /// Address of the PoVW accounting contract, used to form the EIP-712 domain.
     #[borsh(
         deserialize_with = "borsh_deserialize_address",
         serialize_with = "borsh_serialize_address"
     )]
+    #[builder(setter(into))]
     pub contract_address: Address,
+
     /// EIP-155 chain ID, used to form the EIP-712 domain.
     pub chain_id: u64,
+}
+
+impl InputBuilder {
+    #[cfg(feature = "signer")]
+    pub async fn sign_and_build(
+        &mut self,
+        signer: &impl alloy_signer::Signer,
+    ) -> anyhow::Result<Input> {
+        use anyhow::ensure;
+        use derive_builder::UninitializedFieldError;
+
+        ensure!(self.signature.is_none(), "Cannot sign input, input already has a signature");
+
+        let update = self.update.clone().ok_or(UninitializedFieldError::new("update"))?;
+        let contract_address =
+            self.contract_address.ok_or(UninitializedFieldError::new("contract_address"))?;
+        let chain_id = self.chain_id.ok_or(UninitializedFieldError::new("chain_id"))?;
+        ensure!(
+            signer.address() == Address::from(update.work_log_id),
+            "Signer does not match work log ID: signer: {}, log: {:x}",
+            signer.address(),
+            update.work_log_id
+        );
+
+        // Get the value recipient or set it to be equal to the log ID.
+        let value_recipient = *self.value_recipient.get_or_insert(signer.address());
+
+        self.signature = WorkLogUpdate::from_log_builder_journal(update.clone(), value_recipient)
+            .sign(signer, contract_address, chain_id)
+            .await?
+            .as_bytes()
+            .to_vec()
+            .into();
+
+        self.build().map_err(Into::into)
+    }
+}
+
+impl Input {
+    /// Create an [InputBuilder] to construct an [Input].
+    pub fn builder() -> InputBuilder {
+        Default::default()
+    }
+
+    // TODO(povw): Use a non-anyhow error here?
+    /// Serialize the input to a vector of bytes.
+    pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
+        borsh::to_vec(self).map_err(Into::into)
+    }
+
+    /// Deserialize the input from a slice of bytes.
+    pub fn decode(buffer: impl AsRef<[u8]>) -> anyhow::Result<Self> {
+        borsh::from_slice(buffer.as_ref()).map_err(Into::into)
+    }
 }
 
 fn borsh_deserialize_address(
