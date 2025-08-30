@@ -6,22 +6,25 @@
 use crate::{
     Agent,
     redis::{self, AsyncCommands},
-    tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
+    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown};
+use risc0_zkvm::{GenericReceipt, ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim};
 use uuid::Uuid;
-use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq};
+use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq, s3::WORK_RECEIPTS_BUCKET_DIR};
 
-/// Run the resolve operation
-pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Result<Option<u64>> {
+/// Run the POVW resolve operation
+pub async fn resolve_povw(
+    agent: &Agent,
+    job_id: &Uuid,
+    request: &ResolveReq,
+) -> Result<Option<u64>> {
     let max_idx = &request.max_idx;
     let job_prefix = format!("job:{job_id}");
-    let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
     let root_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{max_idx}");
 
-    tracing::debug!("Starting resolve for job_id: {job_id}, max_idx: {max_idx}");
+    tracing::debug!("Starting POVW resolve for job_id: {job_id}, max_idx: {max_idx}");
 
     let mut conn = agent.redis_pool.get().await?;
     let receipt: Vec<u8> = conn.get::<_, Vec<u8>>(&root_receipt_key).await.with_context(|| {
@@ -29,7 +32,15 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     })?;
 
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
-    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&receipt)?;
+
+    // Deserialize as POVW receipt
+    let povw_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> =
+        deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&receipt)
+            .context("Failed to deserialize as POVW receipt")?;
+
+    // Unwrap the POVW receipt to get the ReceiptClaim for processing
+    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
+        agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
 
     let mut assumptions_len: Option<u64> = None;
     if conditional_receipt.claim.clone().as_value()?.output.is_some() {
@@ -55,9 +66,24 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         "Deserializing union_root_receipt_key: {union_root_receipt_key}"
                     );
                     let union_receipt: Vec<u8> = conn.get(&union_root_receipt_key).await?;
-                    let union_receipt: SuccinctReceipt<Unknown> =
-                        deserialize_obj(&union_receipt)
-                            .context("Failed to deserialize to SuccinctReceipt<Unknown> type")?;
+
+                    // Debug: Check the size and content of the union receipt
+                    tracing::debug!("Union receipt size: {} bytes", union_receipt.len());
+                    if union_receipt.is_empty() {
+                        return Err(anyhow::anyhow!(
+                            "Union receipt is empty for key: {}",
+                            union_root_receipt_key
+                        ));
+                    }
+
+                    let union_receipt: SuccinctReceipt<Unknown> = deserialize_obj(&union_receipt)
+                        .with_context(|| {
+                        format!(
+                            "Failed to deserialize union receipt (size: {} bytes) from key: {}",
+                            union_receipt.len(),
+                            union_root_receipt_key
+                        )
+                    })?;
                     union_claim = union_receipt.claim.digest().to_string();
 
                     // Resolve union receipt
@@ -76,17 +102,29 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         tracing::debug!("Skipping already resolved union claim: {union_claim}");
                         continue;
                     }
-                    let assumption_key = format!("{receipts_key}:{assumption_claim}");
+                    let assumption_key =
+                        format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{assumption_claim}");
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
                     let assumption_bytes: Vec<u8> = conn
                         .get(&assumption_key)
                         .await
                         .context("corroborating receipt not found: key {assumption_key}")?;
 
-                    let assumption_receipt: SuccinctReceipt<Unknown> =
-                        deserialize_obj(&assumption_bytes).with_context(|| {
-                            format!("could not deserialize assumption receipt: {assumption_key}")
-                        })?;
+                    // Debug: Check the size and content of the assumption receipt
+                    tracing::debug!(
+                        "Assumption receipt size: {} bytes for key: {}",
+                        assumption_bytes.len(),
+                        assumption_key
+                    );
+                    if assumption_bytes.is_empty() {
+                        return Err(anyhow::anyhow!(
+                            "Assumption receipt is empty for key: {}",
+                            assumption_key
+                        ));
+                    }
+
+                    let assumption_receipt = deserialize_obj(&assumption_bytes)
+                        .with_context(|| format!("Failed to deserialize assumption receipt (size: {} bytes) from key: {}", assumption_bytes.len(), assumption_key))?;
 
                     // Resolve
                     conditional_receipt = agent
@@ -116,6 +154,34 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     .await
     .context("Failed to set root receipt key with expiry")?;
 
-    tracing::info!("Resolve operation completed successfully");
+    // Save the resolved receipt to work receipts bucket for later consumption
+    let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
+    tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
+
+    // Save the resolved receipt to work receipts bucket for later consumption
+    // Wrap the POVW receipt as GenericReceipt::Succinct for RISC Zero VM integration
+    let wrapped_povw_receipt = GenericReceipt::Succinct(povw_receipt);
+
+    agent
+        .s3_client
+        .write_to_s3(&work_receipt_key, &wrapped_povw_receipt)
+        .await
+        .context("Failed to save resolved POVW receipt to work receipts bucket")?;
+
+    // Store POVW metadata alongside the receipt
+    let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}_metadata.json");
+    let povw_metadata = serde_json::json!({
+        "povw_log_id": std::env::var("POVW_LOG_ID").unwrap_or_default(),
+        "povw_job_number": std::env::var("POVW_JOB_NUMBER").unwrap_or_default(),
+        "job_id": job_id.to_string()
+    });
+
+    agent
+        .s3_client
+        .write_buf_to_s3(&metadata_key, serde_json::to_vec(&povw_metadata)?)
+        .await
+        .context("Failed to save POVW metadata to work receipts bucket")?;
+
+    tracing::info!("POVW resolve operation completed successfully");
     Ok(assumptions_len)
 }

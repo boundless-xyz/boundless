@@ -4,13 +4,13 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
+    Agent,
     redis::{self, AsyncCommands},
     tasks::{deserialize_obj, serialize_obj},
-    Agent,
 };
 use anyhow::{Context, Result};
 use uuid::Uuid;
-use workflow_common::{UnionReq, KECCAK_RECEIPT_PATH};
+use workflow_common::{KECCAK_RECEIPT_PATH, UnionReq};
 
 /// Run the union operation
 pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<()> {
@@ -23,25 +23,20 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
     let right_receipt_key = format!("{keccak_receipts_prefix}:{0}", request.right);
 
     // get assets from redis
-    let left_receipt_bytes: Vec<u8> = conn.get(&left_receipt_key).await.with_context(|| {
-        format!("segment data not found for root receipt key: {left_receipt_key}")
-    })?;
+    let (left_receipt_bytes, right_receipt_bytes): (Vec<u8>, Vec<u8>) = conn
+        .mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_receipt_key, &right_receipt_key])
+        .await
+        .with_context(|| {
+            format!("failed to get receipts for keys: {left_receipt_key}, {right_receipt_key}")
+        })?;
+
     let left_receipt =
         deserialize_obj(&left_receipt_bytes).context("Failed to deserialize left receipt")?;
-
-    let right_receipt_bytes: Vec<u8> = conn.get(&right_receipt_key).await.with_context(|| {
-        format!("segment data not found for root receipt key: {right_receipt_key}")
-    })?;
     let right_receipt =
         deserialize_obj(&right_receipt_bytes).context("Failed to deserialize right receipt")?;
 
     // run union
-    tracing::debug!(
-        "Union {job_id} - {} + {} -> {}",
-        request.left,
-        request.right,
-        request.idx
-    );
+    tracing::debug!("Union {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 
     let unioned = agent
         .prover
@@ -54,14 +49,9 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
     // send result to redis
     let union_result = serialize_obj(&unioned).context("Failed to serialize union receipt")?;
     let output_key = format!("{keccak_receipts_prefix}:{}", request.idx);
-    redis::set_key_with_expiry(
-        &mut conn,
-        &output_key,
-        union_result,
-        Some(agent.args.redis_ttl),
-    )
-    .await
-    .context("Failed to set redis key for union receipt")?;
+    redis::set_key_with_expiry(&mut conn, &output_key, union_result, Some(agent.args.redis_ttl))
+        .await
+        .context("Failed to set redis key for union receipt")?;
 
     tracing::debug!("Union complete {job_id} - {}", request.left);
 

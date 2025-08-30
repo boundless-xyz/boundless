@@ -54,7 +54,12 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cp bento/target/release/agent /src/agent && \
     sccache --show-stats
 
-FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
+# Install groth16 component
+ENV RISC0_HOME=/usr/local/risc0
+RUN curl -L https://risczero.com/install | bash
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN /root/.risc0/bin/rzup install risc0-groth16
+
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
 RUN apt-get update -q -y \
@@ -63,11 +68,6 @@ RUN apt-get update -q -y \
 
 # Main prover
 COPY --from=builder /src/agent /app/agent
-
-# Stark2snark
-COPY --from=binaries /usr/local/sbin/rapidsnark /usr/local/sbin/rapidsnark
-COPY --from=binaries /app/stark_verify /app/stark_verify
-COPY --from=binaries /app/stark_verify.dat /app/stark_verify.dat
-COPY --from=binaries /app/stark_verify_final.zkey /app/stark_verify_final.zkey
+COPY --from=builder /usr/local/risc0 /usr/local/risc0
 
 ENTRYPOINT ["/app/agent"]
