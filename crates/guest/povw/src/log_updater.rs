@@ -194,6 +194,43 @@ fn borsh_serialize_address(
     Ok(())
 }
 
+#[cfg(feature = "host")]
+mod host {
+    use std::marker::PhantomData;
+
+    use alloy_contract::CallBuilder;
+    use alloy_provider::Provider;
+    use alloy_sol_types::SolValue;
+    use anyhow::Context;
+    use risc0_zkvm::Receipt;
+
+    use crate::log_updater::{
+        IPovwAccounting::{updateWorkLogCall, IPovwAccountingInstance},
+        Journal,
+    };
+
+    impl<P: Provider> IPovwAccountingInstance<P> {
+        /// Create a call to the [IPovwAccounting::updateWorkLog] function to be sent in a tx.
+        pub fn update_work_log(
+            &self,
+            receipt: &Receipt,
+        ) -> anyhow::Result<CallBuilder<&P, PhantomData<updateWorkLogCall>>> {
+            let journal = Journal::abi_decode(&receipt.journal.bytes)
+                .context("Failed to decode journal from Log Updater receipt")?;
+            let seal = risc0_ethereum_contracts::encode_seal(receipt)
+                .context("Failed to encode seal for log update")?;
+
+            Ok(self.updateWorkLog(
+                journal.update.workLogId,
+                journal.update.updatedCommit,
+                journal.update.updateValue,
+                journal.update.valueRecipient,
+                seal.into(),
+            ))
+        }
+    }
+}
+
 #[cfg(feature = "prover")]
 pub mod prover {
     use std::{borrow::Cow, convert::Infallible};
@@ -311,7 +348,8 @@ pub mod prover {
             // Prove the log update
             // NOTE: This may block the current thread for a significant amount of time. It is not
             // trivial to wrap this statement in e.g. tokio's spawn_blocking because self contains
-            // a VerifierContext which does not implement Send.
+            // a VerifierContext which does not implement Send. If this causes any issues, the caller
+            // can mitigate the issue by building and calling the prover in a seperate thread.
             let prove_info = self
                 .prover
                 .prove_with_ctx(
