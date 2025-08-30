@@ -23,8 +23,9 @@ use alloy_primitives::U256;
 use anyhow::{anyhow, bail};
 use boundless_povw_guests::{
     log_updater::{
-        self, IPovwAccounting::{self, IPovwAccountingInstance}, LogBuilderJournal, BOUNDLESS_POVW_LOG_UPDATER_ELF,
-        BOUNDLESS_POVW_LOG_UPDATER_ID,
+        self,
+        IPovwAccounting::{self, IPovwAccountingInstance},
+        LogBuilderJournal, BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID,
     },
     mint_calculator::{
         self, host::IPovwMint::IPovwMintInstance, WorkLogFilter,
@@ -129,7 +130,8 @@ pub async fn test_ctx_with(
     .await?;
     println!("PovwAccounting contract deployed at: {:?}", povw_accounting_contract.address());
 
-    let povw_accounting_interface = IPovwAccountingInstance::new(*povw_accounting_contract.address(), provider.clone());
+    let povw_accounting_interface =
+        IPovwAccountingInstance::new(*povw_accounting_contract.address(), provider.clone());
 
     // Deploy PovwMint contract (needs verifier, povw, mint calculator ID, and token)
     let mint_contract = PovwMint::deploy(
@@ -263,20 +265,14 @@ impl TestCtx {
         println!("Running mint operation for blocks: 0 to {latest_block}, filtering for {epoch_filter_str}");
 
         // Query for WorkLogUpdated events
-        let work_log_event_filter = self
-            .povw_accounting
-            .WorkLogUpdated_filter()
-            .from_block(0)
-            .to_block(latest_block);
+        let work_log_event_filter =
+            self.povw_accounting.WorkLogUpdated_filter().from_block(0).to_block(latest_block);
         let work_log_events = work_log_event_filter.query().await?;
         println!("Found {} total WorkLogUpdated events", work_log_events.len());
 
         // Query for EpochFinalized events
-        let epoch_finalized_filter = self
-            .povw_accounting
-            .EpochFinalized_filter()
-            .from_block(0)
-            .to_block(latest_block);
+        let epoch_finalized_filter =
+            self.povw_accounting.EpochFinalized_filter().from_block(0).to_block(latest_block);
         let epoch_finalized_events = epoch_finalized_filter.query().await?;
         println!("Found {} total EpochFinalized events", epoch_finalized_events.len());
 
