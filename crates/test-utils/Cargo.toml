@@ -1,6 +1,6 @@
 [package]
-name = "boundless-market-test-utils"
-description = "Test utils for the Boundless market, useful in other crates as well"
+name = "boundless-test-utils"
+description = "Test utils for the Boundless"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }

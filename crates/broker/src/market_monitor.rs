@@ -636,7 +636,7 @@ mod tests {
         },
         input::GuestEnv,
     };
-    use boundless_market_test_utils::{
+    use boundless_test_utils::{
         create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx, ASSESSOR_GUEST_ID,
         ASSESSOR_GUEST_PATH, ECHO_ID,
     };

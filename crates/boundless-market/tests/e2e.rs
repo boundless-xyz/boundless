@@ -27,7 +27,7 @@ use boundless_market::{
     },
     input::GuestEnv,
 };
-use boundless_market_test_utils::{create_test_ctx, mock_singleton, TestCtx, ECHO_ID};
+use boundless_test_utils::{create_test_ctx, mock_singleton, TestCtx, ECHO_ID};
 use risc0_zkvm::sha::Digest;
 use tracing_test::traced_test;
 

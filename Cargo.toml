@@ -5,7 +5,7 @@ members = [
     "crates/bench",
     "crates/boundless-cli",
     "crates/boundless-market",
-    "crates/boundless-market/test-utils",
+    "crates/test-utils",
     "crates/broker",
     "crates/broker-stress",
     "crates/distributor",
@@ -30,7 +30,7 @@ repository = "https://github.com/boundless-xyz/boundless/"
 boundless-assessor = { version = "0.14.0", path = "crates/assessor" }
 boundless-cli = { version = "0.14.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.14.0", path = "crates/boundless-market" }
-boundless-market-test-utils = { path = "crates/boundless-market/test-utils" }
+boundless-test-utils = { path = "crates/test-utils" }
 boundless-povw-guests = { path = "crates/guest/povw" }
 distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }

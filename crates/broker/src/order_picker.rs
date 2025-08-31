@@ -1343,7 +1343,7 @@ pub(crate) mod tests {
         Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
-    use boundless_market_test_utils::{
+    use boundless_test_utils::{
         deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
         ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID,
     };

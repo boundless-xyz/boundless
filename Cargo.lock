@@ -2550,7 +2550,7 @@ dependencies = [
  "anyhow",
  "boundless-indexer",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "broker",
  "bytemuck",
  "chrono",
@@ -2580,8 +2580,8 @@ dependencies = [
  "bonsai-sdk 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "boundless-assessor",
  "boundless-market",
- "boundless-market-test-utils",
  "boundless-povw-guests",
+ "boundless-test-utils",
  "bytemuck",
  "chrono",
  "clap",
@@ -2616,7 +2616,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "hex",
  "rand 0.9.2",
@@ -2638,7 +2638,7 @@ dependencies = [
  "async-trait",
  "boundless-cli",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "futures-util",
  "hex",
@@ -2666,7 +2666,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "bytemuck",
  "chrono",
  "clap",
@@ -2700,31 +2700,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "boundless-market-test-utils"
-version = "0.14.0"
-dependencies = [
- "alloy",
- "alloy-primitives 1.3.1",
- "alloy-sol-types",
- "anyhow",
- "boundless-market",
- "guest-assessor",
- "guest-set-builder",
- "guest-util",
- "risc0-aggregation",
- "risc0-circuit-recursion",
- "risc0-ethereum-contracts",
- "risc0-zkvm",
-]
-
-[[package]]
 name = "boundless-order-generator"
 version = "0.14.0"
 dependencies = [
  "alloy",
  "anyhow",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "hex",
  "rand 0.9.2",
@@ -2774,7 +2756,7 @@ dependencies = [
  "async-trait",
  "boundless-cli",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "futures-util",
  "hex",
@@ -2787,6 +2769,24 @@ dependencies = [
  "tracing-subscriber 0.3.19",
  "tracing-test",
  "url",
+]
+
+[[package]]
+name = "boundless-test-utils"
+version = "0.14.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives 1.3.1",
+ "alloy-sol-types",
+ "anyhow",
+ "boundless-market",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "risc0-aggregation",
+ "risc0-circuit-recursion",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
 ]
 
 [[package]]
@@ -2805,7 +2805,7 @@ dependencies = [
  "bonsai-sdk 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "boundless-assessor",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "broker",
  "chrono",
  "clap",
@@ -2853,7 +2853,7 @@ dependencies = [
  "anyhow",
  "axum",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "broker",
  "clap",
  "rand 0.9.2",
@@ -6772,7 +6772,7 @@ dependencies = [
  "async-stream",
  "axum",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "futures-util",
  "hex",
