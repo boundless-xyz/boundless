@@ -1,11 +1,16 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+// SPDX-License-Identifier: BUSL-1.1
 
 pragma solidity ^0.8.24;
 
 import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IZKC} from "./IZKC.sol";
 
 /// An update to a work log.
@@ -44,7 +49,16 @@ struct PendingEpoch {
 
 bytes32 constant EMPTY_LOG_ROOT = hex"b26927f749929e8484785e36e7ec93d5eeae4b58182f76f1e760263ab67f540c";
 
-contract PovwAccounting is EIP712 {
+contract PovwAccounting is
+    Initializable,
+    EIP712Upgradeable,
+    OwnableUpgradeable,
+    UUPSUpgradeable
+{
+    /// @dev The version of the contract, with respect to upgrades.
+    uint64 public constant VERSION = 1;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IRiscZeroVerifier public immutable VERIFIER;
 
     /// Image ID of the work log updater guest. The log updater ensures:
@@ -55,16 +69,18 @@ contract PovwAccounting is EIP712 {
     /// * The update value is equal to the sum of work associated with new proofs.
     ///
     /// The log updater achieves some of these properties by verifying a proof from the log builder.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 public immutable LOG_UPDATER_ID;
 
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IZKC internal immutable TOKEN;
-    uint256 public constant EPOCH_LENGTH = 7 days;
 
     mapping(address => bytes32) internal workLogRoots;
 
     PendingEpoch public pendingEpoch;
 
     event EpochFinalized(uint256 indexed epoch, uint256 totalWork);
+
     // TODO(povw): Compress the data in this event? epochNumber is a simple view function of the
     // block timestamp and is 32 bits. Update value is 64 bits. At least 32 bytes could be saved
     // here with compression.
@@ -85,13 +101,26 @@ contract PovwAccounting is EIP712 {
         address valueRecipient
     );
 
-    constructor(IRiscZeroVerifier verifier, IZKC token, bytes32 logUpdaterId) EIP712("PovwAccounting", "1") {
+    uint256 public constant POVW_TOKEN_DECIMALS = 18;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(IRiscZeroVerifier verifier, IZKC token, bytes32 logUpdaterId) {
         VERIFIER = verifier;
         TOKEN = token;
         LOG_UPDATER_ID = logUpdaterId;
 
+        _disableInitializers();
+    }
+
+    function initialize(address initialOwner) external initializer {
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
+        __EIP712_init("PovwAccounting", "1");
+        
         pendingEpoch = PendingEpoch({number: TOKEN.getCurrentEpoch(), totalWork: 0});
     }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     /// Finalize the pending epoch, logging the finalized epoch number and total work.
     function finalizeEpoch() public {

@@ -63,6 +63,10 @@ contract MockZKC is IZKC, ERC20, ERC20Permit {
     function mintPoVWRewardsForRecipient(address recipient, uint256 amount) external {
         _mint(recipient, amount);
     }
+
+    function mintStakingRewardsForRecipient(address recipient, uint256 amount) external {
+        _mint(recipient, amount);
+    }
 }
 
 struct RewardsCapUpdate {

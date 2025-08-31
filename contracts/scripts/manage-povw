@@ -3,7 +3,7 @@
 set -eo pipefail
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-SCRIPT_FILE="${SCRIPT_DIR}/Manage.s.sol"
+SCRIPT_FILE="${SCRIPT_DIR}/Manage.PoVW.s.sol"
 REPO_ROOT_DIR="${SCRIPT_DIR:?}/../.."
 FIREBLOCKS=0
 export FOUNDRY_OUT=${FOUNDRY_OUT:-"contracts/out"}
@@ -66,26 +66,14 @@ load_env_var() {
     local current_value=$(eval echo \$$var_name)
     
     if [ -z "$current_value" ]; then
-        echo "$var_name from $config_file: " > /dev/stderr
         local new_value=$(yq eval -e "$config_key" "$REPO_ROOT_DIR/contracts/$config_file")
         [ -n "$new_value" ] && [[ "$new_value" != "null" ]] || exit 1
         export $var_name="$new_value"
+        echo "$var_name from $config_file: $new_value" > /dev/stderr
     else
-        echo "$var_name from env $current_value"
+        echo "$var_name from env: $current_value" > /dev/stderr
     fi
 }
-
-echo "Loading environment variables from deployment TOML files"
-load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
-load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
-load_env_var "CHAIN_ID" ".deployment[\"${DEPLOY_KEY:?}\"].id" "deployment.toml"
-
-# Check if we're on the correct network
-CONNECTED_CHAIN_ID=$(cast chain-id --rpc-url ${RPC_URL:?})
-if [[ "${CONNECTED_CHAIN_ID:?}" != "${CHAIN_ID:?}" ]]; then
-    echo -e "${RED}Error: connected chain id and configured chain id do not match: ${CONNECTED_CHAIN_ID:?} != ${CHAIN_ID:?} ${NC}"
-    exit 1
-fi
 
 # Run a Forge script with support for Fireblocks with options set automatically
 forge_script() {
@@ -96,17 +84,19 @@ forge_script() {
 
     if [ "${script_function:?}" == "help" ]; then
         cat << EOF
-🔧 Boundless Contract Management Script
-======================================
+🔧 PoVW Contract Management Script
+================================
 
 Usage: $0 <command> [options]
 
 Commands:
-  DeployBoundlessMarket       Deploy BoundlessMarket contract
-  UpgradeBoundlessMarket      Upgrade the BoundlessMarket contract
-  RollbackBoundlessMarket     Rollback the BoundlessMarket contract to previous version
-  TransferOwnership           Transfer ownership of BoundlessMarket contract
-  AcceptTransferOwnership     Accept ownership transfer of BoundlessMarket contract
+  DeployPoVW                  Deploy both PovwAccounting and PovwMint contracts
+  UpgradePoVWAccounting       Upgrade the PovwAccounting contract
+  UpgradePoVWMint             Upgrade the PovwMint contract
+  RollbackPoVWAccounting      Rollback the PovwAccounting contract to previous version
+  RollbackPoVWMint            Rollback the PovwMint contract to previous version
+  TransferPoVWOwnership       Transfer ownership of PovwAccounting contract
+  TransferPoVWMintOwnership   Transfer ownership of PovwMint contract
 
 Options:
   -f, --fireblocks       Use Fireblocks for transaction signing
@@ -115,50 +105,44 @@ Options:
   -h, --help             Show this help message
 
 Environment Variables:
-  CHAIN_KEY                   Required. Deployment environment key (anvil, ethereum-mainnet, ethereum-sepolia, ethereum-sepolia-staging)
-  DEPLOYER_PRIVATE_KEY        Required. Private key for transaction signing (0x...)
-  BOUNDLESS_MARKET_OWNER      Required. Address of the contract owner
+  CHAIN_KEY              Required. Deployment environment key (anvil, ethereum-mainnet, ethereum-sepolia, ethereum-sepolia-staging)
+  DEPLOYER_PRIVATE_KEY   Required. Private key for transaction signing (0x...)
 
 Production Deployment Requirements:
-  - deployment.toml must have admin, verifier, and assessor-image-id set
-  - deployment.toml must have assessor-guest-url configured
-  - Stake token will be deployed if not specified in deployment.toml
+  - deployment.toml must have povw-accounting-admin and povw-mint-admin addresses set (not 0x0)
+  - deployment.toml must have zkc and zkc-staking-rewards addresses set
+  - Image IDs are loaded from PovwImageId.sol library (can override with env vars)
+  - POVW_LOG_UPDATER_ID and POVW_MINT_CALCULATOR_ID env vars (optional overrides)
 
 Development Mode:
   RISC0_DEV_MODE=1       Enables mock contract deployment
-  - Deploys mock verifier and set verifier automatically
-  - Generates assessor image ID from local build
-  - Deploys mock stake token (HitPoints)
+  - Deploys mock verifier and ZKC contracts automatically
+  - Uses mock image IDs for testing
+  - Skips deployment.toml updates
 
 Examples:
   # Deploy to anvil in development mode
-  RISC0_DEV_MODE=1 CHAIN_KEY=anvil \\
-  DEPLOYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \\
-  BOUNDLESS_MARKET_OWNER=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \\
-  $0 DeployBoundlessMarket --broadcast
+  RISC0_DEV_MODE=1 CHAIN_KEY=anvil DEPLOYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \\
+  $0 DeployPoVW --broadcast
   
   # Deploy to sepolia production
-  CHAIN_KEY=ethereum-sepolia \\
-  DEPLOYER_PRIVATE_KEY=0x... \\
-  BOUNDLESS_MARKET_OWNER=0x... \\
-  $0 DeployBoundlessMarket --broadcast --verify
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... \\
+  $0 DeployPoVW --broadcast --verify
   
   # Deploy to sepolia staging environment
-  CHAIN_KEY=ethereum-sepolia-staging \\
-  DEPLOYER_PRIVATE_KEY=0x... \\
-  BOUNDLESS_MARKET_OWNER=0x... \\
-  $0 DeployBoundlessMarket --broadcast --verify
+  CHAIN_KEY=ethereum-sepolia-staging DEPLOYER_PRIVATE_KEY=0x... \\
+  $0 DeployPoVW --broadcast --verify
   
-  # Upgrade BoundlessMarket on mainnet with Fireblocks
-  CHAIN_KEY=ethereum-mainnet \\
-  BOUNDLESS_MARKET_OWNER=0x... \\
-  $0 UpgradeBoundlessMarket --fireblocks --broadcast --verify
+  # Upgrade PovwAccounting on mainnet with Fireblocks
+  CHAIN_KEY=ethereum-mainnet $0 UpgradePoVWAccounting --fireblocks --broadcast --verify
   
-  # Rollback to previous version
-  CHAIN_KEY=ethereum-sepolia \\
-  DEPLOYER_PRIVATE_KEY=0x... \\
-  BOUNDLESS_MARKET_OWNER=0x... \\
-  $0 RollbackBoundlessMarket --broadcast
+  # Rollback PovwMint to previous version
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... \\
+  $0 RollbackPoVWMint --broadcast
+  
+  # Transfer ownership of PovwAccounting
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... \\
+  $0 TransferPoVWOwnership --broadcast
 
 Notes:
   - Network configuration is loaded from deployment.toml and deployment_secrets.toml
@@ -166,12 +150,33 @@ Notes:
   - Upgrades require reference builds for safety checks
   - Fireblocks requires fireblocks-json-rpc to be installed
   - All deployments automatically update deployment.toml (except in dev mode)
+  - Image IDs are loaded from PovwImageId.sol unless overridden by environment variables
 EOF
         exit 0
     fi
 
-    local target="${SCRIPT_FILE:?}:${script_function:?}"
-    echo "Running forge script $target"
+    # Load environment variables only when running actual commands
+    echo "Loading environment variables from deployment TOML files"
+    load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
+    load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
+    load_env_var "CHAIN_ID" ".deployment[\"${DEPLOY_KEY:?}\"].id" "deployment.toml"
+
+    # Check if we're on the correct network
+    CONNECTED_CHAIN_ID=$(cast chain-id --rpc-url ${RPC_URL:?})
+    if [[ "${CONNECTED_CHAIN_ID:?}" != "${CHAIN_ID:?}" ]]; then
+        echo -e "${RED}Error: connected chain id and configured chain id do not match: ${CONNECTED_CHAIN_ID:?} != ${CHAIN_ID:?} ${NC}"
+        exit 1
+    fi
+
+    # Use standalone Deploy.PoVW.s.sol for deployments, Manage.PoVW.s.sol for everything else
+    local target
+    if [ "${script_function:?}" == "DeployPoVW" ]; then
+        target="${SCRIPT_DIR}/Deploy.PoVW.s.sol:DeployPoVW"
+        echo "Running standalone deployment script $target"
+    else
+        target="${SCRIPT_FILE:?}:${script_function:?}"
+        echo "Running management script $target"
+    fi
 
     if [ $FIREBLOCKS -gt 0 ]; then
         # Check for fireblocks
@@ -202,4 +207,9 @@ EOF
 # Run from the repo root for consistency.
 cd ${REPO_ROOT_DIR:?}
 
-forge_script "$@"
+# Default to help if no arguments provided
+if [ $# -eq 0 ]; then
+    forge_script "help"
+else
+    forge_script "$@"
+fi
