@@ -38,6 +38,7 @@ contract PovwMint is IPovwMint {
     /// It ensure that any given work log update can be used in at most one mint.
     mapping(address => bytes32) public workLogCommits;
 
+    // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
     constructor(
         IRiscZeroVerifier verifier,
         PovwAccounting povw,

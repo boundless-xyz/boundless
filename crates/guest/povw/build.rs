@@ -89,11 +89,15 @@ mod build_contracts {
                 module_content.push_str(&format!(
                     r#"alloy_sol_types::sol! {{
     #[sol(rpc, bytecode = "{}")]
-    contract {} {{}}
+    contract {} {{
+        {}
+    }}
 }}
 
 "#,
-                    bytecode, contract
+                    bytecode,
+                    contract,
+                    get_contract_constructor(contract)
                 ));
             }
         }
@@ -101,6 +105,18 @@ mod build_contracts {
         let dest_path = Path::new(&manifest_dir).join("src/contracts").join(BYTECODE_MODULE);
         fs::create_dir_all(dest_path.parent().unwrap()).unwrap();
         fs::write(dest_path, module_content).unwrap();
+    }
+
+    // NOTE: This is one solution to the problem of how to define the constructor function so that
+    // the contract can be deployed using alloy. It has the downside that if it changes on the
+    // contract, it must be updated here as well.
+    /// Get the contract constructor definition for a given contract
+    fn get_contract_constructor(contract: &str) -> &str {
+        match contract {
+            "PovwAccounting" => "constructor(address verifier, address zkc, bytes32 logUpdaterId) {}",
+            "PovwMint" => "constructor(address verifier, address povwAccounting, bytes32 mintCalculatorId, address zkc, address zkcRewards) {}",
+            _ => "",
+        }
     }
 
     pub(super) fn build() {

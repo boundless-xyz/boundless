@@ -24,6 +24,13 @@ pub use crate::guest_artifacts::{
     BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
 
+// HACK: Defining a Steel::Commitment symbol here allowed resolution of the Steel.Commitment
+// reference in IPovwMint.sol. 
+#[expect(non_snake_case)]
+mod Steel {
+    pub(super) use risc0_steel::Commitment;
+}
+
 #[cfg(feature = "host")]
 sol!(
     #[sol(extra_derives(Debug), rpc)]

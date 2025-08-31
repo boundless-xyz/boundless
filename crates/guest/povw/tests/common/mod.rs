@@ -22,6 +22,7 @@ use alloy::{
 use alloy_primitives::U256;
 use anyhow::{anyhow, bail};
 use boundless_povw_guests::{
+    contracts::bytecode::{PovwAccounting, PovwMint},
     log_updater::{
         self,
         IPovwAccounting::{self, IPovwAccountingInstance},
@@ -62,19 +63,6 @@ sol!(
     #[sol(rpc)]
     MockZKCRewards,
     "../../../out/MockZKC.sol/MockZKCRewards.json"
-);
-
-sol!(
-    #[sol(rpc)]
-    #[derive(Debug)]
-    PovwAccounting,
-    "../../../out/PovwAccounting.sol/PovwAccounting.json"
-);
-
-sol!(
-    #[sol(rpc)]
-    PovwMint,
-    "../../../out/PovwMint.sol/PovwMint.json"
 );
 
 #[derive(Clone)]
@@ -120,7 +108,7 @@ pub async fn test_ctx_with(
     let zkc_rewards_contract = MockZKCRewards::deploy(provider.clone()).await?;
     println!("MockZKCRewards deployed at: {:?}", zkc_rewards_contract.address());
 
-    // Deploy PovwAccounting contract (needs verifier and log updater ID)
+    // Deploy PovwAccounting contract (needs verifier, zkc, and log updater ID)
     let povw_accounting_contract = PovwAccounting::deploy(
         provider.clone(),
         *mock_verifier.address(),
@@ -133,7 +121,7 @@ pub async fn test_ctx_with(
     let povw_accounting_interface =
         IPovwAccountingInstance::new(*povw_accounting_contract.address(), provider.clone());
 
-    // Deploy PovwMint contract (needs verifier, povw, mint calculator ID, and token)
+    // Deploy PovwMint contract (needs verifier, povw accounting, mint calculator ID, zkc, zkc rewards)
     let mint_contract = PovwMint::deploy(
         provider.clone(),
         *mock_verifier.address(),

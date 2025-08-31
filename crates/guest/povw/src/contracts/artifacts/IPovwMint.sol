@@ -40,6 +40,10 @@ struct MintCalculatorJournal {
     Steel.Commitment steelCommit;
 }
 
+/// PovwMint controls the minting of token rewards associated with Proof of Verifiable Work (PoVW).
+///
+/// This contract consumes updates produced by the mint calculator guest, mints token rewards, and
+/// maintains state to ensure that any given token reward is minted at most once.
 interface IPovwMint {
     /// @dev selector 0x36ce79a0
     error InvalidSteelCommitment();
@@ -50,4 +54,8 @@ interface IPovwMint {
 
     /// @notice Mint tokens as a reward for verifiable work.
     function mint(bytes calldata journalBytes, bytes calldata seal) external;
+
+    /// @notice Get the current work log commitment for the given work log.
+    /// @dev This commits to the consumed nonces for all updates that have been included in a mint operation.
+    function workLogCommit(address workLogId) external view returns (bytes32);
 }

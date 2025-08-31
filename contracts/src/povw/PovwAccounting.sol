@@ -30,6 +30,7 @@ contract PovwAccounting is IPovwAccounting, EIP712 {
 
     PendingEpoch internal _pendingEpoch;
 
+    // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
     constructor(IRiscZeroVerifier verifier, IZKC token, bytes32 logUpdaterId) EIP712("PovwAccounting", "1") {
         VERIFIER = verifier;
         TOKEN = token;
