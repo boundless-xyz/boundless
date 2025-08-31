@@ -627,7 +627,7 @@ where
             .context("Storage provider not set")?
             .upload_program(program)
             .await
-            .map_err(|_| anyhow!("Failed to upload program"))?)
+            .map_err(|err| anyhow!("Failed to upload program: {err:?}"))?)
     }
 
     /// Upload input to the storage provider.
@@ -641,7 +641,7 @@ where
             .context("Storage provider not set")?
             .upload_input(input)
             .await
-            .map_err(|_| anyhow!("Failed to upload input"))?)
+            .map_err(|err| anyhow!("Failed to upload input: {err:?}"))?)
     }
 
     /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
