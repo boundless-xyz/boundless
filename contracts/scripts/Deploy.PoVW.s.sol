@@ -187,7 +187,7 @@ contract DeployPoVW is Script, RiscZeroCheats {
         gitArgs[1] = "rev-parse HEAD";
         string memory currentCommit = string(vm.ffi(gitArgs));
         
-        string[] memory args = new string[](22);
+        string[] memory args = new string[](26);
         args[0] = "python3";
         args[1] = "contracts/update_deployment_toml.py";
         args[2] = "--povw-accounting";
@@ -210,6 +210,10 @@ contract DeployPoVW is Script, RiscZeroCheats {
         args[19] = currentCommit;
         args[20] = "--povw-mint-deployment-commit";
         args[21] = currentCommit;
+        args[22] = "--zkc";
+        args[23] = vm.toString(zkcAddress);
+        args[24] = "--zkc-staking-rewards";
+        args[25] = vm.toString(zkcRewardsAddress);
         vm.ffi(args);
         console2.log("Deployment.toml updated with PoVW contract addresses, image IDs, and commit: %s", currentCommit);
 

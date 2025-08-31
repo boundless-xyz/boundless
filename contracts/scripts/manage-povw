@@ -75,6 +75,134 @@ load_env_var() {
     fi
 }
 
+# Create reference build for upgrades
+create_reference_build() {
+    local contract_type="$1"
+    echo "Creating reference build for $contract_type upgrade safety checks..."
+    
+    # Get the deployment commit for the specific contract being upgraded
+    local deployed_commit=""
+    case "$contract_type" in
+        "PoVWAccounting")
+            deployed_commit=$(yq eval -e ".deployment.${DEPLOY_KEY}.povw-accounting-deployment-commit" "${REPO_ROOT_DIR}/contracts/deployment.toml" 2>/dev/null || echo "")
+            ;;
+        "PoVWMint")
+            deployed_commit=$(yq eval -e ".deployment.${DEPLOY_KEY}.povw-mint-deployment-commit" "${REPO_ROOT_DIR}/contracts/deployment.toml" 2>/dev/null || echo "")
+            ;;
+        *)
+            echo "❌ Unknown contract type: $contract_type"
+            exit 1
+            ;;
+    esac
+    
+    if [ -z "$deployed_commit" ]; then
+        echo "❌ No deployment commit found for $contract_type in ${DEPLOY_KEY}"
+        echo "Cannot create reference build for upgrade"
+        exit 1
+    fi
+    
+    echo "📦 Creating reference build from commit: $deployed_commit"
+    
+    # Create worktree for reference build
+    local worktree_path="../povw-reference-${deployed_commit}"
+    
+    # Clean up existing worktree if it exists
+    if [ -d "$worktree_path" ]; then
+        echo "🧹 Cleaning up existing reference worktree..."
+        git worktree remove "$worktree_path" --force 2>/dev/null || true
+    fi
+    
+    # Clean up existing reference build info
+    if [ -d "contracts/build-info-reference" ]; then
+        echo "🧹 Cleaning up existing reference build info..."
+        rm -rf "contracts/build-info-reference"
+    fi
+    
+    # Create new worktree
+    git worktree add "$worktree_path" "$deployed_commit"
+    
+    # Build reference and copy build info
+    echo "🔨 Building reference contracts..."
+    (
+        cd "$worktree_path"
+        # First run cargo build to generate PovwImageId.sol and other generated files
+        echo "Running cargo build to generate required files..."
+        if cargo build; then
+            echo "✅ Cargo build completed successfully"
+        else
+            echo "❌ Cargo build failed in reference worktree"
+            echo "This may prevent forge build from succeeding"
+        fi
+        
+        # Check if generated files exist
+        if [ -f "contracts/src/libraries/PovwImageId.sol" ]; then
+            echo "✅ PovwImageId.sol generated successfully"
+        else
+            echo "❌ PovwImageId.sol not found after cargo build"
+        fi
+        
+        # Then clean and do a full forge build to ensure complete build info
+        echo "Running forge clean..."
+        if forge clean; then
+            echo "✅ Forge clean completed"
+        else
+            echo "❌ Forge clean failed"
+        fi
+        
+        echo "Running forge build..."
+        echo "Current directory: $(pwd)"
+        echo "Foundry config check:"
+        forge config --basic || echo "Forge config failed"
+        
+        if forge build 2>&1; then
+            echo "✅ Forge build completed successfully"
+            # Check if build info directory was created (using FOUNDRY_OUT path)
+            if [ -d "contracts/out/build-info" ] && [ "$(ls -A contracts/out/build-info)" ]; then
+                echo "✅ Build info directory created with $(ls contracts/out/build-info | wc -l) files"
+            else
+                echo "❌ Build info directory is empty or missing"
+                echo "Checking contracts/out directory structure:"
+                ls -la contracts/out/ 2>/dev/null || echo "contracts/out directory does not exist"
+                echo "Checking if build-info subdirectory exists:"
+                ls -la contracts/out/build-info/ 2>/dev/null || echo "contracts/out/build-info directory does not exist"
+            fi
+        else
+            echo "❌ Forge build failed in reference worktree"
+            echo "Build output should be shown above"
+        fi
+        
+        # Copy build info from contracts/out/build-info (matches FOUNDRY_OUT setting)
+        if [ -d "contracts/out/build-info" ] && [ "$(ls -A contracts/out/build-info)" ]; then
+            mkdir -p "$OLDPWD/contracts/build-info-reference"
+            cp -R contracts/out/build-info/* "$OLDPWD/contracts/build-info-reference/"
+            echo "✅ Copied build info files from contracts/out/build-info to build-info-reference"
+        else
+            echo "❌ No build info created in reference build"
+            echo "Expected location: contracts/out/build-info"
+            echo "Possible causes:"
+            echo "  - Cargo build failed to generate required files"
+            echo "  - Forge compilation errors (check build output above)"
+            echo "  - Missing dependencies in worktree"
+            echo "  - FOUNDRY_OUT path mismatch"
+            if [ -d "out/build-info" ]; then
+                echo "  - Found build-info in out/ instead of contracts/out/ (path mismatch)"
+            fi
+        fi
+    )
+    
+    # Clean up worktree
+    git worktree remove "$worktree_path" --force
+    
+    # Verify build info was copied
+    if [ -d "contracts/build-info-reference" ] && [ -n "$(ls -A contracts/build-info-reference 2>/dev/null)" ]; then
+        echo "✅ Reference build created in contracts/build-info-reference/"
+        echo "📁 Build info files: $(ls -1 contracts/build-info-reference | wc -l) files"
+    else
+        echo "❌ Failed to create reference build info"
+        echo "This may cause upgrade validation to fail"
+    fi
+}
+
 # Run a Forge script with support for Fireblocks with options set automatically
 forge_script() {
     # Set our function. If the function is "help", or if the function is
@@ -107,6 +235,7 @@ Options:
 Environment Variables:
   CHAIN_KEY              Required. Deployment environment key (anvil, ethereum-mainnet, ethereum-sepolia, ethereum-sepolia-staging)
   DEPLOYER_PRIVATE_KEY   Required. Private key for transaction signing (0x...)
+  NEW_ADMIN              Required for ownership transfers. New admin address (0x...)
 
 Production Deployment Requirements:
   - deployment.toml must have povw-accounting-admin and povw-mint-admin addresses set (not 0x0)
@@ -140,17 +269,24 @@ Examples:
   CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... \\
   $0 RollbackPoVWMint --broadcast
   
-  # Transfer ownership of PovwAccounting
-  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... \\
+  # Transfer ownership of both PoVW contracts
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... NEW_ADMIN=0x... \\
   $0 TransferPoVWOwnership --broadcast
+  
+  # Transfer ownership of PovwMint only
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... NEW_ADMIN=0x... \\
+  $0 TransferPoVWMintOwnership --broadcast
 
 Notes:
   - Network configuration is loaded from deployment.toml and deployment_secrets.toml
   - Private keys must be provided via DEPLOYER_PRIVATE_KEY environment variable
+  - Ownership transfers require NEW_ADMIN environment variable with new admin address
+  - Upgrades and rollbacks use the current owner from the deployed contracts
   - Upgrades require reference builds for safety checks
   - Fireblocks requires fireblocks-json-rpc to be installed
-  - All deployments automatically update deployment.toml (except in dev mode)
+  - All deployments automatically update deployment.toml
   - Image IDs are loaded from PovwImageId.sol unless overridden by environment variables
+  - Ownership transfers are immediate with regular Ownable (no acceptance required)
 EOF
         exit 0
     fi
@@ -206,6 +342,34 @@ EOF
 
 # Run from the repo root for consistency.
 cd ${REPO_ROOT_DIR:?}
+
+# Create reference build for upgrade commands
+if [ $# -gt 0 ]; then
+    case "$1" in
+        UpgradePoVWAccounting)
+            create_reference_build "PoVWAccounting"
+            
+            # Also ensure current build is clean and complete
+            echo "🔨 Ensuring current build is complete..."
+            echo "Running cargo build to generate required files..."
+            cargo build
+            forge clean
+            forge build
+            echo "✅ Current build completed"
+            ;;
+        UpgradePoVWMint)
+            create_reference_build "PoVWMint"
+            
+            # Also ensure current build is clean and complete
+            echo "🔨 Ensuring current build is complete..."
+            echo "Running cargo build to generate required files..."
+            cargo build
+            forge clean
+            forge build
+            echo "✅ Current build completed"
+            ;;
+    esac
+fi
 
 # Default to help if no arguments provided
 if [ $# -eq 0 ]; then

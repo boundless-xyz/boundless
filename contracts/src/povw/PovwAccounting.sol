@@ -101,8 +101,6 @@ contract PovwAccounting is
         address valueRecipient
     );
 
-    uint256 public constant POVW_TOKEN_DECIMALS = 18;
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, IZKC token, bytes32 logUpdaterId) {
         VERIFIER = verifier;

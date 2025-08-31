@@ -50,9 +50,6 @@ using RequireLibPoVW for address;
 using RequireLibPoVW for string;
 using RequireLibPoVW for bytes32;
 
-// This is the EIP-1967 implementation slot:
-bytes32 constant IMPLEMENTATION_SLOT = 0x360894A13BA1A3210667C828492DB98DCA3E2076CC3735A920A3CA505D382BBC;
-
 /// @notice Base contract for the PoVW scripts below, providing common context and functions.
 contract PoVWScript is Script {
     // Path to deployment config file, relative to the project root.
@@ -82,36 +79,41 @@ contract UpgradePoVWAccounting is PoVWScript {
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address admin = deploymentConfig.admin.required("admin");
-        address verifier = deploymentConfig.verifier.required("verifier");
+        // Get PoVW proxy address from deployment.toml
+        address povwAccountingAddress = deploymentConfig.povwAccounting.required("povw-accounting");
         
-        // Get PoVW addresses from environment or deployment.toml
-        address povwAccountingAddress = vm.envOr("POVW_ACCOUNTING_ADDRESS", address(0)).required("povw-accounting-address");
-        bytes32 logUpdaterId = vm.envOr("POVW_LOG_UPDATER_ID", bytes32(0)).required("povw-log-updater-id");
-        address zkcToken = vm.envOr("ZKC_TOKEN_ADDRESS", address(0)).required("zkc-token-address");
+        // Get current admin from the proxy contract
+        PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
+        address currentAdmin = povwAccounting.owner();
         
-        address currentImplementation = address(uint160(uint256(vm.load(povwAccountingAddress, IMPLEMENTATION_SLOT))));
+        address currentImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
+
+        // Get constructor arguments for PovwAccounting
+        IRiscZeroVerifier verifier = IRiscZeroVerifier(deploymentConfig.verifier.required("verifier"));
+        
+        // Handle ZKC address - if zero address, don't upgrade (production should have real ZKC)
+        address zkcAddress = deploymentConfig.zkc.required("zkc");
+        IZKC zkc = IZKC(zkcAddress);
+        
+        bytes32 logUpdaterId = deploymentConfig.povwLogUpdaterId.required("povw-log-updater-id");
 
         UpgradeOptions memory opts;
-        // Note: Constructor args encoding would need to be implemented similar to BoundlessMarketLib
         opts.referenceContract = "build-info-reference:PovwAccounting";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
+        opts.constructorData = abi.encode(verifier, zkc, logUpdaterId);
 
-        vm.startBroadcast(admin);
-        Upgrades.upgradeProxy(povwAccountingAddress, "PovwAccounting.sol:PovwAccounting", "", opts, admin);
+        vm.startBroadcast(currentAdmin);
+        Upgrades.upgradeProxy(povwAccountingAddress, "PovwAccounting.sol:PovwAccounting", "", opts, currentAdmin);
         vm.stopBroadcast();
 
         // Verify the upgrade
-        PovwAccounting upgradedContract = PovwAccounting(povwAccountingAddress);
-        require(upgradedContract.VERIFIER() == IRiscZeroVerifier(verifier), "upgraded PovwAccounting verifier does not match");
-        require(upgradedContract.LOG_UPDATER_ID() == logUpdaterId, "upgraded PovwAccounting log updater ID does not match");
-        require(upgradedContract.owner() == admin, "upgraded PovwAccounting admin does not match");
+        address newImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
+        require(newImplementation != currentImplementation, "PovwAccounting implementation was not upgraded");
+        require(povwAccounting.owner() == currentAdmin, "PovwAccounting admin changed during upgrade");
 
-        address newImplementation = address(uint160(uint256(vm.load(povwAccountingAddress, IMPLEMENTATION_SLOT))));
-
-        console2.log("Upgraded PovwAccounting admin is %s", admin);
+        console2.log("Upgraded PovwAccounting admin is %s", currentAdmin);
         console2.log("Upgraded PovwAccounting proxy contract at %s", povwAccountingAddress);
-        console2.log("Upgraded PovwAccounting impl contract at %s", newImplementation);
+        console2.log("Upgraded PovwAccounting impl from %s to %s", currentImplementation, newImplementation);
 
         // Get current git commit hash
         string[] memory gitArgs = new string[](2);
@@ -142,35 +144,44 @@ contract UpgradePoVWMint is PoVWScript {
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address admin = deploymentConfig.admin.required("admin");
-        address verifier = deploymentConfig.verifier.required("verifier");
+        // Get PoVW proxy address from deployment.toml
+        address povwMintAddress = deploymentConfig.povwMint.required("povw-mint");
         
-        // Get PoVW addresses from environment or deployment.toml
-        address povwMintAddress = vm.envOr("POVW_MINT_ADDRESS", address(0)).required("povw-mint-address");
-        address povwAccountingAddress = vm.envOr("POVW_ACCOUNTING_ADDRESS", address(0)).required("povw-accounting-address");
-        bytes32 mintCalculatorId = vm.envOr("POVW_MINT_CALCULATOR_ID", bytes32(0)).required("povw-mint-calculator-id");
-        address zkcToken = vm.envOr("ZKC_TOKEN_ADDRESS", address(0)).required("zkc-token-address");
-        address zkcRewards = vm.envOr("ZKC_REWARDS_ADDRESS", address(0)).required("zkc-rewards-address");
+        // Get current admin from the proxy contract
+        PovwMint povwMint = PovwMint(povwMintAddress);
+        address currentAdmin = povwMint.owner();
         
-        address currentImplementation = address(uint160(uint256(vm.load(povwMintAddress, IMPLEMENTATION_SLOT))));
+        address currentImplementation = Upgrades.getImplementationAddress(povwMintAddress);
+
+        // Get constructor arguments for PovwMint
+        IRiscZeroVerifier verifier = IRiscZeroVerifier(deploymentConfig.verifier.required("verifier"));
+        PovwAccounting povwAccounting = PovwAccounting(deploymentConfig.povwAccounting.required("povw-accounting"));
+        bytes32 mintCalculatorId = deploymentConfig.povwMintCalculatorId.required("povw-mint-calculator-id");
+        
+        // Handle ZKC addresses - if zero address, don't upgrade (production should have real ZKC)
+        address zkcAddress = deploymentConfig.zkc.required("zkc");
+        address zkcRewardsAddress = deploymentConfig.zkcStakingRewards.required("zkc-staking-rewards");
+        
+        IZKC zkc = IZKC(zkcAddress);
+        IZKCRewards zkcRewards = IZKCRewards(zkcRewardsAddress);
 
         UpgradeOptions memory opts;
         opts.referenceContract = "build-info-reference:PovwMint";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
+        opts.constructorData = abi.encode(verifier, povwAccounting, mintCalculatorId, zkc, zkcRewards);
 
-        vm.startBroadcast(admin);
-        Upgrades.upgradeProxy(povwMintAddress, "PovwMint.sol:PovwMint", "", opts, admin);
+        vm.startBroadcast(currentAdmin);
+        Upgrades.upgradeProxy(povwMintAddress, "PovwMint.sol:PovwMint", "", opts, currentAdmin);
         vm.stopBroadcast();
 
         // Verify the upgrade
-        PovwMint upgradedContract = PovwMint(povwMintAddress);
-        require(upgradedContract.owner() == admin, "upgraded PovwMint admin does not match");
+        address newImplementation = Upgrades.getImplementationAddress(povwMintAddress);
+        require(newImplementation != currentImplementation, "PovwMint implementation was not upgraded");
+        require(povwMint.owner() == currentAdmin, "PovwMint admin changed during upgrade");
 
-        address newImplementation = address(uint160(uint256(vm.load(povwMintAddress, IMPLEMENTATION_SLOT))));
-
-        console2.log("Upgraded PovwMint admin is %s", admin);
+        console2.log("Upgraded PovwMint admin is %s", currentAdmin);
         console2.log("Upgraded PovwMint proxy contract at %s", povwMintAddress);
-        console2.log("Upgraded PovwMint impl contract at %s", newImplementation);
+        console2.log("Upgraded PovwMint impl from %s to %s", currentImplementation, newImplementation);
 
         // Get current git commit hash
         string[] memory gitArgs = new string[](2);
@@ -194,16 +205,16 @@ contract UpgradePoVWMint is PoVWScript {
 }
 
 /// @notice Script for transferring ownership of the PoVW contracts.
-/// @dev Transfer will be from the current admin (i.e. owner) address to the admin address set in deployment.toml
+/// @dev Transfer will be from the current owner to the NEW_ADMIN environment variable
 contract TransferPoVWOwnership is PoVWScript {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address admin = deploymentConfig.admin.required("admin");
-        address povwAccountingAddress = vm.envOr("POVW_ACCOUNTING_ADDRESS", address(0)).required("povw-accounting-address");
-        address povwMintAddress = vm.envOr("POVW_MINT_ADDRESS", address(0)).required("povw-mint-address");
+        address newAdmin = vm.envOr("NEW_ADMIN", address(0)).required("NEW_ADMIN");
+        address povwAccountingAddress = deploymentConfig.povwAccounting.required("povw-accounting");
+        address povwMintAddress = deploymentConfig.povwMint.required("povw-mint");
         
         PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
         PovwMint povwMint = PovwMint(povwMintAddress);
@@ -211,20 +222,20 @@ contract TransferPoVWOwnership is PoVWScript {
         address currentAccountingAdmin = povwAccounting.owner();
         address currentMintAdmin = povwMint.owner();
         
-        require(admin != currentAccountingAdmin, "current and new PovwAccounting admin address are the same");
-        require(admin != currentMintAdmin, "current and new PovwMint admin address are the same");
+        require(newAdmin != currentAccountingAdmin, "current and new PovwAccounting admin address are the same");
+        require(newAdmin != currentMintAdmin, "current and new PovwMint admin address are the same");
 
         vm.startBroadcast(currentAccountingAdmin);
-        povwAccounting.transferOwnership(admin);
+        povwAccounting.transferOwnership(newAdmin);
         vm.stopBroadcast();
 
         vm.startBroadcast(currentMintAdmin);
-        povwMint.transferOwnership(admin);
+        povwMint.transferOwnership(newAdmin);
         vm.stopBroadcast();
 
-        console2.log("Transferred ownership of PovwAccounting contract from %s to %s", currentAccountingAdmin, admin);
-        console2.log("Transferred ownership of PovwMint contract from %s to %s", currentMintAdmin, admin);
-        console2.log("Ownership must be accepted by the new admin %s", admin);
+        console2.log("Transferred ownership of PovwAccounting contract from %s to %s", currentAccountingAdmin, newAdmin);
+        console2.log("Transferred ownership of PovwMint contract from %s to %s", currentMintAdmin, newAdmin);
+        console2.log("Ownership transfer is immediate with regular Ownable (no acceptance required)");
     }
 }
 
@@ -237,9 +248,12 @@ contract RollbackPoVWAccounting is PoVWScript {
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address admin = deploymentConfig.admin.required("admin");
         address povwAccountingAddress = deploymentConfig.povwAccounting.required("povw-accounting");
         address oldImplementation = deploymentConfig.povwAccountingOldImpl.required("povw-accounting-old-impl");
+
+        // Get current admin from the proxy contract
+        PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
+        address currentAdmin = povwAccounting.owner();
 
         require(oldImplementation != address(0), "old implementation address is not set");
         console2.log(
@@ -247,7 +261,7 @@ contract RollbackPoVWAccounting is PoVWScript {
         );
 
         // Rollback the proxy contract
-        vm.startBroadcast(admin);
+        vm.startBroadcast(currentAdmin);
 
         // For PovwAccounting, we don't need a reinitializer call like BoundlessMarket
         bytes memory rollbackUpgradeData = abi.encodeWithSignature("upgradeTo(address)", oldImplementation);
@@ -257,18 +271,9 @@ contract RollbackPoVWAccounting is PoVWScript {
         vm.stopBroadcast();
 
         // Verify the rollback
-        PovwAccounting rolledBackContract = PovwAccounting(povwAccountingAddress);
-        require(rolledBackContract.owner() == admin, "rolled back PovwAccounting admin does not match");
-        require(
-            address(rolledBackContract.VERIFIER()) == deploymentConfig.verifier,
-            "rolled back PovwAccounting verifier does not match"
-        );
-
-        address currentImplementation = address(uint160(uint256(vm.load(povwAccountingAddress, IMPLEMENTATION_SLOT))));
-        require(
-            currentImplementation == oldImplementation,
-            "current implementation address does not match the old implementation address"
-        );
+        address currentImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
+        require(currentImplementation == oldImplementation, "PovwAccounting rollback failed");
+        require(povwAccounting.owner() == currentAdmin, "PovwAccounting admin changed during rollback");
         console2.log("Rollback successful. PovwAccounting implementation is now %s", currentImplementation);
 
         // Update deployment.toml to swap impl and old-impl addresses
@@ -292,9 +297,12 @@ contract RollbackPoVWMint is PoVWScript {
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address admin = deploymentConfig.admin.required("admin");
         address povwMintAddress = deploymentConfig.povwMint.required("povw-mint");
         address oldImplementation = deploymentConfig.povwMintOldImpl.required("povw-mint-old-impl");
+
+        // Get current admin from the proxy contract
+        PovwMint povwMint = PovwMint(povwMintAddress);
+        address currentAdmin = povwMint.owner();
 
         require(oldImplementation != address(0), "old implementation address is not set");
         console2.log(
@@ -302,7 +310,7 @@ contract RollbackPoVWMint is PoVWScript {
         );
 
         // Rollback the proxy contract
-        vm.startBroadcast(admin);
+        vm.startBroadcast(currentAdmin);
 
         // For PovwMint, we don't need a reinitializer call like BoundlessMarket
         bytes memory rollbackUpgradeData = abi.encodeWithSignature("upgradeTo(address)", oldImplementation);
@@ -312,14 +320,9 @@ contract RollbackPoVWMint is PoVWScript {
         vm.stopBroadcast();
 
         // Verify the rollback
-        PovwMint rolledBackContract = PovwMint(povwMintAddress);
-        require(rolledBackContract.owner() == admin, "rolled back PovwMint admin does not match");
-
-        address currentImplementation = address(uint160(uint256(vm.load(povwMintAddress, IMPLEMENTATION_SLOT))));
-        require(
-            currentImplementation == oldImplementation,
-            "current implementation address does not match the old implementation address"
-        );
+        address currentImplementation = Upgrades.getImplementationAddress(povwMintAddress);
+        require(currentImplementation == oldImplementation, "PovwMint rollback failed");
+        require(povwMint.owner() == currentAdmin, "PovwMint admin changed during rollback");
         console2.log("Rollback successful. PovwMint implementation is now %s", currentImplementation);
 
         // Update deployment.toml to swap impl and old-impl addresses
@@ -336,27 +339,24 @@ contract RollbackPoVWMint is PoVWScript {
 }
 
 /// @notice Script for transferring ownership of the PovwMint contract.
-/// @dev Transfer will be from the current admin (i.e. owner) address to the admin address set in deployment.toml
-///
-/// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
+/// @dev Transfer will be from the current owner to the NEW_ADMIN environment variable
 contract TransferPoVWMintOwnership is PoVWScript {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address admin = deploymentConfig.povwMintAdmin.required("povw-mint-admin");
+        address newAdmin = vm.envOr("NEW_ADMIN", address(0)).required("NEW_ADMIN");
         address povwMintAddress = deploymentConfig.povwMint.required("povw-mint");
         PovwMint povwMint = PovwMint(povwMintAddress);
 
         address currentAdmin = povwMint.owner();
-        require(admin != currentAdmin, "current and new admin address are the same");
+        require(newAdmin != currentAdmin, "current and new admin address are the same");
 
         vm.broadcast(currentAdmin);
-        povwMint.transferOwnership(admin);
+        povwMint.transferOwnership(newAdmin);
 
-        console2.log("Transferred ownership of the PovwMint contract from %s to %s", currentAdmin, admin);
+        console2.log("Transferred ownership of the PovwMint contract from %s to %s", currentAdmin, newAdmin);
         console2.log("Ownership transfer is immediate with regular Ownable (no acceptance required)");
     }
 }
