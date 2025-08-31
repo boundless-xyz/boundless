@@ -21,11 +21,13 @@ use std::{
     time::SystemTime,
 };
 
-use alloy::{signers::local::PrivateKeySigner, sol_types::SolValue};
-use anyhow::{bail, ensure, Context, Result};
-use boundless_povw_guests::log_updater::{
-    Journal as LogUpdaterJournal, BOUNDLESS_POVW_LOG_UPDATER_ID,
+use alloy::{
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+    signers::local::PrivateKeySigner,
 };
+use anyhow::{bail, ensure, Context, Result};
+use boundless_povw_guests::log_updater::{prover::LogUpdaterProver, IPovwAccounting};
 use clap::{Args, Subcommand};
 use num_enum::TryFromPrimitive;
 use risc0_povw::{
@@ -164,6 +166,7 @@ impl State {
 }
 
 /// Compress a directory of work receipts into a work log update.
+#[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct PovwProveUpdate {
     /// Serialized work receipt files to add to the work log.
@@ -285,7 +288,10 @@ impl PovwProveUpdate {
     }
 
     /// Load a single receipt file
-    fn load_work_receipt_file(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<WorkReceipt> {
+    fn load_work_receipt_file(
+        &self,
+        path: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<WorkReceipt> {
         let path = path.as_ref();
         let data =
             fs::read(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
@@ -332,43 +338,185 @@ impl PovwProveUpdate {
     }
 }
 
-/// Compress a directory of work receipts into a work log update.
+/// Send a work log update to the PoVW accounting contract.
+///
+/// To prepare the update, this command creates a Groth16 proof, compressing the updates to be sent
+/// and proving that they are authorized by the signing key for the work log.
+#[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct PovwSendUpdate {
-    /// Private key used to sign work log updates. This key should have an address equal to the
-    /// work log ID.
+    /// State of the work log, including receipts produced by the prove-update command.
+    #[arg(short, long)]
+    pub state: PathBuf,
+
+    /// Private key used to sign work log updates. Should have an address equal to the work log ID.
+    ///
+    /// If this option is not set, the value of the private key from global config will be used.
     #[clap(long, env = "WORK_LOG_PRIVATE_KEY", hide_env_values = true)]
     pub work_log_private_key: Option<PrivateKeySigner>,
+
+    // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
+    /// Address of the PoVW accounting contract.
+    pub povw_accounting_address: Address,
 }
 
 impl PovwSendUpdate {
     /// Run the [PovwSendUpdate] command.
-    pub async fn run(&self, _global_config: &GlobalConfig) -> anyhow::Result<()> {
-        todo!()
-    }
-}
+    pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
+        let signer = global_config.require_private_key()?;
+        let rpc_url = global_config.require_rpc_url()?;
 
-    /// Load continuation receipt and work log state
-    fn load_state(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
-        let state_path = state_path.as_ref();
-        let state_data = fs::read(state_path).with_context(|| {
-            format!("Failed to read work log state file: {}", state_path.display())
-        })?;
+        // Load the state and check to make sure the private key matches.
+        let state = load_state(&self.state)
+            .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
+        ensure!(
+            Address::from(state.log_id) == signer.address(),
+            "Signer does not match the state log ID: signer: {}, state: {}",
+            signer.address(),
+            state.log_id
+        );
 
-        // TODO(povw): Apply some sanity checks here?
-        State::decode(&state_data)
-            .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
-    }
+        // Connect to the chain.
+        let provider = ProviderBuilder::new()
+            .wallet(signer.clone())
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
-    /// Save the work log update receipt
-    fn save_state(state: &State, state_path: impl AsRef<Path>) -> Result<()> {
-        let state_data = state.encode().context("Failed to serialize state")?;
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .with_context(|| format!("failed to get chain ID from {rpc_url}"))?;
+        let povw_accounting = IPovwAccounting::new(self.povw_accounting_address, provider.clone());
 
-        fs::write(state_path.as_ref(), &state_data)
-            .with_context(|| format!("Failed to write state to {}", state_path.as_ref().display()))?;
+        // Get the current work log commit, to determine which update(s) should be applied.
+        let onchain_commit =
+            povw_accounting.getWorkLogCommit(state.log_id.into()).call().await.with_context(
+                || {
+                    format!(
+                        "Failed to get work log commit for {:x} from {:x}",
+                        state.log_id, self.povw_accounting_address
+                    )
+                },
+            )?;
 
-        tracing::info!("Successfully saved work log state: {}", state_path.as_ref().display());
-        tracing::info!("Updated commit: {}", state.work_log.commit());
+        // Check if the latest log builder receipt has an updated_commit value equal to what is
+        // onchain. If so, the onchain work log is already up to date.
+        let Some(latest_receipt) = state.log_builder_receipts.last() else {
+            bail!("Loaded state has no log builder receipts")
+        };
+        let latest_receipt_journal = LogBuilderJournal::decode(&latest_receipt.journal.bytes)
+            .context("Failed to decode journal from latest receipt")?;
+        if bytemuck::cast::<_, [u8; 32]>(latest_receipt_journal.updated_commit) == *onchain_commit {
+            tracing::info!("Onchain PoVW accounting contract is already up to date with the latest commit in state");
+            return Ok(());
+        }
+
+        // Find the index of the receipt in the state that has an initial commit equal to the
+        // commit current onchain. We will send all updates after that point.
+        let matching_receipt_index = state
+            .log_builder_receipts
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, receipt)| {
+                let journal =
+                    LogBuilderJournal::decode(&receipt.journal.bytes).with_context(|| {
+                        format!("Failed to decode journal from receipt in state at index {i}")
+                    })?;
+                anyhow::Ok(
+                    (bytemuck::cast::<_, [u8; 32]>(journal.initial_commit) == *onchain_commit)
+                        .then_some(i),
+                )
+            })
+            .find_map(|x| x.transpose())
+            .with_context(|| {
+                format!("Failed to find receipt with initial commit matching {onchain_commit}")
+            })??;
+
+        // Iterate over all the log builder receipts that should be sent to the chain.
+        // NOTE: In most cases, this will be one receipt. It may be more if the prover previously
+        // built a work log update but it failed to send (e.g. network instability or high gas
+        // fees caused the transaction not to go through).
+        let receipts_for_update = state.log_builder_receipts[matching_receipt_index..].to_vec();
+        if receipts_for_update.len() > 1 {
+            tracing::info!(
+                "Updating onchain work log {:x} with {} update receipts",
+                state.log_id,
+                receipts_for_update.len()
+            )
+        }
+        for receipt in receipts_for_update {
+            let prover = LogUpdaterProver::builder()
+                .prover(default_prover())
+                .chain_id(chain_id)
+                .contract_address(self.povw_accounting_address)
+                .prover_opts(ProverOpts::groth16())
+                .build()
+                .context("Failed to build prover for Log Updater")?;
+
+            // Sign and prove the authorized work log update.
+            // TODO(povw): Provide more info here.
+            tracing::info!("Proving work log update");
+            let prove_info = prover
+                .prove_update(receipt, &signer)
+                .await
+                .context("Failed to prove authorized log update")?;
+
+            tracing::info!("Sending work log update transaction");
+            let tx_result = povw_accounting
+                .update_work_log(&prove_info.receipt)
+                .context("Failed to construct update transaction")?
+                .send()
+                .await
+                .context("Failed to send update transaction")?;
+            tracing::info!(tx_hash = %tx_result.tx_hash(), "Sent transaction for work log update");
+
+            let tx_receipt = tx_result
+                .get_receipt()
+                .await
+                .context("Failed to receive receipt for update transaction")?;
+
+            // Extract the WorkLogUpdated event
+            let work_log_updated_event = tx_receipt
+                .logs()
+                .iter()
+                .filter_map(|log| log.log_decode::<IPovwAccounting::WorkLogUpdated>().ok())
+                .next();
+
+            if let Some(event) = work_log_updated_event {
+                let data = event.inner.data;
+                tracing::info!(updated_commit = %data.updatedCommit, update_value = data.updateValue.to::<u64>(), "Work log updated");
+            } else {
+                tracing::info!("Work log updated confirmed");
+                tracing::warn!("No WorkLogUpdated event in transaction receipt");
+            }
+        }
 
         Ok(())
     }
+}
+
+/// Load continuation receipt and work log state
+fn load_state(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
+    let state_path = state_path.as_ref();
+    let state_data = fs::read(state_path)
+        .with_context(|| format!("Failed to read work log state file: {}", state_path.display()))?;
+
+    // TODO(povw): Apply some sanity checks here?
+    State::decode(&state_data)
+        .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
+}
+
+/// Save the work log update receipt
+fn save_state(state: &State, state_path: impl AsRef<Path>) -> Result<()> {
+    let state_data = state.encode().context("Failed to serialize state")?;
+
+    fs::write(state_path.as_ref(), &state_data)
+        .with_context(|| format!("Failed to write state to {}", state_path.as_ref().display()))?;
+
+    tracing::info!("Successfully saved work log state: {}", state_path.as_ref().display());
+    tracing::info!("Updated commit: {}", state.work_log.commit());
+
+    Ok(())
+}
