@@ -93,7 +93,6 @@ mod build_contracts {
         {}
     }}
 }}
-
 "#,
                     bytecode,
                     contract,
