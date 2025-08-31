@@ -30,8 +30,8 @@ use boundless_povw_guests::{
         LogBuilderJournal, BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID,
     },
     mint_calculator::{
-        self, IPovwMint::IPovwMintInstance, WorkLogFilter,
-        BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
+        self, IPovwMint::IPovwMintInstance, WorkLogFilter, BOUNDLESS_POVW_MINT_CALCULATOR_ELF,
+        BOUNDLESS_POVW_MINT_CALCULATOR_ID,
     },
 };
 use derive_builder::Builder;
