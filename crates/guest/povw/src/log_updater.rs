@@ -19,16 +19,15 @@ use serde::{Deserialize, Serialize};
 pub use crate::guest_artifacts::BOUNDLESS_POVW_LOG_UPDATER_PATH;
 pub use crate::guest_artifacts::{BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID};
 
-// TODO(povw): This will prevent packaging and uploading this crate.
 #[cfg(feature = "host")]
 sol!(
     #[sol(extra_derives(Debug), rpc)]
-    "../../../contracts/src/povw/IPovwAccounting.sol"
+    "./src/contracts/artifacts/IPovwAccounting.sol"
 );
 #[cfg(not(feature = "host"))]
 sol!(
     #[sol(extra_derives(Debug))]
-    "../../../contracts/src/povw/IPovwAccounting.sol"
+    "./src/contracts/artifacts/IPovwAccounting.sol"
 );
 
 impl WorkLogUpdate {

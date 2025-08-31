@@ -21,6 +21,7 @@ mod guest_artifacts {
         bytemuck::must_cast(*include_bytes!("../elfs/boundless-povw-log-updater.iid"));
 }
 
+pub mod contracts;
 pub mod log_updater;
 pub mod mint_calculator;
 pub mod zkc;

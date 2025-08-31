@@ -391,7 +391,7 @@ impl PovwSendUpdate {
 
         // Get the current work log commit, to determine which update(s) should be applied.
         let onchain_commit =
-            povw_accounting.getWorkLogCommit(state.log_id.into()).call().await.with_context(
+            povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(
                 || {
                     format!(
                         "Failed to get work log commit for {:x} from {:x}",

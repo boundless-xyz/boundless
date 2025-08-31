@@ -132,7 +132,7 @@ fn main() {
         Contract::new(input.povw_accounting_address, completness_check_env);
     for (work_log_id, (_, updated_commit)) in updates.iter() {
         let final_commit = povw_accounting_contract
-            .call_builder(&IPovwAccounting::getWorkLogCommitCall { workLogId: *work_log_id })
+            .call_builder(&IPovwAccounting::workLogCommitCall { workLogId: *work_log_id })
             .call();
         assert_eq!(
             final_commit,

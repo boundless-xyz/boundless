@@ -26,7 +26,7 @@ contract PovwAccounting is IPovwAccounting, EIP712 {
 
     IZKC public immutable TOKEN;
 
-    mapping(address => bytes32) internal workLogRoots;
+    mapping(address => bytes32) internal workLogCommits;
 
     PendingEpoch internal _pendingEpoch;
 
@@ -76,7 +76,7 @@ contract PovwAccounting is IPovwAccounting, EIP712 {
         }
 
         // Fetch the initial commit value, substituting with the precomputed empty root if new.
-        bytes32 initialCommit = getWorkLogCommit(workLogId);
+        bytes32 initialCommit = workLogCommit(workLogId);
 
         // Verify the receipt from the work log builder, binding the initial root as the currently
         // stored value.
@@ -90,7 +90,7 @@ contract PovwAccounting is IPovwAccounting, EIP712 {
         Journal memory journal = Journal({update: update, eip712Domain: _domainSeparatorV4()});
         VERIFIER.verify(seal, LOG_UPDATER_ID, sha256(abi.encode(journal)));
 
-        workLogRoots[workLogId] = updatedCommit;
+        workLogCommits[workLogId] = updatedCommit;
         _pendingEpoch.totalWork += updateValue;
 
         // Emit the update event, accessed with Steel to construct the mint authorization.
@@ -107,8 +107,8 @@ contract PovwAccounting is IPovwAccounting, EIP712 {
     }
 
     /// @inheritdoc IPovwAccounting
-    function getWorkLogCommit(address workLogId) public view returns (bytes32) {
-        bytes32 commit = workLogRoots[workLogId];
+    function workLogCommit(address workLogId) public view returns (bytes32) {
+        bytes32 commit = workLogCommits[workLogId];
         if (commit == bytes32(0)) {
             return EMPTY_LOG_ROOT;
         }

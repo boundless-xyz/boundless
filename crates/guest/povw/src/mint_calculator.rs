@@ -9,6 +9,7 @@ use std::{
     ops::{Add, AddAssign},
 };
 
+use alloy_sol_types::sol;
 use alloy_primitives::{Address, ChainId, U256};
 use risc0_povw::PovwLogId;
 use risc0_steel::{
@@ -23,31 +24,16 @@ pub use crate::guest_artifacts::{
     BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
 
-alloy_sol_types::sol! {
-    // Copied from contracts/src/povw/PovwMint.sol
-    #[derive(Debug)]
-    struct MintCalculatorUpdate {
-        address workLogId;
-        bytes32 initialCommit;
-        bytes32 updatedCommit;
-    }
-
-    #[derive(Debug)]
-    struct MintCalculatorMint {
-        address recipient;
-        uint256 value;
-    }
-
-    #[derive(Debug)]
-    struct MintCalculatorJournal {
-        MintCalculatorMint[] mints;
-        MintCalculatorUpdate[] updates;
-        address povwAccountingAddress;
-        address zkcRewardsAddress;
-        address zkcAddress;
-        Commitment steelCommit;
-    }
-}
+#[cfg(feature = "host")]
+sol!(
+    #[sol(extra_derives(Debug), rpc)]
+    "./src/contracts/artifacts/IPovwMint.sol"
+);
+#[cfg(not(feature = "host"))]
+sol!(
+    #[sol(extra_derives(Debug))]
+    "./src/contracts/artifacts/IPovwMint.sol"
+);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MultiblockEthEvmInput(pub Vec<EthEvmInput>);
@@ -454,11 +440,11 @@ pub mod host {
                 Contract::preflight(povw_accounting_address, completeness_check_env);
             for work_log_id in work_logs {
                 povw_accounting_contract
-                    .call_builder(&IPovwAccounting::getWorkLogCommitCall { workLogId: work_log_id })
+                    .call_builder(&IPovwAccounting::workLogCommitCall { workLogId: work_log_id })
                     .call()
                     .await
                     .with_context(|| {
-                        format!("Failed to preflight call: getWorkLogCommit({work_log_id})")
+                        format!("Failed to preflight call: workLogCommit({work_log_id})")
                     })?;
             }
 

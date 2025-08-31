@@ -2761,6 +2761,7 @@ dependencies = [
  "risc0-zkvm",
  "ruint",
  "serde",
+ "serde_json",
  "tokio",
 ]
 

@@ -8,59 +8,18 @@ import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {Math} from "openzeppelin/contracts/utils/math/Math.sol";
 import {PovwAccounting, EMPTY_LOG_ROOT} from "./PovwAccounting.sol";
 import {IZKC, IZKCRewards} from "./IZKC.sol";
+import {IPovwMint, MintCalculatorUpdate, MintCalculatorMint, MintCalculatorJournal} from "./IPovwMint.sol";
 import {Steel} from "steel/Steel.sol";
-
-/// An update to the commitment for the processing of a work log.
-struct MintCalculatorUpdate {
-    /// Work log ID associated that is updated.
-    address workLogId;
-    /// The initial value of the log commitment to which this update is based on.
-    bytes32 initialCommit;
-    /// The value of the log commitment after this update is applied.
-    bytes32 updatedCommit;
-}
-
-/// A mint action authorized by the mint calculator.
-struct MintCalculatorMint {
-    /// Address of the recipient for the mint.
-    address recipient;
-    /// Value of the rewards to credit towards the recipient.
-    uint256 value;
-}
-
-// TODO(povw): The three contract addresses could be collasped to one bytes32 value via hashing.
-/// Journal committed by the mint calculator guest, which contains update and mint actions.
-struct MintCalculatorJournal {
-    /// Updates the work log commitments.
-    MintCalculatorMint[] mints;
-    /// Mints to issue.
-    MintCalculatorUpdate[] updates;
-    /// Address of the queried PovwAccounting contract. Must be checked to be equal to the expected address.
-    address povwAccountingAddress;
-    /// Address of the queried IZKCRewards contract. Must be checked to be equal to the expected address.
-    address zkcRewardsAddress;
-    /// Address of the queried IZKC contract. Must be checked to be equal to the expected address.
-    address zkcAddress;
-    /// A Steel commitment. Must be a valid commitment in the current chain.
-    Steel.Commitment steelCommit;
-}
 
 /// PovwMint controls the minting of token rewards associated with Proof of Verifiable Work (PoVW).
 ///
 /// This contract consumes updates produced by the mint calculator guest, mints token rewards, and
 /// maintains state to ensure that any given token reward is minted at most once.
-contract PovwMint {
-    /// @dev selector 0x36ce79a0
-    error InvalidSteelCommitment();
-    /// @dev selector 0x98d6328f
-    error IncorrectSteelContractAddress(address expected, address received);
-    /// @dev selector 0xf4a2b615
-    error IncorrectInitialUpdateCommit(bytes32 expected, bytes32 received);
-
-    IRiscZeroVerifier internal immutable VERIFIER;
-    IZKC internal immutable TOKEN;
-    IZKCRewards internal immutable TOKEN_REWARDS;
-    PovwAccounting internal immutable ACCOUNTING;
+contract PovwMint is IPovwMint {
+    IRiscZeroVerifier public immutable VERIFIER;
+    IZKC public immutable TOKEN;
+    IZKCRewards public immutable TOKEN_REWARDS;
+    PovwAccounting public immutable ACCOUNTING;
 
     /// @notice Image ID of the mint calculator guest.
     /// @dev The mint calculator ensures:
@@ -72,12 +31,12 @@ contract PovwMint {
     ///   * An event was logged by the PoVW accounting contract for epoch finalization.
     ///   * The total work from the epoch finalization event is used in the mint calculation.
     ///   * The mint recipient is set correctly.
-    bytes32 internal immutable MINT_CALCULATOR_ID;
+    bytes32 public immutable MINT_CALCULATOR_ID;
 
     /// @notice Mapping from work log ID to the most recent work log commit for which a mint has occurred.
     /// @notice Each time a mint occurs associated with a work log, this value ratchets forward.
     /// It ensure that any given work log update can be used in at most one mint.
-    mapping(address => bytes32) internal latestCommit;
+    mapping(address => bytes32) public workLogCommits;
 
     constructor(
         IRiscZeroVerifier verifier,
@@ -93,7 +52,7 @@ contract PovwMint {
         TOKEN_REWARDS = tokenRewards;
     }
 
-    /// @notice Mint tokens as a reward for verifiable work.
+    /// @inheritdoc IPovwMint
     function mint(bytes calldata journalBytes, bytes calldata seal) external {
         // Verify the mint is authorized by the mint calculator guest.
         VERIFIER.verify(seal, MINT_CALCULATOR_ID, sha256(journalBytes));
@@ -119,7 +78,7 @@ contract PovwMint {
             MintCalculatorUpdate memory update = journal.updates[i];
 
             // On the first mint for a journal, the initialCommit should be equal to the empty root.
-            bytes32 expectedCommit = latestCommit[update.workLogId];
+            bytes32 expectedCommit = workLogCommits[update.workLogId];
             if (expectedCommit == bytes32(0)) {
                 expectedCommit = EMPTY_LOG_ROOT;
             }
@@ -127,7 +86,7 @@ contract PovwMint {
             if (update.initialCommit != expectedCommit) {
                 revert IncorrectInitialUpdateCommit({expected: expectedCommit, received: update.initialCommit});
             }
-            latestCommit[update.workLogId] = update.updatedCommit;
+            workLogCommits[update.workLogId] = update.updatedCommit;
         }
 
         // Issue all of the mint calls indicated in the journal.
@@ -135,5 +94,14 @@ contract PovwMint {
             MintCalculatorMint memory mintData = journal.mints[i];
             TOKEN.mintPoVWRewardsForRecipient(mintData.recipient, mintData.value);
         }
+    }
+
+    /// @inheritdoc IPovwMint
+    function workLogCommit(address workLogId) public view returns (bytes32) {
+        bytes32 commit = workLogCommits[workLogId];
+        if (commit == bytes32(0)) {
+            return EMPTY_LOG_ROOT;
+        }
+        return commit;
     }
 }
