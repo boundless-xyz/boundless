@@ -219,7 +219,11 @@ pub mod host {
         zkc::{IZKCRewards, IZKC},
     };
 
-    impl<P, C> MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>
+    // Private type aliases, to make the definitions in this modules more concise.
+    type EthEvmEnvBuilder<P, B> = EvmEnvBuilder<P, EthEvmFactory, &'static EthChainSpec, B>;
+    type EthHostDb<P> = ProofDb<ProviderDb<Ethereum, P>>;
+
+    impl<P, C> MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>
     where
         P: Provider + Clone + 'static,
         C: Clone + BlockHeaderCommit<EthBlockHeader>,
@@ -249,7 +253,7 @@ pub mod host {
         }
     }
 
-    impl<P> MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<()>>
+    impl<P> MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<()>>
     where
         P: Provider + Clone + 'static,
     {
@@ -265,7 +269,7 @@ pub mod host {
         }
     }
 
-    impl<P> MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<BeaconCommit>>
+    impl<P> MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>
     where
         P: Provider + Clone + 'static,
     {
@@ -280,8 +284,6 @@ pub mod host {
             Ok(input)
         }
     }
-
-    type EthEvmEnvBuilder<P, B> = EvmEnvBuilder<P, EthEvmFactory, &'static EthChainSpec, B>;
 
     // TODO(povw): Based on how this is implemented right now, the caller must provide a chain of block
     // number that can be verified via chaining with SteelVerifier. This means, for example, if there
@@ -291,7 +293,7 @@ pub mod host {
     // provided at the end that is within the EIP-4788 expiration time.
     pub struct MultiblockEthEvmEnvBuilder<P: Provider, B, C> {
         builder: EthEvmEnvBuilder<P, B>,
-        env: MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>,
+        env: MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>,
     }
 
     impl<P: Provider, B, C> MultiblockEthEvmEnvBuilder<P, B, C> {
@@ -301,8 +303,8 @@ pub mod host {
         /// [MultiblockEthEvmEnv] with the same block number, this will be the merged env.
         pub fn insert_env(
             &mut self,
-            mut env: EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>,
-        ) -> anyhow::Result<&mut EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>>
+            mut env: EthEvmEnv<EthHostDb<P>, HostCommit<C>>,
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<C>>>
         {
             let block_number = env.header().number;
             // If the name block is specified multiple times, merge the envs.
@@ -321,7 +323,7 @@ pub mod host {
         /// necessary witness data for the guest to verify chaining of the blocks in the env.
         pub async fn build(
             mut self,
-        ) -> anyhow::Result<MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>>
+        ) -> anyhow::Result<MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>>
         where
             P: Clone + 'static,
             C: Clone + BlockHeaderCommit<EthBlockHeader>,
@@ -341,7 +343,7 @@ pub mod host {
         pub async fn insert(
             &mut self,
             block: impl Into<BlockNumberOrTag>,
-        ) -> anyhow::Result<&mut EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<()>>>
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<()>>>
         {
             let env = self.builder.clone().block_number_or_tag(block.into()).build().await?;
             self.insert_env(env)
@@ -350,7 +352,7 @@ pub mod host {
         pub async fn get_or_insert(
             &mut self,
             block_number: u64,
-        ) -> anyhow::Result<&mut EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<()>>>
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<()>>>
         {
             if self.env.0.contains_key(&block_number) {
                 return Ok(self.env.0.get_mut(&block_number).unwrap());
@@ -364,7 +366,7 @@ pub mod host {
             &mut self,
             block: impl Into<BlockNumberOrTag>,
         ) -> anyhow::Result<
-            &mut EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<BeaconCommit>>,
+            &mut EthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>,
         > {
             let env = self.builder.clone().block_number_or_tag(block.into()).build().await?;
             self.insert_env(env)
@@ -374,7 +376,7 @@ pub mod host {
             &mut self,
             block_number: u64,
         ) -> anyhow::Result<
-            &mut EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<BeaconCommit>>,
+            &mut EthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>,
         > {
             if self.env.0.contains_key(&block_number) {
                 return Ok(self.env.0.get_mut(&block_number).unwrap());
@@ -388,7 +390,7 @@ pub mod host {
             &mut self,
             block: impl Into<BlockNumberOrTag>,
         ) -> anyhow::Result<
-            &mut EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<HistoryCommit>>,
+            &mut EthEvmEnv<EthHostDb<P>, HostCommit<HistoryCommit>>,
         > {
             let env = self.builder.clone().block_number_or_tag(block.into()).build().await?;
             self.insert_env(env)
@@ -398,7 +400,7 @@ pub mod host {
             &mut self,
             block_number: u64,
         ) -> anyhow::Result<
-            &mut EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<HistoryCommit>>,
+            &mut EthEvmEnv<EthHostDb<P>, HostCommit<HistoryCommit>>,
         > {
             if self.env.0.contains_key(&block_number) {
                 return Ok(self.env.0.get_mut(&block_number).unwrap());
