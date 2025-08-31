@@ -261,7 +261,7 @@ impl PovwProveUpdate {
         // Update and save the output state.
         let updated_state =
             state.update(prover.work_log, prove_info.receipt).context("Failed to update state")?;
-        save_state(&updated_state, &self.state_out).context("Failed to save state")?;
+        save_state(&self.state_out, &updated_state).context("Failed to save state")?;
 
         Ok(())
     }
@@ -496,7 +496,7 @@ impl PovwSendUpdate {
 }
 
 /// Load continuation receipt and work log state
-fn load_state(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
+pub fn load_state(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
     let state_path = state_path.as_ref();
     let state_data = fs::read(state_path)
         .with_context(|| format!("Failed to read work log state file: {}", state_path.display()))?;
@@ -507,7 +507,7 @@ fn load_state(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
 }
 
 /// Save the work log update receipt
-fn save_state(state: &State, state_path: impl AsRef<Path>) -> Result<()> {
+pub fn save_state(state_path: impl AsRef<Path>, state: &State) -> Result<()> {
     let state_data = state.encode().context("Failed to serialize state")?;
 
     fs::write(state_path.as_ref(), &state_data)
