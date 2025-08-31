@@ -143,7 +143,7 @@ async fn prove_and_send_update_end_to_end() -> anyhow::Result<()> {
     .assert()
     .success()
     // 4. Confirm that the command logs success
-    .stdout(contains("Work log updated confirmed"))
+    .stdout(contains("Work log update confirmed"))
     .stdout(contains("updated_commit"));
 
     // Additional verification: Load the state and check that the work log commit matches onchain
