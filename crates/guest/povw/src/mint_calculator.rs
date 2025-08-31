@@ -9,8 +9,8 @@ use std::{
     ops::{Add, AddAssign},
 };
 
-use alloy_sol_types::sol;
 use alloy_primitives::{Address, ChainId, U256};
+use alloy_sol_types::sol;
 use risc0_povw::PovwLogId;
 use risc0_steel::{
     ethereum::{EthChainSpec, EthEvmEnv, EthEvmInput},
@@ -25,7 +25,7 @@ pub use crate::guest_artifacts::{
 };
 
 // HACK: Defining a Steel::Commitment symbol here allowed resolution of the Steel.Commitment
-// reference in IPovwMint.sol. 
+// reference in IPovwMint.sol.
 #[expect(non_snake_case)]
 mod Steel {
     pub(super) use risc0_steel::Commitment;

@@ -8,10 +8,11 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
+use crate::verifier::deploy_mock_verifier;
 use alloy::{
     network::EthereumWallet,
     node_bindings::{Anvil, AnvilInstance},
-    primitives::{Address, FixedBytes},
+    primitives::Address,
     providers::{ext::AnvilApi, DynProvider, Provider, ProviderBuilder},
     rpc::types::TransactionReceipt,
     signers::local::PrivateKeySigner,
@@ -47,22 +48,16 @@ use tokio::sync::Mutex;
 // NOTE: This requires running `forge build` before running this test.
 // TODO: Work on making this more robust.
 sol!(
-    #[sol(rpc)]
-    MockRiscZeroVerifier,
-    "../../../out/RiscZeroMockVerifier.sol/RiscZeroMockVerifier.json"
-);
-
-sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc)]
     MockZKC,
-    "../../../out/MockZKC.sol/MockZKC.json"
+    "../../out/MockZKC.sol/MockZKC.json"
 );
 
 sol!(
     #[sol(rpc)]
     MockZKCRewards,
-    "../../../out/MockZKC.sol/MockZKCRewards.json"
+    "../../out/MockZKC.sol/MockZKCRewards.json"
 );
 
 #[derive(Clone)]
@@ -89,16 +84,15 @@ pub async fn test_ctx_with(
 
     // Create wallet and provider
     let signer: PrivateKeySigner = anvil.lock().await.keys()[signer_index].clone().into();
-    let wallet = EthereumWallet::from(signer);
+    let wallet = EthereumWallet::from(signer.clone());
     let provider = ProviderBuilder::new().wallet(wallet).connect_http(rpc_url).erased();
 
     // Deploy PovwAccounting and PovwMint contracts to the Anvil instance, using a MockRiscZeroVerifier and a
     // basic ERC-20.
 
-    // Deploy MockRiscZeroVerifier
-    let mock_verifier =
-        MockRiscZeroVerifier::deploy(provider.clone(), FixedBytes([0xFFu8; 4])).await?;
-    println!("MockRiscZeroVerifier deployed at: {:?}", mock_verifier.address());
+    // Setup verifiers (will use mock in dev mode, real Groth16 otherwise)
+    let mock_verifier = deploy_mock_verifier(provider.clone()).await?;
+    println!("Mock verifier deployed at: {:?}", mock_verifier);
 
     // Deploy MockZKC
     let zkc_contract = MockZKC::deploy(provider.clone()).await?;
@@ -111,7 +105,7 @@ pub async fn test_ctx_with(
     // Deploy PovwAccounting contract (needs verifier, zkc, and log updater ID)
     let povw_accounting_contract = PovwAccounting::deploy(
         provider.clone(),
-        *mock_verifier.address(),
+        mock_verifier,
         *zkc_contract.address(),
         bytemuck::cast::<_, [u8; 32]>(BOUNDLESS_POVW_LOG_UPDATER_ID).into(),
     )
@@ -124,7 +118,7 @@ pub async fn test_ctx_with(
     // Deploy PovwMint contract (needs verifier, povw accounting, mint calculator ID, zkc, zkc rewards)
     let mint_contract = PovwMint::deploy(
         provider.clone(),
-        *mock_verifier.address(),
+        mock_verifier,
         *povw_accounting_contract.address(),
         bytemuck::cast::<_, [u8; 32]>(BOUNDLESS_POVW_MINT_CALCULATOR_ID).into(),
         *zkc_contract.address(),

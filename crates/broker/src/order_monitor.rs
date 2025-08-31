@@ -980,7 +980,7 @@ pub(crate) mod tests {
         Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
         Requirements,
     };
-    use boundless_test_utils::{
+    use boundless_test_utils::market::{
         deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
     };
 

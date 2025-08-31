@@ -391,14 +391,12 @@ impl PovwSendUpdate {
 
         // Get the current work log commit, to determine which update(s) should be applied.
         let onchain_commit =
-            povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(
-                || {
-                    format!(
-                        "Failed to get work log commit for {:x} from {:x}",
-                        state.log_id, self.povw_accounting_address
-                    )
-                },
-            )?;
+            povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(|| {
+                format!(
+                    "Failed to get work log commit for {:x} from {:x}",
+                    state.log_id, self.povw_accounting_address
+                )
+            })?;
 
         // Check if the latest log builder receipt has an updated_commit value equal to what is
         // onchain. If so, the onchain work log is already up to date.

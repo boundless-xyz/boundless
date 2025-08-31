@@ -28,6 +28,7 @@ serde = "1"
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+boundless-test-utils = { workspace = true, features = ["povw"] }
 derive_builder = "0.20.2"
 rand = "0.9"
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }

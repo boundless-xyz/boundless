@@ -30,7 +30,7 @@ use boundless_market::{
     storage::{MockStorageProvider, StorageProvider},
     Deployment,
 };
-use boundless_test_utils::{
+use boundless_test_utils::market::{
     create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_GUEST_PATH, ECHO_ELF,
     ECHO_ID, SET_BUILDER_PATH,
 };

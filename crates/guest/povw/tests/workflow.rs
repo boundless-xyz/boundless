@@ -5,19 +5,16 @@
 //! Integration test demonstrating the full PoVW proving pipeline from work receipts
 //! to smart contract updates using both WorkLogUpdateProver and LogUpdaterProver.
 
-mod common;
-
 use alloy::signers::local::PrivateKeySigner;
 use boundless_povw_guests::log_updater::{prover::LogUpdaterProver, IPovwAccounting};
+use boundless_test_utils::povw::{make_work_claim, test_ctx};
 use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId};
 use risc0_zkvm::{default_prover, FakeReceipt, ProverOpts, VerifierContext};
-
-use common::make_work_claim;
 
 #[tokio::test]
 async fn test_workflow() -> anyhow::Result<()> {
     // Setup test context with smart contracts
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
     let log_id: PovwLogId = signer.address().into();
 

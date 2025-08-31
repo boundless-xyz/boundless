@@ -16,18 +16,18 @@ use boundless_povw_guests::{
         BOUNDLESS_POVW_MINT_CALCULATOR_ID,
     },
 };
-use common::MintOptions;
+use boundless_test_utils::povw::{
+    encode_seal, execute_mint_calculator_guest, test_ctx, test_ctx_with, MintOptions,
+};
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_povw::WorkLog;
 use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
 
-mod common;
-
 #[tokio::test]
 async fn basic() -> anyhow::Result<()> {
     // Setup test context
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
     let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
@@ -69,7 +69,7 @@ async fn basic() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn proportional_rewards_same_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
     let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
@@ -144,7 +144,7 @@ async fn proportional_rewards_same_epoch() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
     let first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Starting epoch: {first_epoch}");
@@ -219,7 +219,7 @@ async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn cross_epoch_mint() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
     let first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Starting epoch: {first_epoch}");
@@ -284,7 +284,7 @@ async fn cross_epoch_mint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_invalid_steel_commitment() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     // Setup a basic work log and epoch
@@ -324,7 +324,7 @@ async fn reject_invalid_steel_commitment() -> anyhow::Result<()> {
 
     let result = ctx
         .povw_mint
-        .mint(mint_journal.abi_encode().into(), common::encode_seal(&receipt)?.into())
+        .mint(mint_journal.abi_encode().into(), encode_seal(&receipt)?.into())
         .send()
         .await;
 
@@ -339,8 +339,8 @@ async fn reject_invalid_steel_commitment() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_wrong_povw_address() -> anyhow::Result<()> {
-    let ctx1 = common::test_ctx().await?;
-    let ctx2 = common::test_ctx_with(ctx1.anvil.clone(), 1).await?;
+    let ctx1 = test_ctx().await?;
+    let ctx2 = test_ctx_with(ctx1.anvil.clone(), 1).await?;
 
     let signer = PrivateKeySigner::random();
     let update = LogBuilderJournal::builder()
@@ -360,7 +360,7 @@ async fn reject_wrong_povw_address() -> anyhow::Result<()> {
     let mint_input = ctx1.build_mint_input(MintOptions::default()).await?;
 
     // Execute the mint calculator guest
-    let mint_journal = common::execute_mint_calculator_guest(&mint_input)?;
+    let mint_journal = execute_mint_calculator_guest(&mint_input)?;
 
     // Assemble a fake receipt and use it to call the mint function on the PovwMint contract.
     let mint_receipt: Receipt = FakeReceipt::new(ReceiptClaim::ok(
@@ -373,7 +373,7 @@ async fn reject_wrong_povw_address() -> anyhow::Result<()> {
     // contract is wrong.
     let result = ctx2
         .povw_mint
-        .mint(mint_journal.abi_encode().into(), common::encode_seal(&mint_receipt)?.into())
+        .mint(mint_journal.abi_encode().into(), encode_seal(&mint_receipt)?.into())
         .send()
         .await;
 
@@ -388,7 +388,7 @@ async fn reject_wrong_povw_address() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_mint_with_only_latter_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let _first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
@@ -436,7 +436,7 @@ async fn reject_mint_with_only_latter_epoch() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
@@ -504,7 +504,7 @@ async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let current_epoch = ctx.zkc.getCurrentEpoch().call().await?;
@@ -541,7 +541,7 @@ async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
 #[tokio::test]
 async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
     // Setup test context
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
     // Post a work log update
     let signer = PrivateKeySigner::random();
@@ -570,7 +570,7 @@ async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
         .await?;
 
     // Execute the mint calculator guest
-    let mint_journal = common::execute_mint_calculator_guest(&mint_input)?;
+    let mint_journal = execute_mint_calculator_guest(&mint_input)?;
 
     // Assemble a fake receipt and use it to call the mint function on the PovwMint contract.
     let mint_receipt: Receipt = FakeReceipt::new(ReceiptClaim::ok(
@@ -582,7 +582,7 @@ async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
     // This should fail as chain spec is wrong.
     let result = ctx
         .povw_mint
-        .mint(mint_journal.abi_encode().into(), common::encode_seal(&mint_receipt)?.into())
+        .mint(mint_journal.abi_encode().into(), encode_seal(&mint_receipt)?.into())
         .send()
         .await;
 
@@ -596,7 +596,7 @@ async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn mint_to_value_recipient() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let value_recipient = PrivateKeySigner::random();
 
@@ -656,7 +656,7 @@ async fn mint_to_value_recipient() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn single_work_log_multiple_recipients() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let recipient1 = PrivateKeySigner::random();
     let recipient2 = PrivateKeySigner::random();
@@ -731,7 +731,7 @@ async fn single_work_log_multiple_recipients() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn multiple_work_logs_same_recipient() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer1 = PrivateKeySigner::random();
     let work_log_signer2 = PrivateKeySigner::random();
     let shared_recipient = PrivateKeySigner::random();
@@ -802,7 +802,7 @@ async fn multiple_work_logs_same_recipient() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn zero_valued_update() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
@@ -873,7 +873,7 @@ async fn zero_valued_update() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
     let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
@@ -980,7 +980,7 @@ async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn filter_empty_no_mints_issued() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
     let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
@@ -1042,7 +1042,7 @@ async fn filter_empty_no_mints_issued() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reward_cap() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let value_recipient = PrivateKeySigner::random();
 
@@ -1111,7 +1111,7 @@ async fn reward_cap() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_incomplete_work_log_processing_across_epochs() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     // === First Epoch - Complete Processing ===
@@ -1187,7 +1187,7 @@ async fn reject_incomplete_work_log_processing_across_epochs() -> anyhow::Result
     println!("Created mint input excluding block {excluded_block}");
 
     // === Execute Mint Calculator - Should Fail ===
-    let result = common::execute_mint_calculator_guest(&mint_input);
+    let result = execute_mint_calculator_guest(&mint_input);
 
     assert!(result.is_err(), "Mint should fail due to incomplete work log processing");
 

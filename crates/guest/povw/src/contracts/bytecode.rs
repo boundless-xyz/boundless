@@ -13,4 +13,3 @@ alloy_sol_types::sol! {
         constructor(address verifier, address povwAccounting, bytes32 mintCalculatorId, address zkc, address zkcRewards) {}
     }
 }
-

@@ -649,7 +649,7 @@ mod tests {
         },
         input::GuestEnv,
     };
-    use boundless_test_utils::{
+    use boundless_test_utils::market::{
         deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
         ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID,
         SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH,

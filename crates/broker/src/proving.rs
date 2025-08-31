@@ -456,7 +456,7 @@ mod tests {
     use boundless_market::contracts::{
         Offer, Predicate, PredicateType, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
-    use boundless_test_utils::{ECHO_ELF, ECHO_ID};
+    use boundless_test_utils::market::{ECHO_ELF, ECHO_ID};
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
