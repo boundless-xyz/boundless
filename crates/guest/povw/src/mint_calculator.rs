@@ -218,14 +218,6 @@ pub mod host {
         zkc::{IZKCRewards, IZKC},
     };
 
-    alloy_sol_types::sol! {
-        #[sol(rpc)]
-        interface IPovwMint {
-            function mint(bytes calldata journalBytes, bytes calldata seal) external;
-            function lastCommit(address) external view returns (bytes32);
-        }
-    }
-
     impl<P, C> MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>
     where
         P: Provider + Clone + 'static,

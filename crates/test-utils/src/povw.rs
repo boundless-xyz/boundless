@@ -30,7 +30,7 @@ use boundless_povw_guests::{
         LogBuilderJournal, BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID,
     },
     mint_calculator::{
-        self, host::IPovwMint::IPovwMintInstance, WorkLogFilter,
+        self, IPovwMint::IPovwMintInstance, WorkLogFilter,
         BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
     },
 };
@@ -434,6 +434,7 @@ pub fn encode_seal(receipt: &risc0_zkvm::Receipt) -> anyhow::Result<Vec<u8>> {
 }
 
 // Execute the log updater guest with the given input
+// TODO(povw): Replace this with usage of LogUpdaterProver (in dev mode)?
 pub fn execute_log_updater_guest(
     input: &log_updater::Input,
 ) -> anyhow::Result<log_updater::Journal> {

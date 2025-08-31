@@ -5,7 +5,6 @@ members = [
     "crates/bench",
     "crates/boundless-cli",
     "crates/boundless-market",
-    "crates/test-utils",
     "crates/broker",
     "crates/broker-stress",
     "crates/distributor",
@@ -17,6 +16,7 @@ members = [
     "crates/order-generator",
     "crates/order-stream",
     "crates/slasher",
+    "crates/test-utils",
     "documentation/doc-test",
 ]
 
