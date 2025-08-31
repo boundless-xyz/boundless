@@ -1,0 +1,181 @@
+use std::{borrow::Borrow, fs, path::PathBuf};
+
+use anyhow::{bail, ensure, Context, Result};
+use clap::Args;
+use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId, WorkLog};
+use risc0_zkvm::{default_prover, ProverOpts};
+
+use super::{State, WorkReceipt};
+
+/// Compress a directory of work receipts into a work log update.
+#[non_exhaustive]
+#[derive(Args, Clone, Debug)]
+pub struct PovwProveUpdate {
+    /// Serialized work receipt files to add to the work log.
+    #[arg(required = true, requires = "state")]
+    work_receipts: Vec<PathBuf>,
+
+    /// Work log identifier.
+    ///
+    /// The work log identifier is a 160-bit public key hash (i.e. an Ethereum address) which is
+    /// used to identify the work log. A work log is a collection of work claims, including their
+    /// value and nonces. A single work log can only include a nonce (and so a receipt) once.
+    ///
+    /// A prover may have one or more work logs, and may set the work log ID equal to their onchain
+    /// prover address, or to a new address just used as the work log ID.
+    #[arg(short, long)]
+    log_id: PovwLogId,
+
+    /// Output file for the Log Builder receipt and work log state.
+    #[arg(short = 'o', long)]
+    state_out: PathBuf,
+
+    /// Continuation state and receipt from a previous log update.
+    ///
+    /// Set this flag to the output file from a previous run to update an existing work log.
+    /// Either this flag or --new must be specified.
+    #[arg(short = 'i', long, group = "state")]
+    state_in: Option<PathBuf>,
+
+    /// Create a new work log, adding the given receipts to it.
+    ///
+    /// Either this flag or --state-in must be specified.
+    #[arg(short, long, group = "state")]
+    new: bool,
+}
+
+impl PovwProveUpdate {
+    /// Run the [PovwProveUpdate] command.
+    pub async fn run(&self) -> Result<()> {
+        tracing::info!("Starting PoVW prove-update for log ID: {:x}", self.log_id);
+
+        // Set up the work log update prover
+        let prover_builder = WorkLogUpdateProver::builder()
+            .prover(default_prover())
+            .prover_opts(ProverOpts::succinct())
+            .log_id(self.log_id)
+            .log_builder_program(risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ELF)
+            .context("Failed to build WorkLogUpdateProver")?;
+
+        // Load the continuation state, if provided.
+        let state = if let Some(continuation_path) = &self.state_in {
+            let state = State::load(continuation_path)?;
+            tracing::info!(
+                "Loaded work log state from {} with commit {}",
+                continuation_path.display(),
+                state.work_log.commit()
+            );
+            state
+        } else {
+            tracing::info!("Initializing a new work log with ID {:x}", self.log_id);
+            State::new(self.log_id)
+        };
+
+        // Add the initial state to the prover.
+        let prover_builder = if !state.work_log.is_empty() {
+            let Some(receipt) = state.log_builder_receipts.last() else {
+                bail!("State contains non-empty work log and no log builder receipts")
+            };
+            prover_builder
+                .work_log(state.work_log.clone(), receipt.clone())
+                .context("Failed to build prover with given state")?
+        } else {
+            prover_builder
+        };
+
+        let mut prover = prover_builder.build().context("Failed to build WorkLogUpdateProver")?;
+
+        // Load work receipt files, filtering out receipt files that we cannot add to the log.
+        let work_receipts = self
+            .load_work_receipts(&prover.work_log)
+            .filter_map(|result| {
+                result.map_err(|err| tracing::warn!("{:?}", err.context("Skipping receipt"))).ok()
+            })
+            .collect::<Vec<_>>();
+        tracing::info!("Loaded {} work receipts", work_receipts.len());
+
+        ensure!(!work_receipts.is_empty(), "No work receipts will be processed");
+
+        // Prove the work log update
+        let prove_info =
+            prover.prove_update(work_receipts).context("Failed to prove work log update")?;
+
+        // Update and save the output state.
+        let updated_state =
+            state.update(prover.work_log, prove_info.receipt).context("Failed to update state")?;
+        updated_state.save(&self.state_out).context("Failed to save state")?;
+
+        Ok(())
+    }
+
+    /// Load work receipts from the specified directory
+    fn load_work_receipts<'a>(
+        &self,
+        work_log: &'a WorkLog,
+    ) -> impl Iterator<Item = anyhow::Result<WorkReceipt>> + use<'a, '_> {
+        self.work_receipts.iter().map(|path| {
+            if !path.is_file() {
+                bail!("Work receipt path is not a file: {}", path.display())
+            }
+
+            // Check for receipt file extensions
+            let work_receipt = self
+                .load_work_receipt_file(path)
+                .with_context(|| format!("Failed to load receipt from {}", path.display()))?;
+            tracing::info!("Loaded receipt from: {}", path.display());
+
+            self.check_work_receipt(work_log, work_receipt)
+                .with_context(|| format!("Receipt from path {}", path.display()))
+        })
+    }
+
+    /// Load a single receipt file
+    fn load_work_receipt_file(
+        &self,
+        path: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<WorkReceipt> {
+        let path = path.as_ref();
+        let data =
+            fs::read(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
+
+        // Deserialize as WorkReceipt
+        // TODO: Provide a common library implementation of encoding that can be used by Bento,
+        // r0vm, and this crate. bincode works, but is fragile to any changes so e.g. adding a
+        // version number would help.
+        let receipt: WorkReceipt = bincode::deserialize(&data)
+            .with_context(|| format!("Failed to deserialize receipt from: {}", path.display()))?;
+
+        Ok(receipt)
+    }
+
+    fn check_work_receipt<T: Borrow<WorkReceipt>>(
+        &self,
+        work_log: &WorkLog,
+        work_receipt: T,
+    ) -> anyhow::Result<T> {
+        let work_claim = work_receipt
+            .borrow()
+            .claim()
+            .as_value()
+            .context("Loaded receipt has a pruned claim")?
+            .work
+            .as_value()
+            .context("Loaded receipt has a pruned work claim")?
+            .clone();
+
+        // NOTE: If nonce_max does not have the same log ID as nonce_min, the exec will fail.
+        ensure!(
+            work_claim.nonce_min.log == self.log_id,
+            "Receipt has a log ID that does not match the work log: receipt: {:x}, work log: {:x}",
+            work_claim.nonce_min.log,
+            self.log_id
+        );
+
+        ensure!(
+            !work_log.jobs.contains_key(&work_claim.nonce_min.job),
+            "Receipt has job ID that is already in the work log: {}",
+            work_claim.nonce_min.job,
+        );
+        Ok(work_receipt)
+    }
+}
