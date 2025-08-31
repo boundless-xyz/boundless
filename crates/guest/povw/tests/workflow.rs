@@ -8,7 +8,7 @@
 mod common;
 
 use alloy::signers::local::PrivateKeySigner;
-use boundless_povw_guests::log_updater::{prover::LogUpdaterProver};
+use boundless_povw_guests::log_updater::{prover::LogUpdaterProver, IPovwAccounting};
 use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId};
 use risc0_zkvm::{default_prover, FakeReceipt, ProverOpts, VerifierContext};
 
@@ -63,10 +63,7 @@ async fn test_workflow() -> anyhow::Result<()> {
     let logs = tx_receipt.logs();
     let work_log_updated_events = logs
         .iter()
-        .filter_map(|log| {
-            log.log_decode::<boundless_povw_guests::log_updater::IPovwAccounting::WorkLogUpdated>()
-                .ok()
-        })
+        .filter_map(|log| log.log_decode::<IPovwAccounting::WorkLogUpdated>().ok())
         .collect::<Vec<_>>();
 
     assert_eq!(work_log_updated_events.len(), 1, "Expected exactly one WorkLogUpdated event");
