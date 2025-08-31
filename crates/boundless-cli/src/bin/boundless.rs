@@ -1159,8 +1159,8 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
         // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
         // risc0-ethereum. Add a Selector::inclusion_latest() function to risc0-ethereum and use it
         // here.
-        ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_7 as u32),
-        ProofType::Groth16 => requirements.selector(Selector::Groth16V2_2 as u32),
+        ProofType::Inclusion => requirements.selector(Selector::set_inclusion_latest() as u32),
+        ProofType::Groth16 => requirements.selector(Selector::groth16_latest() as u32),
         ProofType::Any => &mut requirements,
         ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty),
     };
@@ -2239,7 +2239,7 @@ mod tests {
         );
 
         // Explicitly set the selector to a compatible value for the test
-        // In dev mode, instead of Groth16V2_2, use FakeReceipt
+        // In dev mode, instead of Groth16, use FakeReceipt
         request.requirements.selector = FixedBytes::from(Selector::FakeReceipt as u32);
 
         // Dump the request to a tmp file; tmp is deleted on drop.

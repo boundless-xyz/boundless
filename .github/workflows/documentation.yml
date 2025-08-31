@@ -60,7 +60,7 @@ jobs:
           VERCEL_ORG_ID: team_x2TOoPBcvZhOcs3NOcG4IfAo
           VERCEL_PROJECT_ID: prj_52J4bKnmBJxkhM6DQIxXBPsI2L7N
         run: |
-          vercel link --confirm --token=${{ secrets.VERCEL_TOKEN }} --yes
+          vercel link --token=${{ secrets.VERCEL_TOKEN }} --yes
 
       - name: Deploy to Vercel
         id: deploy
