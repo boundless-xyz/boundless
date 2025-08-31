@@ -68,6 +68,12 @@ contract PoVWScript is Script {
         }
         return deployer;
     }
+
+    /// @notice Gets the current git commit hash from environment variable.
+    function getCurrentCommit() internal view returns (string memory) {
+        string memory commit = vm.envOr("CURRENT_COMMIT", string("unknown"));
+        return commit;
+    }
 }
 
 
@@ -116,10 +122,7 @@ contract UpgradePoVWAccounting is PoVWScript {
         console2.log("Upgraded PovwAccounting impl from %s to %s", currentImplementation, newImplementation);
 
         // Get current git commit hash
-        string[] memory gitArgs = new string[](2);
-        gitArgs[0] = "git";
-        gitArgs[1] = "rev-parse HEAD";
-        string memory currentCommit = string(vm.ffi(gitArgs));
+        string memory currentCommit = getCurrentCommit();
 
         string[] memory args = new string[](8);
         args[0] = "python3";
@@ -133,6 +136,13 @@ contract UpgradePoVWAccounting is PoVWScript {
 
         vm.ffi(args);
         console2.log("Updated PovwAccounting deployment commit: %s", currentCommit);
+        
+        // Check for uncommitted changes warning
+        string memory hasUnstaged = vm.envOr("HAS_UNSTAGED_CHANGES", string(""));
+        string memory hasStaged = vm.envOr("HAS_STAGED_CHANGES", string(""));
+        if (bytes(hasUnstaged).length > 0 || bytes(hasStaged).length > 0) {
+            console2.log("WARNING: Upgrade was done with uncommitted changes!");
+        }
     }
 }
 
@@ -184,10 +194,7 @@ contract UpgradePoVWMint is PoVWScript {
         console2.log("Upgraded PovwMint impl from %s to %s", currentImplementation, newImplementation);
 
         // Get current git commit hash
-        string[] memory gitArgs = new string[](2);
-        gitArgs[0] = "git";
-        gitArgs[1] = "rev-parse HEAD";
-        string memory currentCommit = string(vm.ffi(gitArgs));
+        string memory currentCommit = getCurrentCommit();
 
         string[] memory args = new string[](8);
         args[0] = "python3";
@@ -201,6 +208,13 @@ contract UpgradePoVWMint is PoVWScript {
 
         vm.ffi(args);
         console2.log("Updated PovwMint deployment commit: %s", currentCommit);
+        
+        // Check for uncommitted changes warning
+        string memory hasUnstaged = vm.envOr("HAS_UNSTAGED_CHANGES", string(""));
+        string memory hasStaged = vm.envOr("HAS_STAGED_CHANGES", string(""));
+        if (bytes(hasUnstaged).length > 0 || bytes(hasStaged).length > 0) {
+            console2.log("WARNING: Upgrade was done with uncommitted changes!");
+        }
     }
 }
 

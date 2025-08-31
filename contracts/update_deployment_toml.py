@@ -85,6 +85,9 @@ except KeyError:
 # Apply updates only for explicitly provided values
 for key, value in field_mapping.items():
     if value is not None:
+        # Strip whitespace from the value
+        if isinstance(value, str):
+            value = value.strip()
         section[key] = value
         print(f"Updated '{key}' to '{value}' in [deployment.{CHAIN_KEY}]")
 

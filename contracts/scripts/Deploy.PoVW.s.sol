@@ -24,6 +24,12 @@ contract DeployPoVW is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG_FILE = "contracts/deployment.toml";
 
+    /// @notice Gets the current git commit hash from environment variable.
+    function getCurrentCommit() internal view returns (string memory) {
+        string memory commit = vm.envOr("CURRENT_COMMIT", string("unknown"));
+        return commit;
+    }
+
     function run() external {
         // load ENV variables first
         uint256 deployerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
@@ -94,13 +100,7 @@ contract DeployPoVW is Script, RiscZeroCheats {
         address zkcAddress;
         address zkcRewardsAddress;
         
-        if (deploymentConfig.zkc != address(0) && deploymentConfig.zkcStakingRewards != address(0)) {
-            // Use existing ZKC contracts
-            zkcAddress = deploymentConfig.zkc;
-            zkcRewardsAddress = deploymentConfig.zkcStakingRewards;
-            console2.log("Using existing ZKC at", zkcAddress);
-            console2.log("Using existing ZKCStakingRewards at", zkcRewardsAddress);
-        } else if (devMode) {
+        if (devMode) {
             // Deploy mock ZKC contracts only in dev mode
             MockZKC mockZKC = new MockZKC();
             MockZKCRewards mockZKCRewards = new MockZKCRewards();
@@ -108,8 +108,15 @@ contract DeployPoVW is Script, RiscZeroCheats {
             zkcAddress = address(mockZKC);
             zkcRewardsAddress = address(mockZKCRewards);
             
+            console2.log("In DEV MODE. Redeploying Mock ZKC and Mock ZKCRewards");
             console2.log("Deployed MockZKC to", zkcAddress);
             console2.log("Deployed MockZKCRewards to", zkcRewardsAddress);
+        } else if (deploymentConfig.zkc != address(0) && deploymentConfig.zkcStakingRewards != address(0)) {
+            // Use existing ZKC contracts
+            zkcAddress = deploymentConfig.zkc;
+            zkcRewardsAddress = deploymentConfig.zkcStakingRewards;
+            console2.log("Using existing ZKC at", zkcAddress);
+            console2.log("Using existing ZKCStakingRewards at", zkcRewardsAddress);
         } else {
             revert("ZKC contracts must be specified in deployment.toml, or RISC0_DEV_MODE must be set");
         }
@@ -182,11 +189,8 @@ contract DeployPoVW is Script, RiscZeroCheats {
         console2.log("Updating deployment.toml with PoVW contract addresses and image IDs");
         
         // Get current git commit hash
-        string[] memory gitArgs = new string[](2);
-        gitArgs[0] = "git";
-        gitArgs[1] = "rev-parse HEAD";
-        string memory currentCommit = string(vm.ffi(gitArgs));
-        
+        string memory currentCommit = getCurrentCommit();
+
         string[] memory args = new string[](26);
         args[0] = "python3";
         args[1] = "contracts/update_deployment_toml.py";
@@ -225,9 +229,14 @@ contract DeployPoVW is Script, RiscZeroCheats {
         
         if (devMode) {
             console2.log("");
-            console2.log("WARNING: RISC0_DEV_MODE was enabled - deployed with mock contracts and image IDs");
-            console2.log("  - Mock verifier, ZKC contracts, and test image IDs were used");
-            console2.log("  - This deployment is suitable for development and testing only");
+            console2.log("WARNING: RISC0_DEV_MODE was enabled - deployed with mock verifier, ZKC contracts, and test image IDs");
+        }
+        
+        // Check for uncommitted changes warning
+        string memory hasUnstaged = vm.envOr("HAS_UNSTAGED_CHANGES", string(""));
+        string memory hasStaged = vm.envOr("HAS_STAGED_CHANGES", string(""));
+        if (bytes(hasUnstaged).length > 0 || bytes(hasStaged).length > 0) {
+            console2.log("WARNING: Deployment was done with uncommitted changes!");
         }
     }
 }

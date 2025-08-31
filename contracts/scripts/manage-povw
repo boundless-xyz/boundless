@@ -343,6 +343,30 @@ EOF
 # Run from the repo root for consistency.
 cd ${REPO_ROOT_DIR:?}
 
+# Check for clean working directory for deployments and upgrades
+check_clean_working_directory() {
+    local command="$1"
+    
+    # Only check for deployment and upgrade commands
+    case "$command" in
+        DeployPoVW|UpgradePoVWAccounting|UpgradePoVWMint)
+            if ! git diff --quiet --exit-code; then
+                export HAS_UNSTAGED_CHANGES="true"
+                export UNSTAGED_FILES="$(git diff --name-only | tr '\n' ' ')"
+            fi
+            
+            if ! git diff --quiet --cached --exit-code; then
+                export HAS_STAGED_CHANGES="true" 
+                export STAGED_FILES="$(git diff --cached --name-only | tr '\n' ' ')"
+            fi
+            ;;
+    esac
+}
+
+# Get current git commit hash for deployment tracking
+CURRENT_COMMIT=$(git rev-parse --short HEAD)
+export CURRENT_COMMIT
+
 # Create reference build for upgrade commands
 if [ $# -gt 0 ]; then
     case "$1" in
@@ -375,5 +399,7 @@ fi
 if [ $# -eq 0 ]; then
     forge_script "help"
 else
+    # Check for clean working directory before deployment/upgrade commands
+    check_clean_working_directory "$1"
     forge_script "$@"
 fi
