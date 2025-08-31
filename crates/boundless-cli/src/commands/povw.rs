@@ -69,18 +69,18 @@ impl PovwCommands {
 #[non_exhaustive]
 pub struct State {
     /// Work log identifier associated with the work log in this state.
-    log_id: PovwLogId,
+    pub log_id: PovwLogId,
     /// A representation of the Merkle tree of nonces consumed as part of this work log.
-    work_log: WorkLog,
+    pub work_log: WorkLog,
     /// An ordered list of receipts for updates to the work log. The last receipt in this list will
     /// be used to continue updating the work log. These receipts are used to verify the state
     /// loaded into the guest as part of the continuation of the log builder.
     ///
     /// A list of receipts is kept to ensure that records are not lost that could prevent the
     /// prover from completing the onchain log update and minting operations.
-    log_builder_receipts: Vec<Receipt>,
+    pub log_builder_receipts: Vec<Receipt>,
     /// Time at which this state was last updated.
-    updated_at: SystemTime,
+    pub updated_at: SystemTime,
 }
 
 /// A one-byte version number tacked on to the front of the encoded state for cross-version compat.
@@ -363,22 +363,23 @@ pub struct PovwSendUpdate {
 impl PovwSendUpdate {
     /// Run the [PovwSendUpdate] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let signer = global_config.require_private_key()?;
+        let tx_signer = global_config.require_private_key()?;
+        let work_log_signer = self.work_log_private_key.as_ref().unwrap_or(&tx_signer);
         let rpc_url = global_config.require_rpc_url()?;
 
         // Load the state and check to make sure the private key matches.
         let state = load_state(&self.state)
             .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
         ensure!(
-            Address::from(state.log_id) == signer.address(),
+            Address::from(state.log_id) == work_log_signer.address(),
             "Signer does not match the state log ID: signer: {}, state: {}",
-            signer.address(),
+            work_log_signer.address(),
             state.log_id
         );
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
-            .wallet(signer.clone())
+            .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
@@ -457,7 +458,7 @@ impl PovwSendUpdate {
             // TODO(povw): Provide more info here.
             tracing::info!("Proving work log update");
             let prove_info = prover
-                .prove_update(receipt, &signer)
+                .prove_update(receipt, work_log_signer)
                 .await
                 .context("Failed to prove authorized log update")?;
 
