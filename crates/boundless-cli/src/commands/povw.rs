@@ -35,7 +35,8 @@ use risc0_povw::{
     prover::WorkLogUpdateProver, PovwLogId, WorkLog,
 };
 use risc0_zkvm::{
-    default_prover, Digest, GenericReceipt, ProverOpts, Receipt, ReceiptClaim, WorkClaim,
+    default_prover, Digest, GenericReceipt, ProverOpts, Receipt, ReceiptClaim, VerifierContext,
+    WorkClaim,
 };
 use serde::{Deserialize, Serialize};
 
@@ -62,6 +63,8 @@ impl PovwCommands {
         }
     }
 }
+
+// TODO(povw): Adjust log levels
 
 /// State of the work log update process. This is stored as a file between executions of these
 /// commands to allow continuation of building a work log.
@@ -163,6 +166,109 @@ impl State {
         self.updated_at = SystemTime::now();
         Ok(self)
     }
+
+    /// Validate the consistency of this state by checking invariants.
+    ///
+    /// See [Self::validate_with_ctx].
+    pub fn validate(&self) -> anyhow::Result<()> {
+        self.validate_with_ctx(&VerifierContext::default())
+    }
+
+    /// Validate the consistency of this state by checking invariants.
+    ///
+    /// This method verifies:
+    /// 1. All receipts in `log_builder_receipts` verify against the expected image ID
+    /// 2. The journals form a proper chain with correct commit progression
+    /// 3. All log IDs match the state's log ID
+    ///
+    /// Note that if the state contains many receipts, this could take a non-trivial amount of
+    /// time to execute.
+    ///
+    /// The given verifier context is used for receipt verification.
+    pub fn validate_with_ctx(&self, ctx: &VerifierContext) -> anyhow::Result<()> {
+        // If there are no receipts, the state should have an empty work log
+        if self.log_builder_receipts.is_empty() {
+            ensure!(
+                self.work_log.is_empty(),
+                "State with no receipts should have an empty work log"
+            );
+            return Ok(());
+        }
+
+        // Validate the journal chain
+        let mut expected_commit = WorkLog::EMPTY.commit();
+        for (i, receipt) in self.log_builder_receipts.iter().enumerate() {
+            receipt
+                .verify_with_context(ctx, RISC0_POVW_LOG_BUILDER_ID)
+                .with_context(|| format!("Receipt {} failed verification against image ID", i))?;
+
+            let journal = LogBuilderJournal::decode(&receipt.journal)
+                .with_context(|| format!("Failed to decode journal from receipt {}", i))?;
+
+            if i == 0 {
+                ensure!(
+                    journal.initial_commit == WorkLog::EMPTY.commit(),
+                    "First receipt initial commit should equal an empty work log commit. Expected: {}, Found: {}",
+                    WorkLog::EMPTY.commit(),
+                    journal.initial_commit
+                );
+            } else {
+                ensure!(
+                    journal.initial_commit == expected_commit,
+                    "Receipt {} initial_commit should match previous receipt's updated_commit. Expected: {}, Found: {}",
+                    i,
+                    expected_commit,
+                    journal.initial_commit
+                );
+            }
+
+            ensure!(
+                journal.work_log_id == self.log_id,
+                "Receipt {} log ID should match state log ID. Expected: {:x}, Found: {:x}",
+                i,
+                self.log_id,
+                journal.work_log_id
+            );
+
+            // Set up expected initial commit for next iteration
+            expected_commit = journal.updated_commit;
+        }
+
+        // Verify that the final commit is equal to the work log commit.
+        ensure!(
+            expected_commit == self.work_log.commit(),
+            "Final receipt updated commit should equal the current work log commit. Expected: {}, Found: {}",
+            self.work_log.commit(),
+            expected_commit
+        );
+        Ok(())
+    }
+
+    /// Load work log state from the given path.
+    pub fn load(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
+        let state_path = state_path.as_ref();
+        let state_data = fs::read(state_path).with_context(|| {
+            format!("Failed to read work log state file: {}", state_path.display())
+        })?;
+
+        // TODO(povw): Apply some sanity checks here?
+        State::decode(&state_data)
+            .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
+    }
+
+    /// Save the work log state to the given path.
+    pub fn save(&self, state_path: impl AsRef<Path>) -> Result<()> {
+        let state_data = self.encode().context("Failed to serialize state")?;
+
+        fs::write(state_path.as_ref(), &state_data).with_context(|| {
+            format!("Failed to write state to {}", state_path.as_ref().display())
+        })?;
+
+        tracing::info!("Successfully saved work log state: {}", state_path.as_ref().display());
+        tracing::info!("Updated commit: {}", self.work_log.commit());
+
+        Ok(())
+    }
 }
 
 /// Compress a directory of work receipts into a work log update.
@@ -217,7 +323,7 @@ impl PovwProveUpdate {
 
         // Load the continuation state, if provided.
         let state = if let Some(continuation_path) = &self.state_in {
-            let state = load_state(continuation_path)?;
+            let state = State::load(continuation_path)?;
             tracing::info!(
                 "Loaded work log state from {} with commit {}",
                 continuation_path.display(),
@@ -261,7 +367,7 @@ impl PovwProveUpdate {
         // Update and save the output state.
         let updated_state =
             state.update(prover.work_log, prove_info.receipt).context("Failed to update state")?;
-        save_state(&self.state_out, &updated_state).context("Failed to save state")?;
+        updated_state.save(&self.state_out).context("Failed to save state")?;
 
         Ok(())
     }
@@ -368,7 +474,7 @@ impl PovwSendUpdate {
         let rpc_url = global_config.require_rpc_url()?;
 
         // Load the state and check to make sure the private key matches.
-        let state = load_state(&self.state)
+        let state = State::load(&self.state)
             .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
@@ -494,28 +600,4 @@ impl PovwSendUpdate {
 
         Ok(())
     }
-}
-
-/// Load continuation receipt and work log state
-pub fn load_state(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
-    let state_path = state_path.as_ref();
-    let state_data = fs::read(state_path)
-        .with_context(|| format!("Failed to read work log state file: {}", state_path.display()))?;
-
-    // TODO(povw): Apply some sanity checks here?
-    State::decode(&state_data)
-        .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
-}
-
-/// Save the work log update receipt
-pub fn save_state(state_path: impl AsRef<Path>, state: &State) -> Result<()> {
-    let state_data = state.encode().context("Failed to serialize state")?;
-
-    fs::write(state_path.as_ref(), &state_data)
-        .with_context(|| format!("Failed to write state to {}", state_path.as_ref().display()))?;
-
-    tracing::info!("Successfully saved work log state: {}", state_path.as_ref().display());
-    tracing::info!("Updated commit: {}", state.work_log.commit());
-
-    Ok(())
 }

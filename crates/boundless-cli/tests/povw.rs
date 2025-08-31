@@ -4,11 +4,11 @@ use std::path::Path;
 
 use alloy::signers::local::PrivateKeySigner;
 use assert_cmd::Command;
-use boundless_cli::commands::povw::load_state;
+use boundless_cli::commands::povw::State;
 use boundless_test_utils::povw::{make_work_claim, test_ctx};
 use predicates::str::contains;
 use risc0_povw::PovwLogId;
-use risc0_zkvm::{FakeReceipt, GenericReceipt, ReceiptClaim, WorkClaim};
+use risc0_zkvm::{FakeReceipt, GenericReceipt, ReceiptClaim, VerifierContext, WorkClaim};
 use tempfile::TempDir;
 
 /// Test that the PoVW prove-update command shows help correctly.
@@ -56,8 +56,8 @@ fn prove_update_basic() -> anyhow::Result<()> {
     .assert()
     .success();
 
-    // Verify state file was created
-    assert!(state_path.exists(), "State file should be created");
+    // Verify state file was created and is valid.
+    State::load(&state_path)?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // 4. Make another receipt and save it to the temp dir
     let receipt2_path = temp_path.join("receipt2.bin");
@@ -82,14 +82,15 @@ fn prove_update_basic() -> anyhow::Result<()> {
     .success();
 
     // Verify updated state file was created
-    assert!(updated_state_path.exists(), "Updated state file should be created");
+    State::load(&updated_state_path)?
+        .validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     Ok(())
 }
 
 /// End-to-end test that proves a work log update and sends it to a local Anvil chain.
 #[tokio::test]
-async fn prove_and_send_update_end_to_end() -> anyhow::Result<()> {
+async fn prove_and_send_update() -> anyhow::Result<()> {
     // 1. Set up a local Anvil node with the required contracts
     let ctx = test_ctx().await?;
 
@@ -124,8 +125,8 @@ async fn prove_and_send_update_end_to_end() -> anyhow::Result<()> {
     .assert()
     .success();
 
-    // Verify state file was created
-    assert!(state_path.exists(), "State file should be created");
+    // Verify state file was created and is valid.
+    State::load(&state_path)?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // 3. Use the send-update command to post an update to the PoVW accounting contract
     let mut cmd = Command::cargo_bin("boundless")?;
@@ -147,7 +148,8 @@ async fn prove_and_send_update_end_to_end() -> anyhow::Result<()> {
     .stdout(contains("updated_commit"));
 
     // Additional verification: Load the state and check that the work log commit matches onchain
-    let state = load_state(&state_path)?;
+    let state = State::load(&state_path)?;
+    state.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
     let expected_commit = state.work_log.commit();
     let onchain_commit = ctx.povw_accounting.workLogCommit(log_id.into()).call().await?;
 
@@ -161,7 +163,12 @@ async fn prove_and_send_update_end_to_end() -> anyhow::Result<()> {
 }
 
 /// Make a fake work receipt with the given log ID and a random job number, encode it, and save it to a file.
-fn make_fake_work_receipt_file(log_id: PovwLogId, value: u64, segments: u32, path: impl AsRef<Path>) -> anyhow::Result<()> {
+fn make_fake_work_receipt_file(
+    log_id: PovwLogId,
+    value: u64,
+    segments: u32,
+    path: impl AsRef<Path>,
+) -> anyhow::Result<()> {
     let work_claim = make_work_claim((log_id, rand::random()), segments, value)?; // 10 segments, 1000 value
     let work_receipt: GenericReceipt<WorkClaim<ReceiptClaim>> = FakeReceipt::new(work_claim).into();
     std::fs::write(path.as_ref(), bincode::serialize(&work_receipt)?)?;
