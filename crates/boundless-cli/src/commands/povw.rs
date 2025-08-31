@@ -485,7 +485,7 @@ impl PovwSendUpdate {
 
             if let Some(event) = work_log_updated_event {
                 let data = event.inner.data;
-                tracing::info!(updated_commit = %data.updatedCommit, update_value = data.updateValue.to::<u64>(), "Work log updated");
+                tracing::info!(updated_commit = %data.updatedCommit, update_value = data.updateValue.to::<u64>(), "Work log update confirmed");
             } else {
                 tracing::info!("Work log updated confirmed");
                 tracing::warn!("No WorkLogUpdated event in transaction receipt");

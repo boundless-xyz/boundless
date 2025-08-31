@@ -53,9 +53,10 @@ name = "boundless-ffi"
 assert_cmd = "2.0"
 assert_fs = "1.1"
 boundless-market = { workspace = true }
-boundless-test-utils = { workspace = true }
+boundless-test-utils = { workspace = true, features = ["povw"] }
 order-stream = { workspace = true }
 predicates = "3.1"
+rand = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tempfile = { workspace = true }
 tracing-test = { workspace = true }

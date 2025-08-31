@@ -2625,6 +2625,7 @@ dependencies = [
  "num_enum",
  "order-stream",
  "predicates",
+ "rand 0.9.2",
  "reqwest",
  "risc0-aggregation",
  "risc0-ethereum-contracts",
