@@ -199,7 +199,9 @@ impl AddAssign for FixedPoint {
 
 #[cfg(feature = "host")]
 pub mod host {
-    use alloy_provider::Provider;
+    use std::{future::Future};
+
+    use alloy_provider::{Provider};
     use anyhow::Context;
     use risc0_steel::{
         alloy::network::Ethereum,
@@ -296,7 +298,73 @@ pub mod host {
         env: MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>,
     }
 
+    /// A trait used to capture the shared behavior of the [EvmEnvBuilder] instantiations with
+    /// different commitment types.
+    pub trait EnvBuilder {
+        type Env;
+        type Error;
+
+        fn build(self) -> impl Future<Output = Result<Self::Env, Self::Error>>;
+    }
+
+    impl<P: Provider> EnvBuilder for EthEvmEnvBuilder<P, ()> {
+        type Env = EthEvmEnv<EthHostDb<P>, HostCommit<()>>;
+        type Error = anyhow::Error;
+
+        async fn build(self) -> Result<Self::Env, Self::Error> {
+            self.build().await
+        }
+    }
+
+    impl<P: Provider> EnvBuilder for EthEvmEnvBuilder<P, Beacon> {
+        type Env = EthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>;
+        type Error = anyhow::Error;
+
+        async fn build(self) -> Result<Self::Env, Self::Error> {
+            self.build().await
+        }
+    }
+
+    impl<P: Provider> EnvBuilder for EthEvmEnvBuilder<P, History> {
+        type Env = EthEvmEnv<EthHostDb<P>, HostCommit<HistoryCommit>>;
+        type Error = anyhow::Error;
+
+        async fn build(self) -> Result<Self::Env, Self::Error> {
+            self.build().await
+        }
+    }
+
     impl<P: Provider, B, C> MultiblockEthEvmEnvBuilder<P, B, C> {
+        pub async fn insert(
+            &mut self,
+            block: impl Into<BlockNumberOrTag>,
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<C>>>
+        where
+            P: Clone,
+            B: Clone,
+            EthEvmEnvBuilder<P, B>:
+                EnvBuilder<Env = EthEvmEnv<EthHostDb<P>, HostCommit<C>>, Error = anyhow::Error>,
+        {
+            let env = self.builder.clone().block_number_or_tag(block.into()).build().await?;
+            self.insert_env(env)
+        }
+
+        pub async fn get_or_insert(
+            &mut self,
+            block_number: u64,
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<C>>>
+        where
+            P: Clone,
+            B: Clone,
+            EthEvmEnvBuilder<P, B>:
+                EnvBuilder<Env = EthEvmEnv<EthHostDb<P>, HostCommit<C>>, Error = anyhow::Error>,
+        {
+            if self.env.0.contains_key(&block_number) {
+                return Ok(self.env.0.get_mut(&block_number).unwrap());
+            }
+            self.insert(block_number).await
+        }
+
         /// Insert the given [EthEvmEnv] into the [MultiblockEthEvmEnv].
         ///
         /// Returns a mutable reference to the [EthEvmEnv]. If there is already an env in the
@@ -304,8 +372,7 @@ pub mod host {
         pub fn insert_env(
             &mut self,
             mut env: EthEvmEnv<EthHostDb<P>, HostCommit<C>>,
-        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<C>>>
-        {
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<C>>> {
             let block_number = env.header().number;
             // If the name block is specified multiple times, merge the envs.
             if let Some(existing_env) = self.env.0.remove(&block_number) {
@@ -333,79 +400,6 @@ pub mod host {
                 .await
                 .context("Failed to preflight the multi-block continuity check")?;
             Ok(self.env)
-        }
-    }
-
-    // NOTE: This block is repeated with variations on the concrete types of B and C as there are
-    // no trait for whether or not the `build` method is available.
-
-    impl<P: Provider + Clone> MultiblockEthEvmEnvBuilder<P, (), ()> {
-        pub async fn insert(
-            &mut self,
-            block: impl Into<BlockNumberOrTag>,
-        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<()>>>
-        {
-            let env = self.builder.clone().block_number_or_tag(block.into()).build().await?;
-            self.insert_env(env)
-        }
-
-        pub async fn get_or_insert(
-            &mut self,
-            block_number: u64,
-        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<()>>>
-        {
-            if self.env.0.contains_key(&block_number) {
-                return Ok(self.env.0.get_mut(&block_number).unwrap());
-            }
-            self.insert(block_number).await
-        }
-    }
-
-    impl<P: Provider + Clone> MultiblockEthEvmEnvBuilder<P, Beacon, BeaconCommit> {
-        pub async fn insert(
-            &mut self,
-            block: impl Into<BlockNumberOrTag>,
-        ) -> anyhow::Result<
-            &mut EthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>,
-        > {
-            let env = self.builder.clone().block_number_or_tag(block.into()).build().await?;
-            self.insert_env(env)
-        }
-
-        pub async fn get_or_insert(
-            &mut self,
-            block_number: u64,
-        ) -> anyhow::Result<
-            &mut EthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>,
-        > {
-            if self.env.0.contains_key(&block_number) {
-                return Ok(self.env.0.get_mut(&block_number).unwrap());
-            }
-            self.insert(block_number).await
-        }
-    }
-
-    impl<P: Provider + Clone> MultiblockEthEvmEnvBuilder<P, History, HistoryCommit> {
-        pub async fn insert(
-            &mut self,
-            block: impl Into<BlockNumberOrTag>,
-        ) -> anyhow::Result<
-            &mut EthEvmEnv<EthHostDb<P>, HostCommit<HistoryCommit>>,
-        > {
-            let env = self.builder.clone().block_number_or_tag(block.into()).build().await?;
-            self.insert_env(env)
-        }
-
-        pub async fn get_or_insert(
-            &mut self,
-            block_number: u64,
-        ) -> anyhow::Result<
-            &mut EthEvmEnv<EthHostDb<P>, HostCommit<HistoryCommit>>,
-        > {
-            if self.env.0.contains_key(&block_number) {
-                return Ok(self.env.0.get_mut(&block_number).unwrap());
-            }
-            self.insert(block_number).await
         }
     }
 
@@ -446,6 +440,10 @@ pub mod host {
         where
             P: Provider + Clone + 'static,
         {
+            // NOTE: The way this function is currently structured, there is some risk that is a
+            // reorg were to occur while it is running, the build check at the end will fail, or
+            // the guest will reject the input.
+
             let block_numbers = block_numbers.into_iter().collect::<BTreeSet<u64>>();
             let work_log_filter = work_log_filter.into();
             let mut envs = MultiblockEthEvmEnvBuilder::from(
