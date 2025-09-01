@@ -46,7 +46,6 @@ fn prove_update_basic() -> anyhow::Result<()> {
         "povw",
         "prove-update",
         "--new",
-        "--log-id",
         &format!("{:#x}", log_id),
         "--state",
         state_path.to_str().unwrap(),
@@ -71,8 +70,6 @@ fn prove_update_basic() -> anyhow::Result<()> {
         "prove-update",
         "--state",
         state_path.to_str().unwrap(),
-        "--log-id",
-        &format!("{:#x}", log_id),
         receipt2_path.to_str().unwrap(),
     ])
     .env("RISC0_DEV_MODE", "1")
@@ -113,7 +110,6 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         "povw",
         "prove-update",
         "--new",
-        "--log-id",
         &format!("{:#x}", log_id),
         "--state",
         state_path.to_str().unwrap(),

@@ -15,7 +15,7 @@ pub struct PovwProveUpdate {
     #[arg(required = true, requires = "state")]
     work_receipts: Vec<PathBuf>,
 
-    /// Work log identifier.
+    /// Create a new work log with the given work log identifier.
     ///
     /// The work log identifier is a 160-bit public key hash (i.e. an Ethereum address) which is
     /// used to identify the work log. A work log is a collection of work claims, including their
@@ -23,40 +23,25 @@ pub struct PovwProveUpdate {
     ///
     /// A prover may have one or more work logs, and may set the work log ID equal to their onchain
     /// prover address, or to a new address just used as the work log ID.
-    #[arg(short, long)]
-    log_id: PovwLogId,
+    /// If this not set, then the state file must exist.
+    #[arg(short, long = "new")]
+    new_log_id: Option<PovwLogId>,
 
     /// Path for the Log Builder receipt and work log state.
     #[arg(short, long)]
     state: PathBuf,
-
-    /// Create a new work log, adding the given receipts to it.
-    ///
-    /// If this not set, then the state file must exist.
-    #[arg(short, long)]
-    new: bool,
 }
 
 impl PovwProveUpdate {
     /// Run the [PovwProveUpdate] command.
     pub async fn run(&self) -> Result<()> {
-        tracing::info!("Starting PoVW prove-update for log ID: {:x}", self.log_id);
-
-        // Set up the work log update prover
-        let prover_builder = WorkLogUpdateProver::builder()
-            .prover(default_prover())
-            .prover_opts(ProverOpts::succinct())
-            .log_id(self.log_id)
-            .log_builder_program(risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ELF)
-            .context("Failed to build WorkLogUpdateProver")?;
-
         // Load the continuation state, if provided.
-        let mut state = if self.new {
+        let mut state = if let Some(log_id) = self.new_log_id {
             if self.state.exists() {
                 bail!("File already exists at the state path; refusing to overwrite");
             }
-            tracing::info!("Initializing a new work log with ID {:x}", self.log_id);
-            State::new(self.log_id)
+            tracing::info!("Initializing a new work log with ID {log_id:x}");
+            State::new(log_id)
         } else {
             let state = State::load(&self.state).context("Failed to load state file")?;
             tracing::info!(
@@ -66,6 +51,17 @@ impl PovwProveUpdate {
             );
             state
         };
+
+        tracing::info!("Starting PoVW prove-update for log ID: {:x}", state.log_id);
+
+        // Set up the work log update prover
+        let prover_builder = WorkLogUpdateProver::builder()
+            .prover(default_prover())
+            .prover_opts(ProverOpts::succinct())
+            .log_id(state.log_id)
+            .log_builder_program(risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ELF)
+            .context("Failed to build WorkLogUpdateProver")?;
+
 
         // Add the initial state to the prover.
         let prover_builder = if !state.work_log.is_empty() {
