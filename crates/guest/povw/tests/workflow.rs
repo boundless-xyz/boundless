@@ -5,7 +5,10 @@
 //! Integration test demonstrating the full PoVW proving pipeline from work receipts
 //! to smart contract updates using WorkLogUpdateProver, LogUpdaterProver, and MintCalculatorProver.
 
+use std::ops::Deref;
+
 use alloy::{primitives::U256, signers::local::PrivateKeySigner};
+use alloy_provider::Provider;
 use boundless_povw_guests::{
     log_updater::{prover::LogUpdaterProver, IPovwAccounting},
     mint_calculator::{prover::MintCalculatorProver, WorkLogFilter},
@@ -73,5 +76,56 @@ async fn test_workflow() -> anyhow::Result<()> {
     assert_eq!(event.updateValue, 1 << 20);
     assert_eq!(event.valueRecipient, signer.address());
 
+    // Step 5: Advance time and finalize the epoch
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
+    println!("Current epoch: {initial_epoch}");
+
+    ctx.advance_epochs(U256::ONE).await?;
+    let finalized_event = ctx.finalize_epoch().await?;
+
+    assert_eq!(finalized_event.epoch, initial_epoch);
+    assert_eq!(finalized_event.totalWork, U256::from(1 << 20)); // Our work value
+    println!(
+        "EpochFinalized event verified: epoch={}, totalWork={}",
+        finalized_event.epoch, finalized_event.totalWork
+    );
+
+    // Step 6: Use MintCalculatorProver to create a mint proof
+    // NOTE: In a real application, don't use 0..=latest_block. Instead, only include blocks that
+    // have either WorkLogUpdated or EpochFinalized events.
+    let latest_block = ctx.provider.get_block_number().await?;
+    let block_numbers: Vec<u64> = (0..=latest_block).collect();
+
+    let mint_calculator_prover = MintCalculatorProver::builder()
+        .prover(default_prover())
+        .provider(ctx.provider.clone())
+        .povw_accounting_address(*ctx.povw_accounting.address())
+        .zkc_address(*ctx.zkc.address())
+        .zkc_rewards_address(*ctx.zkc_rewards.address())
+        .chain_spec(ANVIL_CHAIN_SPEC.deref())
+        .prover_opts(ProverOpts::default().with_dev_mode(true))
+        .verifier_ctx(VerifierContext::default().with_dev_mode(true))
+        .build()?;
+
+    let mint_prove_info =
+        mint_calculator_prover.prove_mint(block_numbers, WorkLogFilter::any()).await?;
+
+    // Step 7: Post the mint proof.
+    let mint_tx_receipt = ctx
+        .povw_mint
+        .mint_with_receipt(&mint_prove_info.receipt)?
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
+    assert!(mint_tx_receipt.status());
+    println!("Mint transaction succeeded with {} gas used", mint_tx_receipt.gas_used);
+
+    // Step 8: Verify the mint was successful by checking the recipient's balance
+    let final_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+
+    assert_eq!(final_balance, epoch_reward, "Minted amount should match expected calculation");
     Ok(())
 }

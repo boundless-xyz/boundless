@@ -212,9 +212,11 @@ impl AddAssign for FixedPoint {
 
 #[cfg(feature = "host")]
 pub mod host {
-    use std::future::Future;
+    use std::{future::Future, marker::PhantomData};
 
+    use alloy_contract::CallBuilder;
     use alloy_provider::Provider;
+    use alloy_sol_types::SolValue;
     use anyhow::Context;
     use risc0_steel::{
         alloy::network::Ethereum,
@@ -227,10 +229,12 @@ pub mod host {
         },
         BlockHeaderCommit, Contract, Event,
     };
+    use risc0_zkvm::Receipt;
 
     use super::*;
     use crate::{
         log_updater::IPovwAccounting,
+        mint_calculator::IPovwMint::IPovwMintInstance,
         zkc::{IZKCRewards, IZKC},
     };
 
@@ -602,19 +606,33 @@ pub mod host {
             })
         }
     }
+
+    impl<P: Provider> IPovwMintInstance<P> {
+        /// Create a call to the [IPovwMint::mint] function to be sent in a tx.
+        pub fn mint_with_receipt(
+            &self,
+            receipt: &Receipt,
+        ) -> anyhow::Result<CallBuilder<&P, PhantomData<IPovwMint::mintCall>>> {
+            let journal = MintCalculatorJournal::abi_decode(&receipt.journal.bytes)
+                .context("Failed to decode journal from Mint Calculator receipt")?;
+            let seal = risc0_ethereum_contracts::encode_seal(receipt)
+                .context("Failed to encode seal for mint")?;
+
+            Ok(self.mint(journal.abi_encode().into(), seal.into()))
+        }
+    }
 }
 
 #[cfg(feature = "prover")]
 pub mod prover {
     use std::{borrow::Cow, convert::Infallible};
 
-    use alloy_primitives::{Address};
+    use alloy_primitives::Address;
     use anyhow::Context;
     use derive_builder::Builder;
     use risc0_steel::ethereum::EthChainSpec;
     use risc0_zkvm::{
-        compute_image_id, Digest, ExecutorEnv, ProveInfo, Prover, ProverOpts,
-        VerifierContext,
+        compute_image_id, Digest, ExecutorEnv, ProveInfo, Prover, ProverOpts, VerifierContext,
     };
 
     use super::{
@@ -707,10 +725,10 @@ pub mod prover {
             let image_id = compute_image_id(&program)
                 .context("Failed to compute image ID for Mint Calculator program")?;
 
-            Ok(Self { 
-                mint_calculator_program: Some(program), 
-                mint_calculator_id: Some(image_id), 
-                ..self 
+            Ok(Self {
+                mint_calculator_program: Some(program),
+                mint_calculator_id: Some(image_id),
+                ..self
             })
         }
     }
@@ -732,9 +750,8 @@ pub mod prover {
             use risc0_steel::ethereum::EthEvmEnv;
 
             // Build the Steel environment for blockchain state access
-            let env_builder = EthEvmEnv::builder()
-                .chain_spec(self.chain_spec)
-                .provider(self.provider.clone());
+            let env_builder =
+                EthEvmEnv::builder().chain_spec(self.chain_spec).provider(self.provider.clone());
 
             // Build the mint calculator input using Input::build which handles all the query logic
             let input = Input::build(
@@ -745,7 +762,9 @@ pub mod prover {
                 env_builder,
                 block_numbers,
                 work_log_filter,
-            ).await.context("failed to build mint calculator input")?;
+            )
+            .await
+            .context("failed to build mint calculator input")?;
 
             // Build the executor environment
             let env = ExecutorEnv::builder()
