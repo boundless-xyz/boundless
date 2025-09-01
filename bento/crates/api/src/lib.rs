@@ -788,8 +788,15 @@ async fn list_work_receipts(
     Ok(Json(WorkReceiptList { receipts }))
 }
 
+// Health check endpoint for Docker Compose
+const HEALTH_PATH: &str = "/health";
+async fn health_check() -> StatusCode {
+    StatusCode::OK
+}
+
 pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
+        .route(HEALTH_PATH, get(health_check))
         .route(IMAGE_UPLOAD_PATH, get(image_upload))
         .route(IMAGE_UPLOAD_PATH, put(image_upload_put))
         .route(INPUT_UPLOAD_PATH, get(input_upload))
