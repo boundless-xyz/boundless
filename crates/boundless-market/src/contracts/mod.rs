@@ -794,6 +794,22 @@ impl Predicate {
             _ => false,
         }
     }
+
+    /// Checks to see if the predicate matches the given journal for DigestMatch and PrefixMatch predicates.
+    /// Important Note: This does not ensure the predicate is satisfied, only that journal is correct.
+    /// Use `eval` for most use cases. This is mainly for when the image_id may not be unavailable
+    /// for example in the request builder.
+    pub fn check_journal(&self, journal: impl AsRef<[u8]>) -> bool {
+        match self {
+            Predicate::DigestMatch(_, journal_digest) => {
+                journal_digest.as_bytes() == Sha256::digest(journal.as_ref()).as_slice()
+            }
+            Predicate::PrefixMatch(_, journal_prefix) => {
+                journal.as_ref().starts_with(journal_prefix.as_ref())
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Callback {

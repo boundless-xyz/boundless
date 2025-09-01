@@ -130,14 +130,28 @@ impl Adapt<Finalizer> for RequestParams {
         let request_id = self.require_request_id().context("failed to build request")?.clone();
 
         let predicate = <Predicate>::try_from(requirements.predicate.clone())?;
-        let fulfillment_data = match (&self.journal, self.image_id) {
+        let eval = match (&self.journal, self.image_id) {
             (Some(journal), Some(image_id)) => {
-                FulfillmentData::from_image_id_and_journal(image_id, journal.bytes.clone())
+                tracing::debug!("Evaluating journal and image id against predicate ");
+                let eval_data =
+                    FulfillmentData::from_image_id_and_journal(image_id, journal.bytes.clone());
+                predicate.eval(&eval_data)
             }
-            _ => FulfillmentData::None,
+            (Some(journal), None) => {
+                tracing::debug!(
+                    "Image id not provided, only ensuring the journal matches predicate"
+                );
+                predicate.check_journal(&journal.bytes)
+            }
+            _ => {
+                tracing::debug!(
+                    "No journal or image id provided, eval against empty fulfillment data"
+                );
+                predicate.eval(&FulfillmentData::None)
+            }
         };
-        if !predicate.eval(&fulfillment_data) {
-            bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = {:?}", requirements.predicate, self.journal.as_ref().map(hex::encode));
+        if !eval {
+            bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = {:?}", predicate, self.journal.as_ref().map(hex::encode));
         }
 
         layer.process((program_url, input, requirements, offer, request_id)).await
