@@ -5,7 +5,7 @@
 
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {FulfillmentContext, FulfillmentContextLibrary} from "../../src/types/FulfillmentContext.sol";
 
 contract FulfillmentContextLibraryTest is Test {
