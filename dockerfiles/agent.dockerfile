@@ -26,6 +26,16 @@ RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/d
     && unzip protoc.zip -d /usr/local \
     && rm protoc.zip
 
+# Install RISC0 and groth16 component early for better caching
+ENV RISC0_HOME=/usr/local/risc0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install RISC0 and groth16 component - this layer will be cached unless RISC0_HOME changes
+RUN curl -L https://risczero.com/install | bash && \
+    /root/.risc0/bin/rzup install risc0-groth16 && \
+    # Clean up any temporary files to reduce image size
+    rm -rf /tmp/* /var/tmp/*
+
 FROM rust-builder AS builder
 
 ARG NVCC_APPEND_FLAGS="\
@@ -54,12 +64,6 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cargo build --manifest-path bento/Cargo.toml --release -p workflow -F cuda --bin agent && \
     cp bento/target/release/agent /src/agent && \
     sccache --show-stats
-
-# Install groth16 component
-ENV RISC0_HOME=/usr/local/risc0
-RUN curl -L https://risczero.com/install | bash
-ENV PATH="/root/.cargo/bin:${PATH}"
-RUN /root/.risc0/bin/rzup install risc0-groth16
 
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
