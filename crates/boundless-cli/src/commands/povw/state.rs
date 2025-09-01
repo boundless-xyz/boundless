@@ -281,7 +281,6 @@ impl State {
             format!("Failed to read work log state file: {}", state_path.display())
         })?;
 
-        // TODO(povw): Apply some sanity checks here?
         State::decode(&state_data)
             .with_context(|| format!("Failed to decode state from file: {}", state_path.display()))
     }

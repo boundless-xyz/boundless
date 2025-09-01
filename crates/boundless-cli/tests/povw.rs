@@ -222,7 +222,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
             .assert()
             .success();
         println!(
-            "prove-update command output: {:?}",
+            "prove-update command output:\n{}",
             String::from_utf8_lossy(&assert.get_output().stdout)
         );
 
@@ -246,7 +246,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
 
         let assert = cmd.assert().success().stdout(contains("Work log update confirmed"));
         println!(
-            "send-update command output: {:?}",
+            "send-update command output:\n{}",
             String::from_utf8_lossy(&assert.get_output().stdout)
         );
 
@@ -274,7 +274,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
 
     let assert = cmd.assert().success().stdout(contains("Reward claim completed"));
     println!(
-        "claim-reward command output: {:?}",
+        "claim-reward command output:\n{}",
         String::from_utf8_lossy(&assert.get_output().stdout)
     );
 
