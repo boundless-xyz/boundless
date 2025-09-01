@@ -64,8 +64,6 @@ x-broker-common: &broker-common
       condition: service_started
     aux_agent:
       condition: service_started
-    snark_agent:
-      condition: service_started
     redis:
       condition: service_healthy
     postgres:
