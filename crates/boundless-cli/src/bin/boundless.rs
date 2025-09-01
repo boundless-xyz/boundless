@@ -708,26 +708,8 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
 
             let predicate = Predicate::try_from(req.requirements.predicate)?;
 
-            match predicate {
-                Predicate::ClaimDigestMatch(claim_digest) => {
-                    verifier
-                        .verifyIntegrity(Receipt {
-                            seal,
-                            claimDigest: <[u8; 32]>::from(claim_digest).into(),
-                        })
-                        .call()
-                        .await
-                        .map_err(|_| anyhow::anyhow!("Verification failed"))?;
-                }
-                _ => {
-                    let FulfillmentData::ImageIdAndJournal(image_id_from_data, journal) =
-                        fulfillment_data
-                    else {
-                        bail!(
-                            "Expected fulfillment data type ImageIdAndJournal, got {:?}",
-                            fulfillment_data
-                        );
-                    };
+            match (&predicate, fulfillment_data.clone()) {
+                (_, FulfillmentData::ImageIdAndJournal(image_id_from_data, journal)) => {
                     ensure!(
                         image_id_from_data == Digest::from(<[u8; 32]>::from(*image_id)),
                         "Image ID mismatch: expected {:?}, got {:?}",
@@ -742,6 +724,23 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                         .call()
                         .await
                         .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+                }
+                (Predicate::ClaimDigestMatch(claim_digest), FulfillmentData::None) => {
+                    verifier
+                        .verifyIntegrity(Receipt {
+                            seal,
+                            claimDigest: <[u8; 32]>::from(*claim_digest).into(),
+                        })
+                        .call()
+                        .await
+                        .map_err(|_| anyhow::anyhow!("Integrity verification failed"))?;
+                }
+                (_, _) => {
+                    bail!(
+                        "Verification failed due to invalid predicate {:?} or fulfillment data {:?}",
+                        predicate,
+                        fulfillment_data
+                    )
                 }
             }
 
