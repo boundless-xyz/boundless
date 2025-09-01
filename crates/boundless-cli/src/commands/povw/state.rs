@@ -14,9 +14,10 @@
 
 //! Commands of the Boundless CLI for Proof of Verifiable Work (PoVW) operations.
 
-use std::{fs, path::Path, time::SystemTime};
+use std::{fs, io::Write, path::Path, time::SystemTime};
 
 use anyhow::{bail, ensure, Context, Result};
+use atomicwrites::{AtomicFile, OverwriteBehavior};
 use num_enum::TryFromPrimitive;
 use risc0_povw::{
     guest::Journal as LogBuilderJournal, guest::RISC0_POVW_LOG_BUILDER_ID, PovwLogId, WorkLog,
@@ -24,6 +25,11 @@ use risc0_povw::{
 use risc0_zkvm::{Digest, Receipt, VerifierContext};
 use serde::{Deserialize, Serialize};
 
+// TODO(povw): Add a test that decodes a byte string that is checks into git, to detect any
+// breaking changes to decoding.
+
+// NOTE: Any modifications that might break bincode encoding (most changes) should ensure there is
+// a migration path to read the old state version and update to the new one.
 /// State of the work log update process. This is stored as a file between executions of these
 /// commands to allow continuation of building a work log.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -223,9 +229,12 @@ impl State {
     pub fn save(&self, state_path: impl AsRef<Path>) -> Result<()> {
         let state_data = self.encode().context("Failed to serialize state")?;
 
-        fs::write(state_path.as_ref(), &state_data).with_context(|| {
-            format!("Failed to write state to {}", state_path.as_ref().display())
-        })?;
+        // Write the state data. Use AtomicFile to reduce the chance of corruption.
+        AtomicFile::new(state_path.as_ref(), OverwriteBehavior::AllowOverwrite)
+            .write(|f| f.write_all(&state_data))
+            .with_context(|| {
+                format!("Failed to write state to {}", state_path.as_ref().display())
+            })?;
 
         tracing::info!("Successfully saved work log state: {}", state_path.as_ref().display());
         tracing::info!("Updated commit: {}", self.work_log.commit());
