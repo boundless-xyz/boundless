@@ -177,6 +177,12 @@ impl PovwSendUpdate {
                 .await
                 .context("Failed to receive receipt for update transaction")?;
 
+            ensure!(
+                tx_receipt.status(),
+                "Work log update transaction failed: tx_hash = {}",
+                tx_receipt.transaction_hash
+            );
+
             // Extract the WorkLogUpdated event
             let work_log_updated_event = tx_receipt
                 .logs()
