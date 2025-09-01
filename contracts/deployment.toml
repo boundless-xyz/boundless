@@ -79,7 +79,7 @@ povw-mint-deployment-commit = "f2a3f1d0"
 povw-log-updater-id = "0xd6bbd5be7815164e2ce5391db9155ef6f689cb6397736ae41281598d98ac6755"
 povw-mint-calculator-id = "0xaafed725002338f0ccb06814d6cc46f3488c387b2ad0ddcf828a1eb6f859de07"
 
-# ZKC contracts (TODO: set to real addresses)
+# ZKC contracts
 zkc = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 vezkc = "0xEbaad909A60B83c9c3739C7939b0B6d5ceD5a3AB"
 
