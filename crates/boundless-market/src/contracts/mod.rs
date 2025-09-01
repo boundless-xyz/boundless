@@ -641,6 +641,22 @@ impl FulfillmentData {
         }
         Ok(hasher.finalize().0.into())
     }
+
+    /// Returns the journal if available
+    pub fn journal(&self) -> Option<&Bytes> {
+        match self {
+            FulfillmentData::None => None,
+            FulfillmentData::ImageIdAndJournal(_, journal) => Some(journal),
+        }
+    }
+
+    /// Returns the image id if available
+    pub fn image_id(&self) -> Option<Digest> {
+        match self {
+            FulfillmentData::None => None,
+            FulfillmentData::ImageIdAndJournal(image_id, _) => Some(*image_id),
+        }
+    }
 }
 
 impl From<FulfillmentDataImageIdAndJournal> for FulfillmentData {
@@ -779,28 +795,6 @@ impl Predicate {
         }
     }
 }
-
-// impl RequestPredicate {
-//     /// Returns image id. Returns none if claim digest match. Panics if
-//     /// the predicate data is not long enough.
-//     pub fn image_id(&self) -> Option<Digest> {
-//         match self.predicateType {
-//             PredicateType::DigestMatch | PredicateType::PrefixMatch => {
-//                 Some(Digest::from_bytes(self.data.as_ref()[..32].try_into().unwrap()))
-//             }
-//             _ => None,
-//         }
-//     }
-
-//     /// Returns claim digest if the predicate type is ClaimDigestMatch.
-//     pub fn claim_digest(&self) -> Option<Digest> {
-//         if self.predicateType == PredicateType::ClaimDigestMatch {
-//             Some(Digest::from_bytes(self.data.as_ref().try_into().unwrap()))
-//         } else {
-//             None
-//         }
-//     }
-// }
 
 impl Callback {
     /// Constant representing a none callback (i.e. no call will be made).
