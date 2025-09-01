@@ -36,7 +36,7 @@ struct DeploymentConfig {
     bytes32 povwMintCalculatorId;
     // ZKC contract addresses
     address zkc;
-    address zkcStakingRewards;
+    address vezkc;
 }
 
 library ConfigLoader {
@@ -126,7 +126,7 @@ library ConfigParser {
         
         // ZKC contract addresses
         deploymentConfig.zkc = stdToml.readAddressOr(config, string.concat(chain, ".zkc"), address(0));
-        deploymentConfig.zkcStakingRewards = stdToml.readAddressOr(config, string.concat(chain, ".zkc-staking-rewards"), address(0));
+        deploymentConfig.vezkc = stdToml.readAddressOr(config, string.concat(chain, ".vezkc"), address(0));
 
         return deploymentConfig;
     }

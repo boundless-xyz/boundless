@@ -35,15 +35,14 @@ contract PoVWDeploymentTest is Test {
         // Load the deployment config
         deployment = ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG_FILE));
 
+        require(deployment.verifier != address(0), "no verifier address is set");
         verifier = IRiscZeroVerifier(deployment.verifier);
         
         // Load PoVW contract addresses from deployment config
-        if (deployment.povwAccounting != address(0)) {
-            povwAccounting = PovwAccounting(deployment.povwAccounting);
-        }
-        if (deployment.povwMint != address(0)) {
-            povwMint = PovwMint(deployment.povwMint);
-        }
+        require(deployment.povwAccounting != address(0), "no PoVW accounting address is set");
+        povwAccounting = PovwAccounting(deployment.povwAccounting);
+        require(deployment.povwMint != address(0), "no PoVW mint address is set");
+        povwMint = PovwMint(deployment.povwMint);
     }
 
     function testAdminIsSet() external view {
@@ -104,12 +103,12 @@ contract PoVWDeploymentTest is Test {
 
     function testPovwAccountingIsUpgradeable() external view {
         // Test that the contract has the VERSION constant (indicates upgradeability)
-        require(povwAccounting.VERSION() == 1, "PoVW accounting version should be 1");
+        require(povwAccounting.VERSION() >= 1, "PoVW accounting version should be 1");
     }
 
     function testPovwMintIsUpgradeable() external view {
         // Test that the contract has the VERSION constant (indicates upgradeability)
-        require(povwMint.VERSION() == 1, "PoVW mint version should be 1");
+        require(povwMint.VERSION() >= 1, "PoVW mint version should be 1");
     }
 
     function testPovwAccountingPendingEpoch() external view {
@@ -120,13 +119,6 @@ contract PoVWDeploymentTest is Test {
         require(pendingEpochNumber > 0, "Pending epoch number should be greater than zero");
         // Total work starts at zero
         require(totalWork == 0, "Initial total work should be zero");
-    }
-
-    function testPovwMintMintCalculatorId() external view {
-        // This is an internal variable, so we can't directly test it, but we can verify
-        // that the contract was deployed with proper constructor arguments
-        // The contract should be deployed and accessible
-        require(address(povwMint).code.length > 0, "PovwMint contract should have code");
     }
 
     function testContractIntegration() external view {

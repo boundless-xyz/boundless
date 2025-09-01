@@ -39,7 +39,7 @@ parser.add_argument("--povw-mint-deployment-commit", help="PoVW mint deployment 
 
 # ZKC contract fields
 parser.add_argument("--zkc", help="ZKC contract address")
-parser.add_argument("--zkc-staking-rewards", help="ZKCStakingRewards contract address")
+parser.add_argument("--vezkc", help="ZKCStakingRewards contract address")
 
 args = parser.parse_args()
 
@@ -69,7 +69,7 @@ field_mapping = {
     "povw-mint-deployment-commit": args.povw_mint_deployment_commit,
     # ZKC contract fields
     "zkc": args.zkc,
-    "zkc-staking-rewards": args.zkc_staking_rewards,
+    "vezkc": args.vezkc,
 }
 
 # Load TOML file

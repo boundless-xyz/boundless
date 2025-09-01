@@ -141,7 +141,12 @@ contract UpgradePoVWAccounting is PoVWScript {
         string memory hasUnstaged = vm.envOr("HAS_UNSTAGED_CHANGES", string(""));
         string memory hasStaged = vm.envOr("HAS_STAGED_CHANGES", string(""));
         if (bytes(hasUnstaged).length > 0 || bytes(hasStaged).length > 0) {
+            console2.log("");
+            console2.log("=================================================================");
             console2.log("WARNING: Upgrade was done with uncommitted changes!");
+            console2.log("- The upgrade commit hash may not reflect actual code state");
+            console2.log("- Consider committing changes before production upgrades");
+            console2.log("=================================================================");
         }
     }
 }
@@ -159,9 +164,14 @@ contract UpgradePoVWMint is PoVWScript {
         
         // Get current admin from the proxy contract
         PovwMint povwMint = PovwMint(povwMintAddress);
+        console2.log("Getting admin");
         address currentAdmin = povwMint.owner();
+        console2.log("Current PovwMint admin: %s", currentAdmin);
         
+        console2.log("Getting impl");
         address currentImplementation = Upgrades.getImplementationAddress(povwMintAddress);
+
+        console2.log("Current PovwMint implementation: %s", currentImplementation);
 
         // Get constructor arguments for PovwMint
         IRiscZeroVerifier verifier = IRiscZeroVerifier(deploymentConfig.verifier.required("verifier"));
@@ -170,15 +180,15 @@ contract UpgradePoVWMint is PoVWScript {
         
         // Handle ZKC addresses - if zero address, don't upgrade (production should have real ZKC)
         address zkcAddress = deploymentConfig.zkc.required("zkc");
-        address zkcRewardsAddress = deploymentConfig.zkcStakingRewards.required("zkc-staking-rewards");
+        address vezkcAddress = deploymentConfig.vezkc.required("vezkc");
         
         IZKC zkc = IZKC(zkcAddress);
-        IZKCRewards zkcRewards = IZKCRewards(zkcRewardsAddress);
+        IZKCRewards vezkc = IZKCRewards(vezkcAddress);
 
         UpgradeOptions memory opts;
         opts.referenceContract = "build-info-reference:PovwMint";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
-        opts.constructorData = abi.encode(verifier, povwAccounting, mintCalculatorId, zkc, zkcRewards);
+        opts.constructorData = abi.encode(verifier, povwAccounting, mintCalculatorId, zkc, vezkc);
 
         vm.startBroadcast(currentAdmin);
         Upgrades.upgradeProxy(povwMintAddress, "PovwMint.sol:PovwMint", "", opts, currentAdmin);
@@ -213,7 +223,12 @@ contract UpgradePoVWMint is PoVWScript {
         string memory hasUnstaged = vm.envOr("HAS_UNSTAGED_CHANGES", string(""));
         string memory hasStaged = vm.envOr("HAS_STAGED_CHANGES", string(""));
         if (bytes(hasUnstaged).length > 0 || bytes(hasStaged).length > 0) {
+            console2.log("");
+            console2.log("=================================================================");
             console2.log("WARNING: Upgrade was done with uncommitted changes!");
+            console2.log("- The upgrade commit hash may not reflect actual code state");
+            console2.log("- Consider committing changes before production upgrades");
+            console2.log("=================================================================");
         }
     }
 }
@@ -300,6 +315,7 @@ contract RollbackPoVWAccounting is PoVWScript {
         args[5] = Strings.toHexString(deploymentConfig.povwAccountingImpl);
 
         vm.ffi(args);
+        console2.log("Updated deployment.toml with rollback addresses");
     }
 }
 
@@ -349,6 +365,7 @@ contract RollbackPoVWMint is PoVWScript {
         args[5] = Strings.toHexString(deploymentConfig.povwMintImpl);
 
         vm.ffi(args);
+        console2.log("Updated deployment.toml with rollback addresses");
     }
 }
 

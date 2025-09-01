@@ -24,10 +24,61 @@ contract DeployPoVW is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG_FILE = "contracts/deployment.toml";
 
+    struct DeployedContracts {
+        address verifier;
+        address zkc;
+        address vezkc;
+        address povwAccountingImpl;
+        address povwAccountingAddress;
+        address povwMintImpl;
+        address povwMintAddress;
+        bytes32 logUpdaterId;
+        bytes32 mintCalculatorId;
+    }
+
     /// @notice Gets the current git commit hash from environment variable.
     function getCurrentCommit() internal view returns (string memory) {
         string memory commit = vm.envOr("CURRENT_COMMIT", string("unknown"));
         return commit;
+    }
+
+    /// @notice Updates deployment.toml with deployed contract addresses and image IDs
+    function updateDeploymentToml(DeployedContracts memory contracts) internal {
+        console2.log("Updating deployment.toml with PoVW contract addresses and image IDs");
+        
+        // Get current git commit hash
+        string memory currentCommit = getCurrentCommit();
+
+        string[] memory args = new string[](28);
+        args[0] = "python3";
+        args[1] = "contracts/update_deployment_toml.py";
+        args[2] = "--povw-accounting";
+        args[3] = vm.toString(contracts.povwAccountingAddress);
+        args[4] = "--povw-accounting-impl";
+        args[5] = vm.toString(contracts.povwAccountingImpl);
+        args[6] = "--povw-mint";
+        args[7] = vm.toString(contracts.povwMintAddress);
+        args[8] = "--povw-mint-impl";
+        args[9] = vm.toString(contracts.povwMintImpl);
+        args[10] = "--povw-mint-old-impl";
+        args[11] = vm.toString(address(0));
+        args[12] = "--povw-accounting-old-impl";
+        args[13] = vm.toString(address(0));
+        args[14] = "--povw-log-updater-id";
+        args[15] = vm.toString(contracts.logUpdaterId);
+        args[16] = "--povw-mint-calculator-id";
+        args[17] = vm.toString(contracts.mintCalculatorId);
+        args[18] = "--povw-accounting-deployment-commit";
+        args[19] = currentCommit;
+        args[20] = "--povw-mint-deployment-commit";
+        args[21] = currentCommit;
+        args[22] = "--zkc";
+        args[23] = vm.toString(contracts.zkc);
+        args[24] = "--vezkc";
+        args[25] = vm.toString(contracts.vezkc);
+        args[26] = "--verifier";
+        args[27] = vm.toString(contracts.verifier);
+        vm.ffi(args);
     }
 
     function run() external {
@@ -98,7 +149,7 @@ contract DeployPoVW is Script, RiscZeroCheats {
 
         // Determine ZKC contracts to use - deploy mocks only in RISC0_DEV_MODE
         address zkcAddress;
-        address zkcRewardsAddress;
+        address vezkcAddress;
         
         if (devMode) {
             // Deploy mock ZKC contracts only in dev mode
@@ -106,17 +157,17 @@ contract DeployPoVW is Script, RiscZeroCheats {
             MockZKCRewards mockZKCRewards = new MockZKCRewards();
             
             zkcAddress = address(mockZKC);
-            zkcRewardsAddress = address(mockZKCRewards);
+            vezkcAddress = address(mockZKCRewards);
             
             console2.log("In DEV MODE. Redeploying Mock ZKC and Mock ZKCRewards");
             console2.log("Deployed MockZKC to", zkcAddress);
-            console2.log("Deployed MockZKCRewards to", zkcRewardsAddress);
-        } else if (deploymentConfig.zkc != address(0) && deploymentConfig.zkcStakingRewards != address(0)) {
+            console2.log("Deployed MockZKCRewards to", vezkcAddress);
+        } else if (deploymentConfig.zkc != address(0) && deploymentConfig.vezkc != address(0)) {
             // Use existing ZKC contracts
             zkcAddress = deploymentConfig.zkc;
-            zkcRewardsAddress = deploymentConfig.zkcStakingRewards;
+            vezkcAddress = deploymentConfig.vezkc;
             console2.log("Using existing ZKC at", zkcAddress);
-            console2.log("Using existing ZKCStakingRewards at", zkcRewardsAddress);
+            console2.log("Using existing veZKC at", vezkcAddress);
         } else {
             revert("ZKC contracts must be specified in deployment.toml, or RISC0_DEV_MODE must be set");
         }
@@ -169,7 +220,7 @@ contract DeployPoVW is Script, RiscZeroCheats {
                 PovwAccounting(povwAccountingAddress),
                 mintCalculatorId,
                 IZKC(zkcAddress),
-                IZKCRewards(zkcRewardsAddress)
+                IZKCRewards(vezkcAddress)
             )
         );
         address povwMintAddress = address(
@@ -186,57 +237,45 @@ contract DeployPoVW is Script, RiscZeroCheats {
         vm.stopBroadcast();
 
         // Update deployment.toml with contract addresses and image IDs
-        console2.log("Updating deployment.toml with PoVW contract addresses and image IDs");
-        
-        // Get current git commit hash
-        string memory currentCommit = getCurrentCommit();
-
-        string[] memory args = new string[](26);
-        args[0] = "python3";
-        args[1] = "contracts/update_deployment_toml.py";
-        args[2] = "--povw-accounting";
-        args[3] = vm.toString(povwAccountingAddress);
-        args[4] = "--povw-accounting-impl";
-        args[5] = vm.toString(povwAccountingImpl);
-        args[6] = "--povw-mint";
-        args[7] = vm.toString(povwMintAddress);
-        args[8] = "--povw-mint-impl";
-        args[9] = vm.toString(povwMintImpl);
-        args[10] = "--povw-mint-old-impl";
-        args[11] = vm.toString(address(0));
-        args[12] = "--povw-accounting-old-impl";
-        args[13] = vm.toString(address(0));
-        args[14] = "--povw-log-updater-id";
-        args[15] = vm.toString(logUpdaterId);
-        args[16] = "--povw-mint-calculator-id";
-        args[17] = vm.toString(mintCalculatorId);
-        args[18] = "--povw-accounting-deployment-commit";
-        args[19] = currentCommit;
-        args[20] = "--povw-mint-deployment-commit";
-        args[21] = currentCommit;
-        args[22] = "--zkc";
-        args[23] = vm.toString(zkcAddress);
-        args[24] = "--zkc-staking-rewards";
-        args[25] = vm.toString(zkcRewardsAddress);
-        vm.ffi(args);
-        console2.log("Deployment.toml updated with PoVW contract addresses, image IDs, and commit: %s", currentCommit);
+        DeployedContracts memory deployedContracts = DeployedContracts({
+            verifier: address(verifier),
+            zkc: zkcAddress,
+            vezkc: vezkcAddress,
+            povwAccountingImpl: povwAccountingImpl,
+            povwAccountingAddress: povwAccountingAddress,
+            povwMintImpl: povwMintImpl,
+            povwMintAddress: povwMintAddress,
+            logUpdaterId: logUpdaterId,
+            mintCalculatorId: mintCalculatorId
+        });
+        updateDeploymentToml(deployedContracts);
 
         console2.log("PoVW contracts deployed successfully!");
         console2.log("ZKC:", zkcAddress);
-        console2.log("ZKCStakingRewards:", zkcRewardsAddress);
+        console2.log("veZKC:", vezkcAddress);
         console2.log("PovwAccounting:", povwAccountingAddress);
         console2.log("PovwMint:", povwMintAddress);
         
         if (devMode) {
             console2.log("");
-            console2.log("WARNING: RISC0_DEV_MODE was enabled - deployed with mock verifier, ZKC contracts, and test image IDs");
+            console2.log("=================================================================");
+            console2.log("WARNING: RISC0_DEV_MODE was enabled!");
+            console2.log("- Deployed with mock verifier, ZKC contracts, and test image IDs");
+            console2.log("- deployment.toml was updated with mock addresses");
+            console2.log("- These contracts are NOT suitable for production use");
+            console2.log("=================================================================");
         }
         
         // Check for uncommitted changes warning
         string memory hasUnstaged = vm.envOr("HAS_UNSTAGED_CHANGES", string(""));
         string memory hasStaged = vm.envOr("HAS_STAGED_CHANGES", string(""));
         if (bytes(hasUnstaged).length > 0 || bytes(hasStaged).length > 0) {
+            console2.log("");
+            console2.log("=================================================================");
             console2.log("WARNING: Deployment was done with uncommitted changes!");
+            console2.log("- The deployed commit hash may not reflect actual code state");
+            console2.log("- Consider committing changes before production deployments");
+            console2.log("=================================================================");
         }
     }
 }

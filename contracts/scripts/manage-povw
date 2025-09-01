@@ -78,6 +78,21 @@ load_env_var() {
 # Create reference build for upgrades
 create_reference_build() {
     local contract_type="$1"
+    
+    # Check if we should skip reference build creation
+    if [ -n "${SKIP_REFERENCE_BUILD}" ]; then
+        echo "🔄 SKIP_REFERENCE_BUILD is set - checking for existing reference build..."
+        if [ -d "contracts/build-info-reference" ] && [ -n "$(ls -A contracts/build-info-reference 2>/dev/null)" ]; then
+            echo "✅ Reusing existing reference build in contracts/build-info-reference/"
+            echo "📁 Build info files: $(ls -1 contracts/build-info-reference | wc -l) files"
+            # Set flag to indicate reference build was reused
+            export REFERENCE_BUILD_REUSED="true"
+            return 0
+        else
+            echo "⚠️  No existing reference build found, creating new one..."
+        fi
+    fi
+    
     echo "Creating reference build for $contract_type upgrade safety checks..."
     
     # Get the deployment commit for the specific contract being upgraded
@@ -236,10 +251,11 @@ Environment Variables:
   CHAIN_KEY              Required. Deployment environment key (anvil, ethereum-mainnet, ethereum-sepolia, ethereum-sepolia-staging)
   DEPLOYER_PRIVATE_KEY   Required. Private key for transaction signing (0x...)
   NEW_ADMIN              Required for ownership transfers. New admin address (0x...)
+  SKIP_REFERENCE_BUILD   Optional. Skip creating reference build and current build if reference already exists
 
 Production Deployment Requirements:
   - deployment.toml must have povw-accounting-admin and povw-mint-admin addresses set (not 0x0)
-  - deployment.toml must have zkc and zkc-staking-rewards addresses set
+  - deployment.toml must have zkc and vezkc addresses set
   - Image IDs are loaded from PovwImageId.sol library (can override with env vars)
   - POVW_LOG_UPDATER_ID and POVW_MINT_CALCULATOR_ID env vars (optional overrides)
 
@@ -265,6 +281,10 @@ Examples:
   # Upgrade PovwAccounting on mainnet with Fireblocks
   CHAIN_KEY=ethereum-mainnet $0 UpgradePoVWAccounting --fireblocks --broadcast --verify
   
+  # Upgrade PovwAccounting reusing existing reference build (skips builds - much faster)
+  CHAIN_KEY=ethereum-sepolia SKIP_REFERENCE_BUILD=1 DEPLOYER_PRIVATE_KEY=0x... \\
+  $0 UpgradePoVWAccounting --broadcast --verify
+  
   # Rollback PovwMint to previous version
   CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... \\
   $0 RollbackPoVWMint --broadcast
@@ -282,7 +302,7 @@ Notes:
   - Private keys must be provided via DEPLOYER_PRIVATE_KEY environment variable
   - Ownership transfers require NEW_ADMIN environment variable with new admin address
   - Upgrades and rollbacks use the current owner from the deployed contracts
-  - Upgrades require reference builds for safety checks
+  - Upgrades require reference builds for safety checks (use SKIP_REFERENCE_BUILD=1 to skip builds and reuse existing)
   - Fireblocks requires fireblocks-json-rpc to be installed
   - All deployments automatically update deployment.toml
   - Image IDs are loaded from PovwImageId.sol unless overridden by environment variables
@@ -373,24 +393,32 @@ if [ $# -gt 0 ]; then
         UpgradePoVWAccounting)
             create_reference_build "PoVWAccounting"
             
-            # Also ensure current build is clean and complete
-            echo "🔨 Ensuring current build is complete..."
-            echo "Running cargo build to generate required files..."
-            cargo build
-            forge clean
-            forge build
-            echo "✅ Current build completed"
+            # Only rebuild current contracts if reference build wasn't reused
+            if [ "${REFERENCE_BUILD_REUSED}" != "true" ]; then
+                echo "🔨 Ensuring current build is clean and complete..."
+                echo "Running cargo build to generate required files..."
+                cargo build
+                forge clean
+                forge build
+                echo "✅ Current build completed"
+            else
+                echo "⏩ Skipping current build (reference build was reused)"
+            fi
             ;;
         UpgradePoVWMint)
             create_reference_build "PoVWMint"
             
-            # Also ensure current build is clean and complete
-            echo "🔨 Ensuring current build is complete..."
-            echo "Running cargo build to generate required files..."
-            cargo build
-            forge clean
-            forge build
-            echo "✅ Current build completed"
+            # Only rebuild current contracts if reference build wasn't reused
+            if [ "${REFERENCE_BUILD_REUSED}" != "true" ]; then
+                echo "🔨 Ensuring current build is clean and complete..."
+                echo "Running cargo build to generate required files..."
+                cargo build
+                forge clean
+                forge build
+                echo "✅ Current build completed"
+            else
+                echo "⏩ Skipping current build (reference build was reused)"
+            fi
             ;;
     esac
 fi
