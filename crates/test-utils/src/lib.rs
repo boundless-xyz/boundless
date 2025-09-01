@@ -22,3 +22,13 @@ pub mod market;
 #[cfg(feature = "povw")]
 pub mod povw;
 pub mod verifier;
+
+pub mod guests {
+    // Export image IDs and paths publicly to ensure all dependants use the same ones.
+    pub use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
+    pub use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
+    pub use guest_util::{
+        ECHO_ELF, ECHO_ID, ECHO_PATH, IDENTITY_ELF, IDENTITY_ID, IDENTITY_PATH, LOOP_ELF, LOOP_ID,
+        LOOP_PATH,
+    };
+}

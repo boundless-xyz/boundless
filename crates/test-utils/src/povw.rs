@@ -36,7 +36,7 @@ use boundless_povw_guests::{
 };
 use derive_builder::Builder;
 use risc0_povw::{guest::RISC0_POVW_LOG_BUILDER_ID, PovwJobId};
-use risc0_steel::ethereum::{EthChainSpec, ANVIL_CHAIN_SPEC};
+use risc0_steel::{ethereum::{EthChainSpec, EthEvmEnv, ANVIL_CHAIN_SPEC}};
 use risc0_zkvm::{
     default_executor, sha::Digestible, Digest, ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt,
     MaybePruned, Receipt, ReceiptClaim, Work, WorkClaim,
@@ -318,13 +318,15 @@ impl TestCtx {
             block_numbers.remove(excluded_block);
         }
 
+
         // Build the input for the mint_calculator, including input for Steel.
+        let env_builder = EthEvmEnv::builder().chain_spec(chain_spec).provider(self.provider.clone());
         let mint_input = mint_calculator::Input::build(
             *self.povw_accounting.address(),
             *self.zkc.address(),
             *self.zkc_rewards.address(),
-            self.provider.clone(),
-            chain_spec,
+            chain_spec.chain_id,
+            env_builder,
             block_numbers,
             work_log_filter,
         )

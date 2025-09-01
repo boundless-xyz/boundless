@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::guests::{
+    ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ID, SET_BUILDER_ID, SET_BUILDER_PATH,
+};
 use crate::verifier::setup_verifiers;
 use alloy::{
     network::EthereumWallet,
@@ -44,14 +47,6 @@ use risc0_ethereum_contracts::{encode_seal, set_verifier::SetVerifierService};
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     FakeReceipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
-};
-
-// Export image IDs and paths publicly to ensure all dependants use the same ones.
-pub use guest_assessor::{ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH};
-pub use guest_set_builder::{SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH};
-pub use guest_util::{
-    ECHO_ELF, ECHO_ID, ECHO_PATH, IDENTITY_ELF, IDENTITY_ID, IDENTITY_PATH, LOOP_ELF, LOOP_ID,
-    LOOP_PATH,
 };
 
 /// Re-export of the boundless_market crate, which can be used to avoid dependency issues when

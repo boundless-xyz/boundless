@@ -199,9 +199,9 @@ impl AddAssign for FixedPoint {
 
 #[cfg(feature = "host")]
 pub mod host {
-    use std::{future::Future};
+    use std::future::Future;
 
-    use alloy_provider::{Provider};
+    use alloy_provider::Provider;
     use anyhow::Context;
     use risc0_steel::{
         alloy::network::Ethereum,
@@ -255,25 +255,49 @@ pub mod host {
         }
     }
 
-    impl<P> MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<()>>
+    pub trait IntoEthEvmInput {
+        type Error;
+
+        fn into_input(self) -> impl Future<Output = Result<EthEvmInput, Self::Error>>;
+    }
+
+    impl<P> IntoEthEvmInput for EthEvmEnv<EthHostDb<P>, HostCommit<()>>
     where
         P: Provider + Clone + 'static,
     {
-        pub async fn into_input(self) -> anyhow::Result<MultiblockEthEvmInput> {
-            let mut input = MultiblockEthEvmInput(Vec::with_capacity(self.0.len()));
-            for (block_number, env) in self.0 {
-                let block_input = env.into_input().await.with_context(|| {
-                    format!("failed to convert env for block number {block_number} into input")
-                })?;
-                input.0.push(block_input);
-            }
-            Ok(input)
+        type Error = anyhow::Error;
+
+        async fn into_input(self) -> Result<EthEvmInput, Self::Error> {
+            self.into_input().await
         }
     }
 
-    impl<P> MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>
+    impl<P> IntoEthEvmInput for EthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>
     where
         P: Provider + Clone + 'static,
+    {
+        type Error = anyhow::Error;
+
+        async fn into_input(self) -> Result<EthEvmInput, Self::Error> {
+            self.into_input().await
+        }
+    }
+
+    impl<P> IntoEthEvmInput for EthEvmEnv<EthHostDb<P>, HostCommit<HistoryCommit>>
+    where
+        P: Provider + Clone + 'static,
+    {
+        type Error = anyhow::Error;
+
+        async fn into_input(self) -> Result<EthEvmInput, Self::Error> {
+            self.into_input().await
+        }
+    }
+
+    impl<P, C> MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>
+    where
+        P: Provider + Clone + 'static,
+        EthEvmEnv<EthHostDb<P>, HostCommit<C>>: IntoEthEvmInput<Error = anyhow::Error>,
     {
         pub async fn into_input(self) -> anyhow::Result<MultiblockEthEvmInput> {
             let mut input = MultiblockEthEvmInput(Vec::with_capacity(self.0.len()));
@@ -428,17 +452,22 @@ pub mod host {
     impl Input {
         // TODO(povw): Provide a way to do this with Beacon commits. Also, its not really ideal to
         // have to pass in each of the block numbers here.
-        pub async fn build<P>(
+        pub async fn build<P, B, C>(
             povw_accounting_address: Address,
             zkc_address: Address,
             zkc_rewards_address: Address,
-            provider: P,
-            chain_spec: &'static EthChainSpec,
+            chain_id: ChainId,
+            env_builder: EthEvmEnvBuilder<P, B>,
             block_numbers: impl IntoIterator<Item = u64>,
             work_log_filter: impl Into<WorkLogFilter>,
         ) -> anyhow::Result<Self>
         where
             P: Provider + Clone + 'static,
+            B: Clone,
+            C: Clone + BlockHeaderCommit<EthBlockHeader>,
+            EthEvmEnvBuilder<P, B>: EnvBuilder<Env = EthEvmEnv<EthHostDb<P>, HostCommit<C>>, Error = anyhow::Error>
+                + Into<MultiblockEthEvmEnvBuilder<P, B, C>>,
+            EthEvmEnv<EthHostDb<P>, HostCommit<C>>: IntoEthEvmInput<Error = anyhow::Error>,
         {
             // NOTE: The way this function is currently structured, there is some risk that is a
             // reorg were to occur while it is running, the build check at the end will fail, or
@@ -446,9 +475,7 @@ pub mod host {
 
             let block_numbers = block_numbers.into_iter().collect::<BTreeSet<u64>>();
             let work_log_filter = work_log_filter.into();
-            let mut envs = MultiblockEthEvmEnvBuilder::from(
-                EthEvmEnv::builder().chain_spec(chain_spec).provider(provider),
-            );
+            let mut envs = env_builder.into();
 
             let mut latest_epoch_finalization_block: Option<u64> = None;
             for block_number in block_numbers.iter() {
@@ -557,7 +584,7 @@ pub mod host {
                 povw_accounting_address,
                 zkc_address,
                 zkc_rewards_address,
-                chain_id: chain_spec.chain_id,
+                chain_id,
                 env: env_input,
                 work_log_filter,
             })
