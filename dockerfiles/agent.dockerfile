@@ -29,6 +29,7 @@ RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/d
 FROM rust-builder AS builder
 
 ARG NVCC_APPEND_FLAGS="\
+  --generate-code arch=compute_75,code=sm_75 \
   --generate-code arch=compute_86,code=sm_86 \
   --generate-code arch=compute_89,code=sm_89 \
   --generate-code arch=compute_120,code=sm_120"
