@@ -630,7 +630,7 @@ pub mod prover {
     use alloy_primitives::Address;
     use anyhow::Context;
     use derive_builder::Builder;
-    use risc0_steel::ethereum::EthChainSpec;
+    use risc0_steel::ethereum::{EthChainSpec, EthEvmEnv};
     use risc0_zkvm::{
         compute_image_id, Digest, ExecutorEnv, ProveInfo, Prover, ProverOpts, VerifierContext,
     };
@@ -738,23 +738,18 @@ pub mod prover {
         P: Prover,
         Q: alloy_provider::Provider + Clone + 'static,
     {
-        /// Prove mint calculations for the specified block numbers and work log filter.
+        /// Build the Steel environment and Mint Calculator input.
         ///
-        /// This method builds the Steel environment, queries blockchain state using Input::build,
-        /// and produces a proof for mint distribution calculations.
-        pub async fn prove_mint(
+        /// This method queries the provided RPC nodes.
+        pub async fn build_input(
             &self,
             block_numbers: impl IntoIterator<Item = u64>,
             work_log_filter: impl Into<WorkLogFilter>,
-        ) -> anyhow::Result<ProveInfo> {
-            use risc0_steel::ethereum::EthEvmEnv;
-
-            // Build the Steel environment for blockchain state access
+        ) -> anyhow::Result<Input> {
             let env_builder =
                 EthEvmEnv::builder().chain_spec(self.chain_spec).provider(self.provider.clone());
 
-            // Build the mint calculator input using Input::build which handles all the query logic
-            let input = Input::build(
+            Input::build(
                 self.povw_accounting_address,
                 self.zkc_address,
                 self.zkc_rewards_address,
@@ -764,9 +759,11 @@ pub mod prover {
                 work_log_filter,
             )
             .await
-            .context("failed to build mint calculator input")?;
+            .context("Failed to build Mint Calculator input")
+        }
 
-            // Build the executor environment
+        /// Prove mint calculations using the given [Input].
+        pub async fn prove_mint(&self, input: &Input) -> anyhow::Result<ProveInfo> {
             let env = ExecutorEnv::builder()
                 .write_frame(&input.encode()?)
                 .build()

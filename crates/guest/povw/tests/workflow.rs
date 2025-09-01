@@ -107,8 +107,9 @@ async fn test_workflow() -> anyhow::Result<()> {
         .verifier_ctx(VerifierContext::default().with_dev_mode(true))
         .build()?;
 
-    let mint_prove_info =
-        mint_calculator_prover.prove_mint(block_numbers, WorkLogFilter::any()).await?;
+    let mint_input =
+        mint_calculator_prover.build_input(block_numbers, WorkLogFilter::any()).await?;
+    let mint_prove_info = mint_calculator_prover.prove_mint(&mint_input).await?;
 
     // Step 7: Post the mint proof.
     let mint_tx_receipt = ctx
