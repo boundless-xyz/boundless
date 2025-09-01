@@ -40,6 +40,7 @@ const HOUR: Duration = Duration::from_secs(60 * 60);
 // TODO: Figure out what rewards the user is eligible for and warn them if they are receiving less
 // than their cycles could get them.
 
+/// Command to claim PoVW rewards associated with posted work log updated.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct PovwClaimReward {
@@ -74,6 +75,7 @@ pub struct PovwClaimReward {
 }
 
 impl PovwClaimReward {
+    /// Run the [PovwClaimReward] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;

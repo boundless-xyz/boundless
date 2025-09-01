@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{providers::ext::AnvilApi, signers::local::PrivateKeySigner};
 use assert_cmd::Command;
 use boundless_cli::commands::povw::State;
 use boundless_test_utils::povw::{make_work_claim, test_ctx};
@@ -63,7 +63,6 @@ fn prove_update_basic() -> anyhow::Result<()> {
     make_fake_work_receipt_file(log_id, 2000, 5, &receipt2_path)?;
 
     // 5. Run the prove-update command again to add the new receipt to the log
-    let updated_state_path = temp_path.join("updated_state.bin");
     let mut cmd = Command::cargo_bin("boundless")?;
     cmd.args([
         "povw",
@@ -76,8 +75,7 @@ fn prove_update_basic() -> anyhow::Result<()> {
     .assert()
     .success();
 
-    // Verify updated state file was created
-    State::load(&updated_state_path)?
+    State::load(&state_path)?
         .validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     Ok(())
@@ -184,13 +182,14 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
 
         // Create or update the work log
         let mut cmd = Command::cargo_bin("boundless")?;
+        let log_id_str = format!("{:#x}", log_id);
         let cmd_args = if i == 0 {
             // First update: create new work log
             vec![
                 "povw",
                 "prove-update",
                 "--new",
-                &format!("{:#x}", log_id),
+                &log_id_str,
                 "--state",
                 state_path.to_str().unwrap(),
                 receipt_path.to_str().unwrap(),
@@ -232,9 +231,11 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
     }
 
     // Finalize the current epoch to make rewards claimable
+    ctx.provider.anvil_mine(Some(1), None).await?;
     ctx.finalize_epoch().await?;
 
     // Run the claim-reward command to mint the accumulated rewards
+    println!("Running claim-reward command");
     let mut cmd = Command::cargo_bin("boundless")?;
     cmd.args(["povw", "claim-reward", &format!("{:#x}", log_id)])
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
