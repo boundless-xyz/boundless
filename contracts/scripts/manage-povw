@@ -266,36 +266,14 @@ Development Mode:
   - Skips deployment.toml updates
 
 Examples:
-  # Deploy to anvil in development mode
-  RISC0_DEV_MODE=1 CHAIN_KEY=anvil DEPLOYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \\
-  $0 DeployPoVW --broadcast
+  # Deploy to anvil in dev mode
+  RISC0_DEV_MODE=1 CHAIN_KEY=anvil DEPLOYER_PRIVATE_KEY=0xac... $0 DeployPoVW --broadcast
   
-  # Deploy to sepolia production
-  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... \\
-  $0 DeployPoVW --broadcast --verify
+  # Upgrade PovwAccounting
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... $0 UpgradePoVWAccounting --broadcast
   
-  # Deploy to sepolia staging environment
-  CHAIN_KEY=ethereum-sepolia-staging DEPLOYER_PRIVATE_KEY=0x... \\
-  $0 DeployPoVW --broadcast --verify
-  
-  # Upgrade PovwAccounting on mainnet with Fireblocks
-  CHAIN_KEY=ethereum-mainnet $0 UpgradePoVWAccounting --fireblocks --broadcast --verify
-  
-  # Upgrade PovwAccounting reusing existing reference build (skips builds - much faster)
-  CHAIN_KEY=ethereum-sepolia SKIP_REFERENCE_BUILD=1 DEPLOYER_PRIVATE_KEY=0x... \\
-  $0 UpgradePoVWAccounting --broadcast --verify
-  
-  # Rollback PovwMint to previous version
-  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... \\
-  $0 RollbackPoVWMint --broadcast
-  
-  # Transfer ownership of both PoVW contracts
-  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... NEW_ADMIN=0x... \\
-  $0 TransferPoVWOwnership --broadcast
-  
-  # Transfer ownership of PovwMint only
-  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... NEW_ADMIN=0x... \\
-  $0 TransferPoVWMintOwnership --broadcast
+  # Transfer ownership
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... NEW_ADMIN=0x... $0 TransferPoVWOwnership --broadcast
 
 Notes:
   - Network configuration is loaded from deployment.toml and deployment_secrets.toml

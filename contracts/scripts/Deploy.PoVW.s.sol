@@ -19,10 +19,9 @@ import {MockZKC, MockZKCRewards} from "../test/MockZKC.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {ImageID} from "../src/libraries/PovwImageId.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {PoVWScript, PoVWLib} from "./PoVWLib.s.sol";
 
-contract DeployPoVW is Script, RiscZeroCheats {
-    // Path to deployment config file, relative to the project root.
-    string constant CONFIG_FILE = "contracts/deployment.toml";
+contract DeployPoVW is PoVWScript, RiscZeroCheats {
 
     struct DeployedContracts {
         address verifier;
@@ -36,11 +35,6 @@ contract DeployPoVW is Script, RiscZeroCheats {
         bytes32 mintCalculatorId;
     }
 
-    /// @notice Gets the current git commit hash from environment variable.
-    function getCurrentCommit() internal view returns (string memory) {
-        string memory commit = vm.envOr("CURRENT_COMMIT", string("unknown"));
-        return commit;
-    }
 
     /// @notice Updates deployment.toml with deployed contract addresses and image IDs
     function updateDeploymentToml(DeployedContracts memory contracts) internal {
@@ -95,20 +89,17 @@ contract DeployPoVW is Script, RiscZeroCheats {
 
         // Load the deployment config
         DeploymentConfig memory deploymentConfig =
-            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG_FILE));
+            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
         // Validate admin addresses are set (use deployment config instead of env var)
-        address povwAccountingAdmin = deploymentConfig.povwAccountingAdmin;
-        address povwMintAdmin = deploymentConfig.povwMintAdmin;
-        require(povwAccountingAdmin != address(0), "PovwAccounting admin address must be set in deployment.toml");
-        require(povwMintAdmin != address(0), "PovwMint admin address must be set in deployment.toml");
+        address povwAccountingAdmin = PoVWLib.requireLib(deploymentConfig.povwAccountingAdmin, "PovwAccounting admin");
+        address povwMintAdmin = PoVWLib.requireLib(deploymentConfig.povwMintAdmin, "PovwMint admin");
 
         IRiscZeroVerifier verifier;
         bool devMode = bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0;
         
         if (!devMode) {
-            verifier = IRiscZeroVerifier(deploymentConfig.verifier);
-            require(address(verifier) != address(0), "Verifier must be deployed first or RISC0_DEV_MODE must be set");
+            verifier = IRiscZeroVerifier(PoVWLib.requireLib(deploymentConfig.verifier, "Verifier"));
             console2.log("Using IRiscZeroVerifier at", address(verifier));
         }
 
@@ -162,14 +153,12 @@ contract DeployPoVW is Script, RiscZeroCheats {
             console2.log("In DEV MODE. Redeploying Mock ZKC and Mock ZKCRewards");
             console2.log("Deployed MockZKC to", zkcAddress);
             console2.log("Deployed MockZKCRewards to", vezkcAddress);
-        } else if (deploymentConfig.zkc != address(0) && deploymentConfig.vezkc != address(0)) {
+        } else {
             // Use existing ZKC contracts
-            zkcAddress = deploymentConfig.zkc;
-            vezkcAddress = deploymentConfig.vezkc;
+            zkcAddress = PoVWLib.requireLib(deploymentConfig.zkc, "ZKC");
+            vezkcAddress = PoVWLib.requireLib(deploymentConfig.vezkc, "veZKC");
             console2.log("Using existing ZKC at", zkcAddress);
             console2.log("Using existing veZKC at", vezkcAddress);
-        } else {
-            revert("ZKC contracts must be specified in deployment.toml, or RISC0_DEV_MODE must be set");
         }
 
         // PoVW image IDs from solidity library (use mock values in dev mode)
@@ -183,8 +172,8 @@ contract DeployPoVW is Script, RiscZeroCheats {
             console2.log("Using mock PoVW image IDs for dev mode");
         } else {
             // In production, use image IDs from environment variables if set, otherwise from solidity library
-            logUpdaterId = vm.envOr("POVW_LOG_UPDATER_ID", ImageID.BOUNDLESS_POVW_LOG_UPDATER_ID);
-            mintCalculatorId = vm.envOr("POVW_MINT_CALCULATOR_ID", ImageID.BOUNDLESS_POVW_MINT_CALCULATOR_ID);
+            logUpdaterId = PoVWLib.requireLib(vm.envOr("POVW_LOG_UPDATER_ID", ImageID.BOUNDLESS_POVW_LOG_UPDATER_ID), "Log Updater ID");
+            mintCalculatorId = PoVWLib.requireLib(vm.envOr("POVW_MINT_CALCULATOR_ID", ImageID.BOUNDLESS_POVW_MINT_CALCULATOR_ID), "Mint Calculator ID");
             
             if (vm.envOr("POVW_LOG_UPDATER_ID", bytes32(0)) != bytes32(0) || 
                 vm.envOr("POVW_MINT_CALCULATOR_ID", bytes32(0)) != bytes32(0)) {
@@ -267,15 +256,6 @@ contract DeployPoVW is Script, RiscZeroCheats {
         }
         
         // Check for uncommitted changes warning
-        string memory hasUnstaged = vm.envOr("HAS_UNSTAGED_CHANGES", string(""));
-        string memory hasStaged = vm.envOr("HAS_STAGED_CHANGES", string(""));
-        if (bytes(hasUnstaged).length > 0 || bytes(hasStaged).length > 0) {
-            console2.log("");
-            console2.log("=================================================================");
-            console2.log("WARNING: Deployment was done with uncommitted changes!");
-            console2.log("- The deployed commit hash may not reflect actual code state");
-            console2.log("- Consider committing changes before production deployments");
-            console2.log("=================================================================");
-        }
+        checkUncommittedChangesWarning("Deployment");
     }
 }
