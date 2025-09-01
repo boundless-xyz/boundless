@@ -32,6 +32,10 @@ contract PovwAccounting is IPovwAccounting, EIP712 {
 
     // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
     constructor(IRiscZeroVerifier verifier, IZKC token, bytes32 logUpdaterId) EIP712("PovwAccounting", "1") {
+        require(address(verifier) != address(0), "verifier cannot be zero");
+        require(address(token) != address(0), "token cannot be zero");
+        require(logUpdaterId != bytes32(0), "logUpdaterId cannot be zero");
+
         VERIFIER = verifier;
         TOKEN = token;
         LOG_UPDATER_ID = logUpdaterId;

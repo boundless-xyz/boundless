@@ -41,16 +41,22 @@ contract PovwMint is IPovwMint {
     // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
     constructor(
         IRiscZeroVerifier verifier,
-        PovwAccounting povw,
+        PovwAccounting accounting,
         bytes32 mintCalculatorId,
         IZKC token,
         IZKCRewards tokenRewards
     ) {
+        require(address(verifier) != address(0), "verifier cannot be zero");
+        require(address(accounting) != address(0), "accounting cannot be zero");
+        require(address(tokenRewards) != address(0), "tokenRewards cannot be zero");
+        require(address(token) != address(0), "token cannot be zero");
+        require(mintCalculatorId != bytes32(0), "mintCalculatorId cannot be zero");
+
         VERIFIER = verifier;
-        MINT_CALCULATOR_ID = mintCalculatorId;
-        ACCOUNTING = povw;
+        ACCOUNTING = accounting;
         TOKEN = token;
         TOKEN_REWARDS = tokenRewards;
+        MINT_CALCULATOR_ID = mintCalculatorId;
     }
 
     /// @inheritdoc IPovwMint
