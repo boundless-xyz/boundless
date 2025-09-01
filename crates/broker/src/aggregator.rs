@@ -16,7 +16,7 @@ use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
-    contracts::{eip712_domain, FulfillmentClaimData, PredicateType},
+    contracts::{eip712_domain, FulfillmentData, PredicateType},
     input::GuestEnv,
 };
 use chrono::Utc;
@@ -208,11 +208,13 @@ impl AggregatorService {
                 .with_context(|| format!("{proof_id} journal missing"))?;
 
             let fulfillment_data = match order.request.requirements.predicate.predicateType {
-                PredicateType::ClaimDigestMatch => FulfillmentClaimData::from_claim_digest(
-                    order.request.requirements.predicate.claim_digest().unwrap(),
-                ),
-                _ => FulfillmentClaimData::from_image_id_and_journal(
-                    Digest::from_hex(order.image_id.unwrap()).unwrap(),
+                PredicateType::ClaimDigestMatch => FulfillmentData::None,
+                _ => FulfillmentData::from_image_id_and_journal(
+                    Digest::from_hex(
+                        order
+                            .image_id
+                            .with_context(|| format!("Missing image_id for order: {order_id}"))?,
+                    )?,
                     journal,
                 ),
             };

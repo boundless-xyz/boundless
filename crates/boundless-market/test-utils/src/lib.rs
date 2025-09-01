@@ -398,7 +398,6 @@ pub fn mock_singleton(
     let app_claim_digest = app_receipt_claim.digest();
     let request_digest = request.eip712_signing_hash(&eip712_domain);
 
-    let predicate_type = request.requirements.predicate.predicateType;
     let predicate = Predicate::try_from(request.requirements.predicate.clone()).unwrap();
 
     let (claim_digest, fulfillment_data) = match predicate {

@@ -22,6 +22,7 @@ use aws_sdk_s3::{
     error::ProvideErrorMetadata,
     Client as S3Client,
 };
+use boundless_market::contracts::Predicate;
 use futures::StreamExt;
 use hex::FromHex;
 use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheOptions};
@@ -348,7 +349,11 @@ pub async fn upload_image_uri(
     request: &crate::ProofRequest,
     config: &crate::config::ConfigLock,
 ) -> Result<String> {
-    let image_id_str = request.requirements.image_id().map(|image_id| image_id.to_string());
+    let predicate = Predicate::try_from(request.requirements.predicate.clone())
+        .with_context(|| format!("Failed to parse predicate for request {:x}", request.id))?;
+
+    let image_id_str = predicate.image_id().map(|image_id| image_id.to_string());
+
     // When predicate is ClaimDigestMatch, we do not have the image id, so we must always download and upload the image.
     if let Some(ref image_id_str) = image_id_str {
         if prover.has_image(image_id_str).await? {

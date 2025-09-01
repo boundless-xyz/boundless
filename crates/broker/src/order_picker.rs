@@ -45,8 +45,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, FulfillmentClaimData, PredicateType,
-        RequestError, RequestInputType,
+        boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestError,
+        RequestInputType,
     },
     selector::SupportedSelectors,
 };
@@ -609,7 +609,7 @@ where
         };
 
         // Handle the preflight result
-        let (exec_session_id, cycle_count) = match preflight_result? {
+        let (exec_session_id, cycle_count, image_id) = match preflight_result? {
             PreflightCacheValue::Success { exec_session_id, cycle_count, image_id, input_id } => {
                 tracing::debug!(
                     "Using preflight result for {order_id}: session id {} with {} mcycles",
@@ -621,7 +621,7 @@ where
                 order.image_id = Some(image_id.clone());
                 order.input_id = Some(input_id.clone());
 
-                (exec_session_id, cycle_count)
+                (exec_session_id, cycle_count, image_id)
             }
             PreflightCacheValue::Skip { .. } => {
                 return Ok(Skip);
@@ -661,27 +661,15 @@ where
         }
 
         // Validate the predicates:
-        match order.request.requirements.predicate.predicateType {
-            PredicateType::ClaimDigestMatch => {
-                tracing::info!("Skip order {order_id} predicate match: ClaimDigestMatch");
-            }
-            _ => {
-                if !order.request.requirements.predicate.eval(
-                    &FulfillmentClaimData::from_image_id_and_journal(
-                        Digest::from_hex(
-                            order
-                                .image_id
-                                .as_ref()
-                                .expect("image id should be populated because we preflighted"),
-                        )
-                        .unwrap(),
-                        journal,
-                    ),
-                ) {
-                    tracing::info!("Order {order_id} predicate check failed, skipping");
-                    return Ok(Skip);
-                }
-            }
+        let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
+            .map_err(|e| OrderPickerErr::RequestError(Arc::new(e.into())))?;
+        let eval_data = FulfillmentData::from_image_id_and_journal(
+            Digest::from_hex(image_id).unwrap(),
+            journal,
+        );
+        if !predicate.eval(&eval_data) {
+            tracing::info!("Order {order_id} predicate check failed, skipping");
+            return Ok(Skip);
         }
 
         self.evaluate_order(order, &proof_res, order_gas_cost, lock_expired).await
