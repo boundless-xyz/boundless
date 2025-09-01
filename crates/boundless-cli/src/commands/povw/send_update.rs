@@ -47,6 +47,7 @@ pub struct PovwSendUpdate {
 
     // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
     /// Address of the PoVW accounting contract.
+    #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
     pub povw_accounting_address: Address,
 }
 
@@ -72,12 +73,12 @@ impl PovwSendUpdate {
             .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
-            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+            .with_context(|| format!("Failed to connect provider to {rpc_url}"))?;
 
         let chain_id = provider
             .get_chain_id()
             .await
-            .with_context(|| format!("failed to get chain ID from {rpc_url}"))?;
+            .with_context(|| format!("Failed to get chain ID from {rpc_url}"))?;
         let povw_accounting = IPovwAccounting::new(self.povw_accounting_address, provider.clone());
 
         // Get the current work log commit, to determine which update(s) should be applied.

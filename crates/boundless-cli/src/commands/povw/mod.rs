@@ -14,10 +14,12 @@
 
 //! Commands of the Boundless CLI for Proof of Verifiable Work (PoVW) operations.
 
+mod claim_reward;
 mod prove_update;
 mod send_update;
 mod state;
 
+pub use claim_reward::PovwClaimReward;
 pub use prove_update::PovwProveUpdate;
 pub use send_update::PovwSendUpdate;
 pub use state::State;
@@ -37,6 +39,8 @@ pub enum PovwCommands {
     ProveUpdate(PovwProveUpdate),
     /// Send a work log update to the onchain accounting contract.
     SendUpdate(PovwSendUpdate),
+    /// Claim ZKC rewards associated with submitted PoVW log updates in past epochs.
+    ClaimReward(PovwClaimReward),
 }
 
 impl PovwCommands {
@@ -45,6 +49,7 @@ impl PovwCommands {
         match self {
             Self::ProveUpdate(cmd) => cmd.run().await,
             Self::SendUpdate(cmd) => cmd.run(global_config).await,
+            Self::ClaimReward(cmd) => cmd.run(global_config).await,
         }
     }
 }

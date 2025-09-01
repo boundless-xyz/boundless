@@ -48,7 +48,7 @@ fn prove_update_basic() -> anyhow::Result<()> {
         "--new",
         "--log-id",
         &format!("{:#x}", log_id),
-        "--state-out",
+        "--state",
         state_path.to_str().unwrap(),
         receipt1_path.to_str().unwrap(),
     ])
@@ -69,12 +69,10 @@ fn prove_update_basic() -> anyhow::Result<()> {
     cmd.args([
         "povw",
         "prove-update",
-        "--state-in",
+        "--state",
         state_path.to_str().unwrap(),
         "--log-id",
         &format!("{:#x}", log_id),
-        "--state-out",
-        updated_state_path.to_str().unwrap(),
         receipt2_path.to_str().unwrap(),
     ])
     .env("RISC0_DEV_MODE", "1")
@@ -117,7 +115,7 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         "--new",
         "--log-id",
         &format!("{:#x}", log_id),
-        "--state-out",
+        "--state",
         state_path.to_str().unwrap(),
         receipt_path.to_str().unwrap(),
     ])
@@ -135,12 +133,12 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         "send-update",
         "--state",
         state_path.to_str().unwrap(),
-        &format!("{:#x}", ctx.povw_accounting.address()),
     ])
-    .env("RISC0_DEV_MODE", "1")
-    .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
+    .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
     .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
+    .env("RISC0_DEV_MODE", "1")
     .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+    .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
     .assert()
     .success()
     // 4. Confirm that the command logs success

@@ -26,21 +26,14 @@ pub struct PovwProveUpdate {
     #[arg(short, long)]
     log_id: PovwLogId,
 
-    /// Output file for the Log Builder receipt and work log state.
-    #[arg(short = 'o', long)]
-    state_out: PathBuf,
-
-    /// Continuation state and receipt from a previous log update.
-    ///
-    /// Set this flag to the output file from a previous run to update an existing work log.
-    /// Either this flag or --new must be specified.
-    #[arg(short = 'i', long, group = "state")]
-    state_in: Option<PathBuf>,
+    /// Path for the Log Builder receipt and work log state.
+    #[arg(short, long)]
+    state: PathBuf,
 
     /// Create a new work log, adding the given receipts to it.
     ///
-    /// Either this flag or --state-in must be specified.
-    #[arg(short, long, group = "state")]
+    /// If this not set, then the state file must exist.
+    #[arg(short, long)]
     new: bool,
 }
 
@@ -58,17 +51,20 @@ impl PovwProveUpdate {
             .context("Failed to build WorkLogUpdateProver")?;
 
         // Load the continuation state, if provided.
-        let mut state = if let Some(continuation_path) = &self.state_in {
-            let state = State::load(continuation_path)?;
+        let mut state = if self.new {
+            if self.state.exists() {
+                bail!("File already exists at the state path; refusing to overwrite");
+            }
+            tracing::info!("Initializing a new work log with ID {:x}", self.log_id);
+            State::new(self.log_id)
+        } else {
+            let state = State::load(&self.state).context("Failed to load state file")?;
             tracing::info!(
                 "Loaded work log state from {} with commit {}",
-                continuation_path.display(),
+                self.state.display(),
                 state.work_log.commit()
             );
             state
-        } else {
-            tracing::info!("Initializing a new work log with ID {:x}", self.log_id);
-            State::new(self.log_id)
         };
 
         // Add the initial state to the prover.
@@ -104,7 +100,7 @@ impl PovwProveUpdate {
         state
             .update_work_log(prover.work_log, prove_info.receipt)
             .context("Failed to update state")?
-            .save(&self.state_out)
+            .save(&self.state)
             .context("Failed to save state")?;
 
         Ok(())
