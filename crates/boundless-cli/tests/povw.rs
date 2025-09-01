@@ -18,6 +18,8 @@ fn test_prove_update_help() {
     let mut cmd = Command::cargo_bin("boundless").unwrap();
 
     cmd.args(["povw", "prove-update", "--help"])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
         .assert()
         .success()
         .stdout(predicates::str::contains("Usage:"))
@@ -51,6 +53,8 @@ fn prove_update_basic() -> anyhow::Result<()> {
         state_path.to_str().unwrap(),
         receipt1_path.to_str().unwrap(),
     ])
+    .env("NO_COLOR", "1")
+    .env("RUST_LOG", "boundless_cli=debug,info")
     .env("RISC0_DEV_MODE", "1")
     .assert()
     .success();
@@ -71,12 +75,13 @@ fn prove_update_basic() -> anyhow::Result<()> {
         state_path.to_str().unwrap(),
         receipt2_path.to_str().unwrap(),
     ])
+    .env("NO_COLOR", "1")
+    .env("RUST_LOG", "boundless_cli=debug,info")
     .env("RISC0_DEV_MODE", "1")
     .assert()
     .success();
 
-    State::load(&state_path)?
-        .validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+    State::load(&state_path)?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     Ok(())
 }
@@ -96,7 +101,7 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
     let log_id: PovwLogId = work_log_signer.address().into();
 
     // Use an Anvil-provided signer for transaction signing (with balance)
-    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[0].clone().into();
+    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[1].clone().into();
 
     let receipt_path = temp_path.join("receipt.bin");
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt_path)?;
@@ -113,6 +118,8 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         state_path.to_str().unwrap(),
         receipt_path.to_str().unwrap(),
     ])
+    .env("NO_COLOR", "1")
+    .env("RUST_LOG", "boundless_cli=debug,info")
     .env("RISC0_DEV_MODE", "1")
     .assert()
     .success();
@@ -123,6 +130,8 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
     // 3. Use the send-update command to post an update to the PoVW accounting contract
     let mut cmd = Command::cargo_bin("boundless")?;
     cmd.args(["povw", "send-update", "--state", state_path.to_str().unwrap()])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
@@ -167,7 +176,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
     let value_recipient = PrivateKeySigner::random().address();
 
     // Use an Anvil-provided signer for transaction signing (with balance)
-    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[0].clone().into();
+    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[1].clone().into();
 
     let state_path = temp_path.join("state.bin");
     let work_values = [100u64, 200u64, 150u64]; // Different work values for each epoch
@@ -205,7 +214,17 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
             ]
         };
 
-        cmd.args(cmd_args).env("RISC0_DEV_MODE", "1").assert().success();
+        let assert = cmd
+            .args(cmd_args)
+            .env("NO_COLOR", "1")
+            .env("RUST_LOG", "boundless_cli=debug,info")
+            .env("RISC0_DEV_MODE", "1")
+            .assert()
+            .success();
+        println!(
+            "prove-update command output: {:?}",
+            String::from_utf8_lossy(&assert.get_output().stdout)
+        );
 
         // Send the update to the blockchain
         let mut cmd = Command::cargo_bin("boundless")?;
@@ -217,37 +236,47 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
             "--value-recipient",
             &format!("{:#x}", value_recipient),
         ])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-        .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
-        .assert()
-        .success()
-        .stdout(contains("Work log update confirmed"));
+        .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
+
+        let assert = cmd.assert().success().stdout(contains("Work log update confirmed"));
+        println!(
+            "send-update command output: {:?}",
+            String::from_utf8_lossy(&assert.get_output().stdout)
+        );
 
         // Advance to next epoch after each update
         ctx.advance_epochs(alloy::primitives::U256::from(1)).await?;
     }
 
     // Finalize the current epoch to make rewards claimable
-    ctx.provider.anvil_mine(Some(1), None).await?;
     ctx.finalize_epoch().await?;
+    ctx.provider.anvil_mine(Some(1), None).await?;
 
     // Run the claim-reward command to mint the accumulated rewards
     println!("Running claim-reward command");
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["povw", "claim-reward", &format!("{:#x}", log_id)])
+    cmd.args(["povw", "claim-reward", "--log-id", &format!("{:#x}", log_id)])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
         .env("POVW_MINT_ADDRESS", format!("{:#x}", ctx.povw_mint.address()))
         .env("ZKC_ADDRESS", format!("{:#x}", ctx.zkc.address()))
         .env("ZKC_REWARDS_ADDRESS", format!("{:#x}", ctx.zkc_rewards.address()))
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
-        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-        .assert()
-        .success()
-        .stdout(contains("Reward claim completed"));
+        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str());
+
+    let assert = cmd.assert().success().stdout(contains("Reward claim completed"));
+    println!(
+        "claim-reward command output: {:?}",
+        String::from_utf8_lossy(&assert.get_output().stdout)
+    );
 
     // Verify that tokens were minted to the value recipient (not the work log signer)
     let final_balance = ctx.zkc.balanceOf(value_recipient).call().await?;

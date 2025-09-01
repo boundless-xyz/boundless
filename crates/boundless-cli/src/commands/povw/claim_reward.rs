@@ -232,6 +232,8 @@ async fn block_number_near_timestamp(
     timestamp: SystemTime,
     approx: Option<Duration>,
 ) -> anyhow::Result<u64> {
+    tracing::debug!("Search for block with timestamp less than {timestamp:?}");
+
     // Phase 1: Linear search backwards in chunks until we find a block <= target_timestamp
     const LINEAR_SEARCH_CHUNK_SIZE: u64 = 100000;
     let mut probe = latest_block_number;
@@ -244,7 +246,7 @@ async fn block_number_near_timestamp(
 
         let block_timestamp = UNIX_EPOCH + Duration::from_secs(block.header.timestamp);
         tracing::debug!("Linear search at block {probe}, timestamp {block_timestamp:?}");
-        if timestamp <= block_timestamp {
+        if block_timestamp <= timestamp {
             break;
         }
 
@@ -256,10 +258,11 @@ async fn block_number_near_timestamp(
     }
 
     // Phase 2: binary search between [low, high]
+    // NOTE: If the latest block is less than the target timestamp, the binary search will not run.
     let mut high = u64::min(probe + LINEAR_SEARCH_CHUNK_SIZE, latest_block_number);
     let mut low = probe;
     while low < high {
-        let mid = (low + high + 1) / 2; // bias upward
+        let mid = (low + high).div_ceil(2);
         let block = provider
             .get_block_by_number(mid.into())
             .await
