@@ -3015,7 +3015,7 @@ dependencies = [
 [[package]]
 name = "risc0-steel"
 version = "2.3.0"
-source = "git+https://github.com/boundless-xyz/steel?rev=26ab6a5bddb33dc42b69ed9b8116ef820ce45907#26ab6a5bddb33dc42b69ed9b8116ef820ce45907"
+source = "git+https://github.com/boundless-xyz/steel?rev=a44917a19e012ba10d4720095eb19fc9c66b7741#a44917a19e012ba10d4720095eb19fc9c66b7741"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",

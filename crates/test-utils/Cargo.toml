@@ -26,7 +26,7 @@ risc0-aggregation = { workspace = true }
 risc0-circuit-recursion = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-povw = { git = "https://github.com/risc0/risc0", branch = "victor/povw-patch-povw", features = ["prover"], optional = true }
-risc0-steel = { git = "https://github.com/boundless-xyz/steel", rev = "26ab6a5bddb33dc42b69ed9b8116ef820ce45907", optional = true }
+risc0-steel = { git = "https://github.com/boundless-xyz/steel", rev = "a44917a19e012ba10d4720095eb19fc9c66b7741", optional = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 tokio = { workspace = true, optional = true }
 
