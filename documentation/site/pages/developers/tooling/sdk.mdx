@@ -85,7 +85,7 @@ let (request_id, expires_at) = client.submit_request_onchain(&request).await?;
 # async fn submit_request(client: Client, request: ProofRequest) -> anyhow::Result<()>
 # {
 # let (request_id, expires_at) = client.submit_request_onchain(&request).await?;
-let (fulfillment_data_type, fulfillment_data, seal) = client
+let (fulfillment_data, seal) = client
     .wait_for_request_fulfillment(request_id, Duration::from_secs(10), expires_at)
     .await?;
 # Ok(())
@@ -169,10 +169,9 @@ async fn proof_submission(signer: &PrivateKeySigner, rpc_url: Url) -> anyhow::Re
     // Submit the request onchain.
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 
-    let (fulfillment_data_type, fulfillment_data, seal) = client
+    let (fulfillment_data, seal) = client
         .wait_for_request_fulfillment(request_id, Duration::from_secs(10), expires_at)
         .await?;
-    let fulfillment_data = FulfillmentData::decode_with_type(fulfillment_data_type, fulfillment_data)?;
     println!("FulfillmentData: {fulfillment_data:?}, Seal: {seal:?}");
 
     Ok(())

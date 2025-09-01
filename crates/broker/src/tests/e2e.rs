@@ -27,7 +27,7 @@ use alloy::{
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, Offer, Predicate, ProofRequest, RequestId,
+        hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest, RequestId,
         RequestInput, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
@@ -434,7 +434,7 @@ async fn e2e_with_selector() {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         // Wait for fulfillment
-        let (_, _, seal) = ctx
+        let (_, seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request.id),
@@ -510,7 +510,7 @@ async fn e2e_with_multiple_requests() {
         // Submit the second (groth16) order
         ctx.customer_market.submit_request(&request_groth16, &ctx.customer_signer).await.unwrap();
 
-        let (_, _, seal) = ctx
+        let (_, seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request.id),
@@ -522,7 +522,7 @@ async fn e2e_with_multiple_requests() {
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(!is_groth16_selector(selector));
 
-        let (_, _, seal) = ctx
+        let (_, seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request_groth16.id),
@@ -589,7 +589,7 @@ async fn e2e_with_claim_digest_match() {
         ctx.customer_market.submit_request(&good_request, &ctx.customer_signer).await.unwrap();
 
         // Wait for fulfillment
-        let (_fill_type, fulfillment_data, _seal) = ctx
+        let (fulfillment_data, _seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(good_request.id),
@@ -600,7 +600,7 @@ async fn e2e_with_claim_digest_match() {
             .unwrap();
 
         // When claim digest match is used without a callback, fulfillment data is empty
-        assert!(fulfillment_data.is_empty());
+        assert_eq!(fulfillment_data, FulfillmentData::None);
     })
     .await;
 }

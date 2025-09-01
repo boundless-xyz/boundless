@@ -171,6 +171,7 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
                 gasLimit: U96::from(params.callback_gas_limit.unwrap_or(DEFAULT_CALLBACK_GAS_LIMT)),
             })
             .unwrap_or_default();
+
         let selector = params.selector.unwrap_or_default();
         Ok(Requirements { predicate: predicate.into(), callback, selector })
     }

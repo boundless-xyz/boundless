@@ -1225,7 +1225,7 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
     // Wait for fulfillment if requested
     if args.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (_, fulfillment_data, seal) = client
+        let (fulfillment_data, seal) = client
             .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
@@ -1341,7 +1341,7 @@ where
     // Wait for fulfillment if requested
     if opts.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (_, fulfillment_data, seal) = client
+        let (fulfillment_data, seal) = client
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
 

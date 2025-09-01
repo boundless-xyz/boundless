@@ -21,7 +21,7 @@ use alloy::{
 };
 use anyhow::{anyhow, Context, Result};
 use boundless_market::{
-    contracts::FulfillmentData, Client, Deployment, RequestId, StorageProviderConfig,
+    Client, Deployment, RequestId, StorageProviderConfig,
 };
 use boundless_market_test_utils::ECHO_ELF;
 use clap::Parser;
@@ -121,15 +121,13 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled by the market. The market will return the fulfillment data and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (fulfillment_data_type, fulfillment_data, seal) = client
+    let (fulfillment_data, seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
             expires_at,
         )
         .await?;
-    let fulfillment_data =
-        FulfillmentData::decode_with_type(fulfillment_data_type, fulfillment_data)?;
     let journal =
         fulfillment_data.journal().ok_or_else(|| anyhow!("no fulfillment data"))?.to_vec();
 

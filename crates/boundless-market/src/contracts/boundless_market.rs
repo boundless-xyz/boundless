@@ -35,7 +35,7 @@ use thiserror::Error;
 
 use crate::contracts::{
     token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20},
-    FulfillmentDataType,
+    FulfillmentData, FulfillmentDataType,
 };
 
 use super::{
@@ -1169,15 +1169,17 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         retry_interval: Duration,
         expires_at: u64,
-    ) -> Result<(FulfillmentDataType, Bytes, Bytes), MarketError> {
+    ) -> Result<(FulfillmentData, Bytes), MarketError> {
         loop {
             let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
                 RequestStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 RequestStatus::Fulfilled => {
-                    let (fulfillment_type, fulfillment_data, seal, _) =
+                    let (fulfillment_type, fulfillment_data_bytes, seal, _) =
                         self.query_fulfilled_event(request_id, None, None).await?;
-                    return Ok((fulfillment_type, fulfillment_data, seal));
+                    let fulfillment_data = FulfillmentData::decode_with_type(fulfillment_type, fulfillment_data_bytes)
+                        .map_err(|e| MarketError::Error(e.into()))?;
+                    return Ok((fulfillment_data, seal));
                 }
                 _ => {
                     tracing::info!(

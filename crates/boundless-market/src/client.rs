@@ -34,7 +34,7 @@ use crate::{
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
-        FulfillmentData, FulfillmentDataType, ProofRequest, RequestError,
+        FulfillmentData, ProofRequest, RequestError,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -821,7 +821,7 @@ where
         request_id: U256,
         check_interval: std::time::Duration,
         expires_at: u64,
-    ) -> Result<(FulfillmentDataType, Bytes, Bytes), ClientError> {
+    ) -> Result<(FulfillmentData, Bytes), ClientError> {
         Ok(self
             .boundless_market
             .wait_for_request_fulfillment(request_id, check_interval, expires_at)

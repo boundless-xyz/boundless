@@ -38,7 +38,7 @@ let (request_id, expires_at) = client.submit_onchain(request).await?;
 
 // Wait for the request to be fulfilled
 tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-let (fulfillment_data_type, fulfillment_data, seal) = client
+let (fulfillment_data, seal) = client
     .wait_for_request_fulfillment(
         request_id,
         Duration::from_secs(5), // check every 5 seconds
@@ -91,8 +91,7 @@ When tracking requests, handle these potential outcomes:
 # let expires_at = 0u64; // Example expiry time
 
 match client.wait_for_request_fulfillment(request_id, check_interval, expires_at).await {
-    Ok((fulfillment_data_type, fulfillment_data, seal)) => {
-        let fulfillment_data = FulfillmentData::decode_with_type(fulfillment_data_type, fulfillment_data)?;
+    Ok((fulfillment_data, seal)) => {
 
         // Process the fulfilled proof
         tracing::info!("Proof received with fulfillment data: {:?}", fulfillment_data);
@@ -133,7 +132,7 @@ let status = client.boundless_market.get_status(request_id, Some(expires_at)).aw
 match status {
     RequestStatus::Fulfilled => {
         // Retrieve the fulfillment data and seal for the fulfilled request
-        let (fulfillment_data_type, fulfillment_data, seal) = client
+        let (fulfillment_data, seal) = client
             .wait_for_request_fulfillment(request_id, Duration::from_secs(1), expires_at)
             .await?;
     }

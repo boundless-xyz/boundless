@@ -25,7 +25,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use boundless_market::{
-    contracts::FulfillmentData, input::GuestEnv, request_builder::OfferParams, Client, Deployment,
+    input::GuestEnv, request_builder::OfferParams, Client, Deployment,
     StorageProviderConfig,
 };
 use clap::Parser;
@@ -108,16 +108,13 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (fulfillment_data_type, fulfillment_data, echo_seal) = client
+    let (fulfillment_data, echo_seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
             expires_at,
         )
         .await?;
-
-    let fulfillment_data =
-        FulfillmentData::decode_with_type(fulfillment_data_type, fulfillment_data)?;
     let cb_image_id = fulfillment_data.image_id().ok_or_else(|| anyhow!("missing cb_image_id"))?;
     let echo_journal =
         fulfillment_data.journal().ok_or_else(|| anyhow!("missing echo_journal"))?.to_vec();
@@ -148,7 +145,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (identity_fulfillment_data_type, identity_fulfillment_data, identity_seal) = client
+    let (identity_fulfillment_data, identity_seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
@@ -156,11 +153,6 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
     tracing::info!("Request {:x} fulfilled", request_id);
-
-    let identity_fulfillment_data = FulfillmentData::decode_with_type(
-        identity_fulfillment_data_type,
-        identity_fulfillment_data,
-    )?;
     let identity_journal = identity_fulfillment_data
         .journal()
         .ok_or_else(|| anyhow!("missing identity_journal"))?

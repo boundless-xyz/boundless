@@ -121,14 +121,13 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (fulfillment_data_type, fulfillment_data, seal) = client
+    let (fulfillment_data, seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
             expires_at,
         )
         .await?;
-    tracing::info!("Fullfillment data type: {:?}", fulfillment_data_type);
     tracing::info!("Fulfillment data: {:?}", fulfillment_data);
     tracing::info!("Request {:x} fulfilled", request_id);
 
