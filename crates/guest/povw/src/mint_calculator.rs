@@ -7,13 +7,18 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::{Add, AddAssign},
+    sync::LazyLock,
 };
 
+use alloy_chains::NamedChain;
 use alloy_primitives::{Address, ChainId, U256};
 use alloy_sol_types::sol;
 use risc0_povw::PovwLogId;
 use risc0_steel::{
-    ethereum::{EthChainSpec, EthEvmEnv, EthEvmInput},
+    ethereum::{
+        EthChainSpec, EthEvmEnv, EthEvmInput, ANVIL_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC,
+        ETH_SEPOLIA_CHAIN_SPEC,
+    },
     Commitment, StateDb, SteelVerifier,
 };
 use serde::{Deserialize, Serialize};
@@ -41,6 +46,15 @@ sol!(
     #[sol(extra_derives(Debug, Serialize, Deserialize))]
     "./src/contracts/artifacts/IPovwMint.sol"
 );
+
+/// A mapping of well-known chain IDs to their [EthChainSpec].
+pub static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(|| {
+    BTreeMap::from([
+        (NamedChain::Mainnet as ChainId, ETH_MAINNET_CHAIN_SPEC.clone()),
+        (NamedChain::Sepolia as ChainId, ETH_SEPOLIA_CHAIN_SPEC.clone()),
+        (NamedChain::AnvilHardhat as ChainId, ANVIL_CHAIN_SPEC.clone()),
+    ])
+});
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MultiblockEthEvmInput(pub Vec<EthEvmInput>);

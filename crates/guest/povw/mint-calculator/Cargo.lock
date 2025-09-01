@@ -28,6 +28,7 @@ checksum = "ef8ff73a143281cb77c32006b04af9c047a6b8fe5860e85a88ad325328965355"
 dependencies = [
  "alloy-primitives",
  "num_enum",
+ "serde",
  "strum",
 ]
 
@@ -1000,6 +1001,7 @@ dependencies = [
 name = "boundless-povw-guests"
 version = "0.14.0"
 dependencies = [
+ "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
@@ -1017,11 +1019,9 @@ dependencies = [
 name = "boundless-povw-mint-calculator"
 version = "0.1.0"
 dependencies = [
- "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
  "boundless-povw-guests",
- "postcard",
  "risc0-steel",
  "risc0-zkvm",
 ]

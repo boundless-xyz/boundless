@@ -8,6 +8,7 @@ repository = { workspace = true }
 publish = false
 
 [dependencies]
+alloy-chains = "0.2"
 alloy-contract = { version = "1.0", optional = true }
 alloy-primitives = { version = "1.0", features = ["serde", "k256"] }
 alloy-provider = { version = "1.0", optional = true }

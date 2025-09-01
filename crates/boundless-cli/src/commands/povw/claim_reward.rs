@@ -35,7 +35,7 @@ use boundless_povw_guests::{
         prover::LogUpdaterProver,
         IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
     },
-    mint_calculator::IPovwMint,
+    mint_calculator::{prover::MintCalculatorProver, IPovwMint, CHAIN_SPECS},
 };
 use clap::Args;
 use risc0_povw::{guest::Journal as LogBuilderJournal, PovwLogId};
@@ -44,6 +44,9 @@ use risc0_zkvm::{default_prover, Digest, ProverOpts};
 use crate::config::GlobalConfig;
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
+
+// TODO: Figure out what rewards the user is eligible for and warn them if they are receiving less
+// than their cycles could get them.
 
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
@@ -89,6 +92,11 @@ impl PovwClaimReward {
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+
+        let chain_id = provider.get_chain_id().await.context("Failed to query the chain ID")?;
+        let chain_spec = CHAIN_SPECS.get(&chain_id).with_context(|| {
+            format!("No known Steel chain specification for chain ID {chain_id}")
+        })?;
 
         // Determine the limits on the blocks that will be searched for events.
         let latest_block_number =
@@ -173,7 +181,54 @@ impl PovwClaimReward {
                 .chain(epoch_events.keys().copied()),
         );
 
-        todo!()
+        let mint_calculator_prover = MintCalculatorProver::builder()
+            .prover(default_prover())
+            .provider(provider.clone())
+            .povw_accounting_address(self.povw_accounting_address)
+            .zkc_address(self.zkc_address)
+            .zkc_rewards_address(self.zkc_rewards_address)
+            .chain_spec(chain_spec)
+            .build()?;
+
+        tracing::info!("Building input data for Mint Calculator guest");
+        let mint_input = mint_calculator_prover
+            .build_input(event_block_numbers, [self.log_id])
+            .await
+            .context("Failed to build input for Mint Calculator Guest")?;
+
+        tracing::info!("Proving Mint Calculator guest");
+        let mint_prove_info = mint_calculator_prover
+            .prove_mint(&mint_input)
+            .await
+            .context("Failed to prove Mint Calculator guest")?;
+
+        tracing::info!("Sending reward claim transaction");
+        let tx_result = povw_mint
+            .mint_with_receipt(&mint_prove_info.receipt)
+            .context("Failed to construct reward claim transaction")?
+            .send()
+            .await
+            .context("Failed to send reward claim transaction")?;
+        let tx_hash = tx_result.tx_hash();
+        tracing::info!(%tx_hash, "Sent transaction for reward claim");
+
+        let timeout = global_config.tx_timeout.or(tx_result.timeout());
+        tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
+        let tx_receipt = tx_result
+            .with_timeout(timeout)
+            .get_receipt()
+            .await
+            .context("Failed to receive receipt reward claim transaction")?;
+
+        ensure!(
+            tx_receipt.status(),
+            "Reward claim transaction failed: tx_hash = {}",
+            tx_receipt.transaction_hash
+        );
+
+        // TODO(povw): Display some info, like how much of a reward was created.
+        tracing::info!("Reward claim completed");
+        Ok(())
     }
 }
 
