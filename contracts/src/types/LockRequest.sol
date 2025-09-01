@@ -5,15 +5,11 @@
 pragma solidity ^0.8.20;
 
 import {ProofRequest, ProofRequestLibrary} from "./ProofRequest.sol";
-import {Account} from "./Account.sol";
-import {Callback, CallbackLibrary} from "./Callback.sol";
-import {Offer, OfferLibrary} from "./Offer.sol";
-import {Predicate, PredicateLibrary} from "./Predicate.sol";
-import {Input, InputType, InputLibrary} from "./Input.sol";
-import {Requirements, RequirementsLibrary} from "./Requirements.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {IBoundlessMarket} from "../IBoundlessMarket.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {CallbackLibrary} from "./Callback.sol";
+import {OfferLibrary} from "./Offer.sol";
+import {PredicateLibrary} from "./Predicate.sol";
+import {InputLibrary} from "./Input.sol";
+import {RequirementsLibrary} from "./Requirements.sol";
 
 using LockRequestLibrary for LockRequest global;
 

@@ -5,8 +5,8 @@
 
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {Test} from "forge-std/Test.sol";
 import {Predicate, PredicateLibrary, PredicateType} from "../../src/types/Predicate.sol";
 
 bytes32 constant IMAGE_ID = keccak256("ImageId for testing purposes");

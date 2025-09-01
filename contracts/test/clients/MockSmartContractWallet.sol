@@ -6,19 +6,18 @@ pragma solidity ^0.8.24;
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @dev Simple mock implementation of an ERC-1271 compliant SCW.
 contract MockSmartContractWallet is IERC1271 {
     bytes private expectedSignature;
     uint256 private gasCost = 0;
     address private owner;
-    IBoundlessMarket public immutable market;
+    IBoundlessMarket public immutable MARKET;
     bytes4 internal constant MAGICVALUE = 0x1626ba7e; // bytes4(keccak256("isValidSignature(bytes32,bytes)")
 
     constructor(bytes memory _expectedSignature, IBoundlessMarket _market, address _owner) {
         expectedSignature = _expectedSignature;
-        market = _market;
+        MARKET = _market;
         owner = _owner;
     }
 
