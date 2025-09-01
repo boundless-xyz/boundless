@@ -159,9 +159,13 @@ impl PovwSendUpdate {
                 .send()
                 .await
                 .context("Failed to send update transaction")?;
-            tracing::info!(tx_hash = %tx_result.tx_hash(), "Sent transaction for work log update");
+            let tx_hash = tx_result.tx_hash();
+            tracing::info!(%tx_hash, "Sent transaction for work log update");
 
+            let timeout = global_config.tx_timeout.or(tx_result.timeout());
+            tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
             let tx_receipt = tx_result
+                .with_timeout(timeout)
                 .get_receipt()
                 .await
                 .context("Failed to receive receipt for update transaction")?;
