@@ -82,7 +82,7 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        FulfillmentData, Offer, Predicate, PredicateType, ProofRequest, RequestInputType, Selector,
+        FulfillmentData, Offer, Predicate, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -1290,32 +1290,18 @@ where
                 image_id,
                 claim.pre.digest(),
             );
-            tracing::debug!("Skipping image ID check, no image ID provided");
         } else {
             tracing::debug!("Cannot check image ID; session info doesn't have receipt claim");
         }
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
-        let fulfillment_data = match request.requirements.predicate.predicateType {
-            PredicateType::DigestMatch | PredicateType::PrefixMatch => {
-                FulfillmentData::from_image_id_and_journal(image_id, journal.clone())
-            }
-            PredicateType::ClaimDigestMatch => FulfillmentData::None,
-            _ => {
-                bail!(
-                    "Unsupported predicate type: {:?}",
-                    request.requirements.predicate.predicateType
-                );
-            }
-        };
-
         ensure!(
-                    predicate.eval(&fulfillment_data),
-                    "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
-                    hex::encode(&journal),
-                    request.requirements.predicate.predicateType,
-                    hex::encode(&request.requirements.predicate.data)
-                );
+            predicate.eval(&FulfillmentData::from_image_id_and_journal(image_id, journal.clone())),
+            "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
+            hex::encode(&journal),
+            request.requirements.predicate.predicateType,
+            hex::encode(&request.requirements.predicate.data)
+        );
 
         tracing::info!("Preflight check passed");
     } else {
