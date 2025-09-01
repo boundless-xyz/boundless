@@ -678,7 +678,7 @@ pub enum PredicateError {
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
-///  A Predicate is a function over the claim that determines whether it meets the clients requirements.
+/// A Predicate is a function over the claim that determines whether it meets the clients requirements.
 pub enum Predicate {
     /// The image id and digest must match the provided image id and journal digest.
     DigestMatch(Digest, Digest),
@@ -799,7 +799,7 @@ impl Predicate {
     /// Important Note: This does not ensure the predicate is satisfied, only that journal is correct.
     /// Use `eval` for most use cases. This is mainly for when the image_id may not be unavailable
     /// for example in the request builder.
-    pub fn check_journal(&self, journal: impl AsRef<[u8]>) -> bool {
+    pub(crate) fn check_journal(&self, journal: impl AsRef<[u8]>) -> bool {
         match self {
             Predicate::DigestMatch(_, journal_digest) => {
                 journal_digest.as_bytes() == Sha256::digest(journal.as_ref()).as_slice()

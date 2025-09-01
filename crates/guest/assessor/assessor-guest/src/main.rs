@@ -79,7 +79,7 @@ fn main() {
         let callback = &fill.request.requirements.callback;
 
         if let FulfillmentData::ImageIdAndJournal(_, _) = &fill.fulfillment_data {
-            if fill.request.requirements.callback.addr != Address::ZERO {
+            if callback.addr != Address::ZERO {
                 callbacks.push(AssessorCallback {
                     index: index.try_into().expect("callback index overflow"),
                     addr: callback.addr,
