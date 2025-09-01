@@ -14,32 +14,24 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    fmt::format,
-    ops::Deref,
-    path::PathBuf,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use alloy::{
     contract::Event,
-    eips::BlockNumberOrTag,
     primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
     rpc::types::{Filter, Log},
-    signers::local::PrivateKeySigner,
     sol_types::SolEvent,
 };
 use anyhow::{bail, ensure, Context};
 use boundless_povw_guests::{
-    log_updater::{
-        prover::LogUpdaterProver,
-        IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
-    },
+    log_updater::IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
     mint_calculator::{prover::MintCalculatorProver, IPovwMint, CHAIN_SPECS},
 };
 use clap::Args;
-use risc0_povw::{guest::Journal as LogBuilderJournal, PovwLogId};
-use risc0_zkvm::{default_prover, Digest, ProverOpts};
+use risc0_povw::PovwLogId;
+use risc0_zkvm::{default_prover, Digest};
 
 use crate::config::GlobalConfig;
 

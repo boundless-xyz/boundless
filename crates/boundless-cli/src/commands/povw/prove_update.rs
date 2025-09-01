@@ -78,7 +78,7 @@ impl PovwProveUpdate {
 
         // Load work receipt files, filtering out receipt files that we cannot add to the log.
         let work_receipts = self
-            .load_work_receipts(&prover.work_log)
+            .load_work_receipts(state.log_id, &prover.work_log)
             .filter_map(|result| {
                 result.map_err(|err| tracing::warn!("{:?}", err.context("Skipping receipt"))).ok()
             })
@@ -104,9 +104,10 @@ impl PovwProveUpdate {
     /// Load work receipts from the specified directory
     fn load_work_receipts<'a>(
         &self,
+        log_id: PovwLogId,
         work_log: &'a WorkLog,
     ) -> impl Iterator<Item = anyhow::Result<WorkReceipt>> + use<'a, '_> {
-        self.work_receipts.iter().map(|path| {
+        self.work_receipts.iter().map(move |path| {
             if !path.is_file() {
                 bail!("Work receipt path is not a file: {}", path.display())
             }
@@ -117,7 +118,7 @@ impl PovwProveUpdate {
                 .with_context(|| format!("Failed to load receipt from {}", path.display()))?;
             tracing::info!("Loaded receipt from: {}", path.display());
 
-            self.check_work_receipt(work_log, work_receipt)
+            self.check_work_receipt(log_id, work_log, work_receipt)
                 .with_context(|| format!("Receipt from path {}", path.display()))
         })
     }
@@ -143,6 +144,7 @@ impl PovwProveUpdate {
 
     fn check_work_receipt<T: Borrow<WorkReceipt>>(
         &self,
+        log_id: PovwLogId,
         work_log: &WorkLog,
         work_receipt: T,
     ) -> anyhow::Result<T> {
@@ -158,10 +160,10 @@ impl PovwProveUpdate {
 
         // NOTE: If nonce_max does not have the same log ID as nonce_min, the exec will fail.
         ensure!(
-            work_claim.nonce_min.log == self.log_id,
+            work_claim.nonce_min.log == log_id,
             "Receipt has a log ID that does not match the work log: receipt: {:x}, work log: {:x}",
             work_claim.nonce_min.log,
-            self.log_id
+            log_id
         );
 
         ensure!(

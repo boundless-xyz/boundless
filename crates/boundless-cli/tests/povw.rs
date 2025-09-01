@@ -151,6 +151,116 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Test the claim-reward command with multiple epochs of work log updates.
+#[tokio::test]
+async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
+    // Set up a local Anvil node with the required contracts
+    let ctx = test_ctx().await?;
+
+    // Create temp dir for receipts and state
+    let temp_dir = TempDir::new()?;
+    let temp_path = temp_dir.path();
+
+    // Use a random signer for the work log
+    let work_log_signer = PrivateKeySigner::random();
+    let log_id: PovwLogId = work_log_signer.address().into();
+
+    // Use a different address as the value recipient
+    let value_recipient = PrivateKeySigner::random().address();
+
+    // Use an Anvil-provided signer for transaction signing (with balance)
+    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[0].clone().into();
+
+    let state_path = temp_path.join("state.bin");
+    let work_values = [100u64, 200u64, 150u64]; // Different work values for each epoch
+
+    // Loop: Create three updates across three epochs
+    for (i, &work_value) in work_values.iter().enumerate() {
+        println!("Creating update {} with work value {}", i + 1, work_value);
+
+        // Create a work receipt for this epoch
+        let receipt_path = temp_path.join(format!("receipt_{}.bin", i + 1));
+        make_fake_work_receipt_file(log_id, work_value, 10, &receipt_path)?;
+
+        // Create or update the work log
+        let mut cmd = Command::cargo_bin("boundless")?;
+        let cmd_args = if i == 0 {
+            // First update: create new work log
+            vec![
+                "povw",
+                "prove-update",
+                "--new",
+                &format!("{:#x}", log_id),
+                "--state",
+                state_path.to_str().unwrap(),
+                receipt_path.to_str().unwrap(),
+            ]
+        } else {
+            // Subsequent updates: update existing work log (CLI overwrites same state file)
+            vec![
+                "povw",
+                "prove-update",
+                "--state",
+                state_path.to_str().unwrap(),
+                receipt_path.to_str().unwrap(),
+            ]
+        };
+
+        cmd.args(cmd_args).env("RISC0_DEV_MODE", "1").assert().success();
+
+        // Send the update to the blockchain
+        let mut cmd = Command::cargo_bin("boundless")?;
+        cmd.args([
+            "povw",
+            "send-update",
+            "--state",
+            state_path.to_str().unwrap(),
+            "--value-recipient",
+            &format!("{:#x}", value_recipient),
+        ])
+        .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
+        .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
+        .env("RISC0_DEV_MODE", "1")
+        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+        .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
+        .assert()
+        .success()
+        .stdout(contains("Work log update confirmed"));
+
+        // Advance to next epoch after each update
+        ctx.advance_epochs(alloy::primitives::U256::from(1)).await?;
+    }
+
+    // Finalize the current epoch to make rewards claimable
+    ctx.finalize_epoch().await?;
+
+    // Run the claim-reward command to mint the accumulated rewards
+    let mut cmd = Command::cargo_bin("boundless")?;
+    cmd.args(["povw", "claim-reward", &format!("{:#x}", log_id)])
+        .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
+        .env("POVW_MINT_ADDRESS", format!("{:#x}", ctx.povw_mint.address()))
+        .env("ZKC_ADDRESS", format!("{:#x}", ctx.zkc.address()))
+        .env("ZKC_REWARDS_ADDRESS", format!("{:#x}", ctx.zkc_rewards.address()))
+        .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
+        .env("RISC0_DEV_MODE", "1")
+        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+        .assert()
+        .success()
+        .stdout(contains("Reward claim completed"));
+
+    // Verify that tokens were minted to the value recipient (not the work log signer)
+    let final_balance = ctx.zkc.balanceOf(value_recipient).call().await?;
+
+    // The value recipient should have received rewards for all the work across the epochs
+    assert!(
+        final_balance > alloy::primitives::U256::ZERO,
+        "Value recipient should have received tokens"
+    );
+    println!("✓ Multi-epoch claim-reward test completed. Final balance: {}", final_balance);
+
+    Ok(())
+}
+
 /// Make a fake work receipt with the given log ID and a random job number, encode it, and save it to a file.
 fn make_fake_work_receipt_file(
     log_id: PovwLogId,

@@ -45,6 +45,10 @@ pub struct PovwSendUpdate {
     #[clap(long, env = "WORK_LOG_PRIVATE_KEY", hide_env_values = true)]
     pub work_log_private_key: Option<PrivateKeySigner>,
 
+    /// The address to assign any PoVW rewards to. If not provided, defaults to the work log ID.
+    #[clap(short, long)]
+    pub value_recipient: Option<Address>,
+
     // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
     /// Address of the PoVW accounting contract.
     #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
@@ -140,6 +144,7 @@ impl PovwSendUpdate {
             let prover = LogUpdaterProver::builder()
                 .prover(default_prover())
                 .chain_id(chain_id)
+                .value_recipient(self.value_recipient)
                 .contract_address(self.povw_accounting_address)
                 .prover_opts(ProverOpts::groth16())
                 .build()

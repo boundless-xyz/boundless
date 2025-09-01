@@ -258,6 +258,9 @@ pub mod prover {
         /// Address of the PoVW accounting contract.
         #[builder(setter(into))]
         pub contract_address: Address,
+        /// Address that should receive any associated PoVW rewards.
+        #[builder(setter(into))]
+        pub value_recipient: Option<Address>,
         /// EIP-155 chain ID.
         pub chain_id: u64,
         /// Image ID for the Log Updater program.
@@ -285,6 +288,7 @@ pub mod prover {
             LogUpdaterProverBuilder {
                 prover: Some(prover),
                 contract_address: self.contract_address,
+                value_recipient: self.value_recipient,
                 chain_id: self.chain_id,
                 log_updater_id: self.log_updater_id,
                 log_updater_program: self.log_updater_program,
@@ -330,6 +334,7 @@ pub mod prover {
             // Create the input using the builder pattern with sign_and_build
             let input = Input::builder()
                 .update(log_builder_journal)
+                .value_recipient(self.value_recipient.unwrap_or(signer.address()))
                 .contract_address(self.contract_address)
                 .chain_id(self.chain_id)
                 .sign_and_build(signer)
