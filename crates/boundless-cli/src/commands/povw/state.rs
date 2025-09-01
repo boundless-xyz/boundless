@@ -14,10 +14,12 @@
 
 //! Commands of the Boundless CLI for Proof of Verifiable Work (PoVW) operations.
 
-use std::{fs, io::Write, path::Path, time::SystemTime};
+use std::{collections::HashMap, fs, io::Write, path::Path, time::SystemTime};
 
+use alloy::{primitives::B256, rpc::types::TransactionReceipt};
 use anyhow::{bail, ensure, Context, Result};
 use atomicwrites::{AtomicFile, OverwriteBehavior};
+use boundless_povw_guests::log_updater::IPovwAccounting::{self, WorkLogUpdated};
 use num_enum::TryFromPrimitive;
 use risc0_povw::{
     guest::Journal as LogBuilderJournal, guest::RISC0_POVW_LOG_BUILDER_ID, PovwLogId, WorkLog,
@@ -46,8 +48,21 @@ pub struct State {
     /// A list of receipts is kept to ensure that records are not lost that could prevent the
     /// prover from completing the onchain log update and minting operations.
     pub log_builder_receipts: Vec<Receipt>,
+    /// A map of the transaction hashes to related state. Used to determine which blocks have
+    /// update events for the claim rewards operation.
+    pub update_transactions: HashMap<B256, UpdateTransactionState>,
     /// Time at which this state was last updated.
     pub updated_at: SystemTime,
+}
+
+/// State of a log update transaction sent to the chain.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct UpdateTransactionState {
+    /// Block number from the receipt for the confirmed transaction. None if pending.
+    block_number: Option<u64>,
+    /// [WorkLogUpdated] event from the confirmed transaction. None if pending.
+    update_event: Option<WorkLogUpdated>,
 }
 
 /// A one-byte version number tacked on to the front of the encoded state for cross-version compat.
@@ -65,6 +80,7 @@ impl State {
             log_id,
             work_log: WorkLog::EMPTY,
             log_builder_receipts: Vec::new(),
+            update_transactions: HashMap::new(),
             updated_at: SystemTime::now(),
         }
     }
@@ -92,11 +108,11 @@ impl State {
     }
 
     /// Update the work log state to the new [WorkLog] value and add a receipt.
-    pub fn update(
-        mut self,
+    pub fn update_work_log(
+        &mut self,
         work_log: WorkLog,
         log_builder_receipt: Receipt,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<&mut Self> {
         // Verify the Log Builder receipt. Ensure it matches the current state to avoid corruption.
         log_builder_receipt
             .verify(RISC0_POVW_LOG_BUILDER_ID)
@@ -132,6 +148,51 @@ impl State {
 
         self.log_builder_receipts.push(log_builder_receipt);
         self.work_log = work_log;
+        self.updated_at = SystemTime::now();
+        Ok(self)
+    }
+
+    /// Add a pending transaction hash for a log update transaction.
+    pub fn add_pending_update_tx(&mut self, tx_hash: B256) -> anyhow::Result<&mut Self> {
+        self.update_transactions
+            .entry(tx_hash)
+            .or_insert(UpdateTransactionState { block_number: None, update_event: None });
+        self.updated_at = SystemTime::now();
+        Ok(self)
+    }
+
+    /// Add a confirmed transaction receipt for a log update.
+    pub fn confirm_update_tx(
+        &mut self,
+        tx_receipt: &TransactionReceipt,
+    ) -> anyhow::Result<&mut Self> {
+        // Extract the WorkLogUpdated event
+        let work_log_updated_event = tx_receipt
+            .logs()
+            .iter()
+            .filter_map(|log| log.log_decode::<IPovwAccounting::WorkLogUpdated>().ok())
+            .next()
+            .with_context(|| {
+                format!(
+                    "No WorkLogUpdated event in transaction receipt for {}",
+                    tx_receipt.transaction_hash
+                )
+            })?;
+
+        let block_number = tx_receipt.block_number.with_context(|| {
+            format!(
+                "No block number event in transaction receipt for {}",
+                tx_receipt.transaction_hash
+            )
+        })?;
+
+        self.update_transactions.insert(
+            tx_receipt.transaction_hash,
+            UpdateTransactionState {
+                block_number: Some(block_number),
+                update_event: Some(work_log_updated_event.data().clone()),
+            },
+        );
         self.updated_at = SystemTime::now();
         Ok(self)
     }

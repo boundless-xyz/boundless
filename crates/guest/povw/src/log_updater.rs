@@ -21,12 +21,12 @@ pub use crate::guest_artifacts::{BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_
 
 #[cfg(feature = "host")]
 sol!(
-    #[sol(extra_derives(Debug), rpc)]
+    #[sol(extra_derives(Debug, Serialize, Deserialize), rpc)]
     "./src/contracts/artifacts/IPovwAccounting.sol"
 );
 #[cfg(not(feature = "host"))]
 sol!(
-    #[sol(extra_derives(Debug))]
+    #[sol(extra_derives(Debug, Serialize, Deserialize))]
     "./src/contracts/artifacts/IPovwAccounting.sol"
 );
 

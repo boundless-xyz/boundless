@@ -58,7 +58,7 @@ impl PovwProveUpdate {
             .context("Failed to build WorkLogUpdateProver")?;
 
         // Load the continuation state, if provided.
-        let state = if let Some(continuation_path) = &self.state_in {
+        let mut state = if let Some(continuation_path) = &self.state_in {
             let state = State::load(continuation_path)?;
             tracing::info!(
                 "Loaded work log state from {} with commit {}",
@@ -101,9 +101,11 @@ impl PovwProveUpdate {
             prover.prove_update(work_receipts).context("Failed to prove work log update")?;
 
         // Update and save the output state.
-        let updated_state =
-            state.update(prover.work_log, prove_info.receipt).context("Failed to update state")?;
-        updated_state.save(&self.state_out).context("Failed to save state")?;
+        state
+            .update_work_log(prover.work_log, prove_info.receipt)
+            .context("Failed to update state")?
+            .save(&self.state_out)
+            .context("Failed to save state")?;
 
         Ok(())
     }

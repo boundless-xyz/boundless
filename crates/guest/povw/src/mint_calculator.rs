@@ -33,12 +33,12 @@ mod Steel {
 
 #[cfg(feature = "host")]
 sol!(
-    #[sol(extra_derives(Debug), rpc)]
+    #[sol(extra_derives(Debug, Serialize, Deserialize), rpc)]
     "./src/contracts/artifacts/IPovwMint.sol"
 );
 #[cfg(not(feature = "host"))]
 sol!(
-    #[sol(extra_derives(Debug))]
+    #[sol(extra_derives(Debug, Serialize, Deserialize))]
     "./src/contracts/artifacts/IPovwMint.sol"
 );
 

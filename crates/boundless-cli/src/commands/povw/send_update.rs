@@ -58,7 +58,7 @@ impl PovwSendUpdate {
         let rpc_url = global_config.require_rpc_url()?;
 
         // Load the state and check to make sure the private key matches.
-        let state = State::load(&self.state)
+        let mut state = State::load(&self.state)
             .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
@@ -162,6 +162,12 @@ impl PovwSendUpdate {
             let tx_hash = tx_result.tx_hash();
             tracing::info!(%tx_hash, "Sent transaction for work log update");
 
+            // Save the pending transaction to state.
+            state
+                .add_pending_update_tx(*tx_hash)?
+                .save(&self.state)
+                .context("Failed to save state")?;
+
             let timeout = global_config.tx_timeout.or(tx_result.timeout());
             tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
             let tx_receipt = tx_result
@@ -180,10 +186,14 @@ impl PovwSendUpdate {
             if let Some(event) = work_log_updated_event {
                 let data = event.inner.data;
                 tracing::info!(updated_commit = %data.updatedCommit, update_value = data.updateValue.to::<u64>(), "Work log update confirmed");
-            } else {
-                tracing::info!("Work log update confirmed");
-                tracing::warn!("No WorkLogUpdated event in transaction receipt");
             }
+
+            // Confirm the transaction in the state.
+            state
+                .confirm_update_tx(&tx_receipt)
+                .context("Failed to add transaction receipt to state")?
+                .save(&self.state)
+                .context("Failed to save state")?;
         }
 
         Ok(())
