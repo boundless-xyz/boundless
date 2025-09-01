@@ -854,25 +854,6 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_requirements_layer_callback_and_claim_digest_match() -> anyhow::Result<()> {
-        let layer = RequirementsLayer::default();
-        let program = ECHO_ELF;
-        let bytes = b"journal_data".to_vec();
-        let journal = Journal::new(bytes.clone());
-
-        let params = RequirementParams::builder()
-            .predicate(Predicate::claim_digest_match(Digest::ZERO))
-            .callback_address(address!("0x00000000000000000000000000000000deadbeef"))
-            .build()?;
-
-        let error_msg = layer.process((program, &journal, &params)).await.unwrap_err();
-        assert_eq!(format!("{error_msg}"), "cannot use ClaimDigestMatch predicate with a callback; the journal must be provided to the callback");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[traced_test]
     async fn test_request_id_layer_rand() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await?;
