@@ -39,7 +39,7 @@ parser.add_argument("--povw-mint-deployment-commit", help="PoVW mint deployment 
 
 # ZKC contract fields
 parser.add_argument("--zkc", help="ZKC contract address")
-parser.add_argument("--vezkc", help="ZKCStakingRewards contract address")
+parser.add_argument("--vezkc", help="veZKC contract address")
 
 args = parser.parse_args()
 
