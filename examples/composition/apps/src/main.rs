@@ -21,12 +21,12 @@ use crate::ICounter::ICounterInstance;
 use alloy::{
     primitives::{Address, B256},
     signers::local::PrivateKeySigner,
-    sol_types::{SolCall, SolValue},
+    sol_types::SolCall,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use boundless_market::{
-    contracts::boundless_market_contract::FulfillmentDataImageIdAndJournal, input::GuestEnv,
-    request_builder::OfferParams, Client, Deployment, StorageProviderConfig,
+    contracts::FulfillmentData, input::GuestEnv, request_builder::OfferParams, Client, Deployment,
+    StorageProviderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
@@ -108,15 +108,20 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (fulfillment_data, echo_seal) = client
+    let (fulfillment_data_type, fulfillment_data, echo_seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
             expires_at,
         )
         .await?;
-    let FulfillmentDataImageIdAndJournal { imageId: cb_image_id, journal: echo_journal } =
-        FulfillmentDataImageIdAndJournal::abi_decode(&fulfillment_data)?;
+
+    let fulfillment_data =
+        FulfillmentData::decode_with_type(fulfillment_data_type, fulfillment_data)?;
+    let cb_image_id = fulfillment_data.image_id().ok_or_else(|| anyhow!("missing cb_image_id"))?;
+    let echo_journal =
+        fulfillment_data.journal().ok_or_else(|| anyhow!("missing echo_journal"))?.to_vec();
+
     tracing::info!("Request {:x} fulfilled", request_id);
     assert_eq!(Digest::from(<[u8; 32]>::from(cb_image_id)), Digest::from(ECHO_ID));
 
@@ -143,7 +148,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (identity_fulfillment_data, identity_seal) = client
+    let (identity_fulfillment_data_type, identity_fulfillment_data, identity_seal) = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
@@ -151,8 +156,16 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
     tracing::info!("Request {:x} fulfilled", request_id);
-    let FulfillmentDataImageIdAndJournal { journal: identity_journal, .. } =
-        FulfillmentDataImageIdAndJournal::abi_decode(&identity_fulfillment_data)?;
+
+    let identity_fulfillment_data = FulfillmentData::decode_with_type(
+        identity_fulfillment_data_type,
+        identity_fulfillment_data,
+    )?;
+    let identity_journal = identity_fulfillment_data
+        .journal()
+        .ok_or_else(|| anyhow!("missing identity_journal"))?
+        .to_vec();
+
     debug_assert_eq!(&identity_journal, echo_claim_digest.as_bytes());
 
     // Interact with the Counter contract by calling the increment function.

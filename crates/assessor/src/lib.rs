@@ -252,9 +252,9 @@ mod tests {
         let claim = Fulfillment {
             request: proving_request,
             signature: signature.as_bytes().to_vec(),
-            fulfillment_data: FulfillmentClaimData::ImageIdAndJournal(
+            fulfillment_data: FulfillmentData::from_image_id_and_journal(
                 Digest::from_bytes(B256::ZERO.0),
-                vec![1].into(),
+                vec![1u8],
             ),
         };
 
@@ -325,7 +325,7 @@ mod tests {
         let claims = vec![Fulfillment {
             request,
             signature,
-            fulfillment_data: FulfillmentClaimData::from_image_id_and_journal(*image_id, journal),
+            fulfillment_data: FulfillmentData::from_image_id_and_journal(*image_id, journal),
         }];
         assessor(claims);
     }
@@ -343,7 +343,7 @@ mod tests {
         let claim = Fulfillment {
             request,
             signature,
-            fulfillment_data: FulfillmentClaimData::from_image_id_and_journal(*image_id, journal),
+            fulfillment_data: FulfillmentData::from_image_id_and_journal(*image_id, journal),
         };
 
         // 3. Prove the Assessor reusing the same leaf twice
@@ -373,15 +373,9 @@ mod tests {
             Fulfillment {
                 request: request.clone(),
                 signature: signature.clone(),
-                fulfillment_data: FulfillmentClaimData::from_image_id_and_journal(
-                    *image_id, journal,
-                ),
+                fulfillment_data: FulfillmentData::from_image_id_and_journal(*image_id, journal),
             },
-            Fulfillment {
-                request,
-                signature,
-                fulfillment_data: FulfillmentClaimData::from_claim_digest(claim_digest),
-            },
+            Fulfillment { request, signature, fulfillment_data: FulfillmentData::None },
         ];
         assessor(claims);
     }

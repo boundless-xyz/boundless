@@ -809,9 +809,9 @@ mod tests {
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
         // retrieve fulfillment data and seal from the fulfilled request
-        let (fulfillment_data, seal) =
+        let (fill_type, fulfillment_data, seal) =
             ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
-
+        assert_eq!(fill_type, fulfillment.fulfillmentDataType);
         assert_eq!(fulfillment_data, fulfillment.fulfillmentData);
         assert_eq!(seal, fulfillment.seal);
     }

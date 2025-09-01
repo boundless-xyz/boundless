@@ -645,8 +645,8 @@ mod tests {
 
     use crate::{
         contracts::{
-            boundless_market::BoundlessMarketService, FulfillmentClaimData, Predicate,
-            RequestInput, RequestInputType, Requirements,
+            boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestInput,
+            RequestInputType, Requirements,
         },
         input::GuestEnv,
         storage::{fetch_url, MockStorageProvider, StorageProvider},
@@ -734,10 +734,8 @@ mod tests {
         let program_url = storage.upload_program(ECHO_ELF).await?;
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
-        assert_eq!(
-            request.requirements.image_id().unwrap(),
-            risc0_zkvm::compute_image_id(ECHO_ELF)?
-        );
+        let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
+        assert_eq!(predicate.image_id().unwrap(), risc0_zkvm::compute_image_id(ECHO_ELF)?);
         Ok(())
     }
 
@@ -837,19 +835,20 @@ mod tests {
         let bytes = b"journal_data".to_vec();
         let journal = Journal::new(bytes.clone());
         let req = layer.process((program, &journal, &Default::default())).await?;
-        let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
-            req.image_id().unwrap(),
+        let predicate = Predicate::try_from(req.predicate.clone())?;
+        let fulfillment_data = FulfillmentData::from_image_id_and_journal(
+            predicate.image_id().unwrap(),
             journal.bytes.clone(),
         );
         // Predicate should match the same journal
-        assert!(req.predicate.eval(&fulfillment_data));
+        assert!(predicate.eval(&fulfillment_data));
         // And should not match different data
         let other = Journal::new(b"other_data".to_vec());
-        let fulfillment_data = FulfillmentClaimData::from_image_id_and_journal(
-            req.image_id().unwrap(),
+        let fulfillment_data = FulfillmentData::from_image_id_and_journal(
+            predicate.image_id().unwrap(),
             other.bytes.clone(),
         );
-        assert!(!req.predicate.eval(&fulfillment_data));
+        assert!(!predicate.eval(&fulfillment_data));
         Ok(())
     }
 

@@ -1640,7 +1640,7 @@ pub(crate) mod tests {
         let mut order = ctx.generate_next_order(Default::default()).await;
         // set a bad predicate
         order.request.requirements.predicate =
-            Predicate::digest_match(Digest::from(ECHO_ID), Digest::ZERO);
+            Predicate::digest_match(Digest::from(ECHO_ID), Digest::ZERO).into();
 
         let order_id = order.id();
         let _request_id =

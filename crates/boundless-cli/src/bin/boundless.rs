@@ -2141,12 +2141,14 @@ mod tests {
             request.id
         )));
 
+        let predicate = Predicate::try_from(request.requirements.predicate.clone()).unwrap();
+
         // test the Verify command
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::VerifyProof {
                 request_id,
-                image_id: <[u8; 32]>::from(request.requirements.image_id().unwrap()).into(),
+                image_id: <[u8; 32]>::from(predicate.image_id().unwrap()).into(),
             })),
         })
         .await
@@ -2329,7 +2331,7 @@ mod tests {
         .unwrap();
 
         // check the seal is aggregated
-        let (_journal, seal) =
+        let (_, _journal, seal) =
             ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
         let selector: FixedBytes<4> = seal[0..4].try_into().unwrap();
         assert!(is_groth16_selector(selector))

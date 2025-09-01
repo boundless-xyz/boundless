@@ -434,7 +434,7 @@ async fn e2e_with_selector() {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         // Wait for fulfillment
-        let (_, seal) = ctx
+        let (_, _, seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request.id),
@@ -510,7 +510,7 @@ async fn e2e_with_multiple_requests() {
         // Submit the second (groth16) order
         ctx.customer_market.submit_request(&request_groth16, &ctx.customer_signer).await.unwrap();
 
-        let (_, seal) = ctx
+        let (_, _, seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request.id),
@@ -522,7 +522,7 @@ async fn e2e_with_multiple_requests() {
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(!is_groth16_selector(selector));
 
-        let (_, seal) = ctx
+        let (_, _, seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request_groth16.id),
@@ -589,7 +589,7 @@ async fn e2e_with_claim_digest_match() {
         ctx.customer_market.submit_request(&good_request, &ctx.customer_signer).await.unwrap();
 
         // Wait for fulfillment
-        let (fulfillment_data, _seal) = ctx
+        let (_fill_type, fulfillment_data, _seal) = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(good_request.id),
