@@ -169,6 +169,9 @@ services:
   exec_agent0:
     <<: *exec-agent-common
 
+  exec_agent1:
+    <<: *exec-agent-common
+
   aux_agent:
     <<: *agent-common
     mem_limit: 256M
