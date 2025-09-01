@@ -34,8 +34,7 @@ static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(||
 //   * The mint recipient is set correctly.
 fn main() {
     // Read the input from the guest environment.
-    let input: Input =
-        postcard::from_bytes(&env::read_frame()).expect("failed to deserialize input");
+    let input = Input::decode(&env::read_frame()).expect("failed to deserialize input");
 
     // Converts the input into a `EvmEnv` structs for execution.
     let chain_spec = &CHAIN_SPECS.get(&input.chain_id).expect("unrecognized chain id in input");

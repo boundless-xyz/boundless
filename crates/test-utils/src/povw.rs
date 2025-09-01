@@ -446,7 +446,7 @@ pub fn execute_log_updater_guest(
 pub fn execute_mint_calculator_guest(
     input: &mint_calculator::Input,
 ) -> anyhow::Result<mint_calculator::MintCalculatorJournal> {
-    let env = ExecutorEnv::builder().write_frame(&postcard::to_allocvec(input)?).build()?;
+    let env = ExecutorEnv::builder().write_frame(&input.encode()?).build()?;
     let session_info = default_executor().execute(env, BOUNDLESS_POVW_MINT_CALCULATOR_ELF)?;
     assert_eq!(session_info.exit_code, ExitCode::Halted(0));
 

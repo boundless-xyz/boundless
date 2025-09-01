@@ -281,7 +281,6 @@ pub mod prover {
 
     impl<P> LogUpdaterProverBuilder<P> {
         /// Set the underlying RISC Zero zkVM [Prover].
-        #[must_use]
         pub fn prover<Q>(self, prover: Q) -> LogUpdaterProverBuilder<Q> {
             LogUpdaterProverBuilder {
                 prover: Some(prover),

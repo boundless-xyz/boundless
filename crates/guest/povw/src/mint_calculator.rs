@@ -159,6 +159,19 @@ pub struct Input {
     pub work_log_filter: WorkLogFilter,
 }
 
+impl Input {
+    // TODO(povw): Use a non-anyhow error here?
+    /// Serialize the input to a vector of bytes.
+    pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
+        postcard::to_allocvec(self).map_err(Into::into)
+    }
+
+    /// Deserialize the input from a slice of bytes.
+    pub fn decode(buffer: impl AsRef<[u8]>) -> anyhow::Result<Self> {
+        postcard::from_bytes(buffer.as_ref()).map_err(Into::into)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FixedPoint(U256);
 
@@ -587,6 +600,182 @@ pub mod host {
                 env: env_input,
                 work_log_filter,
             })
+        }
+    }
+}
+
+#[cfg(feature = "prover")]
+pub mod prover {
+    use std::{borrow::Cow, convert::Infallible};
+
+    use alloy_primitives::{Address};
+    use anyhow::Context;
+    use derive_builder::Builder;
+    use risc0_steel::ethereum::EthChainSpec;
+    use risc0_zkvm::{
+        compute_image_id, Digest, ExecutorEnv, ProveInfo, Prover, ProverOpts,
+        VerifierContext,
+    };
+
+    use super::{
+        Input, WorkLogFilter, BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
+    };
+
+    // TODO(povw): Add an option for a beacon_api to use beacon commits.
+    /// A prover for mint calculations which runs the Mint Calculator to produce a receipt for
+    /// determining token mint distributions based on PoVW accounting data.
+    #[derive(Builder)]
+    #[builder(pattern = "owned")]
+    #[non_exhaustive]
+    pub struct MintCalculatorProver<P, Q> {
+        /// The underlying RISC Zero zkVM [Prover].
+        #[builder(setter(custom))]
+        pub prover: P,
+        /// The Ethereum provider for blockchain queries.
+        #[builder(setter(custom))]
+        pub provider: Q,
+        /// Address of the PoVW accounting contract.
+        #[builder(setter(into))]
+        pub povw_accounting_address: Address,
+        /// Address of the ZKC token contract.
+        #[builder(setter(into))]
+        pub zkc_address: Address,
+        /// Address of the ZKC rewards contract.
+        #[builder(setter(into))]
+        pub zkc_rewards_address: Address,
+        /// Ethereum chain specification for Steel environment.
+        #[builder(setter(into))]
+        pub chain_spec: &'static EthChainSpec,
+        /// Image ID for the Mint Calculator program.
+        ///
+        /// Defaults to the Mint Calculator program ID that is built into this crate.
+        #[builder(setter(custom), default = "BOUNDLESS_POVW_MINT_CALCULATOR_ID.into()")]
+        pub mint_calculator_id: Digest,
+        /// Executable for the Mint Calculator program.
+        ///
+        /// Defaults to the Mint Calculator program that is built into this crate.
+        #[builder(setter(custom), default = "BOUNDLESS_POVW_MINT_CALCULATOR_ELF.into()")]
+        pub mint_calculator_program: Cow<'static, [u8]>,
+        /// [ProverOpts] to use when proving the mint calculation.
+        #[builder(default)]
+        pub prover_opts: ProverOpts,
+        /// [VerifierContext] to use when proving the mint calculation. This only needs to be set when using
+        /// non-standard verifier parameters.
+        #[builder(default)]
+        pub verifier_ctx: VerifierContext,
+    }
+
+    impl<P, Q> MintCalculatorProverBuilder<P, Q> {
+        /// Set the underlying RISC Zero zkVM [Prover].
+        pub fn prover<T>(self, prover: T) -> MintCalculatorProverBuilder<T, Q> {
+            MintCalculatorProverBuilder {
+                prover: Some(prover),
+                provider: self.provider,
+                povw_accounting_address: self.povw_accounting_address,
+                zkc_address: self.zkc_address,
+                zkc_rewards_address: self.zkc_rewards_address,
+                chain_spec: self.chain_spec,
+                mint_calculator_id: self.mint_calculator_id,
+                mint_calculator_program: self.mint_calculator_program,
+                prover_opts: self.prover_opts,
+                verifier_ctx: self.verifier_ctx,
+            }
+        }
+
+        /// Set the Ethereum provider for blockchain queries.
+        pub fn provider<T>(self, provider: T) -> MintCalculatorProverBuilder<P, T> {
+            MintCalculatorProverBuilder {
+                prover: self.prover,
+                provider: Some(provider),
+                povw_accounting_address: self.povw_accounting_address,
+                zkc_address: self.zkc_address,
+                zkc_rewards_address: self.zkc_rewards_address,
+                chain_spec: self.chain_spec,
+                mint_calculator_id: self.mint_calculator_id,
+                mint_calculator_program: self.mint_calculator_program,
+                prover_opts: self.prover_opts,
+                verifier_ctx: self.verifier_ctx,
+            }
+        }
+
+        /// Set the Mint Calculator program, returning error if the image ID cannot be calculated.
+        pub fn mint_calculator_program(
+            self,
+            program: impl Into<Cow<'static, [u8]>>,
+        ) -> anyhow::Result<Self> {
+            let program = program.into();
+            let image_id = compute_image_id(&program)
+                .context("Failed to compute image ID for Mint Calculator program")?;
+
+            Ok(Self { 
+                mint_calculator_program: Some(program), 
+                mint_calculator_id: Some(image_id), 
+                ..self 
+            })
+        }
+    }
+
+    impl<P, Q> MintCalculatorProver<P, Q>
+    where
+        P: Prover,
+        Q: alloy_provider::Provider + Clone + 'static,
+    {
+        /// Prove mint calculations for the specified block numbers and work log filter.
+        ///
+        /// This method builds the Steel environment, queries blockchain state using Input::build,
+        /// and produces a proof for mint distribution calculations.
+        pub async fn prove_mint(
+            &self,
+            block_numbers: impl IntoIterator<Item = u64>,
+            work_log_filter: impl Into<WorkLogFilter>,
+        ) -> anyhow::Result<ProveInfo> {
+            use risc0_steel::ethereum::EthEvmEnv;
+
+            // Build the Steel environment for blockchain state access
+            let env_builder = EthEvmEnv::builder()
+                .chain_spec(self.chain_spec)
+                .provider(self.provider.clone());
+
+            // Build the mint calculator input using Input::build which handles all the query logic
+            let input = Input::build(
+                self.povw_accounting_address,
+                self.zkc_address,
+                self.zkc_rewards_address,
+                self.chain_spec.chain_id,
+                env_builder,
+                block_numbers,
+                work_log_filter,
+            ).await.context("failed to build mint calculator input")?;
+
+            // Build the executor environment
+            let env = ExecutorEnv::builder()
+                .write_frame(&input.encode()?)
+                .build()
+                .context("failed to build ExecutorEnv")?;
+
+            // Prove the mint calculation
+            // NOTE: This may block the current thread for a significant amount of time. It is not
+            // trivial to wrap this statement in e.g. tokio's spawn_blocking because self contains
+            // a VerifierContext which does not implement Send. If this causes any issues, the caller
+            // can mitigate the issue by building and calling the prover in a seperate thread.
+            let prove_info = self
+                .prover
+                .prove_with_ctx(
+                    env,
+                    &self.verifier_ctx,
+                    &self.mint_calculator_program,
+                    &self.prover_opts,
+                )
+                .context("failed to prove mint calculation")?;
+
+            Ok(prove_info)
+        }
+    }
+
+    impl MintCalculatorProver<Infallible, Infallible> {
+        /// Create a new builder for [MintCalculatorProver].
+        pub fn builder() -> MintCalculatorProverBuilder<Infallible, Infallible> {
+            Default::default()
         }
     }
 }

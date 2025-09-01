@@ -62,7 +62,6 @@ impl PovwProveUpdate {
             .log_builder_program(risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ELF)
             .context("Failed to build WorkLogUpdateProver")?;
 
-
         // Add the initial state to the prover.
         let prover_builder = if !state.work_log.is_empty() {
             let Some(receipt) = state.log_builder_receipts.last() else {

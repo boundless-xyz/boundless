@@ -124,22 +124,17 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
 
     // 3. Use the send-update command to post an update to the PoVW accounting contract
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args([
-        "povw",
-        "send-update",
-        "--state",
-        state_path.to_str().unwrap(),
-    ])
-    .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
-    .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
-    .env("RISC0_DEV_MODE", "1")
-    .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-    .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
-    .assert()
-    .success()
-    // 4. Confirm that the command logs success
-    .stdout(contains("Work log update confirmed"))
-    .stdout(contains("updated_commit"));
+    cmd.args(["povw", "send-update", "--state", state_path.to_str().unwrap()])
+        .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
+        .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
+        .env("RISC0_DEV_MODE", "1")
+        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+        .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
+        .assert()
+        .success()
+        // 4. Confirm that the command logs success
+        .stdout(contains("Work log update confirmed"))
+        .stdout(contains("updated_commit"));
 
     // Additional verification: Load the state and check that the work log commit matches onchain
     let state = State::load(&state_path)?;
