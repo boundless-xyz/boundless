@@ -27,8 +27,8 @@ use alloy::{
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest, RequestId,
-        RequestInput, Requirements,
+        hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest,
+        RequestId, RequestInput, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
     storage::{MockStorageProvider, StorageProvider},

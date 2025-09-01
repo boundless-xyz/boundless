@@ -1177,8 +1177,9 @@ impl<P: Provider> BoundlessMarketService<P> {
                 RequestStatus::Fulfilled => {
                     let (fulfillment_type, fulfillment_data_bytes, seal, _) =
                         self.query_fulfilled_event(request_id, None, None).await?;
-                    let fulfillment_data = FulfillmentData::decode_with_type(fulfillment_type, fulfillment_data_bytes)
-                        .map_err(|e| MarketError::Error(e.into()))?;
+                    let fulfillment_data =
+                        FulfillmentData::decode_with_type(fulfillment_type, fulfillment_data_bytes)
+                            .map_err(|e| MarketError::Error(e.into()))?;
                     return Ok((fulfillment_data, seal));
                 }
                 _ => {

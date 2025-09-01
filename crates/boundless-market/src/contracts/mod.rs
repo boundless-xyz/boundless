@@ -571,7 +571,7 @@ impl Requirements {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FulfillmentData {
-    /// TODO(ec2): docs
+    /// No data is provided in the fulfillment.
     None,
     /// Proofs fulfilled with both image id and journal and the claim is calculated from them.
     ImageIdAndJournal(Digest, Bytes),
