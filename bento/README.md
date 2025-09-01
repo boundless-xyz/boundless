@@ -280,12 +280,12 @@ When POVW is enabled:
 
 ### Environment Variables
 
-| Variable          | Description                  | Default                  |
-| ----------------- | ---------------------------- | ------------------------ |
-| `DATABASE_URL`    | PostgreSQL connection string | Required                 |
-| `REDIS_URL`       | Redis connection string      | Required                 |
-| `RISC0_DEV_MODE`  | Enable development mode      | `false`                  |
-| `POVW_LOG_ID`     | POVW log identifier          | Required to enable POVW  |
+| Variable         | Description                  | Default                 |
+| ---------------- | ---------------------------- | ----------------------- |
+| `DATABASE_URL`   | PostgreSQL connection string | Required                |
+| `REDIS_URL`      | Redis connection string      | Required                |
+| `RISC0_DEV_MODE` | Enable development mode      | `false`                 |
+| `POVW_LOG_ID`    | POVW log identifier          | Required to enable POVW |
 
 ### Agent Configuration
 
@@ -394,6 +394,7 @@ bento/
 - `GET /work-receipts/{receipt_id}` - Download a specific work receipt
 
 **POVW Metadata**: Each work receipt includes Proof of Verifiable Work (POVW) information:
+
 - `povw_log_id`: The POVW log identifier for tracking receipt provenance
 - `povw_job_number`: The POVW job number for client-side deduplication
 - Metadata is stored alongside receipts in `{receipt_id}_metadata.json` files
