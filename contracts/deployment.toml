@@ -64,24 +64,25 @@ assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
 
 # PoVW contracts
-povw-accounting = "0x0000000000000000000000000000000000000000"
-povw-accounting-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting = "0x139850F6e0Fa043900fE491eDf79Bdf3e9C082b3"
+povw-accounting-impl = "0x7D7D574Cb42800d1C8fDD428eDD0C149543a19D0"
 povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
-povw-accounting-admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
-povw-accounting-deployment-commit = ""
-povw-mint = "0x0000000000000000000000000000000000000000"
-povw-mint-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-accounting-deployment-commit = "91da311d"
+povw-mint = "0xbdA57a15E3C42A4f28DBA0Dd6031E2A188C26316"
+povw-mint-impl = "0x3597CAC859Fb1094d8747Eb60d2A9bBd59E2a7c6"
 povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
-povw-mint-admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
-povw-mint-deployment-commit = ""
+povw-mint-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-mint-deployment-commit = "91da311d"
 
 # PoVW image IDs
-povw-log-updater-id = "0x0000000000000000000000000000000000000000000000000000000000000000"
-povw-mint-calculator-id = "0x0000000000000000000000000000000000000000000000000000000000000000"
+povw-log-updater-id = "0xd6bbd5be7815164e2ce5391db9155ef6f689cb6397736ae41281598d98ac6755"
+povw-mint-calculator-id = "0xaafed725002338f0ccb06814d6cc46f3488c387b2ad0ddcf828a1eb6f859de07"
 
 # ZKC contracts (TODO: set to real addresses)
-zkc = "0x99a52662b576f4b2d4ffbc4504331a624a7b2846"
-zkc-staking-rewards = "0x0000000000000000000000000000000000000000"
+zkc = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
+vezkc = "0xEbaad909A60B83c9c3739C7939b0B6d5ceD5a3AB"
+
 
 ###
 
@@ -125,8 +126,8 @@ povw-mint-impl = "0x976F526CAdfd53fa0E635088Ff501670167Ff7dE"
 povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
 povw-log-updater-id = "0xd6bbd5be7815164e2ce5391db9155ef6f689cb6397736ae41281598d98ac6755"
 povw-mint-calculator-id = "0xaafed725002338f0ccb06814d6cc46f3488c387b2ad0ddcf828a1eb6f859de07"
-povw-accounting-deployment-commit = "3b52aa29"
-povw-mint-deployment-commit = "3b52aa29"
+povw-accounting-deployment-commit = "91da311d"
+povw-mint-deployment-commit = "91da311d"
 
 [deployment.ethereum-mainnet]
 name = "Ethereum Mainnet"
