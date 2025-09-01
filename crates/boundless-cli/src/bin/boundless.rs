@@ -82,8 +82,7 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, Offer, Predicate,
-        PredicateType, ProofRequest, RequestInputType, Selector,
+        FulfillmentData, Offer, Predicate, PredicateType, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -688,12 +687,11 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
-            let (fulfillment_type, fulfillment_data, seal) =
+            let (fulfillment_data, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
             tracing::info!(
-                "Type: {:?}, Fulfillment Data: {} - Seal: {}",
-                fulfillment_type,
+                "Fulfillment Data: {} - Seal: {}",
                 serde_json::to_string_pretty(&fulfillment_data)?,
                 serde_json::to_string_pretty(&seal)?
             );
@@ -704,7 +702,7 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
 
             let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
             let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
-            let (fulfillment_data_type, fulfillment_data, seal) =
+            let (fulfillment_data, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
             let (req, _) = client.boundless_market.get_submitted_request(*request_id, None).await?;
 
@@ -722,17 +720,18 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                         .map_err(|_| anyhow::anyhow!("Verification failed"))?;
                 }
                 _ => {
+                    let FulfillmentData::ImageIdAndJournal(image_id_from_data, journal) =
+                        fulfillment_data
+                    else {
+                        bail!(
+                            "Expected fulfillment data type ImageIdAndJournal, got {:?}",
+                            fulfillment_data
+                        );
+                    };
                     ensure!(
-                        fulfillment_data_type == FulfillmentDataType::ImageIdAndJournal,
-                        "Expected fulfillment data type ImageIdAndJournal, got {:?}",
-                        fulfillment_data_type
-                    );
-                    let FulfillmentDataImageIdAndJournal { imageId, journal } =
-                        FulfillmentDataImageIdAndJournal::abi_decode(&fulfillment_data)?;
-                    ensure!(
-                        imageId == *image_id,
+                        image_id_from_data == Digest::from(<[u8; 32]>::from(*image_id)),
                         "Image ID mismatch: expected {:?}, got {:?}",
-                        imageId,
+                        image_id_from_data,
                         *image_id
                     );
                     let journal_digest =
@@ -2331,8 +2330,7 @@ mod tests {
         .unwrap();
 
         // check the seal is aggregated
-        let (_, _journal, seal) =
-            ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
+        let (_, seal) = ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
         let selector: FixedBytes<4> = seal[0..4].try_into().unwrap();
         assert!(is_groth16_selector(selector))
     }

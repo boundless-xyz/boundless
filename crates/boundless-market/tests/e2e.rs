@@ -23,7 +23,8 @@ use boundless_market::{
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
         hit_points::default_allowance,
-        AssessorReceipt, Offer, Predicate, ProofRequest, RequestId, RequestStatus, Requirements,
+        AssessorReceipt, FulfillmentData, Offer, Predicate, ProofRequest, RequestId, RequestStatus,
+        Requirements,
     },
     input::GuestEnv,
 };
@@ -211,10 +212,14 @@ async fn test_e2e() {
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve fulfillment data data and seal from the fulfilled request
-    let (fill_type, fulfillment_data, seal) =
+    let (fulfillment_data, seal) =
         ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
-    assert_eq!(fill_type, fulfillment.fulfillmentDataType);
-    assert_eq!(fulfillment_data, fulfillment.fulfillmentData);
+    let expected_fulfillment_data = FulfillmentData::decode_with_type(
+        fulfillment.fulfillmentDataType,
+        fulfillment.fulfillmentData.clone(),
+    )
+    .unwrap();
+    assert_eq!(fulfillment_data, expected_fulfillment_data);
     assert_eq!(seal, fulfillment.seal);
 }
 
@@ -278,10 +283,14 @@ async fn test_e2e_merged_submit_fulfill() {
         .unwrap();
 
     // retrieve fulfillment data  and seal from the fulfilled request
-    let (fill_type, fulfillment_data, seal) =
+    let (fulfillment_data, seal) =
         ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
-    assert_eq!(fill_type, fulfillments[0].fulfillmentDataType);
-    assert_eq!(fulfillment_data, fulfillments[0].fulfillmentData);
+    let expected_fulfillment_data = FulfillmentData::decode_with_type(
+        fulfillments[0].fulfillmentDataType,
+        fulfillments[0].fulfillmentData.clone(),
+    )
+    .unwrap();
+    assert_eq!(fulfillment_data, expected_fulfillment_data);
     assert_eq!(seal, fulfillments[0].seal);
 }
 
@@ -333,11 +342,15 @@ async fn test_e2e_price_and_fulfill_batch() {
         .unwrap();
 
     // retrieve callback data and seal from the fulfilled request
-    let (fill_type, fulfillment_data, seal) =
+    let (fulfillment_data, seal) =
         ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
-    assert_eq!(fill_type, fulfillments[0].fulfillmentDataType);
-    assert_eq!(fulfillment_data, fulfillments[0].fulfillmentData);
+    let expected_fulfillment_data = FulfillmentData::decode_with_type(
+        fulfillments[0].fulfillmentDataType,
+        fulfillments[0].fulfillmentData.clone(),
+    )
+    .unwrap();
+    assert_eq!(fulfillment_data, expected_fulfillment_data);
     assert_eq!(seal, fulfillments[0].seal);
 }
 
@@ -408,10 +421,14 @@ async fn test_e2e_no_payment() {
         assert!(balance_before == balance_after);
 
         // retrieve fulfillment data and seal from the fulfilled request
-        let (fill_type, fulfillment_data, seal) =
+        let (fulfillment_data, seal) =
             ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
-        assert_eq!(fill_type, fulfillment.fulfillmentDataType);
-        assert_eq!(fulfillment_data, fulfillment.fulfillmentData);
+        let expected_fulfillment_data = FulfillmentData::decode_with_type(
+            fulfillment.fulfillmentDataType,
+            fulfillment.fulfillmentData.clone(),
+        )
+        .unwrap();
+        assert_eq!(fulfillment_data, expected_fulfillment_data);
         assert_eq!(seal, fulfillment.seal);
     }
 
@@ -437,8 +454,7 @@ async fn test_e2e_no_payment() {
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve journal and seal from the fulfilled request
-    let (_, _journal, _seal) =
-        ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let (_, _seal) = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
     // TODO: Instead of checking that this is the same seal, check if this is some valid seal.
     // When there are multiple fulfillments one order, there will be multiple ProofDelivered

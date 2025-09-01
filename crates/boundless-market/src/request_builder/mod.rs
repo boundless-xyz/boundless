@@ -639,8 +639,7 @@ mod tests {
     use super::{
         Layer, OfferLayer, OfferLayerConfig, OfferParams, PreflightLayer, RequestBuilder,
         RequestId, RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode, RequestParams,
-        RequirementParams, RequirementsLayer, StandardRequestBuilder, StorageLayer,
-        StorageLayerConfig,
+        RequirementsLayer, StandardRequestBuilder, StorageLayer, StorageLayerConfig,
     };
 
     use crate::{
@@ -653,8 +652,8 @@ mod tests {
         util::NotProvided,
         StandardStorageProvider,
     };
-    use alloy_primitives::{address, U256};
-    use risc0_zkvm::{compute_image_id, sha::Digestible, Digest, Journal};
+    use alloy_primitives::U256;
+    use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
 
     #[tokio::test]
     #[traced_test]

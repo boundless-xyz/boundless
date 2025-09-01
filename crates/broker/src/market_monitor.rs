@@ -631,8 +631,8 @@ mod tests {
         contracts::{
             boundless_market::{BoundlessMarketService, FulfillmentTx},
             hit_points::default_allowance,
-            AssessorReceipt, Offer, Predicate, ProofRequest, RequestInput, RequestInputType,
-            Requirements,
+            AssessorReceipt, FulfillmentData, Offer, Predicate, ProofRequest, RequestInput,
+            RequestInputType, Requirements,
         },
         input::GuestEnv,
     };
@@ -809,10 +809,14 @@ mod tests {
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
         // retrieve fulfillment data and seal from the fulfilled request
-        let (fill_type, fulfillment_data, seal) =
+        let (fulfillment_data, seal) =
             ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
-        assert_eq!(fill_type, fulfillment.fulfillmentDataType);
-        assert_eq!(fulfillment_data, fulfillment.fulfillmentData);
+        let expected_fulfillment_data = FulfillmentData::decode_with_type(
+            fulfillment.fulfillmentDataType,
+            fulfillment.fulfillmentData.clone(),
+        )
+        .unwrap();
+        assert_eq!(fulfillment_data, expected_fulfillment_data);
         assert_eq!(seal, fulfillment.seal);
     }
 
