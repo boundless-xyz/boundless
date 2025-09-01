@@ -21,7 +21,7 @@ use alloy::{
     sol_types::SolValue,
 };
 use alloy_primitives::U256;
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use boundless_povw_guests::{
     contracts::bytecode::{PovwAccounting, PovwMint},
     log_updater::{
@@ -36,7 +36,7 @@ use boundless_povw_guests::{
 };
 use derive_builder::Builder;
 use risc0_povw::{guest::RISC0_POVW_LOG_BUILDER_ID, PovwJobId};
-use risc0_steel::{ethereum::{EthChainSpec, EthEvmEnv, ANVIL_CHAIN_SPEC}};
+use risc0_steel::ethereum::{EthChainSpec, EthEvmEnv, ANVIL_CHAIN_SPEC};
 use risc0_zkvm::{
     default_executor, sha::Digestible, Digest, ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt,
     MaybePruned, Receipt, ReceiptClaim, Work, WorkClaim,
@@ -302,25 +302,14 @@ impl TestCtx {
             }
         }
 
-        // Combine the sets of blocks that contain either event, and add the block used for the completeness_check.
-        let completeness_check_block = epoch_finalized_block_numbers
-            .last()
-            .ok_or_else(|| anyhow!("no epoch finalized events processed"))?
-            - 1;
-        let mut block_numbers = &work_log_update_block_numbers | &epoch_finalized_block_numbers;
-        block_numbers.insert(completeness_check_block);
-
-        // Remove excluded blocks, but error if trying to exclude the completeness check block
-        for excluded_block in &exclude_blocks {
-            if *excluded_block == completeness_check_block {
-                bail!("Cannot exclude completeness check block {completeness_check_block}");
-            }
-            block_numbers.remove(excluded_block);
-        }
-
+        // Combine the block numbers for the WorkLogUpdated and EpochFinalized events, minus the
+        // ones that are in the exclude_blocks set.
+        let block_numbers =
+            &(&work_log_update_block_numbers | &epoch_finalized_block_numbers) - &exclude_blocks;
 
         // Build the input for the mint_calculator, including input for Steel.
-        let env_builder = EthEvmEnv::builder().chain_spec(chain_spec).provider(self.provider.clone());
+        let env_builder =
+            EthEvmEnv::builder().chain_spec(chain_spec).provider(self.provider.clone());
         let mint_input = mint_calculator::Input::build(
             *self.povw_accounting.address(),
             *self.zkc.address(),

@@ -533,7 +533,7 @@ async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
     //assert!(err.to_string().contains("no epoch finalized event processed"));
     // TODO(povw): This test currently fails before getting to the guest. Provide a way to advance
     // the preflight (skipping some steps) to build an input to at least let the guest run.
-    assert!(err.to_string().contains("no epoch finalized events processed"));
+    assert!(err.to_string().contains("No EpochFinalized events in the given blocks"));
 
     Ok(())
 }

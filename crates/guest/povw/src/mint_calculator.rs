@@ -450,8 +450,6 @@ pub mod host {
     }
 
     impl Input {
-        // TODO(povw): Provide a way to do this with Beacon commits. Also, its not really ideal to
-        // have to pass in each of the block numbers here.
         pub async fn build<P, B, C>(
             povw_accounting_address: Address,
             zkc_address: Address,
@@ -491,7 +489,8 @@ pub mod host {
                     latest_epoch_finalization_block = Some(env.header().number);
                 }
             }
-            let latest_epoch_finalization_block = latest_epoch_finalization_block.unwrap();
+            let latest_epoch_finalization_block = latest_epoch_finalization_block
+                .context("No EpochFinalized events in the given blocks")?;
 
             // Mapping containing the epochs, and the value recipients in those epochs.
             let mut epoch_recipients = BTreeMap::<U256, BTreeSet<Address>>::new();
