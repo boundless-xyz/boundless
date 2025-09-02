@@ -51,5 +51,7 @@ fn main() {
 
     if let Err(e) = generate_solidity_files(guests.as_slice(), &solidity_opts) {
         println!("cargo:warning=Failed to generate Solidity files: {e}");
-    };
+    } else {
+        println!("cargo:warning=Successfully generated Solidity files for util guest");
+    }
 }
