@@ -66,6 +66,8 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: risc0/risc0/.github/actions/rustup@v3.0.3
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       - name: Install cargo risczero
         uses: ./.github/actions/bininstall-risc0
