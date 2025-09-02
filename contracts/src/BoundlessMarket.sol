@@ -27,7 +27,7 @@ import {AssessorCommitment} from "./types/AssessorCommitment.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
-import {LockRequest, LockRequestLibrary} from "./types/LockRequest.sol";
+import {LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
 import {FulfillmentContext, FulfillmentContextLibrary} from "./types/FulfillmentContext.sol";

@@ -5,7 +5,7 @@
 
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Input, InputLibrary, InputType} from "../../src/types/Input.sol";
 
 contract InputTest is Test {
