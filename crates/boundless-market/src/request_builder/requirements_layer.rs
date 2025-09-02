@@ -64,18 +64,19 @@ pub struct RequirementParams {
     pub selector: Option<FixedBytes<4>>,
 }
 
-impl From<Requirements> for RequirementParams {
-    fn from(value: Requirements) -> Self {
-        // TODO(ec2): unwrap
-        let predicate = Predicate::try_from(value.predicate).unwrap();
+impl TryFrom<Requirements> for RequirementParams {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Requirements) -> Result<Self, Self::Error> {
+        let predicate = Predicate::try_from(value.predicate)?;
         let image_id = predicate.image_id().map(<[u8; 32]>::from).map(Into::into);
-        Self {
+        Ok(Self {
             predicate: Some(predicate),
             selector: Some(value.selector),
             callback_address: Some(value.callback.addr),
             callback_gas_limit: Some(value.callback.gasLimit.to()),
             image_id,
-        }
+        })
     }
 }
 
@@ -198,6 +199,6 @@ impl Adapt<RequirementsLayer> for RequestParams {
             layer.process((program, journal, &self.requirements)).await?
         };
 
-        Ok(self.with_requirements(requirements))
+        Ok(self.with_requirements(RequirementParams::try_from(requirements)?))
     }
 }
