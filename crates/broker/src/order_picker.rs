@@ -556,10 +556,10 @@ where
                             }
                             Err(err) => match err {
                                 ProverError::ProvingFailed(ref err_msg) => {
-                                    if err_msg.contains("Session limit exceeded") {
+                                    if err_msg.contains("Session limit exceeded") 
+                                        || err_msg.contains("Execution stopped intentionally due to session limit") {
                                         tracing::debug!(
-                                            "Skipping order {order_id_clone} due to session limit exceeded: {}",
-                                            err_msg
+                                            "Skipping order {order_id_clone} due to intentional execution limit of {exec_limit_cycles}",
                                         );
                                         Ok(PreflightCacheValue::Skip {
                                             cached_limit: exec_limit_cycles,
