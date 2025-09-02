@@ -107,13 +107,14 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (fulfillment_data, echo_seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
             expires_at,
         )
         .await?;
+    let fulfillment_data = fulfillment.data()?;
     let cb_image_id = fulfillment_data.image_id().ok_or_else(|| anyhow!("missing cb_image_id"))?;
     let echo_journal =
         fulfillment_data.journal().ok_or_else(|| anyhow!("missing echo_journal"))?.to_vec();
@@ -123,7 +124,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Decode the resulting RISC0-ZKVM receipt.
     let Ok(ContractReceipt::Base(echo_receipt)) =
-        risc0_ethereum_contracts::receipt::decode_seal(echo_seal, ECHO_ID, echo_journal)
+        risc0_ethereum_contracts::receipt::decode_seal(fulfillment.seal, ECHO_ID, echo_journal)
     else {
         bail!("did not receive requested unaggregated receipt")
     };
@@ -144,7 +145,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (identity_fulfillment_data, identity_seal) = client
+    let identity_fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
@@ -152,7 +153,8 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
     tracing::info!("Request {:x} fulfilled", request_id);
-    let identity_journal = identity_fulfillment_data
+    let identity_journal = identity_fulfillment
+        .data()?
         .journal()
         .ok_or_else(|| anyhow!("missing identity_journal"))?
         .to_vec();
@@ -163,8 +165,9 @@ async fn run(args: Args) -> Result<()> {
     let counter = ICounterInstance::new(args.counter_address, client.provider());
     let journal_digest = B256::from_slice(identity_journal.digest().as_bytes());
     let image_id = B256::from_slice(Digest::from(IDENTITY_ID).as_bytes());
-    let call_increment =
-        counter.increment(identity_seal, image_id, journal_digest).from(client.caller());
+    let call_increment = counter
+        .increment(identity_fulfillment.seal, image_id, journal_digest)
+        .from(client.caller());
 
     tracing::info!("Calling Counter increment function");
     let pending_tx = call_increment.send().await.context("failed to broadcast transaction")?;

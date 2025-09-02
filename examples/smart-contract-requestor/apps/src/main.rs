@@ -119,7 +119,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled by the market. The market will return the fulfillment data and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (fulfillment_data, seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
@@ -127,10 +127,10 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
     let journal =
-        fulfillment_data.journal().ok_or_else(|| anyhow!("no fulfillment data"))?.to_vec();
+        fulfillment.data()?.journal().ok_or_else(|| anyhow!("no fulfillment data"))?.to_vec();
 
     tracing::info!("Request {:x} fulfilled", request_id);
-    tracing::info!("Seal: {:?}", seal);
+    tracing::info!("Seal: {:?}", fulfillment.seal);
 
     // We encoded the input to the guest as big endian for compatibility with Solidity. We reverse
     // to get back to little endian.

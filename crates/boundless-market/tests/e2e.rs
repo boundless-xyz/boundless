@@ -212,15 +212,15 @@ async fn test_e2e() {
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve fulfillment data data and seal from the fulfilled request
-    let (fulfillment_data, seal) =
-        ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
     let expected_fulfillment_data = FulfillmentData::decode_with_type(
         fulfillment.fulfillmentDataType,
         fulfillment.fulfillmentData.clone(),
     )
     .unwrap();
+    let fulfillment_data = fulfillment_result.data().unwrap();
     assert_eq!(fulfillment_data, expected_fulfillment_data);
-    assert_eq!(seal, fulfillment.seal);
+    assert_eq!(fulfillment_result.seal, fulfillment.seal);
 }
 
 #[tokio::test]
@@ -283,15 +283,15 @@ async fn test_e2e_merged_submit_fulfill() {
         .unwrap();
 
     // retrieve fulfillment data  and seal from the fulfilled request
-    let (fulfillment_data, seal) =
-        ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
     let expected_fulfillment_data = FulfillmentData::decode_with_type(
         fulfillments[0].fulfillmentDataType,
         fulfillments[0].fulfillmentData.clone(),
     )
     .unwrap();
+    let fulfillment_data = fulfillment_result.data().unwrap();
     assert_eq!(fulfillment_data, expected_fulfillment_data);
-    assert_eq!(seal, fulfillments[0].seal);
+    assert_eq!(fulfillment_result.seal, fulfillments[0].seal);
 }
 
 #[tokio::test]
@@ -342,16 +342,16 @@ async fn test_e2e_price_and_fulfill_batch() {
         .unwrap();
 
     // retrieve callback data and seal from the fulfilled request
-    let (fulfillment_data, seal) =
-        ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
     let expected_fulfillment_data = FulfillmentData::decode_with_type(
         fulfillments[0].fulfillmentDataType,
         fulfillments[0].fulfillmentData.clone(),
     )
     .unwrap();
+    let fulfillment_data = fulfillment_result.data().unwrap();
     assert_eq!(fulfillment_data, expected_fulfillment_data);
-    assert_eq!(seal, fulfillments[0].seal);
+    assert_eq!(fulfillment_result.seal, fulfillments[0].seal);
 }
 
 #[tokio::test]
@@ -421,15 +421,16 @@ async fn test_e2e_no_payment() {
         assert!(balance_before == balance_after);
 
         // retrieve fulfillment data and seal from the fulfilled request
-        let (fulfillment_data, seal) =
+        let fulfillment_result =
             ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
         let expected_fulfillment_data = FulfillmentData::decode_with_type(
             fulfillment.fulfillmentDataType,
             fulfillment.fulfillmentData.clone(),
         )
         .unwrap();
+        let fulfillment_data = fulfillment_result.data().unwrap();
         assert_eq!(fulfillment_data, expected_fulfillment_data);
-        assert_eq!(seal, fulfillment.seal);
+        assert_eq!(fulfillment_result.seal, fulfillment.seal);
     }
 
     // mock the fulfillment, this time using the right prover address.
@@ -454,7 +455,7 @@ async fn test_e2e_no_payment() {
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve journal and seal from the fulfilled request
-    let (_, _seal) = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let _fulfillment = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
     // TODO: Instead of checking that this is the same seal, check if this is some valid seal.
     // When there are multiple fulfillments one order, there will be multiple ProofDelivered

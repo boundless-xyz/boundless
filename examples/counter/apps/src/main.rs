@@ -111,14 +111,15 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (fulfillment_data, seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
             expires_at,
         )
         .await?;
-    tracing::info!("Fulfillment data: {:?}", fulfillment_data);
+    let fulfillment_data = fulfillment.data()?;
+    tracing::info!("Fulfillment data: {:?}", fulfillment.data()?);
     tracing::info!("Request {:x} fulfilled", request_id);
 
     // We interact with the Counter contract by calling the increment function with the journal and
@@ -129,7 +130,7 @@ async fn run(args: Args) -> Result<()> {
     let journal = fulfillment_data.journal().ok_or_else(|| anyhow!("missing journal"))?;
     let journal_digest = B256::try_from(journal.digest().as_bytes())?;
     let call_increment = counter
-        .increment(seal, <[u8; 32]>::from(image_id).into(), <[u8; 32]>::from(journal_digest).into())
+        .increment(fulfillment.seal, <[u8; 32]>::from(image_id).into(), <[u8; 32]>::from(journal_digest).into())
         .from(client.caller());
 
     // By calling the increment function, we verify the seal against the published roots

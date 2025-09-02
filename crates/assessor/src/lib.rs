@@ -13,10 +13,7 @@ use boundless_market::contracts::{
     EIP712DomainSaltless, FulfillmentData, FulfillmentDataError, Predicate, PredicateError,
     ProofRequest, RequestError,
 };
-use risc0_zkvm::{
-    sha::{Digest, Digestible},
-    ReceiptClaim,
-};
+use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
 /// Errors that may occur in the assessor.
@@ -55,6 +52,14 @@ pub enum Error {
     /// Predicate error due to malformed data
     #[error("predicate error: {0}")]
     PredicateError(#[from] PredicateError),
+
+    /// Fulfillment data type is not recognized.
+    #[error("fulfillment data type is not recognized {0:?}")]
+    UnknownFulfillmentDataType(FulfillmentData),
+
+    /// Predicate type is not recognized.
+    #[error("predicate type is not recognized {0:?}")]
+    UnknownPredicateType(Predicate),
 
     /// Invalid combination of fulfillment type and predicate type
     #[error(
@@ -99,23 +104,7 @@ impl Fulfillment {
     /// Evaluates the requirements of the request and returns the claim digest.
     pub fn evaluate_requirements(&self) -> Result<Digest, Error> {
         let predicate = Predicate::try_from(self.request.requirements.predicate.clone())?;
-        if !predicate.eval(&self.fulfillment_data) {
-            return Err(Error::RequirementsEvaluationError);
-        }
-
-        self.claim_digest()
-    }
-
-    /// Calculates the claim digest or returns from the predicate
-    pub fn claim_digest(&self) -> Result<Digest, Error> {
-        let predicate = Predicate::try_from(self.request.requirements.predicate.clone())?;
-        match (&self.fulfillment_data, predicate) {
-            (FulfillmentData::None, Predicate::ClaimDigestMatch(claim_digest)) => Ok(claim_digest),
-            (FulfillmentData::ImageIdAndJournal(image_id, journal), _) => {
-                Ok(ReceiptClaim::ok(*image_id, journal.to_vec()).digest())
-            }
-            (_, _) => Err(Error::InvalidFulfillmentPredicateCombination),
-        }
+        predicate.eval(&self.fulfillment_data).ok_or(Error::RequirementsEvaluationError)
     }
 }
 
@@ -199,7 +188,7 @@ mod tests {
     use risc0_zkvm::{
         default_executor,
         sha::{Digest, Digestible},
-        ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
+        ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt, ReceiptClaim,
     };
 
     fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
