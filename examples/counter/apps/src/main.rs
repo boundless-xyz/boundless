@@ -121,21 +121,22 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (fulfillment_data, seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
             expires_at,
         )
         .await?;
-    tracing::info!("Fulfillment data: {:?}", fulfillment_data);
+    tracing::info!("Fulfillment data: {:?}", fulfillment.data()?);
     tracing::info!("Request {:x} fulfilled", request_id);
 
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.
     let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
-    let call_increment =
-        counter.increment(seal, <[u8; 32]>::from(r0_claim_digest).into()).from(client.caller());
+    let call_increment = counter
+        .increment(fulfillment.seal, <[u8; 32]>::from(r0_claim_digest).into())
+        .from(client.caller());
 
     // By calling the increment function, we verify the seal against the published roots
     // of the SetVerifier contract.

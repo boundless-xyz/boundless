@@ -43,7 +43,7 @@ use url::Url;
 
 use risc0_zkvm::{
     sha::{Digest, Digestible},
-    ReceiptClaim,
+    MaybePruned, ReceiptClaim,
 };
 
 #[cfg(not(target_os = "zkvm"))]
@@ -665,6 +665,13 @@ impl From<FulfillmentDataImageIdAndJournal> for FulfillmentData {
     }
 }
 
+impl Fulfillment {
+    /// Decode and return the [FulfillmentData] for the this fulfillment.
+    pub fn data(&self) -> Result<FulfillmentData, FulfillmentDataError> {
+        FulfillmentData::decode_with_type(self.fulfillmentDataType, &self.fulfillmentData)
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 /// Errors related to predicate encoding/decoding and evaluation
 pub enum PredicateError {
@@ -766,50 +773,43 @@ impl Predicate {
         }
     }
 
-    /// Evaluates the predicate against the fulfillment data, returning true if the fulfillment
-    /// data is acceptable to fulfill the requirements.
-    pub fn eval(&self, fulfillment_data: &FulfillmentData) -> bool {
-        match (self, fulfillment_data) {
-            (
-                Predicate::DigestMatch(image_id, journal_digest),
-                FulfillmentData::ImageIdAndJournal(fill_image_id, flll_journal),
-            ) => {
-                fill_image_id == image_id
-                    && journal_digest.as_bytes() == Sha256::digest(flll_journal.as_ref()).as_slice()
+    /// Evaluates the predicate against the fulfillment data, returning the claim digest if the
+    /// evaluation succeeds or `None` if it fails.
+    pub fn eval(&self, fulfillment_data: &FulfillmentData) -> Option<Digest> {
+        let claim_digest_data = match fulfillment_data {
+            FulfillmentData::None => None,
+            FulfillmentData::ImageIdAndJournal(image_id, journal) => {
+                Some(ReceiptClaim::ok(*image_id, journal.to_vec()).digest())
             }
-            (
-                Predicate::PrefixMatch(image_id, journal_prefix),
-                FulfillmentData::ImageIdAndJournal(fill_image_id, fill_journal),
-            ) => {
-                fill_image_id == image_id
-                    && fill_journal.as_ref().starts_with(journal_prefix.as_ref())
+        };
+        let claim_digest_predicate = match self {
+            Predicate::DigestMatch(image_id, journal) => {
+                Some(ReceiptClaim::ok(*image_id, MaybePruned::Pruned(*journal)).digest())
             }
-            (
-                Predicate::ClaimDigestMatch(claim_digest),
-                FulfillmentData::ImageIdAndJournal(image_id, journal),
-            ) => {
-                let computed_claim_digest = ReceiptClaim::ok(*image_id, journal.to_vec()).digest();
-                &computed_claim_digest == claim_digest
+            Predicate::PrefixMatch(image_id, prefix) => {
+                // With the PrefixMatch predicate, we need to check the condition on the journal.
+                let FulfillmentData::ImageIdAndJournal(fill_image_id, fill_journal) =
+                    &fulfillment_data
+                else {
+                    return None;
+                };
+                let matches =
+                    fill_image_id == image_id && fill_journal.starts_with(prefix.as_ref());
+                if !matches {
+                    return None;
+                }
+                None
             }
-            (Predicate::ClaimDigestMatch(_), FulfillmentData::None) => true,
-            _ => false,
+            Predicate::ClaimDigestMatch(claim_digest) => Some(*claim_digest),
+        };
+        if let (Some(claim_digest_predicate), Some(claim_digest_data)) =
+            (claim_digest_predicate, claim_digest_data)
+        {
+            if claim_digest_predicate != claim_digest_data {
+                return None;
+            }
         }
-    }
-
-    /// Checks to see if the predicate matches the given journal for DigestMatch and PrefixMatch predicates.
-    /// Important Note: This does not ensure the predicate is satisfied, only that journal is correct.
-    /// Use `eval` for most use cases. This is mainly for when the image_id may not be unavailable
-    /// for example in the request builder.
-    pub(crate) fn check_journal(&self, journal: impl AsRef<[u8]>) -> bool {
-        match self {
-            Predicate::DigestMatch(_, journal_digest) => {
-                journal_digest.as_bytes() == Sha256::digest(journal.as_ref()).as_slice()
-            }
-            Predicate::PrefixMatch(_, journal_prefix) => {
-                journal.as_ref().starts_with(journal_prefix.as_ref())
-            }
-            _ => false,
-        }
+        claim_digest_data.or(claim_digest_predicate)
     }
 }
 
@@ -943,7 +943,6 @@ impl Offer {
     }
 }
 
-use sha2::{Digest as _, Sha256};
 #[cfg(not(target_os = "zkvm"))]
 use IBoundlessMarket::IBoundlessMarketErrors;
 #[cfg(not(target_os = "zkvm"))]

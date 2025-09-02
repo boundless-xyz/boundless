@@ -840,14 +840,14 @@ mod tests {
             journal.bytes.clone(),
         );
         // Predicate should match the same journal
-        assert!(predicate.eval(&fulfillment_data));
+        assert!(predicate.eval(&fulfillment_data).is_some());
         // And should not match different data
         let other = Journal::new(b"other_data".to_vec());
         let fulfillment_data = FulfillmentData::from_image_id_and_journal(
             predicate.image_id().unwrap(),
             other.bytes.clone(),
         );
-        assert!(!predicate.eval(&fulfillment_data));
+        assert!(predicate.eval(&fulfillment_data).is_none());
         Ok(())
     }
 

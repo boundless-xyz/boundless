@@ -667,7 +667,7 @@ where
             Digest::from_hex(image_id).unwrap(),
             journal,
         );
-        if !predicate.eval(&eval_data) {
+        if predicate.eval(&eval_data).is_none() {
             tracing::info!("Order {order_id} predicate check failed, skipping");
             return Ok(Skip);
         }

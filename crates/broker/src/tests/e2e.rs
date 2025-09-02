@@ -434,7 +434,7 @@ async fn e2e_with_selector() {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         // Wait for fulfillment
-        let (_, seal) = ctx
+        let fulfillment = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request.id),
@@ -443,6 +443,7 @@ async fn e2e_with_selector() {
             )
             .await
             .unwrap();
+        let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(is_groth16_selector(selector));
     })
@@ -510,7 +511,7 @@ async fn e2e_with_multiple_requests() {
         // Submit the second (groth16) order
         ctx.customer_market.submit_request(&request_groth16, &ctx.customer_signer).await.unwrap();
 
-        let (_, seal) = ctx
+        let fulfillment = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request.id),
@@ -519,10 +520,11 @@ async fn e2e_with_multiple_requests() {
             )
             .await
             .unwrap();
+        let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(!is_groth16_selector(selector));
 
-        let (_, seal) = ctx
+        let fulfillment = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request_groth16.id),
@@ -531,6 +533,7 @@ async fn e2e_with_multiple_requests() {
             )
             .await
             .unwrap();
+        let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(is_groth16_selector(selector));
     })
@@ -589,7 +592,7 @@ async fn e2e_with_claim_digest_match() {
         ctx.customer_market.submit_request(&good_request, &ctx.customer_signer).await.unwrap();
 
         // Wait for fulfillment
-        let (fulfillment_data, _seal) = ctx
+        let fulfillment = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(good_request.id),
@@ -598,6 +601,7 @@ async fn e2e_with_claim_digest_match() {
             )
             .await
             .unwrap();
+        let fulfillment_data = fulfillment.data().unwrap();
 
         // When claim digest match is used without a callback, fulfillment data is empty
         assert_eq!(fulfillment_data, FulfillmentData::None);

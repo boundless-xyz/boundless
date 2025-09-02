@@ -687,13 +687,12 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
-            let (fulfillment_data, seal) =
-                client.boundless_market.get_request_fulfillment(*request_id).await?;
+            let fulfillment = client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
             tracing::info!(
                 "Fulfillment Data: {} - Seal: {}",
-                serde_json::to_string_pretty(&fulfillment_data)?,
-                serde_json::to_string_pretty(&seal)?
+                serde_json::to_string_pretty(&fulfillment.data()?)?,
+                serde_json::to_string_pretty(&fulfillment.seal)?
             );
             Ok(())
         }
@@ -702,8 +701,9 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
 
             let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
             let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
-            let (fulfillment_data, seal) =
-                client.boundless_market.get_request_fulfillment(*request_id).await?;
+            let fulfillment = client.boundless_market.get_request_fulfillment(*request_id).await?;
+            let fulfillment_data = fulfillment.data()?;
+            let seal = fulfillment.seal;
             let (req, _) = client.boundless_market.get_submitted_request(*request_id, None).await?;
 
             let predicate = Predicate::try_from(req.requirements.predicate)?;
@@ -779,7 +779,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             let fulfillment_data =
                 FulfillmentData::from_image_id_and_journal(image_id, journal.clone());
 
-            if !predicate.eval(&fulfillment_data) {
+            if predicate.eval(&fulfillment_data).is_none() {
                 tracing::error!("Predicate evaluation failed for request 0x{:x}", request.id);
                 bail!("Predicate evaluation failed");
             }
@@ -1223,10 +1223,12 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
     // Wait for fulfillment if requested
     if args.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (fulfillment_data, seal) = client
+        let fulfillment = client
             .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
+        let fulfillment_data = fulfillment.data()?;
+        let seal = fulfillment.seal;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
@@ -1296,7 +1298,7 @@ where
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
         ensure!(
-            predicate.eval(&FulfillmentData::from_image_id_and_journal(image_id, journal.clone())),
+            predicate.eval(&FulfillmentData::from_image_id_and_journal(image_id, journal.clone())).is_some(),
             "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
             hex::encode(&journal),
             request.requirements.predicate.predicateType,
@@ -1325,15 +1327,15 @@ where
     // Wait for fulfillment if requested
     if opts.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (fulfillment_data, seal) = client
+        let fulfillment = client
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
             "Fulfillment Data: {} - Seal: {}",
-            serde_json::to_string_pretty(&fulfillment_data)?,
-            serde_json::to_string_pretty(&seal)?
+            serde_json::to_string_pretty(&fulfillment.data()?)?,
+            serde_json::to_string_pretty(&fulfillment.seal)?
         );
     }
 
@@ -2315,7 +2317,8 @@ mod tests {
         .unwrap();
 
         // check the seal is aggregated
-        let (_, seal) = ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
+        let fulfillment = ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
+        let seal = fulfillment.seal;
         let selector: FixedBytes<4> = seal[0..4].try_into().unwrap();
         assert!(is_groth16_selector(selector))
     }

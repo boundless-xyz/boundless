@@ -13,9 +13,7 @@ use boundless_market::contracts::{
     EIP712DomainSaltless, FulfillmentData, FulfillmentDataError, Predicate, PredicateError,
     ProofRequest, RequestError,
 };
-use risc0_zkvm::{
-    sha::{Digest, Digestible}, MaybePruned, ReceiptClaim
-};
+use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
 /// Errors that may occur in the assessor.
@@ -106,37 +104,7 @@ impl Fulfillment {
     /// Evaluates the requirements of the request and returns the claim digest.
     pub fn evaluate_requirements(&self) -> Result<Digest, Error> {
         let predicate = Predicate::try_from(self.request.requirements.predicate.clone())?;
-        if !predicate.eval(&self.fulfillment_data) {
-            return Err(Error::RequirementsEvaluationError);
-        }
-
-        self.claim_digest()
-    }
-
-    /// Calculates the claim digest or returns from the predicate
-    // NOTE: This is made private as the value should be used only after checking the requirements.
-    // Use evaluate_requirements instead.
-    fn claim_digest(&self) -> Result<Digest, Error> {
-        let claim_digest_data = match self.fulfillment_data {
-            FulfillmentData::None => None,
-            FulfillmentData::ImageIdAndJournal(image_id, ref journal) => Some(ReceiptClaim::ok(image_id, journal.to_vec()).digest()),
-            _ => return Err(Error::UnknownFulfillmentDataType(self.fulfillment_data.clone())),
-        };
-        let predicate = Predicate::try_from(self.request.requirements.predicate.clone())?;
-        let claim_digest_predicate = match predicate {
-            Predicate::DigestMatch(image_id, journal) => Some(ReceiptClaim::ok(image_id, MaybePruned::Pruned(journal)).digest()),
-            Predicate::PrefixMatch(_, _) => None,
-            Predicate::ClaimDigestMatch(claim_digest) => Some(claim_digest),
-            _ => return Err(Error::UnknownPredicateType(predicate)),
-        };
-        if let (Some(claim_digest_predicate), Some(claim_digest_data)) = (claim_digest_predicate, claim_digest_data) {
-            if claim_digest_predicate != claim_digest_data {
-                // NOTE: This is a inconsistency between the requirements and the predicate, so we
-                // report it using this error.
-                return Err(Error::RequirementsEvaluationError);
-            }
-        }
-        claim_digest_data.or(claim_digest_predicate).ok_or(Error::InvalidFulfillmentPredicateCombination)
+        predicate.eval(&self.fulfillment_data).ok_or(Error::RequirementsEvaluationError)
     }
 }
 
@@ -220,7 +188,7 @@ mod tests {
     use risc0_zkvm::{
         default_executor,
         sha::{Digest, Digestible},
-        ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt,
+        ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt, MaybePruned, Receipt, ReceiptClaim,
     };
 
     fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
