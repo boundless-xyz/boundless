@@ -41,9 +41,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-
       - name: Install deps
         run: |
           sudo apt-get update
@@ -95,9 +92,6 @@ jobs:
           # Copy binaries
           cp target/${{ matrix.target }}/release/broker binaries/${{ matrix.artifact_name }}/broker
           cp target/${{ matrix.target }}/release/broker-stress binaries/${{ matrix.artifact_name }}/broker-stress
-
-      - name: sccache stats
-        run: sccache --show-stats
 
       - name: Create checksums
         working-directory: binaries/${{ matrix.artifact_name }}

@@ -68,9 +68,6 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Setup sccache + S3
-        uses: ./.github/actions/sccache
-
       - name: Setup Rust toolchain
         uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
@@ -162,6 +159,3 @@ jobs:
         run: |
           docker stop bento-postgres-test bento-redis-test || true
           docker rm bento-postgres-test bento-redis-test || true
-
-      - name: Sccache stats
-        run: sccache --show-stats
