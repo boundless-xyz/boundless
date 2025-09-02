@@ -68,7 +68,7 @@ use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
-use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier, Receipt};
+use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
     compute_image_id, default_executor,
     sha::{Digest, Digestible},
