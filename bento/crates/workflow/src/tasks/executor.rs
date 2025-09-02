@@ -603,8 +603,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     journal: session.journal,
                 }),
                 Err(err) => {
-                    let is_session_limit = err.to_string().contains("Session limit exceeded");
-                    if is_session_limit {
+                    if err.to_string().contains("Session limit exceeded") {
                         tracing::info!(
                             "Execution stopped intentionally due to session limit of {exec_limit} cycles"
                         );
