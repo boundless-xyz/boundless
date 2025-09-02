@@ -70,8 +70,9 @@ struct MainArgs {
     #[clap(short, long, default_value = "0")]
     lock_stake_raw: U256,
     /// Number of seconds, from the current time, before the auction period starts.
-    #[clap(long, default_value = "30")]
-    bidding_start_delay: u64,
+    /// If not provided, will be calculated based on cycle count assuming 5 MHz prove rate.
+    #[clap(long)]
+    bidding_start_delay: Option<u64>,
     /// Ramp-up period in seconds.
     ///
     /// The bid price will increase linearly from `min_price` to `max_price` over this period.
@@ -86,6 +87,10 @@ struct MainArgs {
     /// Additional time in seconds to add to the timeout for each 1M cycles.
     #[clap(long, default_value = "20")]
     seconds_per_mcycle: u32,
+    /// Execution rate in kHz for calculating bidding start delays.
+    /// Default is 2000 kHz (2 MHz).
+    #[clap(long, default_value = "2000", env)]
+    exec_rate_khz: u64,
     /// Program binary file to use as the guest image, given as a path.
     ///
     /// If unspecified, defaults to the included loop guest.
@@ -159,7 +164,6 @@ async fn run(args: &MainArgs) -> Result<()> {
             config
                 .min_price_per_cycle(args.min_price_per_mcycle >> 20)
                 .max_price_per_cycle(args.max_price_per_mcycle >> 20)
-                .bidding_start_delay(args.bidding_start_delay)
         })
         .build()
         .await?;
@@ -229,14 +233,36 @@ async fn handle_request(
     // add 1 minute for each 1M cycles to the original timeout
     // Use the input directly as the estimated cycle count, since we are using a loop program.
     let m_cycles = input >> 20;
-    let lock_timeout =
-        args.lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    let seconds_for_mcycles = args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    let ramp_up = args.ramp_up + seconds_for_mcycles;
+    let lock_timeout = args.lock_timeout + seconds_for_mcycles;
     // Give equal time for provers that are fulfilling after lock expiry to prove.
-    let timeout: u32 =
-        args.timeout + lock_timeout + args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    let timeout: u32 = args.timeout + lock_timeout + seconds_for_mcycles;
 
     // Provide journal and cycles in order to skip preflighting, allowing us to send requests faster.
     let journal = Journal::new([input.to_le_bytes(), nonce.to_le_bytes()].concat());
+
+    // Calculate bidding_start timestamp
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+
+    let bidding_start = if let Some(delay) = args.bidding_start_delay {
+        // Use provided delay
+        now + delay
+    } else {
+        // Calculate delay based on execution time using configured execution rate
+        // mcycles * 1000 = kcycles, then divide by exec_rate_khz to get seconds
+        let exec_time_seconds = (m_cycles.saturating_mul(1000)).div_ceil(args.exec_rate_khz);
+        let delay = std::cmp::max(30, exec_time_seconds);
+
+        tracing::debug!(
+            "Calculated bidding_start_delay: {} seconds (based on {} mcycles at {} kHz exec rate)",
+            delay,
+            m_cycles,
+            args.exec_rate_khz
+        );
+
+        now + delay
+    };
 
     let request = client
         .new_request()
@@ -247,10 +273,11 @@ async fn handle_request(
         .with_journal(journal)
         .with_offer(
             OfferParams::builder()
-                .ramp_up_period(args.ramp_up)
+                .ramp_up_period(ramp_up)
                 .lock_timeout(lock_timeout)
                 .timeout(timeout)
-                .lock_stake(args.lock_stake_raw),
+                .lock_stake(args.lock_stake_raw)
+                .bidding_start(bidding_start),
         );
 
     // Build the request, including preflight, and assigned the remaining fields.
@@ -328,7 +355,7 @@ mod tests {
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
     use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
-    use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
+    use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use tracing_test::traced_test;
 
     use super::*;
@@ -349,11 +376,12 @@ mod tests {
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
             max_price_per_mcycle: parse_ether("0.002").unwrap(),
             lock_stake_raw: parse_ether("0.0").unwrap(),
-            bidding_start_delay: 30,
+            bidding_start_delay: None,
             ramp_up: 0,
             timeout: 1000,
             lock_timeout: 1000,
             seconds_per_mcycle: 60,
+            exec_rate_khz: 5000,
             program: Some(LOOP_PATH.parse().unwrap()),
             input: None,
             input_max_mcycles: None,

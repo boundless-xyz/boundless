@@ -362,9 +362,11 @@ where
 
         // Check if the stake is sane and if we can afford it
         // For lock expired orders, we don't check the max stake because we can't lock those orders.
-        let max_stake = {
+        let max_stake: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            parse_ether(&config.market.max_stake).context("Failed to parse max_stake")?
+            parse_units(&config.market.max_stake, self.stake_token_decimals)
+                .context("Failed to parse max_stake")?
+                .into()
         };
 
         if !lock_expired && lockin_stake > max_stake {
@@ -1162,11 +1164,7 @@ where
                             "Queued order {} to be priced. Currently {} queued pricing tasks: {}",
                             order_id,
                             pending_orders.len(),
-                            pending_orders
-                                .iter()
-                                .map(ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join(", ")
+                            format_truncated(pending_orders.iter().map(|o| o.id()))
                         );
                     }
                     Ok(state_change) = order_state_rx.recv() => {
@@ -1292,21 +1290,27 @@ where
     }
 }
 
-/// Format active pricing tasks for logging, limiting to first 3 and showing total count
-fn format_active_tasks(
-    active_tasks: &BTreeMap<U256, BTreeMap<String, CancellationToken>>,
-) -> String {
-    let mut order_iter = active_tasks.values().flat_map(|orders| orders.keys().cloned());
-
-    let first_three: Vec<String> = order_iter.by_ref().take(3).collect();
-    let remaining_count = order_iter.count();
-    let total_count = first_three.len() + remaining_count;
+/// Format orders for logging, limiting to first 3 and showing total count
+fn format_truncated<I, S>(mut iter: I) -> String
+where
+    I: Iterator<Item = S>,
+    S: AsRef<str>,
+{
+    let first_three: Vec<String> = iter.by_ref().take(3).map(|s| s.as_ref().to_string()).collect();
+    let remaining_count = iter.count();
 
     if remaining_count == 0 {
         first_three.join(", ")
     } else {
-        format!("{}, ... ({} total)", first_three.join(", "), total_count)
+        format!("{}, ... ({} total)", first_three.join(", "), first_three.len() + remaining_count)
     }
+}
+
+/// Format active pricing tasks for logging, limiting to first 3 and showing total count
+fn format_active_tasks(
+    active_tasks: &BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+) -> String {
+    format_truncated(active_tasks.values().flat_map(|orders| orders.keys()))
 }
 
 /// Returns the maximum cycles that can be proven within a given time period
@@ -1339,9 +1343,9 @@ pub(crate) mod tests {
         Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
-    use boundless_market_test_utils::{
-        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
-        ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID,
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
+        market::{deploy_boundless_market, deploy_hit_points},
     };
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
@@ -1753,7 +1757,7 @@ pub(crate) mod tests {
             .await;
 
         // set a Groth16 selector
-        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_2 as u32);
+        order.request.requirements.selector = FixedBytes::from(Selector::groth16_latest() as u32);
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1838,8 +1842,8 @@ pub(crate) mod tests {
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        let min_price = parse_ether("0.00125").unwrap();
+        let max_price = parse_ether("0.00125").unwrap();
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -2025,7 +2029,7 @@ pub(crate) mod tests {
 
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: parse_units("11", 18).unwrap().into(),
+                lock_stake: parse_units("11", ctx.picker.stake_token_decimals).unwrap().into(),
                 ..Default::default()
             })
             .await;

@@ -1,27 +1,14 @@
 use std::collections::{btree_map, BTreeMap};
-use std::sync::LazyLock;
 
-use alloy_chains::NamedChain;
-use alloy_primitives::{Address, ChainId, B256, U256};
+use alloy_primitives::{Address, B256, U256};
 use alloy_sol_types::SolValue;
 use boundless_povw_guests::log_updater::IPovwAccounting;
 use boundless_povw_guests::mint_calculator::{
-    FixedPoint, Input, MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate,
+    FixedPoint, Input, MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate, CHAIN_SPECS,
 };
 use boundless_povw_guests::zkc::{IZKCRewards, IZKC};
-use risc0_steel::ethereum::{
-    EthChainSpec, ANVIL_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
-};
 use risc0_steel::{Contract, Event};
 use risc0_zkvm::guest::env;
-
-static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(|| {
-    BTreeMap::from([
-        (NamedChain::Mainnet as ChainId, ETH_MAINNET_CHAIN_SPEC.clone()),
-        (NamedChain::Sepolia as ChainId, ETH_SEPOLIA_CHAIN_SPEC.clone()),
-        (NamedChain::AnvilHardhat as ChainId, ANVIL_CHAIN_SPEC.clone()),
-    ])
-});
 
 /// A mapping from epoch number => { work log ID =>  { recipient => { reward weight } } }.
 ///
@@ -41,8 +28,7 @@ type RewardWeightMap = BTreeMap<U256, BTreeMap<Address, BTreeMap<Address, FixedP
 //   * The mint recipient is set correctly.
 fn main() {
     // Read the input from the guest environment.
-    let input: Input =
-        postcard::from_bytes(&env::read_frame()).expect("failed to deserialize input");
+    let input = Input::decode(env::read_frame()).expect("failed to deserialize input");
 
     // Converts the input into a `EvmEnv` structs for execution.
     let chain_spec = &CHAIN_SPECS.get(&input.chain_id).expect("unrecognized chain id in input");
@@ -144,7 +130,7 @@ fn main() {
         Contract::new(input.povw_accounting_address, completness_check_env);
     for (work_log_id, (_, updated_commit)) in updates.iter() {
         let final_commit = povw_accounting_contract
-            .call_builder(&IPovwAccounting::getWorkLogCommitCall { workLogId: *work_log_id })
+            .call_builder(&IPovwAccounting::workLogCommitCall { workLogId: *work_log_id })
             .call();
         assert_eq!(
             final_commit,

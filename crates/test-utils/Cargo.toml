@@ -1,0 +1,34 @@
+[package]
+name = "boundless-test-utils"
+description = "Test utils for the Boundless"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+license = "Apache-2.0"
+
+[dependencies]
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+anyhow = { workspace = true }
+boundless-market = { workspace = true, features = ["test-utils"] }
+boundless-povw-guests = { workspace = true, optional = true }
+bytemuck = { version = "1.23", optional = true }
+derive_builder = { version = "0.20.2", optional = true }
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
+guest-util = { workspace = true }
+postcard = { version = "1.1", features = ["alloc"], optional = true }
+rand = { version = "0.9", optional = true }
+risc0-aggregation = { workspace = true }
+risc0-circuit-recursion = { workspace = true }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
+risc0-povw = { git = "https://github.com/risc0/risc0", branch = "victor/povw-patch-povw", features = ["prover"], optional = true }
+risc0-steel = { git = "https://github.com/boundless-xyz/steel", rev = "a44917a19e012ba10d4720095eb19fc9c66b7741", optional = true }
+risc0-zkvm = { workspace = true, features = ["std"] }
+tokio = { workspace = true, optional = true }
+
+[features]
+povw = ["dep:boundless-povw-guests", "dep:bytemuck", "dep:derive_builder", "dep:postcard", "dep:rand", "dep:risc0-povw", "dep:risc0-steel", "dep:tokio"]

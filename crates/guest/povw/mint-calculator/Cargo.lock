@@ -22,12 +22,13 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "alloy-chains"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2672194d5865f00b03e5c7844d2c6f172a842e5c3bc49d7f9b871c42c95ae65"
+checksum = "ef8ff73a143281cb77c32006b04af9c047a6b8fe5860e85a88ad325328965355"
 dependencies = [
  "alloy-primitives",
  "num_enum",
+ "serde",
  "strum",
 ]
 
@@ -1000,10 +1001,13 @@ dependencies = [
 name = "boundless-povw-guests"
 version = "0.14.0"
 dependencies = [
+ "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
  "borsh",
+ "bytemuck",
+ "derive_builder",
  "postcard",
  "risc0-povw",
  "risc0-steel",
@@ -1015,11 +1019,9 @@ dependencies = [
 name = "boundless-povw-mint-calculator"
 version = "0.1.0"
 dependencies = [
- "alloy-chains",
  "alloy-primitives",
  "alloy-sol-types",
  "boundless-povw-guests",
- "postcard",
  "risc0-steel",
  "risc0-zkvm",
 ]
@@ -1506,27 +1508,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
-name = "enum-map"
-version = "2.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6866f3bfdf8207509a033af1a75a7b08abda06bbaaeae6669323fd5a097df2e9"
-dependencies = [
- "enum-map-derive",
- "serde",
-]
-
-[[package]]
-name = "enum-map-derive"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f282cfdfe92516eb26c2af8589c274c7c17681f5ecc03c18255fe741c6aa64eb"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.106",
-]
-
-[[package]]
 name = "enum-ordinalize"
 version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1570,7 +1551,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1701,7 +1682,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
- "wasi 0.14.2+wasi-0.2.4",
+ "wasi 0.14.3+wasi-0.2.4",
 ]
 
 [[package]]
@@ -2921,8 +2902,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-binfmt"
-version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "3.0.2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "anyhow",
  "borsh",
@@ -2942,8 +2923,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-keccak"
-version = "4.0.0"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "4.0.2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2957,8 +2938,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "4.0.0"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "4.0.2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2971,14 +2952,13 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "4.0.0"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "4.0.2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "anyhow",
  "bit-vec",
  "bytemuck",
  "derive_more",
- "enum-map",
  "paste",
  "risc0-binfmt",
  "risc0-core",
@@ -2989,8 +2969,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-core"
-version = "2.0.1"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "3.0.0"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "bytemuck",
  "rand_core 0.9.3",
@@ -2998,8 +2978,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "3.0.2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -3018,8 +2998,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-povw"
-version = "0.1.0"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "0.2.1"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "borsh",
  "bytemuck",
@@ -3035,7 +3015,7 @@ dependencies = [
 [[package]]
 name = "risc0-steel"
 version = "2.3.0"
-source = "git+https://github.com/boundless-xyz/steel?rev=26ab6a5bddb33dc42b69ed9b8116ef820ce45907#26ab6a5bddb33dc42b69ed9b8116ef820ce45907"
+source = "git+https://github.com/boundless-xyz/steel?rev=a44917a19e012ba10d4720095eb19fc9c66b7741#a44917a19e012ba10d4720095eb19fc9c66b7741"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -3056,17 +3036,18 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkos-v1compat"
-version = "2.0.2"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "2.2.0"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
+ "risc0-zkvm-platform",
 ]
 
 [[package]]
 name = "risc0-zkp"
-version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "3.0.2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "anyhow",
  "blake2",
@@ -3089,14 +3070,13 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "3.0.4"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "anyhow",
  "borsh",
  "bytemuck",
  "derive_more",
- "enum-map",
  "hex",
  "risc0-binfmt",
  "risc0-circuit-keccak",
@@ -3117,14 +3097,16 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm-platform"
-version = "2.0.4"
-source = "git+https://github.com/risc0/risc0?rev=076da95cb879e5bcbf70b6586e9fad7a87e3914a#076da95cb879e5bcbf70b6586e9fad7a87e3914a"
+version = "2.2.0"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
 dependencies = [
  "bytemuck",
  "cfg-if",
  "getrandom 0.2.16",
  "getrandom 0.3.3",
  "libm",
+ "num_enum",
+ "paste",
  "stability",
 ]
 
@@ -3234,7 +3216,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3659,7 +3641,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3892,11 +3874,11 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasi"
-version = "0.14.2+wasi-0.2.4"
+version = "0.14.3+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9683f9a5a998d873c0d21fcbe3c083009670149a8fab228644b8bd36b2c48cb3"
+checksum = "6a51ae83037bdd272a9e28ce236db8c07016dd0d50c27038b3f407533c030c95"
 dependencies = [
- "wit-bindgen-rt",
+ "wit-bindgen",
 ]
 
 [[package]]
@@ -4170,15 +4152,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21a0236b59786fed61e2a80582dd500fe61f18b5dca67a4a067d0bc9039339cf"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "wit-bindgen-rt"
-version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
-dependencies = [
- "bitflags 2.9.3",
 ]
 
 [[package]]
