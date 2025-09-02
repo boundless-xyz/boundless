@@ -602,13 +602,13 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     total_cycles: session.total_cycles,
                     journal: session.journal,
                 }),
-                Err(err) => {
+                Err(mut err) => {
                     if err.to_string().contains("Session limit exceeded") {
-                        tracing::info!(
+                        err = anyhow::anyhow!(
                             "Execution stopped intentionally due to session limit of {exec_limit} cycles"
                         );
                     } else {
-                        tracing::error!("Failed to run executor: {err}");
+                        tracing::error!("Failed to run executor: {err:?}");
                     }
                     task_tx_clone
                         .blocking_send(SenderType::Fault)
