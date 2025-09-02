@@ -56,6 +56,38 @@ async fn basic() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn reject_zero_value_recipient() -> anyhow::Result<()> {
+    let signer = PrivateKeySigner::random();
+    let chain_id = 31337;
+    let contract_address = address!("0x0000000000000000000000000000000000000f00");
+
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(Digest::new(rand::random()))
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(5)
+        .work_log_id(signer.address())
+        .build()?;
+
+    let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
+        .sign(&signer, contract_address, chain_id)
+        .await?;
+
+    let input = Input {
+        update: update.clone(),
+        value_recipient: Address::ZERO,
+        signature: signature.as_bytes().to_vec(),
+        contract_address,
+        chain_id,
+    };
+    let err = common::execute_log_updater_guest(&input).unwrap_err();
+    println!("execute_log_updater_guest failed with: {err}");
+    assert!(err.to_string().contains("value recipient cannot be the zero address"));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn reject_wrong_signer() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
