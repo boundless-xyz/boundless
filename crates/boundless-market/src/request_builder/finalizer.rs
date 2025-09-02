@@ -129,8 +129,8 @@ impl Adapt<Finalizer> for RequestParams {
             .context("failed to build request: offer is incomplete")?;
         let request_id = self.require_request_id().context("failed to build request")?.clone();
 
-        let predicate = <Predicate>::try_from(requirements.predicate.clone())?;
         // If enough data is provided, check that the known journal and image match the predicate.
+        let predicate = Predicate::try_from(requirements.predicate.clone())?;
         let eval = match (&self.journal, self.image_id) {
             (Some(journal), Some(image_id)) => {
                 tracing::debug!("Evaluating journal and image id against predicate ");

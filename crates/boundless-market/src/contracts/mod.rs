@@ -451,7 +451,7 @@ impl ProofRequest {
         Url::parse(&self.imageUrl).map(|_| ())?;
 
         // The conversion from RequestPredicate to Predicate will validate
-        <Predicate>::try_from(self.requirements.predicate.clone())?;
+        Predicate::try_from(self.requirements.predicate.clone())?;
 
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
