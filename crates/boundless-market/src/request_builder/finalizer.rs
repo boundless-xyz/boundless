@@ -137,11 +137,9 @@ impl Adapt<Finalizer> for RequestParams {
                     FulfillmentData::from_image_id_and_journal(image_id, journal.bytes.clone());
                 predicate.eval(&eval_data)
             }
-            (Some(journal), None) => {
-                tracing::debug!(
-                    "Image id not provided, only ensuring the journal matches predicate"
-                );
-                predicate.check_journal(&journal.bytes)
+            (Some(_journal), None) => {
+                tracing::debug!("Image id not provided, skipping predicate eval check");
+                true
             }
             _ => {
                 tracing::debug!(
