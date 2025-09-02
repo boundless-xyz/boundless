@@ -28,8 +28,8 @@ use boundless_market::contracts::{
     RequestInput, Requirements,
 };
 use boundless_test_utils::{
-    market::create_test_ctx, 
     guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
+    market::create_test_ctx,
 };
 use sqlx::Row;
 

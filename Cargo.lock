@@ -2864,6 +2864,7 @@ dependencies = [
  "boundless-market",
  "boundless-test-utils",
  "broker",
+ "bytemuck",
  "chrono",
  "clap",
  "elsa",

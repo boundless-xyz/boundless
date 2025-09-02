@@ -35,8 +35,8 @@ use boundless_market::{
     input::GuestEnv,
 };
 use boundless_test_utils::{
-    market::{create_test_ctx_with_rpc_url, TestCtx},
     guests::{ECHO_ELF, ECHO_ID},
+    market::{create_test_ctx_with_rpc_url, TestCtx},
 };
 use broker::test_utils::BrokerBuilder;
 use clap::Parser;

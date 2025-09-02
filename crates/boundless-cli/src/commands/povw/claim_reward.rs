@@ -305,9 +305,8 @@ async fn search_work_log_updated(
     let search_predicate = |query_logs: &[(WorkLogUpdated, Log)]| {
         for (event, log) in query_logs {
             let commit = Digest::from(*event.initialCommit);
-            let block_number = log
-                .block_number
-                .context("Log from range does not have block number")?;
+            let block_number =
+                log.block_number.context("Log from range does not have block number")?;
             events.insert(commit, (event.clone(), block_number));
             tracing::debug!(block_number, ?event, "Found WorkLogUpdated event");
         }
@@ -362,9 +361,8 @@ async fn search_epoch_finalized(
         for (event, log) in query_logs {
             // Remove the epoch from the set we are searching for.
             if epochs.remove(&event.epoch) {
-                let block_number = log
-                    .block_number
-                    .context("Log from range does not have block number")?;
+                let block_number =
+                    log.block_number.context("Log from range does not have block number")?;
                 events.insert(block_number, event.clone());
                 tracing::debug!(block_number, ?event, "Found EpochFinalized event");
             }

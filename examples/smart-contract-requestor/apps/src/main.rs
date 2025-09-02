@@ -21,7 +21,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{Client, Deployment, RequestId, StorageProviderConfig};
-use boundless_test_utils::market::ECHO_ELF;
+use boundless_test_utils::guests::ECHO_ELF;
 use clap::Parser;
 use risc0_zkvm::serde::from_slice;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};

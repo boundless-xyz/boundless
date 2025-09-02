@@ -23,6 +23,7 @@ bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
 boundless-test-utils = { workspace = true, optional = true }
+bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 futures = "0.3"

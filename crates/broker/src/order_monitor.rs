@@ -981,8 +981,8 @@ pub(crate) mod tests {
         Requirements,
     };
     use boundless_test_utils::{
-        market::{deploy_boundless_market, deploy_hit_points},
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH},
+        market::{deploy_boundless_market, deploy_hit_points},
     };
 
     use risc0_zkvm::Digest;
