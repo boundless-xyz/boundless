@@ -472,7 +472,7 @@ mod tests {
         node_bindings::Anvil,
         providers::{ext::AnvilApi, Provider},
     };
-    use boundless_market_test_utils::create_test_ctx;
+    use boundless_test_utils::market::create_test_ctx;
     use tracing_test::traced_test;
 
     use super::*;

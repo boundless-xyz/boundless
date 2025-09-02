@@ -42,11 +42,10 @@ environment variable or `--private-key`. This CLI only supports in-memory privat
 this version. Full signer support is available in the SDK."#;
 
 use std::{
+    any::Any,
     borrow::Cow,
     fs::File,
     io::BufReader,
-    num::ParseIntError,
-    ops::Deref,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -59,12 +58,10 @@ use alloy::{
     },
     providers::{Provider, ProviderBuilder},
     rpc::types::{TransactionInput, TransactionRequest},
-    signers::local::PrivateKeySigner,
     sol_types::SolValue,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -75,10 +72,13 @@ use risc0_zkvm::{
     Journal, SessionInfo,
 };
 use shadow_rs::shadow;
-use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
+use boundless_cli::{
+    commands::povw::PovwCommands, config::GlobalConfig, convert_timestamp, DefaultProver,
+    OrderFulfilled,
+};
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
@@ -110,6 +110,9 @@ enum Command {
     /// Operations on the boundless market
     #[command(subcommand)]
     Ops(Box<OpsCommands>),
+
+    #[command(subcommand)]
+    Povw(Box<PovwCommands>),
 
     /// Display configuration and environment variables
     Config {},
@@ -408,29 +411,6 @@ struct SubmitOfferRequirements {
     proof_type: ProofType,
 }
 
-/// Common configuration options for all commands
-#[derive(Args, Debug, Clone)]
-struct GlobalConfig {
-    /// URL of the Ethereum RPC endpoint
-    #[clap(short, long, env = "RPC_URL")]
-    rpc_url: Url,
-
-    /// Private key of the wallet (without 0x prefix)
-    #[clap(long, env = "PRIVATE_KEY", global = true, hide_env_values = true)]
-    private_key: Option<PrivateKeySigner>,
-
-    /// Ethereum transaction timeout in seconds.
-    #[clap(long, env = "TX_TIMEOUT", global = true, value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
-    tx_timeout: Option<Duration>,
-
-    /// Log level (error, warn, info, debug, trace)
-    #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
-    log_level: LevelFilter,
-
-    #[clap(flatten, next_help_heading = "Boundless Deployment")]
-    deployment: Option<Deployment>,
-}
-
 #[derive(Parser, Debug)]
 #[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for Boundless", long_about = CLI_LONG_ABOUT)]
 struct MainArgs {
@@ -438,41 +418,8 @@ struct MainArgs {
     #[command(subcommand)]
     command: Command,
 
-    #[command(flatten)]
+    #[command(flatten, next_help_heading = "Global Options")]
     config: GlobalConfig,
-}
-
-/// Return true if the subcommand requires a private key.
-// NOTE: It does not appear this is possible with clap natively
-fn private_key_required(cmd: &Command) -> bool {
-    match cmd {
-        Command::Ops(cmd) => match cmd.deref() {
-            OpsCommands::Slash { .. } => true,
-        },
-        Command::Config { .. } => false,
-        Command::Account(cmd) => match cmd.deref() {
-            AccountCommands::Balance { .. } => false,
-            AccountCommands::Deposit { .. } => true,
-            AccountCommands::DepositStake { .. } => true,
-            AccountCommands::StakeBalance { .. } => false,
-            AccountCommands::Withdraw { .. } => true,
-            AccountCommands::WithdrawStake { .. } => true,
-        },
-        Command::Request(cmd) => match cmd.deref() {
-            RequestCommands::GetProof { .. } => false,
-            RequestCommands::Status { .. } => false,
-            RequestCommands::Submit { .. } => true,
-            RequestCommands::SubmitOffer { .. } => true,
-            RequestCommands::VerifyProof { .. } => false,
-        },
-        Command::Proving(cmd) => match cmd.deref() {
-            ProvingCommands::Benchmark { .. } => false,
-            ProvingCommands::Execute { .. } => false,
-            ProvingCommands::Fulfill { .. } => true,
-            ProvingCommands::Lock { .. } => true,
-        },
-        Command::Completions { .. } => false,
-    }
 }
 
 #[tokio::main]
@@ -507,29 +454,10 @@ async fn main() -> Result<()> {
 }
 
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
-    if private_key_required(&args.command) && args.config.private_key.is_none() {
-        eprintln!("A private key is required to run this subcommand");
-        eprintln!("Please provide a private key with --private-key or the PRIVATE_KEY environment variable");
-        bail!("Private key required");
-    }
-
-    // If the config command is being run, don't create a client.
-    if let Command::Config {} = &args.command {
-        return handle_config_command(args).await;
-    }
-    if let Command::Completions { shell } = &args.command {
-        // TODO: Because of where this is, running the completions command requires an RPC_URL to
-        // be set. We should address this, but its also not a major issue.
-        clap_complete::generate(
-            *shell,
-            &mut MainArgs::command(),
-            "boundless",
-            &mut std::io::stdout(),
-        );
-        return Ok(());
-    }
-
-    let storage_config = match args.command {
+    // If using one of the subcommands that has a storage config option, use it. Otherwise, use
+    // `Default`, which is to have no storage provider.
+    // DO NOT MERGE
+    let _storage_config = match args.command {
         Command::Request(ref req_cmd) => match **req_cmd {
             RequestCommands::Submit { ref storage_config, .. } => (**storage_config).clone(),
             RequestCommands::SubmitOffer(ref args) => args.storage_config.clone(),
@@ -538,28 +466,25 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         _ => StorageProviderConfig::default(),
     };
 
-    let client = Client::builder()
-        .with_signer(args.config.private_key.clone())
-        .with_rpc_url(args.config.rpc_url.clone())
-        .with_deployment(args.config.deployment.clone())
-        .with_storage_provider_config(&storage_config)?
-        .with_timeout(args.config.tx_timeout)
-        .build()
-        .await
-        .context("Failed to build Boundless client")?;
-
     match &args.command {
-        Command::Account(account_cmd) => handle_account_command(account_cmd, client).await,
-        Command::Request(request_cmd) => handle_request_command(request_cmd, client).await,
-        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, client).await,
-        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, client).await,
-        Command::Config {} => unreachable!(),
-        Command::Completions { .. } => unreachable!(),
+        Command::Account(account_cmd) => handle_account_command(account_cmd, &args.config).await,
+        Command::Request(request_cmd) => handle_request_command(request_cmd, &args.config).await,
+        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, &args.config).await,
+        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, &args.config).await,
+        Command::Povw(povw_cmd) => povw_cmd.run(&args.config).await,
+        Command::Config {} => handle_config_command(&args.config).await,
+        Command::Completions { shell } => generate_shell_completions(shell),
     }
 }
 
+fn generate_shell_completions(shell: &Shell) -> Result<()> {
+    clap_complete::generate(*shell, &mut MainArgs::command(), "boundless", &mut std::io::stdout());
+    Ok(())
+}
+
 /// Handle ops-related commands
-async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result<()> {
+async fn handle_ops_command(cmd: &OpsCommands, config: &GlobalConfig) -> Result<()> {
+    let client = config.build_client_with_signer().await?;
     match cmd {
         OpsCommands::Slash { request_id } => {
             tracing::info!("Slashing prover for request 0x{:x}", request_id);
@@ -572,7 +497,7 @@ async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result
 
 /// Helper function to parse stake amounts with validation
 async fn parse_stake_amount(
-    client: &StandardClient,
+    client: &Client<impl Provider, impl Any, impl Any, impl Any>,
     amount: &str,
 ) -> Result<(U256, String, String)> {
     let symbol = client.boundless_market.stake_token_symbol().await?;
@@ -587,21 +512,24 @@ async fn parse_stake_amount(
 }
 
 /// Handle account-related commands
-async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -> Result<()> {
+async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) -> Result<()> {
     match cmd {
         AccountCommands::Deposit { amount } => {
+            let client = config.build_client_with_signer().await?;
             tracing::info!("Depositing {} ETH into the market", format_ether(*amount));
             client.boundless_market.deposit(*amount).await?;
             tracing::info!("Successfully deposited {} ETH into the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Withdraw { amount } => {
+            let client = config.build_client_with_signer().await?;
             tracing::info!("Withdrawing {} ETH from the market", format_ether(*amount));
             client.boundless_market.withdraw(*amount).await?;
             tracing::info!("Successfully withdrew {} ETH from the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Balance { address } => {
+            let client = config.build_client().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
             if addr == Address::ZERO {
                 bail!("No address specified for balance query. Please provide an address or a private key.")
@@ -612,6 +540,7 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             Ok(())
         }
         AccountCommands::DepositStake { amount } => {
+            let client = config.build_client_with_signer().await?;
             let (parsed_amount, formatted_amount, symbol) =
                 parse_stake_amount(&client, amount).await?;
 
@@ -638,6 +567,7 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             }
         }
         AccountCommands::WithdrawStake { amount } => {
+            let client = config.build_client_with_signer().await?;
             let (parsed_amount, formatted_amount, symbol) =
                 parse_stake_amount(&client, amount).await?;
             tracing::info!("Withdrawing {formatted_amount} {symbol} from stake");
@@ -646,6 +576,7 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             Ok(())
         }
         AccountCommands::StakeBalance { address } => {
+            let client = config.build_client().await?;
             let symbol = client.boundless_market.stake_token_symbol().await?;
             let decimals = client.boundless_market.stake_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
@@ -663,15 +594,33 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
 }
 
 /// Handle request-related commands
-async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -> Result<()> {
+async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) -> Result<()> {
     match cmd {
         RequestCommands::SubmitOffer(offer_args) => {
+            let client = config
+                .client_builder_with_signer()?
+                .with_storage_provider_config(&offer_args.storage_config)?
+                .build()
+                .await
+                .context("Failed to build Boundless Client")?;
             tracing::info!("Submitting new proof request with offer");
             submit_offer(client, offer_args).await
         }
-        RequestCommands::Submit { yaml_request, wait, offchain, no_preflight, .. } => {
+        RequestCommands::Submit {
+            yaml_request,
+            wait,
+            offchain,
+            no_preflight,
+            ref storage_config,
+        } => {
             tracing::info!("Submitting proof request from YAML file");
 
+            let client = config
+                .client_builder_with_signer()?
+                .with_storage_provider_config(storage_config)?
+                .build()
+                .await
+                .context("Failed to build Boundless Client")?;
             submit_request(
                 yaml_request,
                 client,
@@ -680,12 +629,14 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
             .await
         }
         RequestCommands::Status { request_id, expires_at } => {
+            let client = config.build_client().await?;
             tracing::info!("Checking status for request 0x{:x}", request_id);
             let status = client.boundless_market.get_status(*request_id, *expires_at).await?;
             tracing::info!("Request 0x{:x} status: {:?}", request_id, status);
             Ok(())
         }
         RequestCommands::GetProof { request_id } => {
+            let client = config.build_client().await?;
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
             let (journal, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
@@ -698,6 +649,7 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
             Ok(())
         }
         RequestCommands::VerifyProof { request_id, image_id } => {
+            let client = config.build_client().await?;
             tracing::info!("Verifying proof for request 0x{:x}", request_id);
             let (journal, seal) =
                 client.boundless_market.get_request_fulfillment(*request_id).await?;
@@ -718,9 +670,10 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
 }
 
 /// Handle proving-related commands
-async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -> Result<()> {
+async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) -> Result<()> {
     match cmd {
         ProvingCommands::Execute { request_path, request_id, request_digest, tx_hash } => {
+            let client = config.build_client().await?;
             tracing::info!("Executing proof request");
             let request: ProofRequest = if let Some(file_path) = request_path {
                 tracing::debug!("Loading request from file: {:?}", file_path);
@@ -760,6 +713,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             bonsai_api_key,
             use_default_prover,
         } => {
+            let client = config.build_client_with_signer().await?;
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
             {
@@ -863,6 +817,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             }
         }
         ProvingCommands::Lock { request_id, request_digest, tx_hash } => {
+            let client = config.build_client_with_signer().await?;
             tracing::info!("Locking proof request 0x{:x}", request_id);
 
             let (request, signature) =
@@ -889,6 +844,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
             bonsai_api_key,
             use_default_prover,
         } => {
+            let client = config.build_client().await?;
             benchmark(client, request_ids, bonsai_api_url, bonsai_api_key, *use_default_prover)
                 .await
         }
@@ -922,13 +878,16 @@ fn configure_proving_backend(
 }
 
 /// Execute a proof request using the RISC Zero zkVM executor and measure performance
-async fn benchmark(
-    client: StandardClient,
+async fn benchmark<P>(
+    client: Client<P, impl Any, impl Any, impl Any>,
     request_ids: &[U256],
     bonsai_api_url: &Option<String>,
     bonsai_api_key: &Option<String>,
     use_default_prover: bool,
-) -> Result<()> {
+) -> Result<()>
+where
+    P: Provider + Clone + 'static,
+{
     tracing::info!("Starting benchmark for {} requests", request_ids.len());
     if request_ids.is_empty() {
         bail!("No request IDs provided");
@@ -1159,8 +1118,8 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
         // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
         // risc0-ethereum. Add a Selector::inclusion_latest() function to risc0-ethereum and use it
         // here.
-        ProofType::Inclusion => requirements.selector(Selector::SetVerifierV0_7 as u32),
-        ProofType::Groth16 => requirements.selector(Selector::Groth16V2_2 as u32),
+        ProofType::Inclusion => requirements.selector(Selector::set_inclusion_latest() as u32),
+        ProofType::Groth16 => requirements.selector(Selector::groth16_latest() as u32),
         ProofType::Any => &mut requirements,
         ty => bail!("unsupported proof type provided in proof-type flag: {:?}", ty),
     };
@@ -1341,27 +1300,28 @@ fn now_timestamp() -> u64 {
 }
 
 /// Handle config command
-async fn handle_config_command(args: &MainArgs) -> Result<()> {
+async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");
 
     // Show configuration
-    println!("RPC URL: {}", args.config.rpc_url);
+    let rpc_url = config.require_rpc_url()?;
+    println!("RPC URL: {rpc_url}");
     println!(
         "Wallet Address: {}",
-        args.config
+        config
             .private_key
             .as_ref()
             .map(|sk| sk.address().to_string())
             .unwrap_or("[no wallet provided]".to_string())
     );
-    if let Some(timeout) = args.config.tx_timeout {
+    if let Some(timeout) = config.tx_timeout {
         println!("Transaction Timeout: {} seconds", timeout.as_secs());
     } else {
         println!("Transaction Timeout: <not set>");
     }
-    println!("Log Level: {:?}", args.config.log_level);
-    if let Some(ref deployment) = args.config.deployment {
+    println!("Log Level: {:?}", config.log_level);
+    if let Some(ref deployment) = config.deployment {
         println!("Using custom Boundless deployment");
         println!("Chain ID: {:?}", deployment.chain_id);
         println!("Boundless Market Address: {}", deployment.boundless_market_address);
@@ -1373,7 +1333,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
     // Validate RPC connection
     println!("\n=== Environment Validation ===\n");
     print!("Testing RPC connection... ");
-    let provider = ProviderBuilder::new().connect_http(args.config.rpc_url.clone());
+    let provider = ProviderBuilder::new().connect_http(rpc_url);
 
     let chain_id = match provider.get_chain_id().await {
         Ok(chain_id) => {
@@ -1388,7 +1348,7 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
     };
 
     let Some(deployment) =
-        args.config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+        config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
     else {
         println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
         return Ok(());
@@ -1477,29 +1437,30 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
     use alloy::primitives::aliases::U96;
-    use boundless_market::contracts::{
-        Predicate, PredicateType, RequestId, RequestInput, Requirements,
-    };
-
-    use super::*;
-
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
         primitives::utils::format_units,
         providers::WalletProvider,
     };
+    use boundless_market::contracts::{
+        Predicate, PredicateType, RequestId, RequestInput, Requirements,
+    };
     use boundless_market::{
         contracts::{hit_points::default_allowance, RequestStatus},
         selector::is_groth16_selector,
     };
-    use boundless_market_test_utils::{
-        create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx, ECHO_ID, ECHO_PATH,
+    use boundless_test_utils::{
+        guests::{ECHO_ID, ECHO_PATH},
+        market::{create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx},
     };
     use order_stream::{run_from_parts, AppState, ConfigBuilder};
     use sqlx::PgPool;
     use tempfile::tempdir;
     use tokio::task::JoinHandle;
+    use tracing::level_filters::LevelFilter;
     use tracing_test::traced_test;
+
+    use super::*;
 
     // generate a test request
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
@@ -1549,7 +1510,7 @@ mod tests {
         };
 
         let config = GlobalConfig {
-            rpc_url: anvil.endpoint_url(),
+            rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(private_key),
             deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
@@ -2017,7 +1978,7 @@ mod tests {
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
         let prover_config = GlobalConfig {
-            rpc_url: anvil.endpoint_url(),
+            rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(ctx.prover_signer.clone()),
             deployment: Some(ctx.deployment),
             tx_timeout: None,
@@ -2239,7 +2200,7 @@ mod tests {
         );
 
         // Explicitly set the selector to a compatible value for the test
-        // In dev mode, instead of Groth16V2_2, use FakeReceipt
+        // In dev mode, instead of Groth16, use FakeReceipt
         request.requirements.selector = FixedBytes::from(Selector::FakeReceipt as u32);
 
         // Dump the request to a tmp file; tmp is deleted on drop.
@@ -2338,7 +2299,7 @@ mod tests {
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
         let prover_config = GlobalConfig {
-            rpc_url: anvil.endpoint_url(),
+            rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(ctx.prover_signer.clone()),
             deployment: Some(ctx.deployment),
             tx_timeout: None,

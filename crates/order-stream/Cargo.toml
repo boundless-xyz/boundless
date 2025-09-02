@@ -34,5 +34,5 @@ utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 
 [dev-dependencies]
-boundless-market-test-utils = { workspace = true }
+boundless-test-utils = { workspace = true }
 risc0-zkvm = { workspace = true }

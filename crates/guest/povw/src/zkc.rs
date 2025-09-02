@@ -2,4 +2,4 @@
 //
 // All rights reserved.
 
-alloy_sol_types::sol!("../../../contracts/src/povw/IZKC.sol",);
+alloy_sol_types::sol!("./src/contracts/artifacts/IZKC.sol",);
