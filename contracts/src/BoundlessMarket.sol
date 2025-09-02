@@ -35,13 +35,7 @@ import {FulfillmentContext, FulfillmentContextLibrary} from "./types/Fulfillment
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "./libraries/MerkleProofish.sol";
 
-contract BoundlessMarket is
-    IBoundlessMarket,
-    Initializable,
-    EIP712Upgradeable,
-    OwnableUpgradeable,
-    UUPSUpgradeable
-{
+contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for int256;
     using SafeCast for uint256;

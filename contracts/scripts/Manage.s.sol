@@ -334,4 +334,3 @@ contract TransferOwnership is BoundlessScript {
         console2.log("Transferred ownership of the BoundlessMarket contract from %s to %s", currentAdmin, admin);
     }
 }
-
