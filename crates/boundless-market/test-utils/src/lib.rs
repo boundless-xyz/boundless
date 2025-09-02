@@ -29,7 +29,8 @@ use boundless_market::{
         boundless_market::BoundlessMarketService,
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
-        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, Predicate, ProofRequest,
+        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, FulfillmentDataType,
+        ProofRequest,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -394,29 +395,23 @@ pub fn mock_singleton(
     request: &ProofRequest,
     eip712_domain: Eip712Domain,
     prover: Address,
+    fulfillment_data_type: FulfillmentDataType,
 ) -> (B256, Bytes, Fulfillment, Bytes) {
     let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
     let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
     let app_claim_digest = app_receipt_claim.digest();
     let request_digest = request.eip712_signing_hash(&eip712_domain);
 
-    let predicate = Predicate::try_from(request.requirements.predicate.clone()).unwrap();
-
-    let (claim_digest, fulfillment_data) = match predicate {
-        Predicate::ClaimDigestMatch(_) => {
+    let (claim_digest, fulfillment_data) = match fulfillment_data_type {
+        FulfillmentDataType::ImageIdAndJournal => (
+            <[u8; 32]>::from(app_claim_digest).into(),
+            FulfillmentData::from_image_id_and_journal(ECHO_ID, app_journal.bytes.clone()),
+        ),
+        FulfillmentDataType::None => {
             (<[u8; 32]>::from(app_claim_digest).into(), FulfillmentData::None)
         }
-        Predicate::PrefixMatch(image_id, _) => (
-            <[u8; 32]>::from(app_claim_digest).into(),
-            FulfillmentData::from_image_id_and_journal(image_id, app_journal.bytes.clone()),
-        ),
-        Predicate::DigestMatch(image_id, _) => (
-            <[u8; 32]>::from(app_claim_digest).into(),
-            FulfillmentData::from_image_id_and_journal(image_id, app_journal.bytes.clone()),
-        ),
-        _ => panic!("unsupported predicate type"),
+        _ => panic!("unsupported fulfillment data type"),
     };
-
     let assessor_root = AssessorCommitment {
         index: U256::ZERO,
         id: request.id,

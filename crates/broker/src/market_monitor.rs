@@ -631,8 +631,8 @@ mod tests {
         contracts::{
             boundless_market::{BoundlessMarketService, FulfillmentTx},
             hit_points::default_allowance,
-            AssessorReceipt, FulfillmentData, Offer, Predicate, ProofRequest, RequestInput,
-            RequestInputType, Requirements,
+            AssessorReceipt, FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest,
+            RequestInput, RequestInputType, Requirements,
         },
         input::GuestEnv,
     };
@@ -789,8 +789,12 @@ mod tests {
         );
 
         // mock the fulfillment
-        let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(request, eip712_domain, ctx.prover_signer.address());
+        let (root, set_verifier_seal, fulfillment, assessor_seal) = mock_singleton(
+            request,
+            eip712_domain,
+            ctx.prover_signer.address(),
+            FulfillmentDataType::ImageIdAndJournal,
+        );
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
