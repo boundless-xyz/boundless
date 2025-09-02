@@ -18,15 +18,16 @@ use std::{
 };
 
 use crate::counter::{ICounter, ICounter::ICounterInstance};
-use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol_types::SolCall};
-use anyhow::{Context, Result};
-use boundless_market::{
-    contracts::Predicate, request_builder::RequirementParams, Client, Deployment,
-    StorageProviderConfig,
+use alloy::{
+    primitives::{Address, B256},
+    signers::local::PrivateKeySigner,
+    sol_types::SolCall,
 };
+use anyhow::{anyhow, Context, Result};
+use boundless_market::{Client, Deployment, StorageProviderConfig};
 use clap::Parser;
-use guest_util::{ECHO_ELF, ECHO_ID};
-use risc0_zkvm::{sha::Digestible, ReceiptClaim};
+use guest_util::ECHO_ELF;
+use risc0_zkvm::sha::Digestible;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
 
@@ -98,23 +99,12 @@ async fn run(args: Args) -> Result<()> {
     // accepts only unique proofs. Using the same input twice would result in the same proof.
     let echo_message = format!("{:?}", SystemTime::now());
 
-    let r0_claim_digest = ReceiptClaim::ok(ECHO_ID, echo_message.as_bytes().to_vec()).digest();
-
     // Build the request based on whether program URL is provided
     let request = if let Some(program_url) = args.program_url {
         // Use the provided URL
         client.new_request().with_program_url(program_url)?.with_stdin(echo_message.as_bytes())
     } else {
-        client
-            .new_request()
-            .with_program(ECHO_ELF)
-            .with_stdin(echo_message.as_bytes())
-            .with_requirements(
-                RequirementParams::builder()
-                    .predicate(Predicate::claim_digest_match(r0_claim_digest))
-                    .build()
-                    .unwrap(),
-            )
+        client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes())
     };
 
     let (request_id, expires_at) = client.submit_onchain(request).await?;
@@ -128,14 +118,19 @@ async fn run(args: Args) -> Result<()> {
             expires_at,
         )
         .await?;
+    let fulfillment_data = fulfillment.data()?;
     tracing::info!("Fulfillment data: {:?}", fulfillment.data()?);
     tracing::info!("Request {:x} fulfilled", request_id);
 
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.
     let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
+
+    let image_id = fulfillment_data.image_id().ok_or_else(|| anyhow!("missing image ID"))?;
+    let journal = fulfillment_data.journal().ok_or_else(|| anyhow!("missing journal"))?;
+    let journal_digest = B256::try_from(journal.digest().as_bytes())?;
     let call_increment = counter
-        .increment(fulfillment.seal, <[u8; 32]>::from(r0_claim_digest).into())
+        .increment(fulfillment.seal, <[u8; 32]>::from(image_id).into(), <[u8; 32]>::from(journal_digest).into())
         .from(client.caller());
 
     // By calling the increment function, we verify the seal against the published roots

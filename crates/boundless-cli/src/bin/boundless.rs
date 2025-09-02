@@ -725,16 +725,6 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
                         .await
                         .map_err(|_| anyhow::anyhow!("Verification failed"))?;
                 }
-                (Predicate::ClaimDigestMatch(claim_digest), FulfillmentData::None) => {
-                    verifier
-                        .verifyIntegrity(Receipt {
-                            seal,
-                            claimDigest: <[u8; 32]>::from(*claim_digest).into(),
-                        })
-                        .call()
-                        .await
-                        .map_err(|_| anyhow::anyhow!("Integrity verification failed"))?;
-                }
                 (_, _) => {
                     bail!(
                         "Verification failed due to invalid predicate {:?} or fulfillment data {:?}",
