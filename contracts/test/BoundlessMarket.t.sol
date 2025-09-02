@@ -3872,9 +3872,6 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         vm.prank(ownerWallet.addr);
         boundlessMarket.transferOwnership(newOwner);
 
-        vm.prank(newOwner);
-        boundlessMarket.acceptOwnership();
-
         assertEq(boundlessMarket.owner(), newOwner, "Owner should be changed");
     }
 }
