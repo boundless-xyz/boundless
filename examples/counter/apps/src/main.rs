@@ -130,7 +130,11 @@ async fn run(args: Args) -> Result<()> {
     let journal = fulfillment_data.journal().ok_or_else(|| anyhow!("missing journal"))?;
     let journal_digest = B256::try_from(journal.digest().as_bytes())?;
     let call_increment = counter
-        .increment(fulfillment.seal, <[u8; 32]>::from(image_id).into(), <[u8; 32]>::from(journal_digest).into())
+        .increment(
+            fulfillment.seal,
+            <[u8; 32]>::from(image_id).into(),
+            <[u8; 32]>::from(journal_digest).into(),
+        )
         .from(client.caller());
 
     // By calling the increment function, we verify the seal against the published roots
