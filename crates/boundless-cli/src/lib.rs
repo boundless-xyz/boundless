@@ -313,7 +313,7 @@ impl DefaultProver {
 
             let (fulfillment_data_type, fulfillment_data) =
                 fills[i].fulfillment_data.fulfillment_type_and_data();
-            let claim_digest = fills[i].claim_digest()?;
+            let claim_digest = fills[i].evaluate_requirements()?;
 
             let fulfillment = BoundlessFulfillment {
                 claimDigest: <[u8; 32]>::from(claim_digest).into(),

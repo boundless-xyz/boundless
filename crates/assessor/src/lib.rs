@@ -14,8 +14,7 @@ use boundless_market::contracts::{
     ProofRequest, RequestError,
 };
 use risc0_zkvm::{
-    sha::{Digest, Digestible},
-    ReceiptClaim,
+    sha::{Digest, Digestible}, MaybePruned, ReceiptClaim
 };
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +54,14 @@ pub enum Error {
     /// Predicate error due to malformed data
     #[error("predicate error: {0}")]
     PredicateError(#[from] PredicateError),
+
+    /// Fulfillment data type is not recognized.
+    #[error("fulfillment data type is not recognized {0:?}")]
+    UnknownFulfillmentDataType(FulfillmentData),
+
+    /// Predicate type is not recognized.
+    #[error("predicate type is not recognized {0:?}")]
+    UnknownPredicateType(Predicate),
 
     /// Invalid combination of fulfillment type and predicate type
     #[error(
@@ -107,15 +114,29 @@ impl Fulfillment {
     }
 
     /// Calculates the claim digest or returns from the predicate
-    pub fn claim_digest(&self) -> Result<Digest, Error> {
+    // NOTE: This is made private as the value should be used only after checking the requirements.
+    // Use evaluate_requirements instead.
+    fn claim_digest(&self) -> Result<Digest, Error> {
+        let claim_digest_data = match self.fulfillment_data {
+            FulfillmentData::None => None,
+            FulfillmentData::ImageIdAndJournal(image_id, ref journal) => Some(ReceiptClaim::ok(image_id, journal.to_vec()).digest()),
+            _ => return Err(Error::UnknownFulfillmentDataType(self.fulfillment_data.clone())),
+        };
         let predicate = Predicate::try_from(self.request.requirements.predicate.clone())?;
-        match (&self.fulfillment_data, predicate) {
-            (FulfillmentData::None, Predicate::ClaimDigestMatch(claim_digest)) => Ok(claim_digest),
-            (FulfillmentData::ImageIdAndJournal(image_id, journal), _) => {
-                Ok(ReceiptClaim::ok(*image_id, journal.to_vec()).digest())
+        let claim_digest_predicate = match predicate {
+            Predicate::DigestMatch(image_id, journal) => Some(ReceiptClaim::ok(image_id, MaybePruned::Pruned(journal)).digest()),
+            Predicate::PrefixMatch(_, _) => None,
+            Predicate::ClaimDigestMatch(claim_digest) => Some(claim_digest),
+            _ => return Err(Error::UnknownPredicateType(predicate)),
+        };
+        if let (Some(claim_digest_predicate), Some(claim_digest_data)) = (claim_digest_predicate, claim_digest_data) {
+            if claim_digest_predicate != claim_digest_data {
+                // NOTE: This is a inconsistency between the requirements and the predicate, so we
+                // report it using this error.
+                return Err(Error::RequirementsEvaluationError);
             }
-            (_, _) => Err(Error::InvalidFulfillmentPredicateCombination),
         }
+        claim_digest_data.or(claim_digest_predicate).ok_or(Error::InvalidFulfillmentPredicateCombination)
     }
 }
 
