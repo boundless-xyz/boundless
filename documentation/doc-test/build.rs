@@ -59,6 +59,8 @@ fn main() {
 
     let out = format!("{}/doctests.rs", env::var("OUT_DIR").unwrap());
     fs::write(out, level.to_string()).unwrap();
+
+    println!("cargo:warning=Successfully generated doctests.rs");
 }
 
 impl fmt::Display for Level {
