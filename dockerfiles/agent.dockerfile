@@ -26,9 +26,20 @@ RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/d
     && unzip protoc.zip -d /usr/local \
     && rm protoc.zip
 
+# Install RISC0 and groth16 component early for better caching
+ENV RISC0_HOME=/usr/local/risc0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install RISC0 and groth16 component - this layer will be cached unless RISC0_HOME changes
+RUN curl -L https://risczero.com/install | bash && \
+    /root/.risc0/bin/rzup install risc0-groth16 && \
+    # Clean up any temporary files to reduce image size
+    rm -rf /tmp/* /var/tmp/*
+
 FROM rust-builder AS builder
 
 ARG NVCC_APPEND_FLAGS="\
+  --generate-code arch=compute_75,code=sm_75 \
   --generate-code arch=compute_86,code=sm_86 \
   --generate-code arch=compute_89,code=sm_89 \
   --generate-code arch=compute_120,code=sm_120"
@@ -54,7 +65,6 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cp bento/target/release/agent /src/agent && \
     sccache --show-stats
 
-FROM risczero/risc0-groth16-prover:v2024-05-17.1 AS binaries
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
 RUN apt-get update -q -y \
@@ -63,11 +73,6 @@ RUN apt-get update -q -y \
 
 # Main prover
 COPY --from=builder /src/agent /app/agent
-
-# Stark2snark
-COPY --from=binaries /usr/local/sbin/rapidsnark /usr/local/sbin/rapidsnark
-COPY --from=binaries /app/stark_verify /app/stark_verify
-COPY --from=binaries /app/stark_verify.dat /app/stark_verify.dat
-COPY --from=binaries /app/stark_verify_final.zkey /app/stark_verify_final.zkey
+COPY --from=builder /usr/local/risc0 /usr/local/risc0
 
 ENTRYPOINT ["/app/agent"]
