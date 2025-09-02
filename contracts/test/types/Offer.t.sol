@@ -5,12 +5,9 @@
 
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
-import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
+import {Test} from "forge-std/Test.sol";
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 import {Offer} from "../../src/types/Offer.sol";
-import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";
 
 contract OfferTest is Test {
     /// forge-config: default.allow_internal_expect_revert = true

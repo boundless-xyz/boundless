@@ -7,12 +7,9 @@ pragma solidity ^0.8.13;
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 import {HitPoints} from "../../src/HitPoints.sol";
 import {BaseClient} from "./BaseClient.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import {TestUtils} from "../TestUtils.sol";
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {MockSmartContractWallet} from "./MockSmartContractWallet.sol";
-import "forge-std/Vm.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {LockRequest} from "../../src/types/LockRequest.sol";
 import {RequestIdLibrary} from "../../src/types/RequestId.sol";
@@ -29,7 +26,7 @@ contract SmartContractClient is BaseClient, Test {
 
     bytes private expectedSignature;
 
-    constructor(Vm.Wallet memory _signer) BaseClient() {
+    constructor(Vm.Wallet memory _signer) {
         expectedSignature = abi.encodePacked(keccak256(abi.encodePacked(_signer.addr)));
         smartWallet = new MockSmartContractWallet(expectedSignature, boundlessMarket, _signer.addr);
         signer = _signer;

@@ -34,9 +34,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-consensus"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7345077623aaa080fc06735ac13b8fa335125c8550f9c4f64135a5bf6f79967"
+checksum = "fec84ecc0f92bb13b2955d04d3d6bd638415f17069f7ed802de819642fa3a73c"
 dependencies = [
  "alloy-eips",
  "alloy-primitives",
@@ -51,7 +51,7 @@ dependencies = [
  "k256",
  "once_cell",
  "rand 0.8.5",
- "secp256k1 0.30.0",
+ "secp256k1",
  "serde",
  "serde_with",
  "thiserror 2.0.16",
@@ -59,9 +59,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-consensus-any"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "501f83565d28bdb9d6457dd3b5d646e19db37709d0f27608a26a1839052ddade"
+checksum = "e7e953646f3d5bde9ddf26a0387a35e435044f8728602dc1cb5b9f5cadb642bd"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -110,9 +110,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-eips"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c219a87fb386a75780ddbdbbced242477321887e426b0f946c05815ceabe5e09"
+checksum = "9d9ebd288f87aa496179b83471f5b00bcd01def4048714234d3ddbf97a6b9dd2"
 dependencies = [
  "alloy-eip2124",
  "alloy-eip2930",
@@ -177,9 +177,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-network-primitives"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9f9ab9a9e92c49a357edaee2d35deea0a32ac8f313cfa37448f04e7e029c9d9"
+checksum = "0bf37162ea3d9809750c6279e09e1012124fc797b02ffb0651974a505f7f88ff"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -239,9 +239,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-rpc-types"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6445ccdc73c8a97e1794e9f0f91af52fb2bbf9ff004339a801b0293c3928abb"
+checksum = "835576f756f0e99b6341eb44d2de4bf162586995819da81f808b32265953167e"
 dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-engine",
@@ -252,9 +252,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-rpc-types-engine"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e214c7667f88b2f7e48eb8428eeafcbf6faecda04175c5f4d13fdb2563333ac"
+checksum = "9b42dbddf7aca6b1772979c8376b5f69d3e7ff0cf6ea1013d720d860b360528f"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -270,9 +270,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-rpc-types-eth"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "672286c19528007df058bafd82c67e23247b4b3ebbc538cbddc705a82d8a930f"
+checksum = "0177e49c5d9dffbd8a427cbe757e202e5ef71718d5a8ae7d6858b6e3f448131b"
 dependencies = [
  "alloy-consensus",
  "alloy-consensus-any",
@@ -291,9 +291,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-serde"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aae653f049267ae7e040eab6c9b9a417064ca1a6cb21e3dd59b9f1131ef048f"
+checksum = "743e0fe099fe90a07215ae08413b271b8fac12fca6880c85326ce61341566e6f"
 dependencies = [
  "alloy-primitives",
  "serde",
@@ -404,12 +404,12 @@ dependencies = [
 
 [[package]]
 name = "alloy-tx-macros"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d14809f908822dbff0dc472c77ca4aa129ab12e22fd9bff2dd1ef54603e68e3d"
+checksum = "40696658bb1ac21f742107185fc2b0f60695598e4f16695e5bd24f4cfc0ddc29"
 dependencies = [
  "alloy-primitives",
- "darling",
+ "darling 0.21.3",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -909,9 +909,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.9.3"
+version = "2.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34efbcccd345379ca2868b2b2c9d3782e9cc58ba87bc7d79d5b53d9c9ae6f25d"
+checksum = "2261d10cca569e4643e526d8dc2e62e433cc8aba21ab764233731f8d369bf394"
 dependencies = [
  "serde",
 ]
@@ -1090,10 +1090,11 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.34"
+version = "1.2.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42bc4aea80032b7bf409b0bc7ccad88853858911b7713a8062fdc0623867bedc"
+checksum = "590f9024a68a8c40351881787f1934dc11afd69090f5edb6831464694d836ea3"
 dependencies = [
+ "find-msvc-tools",
  "shlex",
 ]
 
@@ -1270,8 +1271,18 @@ version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc7f46116c46ff9ab3eb1597a45688b6715c6e628b5c133e288e709a29bcb4ee"
 dependencies = [
- "darling_core",
- "darling_macro",
+ "darling_core 0.20.11",
+ "darling_macro 0.20.11",
+]
+
+[[package]]
+name = "darling"
+version = "0.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cdf337090841a411e2a7f3deb9187445851f91b309c0c0a29e05f74a00a48c0"
+dependencies = [
+ "darling_core 0.21.3",
+ "darling_macro 0.21.3",
 ]
 
 [[package]]
@@ -1289,12 +1300,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling_core"
+version = "0.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1247195ecd7e3c85f83c8d2a366e4210d588e802133e1e355180a9870b517ea4"
+dependencies = [
+ "fnv",
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "strsim",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "darling_macro"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead"
 dependencies = [
- "darling_core",
+ "darling_core 0.20.11",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "darling_macro"
+version = "0.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d38308df82d1080de0afee5d069fa14b0326a88c14f15c5ccda35b4a6c414c81"
+dependencies = [
+ "darling_core 0.21.3",
  "quote",
  "syn 2.0.106",
 ]
@@ -1311,9 +1348,9 @@ dependencies = [
 
 [[package]]
 name = "deranged"
-version = "0.4.0"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c9e6a11ca8224451684bc0d7d5a7adbf8f2fd6887261a1cfc3c0432f9d4068e"
+checksum = "d630bccd429a5bb5a64b5e94f693bfc48c9f8566418fda4c494cc94f911f87cc"
 dependencies = [
  "powerfmt",
  "serde",
@@ -1356,7 +1393,7 @@ version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8"
 dependencies = [
- "darling",
+ "darling 0.20.11",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -1551,7 +1588,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1591,6 +1628,12 @@ dependencies = [
  "rand_core 0.6.4",
  "subtle",
 ]
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e178e4fba8a2726903f6ba98a6d221e76f9c12c650d5dc0e6afdc50677b49650"
 
 [[package]]
 name = "fixed-hash"
@@ -2110,7 +2153,7 @@ version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ecfd3296f8c56b7c1f6fbac3c71cefa9d78ce009850c45000015f206dc7fa21"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags 2.9.4",
  "block",
  "core-graphics-types",
  "foreign-types",
@@ -2532,7 +2575,7 @@ checksum = "6fcdab19deb5195a31cf7726a210015ff1496ba1464fd42cb4f537b8b01b471f"
 dependencies = [
  "bit-set",
  "bit-vec",
- "bitflags 2.9.3",
+ "bitflags 2.9.4",
  "lazy_static",
  "num-traits",
  "rand 0.9.2",
@@ -2829,7 +2872,7 @@ dependencies = [
  "revm-primitives",
  "ripemd",
  "rug",
- "secp256k1 0.31.1",
+ "secp256k1",
  "sha2 0.10.9",
 ]
 
@@ -2851,7 +2894,7 @@ version = "7.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f64fbacb86008394aaebd3454f9643b7d5a782bd251135e17c5b33da592d84d"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags 2.9.4",
  "revm-bytecode",
  "revm-primitives",
  "serde",
@@ -2903,7 +2946,7 @@ dependencies = [
 [[package]]
 name = "risc0-binfmt"
 version = "3.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "anyhow",
  "borsh",
@@ -2924,7 +2967,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-keccak"
 version = "4.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2939,7 +2982,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-recursion"
 version = "4.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2953,7 +2996,7 @@ dependencies = [
 [[package]]
 name = "risc0-circuit-rv32im"
 version = "4.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "anyhow",
  "bit-vec",
@@ -2970,7 +3013,7 @@ dependencies = [
 [[package]]
 name = "risc0-core"
 version = "3.0.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "bytemuck",
  "rand_core 0.9.3",
@@ -2979,7 +3022,7 @@ dependencies = [
 [[package]]
 name = "risc0-groth16"
 version = "3.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2999,7 +3042,7 @@ dependencies = [
 [[package]]
 name = "risc0-povw"
 version = "0.2.1"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "borsh",
  "bytemuck",
@@ -3037,7 +3080,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkos-v1compat"
 version = "2.2.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
@@ -3047,7 +3090,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkp"
 version = "3.0.2"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "anyhow",
  "blake2",
@@ -3071,7 +3114,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkvm"
 version = "3.0.4"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "anyhow",
  "borsh",
@@ -3098,7 +3141,7 @@ dependencies = [
 [[package]]
 name = "risc0-zkvm-platform"
 version = "2.2.0"
-source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#2726dbafc80d012a2bae259c272b582ce6e2eca2"
+source = "git+https://github.com/risc0/risc0?branch=victor%2Fpovw-patch-povw#6988bd841f4079c16b609d6e776c23e8ee50270e"
 dependencies = [
  "bytemuck",
  "cfg-if",
@@ -3212,11 +3255,11 @@ version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11181fbabf243db407ef8df94a6ce0b2f9a733bd8be4ad02b4eda9602296cac8"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags 2.9.4",
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3290,34 +3333,14 @@ dependencies = [
 
 [[package]]
 name = "secp256k1"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b50c5943d326858130af85e049f2661ba3c78b26589b8ab98e65e80ae44a1252"
-dependencies = [
- "bitcoin_hashes",
- "rand 0.8.5",
- "secp256k1-sys 0.10.1",
- "serde",
-]
-
-[[package]]
-name = "secp256k1"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c3c81b43dc2d8877c216a3fccf76677ee1ebccd429566d3e67447290d0c42b2"
 dependencies = [
  "bitcoin_hashes",
  "rand 0.9.2",
- "secp256k1-sys 0.11.0",
-]
-
-[[package]]
-name = "secp256k1-sys"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4387882333d3aa8cb20530a17c69a3752e97837832f34f6dccc760e715001d9"
-dependencies = [
- "cc",
+ "secp256k1-sys",
+ "serde",
 ]
 
 [[package]]
@@ -3415,7 +3438,7 @@ version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de90945e6565ce0d9a25098082ed4ee4002e047cb59892c318d66821e14bb30f"
 dependencies = [
- "darling",
+ "darling 0.20.11",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -3641,7 +3664,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3695,12 +3718,11 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.41"
+version = "0.3.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40"
+checksum = "8ca967379f9d8eb8058d86ed467d81d03e81acd45757e4ca341c24affbe8e8e3"
 dependencies = [
  "deranged",
- "itoa",
  "num-conv",
  "powerfmt",
  "serde",
@@ -3710,15 +3732,15 @@ dependencies = [
 
 [[package]]
 name = "time-core"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9e9a38711f559d9e3ce1cdb06dd7c5b8ea546bc90052da6d06bb76da74bb07c"
+checksum = "a9108bb380861b07264b950ded55a44a14a4adc68b9f5efd85aafc3aa4d40a68"
 
 [[package]]
 name = "time-macros"
-version = "0.2.22"
+version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3526739392ec93fd8b359c8e98514cb3e8e021beb4e5f597b00a0221f8ed8a49"
+checksum = "7182799245a7264ce590b349d90338f1c1affad93d2639aed5f8f69c090b334c"
 dependencies = [
  "num-conv",
  "time-core",
@@ -4153,6 +4175,12 @@ checksum = "21a0236b59786fed61e2a80582dd500fe61f18b5dca67a4a067d0bc9039339cf"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "wit-bindgen"
+version = "0.45.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "052283831dbae3d879dc7f51f3d92703a316ca49f91540417d38591826127814"
 
 [[package]]
 name = "wyz"

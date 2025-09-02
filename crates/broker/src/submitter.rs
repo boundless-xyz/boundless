@@ -439,7 +439,7 @@ where
         if let Err(err) = self.market.fulfill(fulfillment_tx).await {
             let order_ids: Vec<&str> =
                 fulfillments.iter().map(|f| *fulfillment_to_order_id.get(&f.id).unwrap()).collect();
-            tracing::warn!("Failed to fulfill batch for orders: {order_ids:?}");
+            tracing::warn!("Failed to fulfill batch for orders {order_ids:?}: {err:?}");
             self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
         }
 

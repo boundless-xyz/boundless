@@ -8,6 +8,7 @@ x-base-environment: &base-environment
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
   S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
   RUST_LOG: ${RUST_LOG:-info}
+  RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
 
 x-agent-common: &agent-common
@@ -62,8 +63,6 @@ x-broker-common: &broker-common
     exec_agent1:
       condition: service_started
     aux_agent:
-      condition: service_started
-    snark_agent:
       condition: service_started
     redis:
       condition: service_healthy
@@ -196,17 +195,6 @@ services:
               # TODO: how to scale this with N gpus?
               device_ids: ["0"]
               capabilities: [gpu]
-
-  snark_agent:
-    <<: *agent-common
-    entrypoint: /app/agent -t snark --redis-ttl ${REDIS_TTL:-57600}
-    environment:
-      <<: *base-environment
-
-    ulimits:
-      # Needed for stark_verify bin
-      # TODO: this number was just guess and check found
-      stack: 90000000
 
   rest_api:
     build:
