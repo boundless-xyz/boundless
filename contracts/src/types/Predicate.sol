@@ -6,6 +6,7 @@
 pragma solidity ^0.8.24;
 
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 
 using PredicateLibrary for Predicate global;
 using ReceiptClaimLib for ReceiptClaim;
@@ -67,10 +68,10 @@ library PredicateLibrary {
         returns (bool)
     {
         if (predicate.predicateType == PredicateType.DigestMatch) {
-            bytes memory dataJournal = _sliceToEnd(predicate.data, 32);
+            bytes memory dataJournal = Bytes.slice(predicate.data, 32);
             return bytes32(dataJournal) == journalDigest;
         } else if (predicate.predicateType == PredicateType.PrefixMatch) {
-            bytes memory dataJournal = _sliceToEnd(predicate.data, 32);
+            bytes memory dataJournal = Bytes.slice(predicate.data, 32);
             return startsWith(journal, dataJournal);
         } else if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
             return bytes32(predicate.data) == ReceiptClaimLib.ok(imageId, journalDigest).digest();
@@ -105,18 +106,4 @@ library PredicateLibrary {
     function eip712Digest(Predicate memory predicate) internal pure returns (bytes32) {
         return keccak256(abi.encode(PREDICATE_TYPEHASH, predicate.predicateType, keccak256(predicate.data)));
     }
-}
-
-/// Taken from Openzepplin util Bytes.sol
-function _sliceToEnd(bytes memory buffer, uint256 start) pure returns (bytes memory) {
-    // sanitize
-    uint256 end = buffer.length;
-
-    // allocate and copy
-    bytes memory result = new bytes(end - start);
-    assembly ("memory-safe") {
-        mcopy(add(result, 0x20), add(buffer, add(start, 0x20)), sub(end, start))
-    }
-
-    return result;
 }
