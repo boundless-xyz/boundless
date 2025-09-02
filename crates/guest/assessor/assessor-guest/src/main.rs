@@ -78,14 +78,16 @@ fn main() {
 
         let callback = &fill.request.requirements.callback;
 
-        if let FulfillmentData::ImageIdAndJournal(_, _) = &fill.fulfillment_data {
-            if callback.addr != Address::ZERO {
-                callbacks.push(AssessorCallback {
-                    index: index.try_into().expect("callback index overflow"),
-                    addr: callback.addr,
-                    gasLimit: callback.gasLimit,
-                });
+        if callback.addr != Address::ZERO {
+            match &fill.fulfillment_data {
+                FulfillmentData::ImageIdAndJournal(_, _) => {}
+                _ => panic!("callback requested but no fulfillment data provided"),
             }
+            callbacks.push(AssessorCallback {
+                index: index.try_into().expect("callback index overflow"),
+                addr: callback.addr,
+                gasLimit: callback.gasLimit,
+            });
         }
 
         if fill.request.requirements.selector != UNSPECIFIED_SELECTOR {

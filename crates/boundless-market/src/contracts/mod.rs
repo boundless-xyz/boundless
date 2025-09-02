@@ -720,16 +720,22 @@ impl TryFrom<RequestPredicate> for Predicate {
     fn try_from(value: RequestPredicate) -> Result<Self, Self::Error> {
         match value.predicateType {
             PredicateType::DigestMatch => {
-                // Don't need to check the length because that is checked when converting to Digest
-                let (image_id, journal_digest) = value.data.as_ref().split_at(32);
+                let (image_id, journal_digest) = value
+                    .data
+                    .as_ref()
+                    .split_at_checked(32)
+                    .ok_or(PredicateError::DataMalformed)?;
                 Ok(Predicate::DigestMatch(
                     Digest::try_from(image_id).map_err(|_| PredicateError::DataMalformed)?,
                     Digest::try_from(journal_digest).map_err(|_| PredicateError::DataMalformed)?,
                 ))
             }
             PredicateType::PrefixMatch => {
-                // Don't need to check the length because that is checked when converting to Digest
-                let (image_id, journal_prefix) = value.data.as_ref().split_at(32);
+                let (image_id, journal_prefix) = value
+                    .data
+                    .as_ref()
+                    .split_at_checked(32)
+                    .ok_or(PredicateError::DataMalformed)?;
                 Ok(Predicate::PrefixMatch(
                     Digest::try_from(image_id).map_err(|_| PredicateError::DataMalformed)?,
                     journal_prefix.to_vec().into(),
@@ -784,6 +790,11 @@ impl Predicate {
         };
         let claim_digest_predicate = match self {
             Predicate::DigestMatch(image_id, journal) => {
+                // With the DigestMatch predicate, we require the delivery of the journal.
+                // If is checked to match the predicate by the claim digest comparison below.
+                let FulfillmentData::ImageIdAndJournal(_, _) = &fulfillment_data else {
+                    return None;
+                };
                 Some(ReceiptClaim::ok(*image_id, MaybePruned::Pruned(*journal)).digest())
             }
             Predicate::PrefixMatch(image_id, prefix) => {
