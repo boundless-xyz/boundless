@@ -19,7 +19,7 @@ permissions:
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.88.0
-  RISC0_CRATE_VERSION: "3.0.1"
+  RISC0_CRATE_VERSION: "3.0.3"
   FOUNDRY_VERSION: v1.0.0
 
 jobs:
@@ -80,7 +80,7 @@ jobs:
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.1
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
@@ -157,7 +157,7 @@ jobs:
           submodules: recursive
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.1
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
@@ -196,7 +196,7 @@ jobs:
           key: cache-lychee-${{ github.sha }}
           restore-keys: cache-lychee-
 
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.1
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -232,7 +232,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.1
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -288,10 +288,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.1
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.1
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
         with:
           # Building with docs.rs config requires the nightly toolchain.
           toolchain: nightly-2025-05-09
@@ -317,7 +317,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.1
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
@@ -354,9 +354,9 @@ jobs:
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
-      - uses: risc0/risc0/.github/actions/cuda@v3.0.1
-      - uses: risc0/risc0/.github/actions/protoc@v3.0.1
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.1
+      - uses: risc0/risc0/.github/actions/cuda@v3.0.3
+      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
