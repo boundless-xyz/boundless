@@ -7,10 +7,7 @@ edition = "2024"
 
 [dependencies]
 bytemuck = "1.13"
-risc0-zkvm = { version = "3.0.1", default-features = false, features = [
-    "std",
-    "unstable",
-] }
+risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std", "unstable"] }
 sample-guest-common = { path = "../../common" }
 tiny-keccak = { git = "https://github.com/risc0/tiny-keccak", rev = "7ff2b8465891d1cbb55a69e553e05d369ce41d72", features = [
     "keccak",
