@@ -62,6 +62,8 @@ bytes32 constant APP_IMAGE_ID = 0x0000000000000000000000000000000000000000000000
 bytes32 constant APP_IMAGE_ID_2 = 0x0000000000000000000000000000000000000000000000000000000000000002;
 bytes32 constant SET_BUILDER_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000002;
 bytes32 constant ASSESSOR_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000003;
+bytes32 constant DEPRECATED_ASSESSOR_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000004;
+uint32 constant DEPRECATED_ASSESSOR_DURATION = 1 minutes;
 
 bytes constant APP_JOURNAL = bytes("GUEST JOURNAL");
 bytes constant APP_JOURNAL_2 = bytes("GUEST JOURNAL 2");
@@ -115,7 +117,15 @@ contract BoundlessMarketTest is Test {
         stakeToken = new HitPoints(ownerWallet.addr);
 
         // Deploy the UUPS proxy with the implementation
-        boundlessMarketSource = address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(stakeToken)));
+        boundlessMarketSource = address(
+            new BoundlessMarket(
+                setVerifier,
+                ASSESSOR_IMAGE_ID,
+                DEPRECATED_ASSESSOR_IMAGE_ID,
+                DEPRECATED_ASSESSOR_DURATION,
+                address(stakeToken)
+            )
+        );
         proxy = UnsafeUpgrades.deployUUPSProxy(
             boundlessMarketSource,
             abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
@@ -356,6 +366,19 @@ contract BoundlessMarketTest is Test {
         return (fills[0], assessorReceipt);
     }
 
+    function createDeprecatedFillAndSubmitRoot(ProofRequest memory request, bytes memory journal, address prover)
+        internal
+        returns (Fulfillment memory, AssessorReceipt memory)
+    {
+        ProofRequest[] memory requests = new ProofRequest[](1);
+        requests[0] = request;
+        bytes[] memory journals = new bytes[](1);
+        journals[0] = journal;
+        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
+            createDeprecatedFillsAndSubmitRoot(requests, journals, prover);
+        return (fills[0], assessorReceipt);
+    }
+
     function createFillsAndSubmitRoot(ProofRequest[] memory requests, bytes[] memory journals, address prover)
         internal
         returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt)
@@ -370,27 +393,31 @@ contract BoundlessMarketTest is Test {
         FulfillmentDataType fillType
     ) internal returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) {
         bytes32 root;
-        (fills, assessorReceipt, root) = createFills(requests, journals, prover, fillType);
+        (fills, assessorReceipt, root) = createFills(requests, journals, prover, fillType, ASSESSOR_IMAGE_ID);
         // submit the root to the set verifier
         submitRoot(root);
         return (fills, assessorReceipt);
     }
 
-    function createFills(ProofRequest[] memory requests, bytes[] memory journals, address prover)
+    function createDeprecatedFillsAndSubmitRoot(ProofRequest[] memory requests, bytes[] memory journals, address prover)
         internal
-        view
-        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root)
+        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt)
     {
-        return createFills(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal);
+        bytes32 root;
+        (fills, assessorReceipt, root) = createDeprecatedFills(requests, journals, prover);
+        // submit the root to the set verifier
+        submitRoot(root);
+        return (fills, assessorReceipt);
     }
 
     function createFills(
         ProofRequest[] memory requests,
         bytes[] memory journals,
         address prover,
-        FulfillmentDataType fillType
+        FulfillmentDataType fillType,
+        bytes32 assessorImageId
     ) internal view returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) {
-        // initialize the fulfillments; one for each request;
+        // initialize the fullfillments; one for each request;
         // the seal is filled in later, by calling fillInclusionProof
         fills = new Fulfillment[](requests.length);
         Selector[] memory selectors = new Selector[](0);
@@ -440,8 +467,7 @@ contract BoundlessMarketTest is Test {
         }
 
         // compute the assessor claim
-        ReceiptClaim memory assessorClaim =
-            TestUtils.mockAssessor(fills, ASSESSOR_IMAGE_ID, selectors, callbacks, prover);
+        ReceiptClaim memory assessorClaim = TestUtils.mockAssessor(fills, assessorImageId, selectors, callbacks, prover);
         // compute the batchRoot of the batch Merkle Tree (without the assessor)
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
 
@@ -459,6 +485,24 @@ contract BoundlessMarketTest is Test {
         });
 
         return (fills, assessorReceipt, root);
+    }
+
+    function createFills(ProofRequest[] memory requests, bytes[] memory journals, address prover)
+        internal
+        view
+        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root)
+    {
+        (fills, assessorReceipt, root) =
+            createFills(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal, ASSESSOR_IMAGE_ID);
+    }
+
+    function createDeprecatedFills(ProofRequest[] memory requests, bytes[] memory journals, address prover)
+        internal
+        view
+        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root)
+    {
+        (fills, assessorReceipt, root) =
+            createFills(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal, DEPRECATED_ASSESSOR_IMAGE_ID);
     }
 
     function newBatch(uint256 batchSize) internal returns (ProofRequest[] memory requests, bytes[] memory journals) {
@@ -1181,6 +1225,43 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
+    // Base for fulfillment tests with deprecated assessor.
+    function _testFulfillDeprecatedAssessor(uint32 requestIdx) private {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(requestIdx);
+        bytes memory clientSignature = client.sign(request);
+
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createDeprecatedFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = fill;
+
+        if (block.timestamp <= boundlessMarket.DEPRECATED_ASSESSOR_EXPIRES_AT()) {
+            vm.expectEmit(true, true, true, true);
+            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill);
+            vm.expectEmit(true, true, true, false);
+            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
+            boundlessMarket.fulfill(fills, assessorReceipt);
+
+            expectRequestFulfilled(fill.id);
+
+            client.expectBalanceChange(-1 ether);
+            testProver.expectBalanceChange(1 ether);
+        } else {
+            vm.expectRevert(VerificationFailed.selector);
+            boundlessMarket.fulfill(fills, assessorReceipt);
+        }
+
+        expectMarketBalanceUnchanged();
+    }
+
     // Base for fulfillmentAndWithdraw tests with different methods for lock, including none. All paths should yield the same result.
     function _testFulfillAndWithdrawSameBlock(uint32 requestIdx, LockRequestMethod lockinMethod, string memory snapshot)
         private
@@ -1403,6 +1484,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         _testFulfillSameBlock(
             1, LockRequestMethod.LockRequestWithSig, "fulfill: a locked request (locked via prover signature)"
         );
+    }
+
+    function testFulfillDeprecatedAssessor() public {
+        _testFulfillDeprecatedAssessor(1);
+        // Warp past the deprecated assessor expiration time
+        vm.warp(block.timestamp + DEPRECATED_ASSESSOR_DURATION + 1 minutes);
+        _testFulfillDeprecatedAssessor(2);
     }
 
     function testSubmitRootAndFulfillLockedRequest() public {
@@ -4117,7 +4205,15 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     function testUnsafeUpgrade() public {
         vm.startPrank(ownerWallet.addr);
         proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))),
+            address(
+                new BoundlessMarket(
+                    setVerifier,
+                    ASSESSOR_IMAGE_ID,
+                    DEPRECATED_ASSESSOR_IMAGE_ID,
+                    DEPRECATED_ASSESSOR_DURATION,
+                    address(0)
+                )
+            ),
             abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
         );
         boundlessMarket = BoundlessMarket(proxy);
@@ -4127,7 +4223,18 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy, address(new BoundlessMarket(setVerifier, ASSESSOR_IMAGE_ID, address(0))), "", ownerWallet.addr
+            proxy,
+            address(
+                new BoundlessMarket(
+                    setVerifier,
+                    ASSESSOR_IMAGE_ID,
+                    DEPRECATED_ASSESSOR_IMAGE_ID,
+                    DEPRECATED_ASSESSOR_DURATION,
+                    address(0)
+                )
+            ),
+            "",
+            ownerWallet.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);

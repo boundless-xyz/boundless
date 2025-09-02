@@ -559,8 +559,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let guest_log_path = log_file.path().to_path_buf();
     let segment_po2 = agent.args.segment_po2;
 
-    let exec_task: JoinHandle<anyhow::Result<SessionData>> =
-        tokio::task::spawn_blocking(move || {
+    let exec_task: JoinHandle<anyhow::Result<SessionData>> = tokio::task::spawn_blocking(
+        move || {
             let mut env = ExecutorEnv::builder();
 
             // Enable POVW if configured (agent POVW setting)
@@ -602,8 +602,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     total_cycles: session.total_cycles,
                     journal: session.journal,
                 }),
-                Err(err) => {
-                    tracing::error!("Failed to run executor");
+                Err(mut err) => {
+                    if err.to_string().contains("Session limit exceeded") {
+                        err = anyhow::anyhow!(
+                            "Execution stopped intentionally due to session limit of {exec_limit} cycles"
+                        );
+                    } else {
+                        tracing::error!("Failed to run executor: {err:?}");
+                    }
                     task_tx_clone
                         .blocking_send(SenderType::Fault)
                         .context("Failed to send fault to planner")?;
@@ -615,12 +621,13 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             drop(segment_tx);
 
             res
-        });
+        },
+    );
 
     let session = exec_task
         .await
         .context("Failed to join executor run_with_callback task")?
-        .context("execution failed failed")?;
+        .context("execution failed")?;
 
     tracing::info!(
         "execution {} completed with {} segments and {} user-cycles",

@@ -257,7 +257,9 @@ impl Agent {
             };
 
             if let Err(err) = self.process_work(&task).await {
-                tracing::error!("Failure during task processing: {err:?}");
+                if !err.to_string().contains("Session limit exceeded") {
+                    tracing::error!("Failure during task processing: {err:?}");
+                }
 
                 if task.max_retries > 0 {
                     if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
