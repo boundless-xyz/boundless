@@ -766,7 +766,7 @@ impl Predicate {
         }
     }
 
-    /// Evaluates the predicate against the fulfillment data and returns the claim digest if eval passes.
+    /// Evaluates the predicate against the fulfillment data.
     pub fn eval(&self, fulfillment_data: &FulfillmentData) -> bool {
         match (self, fulfillment_data) {
             (
