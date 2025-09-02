@@ -456,7 +456,7 @@ mod tests {
     use alloy::{node_bindings::Anvil, primitives::Address};
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderConfig;
-    use boundless_test_utils::market::{create_test_ctx, LOOP_PATH};
+    use boundless_test_utils::{market::create_test_ctx, guests::LOOP_PATH};
     use broker::{config::Config, Args, Broker};
     use tracing_test::traced_test;
 

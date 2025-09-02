@@ -1449,8 +1449,9 @@ mod tests {
         contracts::{hit_points::default_allowance, RequestStatus},
         selector::is_groth16_selector,
     };
-    use boundless_test_utils::market::{
-        create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx, ECHO_ID, ECHO_PATH,
+    use boundless_test_utils::{
+        market::{create_test_ctx, deploy_mock_callback, get_mock_callback_count, TestCtx},
+        guests::{ECHO_ID, ECHO_PATH},
     };
     use order_stream::{run_from_parts, AppState, ConfigBuilder};
     use sqlx::PgPool;

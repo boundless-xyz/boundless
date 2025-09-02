@@ -1343,9 +1343,9 @@ pub(crate) mod tests {
         Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
-    use boundless_test_utils::market::{
-        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
-        ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID,
+    use boundless_test_utils::{
+        market::{deploy_boundless_market, deploy_hit_points},
+        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
     };
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;

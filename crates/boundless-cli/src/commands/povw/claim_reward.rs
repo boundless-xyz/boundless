@@ -307,7 +307,7 @@ async fn search_work_log_updated(
             let commit = Digest::from(*event.initialCommit);
             let block_number = log
                 .block_number
-                .with_context(|| format!("Log from range does not have block number"))?;
+                .context("Log from range does not have block number")?;
             events.insert(commit, (event.clone(), block_number));
             tracing::debug!(block_number, ?event, "Found WorkLogUpdated event");
         }
@@ -364,7 +364,7 @@ async fn search_epoch_finalized(
             if epochs.remove(&event.epoch) {
                 let block_number = log
                     .block_number
-                    .with_context(|| format!("Log from range does not have block number"))?;
+                    .context("Log from range does not have block number")?;
                 events.insert(block_number, event.clone());
                 tracing::debug!(block_number, ?event, "Found EpochFinalized event");
             }
@@ -404,7 +404,6 @@ async fn search_events<P: Provider + Clone, E: SolEvent>(
 ) -> anyhow::Result<()> {
     // TODO(povw): Make this configurable and raise the default.
     const CHUNK_SIZE: u64 = 500;
-    assert!(CHUNK_SIZE > 0);
 
     let mut upper_block = upper_limit_block_number;
     loop {

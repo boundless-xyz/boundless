@@ -27,7 +27,7 @@ use boundless_market::contracts::{
     Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
 };
 use boundless_test_utils::market::create_test_ctx;
-use boundless_test_utils::market::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
+use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
 use futures_util::StreamExt;
 
 async fn create_order(

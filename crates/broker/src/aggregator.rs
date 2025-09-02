@@ -687,7 +687,7 @@ mod tests {
         Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
         Requirements,
     };
-    use boundless_test_utils::market::{
+    use boundless_test_utils::guests::{
         ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF, SET_BUILDER_ID,
     };
     use tracing_test::traced_test;

@@ -636,9 +636,9 @@ mod tests {
         },
         input::GuestEnv,
     };
-    use boundless_test_utils::market::{
-        create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx, ASSESSOR_GUEST_ID,
-        ASSESSOR_GUEST_PATH, ECHO_ID,
+    use boundless_test_utils::{
+        market::{create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx},
+        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ID},
     };
     use risc0_zkvm::sha::Digest;
 
