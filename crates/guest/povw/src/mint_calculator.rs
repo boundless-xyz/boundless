@@ -507,6 +507,7 @@ pub mod host {
             let mut envs = env_builder.into();
 
             let mut latest_epoch_finalization_block: Option<u64> = None;
+            let mut epochs = BTreeSet::<U256>::new();
             for block_number in block_numbers.iter() {
                 let env = envs.get_or_insert(*block_number).await?;
                 let epoch_finalized_events =
@@ -516,15 +517,16 @@ pub mod host {
                         .await
                         .context("failed to query EpochFinalized events")?;
 
-                if !epoch_finalized_events.is_empty() {
+                for epoch_finalized_event in epoch_finalized_events {
+                    epochs.insert(epoch_finalized_event.epoch);
                     latest_epoch_finalization_block = Some(env.header().number);
                 }
             }
             let latest_epoch_finalization_block = latest_epoch_finalization_block
                 .context("No EpochFinalized events in the given blocks")?;
 
-            // Mapping containing the epochs, and the value recipients in those epochs.
-            let mut epoch_recipients = BTreeMap::<U256, BTreeSet<Address>>::new();
+            // Mapping containing the epochs, and the work logs receiving value in those epochs.
+            let mut epoch_work_logs = BTreeMap::<U256, BTreeSet<Address>>::new();
             let mut work_logs = BTreeSet::<Address>::new();
             for block_number in block_numbers.iter() {
                 let env = envs.get_or_insert(*block_number).await?;
@@ -540,14 +542,17 @@ pub mod host {
                     if !work_log_filter.includes(update_event.data.workLogId.into()) {
                         continue;
                     }
+                    if !epochs.contains(&update_event.epochNumber) {
+                        continue;
+                    }
                     work_logs.insert(update_event.data.workLogId);
                     if update_event.data.updateValue == U256::ZERO {
                         continue;
                     }
-                    epoch_recipients
+                    epoch_work_logs
                         .entry(update_event.epochNumber)
                         .or_default()
-                        .insert(update_event.data.valueRecipient);
+                        .insert(update_event.data.workLogId);
                 }
             }
 
@@ -569,7 +574,7 @@ pub mod host {
 
             // Preflight the contract calls the guest will make to calculate the reward values.
             let finalization_env = envs.get_or_insert(latest_epoch_finalization_block).await?;
-            for (epoch, recipients) in epoch_recipients {
+            for (epoch, work_log_ids) in epoch_work_logs {
                 let epoch_end_time = {
                     // NOTE: zkc_contract must be in a limited scope because it holds lastest_env.
                     let mut zkc_contract = Contract::preflight(zkc_address, finalization_env);
@@ -589,17 +594,17 @@ pub mod host {
                         })?
                 };
 
-                for recipient in recipients {
+                for work_log_id in work_log_ids {
                     let mut zkc_rewards_contract =
                         Contract::preflight(zkc_rewards_address, finalization_env);
                     let call = IZKCRewards::getPastPoVWRewardCapCall {
-                        account: recipient,
+                        account: work_log_id,
                         timepoint: epoch_end_time,
                     };
                     zkc_rewards_contract.call_builder(&call)
                         .call()
                         .await
-                        .with_context(|| format!("Failed to preflight call: getPastPoVWRewardCap({recipient}, {epoch_end_time})"))?;
+                        .with_context(|| format!("Failed to preflight call: getPastPoVWRewardCap({work_log_id}, {epoch_end_time})"))?;
                 }
             }
 
