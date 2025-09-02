@@ -20,6 +20,7 @@ struct DeploymentConfig {
     address stakeToken;
     bytes32 assessorImageId;
     string assessorGuestUrl;
+    uint32 deprecatedAssessorDuration;
 }
 
 library ConfigLoader {
@@ -90,6 +91,8 @@ library ConfigParser {
         deploymentConfig.stakeToken = stdToml.readAddressOr(config, string.concat(chain, ".stake-token"), address(0));
         deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));
         deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
+        deploymentConfig.deprecatedAssessorDuration =
+            uint32(stdToml.readUint(config, string.concat(chain, ".deprecated-assessor-duration")));
 
         return deploymentConfig;
     }

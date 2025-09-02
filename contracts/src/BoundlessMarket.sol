@@ -15,7 +15,9 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {
+    IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib, VerificationFailed
+} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket} from "./IBoundlessMarket.sol";
@@ -91,11 +93,33 @@ contract BoundlessMarket is
     /// gas of an SLOAD. Can only be changed via contract upgrade.
     uint96 public constant MARKET_FEE_BPS = 0;
 
+    /// @notice The ID of the deprecated assessor image.
+    /// @dev After a contract upgrade, the ASSESSOR_ID might change, so this value is used to
+    /// keep active the previous version of the assessor until its expiration. In this way,
+    /// contract upgrades can be performed without disrupting ongoing fulfillments.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 public immutable DEPRECATED_ASSESSOR_ID;
+
+    /// @notice The expiration timestamp of the deprecated assessor.
+    /// @dev This value is used to determine when the previous version of the assessor is no longer
+    /// active. Any assessor seals that were created with the deprecated image ID must be fulfilled
+    /// before this timestamp.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint64 public immutable DEPRECATED_ASSESSOR_EXPIRES_AT;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
+    constructor(
+        IRiscZeroVerifier verifier,
+        bytes32 assessorId,
+        bytes32 deprecatedAssessorId,
+        uint32 deprecatedAssessorDuration,
+        address stakeTokenContract
+    ) {
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
         STAKE_TOKEN_CONTRACT = stakeTokenContract;
+        DEPRECATED_ASSESSOR_ID = deprecatedAssessorId;
+        DEPRECATED_ASSESSOR_EXPIRES_AT = uint64(block.timestamp) + deprecatedAssessorDuration;
 
         _disableInitializers();
     }
@@ -206,17 +230,9 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client, bool smartContractSigned) = request.id.clientAndIsSmartContractSigned();
+        address client = request.id.client();
 
-        bytes32 requestHash;
-        // We only need to validate the signature if it is a smart contract signature. This is because
-        // EOA signatures are validated in the assessor during fulfillment, so the assessor guarantees
-        // that the digest that is priced is one that was signed by the client.
-        if (smartContractSigned) {
-            requestHash = _verifyClientSignature(request, client, clientSignature);
-        } else {
-            requestHash = _hashTypedDataV4(request.eip712Digest());
-        }
+        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
 
         (, uint64 deadline) = request.validate();
         bool expired = deadline < block.timestamp;
@@ -283,7 +299,13 @@ contract BoundlessMarket is
             )
         );
         // Verification of the assessor seal does not need to comply with DEFAULT_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
+        try VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest) {}
+        catch {
+            if (block.timestamp > DEPRECATED_ASSESSOR_EXPIRES_AT) {
+                revert VerificationFailed();
+            }
+            VERIFIER.verify(assessorReceipt.seal, DEPRECATED_ASSESSOR_ID, assessorJournalDigest);
+        }
     }
 
     /// @inheritdoc IBoundlessMarket
