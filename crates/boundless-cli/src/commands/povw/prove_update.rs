@@ -12,7 +12,7 @@ use super::{State, WorkReceipt};
 #[derive(Args, Clone, Debug)]
 pub struct PovwProveUpdate {
     /// Serialized work receipt files to add to the work log.
-    #[arg(required = true, requires = "state")]
+    #[arg(required = true)]
     work_receipts: Vec<PathBuf>,
 
     /// Create a new work log with the given work log identifier.
