@@ -1,0 +1,32 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEQd0gTv71ZBC9YLFxhNYbQAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMOOVvpJIcCLuWv9/JAgEQgDvyHEZp7l7UoIQ3WOtaacKCSM8T/3CetrF/U4v/kRZ62TPemqCOckkQe9TKZddAy3CWPLqHtGsmBPiZLQ==
+config:
+  distributor:BASE_STACK: organization/bootstrap/services-staging
+  distributor:BOUNDLESS_MARKET_ADDR: 0xAD0Bd6C436658aF457736d7224a87d2EF56365C8
+  distributor:CHAIN_ID: "84532"
+  distributor:DISTRIBUTOR_ADDRESS: 0x364002190e381A62c301D2d7D0427E5CDdeF37cE
+  distributor:DISTRIBUTOR_PRIVATE_KEY:
+    secure: v1:2pfWu2C7Sm9ZiSuB:+AhhImcrC83YnmKPu0EJkVuIw7oZOuaJpen/g1pmwGo+oESdeKSKuob8fVZilEg1Hi0ZPQbK6iIJePJUz8eciv/fpwwETR3FUwQQpw168gA=
+  distributor:DOCKER_DIR: ../../
+  distributor:DOCKER_TAG: latest
+  distributor:ETH_THRESHOLD: "1"
+  distributor:ETH_TOP_UP_AMOUNT: "10"
+  distributor:GH_TOKEN_SECRET:
+    secure: v1:A/PDxLvG3jMyW7P2:G0ybSnnGhGrORvWGCnayL+Y6UhYzKEUxBvd85QeDFPd20tzwPdW/DPXEb9Rrhh5I7MXJKwLygfhsyRa5gnjo87+H1+w517Pma6Eqe6s4W9nsonANCnpluoEaLgjm4B4/JYZr3Z5QxiQWke4Ngw==
+  distributor:LOG_LEVEL: info
+  distributor:ORDER_GENERATOR_KEYS:
+    secure: v1:MfD885Lf79XLHXWg:NKI0ONYVOAvHPIgq90H40Q7+XB35cuU/DBStjdX3t5H1iCpJjkd/LeNQ96HIR2a/JSAviPC6Cjg7XgrvfEMnQRdvQVt0RSs6efDVSFY+zeYkLEH2PzCuElwFdJ7swOlogntZto99WcI8FY0CRyHe0nnz/gl1Iqp2tOIWGtg82oV1bBYtvIIn62eLORrCiQ3xuRVXl96hp31LODpA89LI71BOgGlpferT/18qVv5b46KqoAqOK+a7L+iOu1chJfEoyLVo5tnD2J/u1kMTs0T4ct50mRe+UrA6nNf61eLW8XZFc7kBFaF74t5++QUByBzchvNtvIjFG0oY/7Bt9MEyXnyMPPLLlPwCKI3RtcLgIMTGXMEXBqUy/q/M3lwcO6cE81eEclm1LFQ3DfRUozUsMomFG6oItLVRIglTQv9cv6Byv8IDH2faxMqU1n6n2I76rKDNIyBsjmi29RDxwouPE9itOFbZII2lK/mQCur5drEZyTCUHI/bvHTLinJ8QkUpjvZT2ZD3gstf57T8cQX7prwZ3Zh/
+  distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  distributor:PROVER_ETH_DONATE_THRESHOLD: "10"
+  distributor:PROVER_KEYS:
+    secure: v1:jbYumy+V2ralwN+P:YwYrYQRigFH96hYIxJllIgx8Abuwtxh6UpYrWERfrppAoYTgngjh+LN9cLNO/eha+Hnl6CmVbccNiW4bEJyon+rD59sahsaJ+ZdPyHb0F2Xl75p0/XCDv4hUNyqs8MncdvteX0qmpe8hXOp9TCWMAximwiTryLF1TsydETPcQ50tv0jyu/Idbd3eYxlD48A7zw==
+  distributor:PROVER_STAKE_DONATE_THRESHOLD: "150.0"
+  distributor:SCHEDULE_MINUTES: "240"
+  distributor:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
+  distributor:SLASHER_KEY:
+    secure: v1:DmOIdstJKACfa9Bu:wUeWbqcKEIIgIJj8X86RXpjr+qz52+dj0/I6znha60RwLIeBtUUFMh7ZC+MeX5a75zmqPDwjX0UXqeAWy7WEpDqVA4RuQ+BgBpLzB0VHYAA=
+  distributor:STAKE_THRESHOLD: "10"
+  distributor:STAKE_TOP_UP_AMOUNT: "10"
+  distributor:ETH_RPC_URL:
+    secure: v1:jyqCgCFOz/EgkPAd:BvyRZkC5I+kbV88ceHdobpEhYau2IKx/Jdf2q2L8ObhC6xmQn9vdF/gpyRMlyQV6VmGRK+HRxldXX2w3iGm52HjnMt/obpw7U0QD
