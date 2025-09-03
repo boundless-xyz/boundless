@@ -96,7 +96,13 @@ impl PovwProveUpdate {
         };
         tracing::info!("Loaded {} work receipts", work_receipts.len());
 
-        ensure!(!work_receipts.is_empty(), "No work receipts will be processed");
+        // NOTE: In this CLI, we chose to warn but exit with success if there were errors loading
+        // individual receipts. We might reconsider this. Maybe add a --keep-going flag and default
+        // to erroring out.
+        if work_receipts.is_empty() {
+            tracing::warn!("No work receipts to process");
+            return Ok(())
+        }
 
         // Set up the work log update prover
         self.prover_config.configure_proving_backend();
