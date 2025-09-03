@@ -1,0 +1,18 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAE1GUAlsUVjoBw6L0ceWWqTAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM+vLkxDikuL72d7G5AgEQgDsq0unpWMO+Z1RWjboWEjT2Rrb5HCYDKQONAXTEAVMZBAqohTGFDYKovc6aoUwDntuyHArsEVN6YGaADQ==
+config:
+  aws:region: us-west-2
+  order-stream:ALB_DOMAIN: eth-sepolia.beboundless.xyz
+  order-stream:BASE_STACK: organization/bootstrap/services-prod
+  order-stream:BOUNDLESS_ADDRESS: 0x13337C76fE2d1750246B68781ecEe164643b98Ec
+  order-stream:CHAIN_ID: "11155111"
+  order-stream:DOCKER_DIR: ../../
+  order-stream:DOCKER_TAG: latest
+  order-stream:MIN_BALANCE_RAW: "5000000"
+  order-stream:ORDER_STREAM_PING_TIME: "100"
+  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  order-stream:RDS_PASSWORD:
+    secure: v1:SAqWC/4QNOc4MRfI:PqexNX0peHWGUZWiD4bWVpRGprWqLdTAlZGUMoKtyf1gog==
+  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  order-stream:ETH_RPC_URL:
+    secure: v1:Z1dtl5MMHfZIBjRu:SmLklbPmz4PKEPphEnQuGIrzG0rst1nSfkAceR8Q1eX3G4MOB1Iw293ZeTlzDsurs0Ns6FT/0EzOs1gSacxQP6e2D2hye4tn5nI=

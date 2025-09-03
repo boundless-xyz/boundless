@@ -1,0 +1,29 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGuWXmWlmn6KomZW8yzQmlsAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMpTgNn5n8ytClUOjXAgEQgDtwFQrpE77x1ax7fpgS79pqMFaIQcc54wHrsx5T/yNc+V1b+m4LWD5K1Roumnv9kilOkQgghA/w+blbYw==
+config:
+  aws:region: us-west-2
+  base-prover:BASE_STACK: organization/bootstrap/services-prod
+  base-prover:BOUNDLESS_MARKET_ADDR: 0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b
+  base-prover:CHAIN_ID: "84532"
+  base-prover:DOCKER_DIR: ../../
+  base-prover:DOCKER_TAG: latest
+  base-prover:GH_TOKEN_SECRET:
+    secure: v1:qiROsQz74mQAEIgZ:kVJAvyNWKaNEWl8mT54qD8H7/j/r3JzuP1T4kL3HbwMjg+o1R0wg7WH9SimMeX9g9GNxx5t+r9Q4PzQKuSSYCNK1rU7Y25PfbIqBSoQaupwUcx797ALpZ4Otr35wnIl4+dgDGUNfBQjKJiV1Zw==
+  base-prover:ORDER_STREAM_URL: https://base-sepolia.beboundless.xyz
+  base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-84532.toml
+  bento-prover:LOG_JSON: "true"
+  bento-prover:PRIVATE_KEY:
+    secure: v1://NlVxugXHVkuiCx:lWnB+SCs9+3X65TBfy2ZnisbG0mHsmJa9c4ZjX1fKB4g25Fi1/M/5ibTwscJekSxiQNLESjWwJIYmAlNrxLLhvV5K4jvJET9RF0xcJFMDl0=
+  bento-prover:SEGMENT_SIZE: "19"
+  bento-prover:SNARK_TIMEOUT: "240"
+  bonsai-prover:BONSAI_API_KEY:
+    secure: v1:JsFI+jdaT/0sfrle:Jq7fbFOXl0xtU2ZTGEwk4XA3w/QQ/CanCJdYII4teaQOJ33xOT/XgbwNyxwABVLzByMmZ9tlzDc=
+  bonsai-prover:BONSAI_API_URL: https://api.staging.bonsai.xyz/
+  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-prod-84532.toml
+  bonsai-prover:PRIVATE_KEY:
+    secure: v1:TT8NQ++dmghT89mL:WlF0eziPLNQtm2hNPL93fspuxUB20tI2OomUFX1PbWXwdWGkIdvqimiMcFe1qblyE2OVde5vt/GxwTBMAnPyulMvRxida3/lzronjV9rpL4=
+  base-prover:ETH_RPC_URL:
+    secure: v1:XHn88EgqULVKTF0b:sez3oP4NQ945gDn3rQBYKMpxhTcEWMnLMiUDG/Z5Vi+FetQWNE3H5BCrpk/uML580xbO8azfcDEQbrx8SSEokD4IXhjEaryhG9bd
