@@ -27,8 +27,8 @@ fn test_prove_update_help() {
         .stderr("");
 }
 
-#[test]
-fn prove_update_basic() -> anyhow::Result<()> {
+#[tokio::test]
+async fn prove_update_basic() -> anyhow::Result<()> {
     // 1. Create a temp dir
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
@@ -60,7 +60,9 @@ fn prove_update_basic() -> anyhow::Result<()> {
     .success();
 
     // Verify state file was created and is valid.
-    State::load(&state_path).await?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+    State::load(&state_path)
+        .await?
+        .validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // 4. Make another receipt and save it to the temp dir
     let receipt2_path = temp_path.join("receipt2.bin");
@@ -81,7 +83,9 @@ fn prove_update_basic() -> anyhow::Result<()> {
     .assert()
     .success();
 
-    State::load(&state_path).await?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+    State::load(&state_path)
+        .await?
+        .validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     Ok(())
 }
@@ -125,7 +129,9 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
     .success();
 
     // Verify state file was created and is valid.
-    State::load(&state_path).await?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+    State::load(&state_path)
+        .await?
+        .validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // 3. Use the send-update command to post an update to the PoVW accounting contract
     let mut cmd = Command::cargo_bin("boundless")?;
@@ -417,5 +423,141 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
     tracing::info!("✓ Phase 2 complete: 4 total receipts, 2 total updates");
     tracing::info!("✓ Test completed successfully!");
 
+    Ok(())
+}
+
+/// Test prove-update command when Bento has no new receipts
+#[tokio::test]
+async fn prove_update_from_bento_no_new_receipts() -> anyhow::Result<()> {
+    // Set up the mock Bento server (empty - no receipts)
+    let bento_server = BentoMockServer::new().await;
+    let bento_url = bento_server.base_url();
+
+    // Create a temp dir for state file
+    let temp_dir = TempDir::new()?;
+    let temp_path = temp_dir.path();
+    let state_path = temp_path.join("state.bin");
+
+    // Generate a work log ID
+    let signer = PrivateKeySigner::random();
+    let log_id: PovwLogId = signer.address().into();
+
+    tracing::info!("=== Testing prove-update with no receipts in Bento ===");
+
+    // Run prove-update with --from-bento on empty Bento server
+    let mut cmd = Command::cargo_bin("boundless")?;
+    let result = cmd
+        .args([
+            "povw",
+            "prove-update",
+            "--new",
+            &format!("{:#x}", log_id),
+            "--state",
+            state_path.to_str().unwrap(),
+            "--from-bento",
+            "--from-bento-url",
+            &bento_url,
+        ])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .env("RISC0_DEV_MODE", "1")
+        .assert();
+
+    // Should succeed with message about no receipts to process
+    result.success().stdout(predicates::str::contains("No work receipts to process"));
+
+    // Verify that state file was created but is empty (new work log)
+    let state = State::load(&state_path).await?;
+    assert_eq!(state.log_id, log_id, "State should have the correct log ID");
+    assert_eq!(state.work_log.jobs.len(), 0, "Work log should be empty");
+    assert_eq!(state.log_builder_receipts.len(), 0, "Should have no log builder receipts");
+
+    tracing::info!("✓ Test completed: Command succeeded with no receipts, created empty state");
+    Ok(())
+}
+
+/// Test prove-update command with work receipts for multiple log IDs
+#[tokio::test]
+async fn prove_update_from_bento_multiple_log_ids() -> anyhow::Result<()> {
+    // Set up the mock Bento server
+    let bento_server = BentoMockServer::new().await;
+    let bento_url = bento_server.base_url();
+
+    // Create a temp dir for state file
+    let temp_dir = TempDir::new()?;
+    let temp_path = temp_dir.path();
+    let state_path = temp_path.join("state.bin");
+
+    // Generate two different work log IDs
+    let target_log_id: PovwLogId = PrivateKeySigner::random().address().into();
+    let other_log_id: PovwLogId = PrivateKeySigner::random().address().into();
+
+    tracing::info!("=== Testing prove-update with multiple log IDs ===");
+    tracing::info!("Target log ID: {:#x}", target_log_id);
+    tracing::info!("Other log ID: {:#x}", other_log_id);
+
+    // Add receipts for the target log ID (should be included)
+    let target_receipt_1 = {
+        let work_claim = make_work_claim((target_log_id, rand::random()), 10, 1000)?;
+        let work_receipt = FakeReceipt::new(work_claim).into();
+        bento_server.add_work_receipt(&work_receipt)?
+    };
+
+    let target_receipt_2 = {
+        let work_claim = make_work_claim((target_log_id, rand::random()), 5, 2000)?;
+        let work_receipt = FakeReceipt::new(work_claim).into();
+        bento_server.add_work_receipt(&work_receipt)?
+    };
+
+    // Add receipts for the other log ID (should be skipped)
+    let other_receipt_1 = {
+        let work_claim = make_work_claim((other_log_id, rand::random()), 8, 1500)?;
+        let work_receipt = FakeReceipt::new(work_claim).into();
+        bento_server.add_work_receipt(&work_receipt)?
+    };
+
+    let other_receipt_2 = {
+        let work_claim = make_work_claim((other_log_id, rand::random()), 6, 1800)?;
+        let work_receipt = FakeReceipt::new(work_claim).into();
+        bento_server.add_work_receipt(&work_receipt)?
+    };
+
+    tracing::info!("Added 2 target receipts: {} {}", target_receipt_1, target_receipt_2);
+    tracing::info!("Added 2 other receipts: {} {}", other_receipt_1, other_receipt_2);
+    assert_eq!(bento_server.receipt_count(), 4, "Should have 4 total receipts in mock server");
+
+    // Run prove-update with --from-bento for the target log ID
+    let mut cmd = Command::cargo_bin("boundless")?;
+    let result = cmd
+        .args([
+            "povw",
+            "prove-update",
+            "--new",
+            &format!("{:#x}", target_log_id),
+            "--state",
+            state_path.to_str().unwrap(),
+            "--from-bento",
+            "--from-bento-url",
+            &bento_url,
+            "--allow-partial-update",
+        ])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .env("RISC0_DEV_MODE", "1")
+        .assert();
+
+    // Should succeed and log warnings about skipping other log ID
+    result.success().stdout(predicates::str::contains("Skipping receipts with log ID"));
+
+    // Verify state was created with only the target receipts
+    let state = State::load(&state_path).await?;
+    state.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+
+    // Should have exactly 2 jobs (from target log ID) and 1 log builder receipt
+    assert_eq!(state.work_log.jobs.len(), 2, "Should have 2 jobs from target log ID only");
+    assert_eq!(state.log_builder_receipts.len(), 1, "Should have 1 log builder receipt");
+    assert_eq!(state.log_id, target_log_id, "State should have the correct log ID");
+
+    tracing::info!("✓ Test completed: Correctly processed 2 target receipts, skipped 2 others");
     Ok(())
 }
