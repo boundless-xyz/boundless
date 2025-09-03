@@ -118,7 +118,7 @@ impl PovwProveUpdate {
         }
 
         // Set up the work log update prover
-        self.prover_config.configure_proving_backend();
+        self.prover_config.configure_proving_backend_with_health_check().await?;
         let prover_builder = WorkLogUpdateProver::builder()
             .prover(default_prover())
             .prover_opts(ProverOpts::succinct())

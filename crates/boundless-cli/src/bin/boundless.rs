@@ -680,7 +680,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             tracing::info!("Fulfilling proof requests {}", request_ids_string);
 
             // Configure proving backend (defaults to bento like benchmark command)
-            prover_config.configure_proving_backend();
+            prover_config.configure_proving_backend_with_health_check().await?;
 
             let (_, market_url) = client.boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor program from {}", market_url);

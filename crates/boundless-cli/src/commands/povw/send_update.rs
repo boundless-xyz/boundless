@@ -145,7 +145,7 @@ impl PovwSendUpdate {
             )
         }
 
-        self.prover_config.configure_proving_backend();
+        self.prover_config.configure_proving_backend_with_health_check().await?;
         for receipt in receipts_for_update {
             let prover = LogUpdaterProver::builder()
                 .prover(default_prover())
