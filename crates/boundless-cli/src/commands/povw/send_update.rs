@@ -26,7 +26,7 @@ use risc0_povw::guest::Journal as LogBuilderJournal;
 use risc0_zkvm::{default_prover, ProverOpts};
 
 use super::State;
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, ProverConfig};
 
 /// Send a work log update to the PoVW accounting contract.
 ///
@@ -53,6 +53,9 @@ pub struct PovwSendUpdate {
     /// Address of the PoVW accounting contract.
     #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
     pub povw_accounting_address: Address,
+
+    #[clap(flatten, next_help_heading = "Prover")]
+    prover_config: ProverConfig,
 }
 
 impl PovwSendUpdate {
@@ -61,6 +64,7 @@ impl PovwSendUpdate {
         let tx_signer = global_config.require_private_key()?;
         let work_log_signer = self.work_log_private_key.as_ref().unwrap_or(&tx_signer);
         let rpc_url = global_config.require_rpc_url()?;
+        self.prover_config.configure_proving_backend();
 
         // Load the state and check to make sure the private key matches.
         let mut state = State::load(&self.state)
@@ -140,6 +144,7 @@ impl PovwSendUpdate {
                 receipts_for_update.len()
             )
         }
+
         for receipt in receipts_for_update {
             let prover = LogUpdaterProver::builder()
                 .prover(default_prover())
