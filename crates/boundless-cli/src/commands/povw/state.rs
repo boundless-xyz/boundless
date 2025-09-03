@@ -14,7 +14,7 @@
 
 //! Commands of the Boundless CLI for Proof of Verifiable Work (PoVW) operations.
 
-use std::{collections::HashMap, fs, io::Write, path::Path, time::SystemTime};
+use std::{collections::HashMap, io::Write, path::Path, time::SystemTime};
 
 use alloy::{primitives::B256, rpc::types::TransactionReceipt};
 use anyhow::{bail, ensure, Context, Result};
@@ -275,9 +275,9 @@ impl State {
     }
 
     /// Load work log state from the given path.
-    pub fn load(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
+    pub async fn load(state_path: impl AsRef<Path>) -> anyhow::Result<State> {
         let state_path = state_path.as_ref();
-        let state_data = fs::read(state_path).with_context(|| {
+        let state_data = tokio::fs::read(state_path).await.with_context(|| {
             format!("Failed to read work log state file: {}", state_path.display())
         })?;
 
