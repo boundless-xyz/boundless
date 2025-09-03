@@ -6,26 +6,15 @@ pragma solidity ^0.8.13;
 
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 import {HitPoints} from "../../src/HitPoints.sol";
-import "forge-std/Test.sol";
-import "forge-std/console.sol";
+import {Vm} from "forge-std/Test.sol";
+import {console} from "forge-std/console.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {BoundlessMarket} from "../../src/BoundlessMarket.sol";
-import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";
-import {AssessorJournal} from "../../src/types/AssessorJournal.sol";
-import {BoundlessMarketLib} from "../../src/libraries/BoundlessMarketLib.sol";
-import {MerkleProofish} from "../../src/libraries/MerkleProofish.sol";
-import {RequestId} from "../../src/types/RequestId.sol";
 import {Callback} from "../../src/types/Callback.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
-import {Account} from "../../src/types/Account.sol";
-import {RequestLock} from "../../src/types/RequestLock.sol";
 import {LockRequest} from "../../src/types/LockRequest.sol";
-import {Fulfillment} from "../../src/types/Fulfillment.sol";
-import {AssessorJournal} from "../../src/types/AssessorJournal.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Requirements} from "../../src/types/Requirements.sol";
 import {Predicate, PredicateType} from "../../src/types/Predicate.sol";
-import {Input, InputType} from "../../src/types/Input.sol";
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);

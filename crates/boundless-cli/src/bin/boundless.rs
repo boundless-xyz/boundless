@@ -62,6 +62,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
+use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -76,8 +77,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use boundless_cli::{
-    commands::povw::PovwCommands, config::GlobalConfig, convert_timestamp, DefaultProver,
-    OrderFulfilled,
+    commands::povw::PovwCommands, config::GlobalConfig,
 };
 use boundless_market::{
     contracts::{
@@ -878,16 +878,13 @@ fn configure_proving_backend(
 }
 
 /// Execute a proof request using the RISC Zero zkVM executor and measure performance
-async fn benchmark<P>(
+async fn benchmark<P: Provider + Clone + 'static>(
     client: Client<P, impl Any, impl Any, impl Any>,
     request_ids: &[U256],
     bonsai_api_url: &Option<String>,
     bonsai_api_key: &Option<String>,
     use_default_prover: bool,
-) -> Result<()>
-where
-    P: Provider + Clone + 'static,
-{
+) -> Result<()> {
     tracing::info!("Starting benchmark for {} requests", request_ids.len());
     if request_ids.is_empty() {
         bail!("No request IDs provided");

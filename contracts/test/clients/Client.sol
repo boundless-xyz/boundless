@@ -4,14 +4,11 @@
 // as found in the LICENSE-BSL file.
 pragma solidity ^0.8.13;
 
-import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
-import {HitPoints} from "../../src/HitPoints.sol";
 import {BaseClient} from "./BaseClient.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {TestUtils} from "../TestUtils.sol";
-import "forge-std/Test.sol";
-import "forge-std/Vm.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {RequestIdLibrary} from "../../src/types/RequestId.sol";
 import {Input, InputType} from "../../src/types/Input.sol";
@@ -25,7 +22,7 @@ Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 contract Client is BaseClient {
     Vm.Wallet public wallet;
 
-    constructor(Vm.Wallet memory _wallet) BaseClient() {
+    constructor(Vm.Wallet memory _wallet) {
         wallet = _wallet;
     }
 

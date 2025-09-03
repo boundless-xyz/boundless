@@ -69,18 +69,15 @@ async fn reject_zero_value_recipient() -> anyhow::Result<()> {
         .work_log_id(signer.address())
         .build()?;
 
-    let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-        .sign(&signer, contract_address, chain_id)
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(Address::ZERO)
+        .contract_address(contract_address)
+        .chain_id(chain_id)
+        .sign_and_build(&signer)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: Address::ZERO,
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id,
-    };
-    let err = common::execute_log_updater_guest(&input).unwrap_err();
+    let err = execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("value recipient cannot be the zero address"));
 

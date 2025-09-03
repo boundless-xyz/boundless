@@ -3,13 +3,13 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use aws_sdk_s3::{
+    Client,
     config::{Builder, Credentials, Region},
     operation::{create_bucket::CreateBucketError, head_object::HeadObjectError},
     primitives::ByteStream,
     types::CreateBucketConfiguration,
-    Client,
 };
 use std::path::Path;
 
@@ -33,6 +33,9 @@ pub const STARK_BUCKET_DIR: &str = "stark";
 
 /// Object store receipts groth15 dir
 pub const GROTH16_BUCKET_DIR: &str = "groth16";
+
+/// Object store work receipts dir
+pub const WORK_RECEIPTS_BUCKET_DIR: &str = "work_receipts";
 
 /// S3 client object
 pub struct S3Client {
@@ -62,15 +65,9 @@ impl S3Client {
         let client = aws_sdk_s3::Client::from_conf(s3_config);
 
         // Attempt to provision the bucket if it does not exist
-        let cfg = CreateBucketConfiguration::builder()
-            .location_constraint(region.into())
-            .build();
-        let res = client
-            .create_bucket()
-            .create_bucket_configuration(cfg)
-            .bucket(bucket)
-            .send()
-            .await;
+        let cfg = CreateBucketConfiguration::builder().location_constraint(region.into()).build();
+        let res =
+            client.create_bucket().create_bucket_configuration(cfg).bucket(bucket).send().await;
 
         if let Err(err) = res {
             let Some(service_err) = err.as_service_error() else {
@@ -82,10 +79,7 @@ impl S3Client {
             }
         }
 
-        Ok(Self {
-            bucket: bucket.to_string(),
-            client,
-        })
+        Ok(Self { bucket: bucket.to_string(), client })
     }
 
     /// Reads a s3 object encoded with bincode
@@ -93,13 +87,7 @@ impl S3Client {
     where
         T: serde::de::DeserializeOwned,
     {
-        let result = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await?;
+        let result = self.client.get_object().bucket(&self.bucket).key(key).send().await?;
 
         let encoded = result.body.collect().await?.to_vec();
         bincode::deserialize(&encoded).context("Failed to deserialize s3 object")
@@ -107,13 +95,7 @@ impl S3Client {
 
     /// Reads a s3 object to byte buffer
     pub async fn read_buf_from_s3(&self, key: &str) -> Result<Vec<u8>> {
-        let result = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await?;
+        let result = self.client.get_object().bucket(&self.bucket).key(key).send().await?;
 
         Ok(result.body.collect().await?.to_vec())
     }
@@ -125,51 +107,26 @@ impl S3Client {
     {
         let bytes = bincode::serialize(&obj)?;
         let data_stream = ByteStream::from(bytes);
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .body(data_stream)
-            .send()
-            .await?;
+        self.client.put_object().bucket(&self.bucket).key(key).body(data_stream).send().await?;
         Ok(())
     }
 
     /// Write a buffer to S3
     pub async fn write_buf_to_s3(&self, key: &str, bytes: Vec<u8>) -> Result<()> {
         let data_stream = ByteStream::from(bytes);
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .body(data_stream)
-            .send()
-            .await?;
+        self.client.put_object().bucket(&self.bucket).key(key).body(data_stream).send().await?;
         Ok(())
     }
 
     pub async fn write_file_to_s3(&self, key: &str, in_path: &Path) -> Result<()> {
         let data_stream = ByteStream::read_from().path(in_path).build().await?;
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .body(data_stream)
-            .send()
-            .await?;
+        self.client.put_object().bucket(&self.bucket).key(key).body(data_stream).send().await?;
         Ok(())
     }
 
     pub async fn object_exists(&self, key: &str) -> Result<bool> {
         match self.client.head_bucket().bucket(&self.bucket).send().await {
-            Ok(_) => match self
-                .client
-                .head_object()
-                .bucket(&self.bucket)
-                .key(key)
-                .send()
-                .await
-            {
+            Ok(_) => match self.client.head_object().bucket(&self.bucket).key(key).send().await {
                 Ok(_) => Ok(true),
                 Err(err) => match err.into_service_error() {
                     HeadObjectError::NotFound(_) => Ok(false),
@@ -178,5 +135,39 @@ impl S3Client {
             },
             Err(err) => Err(err.into()),
         }
+    }
+
+    /// List objects in the bucket with optional prefix
+    pub async fn list_objects(&self, prefix: Option<&str>) -> Result<Vec<String>> {
+        let mut objects = Vec::new();
+        let mut continuation_token = None;
+
+        loop {
+            let mut request = self.client.list_objects_v2().bucket(&self.bucket);
+
+            if let Some(prefix) = prefix {
+                request = request.prefix(prefix);
+            }
+
+            if let Some(token) = continuation_token {
+                request = request.continuation_token(token);
+            }
+
+            let response = request.send().await?;
+
+            let contents = response.contents();
+            for object in contents {
+                if let Some(key) = object.key() {
+                    objects.push(key.to_string());
+                }
+            }
+
+            continuation_token = response.next_continuation_token().map(|s| s.to_string());
+            if continuation_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(objects)
     }
 }

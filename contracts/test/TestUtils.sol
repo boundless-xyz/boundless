@@ -8,10 +8,11 @@ pragma solidity ^0.8.20;
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 import {Seal, RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {Selector} from "../src/types/Selector.sol";
-import "../src/BoundlessMarket.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
 import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
+import {Fulfillment} from "../src/types/Fulfillment.sol";
+import {MerkleProofish} from "../src/libraries/MerkleProofish.sol";
 
 library TestUtils {
     using ReceiptClaimLib for ReceiptClaim;
