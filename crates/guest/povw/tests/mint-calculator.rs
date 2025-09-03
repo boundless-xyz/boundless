@@ -539,9 +539,8 @@ async fn mint_with_one_finalized_and_one_unfinalized_epoch() -> anyhow::Result<(
     // Single mint covering both epochs
     ctx.run_mint_with_opts(MintOptions::builder()).await?;
 
-    let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalize_event.epoch).call().await?;
+    let final_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalize_event.epoch).call().await?;
     let expected_total = epoch_reward * U256::from(1); // Just the reward for the first epoch.
 
     assert_eq!(
@@ -1175,8 +1174,7 @@ async fn reward_cap_two_recipients() -> anyhow::Result<()> {
     println!("Initial epoch: {initial_epoch}");
 
     // Set an epoch reward cap for the recipient.
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
     let capped_epoch_reward = epoch_reward * U256::from(3) / U256::from(4);
     ctx.zkc_rewards_contract
         .setPoVWRewardCap(work_log_signer.address(), capped_epoch_reward)
@@ -1224,12 +1222,9 @@ async fn reward_cap_two_recipients() -> anyhow::Result<()> {
     println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
 
     // Check balances - value_recipient should get tokens, not work_log_signer
-    let work_log_signer_balance =
-        ctx.zkc_contract.balanceOf(work_log_signer.address()).call().await?;
-    let value_recipient1_balance =
-        ctx.zkc_contract.balanceOf(value_recipient1.address()).call().await?;
-    let value_recipient2_balance =
-        ctx.zkc_contract.balanceOf(value_recipient2.address()).call().await?;
+    let work_log_signer_balance = ctx.zkc.balanceOf(work_log_signer.address()).call().await?;
+    let value_recipient1_balance = ctx.zkc.balanceOf(value_recipient1.address()).call().await?;
+    let value_recipient2_balance = ctx.zkc.balanceOf(value_recipient2.address()).call().await?;
 
     assert_eq!(
         work_log_signer_balance,
