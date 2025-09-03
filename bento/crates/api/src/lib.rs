@@ -5,12 +5,13 @@
 
 use anyhow::{Context, Error as AnyhowErr, Result};
 use axum::{
-    Json, Router, async_trait,
-    body::{Body, to_bytes},
+    async_trait,
+    body::{to_bytes, Body},
     extract::{FromRequestParts, Host, Path, State},
-    http::{StatusCode, request::Parts},
+    http::{request::Parts, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post, put},
+    Json, Router,
 };
 use bonsai_sdk::responses::{
     CreateSessRes, ImgUploadRes, ProofReq, ReceiptDownload, SessionStats, SessionStatusRes,
@@ -19,17 +20,18 @@ use bonsai_sdk::responses::{
 use clap::Parser;
 use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use taskdb::{JobState, TaskDbErr};
 use thiserror::Error;
 use uuid::Uuid;
 use workflow_common::{
-    CompressType, ExecutorReq, SnarkReq as WorkflowSnarkReq, TaskType,
     s3::{
-        ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
-        RECEIPT_BUCKET_DIR, S3Client, STARK_BUCKET_DIR, WORK_RECEIPTS_BUCKET_DIR,
+        S3Client, ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR,
+        PREFLIGHT_JOURNALS_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
+        WORK_RECEIPTS_BUCKET_DIR,
     },
+    CompressType, ExecutorReq, SnarkReq as WorkflowSnarkReq, TaskType,
 };
 
 mod helpers;
@@ -690,51 +692,48 @@ async fn list_work_receipts(
     for object_key in objects {
         // Extract the receipt ID from the object key
         // Object keys are in format: "work_receipts/{receipt_id}.bincode"
-        if let Some(receipt_id) = object_key.strip_prefix(&format!("{WORK_RECEIPTS_BUCKET_DIR}/")) {
-            if receipt_id.ends_with(".bincode") && !receipt_id.ends_with("_povw.bincode") {
-                let receipt_id = receipt_id.trim_end_matches(".bincode");
+        if let Some(receipt_id) = object_key.strip_prefix(&format!("{WORK_RECEIPTS_BUCKET_DIR}/"))
+            && receipt_id.ends_with(".bincode")
+            && !receipt_id.ends_with("_povw.bincode")
+        {
+            let receipt_id = receipt_id.trim_end_matches(".bincode");
 
-                // Try to extract POVW information from the stored receipt
-                let mut povw_log_id = None;
-                let mut povw_job_number = None;
+            // Try to extract POVW information from the stored receipt
+            let mut povw_log_id = None;
+            let mut povw_job_number = None;
 
-                // First check if there's a metadata file (this should exist for all receipts)
-                let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_metadata.json");
-                if let Ok(metadata_bytes) = state.s3_client.read_buf_from_s3(&metadata_key).await {
-                    if let Ok(metadata) =
-                        serde_json::from_slice::<serde_json::Value>(&metadata_bytes)
-                    {
-                        povw_log_id = metadata
-                            .get("povw_log_id")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        povw_job_number = metadata
-                            .get("povw_job_number")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
+            // First check if there's a metadata file (this should exist for all receipts)
+            let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_metadata.json");
+            if let Ok(metadata_bytes) = state.s3_client.read_buf_from_s3(&metadata_key).await {
+                if let Ok(metadata) = serde_json::from_slice::<serde_json::Value>(&metadata_bytes) {
+                    povw_log_id =
+                        metadata.get("povw_log_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    povw_job_number = metadata
+                        .get("povw_job_number")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
 
-                        tracing::debug!(
-                            "Found metadata for {}: log_id={:?}, job_number={:?}",
-                            receipt_id,
-                            povw_log_id,
-                            povw_job_number
-                        );
-                    }
-                } else {
-                    tracing::debug!("No metadata file found for receipt: {}", receipt_id);
+                    tracing::debug!(
+                        "Found metadata for {}: log_id={:?}, job_number={:?}",
+                        receipt_id,
+                        povw_log_id,
+                        povw_job_number
+                    );
                 }
+            } else {
+                tracing::debug!("No metadata file found for receipt: {}", receipt_id);
+            }
 
-                // Check if there's a corresponding POVW receipt
-                let povw_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_povw.bincode");
-                let has_povw_receipt =
-                    state.s3_client.object_exists(&povw_key).await.unwrap_or(false);
+            // Check if there's a corresponding POVW receipt
+            let povw_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_povw.bincode");
+            let has_povw_receipt = state.s3_client.object_exists(&povw_key).await.unwrap_or(false);
 
-                if has_povw_receipt {
-                    tracing::debug!("POVW receipt found for: {}", receipt_id);
+            if has_povw_receipt {
+                tracing::debug!("POVW receipt found for: {}", receipt_id);
 
-                    // If we don't have metadata but have a POVW receipt, try to extract from the receipt
-                    if povw_log_id.is_none() || povw_job_number.is_none() {
-                        match state
+                // If we don't have metadata but have a POVW receipt, try to extract from the receipt
+                if povw_log_id.is_none() || povw_job_number.is_none() {
+                    match state
                             .s3_client
                             .read_from_s3::<risc0_zkvm::GenericReceipt<
                                 risc0_zkvm::WorkClaim<risc0_zkvm::ReceiptClaim>,
@@ -770,17 +769,16 @@ async fn list_work_receipts(
                                 }
                             }
                         }
-                    }
-                } else {
-                    tracing::debug!("No POVW receipt found for: {}", receipt_id);
                 }
-
-                receipts.push(WorkReceiptInfo {
-                    key: receipt_id.to_string(),
-                    povw_log_id,
-                    povw_job_number,
-                });
+            } else {
+                tracing::debug!("No POVW receipt found for: {}", receipt_id);
             }
+
+            receipts.push(WorkReceiptInfo {
+                key: receipt_id.to_string(),
+                povw_log_id,
+                povw_job_number,
+            });
         }
     }
 

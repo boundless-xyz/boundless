@@ -76,9 +76,7 @@ use shadow_rs::shadow;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
-use boundless_cli::{
-    commands::povw::PovwCommands, config::GlobalConfig,
-};
+use boundless_cli::{commands::povw::PovwCommands, config::GlobalConfig};
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
