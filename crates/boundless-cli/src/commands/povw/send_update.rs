@@ -42,8 +42,8 @@ pub struct PovwSendUpdate {
     /// Private key used to sign work log updates. Should have an address equal to the work log ID.
     ///
     /// If this option is not set, the value of the private key from global config will be used.
-    #[clap(long, env = "WORK_LOG_PRIVATE_KEY", hide_env_values = true)]
-    pub work_log_private_key: Option<PrivateKeySigner>,
+    #[clap(long, env = "POVW_PRIVATE_KEY", hide_env_values = true)]
+    pub povw_private_key: Option<PrivateKeySigner>,
 
     /// The address to assign any PoVW rewards to. If not provided, defaults to the work log ID.
     #[clap(short, long, env = "POVW_VALUE_RECIPIENT")]
@@ -62,7 +62,7 @@ impl PovwSendUpdate {
     /// Run the [PovwSendUpdate] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
-        let work_log_signer = self.work_log_private_key.as_ref().unwrap_or(&tx_signer);
+        let work_log_signer = self.povw_private_key.as_ref().unwrap_or(&tx_signer);
         let rpc_url = global_config.require_rpc_url()?;
 
         // Load the state and check to make sure the private key matches.
