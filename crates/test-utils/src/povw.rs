@@ -492,6 +492,7 @@ pub mod bento_mock {
         Mock, MockServer, Request, ResponseTemplate,
     };
 
+    // TODO: Create a common crate that Bento, test-utils and the CLI can all use.
     /// Work receipt info matching Bento API format
     /// Copied from bento/crates/api/src/lib.rs
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -687,8 +688,7 @@ pub mod bento_mock {
                 let work_receipt: GenericReceipt<WorkClaim<ReceiptClaim>> =
                     FakeReceipt::new(work_claim).into();
 
-                let receipt_id =
-                    server.add_work_receipt(&work_receipt)?;
+                let receipt_id = server.add_work_receipt(&work_receipt)?;
                 receipt_ids.push(receipt_id);
             }
 
