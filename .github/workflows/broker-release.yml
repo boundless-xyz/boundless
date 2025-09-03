@@ -53,15 +53,7 @@ jobs:
           sudo apt-get install -y build-essential libssl-dev
 
       - name: Setup Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          target: ${{ matrix.target }}
-          override: true
-          profile: minimal
-
-      - name: Install RISC0 toolchain
-        uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+        uses: risc0/risc0/.github/actions/rustup@v3.0.3
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
