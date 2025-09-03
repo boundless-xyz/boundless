@@ -663,7 +663,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             request_digests,
             tx_hashes,
             withdraw,
-            prover_config
+            prover_config,
         } => {
             let client = config.build_client_with_signer().await?;
             if request_digests.is_some()
@@ -790,13 +790,9 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             tracing::info!("Successfully locked request 0x{:x}", request_id);
             Ok(())
         }
-        ProvingCommands::Benchmark {
-            request_ids,
-            prover_config
-        } => {
+        ProvingCommands::Benchmark { request_ids, prover_config } => {
             let client = config.build_client().await?;
-            benchmark(client, request_ids, prover_config)
-                .await
+            benchmark(client, request_ids, prover_config).await
         }
     }
 }
@@ -1944,7 +1940,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
-                }
+                },
             })),
         })
         .await
@@ -2021,7 +2017,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
-                }
+                },
             })),
         })
         .await
@@ -2104,7 +2100,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
-                }
+                },
             })),
         })
         .await
@@ -2163,7 +2159,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
-                }
+                },
             })),
         })
         .await
@@ -2261,7 +2257,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
-                }
+                },
             })),
         })
         .await

@@ -64,7 +64,6 @@ impl PovwSendUpdate {
         let tx_signer = global_config.require_private_key()?;
         let work_log_signer = self.work_log_private_key.as_ref().unwrap_or(&tx_signer);
         let rpc_url = global_config.require_rpc_url()?;
-        self.prover_config.configure_proving_backend();
 
         // Load the state and check to make sure the private key matches.
         let mut state = State::load(&self.state)
@@ -145,6 +144,7 @@ impl PovwSendUpdate {
             )
         }
 
+        self.prover_config.configure_proving_backend();
         for receipt in receipts_for_update {
             let prover = LogUpdaterProver::builder()
                 .prover(default_prover())

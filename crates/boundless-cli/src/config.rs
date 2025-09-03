@@ -124,24 +124,29 @@ impl GlobalConfig {
 /// Configuration options for commands that utilize proving.
 #[derive(Args, Debug, Clone)]
 pub struct ProverConfig {
-        /// Bento API URL
-        ///
-        /// URL at which your Bento cluster is running.
-        #[clap(long, env = "BONSAI_API_URL", visible_alias = "bonsai-api-url", default_value = "http://localhost:8081")]
-        pub bento_api_url: String,
+    /// Bento API URL
+    ///
+    /// URL at which your Bento cluster is running.
+    #[clap(
+        long,
+        env = "BONSAI_API_URL",
+        visible_alias = "bonsai-api-url",
+        default_value = "http://localhost:8081"
+    )]
+    pub bento_api_url: Url,
 
-        /// Bento API Key
-        ///
-        /// Not necessary if using Bento without authentication, which is the default.
-        #[clap(long, env = "BONSAI_API_KEY", visible_alias = "bonsai-api-key", hide_env_values = true)]
-        pub bento_api_key: Option<String>,
+    /// Bento API Key
+    ///
+    /// Not necessary if using Bento without authentication, which is the default.
+    #[clap(long, env = "BONSAI_API_KEY", visible_alias = "bonsai-api-key", hide_env_values = true)]
+    pub bento_api_key: Option<String>,
 
-        /// Use the default prover instead of defaulting to Bento.
-        ///
-        /// When enabled, the prover selection follows the default zkVM behavior
-        /// based on environment variables like RISC0_PROVER, RISC0_DEV_MODE, etc.
-        #[clap(long, conflicts_with = "bento_api_url")]
-        pub use_default_prover: bool,
+    /// Use the default prover instead of defaulting to Bento.
+    ///
+    /// When enabled, the prover selection follows the default zkVM behavior
+    /// based on environment variables like RISC0_PROVER, RISC0_DEV_MODE, etc.
+    #[clap(long, conflicts_with = "bento_api_url")]
+    pub use_default_prover: bool,
 }
 
 impl ProverConfig {
@@ -157,7 +162,7 @@ impl ProverConfig {
         }
 
         tracing::info!("Using Bento endpoint: {}", self.bento_api_url);
-        std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
+        std::env::set_var("BONSAI_API_URL", &self.bento_api_url.to_string());
         if let Some(ref api_key) = self.bento_api_key {
             std::env::set_var("BONSAI_API_KEY", api_key);
         } else {
@@ -166,4 +171,3 @@ impl ProverConfig {
         }
     }
 }
-
