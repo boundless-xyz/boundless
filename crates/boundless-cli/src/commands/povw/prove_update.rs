@@ -1,10 +1,4 @@
-use std::{
-    borrow::Borrow,
-    collections::{HashSet},
-    fs,
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{borrow::Borrow, collections::HashSet, fs, path::PathBuf, str::FromStr};
 
 use anyhow::{bail, ensure, Context, Result};
 use clap::Args;
@@ -16,8 +10,6 @@ use url::Url;
 use crate::config::ProverConfig;
 
 use super::{State, WorkReceipt};
-
-
 
 /// Compress a directory of work receipts into a work log update.
 #[non_exhaustive]
@@ -84,8 +76,14 @@ impl PovwProveUpdate {
 
         let work_receipts = if self.from_bento {
             // Load the work receipts from Bento.
-            let bento_url = self.from_bento_url.as_ref().unwrap_or(&self.prover_config.bento_api_url);
-            fetch_work_receipts(state.log_id, &state.work_log, bento_url).await.context("Failed to fetch work receipts from Bento")?
+            let bento_url = match self.from_bento_url.clone() {
+                Some(bento_url) => bento_url,
+                None => Url::parse(&self.prover_config.bento_api_url)
+                    .context("Failed to parse Bento API URL")?,
+            };
+            fetch_work_receipts(state.log_id, &state.work_log, &bento_url)
+                .await
+                .context("Failed to fetch work receipts from Bento")?
         } else {
             // Load work receipt files, filtering out receipt files that we cannot add to the log.
             load_work_receipts(state.log_id, &state.work_log, &self.work_receipts_files)
@@ -230,14 +228,18 @@ async fn fetch_work_receipts(
     work_log: &WorkLog,
     bento_url: &Url,
 ) -> anyhow::Result<Vec<WorkReceipt>> {
-    // Call the /work_receipts endpoint on Bento.
-    let list_url = bento_url.join("work_receipts")?;
-    let response =
-        reqwest::get(list_url.clone()).await.context("Failed to query Bento for work receipts")?;
+    // Call the /work-receipts endpoint on Bento.
+    let list_url = bento_url.join("work-receipts")?;
+    let response = reqwest::get(list_url.clone())
+        .await
+        .context("Failed to query Bento for work receipts")?
+        .error_for_status()
+        .with_context(|| format!("Failed to fetch work receipts list from {list_url}"))?;
+
     let receipt_list: WorkReceiptList = response
         .json()
         .await
-        .with_context(|| format!("Failed to fetch work receipts list from {list_url}"))?;
+        .with_context(|| format!("Failed to parse work receipts list from {list_url}"))?;
 
     // Filter the list for new receipts.
     let mut seen_log_ids = HashSet::new();
@@ -285,7 +287,8 @@ async fn fetch_work_receipts(
         // NOTE: Bail here instead of just warning as it may be preferable to retry the whole
         // update rather than building an update that includes receipts the failed to fetch due to
         // a temporary error.
-        let work_receipt = fetch_work_receipt(bento_url, &key).await.context("Failed to fetch work receipt")?;
+        let work_receipt =
+            fetch_work_receipt(bento_url, &key).await.context("Failed to fetch work receipt")?;
         work_receipts.push(work_receipt);
     }
     Ok(work_receipts)
@@ -306,16 +309,19 @@ fn parse_receipt_info(info: &WorkReceiptInfo) -> anyhow::Result<(PovwLogId, u64)
 
 async fn fetch_work_receipt(bento_url: &Url, key: &str) -> anyhow::Result<WorkReceipt> {
     let receipt_url = bento_url
-        .join("work_receipts/")?
+        .join("work-receipts/")?
         .join(key)
         .with_context(|| format!("Failed to build URL to fetch work receipt with key {key}"))?;
     let response = reqwest::get(receipt_url.clone())
         .await
+        .with_context(|| format!("Failed to fetch work receipt with key {key}"))?
+        .error_for_status()
         .with_context(|| format!("Failed to fetch work receipt with key {key}"))?;
+
     let receipt_bytes = response
         .bytes()
         .await
-        .with_context(|| format!("Failed to fetch work receipt with key {key}"))?;
+        .with_context(|| format!("Failed to read work receipt bytes for key {key}"))?;
     bincode::deserialize(&receipt_bytes)
         .with_context(|| format!("Failed to deserialize receipt with key {key}"))
 }
