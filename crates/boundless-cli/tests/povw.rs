@@ -220,16 +220,17 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
             ]
         };
 
-        let assert = cmd
+        let result = cmd
             .args(cmd_args)
             .env("NO_COLOR", "1")
             .env("RUST_LOG", "boundless_cli=debug,info")
             .env("RISC0_DEV_MODE", "1")
             .assert()
             .success();
+
         println!(
             "prove-update command output:\n{}",
-            String::from_utf8_lossy(&assert.get_output().stdout)
+            String::from_utf8_lossy(&result.get_output().stdout)
         );
 
         // Send the update to the blockchain
@@ -250,10 +251,11 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
         .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
 
-        let assert = cmd.assert().success().stdout(contains("Work log update confirmed"));
+        let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
+
         println!(
             "send-update command output:\n{}",
-            String::from_utf8_lossy(&assert.get_output().stdout)
+            String::from_utf8_lossy(&result.get_output().stdout)
         );
 
         // Advance to next epoch after each update
@@ -278,10 +280,10 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         .env("RISC0_DEV_MODE", "1")
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str());
 
-    let assert = cmd.assert().success().stdout(contains("Reward claim completed"));
+    let result = cmd.assert().success().stdout(contains("Reward claim completed"));
     println!(
         "claim-reward command output:\n{}",
-        String::from_utf8_lossy(&assert.get_output().stdout)
+        String::from_utf8_lossy(&result.get_output().stdout)
     );
 
     // Verify that tokens were minted to the value recipient (not the work log signer)
@@ -338,7 +340,7 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
 
     // Run prove-update with --from-bento to create new work log
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args([
+    let result = cmd.args([
         "povw",
         "prove-update",
         "--new",
@@ -354,6 +356,11 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
     .env("RISC0_DEV_MODE", "1")
     .assert()
     .success();
+
+    println!(
+        "command output:\n{}",
+        String::from_utf8_lossy(&result.get_output().stdout)
+    );
 
     // Verify state after first update
     let state_1 = State::load(&state_path).await?;
@@ -464,7 +471,12 @@ async fn prove_update_from_bento_no_new_receipts() -> anyhow::Result<()> {
         .assert();
 
     // Should succeed with message about no receipts to process
-    result.success().stdout(predicates::str::contains("No work receipts to process"));
+    let result = result.success().stdout(predicates::str::contains("No work receipts to process"));
+
+    println!(
+        "command output:\n{}",
+        String::from_utf8_lossy(&result.get_output().stdout)
+    );
 
     // Verify that state file was created but is empty (new work log)
     let state = State::load(&state_path).await?;
@@ -547,7 +559,12 @@ async fn prove_update_from_bento_multiple_log_ids() -> anyhow::Result<()> {
         .assert();
 
     // Should succeed and log warnings about skipping other log ID
-    result.success().stdout(predicates::str::contains("Skipping receipts with log ID"));
+    let result = result.success().stdout(predicates::str::contains("Skipping receipts with log ID"));
+
+    println!(
+        "command output:\n{}",
+        String::from_utf8_lossy(&result.get_output().stdout)
+    );
 
     // Verify state was created with only the target receipts
     let state = State::load(&state_path).await?;
