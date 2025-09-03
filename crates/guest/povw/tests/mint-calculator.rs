@@ -126,7 +126,6 @@ async fn proportional_rewards_same_epoch() -> anyhow::Result<()> {
     let expected2 = epoch_reward * U256::from(70) / U256::from(100);
 
     // Allow for small rounding errors in fixed-point arithmetic (within 10 wei)
-    // TODO(povw): Try to avoid these rounding errors.
     let tolerance = U256::from(10);
     assert!(
         balance1.abs_diff(expected1) <= tolerance,
@@ -582,7 +581,7 @@ async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
     println!("Contract correctly rejected unfinalized epoch: {err}");
     // The mint calculator guest should fail because there's no EpochFinalized event
     //assert!(err.to_string().contains("no epoch finalized event processed"));
-    // TODO(povw): This test currently fails before getting to the guest. Provide a way to advance
+    // TODO(victor): This test currently fails before getting to the guest. Provide a way to advance
     // the preflight (skipping some steps) to build an input to at least let the guest run.
     assert!(err.to_string().contains("No EpochFinalized events in the given blocks"));
 

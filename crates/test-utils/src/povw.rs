@@ -31,7 +31,6 @@ use alloy::{
     sol_types::SolValue,
 };
 use alloy_primitives::U256;
-use anyhow::bail;
 use boundless_povw_guests::{
     contracts::bytecode::{PovwAccounting, PovwMint},
     log_updater::{
@@ -45,11 +44,12 @@ use boundless_povw_guests::{
     },
 };
 use derive_builder::Builder;
+use risc0_ethereum_contracts::encode_seal;
 use risc0_povw::{guest::RISC0_POVW_LOG_BUILDER_ID, PovwJobId};
 use risc0_steel::ethereum::{EthChainSpec, EthEvmEnv, STEEL_TEST_PRAGUE_CHAIN_SPEC};
 use risc0_zkvm::{
-    default_executor, sha::Digestible, Digest, ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt,
-    MaybePruned, Receipt, ReceiptClaim, Work, WorkClaim,
+    default_executor, Digest, ExecutorEnv, ExitCode, FakeReceipt, MaybePruned, Receipt,
+    ReceiptClaim, Work, WorkClaim,
 };
 use tokio::sync::Mutex;
 
@@ -417,24 +417,6 @@ impl From<MintOptionsBuilder> for MintOptions {
     fn from(value: MintOptionsBuilder) -> Self {
         value.build()
     }
-}
-
-// TODO(povw): This is copied from risc0_ethereum_contracts to work around version conflict
-// issues. Remove this when we use a published version of risc0.
-pub fn encode_seal(receipt: &risc0_zkvm::Receipt) -> anyhow::Result<Vec<u8>> {
-    let seal = match receipt.inner.clone() {
-        InnerReceipt::Fake(receipt) => {
-            let seal = receipt.claim.digest().as_bytes().to_vec();
-            let selector = &[0xFFu8; 4];
-            // Create a new vector with the capacity to hold both selector and seal
-            let mut selector_seal = Vec::with_capacity(selector.len() + seal.len());
-            selector_seal.extend_from_slice(selector);
-            selector_seal.extend_from_slice(&seal);
-            selector_seal
-        }
-        _ => bail!("Unsupported receipt type"),
-    };
-    Ok(seal)
 }
 
 // Execute the log updater guest with the given input

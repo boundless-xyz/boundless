@@ -156,7 +156,7 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-        .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
+        .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
         .assert()
         .success()
         // 4. Confirm that the command logs success
@@ -263,7 +263,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-        .env("WORK_LOG_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
+        .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
 
         let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
 
@@ -289,7 +289,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
         .env("POVW_MINT_ADDRESS", format!("{:#x}", ctx.povw_mint.address()))
         .env("ZKC_ADDRESS", format!("{:#x}", ctx.zkc.address()))
-        .env("ZKC_REWARDS_ADDRESS", format!("{:#x}", ctx.zkc_rewards.address()))
+        .env("VEZKC_ADDRESS", format!("{:#x}", ctx.zkc_rewards.address()))
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str());

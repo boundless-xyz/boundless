@@ -3,9 +3,9 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-// TODO(povw): This test is fragile to changes in the RISC0_POVW_LOG_BUILDER_ID, because the ID
-// used here and the one used in the log updater guest may drift. Running the following command may
-// fix a drift if it appears.
+// NOTE: This test is fragile to changes in the RISC0_POVW_LOG_BUILDER_ID, because the ID used here
+// and the one used in the log updater guest may drift. Running the following command may fix a
+// drift if it appears.
 //
 // ```
 // cargo update -p risc0-povw --manifest-path Cargo.toml && cargo update -p risc0-povw --manifest-path crates/guest/povw/log-updater/Cargo.toml
