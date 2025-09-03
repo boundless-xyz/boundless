@@ -67,6 +67,7 @@ impl PovwSendUpdate {
 
         // Load the state and check to make sure the private key matches.
         let mut state = State::load(&self.state)
+            .await
             .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),

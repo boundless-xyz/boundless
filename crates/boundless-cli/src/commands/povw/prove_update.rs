@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashSet, fs, path::PathBuf, str::FromStr};
+use std::{borrow::Borrow, collections::HashSet, path::PathBuf, str::FromStr};
 
 use anyhow::{bail, ensure, Context, Result};
 use clap::Args;
@@ -48,6 +48,10 @@ pub struct PovwProveUpdate {
     #[arg(short, long)]
     state: PathBuf,
 
+    /// If set and there is an error loading a receipt, process all receipts that were loaded correctly.
+    #[arg(long)]
+    allow_partial_update: bool,
+
     #[clap(flatten, next_help_heading = "Prover")]
     prover_config: ProverConfig,
 }
@@ -63,7 +67,7 @@ impl PovwProveUpdate {
             tracing::info!("Initializing a new work log with ID {log_id:x}");
             State::new(log_id)
         } else {
-            let state = State::load(&self.state).context("Failed to load state file")?;
+            let state = State::load(&self.state).await.context("Failed to load state file")?;
             tracing::info!(
                 "Loaded work log state from {} with commit {}",
                 self.state.display(),
@@ -74,7 +78,7 @@ impl PovwProveUpdate {
 
         tracing::info!("Starting PoVW prove-update for log ID: {:x}", state.log_id);
 
-        let work_receipts = if self.from_bento {
+        let work_receipt_results = if self.from_bento {
             // Load the work receipts from Bento.
             let bento_url = match self.from_bento_url.clone() {
                 Some(bento_url) => bento_url,
@@ -86,22 +90,29 @@ impl PovwProveUpdate {
                 .context("Failed to fetch work receipts from Bento")?
         } else {
             // Load work receipt files, filtering out receipt files that we cannot add to the log.
-            load_work_receipts(state.log_id, &state.work_log, &self.work_receipts_files)
-                .filter_map(|result| {
-                    result
-                        .map_err(|err| tracing::warn!("{:?}", err.context("Skipping receipt")))
-                        .ok()
-                })
-                .collect::<Vec<_>>()
+            load_work_receipts(state.log_id, &state.work_log, &self.work_receipts_files).await
         };
-        tracing::info!("Loaded {} work receipts", work_receipts.len());
 
-        // NOTE: In this CLI, we chose to warn but exit with success if there were errors loading
-        // individual receipts. We might reconsider this. Maybe add a --keep-going flag and default
-        // to erroring out.
+        // Check to see if there were errors in loading the receipts and decide whether to continue.
+        let mut warning = false;
+        let mut work_receipts = Vec::new();
+        for result in work_receipt_results {
+            match result {
+                Err(err) => {
+                    tracing::warn!("{:?}", err.context("Skipping receipt"));
+                    warning = true;
+                }
+                Ok(receipt) => work_receipts.push(receipt),
+            }
+        }
+        if warning && !self.allow_partial_update {
+            bail!("Encountered errors in loading receipts");
+        }
+
+        tracing::info!("Loaded {} work receipts", work_receipts.len());
         if work_receipts.is_empty() {
-            tracing::warn!("No work receipts to process");
-            return Ok(())
+            tracing::info!("No work receipts to process");
+            return Ok(());
         }
 
         // Set up the work log update prover
@@ -143,31 +154,41 @@ impl PovwProveUpdate {
 }
 
 /// Load work receipts from the specified directory
-fn load_work_receipts<'a, 'b>(
+async fn load_work_receipts(
     log_id: PovwLogId,
-    work_log: &'a WorkLog,
-    files: &'b [PathBuf],
-) -> impl Iterator<Item = anyhow::Result<WorkReceipt>> + use<'a, 'b> {
-    files.iter().map(move |path| {
-        if !path.is_file() {
-            bail!("Work receipt path is not a file: {}", path.display())
+    work_log: &WorkLog,
+    files: &[PathBuf],
+) -> Vec<anyhow::Result<WorkReceipt>> {
+    let mut work_receipts = Vec::new();
+    for path in files {
+        // Load the receipts, propogating an error on failure or if the receipt isn't for this log.
+        let work_receipt = load_work_receipt_file(path)
+            .await
+            .with_context(|| format!("Failed to load receipt from {}", path.display()))
+            .and_then(|receipt| {
+                check_work_receipt(log_id, work_log, receipt)
+                    .with_context(|| format!("Receipt from path {}", path.display()))
+            });
+
+        if work_receipt.is_ok() {
+            tracing::debug!("Loaded receipt from: {}", path.display());
         }
 
-        // Check for receipt file extensions
-        let work_receipt = load_work_receipt_file(path)
-            .with_context(|| format!("Failed to load receipt from {}", path.display()))?;
-        tracing::info!("Loaded receipt from: {}", path.display());
-
-        check_work_receipt(log_id, work_log, work_receipt)
-            .with_context(|| format!("Receipt from path {}", path.display()))
-    })
+        work_receipts.push(work_receipt);
+    }
+    work_receipts
 }
 
 /// Load a single receipt file
-fn load_work_receipt_file(path: impl AsRef<std::path::Path>) -> anyhow::Result<WorkReceipt> {
+async fn load_work_receipt_file(path: impl AsRef<std::path::Path>) -> anyhow::Result<WorkReceipt> {
     let path = path.as_ref();
-    let data =
-        fs::read(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
+    if !path.is_file() {
+        bail!("Work receipt path is not a file: {}", path.display())
+    }
+
+    let data = tokio::fs::read(path)
+        .await
+        .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
     // Deserialize as WorkReceipt
     // TODO: Provide a common library implementation of encoding that can be used by Bento,
@@ -233,7 +254,7 @@ async fn fetch_work_receipts(
     log_id: PovwLogId,
     work_log: &WorkLog,
     bento_url: &Url,
-) -> anyhow::Result<Vec<WorkReceipt>> {
+) -> anyhow::Result<Vec<anyhow::Result<WorkReceipt>>> {
     // Call the /work-receipts endpoint on Bento.
     let list_url = bento_url.join("work-receipts")?;
     let response = reqwest::get(list_url.clone())
@@ -290,11 +311,14 @@ async fn fetch_work_receipts(
     // Fetch the new receipts.
     let mut work_receipts = Vec::new();
     for key in keys_to_fetch {
-        // NOTE: Bail here instead of just warning as it may be preferable to retry the whole
-        // update rather than building an update that includes receipts the failed to fetch due to
-        // a temporary error.
+        // NOTE: We return the result so that the caller can decide whether to skip or bail.
         let work_receipt =
-            fetch_work_receipt(bento_url, &key).await.context("Failed to fetch work receipt")?;
+            fetch_work_receipt(bento_url, &key).await.context("Failed to fetch work receipt");
+
+        if work_receipt.is_ok() {
+            tracing::debug!("Loaded receipt with key: {key}");
+        }
+
         work_receipts.push(work_receipt);
     }
     Ok(work_receipts)
