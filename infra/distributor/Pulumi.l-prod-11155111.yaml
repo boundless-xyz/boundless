@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAF3TTGTzKt8/w8kAf
 config:
   distributor:BASE_STACK: organization/bootstrap/services-prod
   distributor:CHAIN_ID: "11155111"
-  distributor:DISTRIBUTOR_ADDRESS: 0xFc1f6D609610a479F9c7453BF3aeC8cb3849F865
+  distributor:DISTRIBUTOR_ADDRESS: 0xd79A4B9D713e70De8b0B820eBB7B5a18B7F07d4A
   distributor:DISTRIBUTOR_PRIVATE_KEY:
     secure: v1:QWQjjn0FKjCblQd/:ZLakAlfNwVGxPOJxb2Or4EY6SDstjtRa9YVKI3fR9mV7bgsCMZo+lXLwM/1VWAXg64VggtyF6sCIoUjJ6bvxD/wDnrA2BKCv0znnPKLwQCU=
   distributor:DOCKER_DIR: ../../
@@ -24,7 +24,7 @@ config:
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   distributor:SLASHER_KEY:
     secure: v1:XMk3bJV6QyRvThSZ:vSS4GwVe98dZmqbmJPnp88iljMNfMFx4DGPmOrX3tJELIZ4b3j8leAYKHVRh4m+oigxH/5tMzkK534twD22OlQBr7GpJxNmyAr38nVpHUkE=
-  distributor:STAKE_THRESHOLD: "10"
-  distributor:STAKE_TOP_UP_AMOUNT: "10"
+  distributor:STAKE_THRESHOLD: "100"
+  distributor:STAKE_TOP_UP_AMOUNT: "1000"
   distributor:ETH_RPC_URL:
     secure: v1:mw+2/htw0bIyL6aq:6YXQ7HD269mekHqzFXo7DwTFCMJKbgPpucbM8zXEa4n7U4M8VL4vNdsmo1yUgSBHzBAgdhpMu1jfLrAg9H8aXYr1loCHJVs3b0U=

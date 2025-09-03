@@ -10,7 +10,7 @@ config:
   order-stream:DOCKER_TAG: latest
   order-stream:GH_TOKEN_SECRET:
     secure: v1:67fqJX2uwMwqXWD/:Spq2pFF66lJbcp8bj6F1gbzJnAGI2bAqkkJPY0RJVxm8rd6OuE/rhObSlYcikA9WYTldGft9n40Eci7/af+3CFqOsZQQczfIboIeLNGLRP/SuAdstlPuLN2ILojiTURWyOOa0YfGLfZuTiH9gQ==
-  order-stream:MIN_BALANCE_RAW: "5000000"
+  order-stream:MIN_BALANCE_RAW: "5000000000000000000"
   order-stream:ORDER_STREAM_PING_TIME: "100"
   order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-stream:RDS_PASSWORD:

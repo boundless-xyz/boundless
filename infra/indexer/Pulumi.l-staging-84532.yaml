@@ -14,6 +14,6 @@ config:
     secure: v1:U2jryXZCb4OMwmuN:sBIpdURgdAK7aeRz5x6//mFsQJVsm96fqcySBOUXkUDf6g==
   indexer:RUST_LOG: indexer_monitor=debug
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
-  indexer:START_BLOCK: "26392313"
+  indexer:START_BLOCK: "30570944"
   indexer:ETH_RPC_URL:
     secure: v1:YE8PUbzgOCGYW56j:RSk0HuKzhzZh81wvUjGZGGOX5RoEqqg5WH5bsGChtZLhfKJmWmPwqw1coo6P2782e4bLQwJMNWFul/DnIUKgDUO5e7OKQ9bWpu73
