@@ -63,6 +63,9 @@ jobs:
           ls -la /usr/local/cuda/bin/ || echo "CUDA bin not found"
           ls -la /usr/bin/gcc || echo "System gcc not found"
 
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
       - name: Setup Rust toolchain
         uses: risc0/risc0/.github/actions/rustup@v3.0.3
         with:
@@ -93,6 +96,10 @@ jobs:
           PATH: /usr/local/cuda/bin:/usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
           LD_LIBRARY_PATH: /usr/local/cuda/lib64:$LD_LIBRARY_PATH
           NVCC_FLAGS: "--generate-code arch=compute_86,code=sm_86 --generate-code arch=compute_89,code=sm_89 --generate-code arch=compute_120,code=sm_120"
+          SCCACHE_CUDA: "1"
+          SCCACHE_CUDA_COMPILER: "nvcc"
+          SCCACHE_CUDA_INCLUDE: "/usr/local/cuda/include"
+          SCCACHE_CUDA_LIB: "/usr/local/cuda/lib64"
         run: |
           # Build all components
           cargo build --release --target ${{ matrix.target }} -F cuda --bin agent
@@ -111,6 +118,9 @@ jobs:
           cd ../binaries/${{ matrix.artifact_name }}
           tar -czf bento-bundle-${{ matrix.artifact_name }}.tar.gz bento-bundle/
           rm -rf bento-bundle/
+
+      - name: sccache stats
+        run: sccache --show-stats
 
       - name: Create checksums
         working-directory: binaries/${{ matrix.artifact_name }}
