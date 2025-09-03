@@ -5,6 +5,8 @@ use clap::Args;
 use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId, WorkLog};
 use risc0_zkvm::{default_prover, ProverOpts};
 
+use crate::config::ProverConfig;
+
 use super::{State, WorkReceipt};
 
 /// Compress a directory of work receipts into a work log update.
@@ -30,11 +32,16 @@ pub struct PovwProveUpdate {
     /// Path for the Log Builder receipt and work log state.
     #[arg(short, long)]
     state: PathBuf,
+
+    #[clap(flatten, next_help_heading = "Prover")]
+    prover_config: ProverConfig,
 }
 
 impl PovwProveUpdate {
     /// Run the [PovwProveUpdate] command.
     pub async fn run(&self) -> Result<()> {
+        self.prover_config.configure_proving_backend();
+
         // Load the continuation state, if provided.
         let mut state = if let Some(log_id) = self.new_log_id {
             if self.state.exists() {

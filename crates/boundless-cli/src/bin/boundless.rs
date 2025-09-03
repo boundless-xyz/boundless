@@ -251,7 +251,7 @@ enum ProvingCommands {
         #[arg(long, value_delimiter = ',')]
         request_ids: Vec<U256>,
 
-        #[clap(flatten)]
+        #[clap(flatten, next_help_heading = "Prover")]
         prover_config: ProverConfig,
     },
     /// Fulfill one or more proof requests using the RISC Zero zkVM default prover.
@@ -282,7 +282,7 @@ enum ProvingCommands {
         #[arg(long, default_value = "false")]
         withdraw: bool,
 
-        #[clap(flatten)]
+        #[clap(flatten, next_help_heading = "Prover")]
         prover_config: ProverConfig,
     },
 

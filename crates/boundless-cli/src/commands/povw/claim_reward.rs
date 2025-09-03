@@ -33,7 +33,7 @@ use clap::Args;
 use risc0_povw::PovwLogId;
 use risc0_zkvm::{default_prover, Digest};
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, ProverConfig};
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
 
@@ -72,6 +72,9 @@ pub struct PovwClaimReward {
     /// of days, this command will not scan for events in the full range.
     #[clap(long, default_value_t = 30)]
     pub days: u64,
+
+    #[clap(flatten, next_help_heading = "Prover")]
+    prover_config: ProverConfig,
 }
 
 impl PovwClaimReward {
@@ -79,6 +82,7 @@ impl PovwClaimReward {
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
+        self.prover_config.configure_proving_backend();
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
