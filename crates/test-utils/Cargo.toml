@@ -30,6 +30,15 @@ risc0-povw = { workspace = true, features = ["prover"], optional = true }
 risc0-steel = { git = "https://github.com/boundless-xyz/steel", rev = "a44917a19e012ba10d4720095eb19fc9c66b7741", optional = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 tokio = { workspace = true, optional = true }
+wiremock = { version = "0.6", optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+uuid = { workspace = true, features = ["v4"], optional = true }
+bincode = { version = "1.3", optional = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+reqwest = { workspace = true, features = ["json"] }
 
 [features]
-povw = ["dep:boundless-povw-guests", "dep:bytemuck", "dep:derive_builder", "dep:postcard", "dep:rand", "dep:risc0-povw", "dep:risc0-steel", "dep:tokio"]
+povw = ["dep:boundless-povw-guests", "dep:bytemuck", "dep:derive_builder", "dep:postcard", "dep:rand", "dep:risc0-povw", "dep:risc0-steel", "dep:tokio", "dep:wiremock", "dep:serde", "dep:serde_json", "dep:uuid", "dep:bincode", "dep:tracing"]
