@@ -556,10 +556,10 @@ where
                             }
                             Err(err) => match err {
                                 ProverError::ProvingFailed(ref err_msg) => {
-                                    if err_msg.contains("Session limit exceeded") {
+                                    if err_msg.contains("Session limit exceeded") 
+                                        || err_msg.contains("Execution stopped intentionally due to session limit") {
                                         tracing::debug!(
-                                            "Skipping order {order_id_clone} due to session limit exceeded: {}",
-                                            err_msg
+                                            "Skipping order {order_id_clone} due to intentional execution limit of {exec_limit_cycles}",
                                         );
                                         Ok(PreflightCacheValue::Skip {
                                             cached_limit: exec_limit_cycles,
@@ -2181,7 +2181,9 @@ pub(crate) mod tests {
         // Since we know the stake reward is constant, and we know our min_mycle_price_stake_token
         // the execution limit check tells us if the order is profitable or not, since it computes the max number
         // of cycles that can be proven while keeping the order profitable.
-        assert!(logs_contain(&format!("Skipping order {order_id} due to session limit exceeded")));
+        assert!(logs_contain(&format!(
+            "Skipping order {order_id} due to intentional execution limit of"
+        )));
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
@@ -2375,7 +2377,9 @@ pub(crate) mod tests {
         assert!(logs_contain(&format!(
             "Starting preflight execution of {order2_id} with limit of 32 cycles"
         )));
-        assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
+        assert!(logs_contain(&format!(
+            "Skipping order {order2_id} due to intentional execution limit of"
+        )));
     }
 
     #[tokio::test]
