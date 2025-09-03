@@ -120,3 +120,50 @@ impl GlobalConfig {
         self.client_builder_with_signer()?.build().await.context("Failed to build Boundless client")
     }
 }
+
+/// Configuration options for commands that utilize proving.
+#[derive(Args, Debug, Clone)]
+pub struct ProverConfig {
+        /// Bento API URL
+        ///
+        /// URL at which your Bento cluster is running.
+        #[clap(long, env = "BONSAI_API_URL", visible_alias = "bonsai-api-url", default_value = "http://localhost:8081")]
+        pub bento_api_url: String,
+
+        /// Bento API Key
+        ///
+        /// Not necessary if using Bento without authentication, which is the default.
+        #[clap(long, env = "BONSAI_API_KEY", visible_alias = "bonsai-api-key", hide_env_values = true)]
+        pub bento_api_key: Option<String>,
+
+        /// Use the default prover instead of defaulting to Bento.
+        ///
+        /// When enabled, the prover selection follows the default zkVM behavior
+        /// based on environment variables like RISC0_PROVER, RISC0_DEV_MODE, etc.
+        #[clap(long, conflicts_with = "bento_api_url")]
+        pub use_default_prover: bool,
+}
+
+impl ProverConfig {
+    /// Sets environment variables BONSAI_API_URL and BONSAI_API_KEY environmen variables that are
+    /// read by `default_prover()` when constructing the prover. Note that this is the only builtin
+    /// way to do this.
+    pub fn configure_proving_backend(&self) {
+        if self.use_default_prover {
+            tracing::info!(
+                "Using default prover behavior (respects RISC0_PROVER, RISC0_DEV_MODE, etc.)"
+            );
+            return;
+        }
+
+        tracing::info!("Using Bento endpoint: {}", self.bento_api_url);
+        std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
+        if let Some(ref api_key) = self.bento_api_key {
+            std::env::set_var("BONSAI_API_KEY", api_key);
+        } else {
+            tracing::debug!("Assuming Bento, setting BONSAI_API_KEY to empty string");
+            std::env::set_var("BONSAI_API_KEY", "");
+        }
+    }
+}
+

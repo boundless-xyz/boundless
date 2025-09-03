@@ -62,7 +62,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_cli::{convert_timestamp, DefaultProver, OrderFulfilled};
+use boundless_cli::{config::ProverConfig, convert_timestamp, DefaultProver, OrderFulfilled};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -251,24 +251,8 @@ enum ProvingCommands {
         #[arg(long, value_delimiter = ',')]
         request_ids: Vec<U256>,
 
-        /// Bonsai API URL
-        ///
-        /// Toggling this disables Bento proving and uses Bonsai as a backend
-        #[clap(env = "BONSAI_API_URL")]
-        bonsai_api_url: Option<String>,
-
-        /// Bonsai API Key
-        ///
-        /// Not necessary if using Bento without authentication, which is the default.
-        #[clap(env = "BONSAI_API_KEY", hide_env_values = true)]
-        bonsai_api_key: Option<String>,
-
-        /// Use the default prover instead of defaulting to Bento.
-        ///
-        /// When enabled, the prover selection follows the default zkVM behavior
-        /// based on environment variables like RISC0_PROVER, RISC0_DEV_MODE, etc.
-        #[clap(long, default_value = "false")]
-        use_default_prover: bool,
+        #[clap(flatten)]
+        prover_config: ProverConfig,
     },
     /// Fulfill one or more proof requests using the RISC Zero zkVM default prover.
     ///
@@ -298,24 +282,8 @@ enum ProvingCommands {
         #[arg(long, default_value = "false")]
         withdraw: bool,
 
-        /// Bonsai API URL
-        ///
-        /// Toggling this disables Bento proving and uses Bonsai as a backend
-        #[clap(env = "BONSAI_API_URL")]
-        bonsai_api_url: Option<String>,
-
-        /// Bonsai API Key
-        ///
-        /// Not necessary if using Bento without authentication, which is the default.
-        #[clap(env = "BONSAI_API_KEY", hide_env_values = true)]
-        bonsai_api_key: Option<String>,
-
-        /// Use the default prover instead of defaulting to Bento.
-        ///
-        /// When enabled, the prover selection follows the default zkVM behavior
-        /// based on environment variables like RISC0_PROVER, RISC0_DEV_MODE, etc.
-        #[clap(long, default_value = "false")]
-        use_default_prover: bool,
+        #[clap(flatten)]
+        prover_config: ProverConfig,
     },
 
     /// Lock a request in the market
@@ -452,18 +420,6 @@ async fn main() -> Result<()> {
 }
 
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
-    // If using one of the subcommands that has a storage config option, use it. Otherwise, use
-    // `Default`, which is to have no storage provider.
-    // DO NOT MERGE
-    let _storage_config = match args.command {
-        Command::Request(ref req_cmd) => match **req_cmd {
-            RequestCommands::Submit { ref storage_config, .. } => (**storage_config).clone(),
-            RequestCommands::SubmitOffer(ref args) => args.storage_config.clone(),
-            _ => StorageProviderConfig::default(),
-        },
-        _ => StorageProviderConfig::default(),
-    };
-
     match &args.command {
         Command::Account(account_cmd) => handle_account_command(account_cmd, &args.config).await,
         Command::Request(request_cmd) => handle_request_command(request_cmd, &args.config).await,
@@ -707,9 +663,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             request_digests,
             tx_hashes,
             withdraw,
-            bonsai_api_url,
-            bonsai_api_key,
-            use_default_prover,
+            prover_config
         } => {
             let client = config.build_client_with_signer().await?;
             if request_digests.is_some()
@@ -726,7 +680,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             tracing::info!("Fulfilling proof requests {}", request_ids_string);
 
             // Configure proving backend (defaults to bento like benchmark command)
-            configure_proving_backend(bonsai_api_url, bonsai_api_key, *use_default_prover);
+            prover_config.configure_proving_backend();
 
             let (_, market_url) = client.boundless_market.image_info().await?;
             tracing::debug!("Fetching Assessor program from {}", market_url);
@@ -838,40 +792,12 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
         }
         ProvingCommands::Benchmark {
             request_ids,
-            bonsai_api_url,
-            bonsai_api_key,
-            use_default_prover,
+            prover_config
         } => {
             let client = config.build_client().await?;
-            benchmark(client, request_ids, bonsai_api_url, bonsai_api_key, *use_default_prover)
+            benchmark(client, request_ids, prover_config)
                 .await
         }
-    }
-}
-
-/// Configure proving backend to default to Bento unless Bonsai is explicitly specified or default prover is requested
-fn configure_proving_backend(
-    bonsai_api_url: &Option<String>,
-    bonsai_api_key: &Option<String>,
-    use_default_prover: bool,
-) {
-    if use_default_prover {
-        tracing::info!(
-            "Using default prover behavior (respects RISC0_PROVER, RISC0_DEV_MODE, etc.)"
-        );
-        return;
-    }
-
-    const DEFAULT_BENTO_API_URL: &str = "http://localhost:8081";
-    if let Some(url) = bonsai_api_url.as_ref() {
-        tracing::info!("Using Bonsai endpoint: {}", url);
-    } else {
-        tracing::info!("Defaulting to Bento endpoint: {}", DEFAULT_BENTO_API_URL);
-        std::env::set_var("BONSAI_API_URL", DEFAULT_BENTO_API_URL);
-    };
-    if bonsai_api_key.is_none() {
-        tracing::debug!("Assuming Bento, setting BONSAI_API_KEY to empty string");
-        std::env::set_var("BONSAI_API_KEY", "");
     }
 }
 
@@ -879,16 +805,17 @@ fn configure_proving_backend(
 async fn benchmark<P: Provider + Clone + 'static>(
     client: Client<P, impl Any, impl Any, impl Any>,
     request_ids: &[U256],
-    bonsai_api_url: &Option<String>,
-    bonsai_api_key: &Option<String>,
-    use_default_prover: bool,
+    prover_config: &ProverConfig,
 ) -> Result<()> {
     tracing::info!("Starting benchmark for {} requests", request_ids.len());
     if request_ids.is_empty() {
         bail!("No request IDs provided");
     }
 
-    configure_proving_backend(bonsai_api_url, bonsai_api_key, use_default_prover);
+    if prover_config.use_default_prover {
+        bail!("benchmark command does not support using the default prover");
+    }
+    prover_config.configure_proving_backend();
     let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
 
     // Track performance metrics across all runs
@@ -2013,9 +1940,11 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: false,
-                bonsai_api_url: None,
-                bonsai_api_key: None,
-                use_default_prover: true,
+                prover_config: ProverConfig {
+                    bento_api_key: None,
+                    bento_api_url: "".to_string(),
+                    use_default_prover: true,
+                }
             })),
         })
         .await
@@ -2088,9 +2017,11 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: false,
-                bonsai_api_url: None,
-                bonsai_api_key: None,
-                use_default_prover: true,
+                prover_config: ProverConfig {
+                    bento_api_key: None,
+                    bento_api_url: "".to_string(),
+                    use_default_prover: true,
+                }
             })),
         })
         .await
@@ -2169,9 +2100,11 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: false,
-                bonsai_api_url: None,
-                bonsai_api_key: None,
-                use_default_prover: true,
+                prover_config: ProverConfig {
+                    bento_api_key: None,
+                    bento_api_url: "".to_string(),
+                    use_default_prover: true,
+                }
             })),
         })
         .await
@@ -2226,9 +2159,11 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: false,
-                bonsai_api_url: None,
-                bonsai_api_key: None,
-                use_default_prover: true,
+                prover_config: ProverConfig {
+                    bento_api_key: None,
+                    bento_api_url: "".to_string(),
+                    use_default_prover: true,
+                }
             })),
         })
         .await
@@ -2322,9 +2257,11 @@ mod tests {
                 request_digests: None,
                 tx_hashes: None,
                 withdraw: true,
-                bonsai_api_url: None,
-                bonsai_api_key: None,
-                use_default_prover: true,
+                prover_config: ProverConfig {
+                    bento_api_key: None,
+                    bento_api_url: "".to_string(),
+                    use_default_prover: true,
+                }
             })),
         })
         .await
