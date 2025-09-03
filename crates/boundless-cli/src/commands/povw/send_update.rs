@@ -36,7 +36,7 @@ use crate::config::{GlobalConfig, ProverConfig};
 #[derive(Args, Clone, Debug)]
 pub struct PovwSendUpdate {
     /// State of the work log, including receipts produced by the prove-update command.
-    #[arg( short, long, env = "POVW_STATE_PATH")]
+    #[arg(short, long, env = "POVW_STATE_PATH")]
     pub state: PathBuf,
 
     /// Private key used to sign work log updates. Should have an address equal to the work log ID.

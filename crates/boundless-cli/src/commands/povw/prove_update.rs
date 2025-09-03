@@ -28,7 +28,7 @@ pub struct PovwProveUpdate {
     new_log_id: Option<PovwLogId>,
 
     /// Path for the Log Builder receipt and work log state.
-    #[arg( short, long, env = "POVW_STATE_PATH")]
+    #[arg(short, long, env = "POVW_STATE_PATH")]
     state: PathBuf,
 
     /// Work receipt files to add to the work log.

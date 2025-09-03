@@ -340,27 +340,25 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
 
     // Run prove-update with --from-bento to create new work log
     let mut cmd = Command::cargo_bin("boundless")?;
-    let result = cmd.args([
-        "povw",
-        "prove-update",
-        "--new",
-        &format!("{:#x}", log_id),
-        "--state",
-        state_path.to_str().unwrap(),
-        "--from-bento",
-        "--from-bento-url",
-        &bento_url,
-    ])
-    .env("NO_COLOR", "1")
-    .env("RUST_LOG", "boundless_cli=debug,info")
-    .env("RISC0_DEV_MODE", "1")
-    .assert()
-    .success();
+    let result = cmd
+        .args([
+            "povw",
+            "prove-update",
+            "--new",
+            &format!("{:#x}", log_id),
+            "--state",
+            state_path.to_str().unwrap(),
+            "--from-bento",
+            "--from-bento-url",
+            &bento_url,
+        ])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .env("RISC0_DEV_MODE", "1")
+        .assert()
+        .success();
 
-    println!(
-        "command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Verify state after first update
     let state_1 = State::load(&state_path).await?;
@@ -473,10 +471,7 @@ async fn prove_update_from_bento_no_new_receipts() -> anyhow::Result<()> {
     // Should succeed with message about no receipts to process
     let result = result.success().stdout(predicates::str::contains("No work receipts to process"));
 
-    println!(
-        "command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Verify that state file was created but is empty (new work log)
     let state = State::load(&state_path).await?;
@@ -559,12 +554,10 @@ async fn prove_update_from_bento_multiple_log_ids() -> anyhow::Result<()> {
         .assert();
 
     // Should succeed and log warnings about skipping other log ID
-    let result = result.success().stdout(predicates::str::contains("Skipping receipts with log ID"));
+    let result =
+        result.success().stdout(predicates::str::contains("Skipping receipts with log ID"));
 
-    println!(
-        "command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Verify state was created with only the target receipts
     let state = State::load(&state_path).await?;

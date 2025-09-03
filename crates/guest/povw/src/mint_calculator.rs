@@ -15,8 +15,8 @@ use alloy_sol_types::sol;
 use risc0_povw::PovwLogId;
 use risc0_steel::{
     ethereum::{
-        EthChainSpec, EthEvmEnv, EthEvmInput, STEEL_TEST_PRAGUE_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC,
-        ETH_SEPOLIA_CHAIN_SPEC,
+        EthChainSpec, EthEvmEnv, EthEvmInput, ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
+        STEEL_TEST_PRAGUE_CHAIN_SPEC,
     },
     Commitment, StateDb, SteelVerifier,
 };
