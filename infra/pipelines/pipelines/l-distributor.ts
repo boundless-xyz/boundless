@@ -6,8 +6,8 @@ interface LDistributorPipelineArgs extends BasePipelineArgs { }
 
 const config: LaunchPipelineConfig = {
   appName: "distributor",
-  buildTimeout: 60,
-  computeType: "BUILD_GENERAL1_MEDIUM"
+  buildTimeout: 75,
+  computeType: "BUILD_GENERAL1_LARGE"
 };
 
 export class LDistributorPipeline extends LaunchBasePipeline {
