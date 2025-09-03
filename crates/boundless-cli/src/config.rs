@@ -126,7 +126,6 @@ impl GlobalConfig {
 pub struct ProverConfig {
     // NOTE: BONSAI_x environment variables are used to avoid breaking workflows when this changed
     // from "bonsai" to "bento". There is not a clap-native way of providing env var aliases.
-
     /// Bento API URL
     ///
     /// URL at which your Bento cluster is running.
@@ -136,7 +135,7 @@ pub struct ProverConfig {
         visible_alias = "bonsai-api-url",
         default_value = "http://localhost:8081"
     )]
-    pub bento_api_url: Url,
+    pub bento_api_url: String,
 
     /// Bento API Key
     ///

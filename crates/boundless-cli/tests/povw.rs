@@ -5,7 +5,7 @@ use std::path::Path;
 use alloy::{providers::ext::AnvilApi, signers::local::PrivateKeySigner};
 use assert_cmd::Command;
 use boundless_cli::commands::povw::State;
-use boundless_test_utils::povw::{make_work_claim, test_ctx};
+use boundless_test_utils::povw::{bento_mock::BentoMockServer, make_work_claim, test_ctx};
 use predicates::str::contains;
 use risc0_povw::PovwLogId;
 use risc0_zkvm::{FakeReceipt, GenericReceipt, ReceiptClaim, VerifierContext, WorkClaim};
@@ -301,5 +301,121 @@ fn make_fake_work_receipt_file(
     let work_claim = make_work_claim((log_id, rand::random()), segments, value)?; // 10 segments, 1000 value
     let work_receipt: GenericReceipt<WorkClaim<ReceiptClaim>> = FakeReceipt::new(work_claim).into();
     std::fs::write(path.as_ref(), bincode::serialize(&work_receipt)?)?;
+    Ok(())
+}
+
+/// Test prove-update command with Bento API integration
+#[tokio::test]
+async fn prove_update_from_bento() -> anyhow::Result<()> {
+    // 1. Set up the mock Bento server
+    let bento_server = BentoMockServer::new().await;
+    let bento_url = bento_server.base_url();
+
+    // Create a temp dir for state file
+    let temp_dir = TempDir::new()?;
+    let temp_path = temp_dir.path();
+    let state_path = temp_path.join("state.bin");
+
+    // Generate a work log ID
+    let signer = PrivateKeySigner::random();
+    let log_id: PovwLogId = signer.address().into();
+
+    // PHASE 1: Add one receipt and run prove-update
+    tracing::info!("=== Phase 1: Testing with single receipt ===");
+
+    // Add first work receipt to Bento
+    let work_claim_1 = make_work_claim((log_id, rand::random()), 10, 1000)?;
+    let work_receipt_1: GenericReceipt<WorkClaim<ReceiptClaim>> =
+        FakeReceipt::new(work_claim_1).into();
+    let receipt_id_1 = bento_server.add_work_receipt(&work_receipt_1)?;
+    tracing::info!("Added receipt 1 with ID: {}", receipt_id_1);
+
+    // Run prove-update with --from-bento to create new work log
+    let mut cmd = Command::cargo_bin("boundless")?;
+    cmd.args([
+        "povw",
+        "prove-update",
+        "--new",
+        &format!("{:#x}", log_id),
+        "--state",
+        state_path.to_str().unwrap(),
+        "--from-bento",
+        "--from-bento-url",
+        &bento_url,
+    ])
+    .env("NO_COLOR", "1")
+    .env("RUST_LOG", "boundless_cli=debug,info")
+    .env("RISC0_DEV_MODE", "1")
+    .assert()
+    .success();
+
+    // Verify state after first update
+    let state_1 = State::load(&state_path)?;
+    state_1.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+
+    // Should have 1 receipt and 1 log builder receipt (1 update)
+    assert_eq!(state_1.work_log.jobs.len(), 1, "Should have 1 job in work log");
+    assert_eq!(
+        state_1.log_builder_receipts.len(),
+        1,
+        "Should have 1 log builder receipt (1 update)"
+    );
+    tracing::info!("✓ Phase 1 complete: 1 receipt, 1 update");
+
+    // PHASE 2: Add three more receipts and run prove-update again
+    tracing::info!("=== Phase 2: Testing with three additional receipts ===");
+
+    // Add three more work receipts to Bento
+    let mut receipt_ids = vec![receipt_id_1];
+    for i in 2..=4 {
+        let work_claim = make_work_claim((log_id, rand::random()), 5, 500 + i * 100)?;
+        let work_receipt: GenericReceipt<WorkClaim<ReceiptClaim>> =
+            FakeReceipt::new(work_claim).into();
+        let receipt_id = bento_server.add_work_receipt(&work_receipt)?;
+        receipt_ids.push(receipt_id.clone());
+        tracing::info!("Added receipt {} with ID: {}", i, receipt_id);
+    }
+
+    assert_eq!(bento_server.receipt_count(), 4, "Should have 4 receipts in mock server");
+
+    // Run prove-update again (without --new, updating existing work log)
+    let mut cmd = Command::cargo_bin("boundless")?;
+    cmd.args([
+        "povw",
+        "prove-update",
+        "--state",
+        state_path.to_str().unwrap(),
+        "--from-bento",
+        "--from-bento-url",
+        &bento_url,
+    ])
+    .env("NO_COLOR", "1")
+    .env("RUST_LOG", "boundless_cli=debug,info")
+    .env("RISC0_DEV_MODE", "1")
+    .assert()
+    .success();
+
+    // Verify final state
+    let state_2 = State::load(&state_path)?;
+    state_2.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+
+    // Should have 4 receipts total and 2 log builder receipts (2 updates)
+    assert_eq!(state_2.work_log.jobs.len(), 4, "Should have 4 jobs in work log");
+    assert_eq!(
+        state_2.log_builder_receipts.len(),
+        2,
+        "Should have 2 log builder receipts (2 updates)"
+    );
+
+    // Verify that the work log commitment changed (indicating the receipts were processed)
+    assert_ne!(
+        state_1.work_log.commit(),
+        state_2.work_log.commit(),
+        "Work log commit should have changed after adding more receipts"
+    );
+
+    tracing::info!("✓ Phase 2 complete: 4 total receipts, 2 total updates");
+    tracing::info!("✓ Test completed successfully!");
+
     Ok(())
 }
