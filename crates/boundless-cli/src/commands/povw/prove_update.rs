@@ -112,6 +112,8 @@ impl PovwProveUpdate {
         tracing::info!("Loaded {} work receipts", work_receipts.len());
         if work_receipts.is_empty() {
             tracing::info!("No work receipts to process");
+            // Save the state file anyway, to create an empty one if it does not yet exist.
+            state.save(&self.state).context("Failed to save state")?;
             return Ok(());
         }
 

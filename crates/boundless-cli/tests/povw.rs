@@ -60,7 +60,7 @@ fn prove_update_basic() -> anyhow::Result<()> {
     .success();
 
     // Verify state file was created and is valid.
-    State::load(&state_path)?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+    State::load(&state_path).await?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // 4. Make another receipt and save it to the temp dir
     let receipt2_path = temp_path.join("receipt2.bin");
@@ -81,7 +81,7 @@ fn prove_update_basic() -> anyhow::Result<()> {
     .assert()
     .success();
 
-    State::load(&state_path)?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+    State::load(&state_path).await?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     Ok(())
 }
@@ -125,7 +125,7 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
     .success();
 
     // Verify state file was created and is valid.
-    State::load(&state_path)?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
+    State::load(&state_path).await?.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // 3. Use the send-update command to post an update to the PoVW accounting contract
     let mut cmd = Command::cargo_bin("boundless")?;
@@ -144,7 +144,7 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         .stdout(contains("updated_commit"));
 
     // Additional verification: Load the state and check that the work log commit matches onchain
-    let state = State::load(&state_path)?;
+    let state = State::load(&state_path).await?;
     state.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
     let expected_commit = state.work_log.commit();
     let onchain_commit = ctx.povw_accounting.workLogCommit(log_id.into()).call().await?;
@@ -350,7 +350,7 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
     .success();
 
     // Verify state after first update
-    let state_1 = State::load(&state_path)?;
+    let state_1 = State::load(&state_path).await?;
     state_1.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // Should have 1 receipt and 1 log builder receipt (1 update)
@@ -396,7 +396,7 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
     .success();
 
     // Verify final state
-    let state_2 = State::load(&state_path)?;
+    let state_2 = State::load(&state_path).await?;
     state_2.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // Should have 4 receipts total and 2 log builder receipts (2 updates)
