@@ -24,6 +24,9 @@ jobs:
   build-broker:
     name: Build Broker
     runs-on: ubuntu-latest
+    permissions:
+      contents: read    # Required for checkout
+      id-token: write   # Required for OIDC authentication with AWS
     strategy:
       matrix:
         target:

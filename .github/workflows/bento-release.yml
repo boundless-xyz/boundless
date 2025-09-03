@@ -24,6 +24,9 @@ jobs:
   build-bento:
     name: Build Bento Components
     runs-on: ubuntu-latest
+    permissions:
+      contents: read    # Required for checkout
+      id-token: write   # Required for OIDC authentication with AWS
     strategy:
       matrix:
         target:
@@ -59,7 +62,6 @@ jobs:
           echo "=== CUDA Paths ==="
           ls -la /usr/local/cuda/bin/ || echo "CUDA bin not found"
           ls -la /usr/bin/gcc || echo "System gcc not found"
-
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
