@@ -124,6 +124,9 @@ impl GlobalConfig {
 /// Configuration options for commands that utilize proving.
 #[derive(Args, Debug, Clone)]
 pub struct ProverConfig {
+    // NOTE: BONSAI_x environment variables are used to avoid breaking workflows when this changed
+    // from "bonsai" to "bento". There is not a clap-native way of providing env var aliases.
+
     /// Bento API URL
     ///
     /// URL at which your Bento cluster is running.
@@ -162,7 +165,7 @@ impl ProverConfig {
         }
 
         tracing::info!("Using Bento endpoint: {}", self.bento_api_url);
-        std::env::set_var("BONSAI_API_URL", &self.bento_api_url.to_string());
+        std::env::set_var("BONSAI_API_URL", self.bento_api_url.to_string());
         if let Some(ref api_key) = self.bento_api_key {
             std::env::set_var("BONSAI_API_KEY", api_key);
         } else {
