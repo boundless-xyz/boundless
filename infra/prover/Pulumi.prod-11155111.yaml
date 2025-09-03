@@ -4,7 +4,7 @@ config:
   aws:region: us-west-2
   base-prover:CHAIN_ID: "11155111"
   base-prover:DOCKER_DIR: "../../"
-  base-prover:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64
+  base-prover:SET_VERIFIER_ADDR: 0xcb9D14347b1e816831ECeE46EC199144F360B55c
   base-prover:BOUNDLESS_MARKET_ADDR: 0x13337C76fE2d1750246B68781ecEe164643b98Ec
   base-prover:ORDER_STREAM_URL: https://eth-sepolia.beboundless.xyz
   base-prover:DOCKER_TAG: latest
