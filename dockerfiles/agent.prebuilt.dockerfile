@@ -5,8 +5,10 @@ ARG CUDA_RUNTIME_IMG=nvidia/cuda:12.9.1-runtime-ubuntu24.04
 FROM ${CUDA_RUNTIME_IMG}
 
 ARG BINARY_URL
+
+# Install runtime dependencies matching non-prebuilt version
 RUN apt-get update && \
-    apt-get install -y curl tar && \
+    apt-get install -y ca-certificates libssl3 curl tar && \
     rm -rf /var/lib/apt/lists/*
 
 # Download and extract bento bundle tar.gz

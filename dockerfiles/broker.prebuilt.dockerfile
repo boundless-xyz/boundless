@@ -1,13 +1,14 @@
 # Dockerfile for pre-built broker binary
 # Usage: docker build -f dockerfiles/broker.prebuilt.dockerfile --build-arg BINARY_URL=<url> -t broker:prebuilt .
 
-FROM rust:1.88.0-bookworm
+# Use Ubuntu 24.04 for GLIBC 2.38+ compatibility
+FROM ubuntu:24.04
 
 ARG BINARY_URL
 
-# Install dependencies (matching non-prebuilt version)
+# Install runtime dependencies matching non-prebuilt version
 RUN apt-get update && \
-    apt-get install -y awscli curl && \
+    apt-get install -y awscli curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Download broker binary directly
