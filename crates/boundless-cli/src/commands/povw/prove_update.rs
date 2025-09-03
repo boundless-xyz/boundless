@@ -29,7 +29,7 @@ pub struct PovwProveUpdate {
 
     /// Use a specific URL for fetching receipts from Bento, which may be different from the one
     /// used for proving. If not specified, the value of --bento-api-url will be used.
-    #[arg(long, group = "source", requires = "from-bento")]
+    #[arg(long, requires = "from_bento")]
     from_bento_url: Option<Url>,
 
     /// Create a new work log with the given work log identifier.
