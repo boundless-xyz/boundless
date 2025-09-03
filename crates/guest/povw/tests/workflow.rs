@@ -15,7 +15,7 @@ use boundless_povw_guests::{
 };
 use boundless_test_utils::povw::{make_work_claim, test_ctx};
 use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId};
-use risc0_steel::ethereum::ANVIL_CHAIN_SPEC;
+use risc0_steel::ethereum::STEEL_TEST_PRAGUE_CHAIN_SPEC;
 use risc0_zkvm::{default_prover, FakeReceipt, ProverOpts, VerifierContext};
 
 #[tokio::test]
@@ -102,7 +102,7 @@ async fn test_workflow() -> anyhow::Result<()> {
         .povw_accounting_address(*ctx.povw_accounting.address())
         .zkc_address(*ctx.zkc.address())
         .zkc_rewards_address(*ctx.zkc_rewards.address())
-        .chain_spec(ANVIL_CHAIN_SPEC.deref())
+        .chain_spec(STEEL_TEST_PRAGUE_CHAIN_SPEC.deref())
         .prover_opts(ProverOpts::default().with_dev_mode(true))
         .verifier_ctx(VerifierContext::default().with_dev_mode(true))
         .build()?;

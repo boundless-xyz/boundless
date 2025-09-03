@@ -2351,7 +2351,7 @@ dependencies = [
  "bitflags 2.9.4",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "lazy_static",
  "lazycell",
  "log",
@@ -2776,7 +2776,7 @@ dependencies = [
  "risc0-build-ethereum 3.0.1",
  "risc0-ethereum-contracts",
  "risc0-povw",
- "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=a44917a19e012ba10d4720095eb19fc9c66b7741)",
+ "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10)",
  "risc0-zkvm",
  "ruint",
  "serde",
@@ -2831,7 +2831,7 @@ dependencies = [
  "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
  "risc0-povw",
- "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=a44917a19e012ba10d4720095eb19fc9c66b7741)",
+ "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10)",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -5696,15 +5696,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
@@ -8562,7 +8553,7 @@ dependencies = [
 [[package]]
 name = "risc0-steel"
 version = "2.3.0"
-source = "git+https://github.com/boundless-xyz/steel?rev=a44917a19e012ba10d4720095eb19fc9c66b7741#a44917a19e012ba10d4720095eb19fc9c66b7741"
+source = "git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10#b251b3572cc004bc9f151be37dd59baaf9bbfe10"
 dependencies = [
  "alloy",
  "alloy-consensus",
@@ -11274,7 +11265,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0978bf7171b3d90bac376700cb56d606feb40f251a475a5d6634613564460b22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
