@@ -259,7 +259,7 @@ pub mod prover {
         #[builder(setter(into))]
         pub contract_address: Address,
         /// Address that should receive any associated PoVW rewards.
-        #[builder(setter(into))]
+        #[builder(setter(into), default)]
         pub value_recipient: Option<Address>,
         /// EIP-155 chain ID.
         pub chain_id: u64,
