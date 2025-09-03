@@ -36,7 +36,7 @@ use boundless_povw_guests::{
 };
 use derive_builder::Builder;
 use risc0_povw::{guest::RISC0_POVW_LOG_BUILDER_ID, PovwJobId};
-use risc0_steel::ethereum::{EthChainSpec, EthEvmEnv, ANVIL_CHAIN_SPEC};
+use risc0_steel::ethereum::{EthChainSpec, EthEvmEnv, STEEL_TEST_PRAGUE_CHAIN_SPEC};
 use risc0_zkvm::{
     default_executor, sha::Digestible, Digest, ExecutorEnv, ExitCode, FakeReceipt, InnerReceipt,
     MaybePruned, Receipt, ReceiptClaim, Work, WorkClaim,
@@ -71,8 +71,11 @@ pub struct TestCtx {
     pub povw_mint: IPovwMintInstance<DynProvider>,
 }
 
+/// Creates a new [TestCtx] with all the setup needed to test PoVW.
+///
+/// NOTE: The Avil chain created here uses a Steel test chain ID and the Prague hardfork.
 pub async fn test_ctx() -> anyhow::Result<TestCtx> {
-    let anvil = Anvil::new().spawn();
+    let anvil = Anvil::new().chain_id(STEEL_TEST_PRAGUE_CHAIN_SPEC.chain_id).prague().spawn();
     test_ctx_with(Mutex::new(anvil).into(), 0).await
 }
 
@@ -367,7 +370,7 @@ impl TestCtx {
 pub struct MintOptions {
     #[builder(setter(into), default)]
     epochs: Vec<U256>,
-    #[builder(default = "&ANVIL_CHAIN_SPEC")]
+    #[builder(default = "&STEEL_TEST_PRAGUE_CHAIN_SPEC")]
     chain_spec: &'static EthChainSpec,
     #[builder(setter(into), default)]
     work_log_filter: WorkLogFilter,

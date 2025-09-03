@@ -10,13 +10,12 @@ use std::{
     sync::LazyLock,
 };
 
-use alloy_chains::NamedChain;
 use alloy_primitives::{Address, ChainId, U256};
 use alloy_sol_types::sol;
 use risc0_povw::PovwLogId;
 use risc0_steel::{
     ethereum::{
-        EthChainSpec, EthEvmEnv, EthEvmInput, ANVIL_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC,
+        EthChainSpec, EthEvmEnv, EthEvmInput, STEEL_TEST_PRAGUE_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC,
         ETH_SEPOLIA_CHAIN_SPEC,
     },
     Commitment, StateDb, SteelVerifier,
@@ -50,9 +49,9 @@ sol!(
 /// A mapping of well-known chain IDs to their [EthChainSpec].
 pub static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(|| {
     BTreeMap::from([
-        (NamedChain::Mainnet as ChainId, ETH_MAINNET_CHAIN_SPEC.clone()),
-        (NamedChain::Sepolia as ChainId, ETH_SEPOLIA_CHAIN_SPEC.clone()),
-        (NamedChain::AnvilHardhat as ChainId, ANVIL_CHAIN_SPEC.clone()),
+        (ETH_MAINNET_CHAIN_SPEC.chain_id, ETH_MAINNET_CHAIN_SPEC.clone()),
+        (ETH_SEPOLIA_CHAIN_SPEC.chain_id, ETH_SEPOLIA_CHAIN_SPEC.clone()),
+        (STEEL_TEST_PRAGUE_CHAIN_SPEC.chain_id, STEEL_TEST_PRAGUE_CHAIN_SPEC.clone()),
     ])
 });
 
