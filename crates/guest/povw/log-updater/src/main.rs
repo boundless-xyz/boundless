@@ -1,3 +1,8 @@
+// Copyright 2025 RISC Zero, Inc.
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+
 use alloy_primitives::Address;
 use alloy_sol_types::SolValue;
 use boundless_povw_guests::log_updater::{

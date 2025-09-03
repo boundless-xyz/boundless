@@ -1,3 +1,8 @@
+// Copyright 2025 RISC Zero, Inc.
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+
 use std::collections::{btree_map, BTreeMap};
 
 use alloy_primitives::{Address, B256, U256};

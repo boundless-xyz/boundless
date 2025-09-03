@@ -1,6 +1,7 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 //! Shared library for the Log Updater guest between guest and host.
 

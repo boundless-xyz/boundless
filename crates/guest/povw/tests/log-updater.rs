@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 // TODO(povw): This test is fragile to changes in the RISC0_POVW_LOG_BUILDER_ID, because the ID
 // used here and the one used in the log updater guest may drift. Running the following command may
