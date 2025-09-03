@@ -164,7 +164,7 @@ impl ProverConfig {
         }
 
         tracing::info!("Using Bento endpoint: {}", self.bento_api_url);
-        std::env::set_var("BONSAI_API_URL", self.bento_api_url.to_string());
+        std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
         if let Some(ref api_key) = self.bento_api_key {
             std::env::set_var("BONSAI_API_KEY", api_key);
         } else {
