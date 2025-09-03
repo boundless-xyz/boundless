@@ -19,6 +19,7 @@ use std::{num::ParseIntError, time::Duration};
 use alloy::{providers::DynProvider, signers::local::PrivateKeySigner};
 use anyhow::{Context, Result};
 use clap::Args;
+use risc0_zkvm::ProverOpts;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
@@ -154,7 +155,7 @@ pub struct ProverConfig {
 
     /// Most commands run a health check on the prover by default. Set this flag to skip it.
     #[clap(long, env = "BENTO_SKIP_HEALTH_CHECK")]
-    pub skip_health_check: bool
+    pub skip_health_check: bool,
 }
 
 impl ProverConfig {
@@ -185,8 +186,9 @@ impl ProverConfig {
     /// This method is intended to give a slightly nicer error message if Bento is not running,
     /// expecially if they did not actually mean to use Bento.
     pub async fn configure_proving_backend_with_health_check(&self) -> anyhow::Result<()> {
-        // No health check is implemented for default prover.
-        if self.use_default_prover || self.skip_health_check {
+        // No health check is implemented for default prover. If dev mode is set, then we are going
+        // to use the dev mode prover anyway, so don't run the health check.
+        if self.use_default_prover || self.skip_health_check || ProverOpts::default().dev_mode() {
             return Ok(());
         }
 

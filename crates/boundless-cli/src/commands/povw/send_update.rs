@@ -157,7 +157,6 @@ impl PovwSendUpdate {
                 .context("Failed to build prover for Log Updater")?;
 
             // Sign and prove the authorized work log update.
-            // TODO(povw): Provide more info here.
             tracing::info!("Proving work log update");
             let prove_info = prover
                 .prove_update(receipt, work_log_signer)

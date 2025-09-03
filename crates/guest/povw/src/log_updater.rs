@@ -168,7 +168,6 @@ impl Input {
         Default::default()
     }
 
-    // TODO(povw): Use a non-anyhow error here?
     /// Serialize the input to a vector of bytes.
     pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
         borsh::to_vec(self).map_err(Into::into)

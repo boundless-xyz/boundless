@@ -57,13 +57,12 @@ pub struct PovwClaimReward {
     /// Address of the [IPovwMint] contract.
     #[clap(long, env = "POVW_MINT_ADDRESS")]
     pub povw_mint_address: Address,
-    /// Address of the [IZKC] contract to query.
+    /// Address of the ZKC contract to query.
     #[clap(long, env = "ZKC_ADDRESS")]
     pub zkc_address: Address,
-    // TODO(povw): Rename this field to veZKC or something?
-    /// Address of the [IZKCRewards] contract to query.
-    #[clap(long, env = "ZKC_REWARDS_ADDRESS")]
-    pub zkc_rewards_address: Address,
+    /// Address of the veZKC contract to query.
+    #[clap(long, env = "VEZKC_ADDRESS")]
+    pub vezkc_address: Address,
 
     /// Maximum number of days to consider for the reward claim.
     ///
@@ -72,6 +71,12 @@ pub struct PovwClaimReward {
     /// of days, this command will not scan for events in the full range.
     #[clap(long, default_value_t = 30)]
     pub days: u64,
+    /// Chunk size to use when querying the RPC node for events using `eth_getLogs`.
+    ///
+    /// If using a free-tier RPC provider, you may need to set this to a lower value. You may also
+    /// try raising this value to improve search time.
+    #[clap(long, default_value_t = 10000)]
+    pub event_query_chunk_size: u64,
 
     #[clap(flatten, next_help_heading = "Prover")]
     prover_config: ProverConfig,
@@ -145,6 +150,7 @@ impl PovwClaimReward {
             final_commit,
             latest_block_number,
             lower_limit_block_number,
+            self.event_query_chunk_size,
         )
         .await
         .context("Failed to search for WorkLogUpdated events")?;
@@ -166,6 +172,7 @@ impl PovwClaimReward {
             epochs,
             latest_block_number,
             lower_limit_block_number,
+            self.event_query_chunk_size,
         )
         .await
         .context("Failed to search for EpochFinalized events")?;
@@ -184,7 +191,7 @@ impl PovwClaimReward {
             .provider(provider.clone())
             .povw_accounting_address(self.povw_accounting_address)
             .zkc_address(self.zkc_address)
-            .zkc_rewards_address(self.zkc_rewards_address)
+            .zkc_rewards_address(self.vezkc_address)
             .chain_spec(chain_spec)
             .build()?;
 
@@ -304,6 +311,7 @@ async fn search_work_log_updated(
     final_commit: Digest,
     upper_limit_block_number: u64,
     lower_limit_block_number: u64,
+    chunk_size: u64,
 ) -> anyhow::Result<Vec<(WorkLogUpdated, u64)>> {
     let mut events = HashMap::<Digest, (WorkLogUpdated, u64)>::new();
     let search_predicate = |query_logs: &[(WorkLogUpdated, Log)]| {
@@ -333,6 +341,7 @@ async fn search_work_log_updated(
         filter,
         lower_limit_block_number,
         upper_limit_block_number,
+        chunk_size,
         search_predicate,
     )
     .await
@@ -359,6 +368,7 @@ async fn search_epoch_finalized(
     mut epochs: BTreeSet<U256>,
     upper_limit_block_number: u64,
     lower_limit_block_number: u64,
+    chunk_size: u64,
 ) -> anyhow::Result<BTreeMap<u64, EpochFinalized>> {
     let mut events = BTreeMap::<u64, EpochFinalized>::new();
     let search_predicate = |query_logs: &[(EpochFinalized, Log)]| {
@@ -389,6 +399,7 @@ async fn search_epoch_finalized(
         filter,
         lower_limit_block_number,
         upper_limit_block_number,
+        chunk_size,
         search_predicate,
     )
     .await
@@ -402,11 +413,9 @@ async fn search_events<P: Provider + Clone, E: SolEvent>(
     filter: Filter,
     lower_limit_block_number: u64,
     upper_limit_block_number: u64,
+    chunk_size: u64,
     mut f: impl FnMut(&[(E, Log)]) -> anyhow::Result<bool>,
 ) -> anyhow::Result<()> {
-    // TODO(povw): Make this configurable and raise the default.
-    const CHUNK_SIZE: u64 = 500;
-
     let mut upper_block = upper_limit_block_number;
     loop {
         // The scan has reach block 0. This can only really happen in tests.
@@ -421,7 +430,7 @@ async fn search_events<P: Provider + Clone, E: SolEvent>(
         // Calculate the block range to query: from lower_block to upper_block. Range is
         // inclusive of both lower and upper block.
         let lower_block =
-            u64::max(upper_block.saturating_sub(CHUNK_SIZE) + 1, lower_limit_block_number);
+            u64::max(upper_block.saturating_sub(chunk_size) + 1, lower_limit_block_number);
 
         // Set up the event filter for the specified block range
         tracing::debug!(range = ?(lower_block, upper_block), "Querying for events");

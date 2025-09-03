@@ -174,7 +174,6 @@ pub struct Input {
 }
 
 impl Input {
-    // TODO(povw): Use a non-anyhow error here?
     /// Serialize the input to a vector of bytes.
     pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
         postcard::to_allocvec(self).map_err(Into::into)
@@ -261,7 +260,6 @@ pub mod host {
         P: Provider + Clone + 'static,
         C: Clone + BlockHeaderCommit<EthBlockHeader>,
     {
-        // TODO(povw): Integrate this call into the construction of the input?
         /// Preflight the verification that the blocks in the multiblock environment form a
         /// subsequence of a single chain.
         ///
@@ -342,12 +340,10 @@ pub mod host {
         }
     }
 
-    // TODO(povw): Based on how this is implemented right now, the caller must provide a chain of block
+    // TODO: Based on how this is implemented right now, the caller must provide a chain of block
     // number that can be verified via chaining with SteelVerifier. This means, for example, if there
     // is a 3 days gap in the subsequence of blocks I am processing, I need to additionally provide 2-3
-    // more blocks in the middle of that gap. Additionally, using the history feature for the final
-    // commit is not supported, so if the last block is e.g. 36 days ago an additional block needs to be
-    // provided at the end that is within the EIP-4788 expiration time.
+    // more blocks in the middle of that gap.
     pub struct MultiblockEthEvmEnvBuilder<P: Provider, B, C> {
         builder: EthEvmEnvBuilder<P, B>,
         env: MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>,
