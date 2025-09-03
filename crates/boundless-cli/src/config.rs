@@ -121,6 +121,8 @@ impl GlobalConfig {
     }
 }
 
+const DEFAULT_BENTO_API_URL: &str = "http://localhost:8081";
+
 /// Configuration options for commands that utilize proving.
 #[derive(Args, Debug, Clone)]
 pub struct ProverConfig {
@@ -133,7 +135,7 @@ pub struct ProverConfig {
         long,
         env = "BONSAI_API_URL",
         visible_alias = "bonsai-api-url",
-        default_value = "http://localhost:8081"
+        default_value = DEFAULT_BENTO_API_URL
     )]
     pub bento_api_url: String,
 
@@ -149,6 +151,10 @@ pub struct ProverConfig {
     /// based on environment variables like RISC0_PROVER, RISC0_DEV_MODE, etc.
     #[clap(long, conflicts_with = "bento_api_url")]
     pub use_default_prover: bool,
+
+    /// Most commands run a health check on the prover by default. Set this flag to skip it.
+    #[clap(long, env = "BENTO_SKIP_HEALTH_CHECK")]
+    pub skip_health_check: bool
 }
 
 impl ProverConfig {
@@ -171,5 +177,35 @@ impl ProverConfig {
             tracing::debug!("No API key provided. Setting BONSAI_API_KEY to empty string");
             std::env::set_var("BONSAI_API_KEY", "");
         }
+    }
+
+    /// Sets environment variables to configure the prover (see [configure_proving_backend]) and
+    /// additionally runs a basic health check to make sure it can connect to Bento, if in use.
+    ///
+    /// This method is intended to give a slightly nicer error message if Bento is not running,
+    /// expecially if they did not actually mean to use Bento.
+    pub async fn configure_proving_backend_with_health_check(&self) -> anyhow::Result<()> {
+        // No health check is implemented for default prover.
+        if self.use_default_prover || self.skip_health_check {
+            return Ok(());
+        }
+
+        // NOTE: If they are using the default, it is more likely they don't have Bento running.
+        let using_default_url = self.bento_api_url == DEFAULT_BENTO_API_URL;
+
+        // Send a request to the /health endpoint.
+        let bento_url = Url::parse(&self.bento_api_url)
+            .with_context(|| format!("Failed to parse Bento API URL: {}", self.bento_api_url))?;
+        let health_check_url = bento_url.join("health")?;
+        reqwest::get(health_check_url.clone())
+            .await
+            .with_context(|| match using_default_url {
+                true => format!("Failed to send health check reqest to {health_check_url}; You can set --use-default-prover to use a local prover"),
+                false => format!("Failed to send health check reqest to {health_check_url}"),
+            })?
+            .error_for_status()
+            .context("Bento health check endpoint returned error status")?;
+
+        Ok(())
     }
 }
