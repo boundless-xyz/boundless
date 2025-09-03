@@ -7,7 +7,7 @@ config:
   order-stream:CHAIN_ID: "84532"
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
-  order-stream:MIN_BALANCE_RAW: "5000000"
+  order-stream:MIN_BALANCE_RAW: "5000000000000000000"
   order-stream:ORDER_STREAM_PING_TIME: "100"
   order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-stream:RDS_PASSWORD:

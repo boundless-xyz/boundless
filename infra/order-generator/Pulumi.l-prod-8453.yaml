@@ -5,6 +5,44 @@ config:
     secure: v1:UWKahVYfQMHlSj/5:srW5XQ49v8PXiu+7CmiQE3IB7UzRSE924iHHB/KIWnvvFYdGnMoqFXH3If+GiIi2SkwVI8FOQw4k4dQNWYSRTB2vD0dMJXyOA5AN
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   order-generator-onchain:PRIVATE_KEY:
-    secure: v1:whtyShNTMbfZqFQh:HexhoFXrCmB0Z8PM0MQg6u2PshBbH2glWXZBMt9sMk0osH/4L/3FVcK365zZmtPyHkeYNRN38qGnWzmRZymZGmAg6C0t5o5PWmVkRta9eCM=
+    secure: v1:3Smyp8guox7zLjqy:vZBnDSBp01WCSHFhjg+nwJwGvRt2E095+1SxYw5w2oSMnoqz4pFP+ttU2R+FXs3eB8kP158uLPjjPiTg0A0u/d9dOVrvlGKH+PxE75JK7nE=
   order-generator-offchain:PRIVATE_KEY:
-    secure: v1:/9C5+uU7vuMCCbOL:ns/i7G8ZOvZyykf760CQOrgllyPMwfaed0TXs21qncOADBi+e6cG60EnJRfxUH2gS/Bw7W5R0q7+TZsMn/6Q9rYiHFuKc0uGQLKKSJXeYjo=
+    secure: v1:oBU6mgDmu5InBGEV:TDz2uVO1zfQvf61xNeE2rW7YdWCgWVQZpUqnbqFeJRZ2kfCNgLfI5T4+QUZHz84ZIIcdkBeWN8r/5jlWNYU0xDaZY4T9J6ra/NaiDnk/C+I=
+  aws:region: us-west-2
+  order-generator-base:BASE_STACK: organization/bootstrap/services-prod
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8
+  order-generator-base:CHAIN_ID: "8453"
+  order-generator-base:DOCKER_DIR: ../../
+  order-generator-base:DOCKER_TAG: latest
+  order-generator-base:GH_TOKEN_SECRET:
+    secure: v1:W8jLVMFnXDFMfl+5:dejyGpk4g1zqvpGOdX1GMMS7ustfapAgSCdlhKIQkIlwQcZ1o7W7y3jUQ6jO8UoKvjWxgV2m2eMmRG0t2a5/uAeX/8/HUaaED1ngR1akFDpETJU5JrdQb2vpEX7lBS6x9RNz78wY+xgoSlYjww==
+  order-generator-base:INTERVAL: "11"
+  order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
+  order-generator-base:LOCK_STAKE_RAW: "3500000000000000000"
+  order-generator-base:LOCK_TIMEOUT: "900"
+  order-generator-base:LOG_LEVEL: info
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.0000002"
+  order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
+  order-generator-base:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
+  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  order-generator-base:PINATA_JWT:
+    secure: v1:wOJUhapOWpVScxx5:9ws7QAOS62UNKJmhQP9tdl1aQosT+BRovdoYv9HYNLApYkx6dzGguK9o/IdNdjzfd2rspTpVyvHX7MlP4LYoPgOf9j3L048G8vTxNZ5g0MqZDS5Rhx+gdmRqj3SRglfOIkD/AEcpCba3GNBmAi5+9x3QXEQerKAKJ4EpLpnez1sJs9WOdTG40YbM54qZlzwbdU/EOsWxAuWKIFnPKwm7CPlNZ2lzmA0PzEgGbG77mhHrafNnuGXHc16iy/lvhEh6Qe13sXHJg+p4U29KAL8HWR+dkNytQLnU3UsPZQcx6QQLSJRFg0PLLlEZ/DEsAAXuqMbRPzAexF2qX65/52JGiv9ite2+zOL8zhfhjbbpVHVrcwcSVB87vpPEiOLIRPrZD8OjjtKBxw9mcBID6ysPZDjCsgXjjAn/WqilS4/m0aUMUnRcC2z+upAByCrWDXoTz5XrTy2wDFvHhtK5v2j/ETv/dXWZcFBpUK7o/5JhJ5NKuiOgNhPaPVo1/HJqQMY8lYArgyRs/8cDd5jbcQZ+dbI/sBYXkCI3Jdtgghk7ZOr22RxSOQZhiptr4fzgX/C6Mp3V2ln/90uY0+BOZUfC+Dqd4nFjWBeaY8NtAfJacAbI83eC9yH+HL0LphRhtjmWgfE2NXjSRv8g1bSsrVUrKh44RsSUjOSMMGJyd7ydXRT4gOUAt3whc01WtTlVzCgEx9OlUYx1IaLXh9kUdotNGGzE6IdUVk+JBlIzQbHwwPCSQ+2oLTMdbRiz/56HvUNFf0ENysCy+17uIpjlKT1i9yJCrEyRPAcBpIl7MPboTwG3a65/yGiqvoMSZrEhKXl8e/HHRPSNQsEhtphEJVNj7MyI17Q0UuIXsd1jjYUEGWBT2GutmHbActlH4As0cRB4HTcBoaJJhtfCzL0Izs04tsqgcKkCyBHh
+  order-generator-base:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  order-generator-base:TX_TIMEOUT: "90"
+  order-generator-offchain:AUTO_DEPOSIT: "0.015"
+  order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-offchain:EXEC_RATE_KHZ: "1000"
+  order-generator-offchain:INPUT_MAX_MCYCLES: "3000"
+  order-generator-offchain:LOCK_TIMEOUT: "900"
+  order-generator-offchain:RAMP_UP: "750"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "2"
+  order-generator-offchain:TIMEOUT: "1500"
+  order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
+  order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-onchain:EXEC_RATE_KHZ: "1000"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "5400"
+  order-generator-onchain:LOCK_TIMEOUT: "1200"
+  order-generator-onchain:RAMP_UP: "1200"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "5"
+  order-generator-onchain:TIMEOUT: "1800"
+  order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
