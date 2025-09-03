@@ -82,7 +82,6 @@ impl PovwClaimReward {
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
-        self.prover_config.configure_proving_backend();
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
@@ -179,6 +178,7 @@ impl PovwClaimReward {
                 .chain(epoch_events.keys().copied()),
         );
 
+        self.prover_config.configure_proving_backend();
         let mint_calculator_prover = MintCalculatorProver::builder()
             .prover(default_prover())
             .provider(provider.clone())
