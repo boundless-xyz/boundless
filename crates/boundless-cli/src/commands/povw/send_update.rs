@@ -36,7 +36,7 @@ use crate::config::{GlobalConfig, ProverConfig};
 #[derive(Args, Clone, Debug)]
 pub struct PovwSendUpdate {
     /// State of the work log, including receipts produced by the prove-update command.
-    #[arg(short, long)]
+    #[arg( short, long, env = "POVW_STATE_PATH")]
     pub state: PathBuf,
 
     /// Private key used to sign work log updates. Should have an address equal to the work log ID.
@@ -46,7 +46,7 @@ pub struct PovwSendUpdate {
     pub work_log_private_key: Option<PrivateKeySigner>,
 
     /// The address to assign any PoVW rewards to. If not provided, defaults to the work log ID.
-    #[clap(short, long)]
+    #[clap(short, long, env = "POVW_VALUE_RECIPIENT")]
     pub value_recipient: Option<Address>,
 
     // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.

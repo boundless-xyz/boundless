@@ -15,7 +15,23 @@ use super::{State, WorkReceipt};
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct PovwProveUpdate {
-    /// Serialized work receipt files to add to the work log.
+    /// Create a new work log with the given work log identifier.
+    ///
+    /// The work log identifier is a 160-bit public key hash (i.e. an Ethereum address) which is
+    /// used to identify the work log. A work log is a collection of work claims, including their
+    /// value and nonces. A single work log can only include a nonce (and so a receipt) once.
+    ///
+    /// A prover may have one or more work logs, and may set the work log ID equal to their onchain
+    /// prover address, or to a new address just used as the work log ID.
+    /// If this not set, then the state file must exist.
+    #[arg(short, long = "new")]
+    new_log_id: Option<PovwLogId>,
+
+    /// Path for the Log Builder receipt and work log state.
+    #[arg( short, long, env = "POVW_STATE_PATH")]
+    state: PathBuf,
+
+    /// Work receipt files to add to the work log.
     #[arg(id = "work_receipts", group = "source")]
     work_receipts_files: Vec<PathBuf>,
 
@@ -31,22 +47,6 @@ pub struct PovwProveUpdate {
     /// used for proving. If not specified, the value of --bento-api-url will be used.
     #[arg(long, requires = "from_bento")]
     from_bento_url: Option<Url>,
-
-    /// Create a new work log with the given work log identifier.
-    ///
-    /// The work log identifier is a 160-bit public key hash (i.e. an Ethereum address) which is
-    /// used to identify the work log. A work log is a collection of work claims, including their
-    /// value and nonces. A single work log can only include a nonce (and so a receipt) once.
-    ///
-    /// A prover may have one or more work logs, and may set the work log ID equal to their onchain
-    /// prover address, or to a new address just used as the work log ID.
-    /// If this not set, then the state file must exist.
-    #[arg(short, long = "new")]
-    new_log_id: Option<PovwLogId>,
-
-    /// Path for the Log Builder receipt and work log state.
-    #[arg(short, long)]
-    state: PathBuf,
 
     /// If set and there is an error loading a receipt, process all receipts that were loaded correctly.
     #[arg(long)]
