@@ -476,3 +476,258 @@ pub fn make_work_claim(
         .into(),
     })
 }
+
+/// Mock Bento API server for testing work receipt endpoints
+pub mod bento_mock {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
+
+    use risc0_zkvm::{GenericReceipt, ReceiptClaim, WorkClaim};
+    use serde::{Deserialize, Serialize};
+    use uuid::Uuid;
+    use wiremock::{
+        matchers::{method, path, path_regex},
+        Mock, MockServer, Request, ResponseTemplate,
+    };
+
+    /// Work receipt info matching Bento API format
+    /// Copied from bento/crates/api/src/lib.rs
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct WorkReceiptInfo {
+        pub key: String,
+        /// PoVW log ID if PoVW is enabled, None otherwise
+        pub povw_log_id: Option<String>,
+        /// PoVW job number if PoVW is enabled, None otherwise
+        pub povw_job_number: Option<String>,
+    }
+
+    /// Work receipt list matching Bento API format
+    /// Copied from bento/crates/api/src/lib.rs
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct WorkReceiptList {
+        pub receipts: Vec<WorkReceiptInfo>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct WorkReceiptEntry {
+        receipt_bytes: Vec<u8>,
+        info: WorkReceiptInfo,
+    }
+
+    /// Mock Bento server that provides work receipt endpoints compatible with the real Bento API
+    pub struct BentoMockServer {
+        server: MockServer,
+        /// Storage for work receipts: receipt_id -> (bincode serialized receipt bytes, metadata)
+        receipts: Arc<Mutex<HashMap<String, WorkReceiptEntry>>>,
+    }
+
+    impl BentoMockServer {
+        /// Create a new mock Bento server
+        pub async fn new() -> Self {
+            let server = MockServer::start().await;
+            let receipts = Arc::new(Mutex::new(HashMap::new()));
+
+            let mock_server = Self { server, receipts };
+
+            mock_server.setup_mocks().await;
+            mock_server
+        }
+
+        /// Get the base URL of the mock server
+        pub fn base_url(&self) -> String {
+            self.server.uri()
+        }
+
+        /// Add a work receipt to the mock server
+        /// Returns the receipt ID that can be used to retrieve it
+        /// Extracts job number from the work receipt's work claim
+        pub fn add_work_receipt(
+            &self,
+            receipt: &GenericReceipt<WorkClaim<ReceiptClaim>>,
+        ) -> anyhow::Result<String> {
+            let receipt_id = Uuid::new_v4().to_string();
+            let receipt_bytes = bincode::serialize(receipt)?;
+
+            // Extract job number from the work receipt. Format them to Strings as Bento does.
+            let work = receipt.claim().clone().value().and_then(|x| x.work.value()).ok();
+            let povw_job_number = work.as_ref().map(|x| format!("{}", x.nonce_min.job));
+            let povw_log_id = work.as_ref().map(|x| format!("{:#x}", x.nonce_min.log));
+
+            let receipt_info =
+                WorkReceiptInfo { key: receipt_id.clone(), povw_log_id, povw_job_number };
+
+            self.receipts.lock().unwrap().insert(
+                receipt_id.clone(),
+                WorkReceiptEntry { receipt_bytes, info: receipt_info.clone() },
+            );
+
+            tracing::debug!(
+                "Added work receipt with ID: {} (job: {:?})",
+                receipt_id,
+                receipt_info.povw_job_number
+            );
+            Ok(receipt_id)
+        }
+
+        /// Setup the wiremock endpoints
+        async fn setup_mocks(&self) {
+            self.setup_work_receipts_list_endpoint().await;
+            self.setup_work_receipt_get_endpoint().await;
+        }
+
+        /// Setup the GET /work-receipts endpoint
+        async fn setup_work_receipts_list_endpoint(&self) {
+            let receipts = self.receipts.clone();
+
+            Mock::given(method("GET"))
+                .and(path("/work-receipts"))
+                .respond_with(move |_req: &Request| {
+                    let receipts_guard = receipts.lock().unwrap();
+                    let receipt_infos: Vec<WorkReceiptInfo> =
+                        receipts_guard.values().map(|entry| entry.info.clone()).collect();
+                    let response_body = WorkReceiptList { receipts: receipt_infos };
+
+                    ResponseTemplate::new(200)
+                        .insert_header("content-type", "application/json")
+                        .set_body_json(response_body)
+                })
+                .mount(&self.server)
+                .await;
+        }
+
+        /// Setup the GET /work-receipts/:receipt_id endpoint
+        async fn setup_work_receipt_get_endpoint(&self) {
+            let receipts = self.receipts.clone();
+
+            Mock::given(method("GET"))
+                .and(path_regex(r"^/work-receipts/[a-f0-9-]+$"))
+                .respond_with(move |req: &Request| {
+                    let path = req.url.path();
+                    let receipt_id = path.strip_prefix("/work-receipts/").unwrap();
+
+                    let receipts_guard = receipts.lock().unwrap();
+                    if let Some(entry) = receipts_guard.get(receipt_id) {
+                        ResponseTemplate::new(200)
+                            .insert_header("content-type", "application/octet-stream")
+                            .set_body_bytes(entry.receipt_bytes.clone())
+                    } else {
+                        ResponseTemplate::new(404)
+                    }
+                })
+                .mount(&self.server)
+                .await;
+        }
+
+        /// Get the number of receipts stored
+        pub fn receipt_count(&self) -> usize {
+            self.receipts.lock().unwrap().len()
+        }
+
+        /// Clear all stored receipts
+        pub fn clear_receipts(&self) {
+            self.receipts.lock().unwrap().clear();
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::povw::make_work_claim;
+        use risc0_povw::PovwLogId;
+        use risc0_zkvm::{sha::Digestible, FakeReceipt, GenericReceipt};
+
+        #[tokio::test]
+        async fn test_bento_mock_server_basic() -> anyhow::Result<()> {
+            let server = BentoMockServer::new().await;
+
+            // Create a test work receipt
+            let log_id = PovwLogId::random();
+            let job_id = rand::random();
+            let work_claim = make_work_claim((log_id, job_id), 10, 1000)?;
+            let work_receipt = FakeReceipt::new(work_claim).into();
+
+            // Add the receipt to the mock server
+            let receipt_id = server.add_work_receipt(&work_receipt)?;
+
+            // Test listing work receipts
+            let list_url = format!("{}/work-receipts", server.base_url());
+            let response = reqwest::get(&list_url).await?;
+            assert_eq!(response.status(), 200);
+
+            let receipt_list: WorkReceiptList = response.json().await?;
+            assert_eq!(receipt_list.receipts.len(), 1);
+            assert_eq!(receipt_list.receipts[0].key, receipt_id);
+            assert_eq!(receipt_list.receipts[0].povw_log_id, Some(format!("{:#x}", log_id)));
+            assert_eq!(receipt_list.receipts[0].povw_job_number, Some(job_id.to_string()));
+
+            // Test fetching individual receipt
+            let get_url = format!("{}/work-receipts/{}", server.base_url(), receipt_id);
+            let response = reqwest::get(&get_url).await?;
+            assert_eq!(response.status(), 200);
+
+            let receipt_bytes = response.bytes().await?;
+            let retrieved_receipt: GenericReceipt<WorkClaim<ReceiptClaim>> =
+                bincode::deserialize(&receipt_bytes)?;
+
+            assert_eq!(retrieved_receipt.claim().digest(), work_receipt.claim().digest());
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_multiple_receipts() -> anyhow::Result<()> {
+            let server = BentoMockServer::new().await;
+
+            // Add multiple receipts
+            let mut receipt_ids = Vec::new();
+            for i in 0..3 {
+                let log_id = PovwLogId::random();
+                let work_claim = make_work_claim((log_id, rand::random()), 5, 500 + i * 100)?;
+                let work_receipt: GenericReceipt<WorkClaim<ReceiptClaim>> =
+                    FakeReceipt::new(work_claim).into();
+
+                let receipt_id =
+                    server.add_work_receipt(&work_receipt)?;
+                receipt_ids.push(receipt_id);
+            }
+
+            // Test that all receipts are listed
+            let list_url = format!("{}/work-receipts", server.base_url());
+            let response = reqwest::get(&list_url).await?;
+            let receipt_list: WorkReceiptList = response.json().await?;
+
+            assert_eq!(receipt_list.receipts.len(), 3);
+            assert_eq!(server.receipt_count(), 3);
+
+            // Test that each receipt can be retrieved individually
+            for receipt_id in &receipt_ids {
+                let get_url = format!("{}/work-receipts/{}", server.base_url(), receipt_id);
+                let response = reqwest::get(&get_url).await?;
+                assert_eq!(response.status(), 200);
+
+                // Should be able to deserialize as work receipt
+                let receipt_bytes = response.bytes().await?;
+                let _retrieved_receipt: GenericReceipt<WorkClaim<ReceiptClaim>> =
+                    bincode::deserialize(&receipt_bytes)?;
+            }
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_404_for_unknown_receipt() -> anyhow::Result<()> {
+            let server = BentoMockServer::new().await;
+
+            // Try to fetch a receipt that doesn't exist
+            let unknown_id = Uuid::new_v4().to_string();
+            let get_url = format!("{}/work-receipts/{}", server.base_url(), unknown_id);
+            let response = reqwest::get(&get_url).await?;
+
+            // Should return 404 for unknown receipt ID
+            assert_eq!(response.status(), 404);
+
+            Ok(())
+        }
+    }
+}
