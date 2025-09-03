@@ -23,7 +23,7 @@ env:
 jobs:
   build-bento:
     name: Build Bento Components
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: read    # Required for checkout
       id-token: write   # Required for OIDC authentication with AWS
@@ -88,6 +88,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Install protoc
+        run: |
+          curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
+          unzip protoc.zip -d /usr/local \
+          rm protoc.zip
+
       - name: Build Bento Components Bundle
         working-directory: bento
         env:
@@ -138,7 +144,7 @@ jobs:
     name: Create GitHub Release
     needs: build-bento
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/bento-v') && github.event.inputs.dry_run != 'true'
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: write
       id-token: write
