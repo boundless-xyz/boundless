@@ -22,7 +22,7 @@ use crate::config::GlobalConfig;
 /// Command to delegate rewards for ZKC.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
-pub struct DelegateRewards {
+pub struct ZkcDelegateRewards {
     /// Address of the [IRewards] contract.
     #[clap(long, env = "VEZKC_ADDRESS")]
     pub vezkc_address: Address,
@@ -31,7 +31,7 @@ pub struct DelegateRewards {
     pub address: Address,
 }
 
-impl DelegateRewards {
+impl ZkcDelegateRewards {
     /// Run the [DelegateRewards] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;

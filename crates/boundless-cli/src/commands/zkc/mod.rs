@@ -14,10 +14,10 @@
 
 //! Commands of the Boundless CLI for ZKC operations.
 
-mod rewards;
-mod staking;
-pub use rewards::DelegateRewards;
-pub use staking::Stake;
+mod delegate_rewards;
+mod stake;
+pub use delegate_rewards::ZkcDelegateRewards;
+pub use stake::ZkcStake;
 
 use clap::Subcommand;
 
@@ -26,18 +26,18 @@ use crate::config::GlobalConfig;
 /// Commands for ZKC operations.
 #[derive(Subcommand, Clone, Debug)]
 pub enum ZKCCommands {
-    /// Compress a directory of work receipts into a work log update.
-    Staking(Stake),
+    /// Stake ZKC tokens.
+    Stake(ZkcStake),
     /// Delegate rewards to a specified address.
-    Delegate(DelegateRewards),
+    DelegateRewards(ZkcDelegateRewards),
 }
 
 impl ZKCCommands {
     /// Run the command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         match self {
-            Self::Staking(cmd) => cmd.run(global_config).await,
-            Self::Delegate(cmd) => cmd.run(global_config).await,
+            Self::Stake(cmd) => cmd.run(global_config).await,
+            Self::DelegateRewards(cmd) => cmd.run(global_config).await,
         }
     }
 }

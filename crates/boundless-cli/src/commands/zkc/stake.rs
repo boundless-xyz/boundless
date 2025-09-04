@@ -27,7 +27,7 @@ use crate::config::GlobalConfig;
 /// Command to stake ZKC.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
-pub struct Stake {
+pub struct ZkcStake {
     /// Address of the [IStaking] contract.
     #[clap(long, env = "VEZKC_ADDRESS")]
     pub vezkc_address: Address,
@@ -50,7 +50,7 @@ pub struct WithPermit {
     pub deadline: u64,
 }
 
-impl Stake {
+impl ZkcStake {
     /// Run the [ZKCStake] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
