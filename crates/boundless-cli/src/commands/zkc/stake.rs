@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use alloy::{
+    network::Ethereum,
     primitives::{Address, B256, U256},
-    providers::{Provider, ProviderBuilder},
+    providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
 };
 use anyhow::{ensure, Context};
@@ -63,7 +64,7 @@ impl ZkcStake {
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
-        let (token_id, owner, amount) = match &self.permit {
+        let pending_tx = match &self.permit {
             Some(permit) => {
                 self.stake_with_permit(
                     provider,
@@ -71,33 +72,16 @@ impl ZkcStake {
                     self.amount,
                     &tx_signer,
                     permit.deadline,
-                    global_config.tx_timeout,
                 )
                 .await?
             }
-            None => self.stake(provider, self.amount, global_config.tx_timeout).await?,
+            None => self.stake(provider, self.amount).await?,
         };
-
-        tracing::info!(
-            "Staking completed: token_id = {token_id}, owner = {owner}, amount = {amount}"
-        );
-        Ok(())
-    }
-
-    async fn stake(
-        &self,
-        provider: impl Provider + Clone,
-        value: U256,
-        tx_timeout: Option<std::time::Duration>,
-    ) -> Result<(U256, Address, U256), anyhow::Error> {
-        let staking = IStaking::new(self.vezkc_address, provider);
-        let call = staking.stake(value);
-        let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx.tx_hash();
         tracing::info!(%tx_hash, "Sent transaction for staking");
 
-        let timeout = tx_timeout.or(pending_tx.timeout());
+        let timeout = global_config.tx_timeout.or(pending_tx.timeout());
 
         tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
         let tx_receipt = pending_tx
@@ -112,14 +96,27 @@ impl ZkcStake {
             tx_receipt.transaction_hash
         );
 
-        let result = match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt) {
+        let (token_id, owner, amount) = match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt)
+        {
             Ok(log) => {
                 (U256::from(log.inner.data.tokenId), log.inner.data.owner, log.inner.data.amount)
             }
             Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
         };
+        tracing::info!(
+            "Staking completed: token_id = {token_id}, owner = {owner}, amount = {amount}"
+        );
+        Ok(())
+    }
 
-        Ok(result)
+    async fn stake(
+        &self,
+        provider: impl Provider + Clone,
+        value: U256,
+    ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
+        let staking = IStaking::new(self.vezkc_address, provider);
+        let call = staking.stake(value);
+        Ok(call.send().await?)
     }
 
     async fn stake_with_permit(
@@ -129,8 +126,7 @@ impl ZkcStake {
         value: U256,
         signer: &impl Signer,
         deadline: u64,
-        tx_timeout: Option<std::time::Duration>,
-    ) -> Result<(U256, Address, U256), anyhow::Error> {
+    ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
         let contract = IERC20Permit::new(token_address, provider.clone());
         let owner = signer.address();
         let call = contract.nonces(owner);
@@ -147,33 +143,6 @@ impl ZkcStake {
         tracing::trace!("Calling depositStakeWithPermit({})", value);
         let staking = IStaking::new(self.vezkc_address, provider);
         let call = staking.stakeWithPermit(value, deadline, v, r, s);
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
-        let tx_hash = pending_tx.tx_hash();
-        tracing::info!(%tx_hash, "Sent transaction for staking");
-
-        let timeout = tx_timeout.or(pending_tx.timeout());
-
-        tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
-        let tx_receipt = pending_tx
-            .with_timeout(timeout)
-            .get_receipt()
-            .await
-            .context("Failed to receive receipt staking transaction")?;
-
-        ensure!(
-            tx_receipt.status(),
-            "Staking transaction failed: tx_hash = {}",
-            tx_receipt.transaction_hash
-        );
-
-        let result = match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt) {
-            Ok(log) => {
-                (U256::from(log.inner.data.tokenId), log.inner.data.owner, log.inner.data.amount)
-            }
-            Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
-        };
-
-        Ok(result)
+        Ok(call.send().await?)
     }
 }

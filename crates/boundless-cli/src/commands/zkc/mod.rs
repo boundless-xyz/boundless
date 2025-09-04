@@ -17,7 +17,7 @@
 mod delegate_rewards;
 mod stake;
 pub use delegate_rewards::ZkcDelegateRewards;
-pub use stake::ZkcStake;
+pub use stake::{WithPermit, ZkcStake};
 
 use clap::Subcommand;
 
