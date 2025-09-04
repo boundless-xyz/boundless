@@ -19,7 +19,7 @@ library PoVWLib {
         return value;
     }
 
-    /// @notice Validates that a bytes32 value is not zero, with descriptive error message  
+    /// @notice Validates that a bytes32 value is not zero, with descriptive error message
     function requireLib(bytes32 value, string memory label) internal pure returns (bytes32) {
         if (value == bytes32(0)) {
             console2.log("bytes32 value %s is required", label);
@@ -40,7 +40,7 @@ library PoVWLib {
     /// @notice Helper to convert string to lowercase for display
     function _toLowerCase(string memory str) internal pure returns (string memory) {
         bytes memory strBytes = bytes(str);
-        for (uint i = 0; i < strBytes.length; i++) {
+        for (uint256 i = 0; i < strBytes.length; i++) {
             if (strBytes[i] >= 0x41 && strBytes[i] <= 0x5A) {
                 strBytes[i] = bytes1(uint8(strBytes[i]) + 32);
             }
@@ -72,7 +72,9 @@ abstract contract PoVWScript is Script {
             console2.log("=================================================================");
             console2.log(string.concat("WARNING: ", actionType, " was done with uncommitted changes!"));
             console2.log(string.concat("- The ", actionType, " commit hash may not reflect actual code state"));
-            console2.log(string.concat("- Consider committing changes before production ", PoVWLib._toLowerCase(actionType), "s"));
+            console2.log(
+                string.concat("- Consider committing changes before production ", PoVWLib._toLowerCase(actionType), "s")
+            );
             console2.log("=================================================================");
         }
     }
@@ -84,7 +86,7 @@ abstract contract PoVWScript is Script {
             vm.rememberKey(privateKey);
             return vm.addr(privateKey);
         }
-        
+
         address deployer = vm.envOr("DEPLOYER_ADDRESS", address(0));
         require(deployer != address(0), "env var DEPLOYER_ADDRESS or DEPLOYER_PRIVATE_KEY required");
         return deployer;

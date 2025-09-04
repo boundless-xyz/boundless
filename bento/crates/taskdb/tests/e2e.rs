@@ -5,15 +5,16 @@
 
 use anyhow::Result;
 use sqlx::{
-    types::{JsonValue, Uuid},
     PgPool,
+    types::{JsonValue, Uuid},
 };
 use taskdb::{
+    ReadyTask, TaskState,
     planner::{
-        task::{Command as TaskCmd, Task},
         Planner,
+        task::{Command as TaskCmd, Task},
     },
-    test_helpers, ReadyTask, TaskState,
+    test_helpers,
 };
 
 #[sqlx::test()]
@@ -31,31 +32,20 @@ async fn e2e(pool: PgPool) -> Result<()> {
 
     // Stream for handling auxiliary tasks note: we could just overload the CPU
     // stream with aux tasks but it would not scale well
-    let aux_stream = taskdb::create_stream(&pool, aux_worker_type, 1, 1.0, user_id)
-        .await
-        .unwrap();
+    let aux_stream = taskdb::create_stream(&pool, aux_worker_type, 1, 1.0, user_id).await.unwrap();
 
     // CPU intensive tasks (executor)
-    let cpu_stream = taskdb::create_stream(&pool, cpu_worker_type, 1, 1.0, user_id)
-        .await
-        .unwrap();
+    let cpu_stream = taskdb::create_stream(&pool, cpu_worker_type, 1, 1.0, user_id).await.unwrap();
 
     // GPU workers for prove/lift/join
-    let gpu_stream = taskdb::create_stream(&pool, gpu_worker_type, 1, 1.0, user_id)
-        .await
-        .unwrap();
+    let gpu_stream = taskdb::create_stream(&pool, gpu_worker_type, 1, 1.0, user_id).await.unwrap();
 
     // Create a new workflow for a given customer
     let task_def = serde_json::json!({"image_id": image_id, "input_id": input_id});
-    taskdb::create_job(&pool, &aux_stream, &task_def, 0, 100, user_id)
-        .await
-        .unwrap();
+    taskdb::create_job(&pool, &aux_stream, &task_def, 0, 100, user_id).await.unwrap();
 
     // Init stage, spawn the executor task, move things into hot storage
-    let task = taskdb::request_work(&pool, aux_worker_type)
-        .await
-        .unwrap()
-        .unwrap();
+    let task = taskdb::request_work(&pool, aux_worker_type).await.unwrap().unwrap();
     // DO INIT TASKS HERE...
 
     // forward the taskdef on to the executor...
@@ -79,30 +69,11 @@ async fn e2e(pool: PgPool) -> Result<()> {
     );
 
     // Executor stage:
-    let exec_task = taskdb::request_work(&pool, cpu_worker_type)
-        .await
-        .unwrap()
-        .unwrap();
+    let exec_task = taskdb::request_work(&pool, cpu_worker_type).await.unwrap().unwrap();
 
     // Mock executor
-    assert_eq!(
-        exec_task
-            .task_def
-            .get("image_id")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        image_id
-    );
-    assert_eq!(
-        exec_task
-            .task_def
-            .get("input_id")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        input_id
-    );
+    assert_eq!(exec_task.task_def.get("image_id").unwrap().as_str().unwrap(), image_id);
+    assert_eq!(exec_task.task_def.get("input_id").unwrap().as_str().unwrap(), input_id);
 
     async fn process_task(
         pool: &PgPool,
@@ -237,45 +208,31 @@ async fn e2e(pool: PgPool) -> Result<()> {
         planner.enqueue_segment().unwrap();
 
         while let Some(tree_task) = planner.next_task() {
-            process_task(&pool, tree_task, &exec_task, &gpu_stream, &aux_stream)
-                .await
-                .unwrap();
+            process_task(&pool, tree_task, &exec_task, &gpu_stream, &aux_stream).await.unwrap();
         }
     }
 
     // Spawn final joins + finalize task
     planner.finish().unwrap();
     while let Some(tree_task) = planner.next_task() {
-        process_task(&pool, tree_task, &exec_task, &gpu_stream, &aux_stream)
-            .await
-            .unwrap();
+        process_task(&pool, tree_task, &exec_task, &gpu_stream, &aux_stream).await.unwrap();
     }
 
-    assert!(taskdb::update_task_done(
-        &pool,
-        &exec_task.job_id,
-        &exec_task.task_id,
-        JsonValue::default(),
-    )
-    .await
-    .unwrap());
+    assert!(
+        taskdb::update_task_done(
+            &pool,
+            &exec_task.job_id,
+            &exec_task.task_id,
+            JsonValue::default(),
+        )
+        .await
+        .unwrap()
+    );
 
     // Validate we have a terminal (finalize) node and its stats are correct:
-    let finalize = test_helpers::get_task(&pool, &task.job_id, "finalize")
-        .await
-        .unwrap();
+    let finalize = test_helpers::get_task(&pool, &task.job_id, "finalize").await.unwrap();
     assert_eq!(finalize.waiting_on, 1);
-    assert_eq!(
-        finalize
-            .prerequisites
-            .as_array()
-            .unwrap()
-            .first()
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "4"
-    );
+    assert_eq!(finalize.prerequisites.as_array().unwrap().first().unwrap().as_str().unwrap(), "4");
 
     // Mock GPU workers consuming the work items
     let mut idx = 0;
@@ -325,19 +282,18 @@ async fn e2e(pool: PgPool) -> Result<()> {
     }
 
     // grab the final task to perform finalization work..
-    let final_task = taskdb::request_work(&pool, aux_worker_type)
+    let final_task = taskdb::request_work(&pool, aux_worker_type).await.unwrap().unwrap();
+    assert_eq!(final_task.task_id, "finalize");
+    assert!(
+        taskdb::update_task_done(
+            &pool,
+            &final_task.job_id,
+            &final_task.task_id,
+            JsonValue::default(),
+        )
         .await
         .unwrap()
-        .unwrap();
-    assert_eq!(final_task.task_id, "finalize");
-    assert!(taskdb::update_task_done(
-        &pool,
-        &final_task.job_id,
-        &final_task.task_id,
-        JsonValue::default(),
-    )
-    .await
-    .unwrap());
+    );
 
     for task in test_helpers::get_tasks(&pool).await.unwrap() {
         // println!("{:?}", task);

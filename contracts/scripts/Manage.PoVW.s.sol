@@ -18,8 +18,6 @@ import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
 import {PoVWScript, PoVWLib} from "./PoVWLib.s.sol";
 
-
-
 /// @notice Upgrade script for the PovwAccounting contract.
 /// @dev Set values in deployment.toml to configure the upgrade.
 contract UpgradePoVWAccounting is PoVWScript {
@@ -30,20 +28,20 @@ contract UpgradePoVWAccounting is PoVWScript {
 
         // Get PoVW proxy address from deployment.toml
         address povwAccountingAddress = PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
-        
+
         // Get current admin from the proxy contract
         PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
         address currentAdmin = povwAccounting.owner();
-        
+
         address currentImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
 
         // Get constructor arguments for PovwAccounting
         IRiscZeroVerifier verifier = IRiscZeroVerifier(PoVWLib.requireLib(deploymentConfig.verifier, "verifier"));
-        
+
         // Handle ZKC address - if zero address, don't upgrade (production should have real ZKC)
         address zkcAddress = PoVWLib.requireLib(deploymentConfig.zkc, "zkc");
         IZKC zkc = IZKC(zkcAddress);
-        
+
         bytes32 logUpdaterId = PoVWLib.requireLib(deploymentConfig.povwLogUpdaterId, "povw-log-updater-id");
 
         UpgradeOptions memory opts;
@@ -79,7 +77,7 @@ contract UpgradePoVWAccounting is PoVWScript {
 
         vm.ffi(args);
         console2.log("Updated PovwAccounting deployment commit: %s", currentCommit);
-        
+
         // Check for uncommitted changes warning
         checkUncommittedChangesWarning("Upgrade");
     }
@@ -95,13 +93,13 @@ contract UpgradePoVWMint is PoVWScript {
 
         // Get PoVW proxy address from deployment.toml
         address povwMintAddress = PoVWLib.requireLib(deploymentConfig.povwMint, "povw-mint");
-        
+
         // Get current admin from the proxy contract
         PovwMint povwMint = PovwMint(povwMintAddress);
         console2.log("Getting admin");
         address currentAdmin = povwMint.owner();
         console2.log("Current PovwMint admin: %s", currentAdmin);
-        
+
         console2.log("Getting impl");
         address currentImplementation = Upgrades.getImplementationAddress(povwMintAddress);
 
@@ -109,13 +107,14 @@ contract UpgradePoVWMint is PoVWScript {
 
         // Get constructor arguments for PovwMint
         IRiscZeroVerifier verifier = IRiscZeroVerifier(PoVWLib.requireLib(deploymentConfig.verifier, "verifier"));
-        PovwAccounting povwAccounting = PovwAccounting(PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
+        PovwAccounting povwAccounting =
+            PovwAccounting(PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
         bytes32 mintCalculatorId = PoVWLib.requireLib(deploymentConfig.povwMintCalculatorId, "povw-mint-calculator-id");
-        
+
         // Handle ZKC addresses - if zero address, don't upgrade (production should have real ZKC)
         address zkcAddress = PoVWLib.requireLib(deploymentConfig.zkc, "zkc");
         address vezkcAddress = PoVWLib.requireLib(deploymentConfig.vezkc, "vezkc");
-        
+
         IZKC zkc = IZKC(zkcAddress);
         IZKCRewards vezkc = IZKCRewards(vezkcAddress);
 
@@ -152,7 +151,7 @@ contract UpgradePoVWMint is PoVWScript {
 
         vm.ffi(args);
         console2.log("Updated PovwMint deployment commit: %s", currentCommit);
-        
+
         // Check for uncommitted changes warning
         checkUncommittedChangesWarning("Upgrade");
     }
@@ -169,13 +168,13 @@ contract TransferPoVWOwnership is PoVWScript {
         address newAdmin = PoVWLib.requireLib(vm.envOr("NEW_ADMIN", address(0)), "NEW_ADMIN");
         address povwAccountingAddress = PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
         address povwMintAddress = PoVWLib.requireLib(deploymentConfig.povwMint, "povw-mint");
-        
+
         PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
         PovwMint povwMint = PovwMint(povwMintAddress);
 
         address currentAccountingAdmin = povwAccounting.owner();
         address currentMintAdmin = povwMint.owner();
-        
+
         require(newAdmin != currentAccountingAdmin, "current and new PovwAccounting admin address are the same");
         require(newAdmin != currentMintAdmin, "current and new PovwMint admin address are the same");
 
@@ -193,7 +192,6 @@ contract TransferPoVWOwnership is PoVWScript {
     }
 }
 
-
 /// @notice Rollback script for the PovwAccounting contract.
 /// @dev Set values in deployment.toml to configure the rollback.
 contract RollbackPoVWAccounting is PoVWScript {
@@ -203,7 +201,8 @@ contract RollbackPoVWAccounting is PoVWScript {
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
         address povwAccountingAddress = PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
-        address oldImplementation = PoVWLib.requireLib(deploymentConfig.povwAccountingOldImpl, "povw-accounting-old-impl");
+        address oldImplementation =
+            PoVWLib.requireLib(deploymentConfig.povwAccountingOldImpl, "povw-accounting-old-impl");
 
         // Get current admin from the proxy contract
         PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
@@ -260,9 +259,7 @@ contract RollbackPoVWMint is PoVWScript {
         address currentAdmin = povwMint.owner();
 
         require(oldImplementation != address(0), "old implementation address is not set");
-        console2.log(
-            "\nWARNING: This will rollback the PovwMint contract to this address: %s\n", oldImplementation
-        );
+        console2.log("\nWARNING: This will rollback the PovwMint contract to this address: %s\n", oldImplementation);
 
         // Rollback the proxy contract
         vm.startBroadcast(currentAdmin);

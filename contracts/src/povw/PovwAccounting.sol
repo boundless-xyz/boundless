@@ -12,49 +12,11 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IZKC} from "./IZKC.sol";
-
-/// An update to a work log.
-struct WorkLogUpdate {
-    /// The log ID associated with this update. This log ID is interpreted as an address for the
-    /// purpose of verifying a signature to authorize the update.
-    address workLogId;
-    /// Initial log commitment from which this update is calculated.
-    /// @dev This commits to all the PoVW nonces consumed prior to this update.
-    bytes32 initialCommit;
-    /// Updated log commitment after the update is applied.
-    /// @dev This commits to all the PoVW nonces consumed after this update.
-    bytes32 updatedCommit;
-    /// Work value verified in this update.
-    /// @dev This value will be used by the mint calculator to allocate rewards.
-    uint64 updateValue;
-    /// Recipient of any rewards associated with this update, authorized by the hold of the private
-    /// key associated with the work log ID.
-    address valueRecipient;
-}
-
-/// Journal committed to by the log updater guest.
-struct Journal {
-    WorkLogUpdate update;
-    /// EIP712 domain digest. The verifying contract must validate this to be equal to it own
-    /// expected EIP712 domain digest.
-    bytes32 eip712Domain;
-}
-
-// TODO(povw): If we can guarentee that the epoch number will never be greater than uint160, this
-// could be compressed into one slot.
-struct PendingEpoch {
-    uint96 totalWork;
-    uint256 number;
-}
+import {IPovwAccounting, WorkLogUpdate, Journal, PendingEpoch} from "./IPovwAccounting.sol";
 
 bytes32 constant EMPTY_LOG_ROOT = hex"b26927f749929e8484785e36e7ec93d5eeae4b58182f76f1e760263ab67f540c";
 
-contract PovwAccounting is
-    Initializable,
-    EIP712Upgradeable,
-    OwnableUpgradeable,
-    UUPSUpgradeable
-{
+contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
 
@@ -73,36 +35,18 @@ contract PovwAccounting is
     bytes32 public immutable LOG_UPDATER_ID;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    IZKC internal immutable TOKEN;
+    IZKC public immutable TOKEN;
 
-    mapping(address => bytes32) internal workLogRoots;
+    mapping(address => bytes32) internal workLogCommits;
 
-    PendingEpoch public pendingEpoch;
+    PendingEpoch internal _pendingEpoch;
 
-    event EpochFinalized(uint256 indexed epoch, uint256 totalWork);
-
-    // TODO(povw): Compress the data in this event? epochNumber is a simple view function of the
-    // block timestamp and is 32 bits. Update value is 64 bits. At least 32 bytes could be saved
-    // here with compression.
-    /// @notice Event emitted when when a work log update is processed.
-    /// @param workLogId The work log identifier, which also serves as an authentication public key.
-    /// @param epochNumber The number of the epoch in which the update is processed.
-    ///        The value of the update will be weighted against the total work completed in this epoch.
-    /// @param initialCommit The initial work log commitment for the update.
-    /// @param updatedCommit The updated work log commitment after the update has been processed.
-    /// @param updateValue Value of the work in this update.
-    /// @param valueRecipient The recipient of any rewards associated with this update.
-    event WorkLogUpdated(
-        address indexed workLogId,
-        uint256 epochNumber,
-        bytes32 initialCommit,
-        bytes32 updatedCommit,
-        uint256 updateValue,
-        address valueRecipient
-    );
-
+    // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, IZKC token, bytes32 logUpdaterId) {
+        require(address(verifier) != address(0), "verifier cannot be zero");
+        require(address(token) != address(0), "token cannot be zero");
+        require(logUpdaterId != bytes32(0), "logUpdaterId cannot be zero");
         VERIFIER = verifier;
         TOKEN = token;
         LOG_UPDATER_ID = logUpdaterId;
@@ -114,16 +58,21 @@ contract PovwAccounting is
         __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
         __EIP712_init("PovwAccounting", "1");
-        
-        pendingEpoch = PendingEpoch({number: TOKEN.getCurrentEpoch(), totalWork: 0});
+
+        _pendingEpoch = PendingEpoch({number: TOKEN.getCurrentEpoch(), totalWork: 0});
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    /// Finalize the pending epoch, logging the finalized epoch number and total work.
+    /// @inheritdoc IPovwAccounting
+    function pendingEpoch() external view returns (PendingEpoch memory) {
+        return _pendingEpoch;
+    }
+
+    /// @inheritdoc IPovwAccounting
     function finalizeEpoch() public {
         uint256 newEpoch = TOKEN.getCurrentEpoch();
-        require(pendingEpoch.number < newEpoch, "pending epoch has not ended");
+        require(_pendingEpoch.number < newEpoch, "pending epoch has not ended");
 
         _finalizePendingEpoch(newEpoch);
     }
@@ -132,19 +81,14 @@ contract PovwAccounting is
     /// only be called after checking that the pending epoch has ended.
     function _finalizePendingEpoch(uint256 newEpoch) internal {
         // Emit the epoch finalized event, accessed with Steel to construct the mint authorization.
-        emit EpochFinalized(uint256(pendingEpoch.number), uint256(pendingEpoch.totalWork));
+        emit EpochFinalized(uint256(_pendingEpoch.number), uint256(_pendingEpoch.totalWork));
 
         // NOTE: This may cause the epoch number to increase by more than 1, if no updates occurred in
         // an interim epoch. Any interim epoch that was skipped will have no work associated with it.
-        pendingEpoch = PendingEpoch({number: newEpoch, totalWork: 0});
+        _pendingEpoch = PendingEpoch({number: newEpoch, totalWork: 0});
     }
 
-    /// @notice Update a work log and log an event with the associated update value.
-    /// @dev The stored work log root is updated, preventing the same nonce from being counted twice.
-    /// Work reported in this update will be assigned to the current epoch. A receipt from the work
-    /// log updater is used to ensure the integrity of the update.
-    ///
-    /// If an epoch is pending finalization, finalization occurs atomically with this call.
+    /// @inheritdoc IPovwAccounting
     function updateWorkLog(
         address workLogId,
         bytes32 updatedCommit,
@@ -153,15 +97,12 @@ contract PovwAccounting is
         bytes calldata seal
     ) public {
         uint256 currentEpoch = TOKEN.getCurrentEpoch();
-        if (pendingEpoch.number < currentEpoch) {
+        if (_pendingEpoch.number < currentEpoch) {
             _finalizePendingEpoch(currentEpoch);
         }
 
         // Fetch the initial commit value, substituting with the precomputed empty root if new.
-        bytes32 initialCommit = workLogRoots[workLogId];
-        if (initialCommit == bytes32(0)) {
-            initialCommit = EMPTY_LOG_ROOT;
-        }
+        bytes32 initialCommit = workLogCommit(workLogId);
 
         // Verify the receipt from the work log builder, binding the initial root as the currently
         // stored value.
@@ -175,8 +116,8 @@ contract PovwAccounting is
         Journal memory journal = Journal({update: update, eip712Domain: _domainSeparatorV4()});
         VERIFIER.verify(seal, LOG_UPDATER_ID, sha256(abi.encode(journal)));
 
-        workLogRoots[workLogId] = updatedCommit;
-        pendingEpoch.totalWork += updateValue;
+        workLogCommits[workLogId] = updatedCommit;
+        _pendingEpoch.totalWork += updateValue;
 
         // Emit the update event, accessed with Steel to construct the mint authorization.
         // Note that there is no restriction on multiple updates in the same epoch. Posting more than
@@ -191,8 +132,12 @@ contract PovwAccounting is
         );
     }
 
-    /// Get the current work log commitment for the given work log.
-    function getWorkLogCommit(address workLogId) external view returns (bytes32) {
-        return workLogRoots[workLogId];
+    /// @inheritdoc IPovwAccounting
+    function workLogCommit(address workLogId) public view returns (bytes32) {
+        bytes32 commit = workLogCommits[workLogId];
+        if (commit == bytes32(0)) {
+            return EMPTY_LOG_ROOT;
+        }
+        return commit;
     }
 }

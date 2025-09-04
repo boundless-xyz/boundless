@@ -2,8 +2,12 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 
 export class Notifications extends pulumi.ComponentResource {
+  // Mainnet Beta
   public slackSNSTopic: aws.sns.Topic;
   public slackSNSTopicStaging: aws.sns.Topic;
+  // Launch
+  public slackSNSTopicLaunch: aws.sns.Topic;
+  public slackSNSTopicStagingLaunch: aws.sns.Topic;
   public pagerdutySNSTopic: aws.sns.Topic;
 
   constructor(
@@ -12,6 +16,8 @@ export class Notifications extends pulumi.ComponentResource {
       serviceAccountIds: string[];
       prodSlackChannelId: pulumi.Output<string>;
       stagingSlackChannelId: pulumi.Output<string>;
+      prodLaunchSlackChannelId: pulumi.Output<string>;
+      stagingLaunchSlackChannelId: pulumi.Output<string>;
       slackTeamId: pulumi.Output<string>;
       pagerdutyIntegrationUrl: pulumi.Output<string>;
       ssoBaseUrl: string;
@@ -26,6 +32,8 @@ export class Notifications extends pulumi.ComponentResource {
       serviceAccountIds,
       prodSlackChannelId: prodSlackChannelIdOutput,
       stagingSlackChannelId: stagingSlackChannelIdOutput,
+      prodLaunchSlackChannelId: prodLaunchSlackChannelIdOutput,
+      stagingLaunchSlackChannelId: stagingLaunchSlackChannelIdOutput,
       slackTeamId: slackTeamIdOutput,
       pagerdutyIntegrationUrl,
       ssoBaseUrl,
@@ -94,7 +102,7 @@ export class Notifications extends pulumi.ComponentResource {
     const snsLoggingRoleArn = pulumi.interpolate`${snsLoggingRole.arn}`;
 
     // Create an SNS topic for the slack alerts
-    this.slackSNSTopic = new aws.sns.Topic("boundless-alerts-topic", {
+    const slackSNSTopic = new aws.sns.Topic("boundless-alerts-topic", {
       name: "boundless-alerts-topic",
       applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
       applicationSuccessFeedbackRoleArn: snsLoggingRoleArn,
@@ -108,8 +116,36 @@ export class Notifications extends pulumi.ComponentResource {
     } as aws.sns.TopicArgs);
 
     // Create an SNS topic for the slack alerts
-    this.slackSNSTopicStaging = new aws.sns.Topic("boundless-alerts-topic-staging", {
+    const slackSNSTopicStaging = new aws.sns.Topic("boundless-alerts-topic-staging", {
       name: "boundless-alerts-topic-staging",
+      applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackSampleRate: 100,
+      httpFailureFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackSampleRate: 100,
+      sqsFailureFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackSampleRate: 100,
+    } as aws.sns.TopicArgs);
+
+    // Create an SNS topic for the slack alerts
+    const slackSNSTopicLaunch = new aws.sns.Topic("boundless-alerts-topic-launch", {
+      name: "boundless-alerts-topic-launch",
+      applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      applicationSuccessFeedbackSampleRate: 100,
+      httpFailureFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      httpSuccessFeedbackSampleRate: 100,
+      sqsFailureFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackRoleArn: snsLoggingRoleArn,
+      sqsSuccessFeedbackSampleRate: 100,
+    } as aws.sns.TopicArgs);
+
+    // Create an SNS topic for the slack alerts
+    const slackSNSTopicStagingLaunch = new aws.sns.Topic("boundless-alerts-topic-staging-launch", {
+      name: "boundless-alerts-topic-staging-launch",
       applicationFailureFeedbackRoleArn: snsLoggingRoleArn,
       applicationSuccessFeedbackRoleArn: snsLoggingRoleArn,
       applicationSuccessFeedbackSampleRate: 100,
@@ -123,7 +159,8 @@ export class Notifications extends pulumi.ComponentResource {
 
     // Create a policy that allows the service accounts to publish to the SNS topic
     // https://repost.aws/knowledge-center/cloudwatch-cross-account-sns
-    const slackSnsTopicPolicy = this.slackSNSTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+
+    const slackSnsTopicPolicy = slackSNSTopic.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
       statements: [
         ...serviceAccountIds.map(serviceAccountId => ({
           actions: [
@@ -154,7 +191,7 @@ export class Notifications extends pulumi.ComponentResource {
       ],
     }));
 
-    const slackSnsTopicPolicyStaging = this.slackSNSTopicStaging.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+    const slackSnsTopicPolicyStaging = slackSNSTopicStaging.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
       statements: [
         ...serviceAccountIds.map(serviceAccountId => ({
           actions: [
@@ -185,20 +222,113 @@ export class Notifications extends pulumi.ComponentResource {
       ],
     }));
 
-    // Attach the policy to the SNS topic
-    slackSnsTopicPolicy.apply(slackSnsTopicPolicy => {
-      new aws.sns.TopicPolicy("service-accounts-slack-publish-policy", {
-        arn: this.slackSNSTopic.arn,
-        policy: slackSnsTopicPolicy.json,
-      }, {
-        parent: this,
-      });
-      new aws.sns.TopicPolicy("service-accounts-slack-publish-policy-staging", {
-        arn: this.slackSNSTopicStaging.arn,
-        policy: slackSnsTopicPolicyStaging.json,
-      }, {
-        parent: this,
-      });
+    const slackSnsTopicPolicyLaunch = slackSNSTopicLaunch.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+      statements: [
+        ...serviceAccountIds.map(serviceAccountId => ({
+          actions: [
+            "SNS:Publish",
+          ],
+          effect: "Allow",
+          principals: [{
+            type: "AWS",
+            identifiers: ["*"], // Restricted by the condition below.
+          }],
+          resources: [arn],
+          conditions: [{
+            test: "ArnLike",
+            variable: "aws:SourceArn",
+            values: [`arn:aws:cloudwatch:us-west-2:${serviceAccountId}:alarm:*`],
+          }],
+          sid: `Grant publish to account ${serviceAccountId}.`,
+        })),
+        {
+          actions: ["SNS:Publish"],
+          principals: [{
+            type: "Service",
+            identifiers: ["codestar-notifications.amazonaws.com"],
+          }],
+          resources: [arn],
+          sid: "Grant publish to codestar for deployment notifications",
+        },
+      ],
+    }));
+
+    const slackSnsTopicPolicyStagingLaunch = slackSNSTopicStagingLaunch.arn.apply(arn => aws.iam.getPolicyDocumentOutput({
+      statements: [
+        ...serviceAccountIds.map(serviceAccountId => ({
+          actions: [
+            "SNS:Publish",
+          ],
+          effect: "Allow",
+          principals: [{
+            type: "AWS",
+            identifiers: ["*"], // Restricted by the condition below.
+          }],
+          resources: [arn],
+          conditions: [{
+            test: "ArnLike",
+            variable: "aws:SourceArn",
+            values: [`arn:aws:cloudwatch:us-west-2:${serviceAccountId}:alarm:*`],
+          }],
+          sid: `Grant publish to account ${serviceAccountId}.`,
+        })),
+        {
+          actions: ["SNS:Publish"],
+          principals: [{
+            type: "Service",
+            identifiers: ["codestar-notifications.amazonaws.com"],
+          }],
+          resources: [arn],
+          sid: "Grant publish to codestar for deployment notifications",
+        },
+      ],
+    }));
+
+    const topicPolicies = pulumi.all([
+      slackSNSTopic,
+      slackSNSTopicStaging,
+      slackSNSTopicLaunch,
+      slackSNSTopicStagingLaunch,
+      slackSnsTopicPolicy,
+      slackSnsTopicPolicyStaging,
+      slackSnsTopicPolicyLaunch,
+      slackSnsTopicPolicyStagingLaunch
+    ]).apply(([
+      _slackSNSTopic,
+      _slackSNSTopicStaging,
+      _slackSNSTopicLaunch,
+      _slackSNSTopicStagingLaunch,
+      _slackSnsTopicPolicy,
+      _slackSnsTopicPolicyStaging,
+      _slackSnsTopicPolicyLaunch,
+      _slackSnsTopicPolicyStagingLaunch
+    ]) => {
+      return [
+        new aws.sns.TopicPolicy("service-accounts-slack-publish-policy", {
+          arn: _slackSNSTopic.arn,
+          policy: _slackSnsTopicPolicy.json,
+        }, {
+          parent: this,
+        }),
+        new aws.sns.TopicPolicy("service-accounts-slack-publish-policy-staging", {
+          arn: _slackSNSTopicStaging.arn,
+          policy: _slackSnsTopicPolicyStaging.json,
+        }, {
+          parent: this,
+        }),
+        new aws.sns.TopicPolicy("service-accounts-slack-publish-policy-launch", {
+          arn: _slackSNSTopicLaunch.arn,
+          policy: _slackSnsTopicPolicyLaunch.json,
+        }, {
+          parent: this,
+        }),
+        new aws.sns.TopicPolicy("service-accounts-slack-publish-policy-staging-launch", {
+          arn: _slackSNSTopicStagingLaunch.arn,
+          policy: _slackSnsTopicPolicyStagingLaunch.json,
+        }, {
+          parent: this,
+        }),
+      ];
     });
 
     // Create a dead letter queue for the Slack channel subscription.
@@ -271,25 +401,41 @@ export class Notifications extends pulumi.ComponentResource {
     });
 
     // Create a Slack channel configuration for the alerts
-    let slackChannelConfigurations = pulumi.all([prodSlackChannelIdOutput, stagingSlackChannelIdOutput, slackTeamIdOutput])
-      .apply(([prodSlackChannelId, stagingSlackChannelId, slackTeamId]) => {
-        const prodSlackChannelConfiguration = new aws.chatbot.SlackChannelConfiguration("boundless-alerts", {
-          configurationName: "boundless-alerts",
+    let slackChannelConfigurations = pulumi.all([prodSlackChannelIdOutput, stagingSlackChannelIdOutput, prodLaunchSlackChannelIdOutput, stagingLaunchSlackChannelIdOutput, slackTeamIdOutput])
+      .apply(([prodSlackChannelId, stagingSlackChannelId, prodLaunchSlackChannelId, stagingLaunchSlackChannelId, slackTeamId]) => {
+        const prodSlackChannelConfiguration = new aws.chatbot.SlackChannelConfiguration("boundless-alerts-beta", {
+          configurationName: "boundless-alerts-beta",
           iamRoleArn: chatbotRole.arn,
           slackChannelId: prodSlackChannelId,
           slackTeamId: slackTeamId,
           snsTopicArns: [this.slackSNSTopic.arn],
           loggingLevel: "INFO",
         });
-        const stagingSlackChannelConfiguration = new aws.chatbot.SlackChannelConfiguration("boundless-alerts-staging", {
-          configurationName: "boundless-alerts-staging",
+        const stagingSlackChannelConfiguration = new aws.chatbot.SlackChannelConfiguration("boundless-alerts-staging-beta", {
+          configurationName: "boundless-alerts-staging-beta",
           iamRoleArn: chatbotRole.arn,
           slackChannelId: stagingSlackChannelId,
           slackTeamId: slackTeamId,
           snsTopicArns: [this.slackSNSTopicStaging.arn],
           loggingLevel: "INFO",
         });
-        return [prodSlackChannelConfiguration, stagingSlackChannelConfiguration];
+        const prodLaunchSlackChannelConfiguration = new aws.chatbot.SlackChannelConfiguration("boundless-alerts-launch", {
+          configurationName: "boundless-alerts-launch",
+          iamRoleArn: chatbotRole.arn,
+          slackChannelId: prodLaunchSlackChannelId,
+          slackTeamId: slackTeamId,
+          snsTopicArns: [this.slackSNSTopicLaunch.arn],
+          loggingLevel: "INFO",
+        });
+        const stagingLaunchSlackChannelConfiguration = new aws.chatbot.SlackChannelConfiguration("boundless-alerts-staging-launch", {
+          configurationName: "boundless-alerts-staging-launch",
+          iamRoleArn: chatbotRole.arn,
+          slackChannelId: stagingLaunchSlackChannelId,
+          slackTeamId: slackTeamId,
+          snsTopicArns: [this.slackSNSTopicStagingLaunch.arn],
+          loggingLevel: "INFO",
+        });
+        return [prodSlackChannelConfiguration, stagingSlackChannelConfiguration, prodLaunchSlackChannelConfiguration, stagingLaunchSlackChannelConfiguration];
       }
       );
 
@@ -353,5 +499,10 @@ export class Notifications extends pulumi.ComponentResource {
       endpoint: pagerdutyIntegrationUrl,
       rawMessageDelivery: false,
     });
+
+    this.slackSNSTopic = slackSNSTopic;
+    this.slackSNSTopicStaging = slackSNSTopicStaging;
+    this.slackSNSTopicLaunch = slackSNSTopicLaunch;
+    this.slackSNSTopicStagingLaunch = slackSNSTopicStagingLaunch;
   }
 }

@@ -1,10 +1,11 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
-// TODO(povw): This test is fragile to changes in the RISC0_POVW_LOG_BUILDER_ID, because the ID
-// used here and the one used in the log updater guest may drift. Running the following command may
-// fix a drift if it appears.
+// NOTE: This test is fragile to changes in the RISC0_POVW_LOG_BUILDER_ID, because the ID used here
+// and the one used in the log updater guest may drift. Running the following command may fix a
+// drift if it appears.
 //
 // ```
 // cargo update -p risc0-povw --manifest-path Cargo.toml && cargo update -p risc0-povw --manifest-path crates/guest/povw/log-updater/Cargo.toml
@@ -13,15 +14,13 @@
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::{address, aliases::U96, Address, B256, U256};
 use alloy_sol_types::SolValue;
-use boundless_povw_guests::{
-    log_updater::{Input, LogBuilderJournal, WorkLogUpdate},
-    BOUNDLESS_POVW_LOG_UPDATER_ID,
+use boundless_povw_guests::log_updater::{
+    Input, LogBuilderJournal, WorkLogUpdate, BOUNDLESS_POVW_LOG_UPDATER_ID,
 };
+use boundless_test_utils::povw::{encode_seal, execute_log_updater_guest, test_ctx};
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_povw::WorkLog;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
-
-mod common;
 
 #[tokio::test]
 async fn basic() -> anyhow::Result<()> {
@@ -37,18 +36,13 @@ async fn basic() -> anyhow::Result<()> {
         .work_log_id(signer.address())
         .build()?;
 
-    let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-        .sign(&signer, contract_address, chain_id)
+    let input = Input::builder()
+        .update(update.clone())
+        .contract_address(contract_address)
+        .chain_id(chain_id)
+        .sign_and_build(&signer)
         .await?;
-
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id,
-    };
-    let journal = common::execute_log_updater_guest(&input)?;
+    let journal = execute_log_updater_guest(&input)?;
 
     assert_eq!(journal.update.workLogId, signer.address());
     assert_eq!(journal.update.initialCommit, B256::from(<[u8; 32]>::from(update.initial_commit)));
@@ -59,6 +53,35 @@ async fn basic() -> anyhow::Result<()> {
         journal.eip712Domain,
         WorkLogUpdate::eip712_domain(contract_address, chain_id).hash_struct()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn reject_zero_value_recipient() -> anyhow::Result<()> {
+    let signer = PrivateKeySigner::random();
+    let chain_id = 31337;
+    let contract_address = address!("0x0000000000000000000000000000000000000f00");
+
+    let update = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(Digest::new(rand::random()))
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(5)
+        .work_log_id(signer.address())
+        .build()?;
+
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(Address::ZERO)
+        .contract_address(contract_address)
+        .chain_id(chain_id)
+        .sign_and_build(&signer)
+        .await?;
+
+    let err = execute_log_updater_guest(&input).unwrap_err();
+    println!("execute_log_updater_guest failed with: {err}");
+    assert!(err.to_string().contains("value recipient cannot be the zero address"));
+
     Ok(())
 }
 
@@ -81,14 +104,14 @@ async fn reject_wrong_signer() -> anyhow::Result<()> {
         .sign(&wrong_signer, contract_address, chain_id)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id,
-    };
-    let err = common::execute_log_updater_guest(&input).unwrap_err();
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(contract_address)
+        .chain_id(chain_id)
+        .build()?;
+    let err = execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("recovered signer does not match expected"));
 
@@ -114,14 +137,14 @@ async fn reject_wrong_chain_id() -> anyhow::Result<()> {
         .sign(&signer, contract_address, wrong_chain_id)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id, // Correct chain ID in input, but signature was for wrong one
-    };
-    let err = common::execute_log_updater_guest(&input).unwrap_err();
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(contract_address)
+        .chain_id(chain_id) // Correct chain ID in input, but signature was for wrong one
+        .build()?;
+    let err = execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("recovered signer does not match expected"));
 
@@ -130,7 +153,7 @@ async fn reject_wrong_chain_id() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
     let wrong_chain_id = 1; // Different from Anvil's chain ID (31337)
 
@@ -144,33 +167,33 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
 
     // Sign with wrong chain ID but execute with that same wrong chain ID
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-        .sign(&signer, *ctx.povw_accounting_contract.address(), wrong_chain_id)
+        .sign(&signer, *ctx.povw_accounting.address(), wrong_chain_id)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address: *ctx.povw_accounting_contract.address(),
-        chain_id: wrong_chain_id, // Consistent but wrong chain ID
-    };
-    let journal = common::execute_log_updater_guest(&input)?;
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(*ctx.povw_accounting.address())
+        .chain_id(wrong_chain_id) // Consistent but wrong chain ID
+        .build()?;
+    let journal = execute_log_updater_guest(&input)?;
 
     // Guest execution succeeds with wrong chain ID, but contract should reject
     let fake_receipt = risc0_zkvm::FakeReceipt::new(risc0_zkvm::ReceiptClaim::ok(
-        boundless_povw_guests::BOUNDLESS_POVW_LOG_UPDATER_ID,
+        BOUNDLESS_POVW_LOG_UPDATER_ID,
         journal.abi_encode(),
     ));
     let receipt: risc0_zkvm::Receipt = fake_receipt.try_into()?;
 
     let result = ctx
-        .povw_accounting_contract
+        .povw_accounting
         .updateWorkLog(
             journal.update.workLogId,
             journal.update.updatedCommit,
             journal.update.updateValue,
             journal.update.valueRecipient,
-            common::encode_seal(&receipt)?.into(),
+            encode_seal(&receipt)?.into(),
         )
         .send()
         .await;
@@ -200,14 +223,14 @@ async fn reject_wrong_contract_address() -> anyhow::Result<()> {
         .sign(&signer, wrong_contract_address, chain_id)
         .await?;
 
-    let input = Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address, // Correct contract address in input, but signature was for wrong one
-        chain_id,
-    };
-    let err = common::execute_log_updater_guest(&input).unwrap_err();
+    let input = Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(contract_address) // Correct contract address in input, but signature was for wrong one
+        .chain_id(chain_id)
+        .build()?;
+    let err = execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("recovered signer does not match expected"));
 
@@ -216,7 +239,7 @@ async fn reject_wrong_contract_address() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_invalid_initial_commit() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     // First, post a valid update to establish a work log state
@@ -254,7 +277,7 @@ async fn reject_invalid_initial_commit() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_duplicate_update() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let update = LogBuilderJournal::builder()
@@ -301,14 +324,14 @@ async fn reject_invalid_work_log_id() -> anyhow::Result<()> {
     .sign(&signer, contract_address, chain_id)
     .await?;
 
-    let input = boundless_povw_guests::log_updater::Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address,
-        chain_id,
-    };
-    let err = common::execute_log_updater_guest(&input).unwrap_err();
+    let input = boundless_povw_guests::log_updater::Input::builder()
+        .update(update.clone())
+        .value_recipient(signer.address())
+        .signature(signature.as_bytes().to_vec())
+        .contract_address(contract_address)
+        .chain_id(chain_id)
+        .build()?;
+    let err = execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
     assert!(err.to_string().contains("recovered signer does not match expected"));
 
@@ -317,7 +340,7 @@ async fn reject_invalid_work_log_id() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_wrong_image_id() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let update = LogBuilderJournal::builder()
@@ -329,22 +352,14 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
         .build()?;
 
     // Execute guest to get valid journal
-    let signature = boundless_povw_guests::log_updater::WorkLogUpdate::from_log_builder_journal(
-        update.clone(),
-        signer.address(),
-    )
-    .sign(&signer, *ctx.povw_accounting_contract.address(), ctx.chain_id)
-    .await?;
+    let input = boundless_povw_guests::log_updater::Input::builder()
+        .update(update.clone())
+        .contract_address(*ctx.povw_accounting.address())
+        .chain_id(ctx.chain_id)
+        .sign_and_build(&signer)
+        .await?;
 
-    let input = boundless_povw_guests::log_updater::Input {
-        update: update.clone(),
-        value_recipient: signer.address(),
-        signature: signature.as_bytes().to_vec(),
-        contract_address: *ctx.povw_accounting_contract.address(),
-        chain_id: ctx.chain_id,
-    };
-
-    let journal = common::execute_log_updater_guest(&input)?;
+    let journal = execute_log_updater_guest(&input)?;
 
     // Create receipt with wrong image ID
     let wrong_image_id = risc0_zkvm::Digest::new([0xFFFFFFFFu32; 8]); // Wrong image ID
@@ -356,13 +371,13 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
 
     // Try to submit to contract with wrong image ID - should fail
     let result = ctx
-        .povw_accounting_contract
+        .povw_accounting
         .updateWorkLog(
             journal.update.workLogId,
             journal.update.updatedCommit,
             journal.update.updateValue,
             journal.update.valueRecipient,
-            common::encode_seal(&receipt)?.into(),
+            encode_seal(&receipt)?.into(),
         )
         .send()
         .await;
@@ -378,9 +393,9 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn contract_integration() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Construct and sign a WorkLogUpdate.
@@ -410,7 +425,7 @@ async fn contract_integration() -> anyhow::Result<()> {
     assert_eq!(finalized_event.epoch, U256::from(initial_epoch));
     assert_eq!(finalized_event.totalWork, U256::from(update.update_value));
 
-    let pending_epoch = ctx.povw_accounting_contract.pendingEpoch().call().await?;
+    let pending_epoch = ctx.povw_accounting.pendingEpoch().call().await?;
     assert_eq!(pending_epoch.number, new_epoch);
     assert_eq!(pending_epoch.totalWork, U96::ZERO);
 
@@ -419,9 +434,9 @@ async fn contract_integration() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn two_updates_same_epoch_same_log_id() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer = PrivateKeySigner::random();
@@ -470,9 +485,9 @@ async fn two_updates_same_epoch_same_log_id() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer1 = PrivateKeySigner::random();
@@ -530,9 +545,9 @@ async fn two_updates_same_epoch_different_log_ids() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer = PrivateKeySigner::random();
@@ -556,7 +571,7 @@ async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
     ctx.advance_epochs(U256::ONE).await?;
     let first_finalized_event = ctx.finalize_epoch().await?;
 
-    let second_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let second_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Advanced to epoch: {second_epoch}");
 
     // Verify first epoch was finalized correctly
@@ -601,7 +616,7 @@ async fn two_updates_subsequent_epochs_same_log_id() -> anyhow::Result<()> {
 // mock receipt. Using a Groth16 or SetInclusion receipt will have higher gas costs.
 #[tokio::test]
 async fn measure_log_update_gas() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     let measure_update_gas = {
@@ -610,19 +625,13 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
         let signer = signer.clone();
 
         async move |update: LogBuilderJournal| -> anyhow::Result<u64> {
-            let signature =
-                WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-                    .sign(&signer, *ctx.povw_accounting_contract.address(), ctx.chain_id)
-                    .await?;
-
-            let input = Input {
-                update: update.clone(),
-                value_recipient: signer.address(),
-                signature: signature.as_bytes().to_vec(),
-                contract_address: *ctx.povw_accounting_contract.address(),
-                chain_id: ctx.chain_id,
-            };
-            let journal = common::execute_log_updater_guest(&input)?;
+            let input = Input::builder()
+                .update(update.clone())
+                .contract_address(*ctx.povw_accounting.address())
+                .chain_id(ctx.chain_id)
+                .sign_and_build(&signer)
+                .await?;
+            let journal = execute_log_updater_guest(&input)?;
             let fake_receipt: Receipt = FakeReceipt::new(ReceiptClaim::ok(
                 BOUNDLESS_POVW_LOG_UPDATER_ID,
                 journal.abi_encode(),
@@ -631,13 +640,13 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
 
             // Call the PovwAccounting.updateWorkLog function and confirm that it does not revert.
             let tx_result = ctx
-                .povw_accounting_contract
+                .povw_accounting
                 .updateWorkLog(
                     journal.update.workLogId,
                     journal.update.updatedCommit,
                     journal.update.updateValue,
                     journal.update.valueRecipient,
-                    common::encode_seal(&fake_receipt)?.into(),
+                    encode_seal(&fake_receipt)?.into(),
                 )
                 .send()
                 .await?;
@@ -690,11 +699,11 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn separate_value_recipient() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let value_recipient = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Work log is controlled by work_log_signer but rewards go to value_recipient
@@ -720,12 +729,12 @@ async fn separate_value_recipient() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn multiple_recipients_same_work_log() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let recipient1 = PrivateKeySigner::random();
     let recipient2 = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // First update: same work log, recipient1 gets rewards

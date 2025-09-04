@@ -18,6 +18,7 @@ stake-token = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
 assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deprecated-assessor-duration = 0
 
 ###
 # PoVW contracts
@@ -51,7 +52,7 @@ admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-set-verifier = "0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64"
+set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8476627
 boundless-market = "0x13337C76fE2d1750246B68781ecEe164643b98Ec"
 boundless-market-impl = "0x4530b99e5e9944b97a9eb4c5064db1421505e344"
@@ -62,6 +63,7 @@ stake-token = "0xb4fc69a452d09d2662bd8c3b5bb756902260ae28"
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
 assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deprecated-assessor-duration = 259200  # 3 days
 
 # PoVW contracts
 povw-accounting = "0x139850F6e0Fa043900fE491eDf79Bdf3e9C082b3"
@@ -94,7 +96,7 @@ admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-set-verifier = "0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64"
+set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8430932
 boundless-market = "0x7b36Ed56ec6045679C178205a81AE878d85B773d"
 boundless-market-impl = "0x501b1689eaa5d8df274b234fa7f940a8dc45374b"
@@ -105,6 +107,7 @@ stake-token = "0x99a52662b576f4b2d4ffbc4504331a624a7b2846"
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
 assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deprecated-assessor-duration = 259200  # 3 days
 
 # PoVW contracts
 povw-accounting-admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
@@ -179,7 +182,7 @@ admin = "0xc182328072F1158c574539F43890090d81f4A5ab"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
+set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 31134603
 boundless-market = "0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"
 boundless-market-impl = "0x5533618ea16a68036d6842d2ca5072385bdd09d6"
@@ -190,6 +193,7 @@ stake-token = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
 assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deprecated-assessor-duration = 259200  # 3 days
 
 ###
 
@@ -204,7 +208,7 @@ admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
+set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26646012
 boundless-market = "0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"
 boundless-market-impl = "0xac852635b620648eb242b5c4e99d92dc8aec8ab2"
@@ -215,6 +219,7 @@ stake-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
 assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deprecated-assessor-duration = 259200  # 3 days
 
 ###
 
@@ -222,21 +227,22 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 name = "Base Sepolia [staging]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
-version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
+version = "v0.14.0" # fd8e99f5 angelo/deprecated-assessor
 
 # Accounts
 admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
+set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
 boundless-market = "0xAD0Bd6C436658aF457736d7224a87d2EF56365C8"
-boundless-market-impl = "0x87602baa3da1668e09e5e3b91976ad4b346ef246"
-boundless-market-old-impl = "0x565d5d72055e4c901f18ad1c3f6fb451c51dbdbe"
+boundless-market-impl = "0xa1d5e6794fea3b9fc44a5d06345816846875223f"
+boundless-market-old-impl = "0x87602baa3da1668e09e5e3b91976ad4b346ef246"
 stake-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 
 # Guests info
-deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
-assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deployment-commit = "f12f9c38" # v0.14.0 victor/update-to-3.0
+assessor-image-id = "0x04bc1b4de3e716d1cce670b18b3248737ecedf4e63f812b0552112fa97c9c6bd"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeialyhnpa4iq6bjf4rwkcgcidpzpgpkwjw2qwpj67ddnkn2fhyaqve"
+deprecated-assessor-duration = 259200  # 3 days

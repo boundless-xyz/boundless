@@ -1,47 +1,60 @@
-// Copyright (c) 2024 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 //! Shared library for the Mint Calculator guest between guest and host.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::{Add, AddAssign},
+    sync::LazyLock,
 };
 
 use alloy_primitives::{Address, ChainId, U256};
+use alloy_sol_types::sol;
 use risc0_povw::PovwLogId;
 use risc0_steel::{
-    ethereum::{EthChainSpec, EthEvmEnv, EthEvmInput},
+    ethereum::{
+        EthChainSpec, EthEvmEnv, EthEvmInput, ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
+        STEEL_TEST_PRAGUE_CHAIN_SPEC,
+    },
     Commitment, StateDb, SteelVerifier,
 };
 use serde::{Deserialize, Serialize};
 
-alloy_sol_types::sol! {
-    // Copied from contracts/src/povw/PovwMint.sol
-    #[derive(Debug)]
-    struct MintCalculatorUpdate {
-        address workLogId;
-        bytes32 initialCommit;
-        bytes32 updatedCommit;
-    }
+#[cfg(feature = "build-guest")]
+pub use crate::guest_artifacts::BOUNDLESS_POVW_MINT_CALCULATOR_PATH;
+pub use crate::guest_artifacts::{
+    BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
+};
 
-    #[derive(Debug)]
-    struct MintCalculatorMint {
-        address recipient;
-        uint256 value;
-    }
-
-    #[derive(Debug)]
-    struct MintCalculatorJournal {
-        MintCalculatorMint[] mints;
-        MintCalculatorUpdate[] updates;
-        address povwAccountingAddress;
-        address zkcRewardsAddress;
-        address zkcAddress;
-        Commitment steelCommit;
-    }
+// HACK: Defining a Steel::Commitment symbol here allowed resolution of the Steel.Commitment
+// reference in IPovwMint.sol.
+#[expect(non_snake_case)]
+mod Steel {
+    pub(super) use risc0_steel::Commitment;
 }
+
+#[cfg(feature = "host")]
+sol!(
+    #[sol(extra_derives(Debug, Serialize, Deserialize), rpc)]
+    "./src/contracts/artifacts/IPovwMint.sol"
+);
+#[cfg(not(feature = "host"))]
+sol!(
+    #[sol(extra_derives(Debug, Serialize, Deserialize))]
+    "./src/contracts/artifacts/IPovwMint.sol"
+);
+
+/// A mapping of well-known chain IDs to their [EthChainSpec].
+pub static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(|| {
+    BTreeMap::from([
+        (ETH_MAINNET_CHAIN_SPEC.chain_id, ETH_MAINNET_CHAIN_SPEC.clone()),
+        (ETH_SEPOLIA_CHAIN_SPEC.chain_id, ETH_SEPOLIA_CHAIN_SPEC.clone()),
+        (STEEL_TEST_PRAGUE_CHAIN_SPEC.chain_id, STEEL_TEST_PRAGUE_CHAIN_SPEC.clone()),
+    ])
+});
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MultiblockEthEvmInput(pub Vec<EthEvmInput>);
@@ -160,6 +173,18 @@ pub struct Input {
     pub work_log_filter: WorkLogFilter,
 }
 
+impl Input {
+    /// Serialize the input to a vector of bytes.
+    pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
+        postcard::to_allocvec(self).map_err(Into::into)
+    }
+
+    /// Deserialize the input from a slice of bytes.
+    pub fn decode(buffer: impl AsRef<[u8]>) -> anyhow::Result<Self> {
+        postcard::from_bytes(buffer.as_ref()).map_err(Into::into)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FixedPoint(U256);
 
@@ -200,39 +225,41 @@ impl AddAssign for FixedPoint {
 
 #[cfg(feature = "host")]
 pub mod host {
+    use std::{future::Future, marker::PhantomData};
+
+    use alloy_contract::CallBuilder;
     use alloy_provider::Provider;
-    use anyhow::{anyhow, Context};
+    use alloy_sol_types::SolValue;
+    use anyhow::Context;
     use risc0_steel::{
         alloy::network::Ethereum,
         beacon::BeaconCommit,
         ethereum::{EthBlockHeader, EthEvmFactory},
+        history::HistoryCommit,
         host::{
             db::{ProofDb, ProviderDb},
-            Beacon, BlockNumberOrTag, EvmEnvBuilder, HostCommit,
+            Beacon, BlockNumberOrTag, EvmEnvBuilder, History, HostCommit,
         },
         BlockHeaderCommit, Contract, Event,
     };
+    use risc0_zkvm::Receipt;
 
     use super::*;
     use crate::{
         log_updater::IPovwAccounting,
+        mint_calculator::IPovwMint::IPovwMintInstance,
         zkc::{IZKCRewards, IZKC},
     };
 
-    alloy_sol_types::sol! {
-        #[sol(rpc)]
-        interface IPovwMint {
-            function mint(bytes calldata journalBytes, bytes calldata seal) external;
-            function lastCommit(address) external view returns (bytes32);
-        }
-    }
+    // Private type aliases, to make the definitions in this modules more concise.
+    type EthEvmEnvBuilder<P, B> = EvmEnvBuilder<P, EthEvmFactory, &'static EthChainSpec, B>;
+    type EthHostDb<P> = ProofDb<ProviderDb<Ethereum, P>>;
 
-    impl<P, C> MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>
+    impl<P, C> MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>
     where
         P: Provider + Clone + 'static,
         C: Clone + BlockHeaderCommit<EthBlockHeader>,
     {
-        // TODO(povw): Integrate this call into the construction of the input?
         /// Preflight the verification that the blocks in the multiblock environment form a
         /// subsequence of a single chain.
         ///
@@ -257,9 +284,49 @@ pub mod host {
         }
     }
 
-    impl<P> MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<()>>
+    pub trait IntoEthEvmInput {
+        type Error;
+
+        fn into_input(self) -> impl Future<Output = Result<EthEvmInput, Self::Error>>;
+    }
+
+    impl<P> IntoEthEvmInput for EthEvmEnv<EthHostDb<P>, HostCommit<()>>
     where
         P: Provider + Clone + 'static,
+    {
+        type Error = anyhow::Error;
+
+        async fn into_input(self) -> Result<EthEvmInput, Self::Error> {
+            self.into_input().await
+        }
+    }
+
+    impl<P> IntoEthEvmInput for EthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>
+    where
+        P: Provider + Clone + 'static,
+    {
+        type Error = anyhow::Error;
+
+        async fn into_input(self) -> Result<EthEvmInput, Self::Error> {
+            self.into_input().await
+        }
+    }
+
+    impl<P> IntoEthEvmInput for EthEvmEnv<EthHostDb<P>, HostCommit<HistoryCommit>>
+    where
+        P: Provider + Clone + 'static,
+    {
+        type Error = anyhow::Error;
+
+        async fn into_input(self) -> Result<EthEvmInput, Self::Error> {
+            self.into_input().await
+        }
+    }
+
+    impl<P, C> MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>
+    where
+        P: Provider + Clone + 'static,
+        EthEvmEnv<EthHostDb<P>, HostCommit<C>>: IntoEthEvmInput<Error = anyhow::Error>,
     {
         pub async fn into_input(self) -> anyhow::Result<MultiblockEthEvmInput> {
             let mut input = MultiblockEthEvmInput(Vec::with_capacity(self.0.len()));
@@ -273,129 +340,172 @@ pub mod host {
         }
     }
 
-    impl<P> MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<BeaconCommit>>
-    where
-        P: Provider + Clone + 'static,
-    {
-        pub async fn into_input(self) -> anyhow::Result<MultiblockEthEvmInput> {
-            let mut input = MultiblockEthEvmInput(Vec::with_capacity(self.0.len()));
-            for (block_number, env) in self.0 {
-                let block_input = env.into_input().await.with_context(|| {
-                    format!("failed to convert env for block number {block_number} into input")
-                })?;
-                input.0.push(block_input);
-            }
-            Ok(input)
-        }
-    }
-
-    // TODO(povw): Based on how this is implemented right now, the caller must provide a chain of block
+    // TODO: Based on how this is implemented right now, the caller must provide a chain of block
     // number that can be verified via chaining with SteelVerifier. This means, for example, if there
     // is a 3 days gap in the subsequence of blocks I am processing, I need to additionally provide 2-3
-    // more blocks in the middle of that gap. Additionally, using the history feature for the final
-    // commit is not supported, so if the last block is e.g. 36 days ago an additional block needs to be
-    // provided at the end that is within the EIP-4788 expiration time.
-    pub struct MultiblockEthEvmEnvBuilder<P, B> {
-        builder: EvmEnvBuilder<P, EthEvmFactory, &'static EthChainSpec, B>,
-        block_refs: Vec<BlockNumberOrTag>,
+    // more blocks in the middle of that gap.
+    pub struct MultiblockEthEvmEnvBuilder<P: Provider, B, C> {
+        builder: EthEvmEnvBuilder<P, B>,
+        env: MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>,
     }
 
-    impl<P, B> MultiblockEthEvmEnvBuilder<P, B> {
-        pub fn block_numbers(
-            self,
-            numbers: impl IntoIterator<Item = impl Into<BlockNumberOrTag>>,
-        ) -> Self {
-            Self { block_refs: numbers.into_iter().map(Into::into).collect(), ..self }
+    /// A trait used to capture the shared behavior of the [EvmEnvBuilder] instantiations with
+    /// different commitment types.
+    pub trait EnvBuilder {
+        type Env;
+        type Error;
+
+        fn build(self) -> impl Future<Output = Result<Self::Env, Self::Error>>;
+    }
+
+    impl<P: Provider> EnvBuilder for EthEvmEnvBuilder<P, ()> {
+        type Env = EthEvmEnv<EthHostDb<P>, HostCommit<()>>;
+        type Error = anyhow::Error;
+
+        async fn build(self) -> Result<Self::Env, Self::Error> {
+            self.build().await
         }
     }
 
-    impl<P: Provider + Clone> MultiblockEthEvmEnvBuilder<P, ()> {
-        pub async fn build(
-            self,
-        ) -> anyhow::Result<MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<()>>>
+    impl<P: Provider> EnvBuilder for EthEvmEnvBuilder<P, Beacon> {
+        type Env = EthEvmEnv<EthHostDb<P>, HostCommit<BeaconCommit>>;
+        type Error = anyhow::Error;
+
+        async fn build(self) -> Result<Self::Env, Self::Error> {
+            self.build().await
+        }
+    }
+
+    impl<P: Provider> EnvBuilder for EthEvmEnvBuilder<P, History> {
+        type Env = EthEvmEnv<EthHostDb<P>, HostCommit<HistoryCommit>>;
+        type Error = anyhow::Error;
+
+        async fn build(self) -> Result<Self::Env, Self::Error> {
+            self.build().await
+        }
+    }
+
+    impl<P: Provider, B, C> MultiblockEthEvmEnvBuilder<P, B, C> {
+        pub async fn insert(
+            &mut self,
+            block: impl Into<BlockNumberOrTag>,
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<C>>>
+        where
+            P: Clone,
+            B: Clone,
+            EthEvmEnvBuilder<P, B>:
+                EnvBuilder<Env = EthEvmEnv<EthHostDb<P>, HostCommit<C>>, Error = anyhow::Error>,
         {
-            let mut multiblock_env = MultiblockEthEvmEnv(Default::default());
-            for block_ref in self.block_refs {
-                let mut env = self.builder.clone().block_number_or_tag(block_ref).build().await?;
-                let block_number = env.header().number;
-                // If the name block is specified multiple times, merge the envs.
-                if let Some(existing_env) = multiblock_env.0.remove(&block_number) {
-                    env = existing_env.merge(env).with_context(|| {
-                        format!("conflicting blocks with number {block_number}")
-                    })?;
-                };
-                multiblock_env.0.insert(block_number, env);
-            }
-            Ok(multiblock_env)
+            let env = self.builder.clone().block_number_or_tag(block.into()).build().await?;
+            self.insert_env(env)
         }
-    }
 
-    // TODO(povw): Deduplicate these two blocks of code. They are duplicated right now due to type
-    // system challenges.
-    impl<P: Provider + Clone> MultiblockEthEvmEnvBuilder<P, Beacon> {
+        pub async fn get_or_insert(
+            &mut self,
+            block_number: u64,
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<C>>>
+        where
+            P: Clone,
+            B: Clone,
+            EthEvmEnvBuilder<P, B>:
+                EnvBuilder<Env = EthEvmEnv<EthHostDb<P>, HostCommit<C>>, Error = anyhow::Error>,
+        {
+            if self.env.0.contains_key(&block_number) {
+                return Ok(self.env.0.get_mut(&block_number).unwrap());
+            }
+            self.insert(block_number).await
+        }
+
+        /// Insert the given [EthEvmEnv] into the [MultiblockEthEvmEnv].
+        ///
+        /// Returns a mutable reference to the [EthEvmEnv]. If there is already an env in the
+        /// [MultiblockEthEvmEnv] with the same block number, this will be the merged env.
+        pub fn insert_env(
+            &mut self,
+            mut env: EthEvmEnv<EthHostDb<P>, HostCommit<C>>,
+        ) -> anyhow::Result<&mut EthEvmEnv<EthHostDb<P>, HostCommit<C>>> {
+            let block_number = env.header().number;
+            // If the name block is specified multiple times, merge the envs.
+            if let Some(existing_env) = self.env.0.remove(&block_number) {
+                env = existing_env
+                    .merge(env)
+                    .with_context(|| format!("conflicting blocks with number {block_number}"))?;
+            };
+            self.env.0.insert(block_number, env);
+            Ok(self.env.0.get_mut(&block_number).unwrap())
+        }
+
+        /// Finalize the builder to obtain a [MultiblockEthEvmEnv].
+        ///
+        /// This method runs [MultiblockEthEvmEnv::preflight_verify_continuity] to provide the
+        /// necessary witness data for the guest to verify chaining of the blocks in the env.
         pub async fn build(
-            self,
-        ) -> anyhow::Result<
-            MultiblockEthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<BeaconCommit>>,
-        > {
-            let mut multiblock_env = MultiblockEthEvmEnv(Default::default());
-            for block_ref in self.block_refs {
-                let mut env = self.builder.clone().block_number_or_tag(block_ref).build().await?;
-                let block_number = env.header().number;
-                // If the name block is specified multiple times, merge the envs.
-                if let Some(existing_env) = multiblock_env.0.remove(&block_number) {
-                    env = existing_env.merge(env).with_context(|| {
-                        format!("conflicting blocks with number {block_number}")
-                    })?;
-                };
-                multiblock_env.0.insert(block_number, env).unwrap();
-            }
-            Ok(multiblock_env)
+            mut self,
+        ) -> anyhow::Result<MultiblockEthEvmEnv<EthHostDb<P>, HostCommit<C>>>
+        where
+            P: Clone + 'static,
+            C: Clone + BlockHeaderCommit<EthBlockHeader>,
+        {
+            self.env
+                .preflight_verify_continuity()
+                .await
+                .context("Failed to preflight the multi-block continuity check")?;
+            Ok(self.env)
         }
     }
 
-    type EthEvmEnvBuilder<P, B> = EvmEnvBuilder<P, EthEvmFactory, &'static EthChainSpec, B>;
-
-    impl<P: Provider> From<EthEvmEnvBuilder<P, Beacon>> for MultiblockEthEvmEnvBuilder<P, Beacon> {
-        fn from(builder: EthEvmEnvBuilder<P, Beacon>) -> Self {
-            Self { builder, block_refs: Vec::new() }
-        }
-    }
-
-    impl<P: Provider> From<EthEvmEnvBuilder<P, ()>> for MultiblockEthEvmEnvBuilder<P, ()> {
+    impl<P: Provider> From<EthEvmEnvBuilder<P, ()>> for MultiblockEthEvmEnvBuilder<P, (), ()> {
         fn from(builder: EthEvmEnvBuilder<P, ()>) -> Self {
-            Self { builder, block_refs: Vec::new() }
+            Self { builder, env: MultiblockEthEvmEnv(Default::default()) }
+        }
+    }
+
+    impl<P: Provider> From<EthEvmEnvBuilder<P, Beacon>>
+        for MultiblockEthEvmEnvBuilder<P, Beacon, BeaconCommit>
+    {
+        fn from(builder: EthEvmEnvBuilder<P, Beacon>) -> Self {
+            Self { builder, env: MultiblockEthEvmEnv(Default::default()) }
+        }
+    }
+
+    impl<P: Provider> From<EthEvmEnvBuilder<P, History>>
+        for MultiblockEthEvmEnvBuilder<P, History, HistoryCommit>
+    {
+        fn from(builder: EthEvmEnvBuilder<P, History>) -> Self {
+            Self { builder, env: MultiblockEthEvmEnv(Default::default()) }
         }
     }
 
     impl Input {
-        // TODO(povw): Provide a way to do this with Beacon commits. Also, its not really ideal to
-        // have to pass in each of the block numbers here.
-        pub async fn build<P>(
+        pub async fn build<P, B, C>(
             povw_accounting_address: Address,
             zkc_address: Address,
             zkc_rewards_address: Address,
-            provider: P,
-            chain_spec: &'static EthChainSpec,
-            block_refs: impl IntoIterator<Item = impl Into<BlockNumberOrTag>>,
+            chain_id: ChainId,
+            env_builder: EthEvmEnvBuilder<P, B>,
+            block_numbers: impl IntoIterator<Item = u64>,
             work_log_filter: impl Into<WorkLogFilter>,
         ) -> anyhow::Result<Self>
         where
             P: Provider + Clone + 'static,
+            B: Clone,
+            C: Clone + BlockHeaderCommit<EthBlockHeader>,
+            EthEvmEnvBuilder<P, B>: EnvBuilder<Env = EthEvmEnv<EthHostDb<P>, HostCommit<C>>, Error = anyhow::Error>
+                + Into<MultiblockEthEvmEnvBuilder<P, B, C>>,
+            EthEvmEnv<EthHostDb<P>, HostCommit<C>>: IntoEthEvmInput<Error = anyhow::Error>,
         {
+            // NOTE: The way this function is currently structured, there is some risk that is a
+            // reorg were to occur while it is running, the build check at the end will fail, or
+            // the guest will reject the input.
+
+            let block_numbers = block_numbers.into_iter().collect::<BTreeSet<u64>>();
             let work_log_filter = work_log_filter.into();
-            let mut envs = MultiblockEthEvmEnvBuilder::from(
-                EthEvmEnv::builder().chain_spec(chain_spec).provider(provider),
-            )
-            .block_numbers(block_refs)
-            .build()
-            .await?;
-            envs.preflight_verify_continuity()
-                .await
-                .context("failed to preflight verify_continuity")?;
+            let mut envs = env_builder.into();
 
             let mut latest_epoch_finalization_block: Option<u64> = None;
-            for env in envs.0.values_mut() {
+            let mut epochs = BTreeSet::<U256>::new();
+            for block_number in block_numbers.iter() {
+                let env = envs.get_or_insert(*block_number).await?;
                 let epoch_finalized_events =
                     Event::preflight::<IPovwAccounting::EpochFinalized>(env)
                         .address(povw_accounting_address)
@@ -403,16 +513,19 @@ pub mod host {
                         .await
                         .context("failed to query EpochFinalized events")?;
 
-                if !epoch_finalized_events.is_empty() {
+                for epoch_finalized_event in epoch_finalized_events {
+                    epochs.insert(epoch_finalized_event.epoch);
                     latest_epoch_finalization_block = Some(env.header().number);
                 }
             }
-            let latest_epoch_finalization_block = latest_epoch_finalization_block.unwrap();
+            let latest_epoch_finalization_block = latest_epoch_finalization_block
+                .context("No EpochFinalized events in the given blocks")?;
 
-            // Mapping containing the epochs, and the value recipients in those epochs.
-            let mut epoch_recipients = BTreeMap::<U256, BTreeSet<Address>>::new();
+            // Mapping containing the epochs, and the work logs receiving value in those epochs.
+            let mut epoch_work_logs = BTreeMap::<U256, BTreeSet<Address>>::new();
             let mut work_logs = BTreeSet::<Address>::new();
-            for env in envs.0.values_mut() {
+            for block_number in block_numbers.iter() {
+                let env = envs.get_or_insert(*block_number).await?;
                 let update_events = Event::preflight::<IPovwAccounting::WorkLogUpdated>(env)
                     .address(povw_accounting_address)
                     .query()
@@ -425,45 +538,39 @@ pub mod host {
                     if !work_log_filter.includes(update_event.data.workLogId.into()) {
                         continue;
                     }
+                    if !epochs.contains(&update_event.epochNumber) {
+                        continue;
+                    }
                     work_logs.insert(update_event.data.workLogId);
                     if update_event.data.updateValue == U256::ZERO {
                         continue;
                     }
-                    epoch_recipients
+                    epoch_work_logs
                         .entry(update_event.epochNumber)
                         .or_default()
-                        .insert(update_event.data.valueRecipient);
+                        .insert(update_event.data.workLogId);
                 }
             }
 
             // Preflight the contract calls the guest will make for completeness checks.
+            let completeness_check_block_number = latest_epoch_finalization_block - 1;
             let completeness_check_env =
-                envs.0.get_mut(&(latest_epoch_finalization_block - 1)).ok_or_else(|| {
-                    anyhow!(
-                        "missing completeness check block {}",
-                        latest_epoch_finalization_block - 1
-                    )
-                })?;
+                envs.get_or_insert(completeness_check_block_number).await?;
             let mut povw_accounting_contract =
                 Contract::preflight(povw_accounting_address, completeness_check_env);
             for work_log_id in work_logs {
                 povw_accounting_contract
-                    .call_builder(&IPovwAccounting::getWorkLogCommitCall { workLogId: work_log_id })
+                    .call_builder(&IPovwAccounting::workLogCommitCall { workLogId: work_log_id })
                     .call()
                     .await
                     .with_context(|| {
-                        format!("Failed to preflight call: getWorkLogCommit({work_log_id})")
+                        format!("Failed to preflight call: workLogCommit({work_log_id})")
                     })?;
             }
 
             // Preflight the contract calls the guest will make to calculate the reward values.
-            let finalization_env =
-                envs.0.get_mut(&latest_epoch_finalization_block).ok_or_else(|| {
-                    anyhow!(
-                        "missing latest epoch finalization block {latest_epoch_finalization_block}"
-                    )
-                })?;
-            for (epoch, recipients) in epoch_recipients {
+            let finalization_env = envs.get_or_insert(latest_epoch_finalization_block).await?;
+            for (epoch, work_log_ids) in epoch_work_logs {
                 let epoch_end_time = {
                     // NOTE: zkc_contract must be in a limited scope because it holds lastest_env.
                     let mut zkc_contract = Contract::preflight(zkc_address, finalization_env);
@@ -483,28 +590,223 @@ pub mod host {
                         })?
                 };
 
-                for recipient in recipients {
+                for work_log_id in work_log_ids {
                     let mut zkc_rewards_contract =
                         Contract::preflight(zkc_rewards_address, finalization_env);
                     let call = IZKCRewards::getPastPoVWRewardCapCall {
-                        account: recipient,
+                        account: work_log_id,
                         timepoint: epoch_end_time,
                     };
                     zkc_rewards_contract.call_builder(&call)
                         .call()
                         .await
-                        .with_context(|| format!("Failed to preflight call: getPastPoVWRewardCap({recipient}, {epoch_end_time})"))?;
+                        .with_context(|| format!("Failed to preflight call: getPastPoVWRewardCap({work_log_id}, {epoch_end_time})"))?;
                 }
             }
+
+            let env_input = envs
+                .build()
+                .await?
+                .into_input()
+                .await
+                .context("Failed to convert multi-block env to input")?;
 
             Ok(Self {
                 povw_accounting_address,
                 zkc_address,
                 zkc_rewards_address,
-                chain_id: chain_spec.chain_id,
-                env: envs.into_input().await.context("failed to convert env to input")?,
+                chain_id,
+                env: env_input,
                 work_log_filter,
             })
+        }
+    }
+
+    impl<P: Provider> IPovwMintInstance<P> {
+        /// Create a call to the [IPovwMint::mint] function to be sent in a tx.
+        pub fn mint_with_receipt(
+            &self,
+            receipt: &Receipt,
+        ) -> anyhow::Result<CallBuilder<&P, PhantomData<IPovwMint::mintCall>>> {
+            let journal = MintCalculatorJournal::abi_decode(&receipt.journal.bytes)
+                .context("Failed to decode journal from Mint Calculator receipt")?;
+            let seal = risc0_ethereum_contracts::encode_seal(receipt)
+                .context("Failed to encode seal for mint")?;
+
+            Ok(self.mint(journal.abi_encode().into(), seal.into()))
+        }
+    }
+}
+
+#[cfg(feature = "prover")]
+pub mod prover {
+    use std::{borrow::Cow, convert::Infallible};
+
+    use alloy_primitives::Address;
+    use anyhow::Context;
+    use derive_builder::Builder;
+    use risc0_steel::ethereum::{EthChainSpec, EthEvmEnv};
+    use risc0_zkvm::{
+        compute_image_id, Digest, ExecutorEnv, ProveInfo, Prover, ProverOpts, VerifierContext,
+    };
+
+    use super::{
+        Input, WorkLogFilter, BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
+    };
+
+    // TODO(povw): Add an option for a beacon_api to use beacon commits.
+    /// A prover for mint calculations which runs the Mint Calculator to produce a receipt for
+    /// determining token mint distributions based on PoVW accounting data.
+    #[derive(Builder)]
+    #[builder(pattern = "owned")]
+    #[non_exhaustive]
+    pub struct MintCalculatorProver<P, Q> {
+        /// The underlying RISC Zero zkVM [Prover].
+        #[builder(setter(custom))]
+        pub prover: P,
+        /// The Ethereum provider for blockchain queries.
+        #[builder(setter(custom))]
+        pub provider: Q,
+        /// Address of the PoVW accounting contract.
+        #[builder(setter(into))]
+        pub povw_accounting_address: Address,
+        /// Address of the ZKC token contract.
+        #[builder(setter(into))]
+        pub zkc_address: Address,
+        /// Address of the ZKC rewards contract.
+        #[builder(setter(into))]
+        pub zkc_rewards_address: Address,
+        /// Ethereum chain specification for Steel environment.
+        #[builder(setter(into))]
+        pub chain_spec: &'static EthChainSpec,
+        /// Image ID for the Mint Calculator program.
+        ///
+        /// Defaults to the Mint Calculator program ID that is built into this crate.
+        #[builder(setter(custom), default = "BOUNDLESS_POVW_MINT_CALCULATOR_ID.into()")]
+        pub mint_calculator_id: Digest,
+        /// Executable for the Mint Calculator program.
+        ///
+        /// Defaults to the Mint Calculator program that is built into this crate.
+        #[builder(setter(custom), default = "BOUNDLESS_POVW_MINT_CALCULATOR_ELF.into()")]
+        pub mint_calculator_program: Cow<'static, [u8]>,
+        /// [ProverOpts] to use when proving the mint calculation.
+        #[builder(default)]
+        pub prover_opts: ProverOpts,
+        /// [VerifierContext] to use when proving the mint calculation. This only needs to be set when using
+        /// non-standard verifier parameters.
+        #[builder(default)]
+        pub verifier_ctx: VerifierContext,
+    }
+
+    impl<P, Q> MintCalculatorProverBuilder<P, Q> {
+        /// Set the underlying RISC Zero zkVM [Prover].
+        pub fn prover<T>(self, prover: T) -> MintCalculatorProverBuilder<T, Q> {
+            MintCalculatorProverBuilder {
+                prover: Some(prover),
+                provider: self.provider,
+                povw_accounting_address: self.povw_accounting_address,
+                zkc_address: self.zkc_address,
+                zkc_rewards_address: self.zkc_rewards_address,
+                chain_spec: self.chain_spec,
+                mint_calculator_id: self.mint_calculator_id,
+                mint_calculator_program: self.mint_calculator_program,
+                prover_opts: self.prover_opts,
+                verifier_ctx: self.verifier_ctx,
+            }
+        }
+
+        /// Set the Ethereum provider for blockchain queries.
+        pub fn provider<T>(self, provider: T) -> MintCalculatorProverBuilder<P, T> {
+            MintCalculatorProverBuilder {
+                prover: self.prover,
+                provider: Some(provider),
+                povw_accounting_address: self.povw_accounting_address,
+                zkc_address: self.zkc_address,
+                zkc_rewards_address: self.zkc_rewards_address,
+                chain_spec: self.chain_spec,
+                mint_calculator_id: self.mint_calculator_id,
+                mint_calculator_program: self.mint_calculator_program,
+                prover_opts: self.prover_opts,
+                verifier_ctx: self.verifier_ctx,
+            }
+        }
+
+        /// Set the Mint Calculator program, returning error if the image ID cannot be calculated.
+        pub fn mint_calculator_program(
+            self,
+            program: impl Into<Cow<'static, [u8]>>,
+        ) -> anyhow::Result<Self> {
+            let program = program.into();
+            let image_id = compute_image_id(&program)
+                .context("Failed to compute image ID for Mint Calculator program")?;
+
+            Ok(Self {
+                mint_calculator_program: Some(program),
+                mint_calculator_id: Some(image_id),
+                ..self
+            })
+        }
+    }
+
+    impl<P, Q> MintCalculatorProver<P, Q>
+    where
+        P: Prover,
+        Q: alloy_provider::Provider + Clone + 'static,
+    {
+        /// Build the Steel environment and Mint Calculator input.
+        ///
+        /// This method queries the provided RPC nodes.
+        pub async fn build_input(
+            &self,
+            block_numbers: impl IntoIterator<Item = u64>,
+            work_log_filter: impl Into<WorkLogFilter>,
+        ) -> anyhow::Result<Input> {
+            let env_builder =
+                EthEvmEnv::builder().chain_spec(self.chain_spec).provider(self.provider.clone());
+
+            Input::build(
+                self.povw_accounting_address,
+                self.zkc_address,
+                self.zkc_rewards_address,
+                self.chain_spec.chain_id,
+                env_builder,
+                block_numbers,
+                work_log_filter,
+            )
+            .await
+            .context("Failed to build Mint Calculator input")
+        }
+
+        /// Prove mint calculations using the given [Input].
+        pub async fn prove_mint(&self, input: &Input) -> anyhow::Result<ProveInfo> {
+            let env = ExecutorEnv::builder()
+                .write_frame(&input.encode()?)
+                .build()
+                .context("failed to build ExecutorEnv")?;
+
+            // Prove the mint calculation
+            // NOTE: This may block the current thread for a significant amount of time. It is not
+            // trivial to wrap this statement in e.g. tokio's spawn_blocking because self contains
+            // a VerifierContext which does not implement Send. If this causes any issues, the caller
+            // can mitigate the issue by building and calling the prover in a seperate thread.
+            let prove_info = self
+                .prover
+                .prove_with_ctx(
+                    env,
+                    &self.verifier_ctx,
+                    &self.mint_calculator_program,
+                    &self.prover_opts,
+                )
+                .context("failed to prove mint calculation")?;
+
+            Ok(prove_info)
+        }
+    }
+
+    impl MintCalculatorProver<Infallible, Infallible> {
+        /// Create a new builder for [MintCalculatorProver].
+        pub fn builder() -> MintCalculatorProverBuilder<Infallible, Infallible> {
+            Default::default()
         }
     }
 }

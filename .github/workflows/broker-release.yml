@@ -1,0 +1,215 @@
+name: Build and Release Broker
+
+on:
+  push:
+    tags:
+      - 'broker-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., broker-v1.0.0)'
+        required: true
+        default: 'broker-v1.0.0'
+      dry_run:
+        description: 'Dry run (build only, no release)'
+        required: false
+        default: 'false'
+
+env:
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "2.3.1"
+  RUST_VERSION: "1.88.0"
+
+jobs:
+  build-broker:
+    name: Build Broker
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    permissions:
+      contents: read    # Required for checkout
+      id-token: write   # Required for OIDC authentication with AWS
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: linux
+            arch: x64
+            artifact_name: linux-amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev
+
+      - name: Setup Rust toolchain
+        uses: risc0/risc0/.github/actions/rustup@v3.0.3
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Broker Components
+        env:
+          PATH: /usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
+        run: |
+          # Build broker
+          cargo build --release --target ${{ matrix.target }} --bin broker
+
+          # Build broker stress test
+          cargo build --release --target ${{ matrix.target }} --bin broker-stress
+
+          # Create binaries directory
+          mkdir -p binaries/${{ matrix.artifact_name }}
+
+          # Copy binaries
+          cp target/${{ matrix.target }}/release/broker binaries/${{ matrix.artifact_name }}/broker
+          cp target/${{ matrix.target }}/release/broker-stress binaries/${{ matrix.artifact_name }}/broker-stress
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+      - name: Create checksums
+        working-directory: binaries/${{ matrix.artifact_name }}
+        run: |
+          sha256sum broker > broker.sha256
+          sha256sum broker-stress > broker-stress.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: broker-binaries-${{ matrix.artifact_name }}
+          path: binaries/${{ matrix.artifact_name }}
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-broker
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/broker-v') && github.event.inputs.dry_run != 'true'
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          for artifact in artifacts/broker-binaries-*; do
+            if [ -d "$artifact" ]; then
+              cp -r "$artifact"/* release-assets/
+            fi
+          done
+          ls -la release-assets/
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_name=Broker Release $VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          release_name: ${{ steps.get_version.outputs.release_name }}
+          body: |
+            ## Broker Release
+
+            This release includes the following components:
+            - **Broker**: Core broker service for order management
+            - **Broker Stress Test**: Stress testing tool for broker
+
+            ### Supported Platforms
+            - Linux (AMD64, ARM64)
+            - macOS (Intel, Apple Silicon)
+
+            ### Installation
+            Download the appropriate binary for your platform and make it executable:
+            ```bash
+            chmod +x broker
+            chmod +x broker-stress
+            ```
+
+            ### Usage
+            ```bash
+            # Run broker
+            ./broker --help
+
+            # Run stress test
+            ./broker-stress --help
+            ```
+
+            ### Verification
+            Verify the integrity of downloaded files using the provided SHA256 checksums.
+          draft: false
+          prerelease: false
+
+      - name: Upload Broker Binaries
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/broker
+          asset_name: broker
+          asset_content_type: application/octet-stream
+
+      - name: Upload Broker Stress Test Binaries
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/broker-stress
+          asset_name: broker-stress
+          asset_content_type: application/octet-stream
+
+      - name: Upload SHA256 checksums
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/*.sha256
+          asset_name: checksums.txt
+          asset_content_type: text/plain

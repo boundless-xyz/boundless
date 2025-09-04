@@ -5,15 +5,11 @@
 pragma solidity ^0.8.20;
 
 import {RequestId} from "./RequestId.sol";
-import {Account} from "./Account.sol";
-import {Callback, CallbackLibrary} from "./Callback.sol";
+import {CallbackLibrary} from "./Callback.sol";
 import {Offer, OfferLibrary} from "./Offer.sol";
-import {Predicate, PredicateLibrary} from "./Predicate.sol";
-import {Input, InputType, InputLibrary} from "./Input.sol";
+import {PredicateLibrary} from "./Predicate.sol";
+import {Input, InputLibrary} from "./Input.sol";
 import {Requirements, RequirementsLibrary} from "./Requirements.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {IBoundlessMarket} from "../IBoundlessMarket.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 using ProofRequestLibrary for ProofRequest global;
 

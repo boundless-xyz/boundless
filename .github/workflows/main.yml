@@ -18,8 +18,9 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.88.0
-  RISC0_CRATE_VERSION: "2.3.0"
+  RISC0_CRATE_VERSION: "3.0.3"
   FOUNDRY_VERSION: v1.0.0
 
 jobs:
@@ -80,7 +81,7 @@ jobs:
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
@@ -157,7 +158,7 @@ jobs:
           submodules: recursive
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
@@ -196,13 +197,13 @@ jobs:
           key: cache-lychee-${{ github.sha }}
           restore-keys: cache-lychee-
 
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
-          version: '=1.10.8'
+          version: '=1.15.1'
           locked: true
 
       - run: cargo binstall -y --force lychee@0.15.1
@@ -232,13 +233,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
-          version: '=1.10.8'
+          version: '=1.15.1'
           locked: true
 
       - run: cargo binstall -y --force dprint@0.47.2
@@ -288,10 +289,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
         with:
           # Building with docs.rs config requires the nightly toolchain.
           toolchain: nightly-2025-05-09
@@ -317,7 +318,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
@@ -354,14 +355,16 @@ jobs:
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
-      - uses: risc0/risc0/.github/actions/cuda@352dea62857ba57331053cd0986a12c1a4708732
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/cuda@v3.0.3
+      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+          install-groth16: true
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
@@ -539,27 +542,33 @@ jobs:
               - 'dockerfiles/**'
               - 'compose.yml'
               - '.env.broker-template'
+              - '.github/workflows/main.yml'
             # Changes affect the main codebase (rust + contracts).
             main:
               - '*' # run is anything in the root changed.
               - 'crates/**'
               - 'contracts/**'
+              - '.github/workflows/main.yml'
             # Changes that could effect the examples.
             examples:
               - '*' # run is anything in the root changed.
               - 'crates/**'
               - 'contracts/**'
               - 'examples/**'
+              - '.github/workflows/main.yml'
             docs:
               - '*' # run is anything in the root changed.
               - 'crates/**'
               - 'contracts/**'
               - 'documentation/**'
+              - '.github/workflows/main.yml'
             # Changes to infrastructure code
             infra:
               - 'infra/**'
+              - '.github/workflows/main.yml'
             # Changes to deployment configuration files
             deployments:
               - 'contracts/deployment.toml'
               - 'crates/boundless-market/src/deployments.rs'
+              - '.github/workflows/main.yml'
 

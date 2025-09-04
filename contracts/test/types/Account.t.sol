@@ -5,8 +5,8 @@
 
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import {Account, AccountLibrary} from "../../src/types/Account.sol";
+import {Test} from "forge-std/Test.sol";
+import {Account} from "../../src/types/Account.sol";
 
 /// @dev Wrapper contract to test Account. Declaring Account as a storage variable
 /// directly in the test contract makes it type `StdCheatsSafe.Account` which causes

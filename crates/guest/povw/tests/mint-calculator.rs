@@ -1,6 +1,7 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
 use alloy::{
     primitives::{B256, U256},
@@ -13,23 +14,23 @@ use boundless_povw_guests::{
     log_updater::LogBuilderJournal,
     mint_calculator::{
         MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate, WorkLogFilter,
+        BOUNDLESS_POVW_MINT_CALCULATOR_ID,
     },
-    BOUNDLESS_POVW_MINT_CALCULATOR_ID,
 };
-use common::MintOptions;
+use boundless_test_utils::povw::{
+    encode_seal, execute_mint_calculator_guest, test_ctx, test_ctx_with, MintOptions,
+};
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_povw::WorkLog;
 use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
 
-mod common;
-
 #[tokio::test]
 async fn basic() -> anyhow::Result<()> {
     // Setup test context
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Post a work log update
@@ -60,9 +61,8 @@ async fn basic() -> anyhow::Result<()> {
     let mint_receipt = ctx.run_mint().await?;
     println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
 
-    let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let final_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     assert_eq!(final_balance, epoch_reward, "Minted amount should match expected calculation");
     Ok(())
@@ -70,9 +70,9 @@ async fn basic() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn proportional_rewards_same_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer1 = PrivateKeySigner::random();
@@ -117,17 +117,15 @@ async fn proportional_rewards_same_epoch() -> anyhow::Result<()> {
     println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
 
     // Check balances - should be proportional to work done
-    let balance1 = ctx.zkc_contract.balanceOf(signer1.address()).call().await?;
-    let balance2 = ctx.zkc_contract.balanceOf(signer2.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let balance1 = ctx.zkc.balanceOf(signer1.address()).call().await?;
+    let balance2 = ctx.zkc.balanceOf(signer2.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     // Expected: signer1 gets 30%, signer2 gets 70%
     let expected1 = epoch_reward * U256::from(30) / U256::from(100);
     let expected2 = epoch_reward * U256::from(70) / U256::from(100);
 
     // Allow for small rounding errors in fixed-point arithmetic (within 10 wei)
-    // TODO(povw): Try to avoid these rounding errors.
     let tolerance = U256::from(10);
     assert!(
         balance1.abs_diff(expected1) <= tolerance,
@@ -146,9 +144,9 @@ async fn proportional_rewards_same_epoch() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let first_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Starting epoch: {first_epoch}");
 
     let signer = PrivateKeySigner::random();
@@ -176,9 +174,8 @@ async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
         ctx.run_mint_with_opts(MintOptions::builder().epochs([first_epoch])).await?;
     println!("First mint completed with {} gas used", mint_receipt1.gas_used);
 
-    let balance_after_first_mint = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event1.epoch).call().await?;
+    let balance_after_first_mint = ctx.zkc.balanceOf(signer.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event1.epoch).call().await?;
 
     assert_eq!(
         balance_after_first_mint, epoch_reward,
@@ -187,7 +184,7 @@ async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
     println!("Balance after first mint: {balance_after_first_mint} tokens");
 
     // Second epoch update (chained from first)
-    let second_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let second_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     let update2 = LogBuilderJournal::builder()
         .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
         .initial_commit(update1.updated_commit) // Chain from first update
@@ -211,7 +208,7 @@ async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
         ctx.run_mint_with_opts(MintOptions::builder().epochs([second_epoch])).await?;
     println!("Second mint completed with {} gas used", mint_receipt2.gas_used);
 
-    let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
+    let final_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
     let expected_total = epoch_reward * U256::from(2); // Both full epoch rewards
 
     assert_eq!(final_balance, expected_total, "Final balance should be exactly 2x epoch reward");
@@ -222,9 +219,9 @@ async fn sequential_mints_per_epoch() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn cross_epoch_mint() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let first_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Starting epoch: {first_epoch}");
 
     let signer = PrivateKeySigner::random();
@@ -248,7 +245,7 @@ async fn cross_epoch_mint() -> anyhow::Result<()> {
     assert_eq!(finalized_event1.totalWork, U256::from(40));
 
     // Second epoch update (chained from first)
-    let second_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let second_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     let update2 = LogBuilderJournal::builder()
         .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
         .initial_commit(update1.updated_commit) // Chain from first update
@@ -272,9 +269,8 @@ async fn cross_epoch_mint() -> anyhow::Result<()> {
         ctx.run_mint_with_opts(MintOptions::builder().epochs([first_epoch, second_epoch])).await?;
     println!("Cross-epoch mint completed with {} gas used", mint_receipt.gas_used);
 
-    let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event2.epoch).call().await?;
+    let final_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event2.epoch).call().await?;
     let expected_total = epoch_reward * U256::from(2); // Both full epoch rewards
 
     assert_eq!(
@@ -288,7 +284,7 @@ async fn cross_epoch_mint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_invalid_steel_commitment() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     // Setup a basic work log and epoch
@@ -313,9 +309,9 @@ async fn reject_invalid_steel_commitment() -> anyhow::Result<()> {
             initialCommit: B256::from(<[u8; 32]>::from(update.initial_commit)),
             updatedCommit: B256::from(<[u8; 32]>::from(update.updated_commit)),
         }],
-        povwAccountingAddress: *ctx.povw_accounting_contract.address(),
-        zkcAddress: *ctx.zkc_contract.address(),
-        zkcRewardsAddress: *ctx.zkc_rewards_contract.address(),
+        povwAccountingAddress: *ctx.povw_accounting.address(),
+        zkcAddress: *ctx.zkc.address(),
+        zkcRewardsAddress: *ctx.zkc_rewards.address(),
         steelCommit: risc0_steel::Commitment::default(), // Invalid/empty Steel commitment
     };
 
@@ -327,8 +323,8 @@ async fn reject_invalid_steel_commitment() -> anyhow::Result<()> {
     let receipt: Receipt = fake_receipt.try_into()?;
 
     let result = ctx
-        .povw_mint_contract
-        .mint(mint_journal.abi_encode().into(), common::encode_seal(&receipt)?.into())
+        .povw_mint
+        .mint(mint_journal.abi_encode().into(), encode_seal(&receipt)?.into())
         .send()
         .await;
 
@@ -343,8 +339,8 @@ async fn reject_invalid_steel_commitment() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_wrong_povw_address() -> anyhow::Result<()> {
-    let ctx1 = common::test_ctx().await?;
-    let ctx2 = common::test_ctx_with(ctx1.anvil.clone(), 1).await?;
+    let ctx1 = test_ctx().await?;
+    let ctx2 = test_ctx_with(ctx1.anvil.clone(), 1).await?;
 
     let signer = PrivateKeySigner::random();
     let update = LogBuilderJournal::builder()
@@ -364,7 +360,7 @@ async fn reject_wrong_povw_address() -> anyhow::Result<()> {
     let mint_input = ctx1.build_mint_input(MintOptions::default()).await?;
 
     // Execute the mint calculator guest
-    let mint_journal = common::execute_mint_calculator_guest(&mint_input)?;
+    let mint_journal = execute_mint_calculator_guest(&mint_input)?;
 
     // Assemble a fake receipt and use it to call the mint function on the PovwMint contract.
     let mint_receipt: Receipt = FakeReceipt::new(ReceiptClaim::ok(
@@ -376,8 +372,8 @@ async fn reject_wrong_povw_address() -> anyhow::Result<()> {
     // Submit the mint to deployment #2. This should fail as the contract address for the PovwAccounting
     // contract is wrong.
     let result = ctx2
-        .povw_mint_contract
-        .mint(mint_journal.abi_encode().into(), common::encode_seal(&mint_receipt)?.into())
+        .povw_mint
+        .mint(mint_journal.abi_encode().into(), encode_seal(&mint_receipt)?.into())
         .send()
         .await;
 
@@ -392,10 +388,10 @@ async fn reject_wrong_povw_address() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_mint_with_only_latter_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
-    let _first_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let _first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
 
     // First update in first epoch
     let update1 = LogBuilderJournal::builder()
@@ -411,7 +407,7 @@ async fn reject_mint_with_only_latter_epoch() -> anyhow::Result<()> {
     ctx.advance_epochs(U256::ONE).await?;
     ctx.finalize_epoch().await?;
 
-    let second_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let second_epoch = ctx.zkc.getCurrentEpoch().call().await?;
 
     // Second update in second epoch (chained from first)
     let update2 = LogBuilderJournal::builder()
@@ -440,10 +436,10 @@ async fn reject_mint_with_only_latter_epoch() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
-    let first_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
 
     // First update in first epoch
     let update1 = LogBuilderJournal::builder()
@@ -459,7 +455,7 @@ async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
     ctx.advance_epochs(U256::ONE).await?;
     ctx.finalize_epoch().await?;
 
-    let _second_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let _second_epoch = ctx.zkc.getCurrentEpoch().call().await?;
 
     // Second update in second epoch (chained from first)
     let update2 = LogBuilderJournal::builder()
@@ -475,7 +471,7 @@ async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
     ctx.advance_epochs(U256::ONE).await?;
     ctx.finalize_epoch().await?;
 
-    let third_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let third_epoch = ctx.zkc.getCurrentEpoch().call().await?;
 
     // Third update in third epoch (chained from second)
     let update3 = LogBuilderJournal::builder()
@@ -507,11 +503,61 @@ async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+async fn mint_with_one_finalized_and_one_unfinalized_epoch() -> anyhow::Result<()> {
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
-    let current_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    // First update in first epoch
+    let update1 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(20)
+        .work_log_id(signer.address())
+        .build()
+        .unwrap();
+
+    ctx.post_work_log_update(&signer, &update1, signer.address()).await?;
+    ctx.advance_epochs(U256::ONE).await?;
+    let finalize_event = ctx.finalize_epoch().await?;
+
+    // Post work log update in the seconds epoch but don't finalize the epoch
+    let update2 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(update1.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(25)
+        .work_log_id(signer.address())
+        .build()
+        .unwrap();
+
+    ctx.post_work_log_update(&signer, &update2, signer.address()).await?;
+
+    // Advance time but DO NOT finalize the epoch
+    ctx.advance_epochs(U256::ONE).await?;
+
+    // Single mint covering both epochs
+    ctx.run_mint_with_opts(MintOptions::builder()).await?;
+
+    let final_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalize_event.epoch).call().await?;
+    let expected_total = epoch_reward * U256::from(1); // Just the reward for the first epoch.
+
+    assert_eq!(
+        final_balance, expected_total,
+        "Final balance should be exactly epoch reward from the finalized epoch"
+    );
+    println!("Final balance after cross-epoch mint: {final_balance} tokens");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
+    let ctx = test_ctx().await?;
+    let signer = PrivateKeySigner::random();
+
+    let current_epoch = ctx.zkc.getCurrentEpoch().call().await?;
 
     // Post work log update but don't finalize the epoch
     let update = LogBuilderJournal::builder()
@@ -535,9 +581,9 @@ async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
     println!("Contract correctly rejected unfinalized epoch: {err}");
     // The mint calculator guest should fail because there's no EpochFinalized event
     //assert!(err.to_string().contains("no epoch finalized event processed"));
-    // TODO(povw): This test currently fails before getting to the guest. Provide a way to advance
+    // TODO(victor): This test currently fails before getting to the guest. Provide a way to advance
     // the preflight (skipping some steps) to build an input to at least let the guest run.
-    assert!(err.to_string().contains("no epoch finalized events processed"));
+    assert!(err.to_string().contains("No EpochFinalized events in the given blocks"));
 
     Ok(())
 }
@@ -545,7 +591,7 @@ async fn reject_mint_with_unfinalized_epoch() -> anyhow::Result<()> {
 #[tokio::test]
 async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
     // Setup test context
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
     // Post a work log update
     let signer = PrivateKeySigner::random();
@@ -574,7 +620,7 @@ async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
         .await?;
 
     // Execute the mint calculator guest
-    let mint_journal = common::execute_mint_calculator_guest(&mint_input)?;
+    let mint_journal = execute_mint_calculator_guest(&mint_input)?;
 
     // Assemble a fake receipt and use it to call the mint function on the PovwMint contract.
     let mint_receipt: Receipt = FakeReceipt::new(ReceiptClaim::ok(
@@ -585,8 +631,8 @@ async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
 
     // This should fail as chain spec is wrong.
     let result = ctx
-        .povw_mint_contract
-        .mint(mint_journal.abi_encode().into(), common::encode_seal(&mint_receipt)?.into())
+        .povw_mint
+        .mint(mint_journal.abi_encode().into(), encode_seal(&mint_receipt)?.into())
         .send()
         .await;
 
@@ -600,11 +646,11 @@ async fn reject_mint_wrong_chain_spec() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn mint_to_value_recipient() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let value_recipient = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Work log controlled by work_log_signer, but rewards should go to value_recipient
@@ -637,12 +683,9 @@ async fn mint_to_value_recipient() -> anyhow::Result<()> {
     println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
 
     // Check balances - value_recipient should get tokens, not work_log_signer
-    let work_log_signer_balance =
-        ctx.zkc_contract.balanceOf(work_log_signer.address()).call().await?;
-    let value_recipient_balance =
-        ctx.zkc_contract.balanceOf(value_recipient.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let work_log_signer_balance = ctx.zkc.balanceOf(work_log_signer.address()).call().await?;
+    let value_recipient_balance = ctx.zkc.balanceOf(value_recipient.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     assert_eq!(
         work_log_signer_balance,
@@ -663,12 +706,12 @@ async fn mint_to_value_recipient() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn single_work_log_multiple_recipients() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let recipient1 = PrivateKeySigner::random();
     let recipient2 = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // First update: work_log_signer -> recipient1
@@ -709,12 +752,10 @@ async fn single_work_log_multiple_recipients() -> anyhow::Result<()> {
     println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
 
     // Check final token balances - should be proportional to work done
-    let recipient1_balance = ctx.zkc_contract.balanceOf(recipient1.address()).call().await?;
-    let recipient2_balance = ctx.zkc_contract.balanceOf(recipient2.address()).call().await?;
-    let work_log_signer_balance =
-        ctx.zkc_contract.balanceOf(work_log_signer.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let recipient1_balance = ctx.zkc.balanceOf(recipient1.address()).call().await?;
+    let recipient2_balance = ctx.zkc.balanceOf(recipient2.address()).call().await?;
+    let work_log_signer_balance = ctx.zkc.balanceOf(work_log_signer.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     // Expected: recipient1 gets 30/50 = 60%, recipient2 gets 20/50 = 40%
     let expected_recipient1 = epoch_reward * U256::from(30) / U256::from(50);
@@ -740,12 +781,12 @@ async fn single_work_log_multiple_recipients() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn multiple_work_logs_same_recipient() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer1 = PrivateKeySigner::random();
     let work_log_signer2 = PrivateKeySigner::random();
     let shared_recipient = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // First work log update -> shared_recipient
@@ -788,14 +829,10 @@ async fn multiple_work_logs_same_recipient() -> anyhow::Result<()> {
     println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
 
     // Check final token balances
-    let shared_recipient_balance =
-        ctx.zkc_contract.balanceOf(shared_recipient.address()).call().await?;
-    let work_log_signer1_balance =
-        ctx.zkc_contract.balanceOf(work_log_signer1.address()).call().await?;
-    let work_log_signer2_balance =
-        ctx.zkc_contract.balanceOf(work_log_signer2.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let shared_recipient_balance = ctx.zkc.balanceOf(shared_recipient.address()).call().await?;
+    let work_log_signer1_balance = ctx.zkc.balanceOf(work_log_signer1.address()).call().await?;
+    let work_log_signer2_balance = ctx.zkc.balanceOf(work_log_signer2.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     // Shared recipient should get the full epoch reward (100% since they get all the work from both logs)
     // Allow for small rounding errors in fixed-point arithmetic (within 10 wei)
@@ -815,10 +852,10 @@ async fn multiple_work_logs_same_recipient() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn zero_valued_update() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Post a zero-valued work log update
@@ -851,7 +888,7 @@ async fn zero_valued_update() -> anyhow::Result<()> {
     ctx.run_mint_with_opts(MintOptions::builder().epochs([finalized_event.epoch])).await?;
 
     // Verify no tokens were minted (recipient balance should remain zero)
-    let zero_update_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
+    let zero_update_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
     assert_eq!(
         zero_update_balance,
         U256::ZERO,
@@ -876,19 +913,19 @@ async fn zero_valued_update() -> anyhow::Result<()> {
     ctx.run_mint_with_opts(MintOptions::builder().epochs([finalized_event.epoch])).await?;
 
     // Verify tokens were minted this time.
-    let final_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
+    let final_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
     assert_eq!(
         final_balance,
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?
+        ctx.zkc.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?
     );
     Ok(())
 }
 
 #[tokio::test]
 async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer_a = PrivateKeySigner::random();
@@ -939,10 +976,9 @@ async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
     println!("Mint A transaction succeeded with {} gas used", mint_receipt_a.gas_used);
 
     // Check balances after first mint
-    let balance_a_after_first = ctx.zkc_contract.balanceOf(signer_a.address()).call().await?;
-    let balance_b_after_first = ctx.zkc_contract.balanceOf(signer_b.address()).call().await?;
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
+    let balance_a_after_first = ctx.zkc.balanceOf(signer_a.address()).call().await?;
+    let balance_b_after_first = ctx.zkc.balanceOf(signer_b.address()).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(finalized_event.epoch).call().await?;
 
     // Expected: signer A gets 30% of epoch reward, signer B gets nothing yet
     let expected_a = epoch_reward * U256::from(30) / U256::from(100);
@@ -970,8 +1006,8 @@ async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
     println!("Mint B transaction succeeded with {} gas used", mint_receipt_b.gas_used);
 
     // Check final balances
-    let balance_a_final = ctx.zkc_contract.balanceOf(signer_a.address()).call().await?;
-    let balance_b_final = ctx.zkc_contract.balanceOf(signer_b.address()).call().await?;
+    let balance_a_final = ctx.zkc.balanceOf(signer_a.address()).call().await?;
+    let balance_b_final = ctx.zkc.balanceOf(signer_b.address()).call().await?;
 
     // Expected: signer B gets 70% of epoch reward, signer A balance unchanged
     let expected_b = epoch_reward * U256::from(70) / U256::from(100);
@@ -994,9 +1030,9 @@ async fn filter_individual_work_log_mints() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn filter_empty_no_mints_issued() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     let signer = PrivateKeySigner::random();
@@ -1043,7 +1079,7 @@ async fn filter_empty_no_mints_issued() -> anyhow::Result<()> {
     );
 
     // Verify no tokens were minted (signer balance should remain zero)
-    let signer_balance = ctx.zkc_contract.balanceOf(signer.address()).call().await?;
+    let signer_balance = ctx.zkc.balanceOf(signer.address()).call().await?;
     assert_eq!(
         signer_balance,
         U256::ZERO,
@@ -1056,19 +1092,18 @@ async fn filter_empty_no_mints_issued() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reward_cap() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     let value_recipient = PrivateKeySigner::random();
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Set an epoch reward cap for the recipient.
-    let epoch_reward =
-        ctx.zkc_contract.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
     let capped_epoch_reward = epoch_reward / U256::from(2);
-    ctx.zkc_rewards_contract
-        .setPoVWRewardCap(value_recipient.address(), capped_epoch_reward)
+    ctx.zkc_rewards
+        .setPoVWRewardCap(work_log_signer.address(), capped_epoch_reward)
         .send()
         .await?
         .watch()
@@ -1104,10 +1139,8 @@ async fn reward_cap() -> anyhow::Result<()> {
     println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
 
     // Check balances - value_recipient should get tokens, not work_log_signer
-    let work_log_signer_balance =
-        ctx.zkc_contract.balanceOf(work_log_signer.address()).call().await?;
-    let value_recipient_balance =
-        ctx.zkc_contract.balanceOf(value_recipient.address()).call().await?;
+    let work_log_signer_balance = ctx.zkc.balanceOf(work_log_signer.address()).call().await?;
+    let value_recipient_balance = ctx.zkc.balanceOf(value_recipient.address()).call().await?;
 
     assert_eq!(
         work_log_signer_balance,
@@ -1119,8 +1152,104 @@ async fn reward_cap() -> anyhow::Result<()> {
         "Value recipient should receive the capped epoch reward"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn reward_cap_two_recipients() -> anyhow::Result<()> {
+    let ctx = test_ctx().await?;
+    let work_log_signer = PrivateKeySigner::random();
+    // Create two value recipients. Rewards are doled in the order of the addresses, as an
+    // arbitrary way of deciding when rewards are capped.
+    let (value_recipient1, value_recipient2) = {
+        let mut key1 = PrivateKeySigner::random();
+        let mut key2 = PrivateKeySigner::random();
+        if key1.address() > key2.address() {
+            std::mem::swap(&mut key1, &mut key2);
+        }
+        (key1, key2)
+    };
+
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
+    println!("Initial epoch: {initial_epoch}");
+
+    // Set an epoch reward cap for the recipient.
+    let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
+    let capped_epoch_reward = epoch_reward * U256::from(3) / U256::from(4);
+    ctx.zkc_rewards
+        .setPoVWRewardCap(work_log_signer.address(), capped_epoch_reward)
+        .send()
+        .await?
+        .watch()
+        .await?;
+
+    // Work log controlled by work_log_signer, but rewards should go to value_recipients
+    let update1 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(WorkLog::EMPTY.commit())
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(50)
+        .work_log_id(work_log_signer.address())
+        .build()
+        .unwrap();
+
+    let work_log_event1 =
+        ctx.post_work_log_update(&work_log_signer, &update1, value_recipient1.address()).await?;
     println!(
-        "Verified: work_log_signer balance = {work_log_signer_balance}, value_recipient balance = {value_recipient_balance}"
+        "Work log update posted with value recipient {} for epoch {}",
+        value_recipient1.address(),
+        work_log_event1.epochNumber
+    );
+
+    let update2 = LogBuilderJournal::builder()
+        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
+        .initial_commit(update1.updated_commit)
+        .updated_commit(Digest::new(rand::random()))
+        .update_value(50)
+        .work_log_id(work_log_signer.address())
+        .build()
+        .unwrap();
+
+    let work_log_event2 =
+        ctx.post_work_log_update(&work_log_signer, &update2, value_recipient2.address()).await?;
+    println!(
+        "Work log update posted with value recipient {} for epoch {}",
+        value_recipient2.address(),
+        work_log_event2.epochNumber
+    );
+
+    // Advance time and finalize epoch
+    ctx.advance_epochs(U256::ONE).await?;
+    let finalized_event = ctx.finalize_epoch().await?;
+
+    assert_eq!(finalized_event.epoch, U256::from(initial_epoch));
+    assert_eq!(finalized_event.totalWork, U256::from(100));
+
+    // Run mint calculation
+    let mint_receipt = ctx.run_mint().await?;
+    println!("Mint transaction succeeded with {} gas used", mint_receipt.gas_used);
+
+    // Check balances - value_recipient should get tokens, not work_log_signer
+    let work_log_signer_balance = ctx.zkc.balanceOf(work_log_signer.address()).call().await?;
+    let value_recipient1_balance = ctx.zkc.balanceOf(value_recipient1.address()).call().await?;
+    let value_recipient2_balance = ctx.zkc.balanceOf(value_recipient2.address()).call().await?;
+
+    assert_eq!(
+        work_log_signer_balance,
+        U256::ZERO,
+        "Work log signer should not receive any tokens"
+    );
+    assert_eq!(
+        value_recipient1_balance,
+        epoch_reward / U256::from(2),
+        "Value recipient {} should receive half the total reward (cap not reached)",
+        value_recipient1.address(),
+    );
+    assert_eq!(
+        value_recipient2_balance,
+        epoch_reward / U256::from(4),
+        "Value recipient {} should receive a quarter of the total reward (cap exceeded)",
+        value_recipient2.address(),
     );
 
     Ok(())
@@ -1128,11 +1257,11 @@ async fn reward_cap() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_incomplete_work_log_processing_across_epochs() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     // === First Epoch - Complete Processing ===
-    let first_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let first_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("First epoch: {first_epoch}");
 
     let update1 = LogBuilderJournal::builder()
@@ -1153,7 +1282,7 @@ async fn reject_incomplete_work_log_processing_across_epochs() -> anyhow::Result
     ctx.finalize_epoch().await?;
 
     // === Second Epoch - Incomplete Processing (2 updates, but we'll exclude one) ===
-    let second_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let second_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Second epoch: {second_epoch}");
 
     // Second update (chains from first)
@@ -1204,7 +1333,7 @@ async fn reject_incomplete_work_log_processing_across_epochs() -> anyhow::Result
     println!("Created mint input excluding block {excluded_block}");
 
     // === Execute Mint Calculator - Should Fail ===
-    let result = common::execute_mint_calculator_guest(&mint_input);
+    let result = execute_mint_calculator_guest(&mint_input);
 
     assert!(result.is_err(), "Mint should fail due to incomplete work log processing");
 

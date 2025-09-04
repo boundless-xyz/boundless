@@ -1,27 +1,26 @@
-use std::collections::{btree_map, BTreeMap};
-use std::sync::LazyLock;
+// Copyright 2025 RISC Zero, Inc.
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
-use alloy_chains::NamedChain;
-use alloy_primitives::{Address, ChainId, B256, U256};
+use std::collections::{btree_map, BTreeMap};
+
+use alloy_primitives::{Address, B256, U256};
 use alloy_sol_types::SolValue;
 use boundless_povw_guests::log_updater::IPovwAccounting;
 use boundless_povw_guests::mint_calculator::{
-    FixedPoint, Input, MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate,
+    FixedPoint, Input, MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate, CHAIN_SPECS,
 };
 use boundless_povw_guests::zkc::{IZKCRewards, IZKC};
-use risc0_steel::ethereum::{
-    EthChainSpec, ANVIL_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
-};
 use risc0_steel::{Contract, Event};
 use risc0_zkvm::guest::env;
 
-static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(|| {
-    BTreeMap::from([
-        (NamedChain::Mainnet as ChainId, ETH_MAINNET_CHAIN_SPEC.clone()),
-        (NamedChain::Sepolia as ChainId, ETH_SEPOLIA_CHAIN_SPEC.clone()),
-        (NamedChain::AnvilHardhat as ChainId, ANVIL_CHAIN_SPEC.clone()),
-    ])
-});
+/// A mapping from epoch number => { work log ID =>  { recipient => { reward weight } } }.
+///
+/// This mapping is structured to have all the information needed to apply the reward cap such that
+/// within a single epoch, and a single work log, the sum of rewards accross all recipients is less
+/// than or equal to the reward cap for the work log.
+type RewardWeightMap = BTreeMap<U256, BTreeMap<Address, BTreeMap<Address, FixedPoint>>>;
 
 // The mint calculator ensures:
 // * An event was logged by the PoVW accounting contract for each log update and epoch finalization.
@@ -34,8 +33,7 @@ static CHAIN_SPECS: LazyLock<BTreeMap<ChainId, EthChainSpec>> = LazyLock::new(||
 //   * The mint recipient is set correctly.
 fn main() {
     // Read the input from the guest environment.
-    let input: Input =
-        postcard::from_bytes(&env::read_frame()).expect("failed to deserialize input");
+    let input = Input::decode(env::read_frame()).expect("failed to deserialize input");
 
     // Converts the input into a `EvmEnv` structs for execution.
     let chain_spec = &CHAIN_SPECS.get(&input.chain_id).expect("unrecognized chain id in input");
@@ -67,7 +65,7 @@ fn main() {
 
     // Construct the mapping of calculated rewards, with the key as (epoch, recipient) pairs and
     // the value as a FixedPoint fraction indicating the portion of the PoVW epoch reward to assign
-    let mut rewards_weights = BTreeMap::<U256, BTreeMap<Address, FixedPoint>>::new();
+    let mut rewards_weights = RewardWeightMap::new();
     let mut updates = BTreeMap::<Address, (B256, B256)>::new();
     for env in envs.0.values() {
         // Query all `WorkLogUpdated` events of the PoVW accounting contract.
@@ -82,6 +80,13 @@ fn main() {
             if !input.work_log_filter.includes(update_event.workLogId.into()) {
                 continue;
             }
+            // Get the total work; skip this event if there is not an associated epoch finalization.
+            // NOTE: This prevents events from e.g. the current unfinalized epoch from preventing
+            // the mint. If this check causes a required update to be skipped, then the chaining
+            // check or the completeness check below will fail.
+            let Some(epoch_total_work) = epochs.get(&update_event.epochNumber).copied() else {
+                continue;
+            };
 
             // Insert or update the work log commitment for work log ID in the event.
             match updates.entry(update_event.workLogId) {
@@ -99,16 +104,14 @@ fn main() {
                 }
             }
 
-            let epoch_number = update_event.epochNumber;
-            let epoch_total_work = *epochs.get(&epoch_number).unwrap_or_else(|| {
-                panic!("no epoch finalized event processed for epoch number {epoch_number}")
-            });
             // Update mint value, skipping zero-valued updates.
             if update_event.updateValue > U256::ZERO {
                 // NOTE: epoch_total_work must be greater than zero at this point, since it at
                 // least contains this update, which has a non-zero value.
                 *rewards_weights
-                    .entry(epoch_number)
+                    .entry(update_event.epochNumber)
+                    .or_default()
+                    .entry(update_event.workLogId)
                     .or_default()
                     .entry(update_event.valueRecipient)
                     .or_default() +=
@@ -132,7 +135,7 @@ fn main() {
         Contract::new(input.povw_accounting_address, completness_check_env);
     for (work_log_id, (_, updated_commit)) in updates.iter() {
         let final_commit = povw_accounting_contract
-            .call_builder(&IPovwAccounting::getWorkLogCommitCall { workLogId: *work_log_id })
+            .call_builder(&IPovwAccounting::workLogCommitCall { workLogId: *work_log_id })
             .call();
         assert_eq!(
             final_commit,
@@ -157,23 +160,35 @@ fn main() {
             zkc_contract.call_builder(&IZKC::getPoVWEmissionsForEpochCall { epoch }).call();
         let epoch_end_time = zkc_contract.call_builder(&IZKC::getEpochEndTimeCall { epoch }).call();
 
-        for (recipient, weight) in epoch_reward_weights {
-            // Calculate the maximum rewards, based on the povw value alone.
-            let uncapped_reward = weight.mul_unwrap(epoch_emissions);
-
-            // Get the reward cap for this recipient in the given epoch. Note that the reward cap
-            // is determined at the end of the epoch.
-            let reward_cap = zkc_rewards_contract
+        for (work_log_id, work_log_reward_weights) in epoch_reward_weights {
+            // Get the reward cap for this work log in the given epoch. Note that the reward cap is
+            // determined at the end of the epoch.
+            // NOTE: The reward cap is calculated from the work log ID such that the completness
+            // check above will ensure all events for the epoch are included.
+            let mut reward_cap = zkc_rewards_contract
                 .call_builder(&IZKCRewards::getPastPoVWRewardCapCall {
-                    account: recipient,
+                    account: work_log_id,
                     timepoint: epoch_end_time,
                 })
                 .call();
 
-            // Apply the cap and add the reward to the final mapping.
-            let reward = U256::min(uncapped_reward, reward_cap);
-            if reward > U256::ZERO {
-                *rewards.entry(recipient).or_default() += reward;
+            // Iterate through the list of recipients for this work log, assigning rewards to each
+            // and reducing the remaining cap each time.
+            // If the work log's total rewards reach the cap, then rewards are assigned to
+            // recipients based on the sorted order of their addresses. This ordering is considered
+            // arbitrary, and may change in the future. In most cases we expect a work log to have
+            // a single recipient.
+            for (recipient, weight) in work_log_reward_weights {
+                // Calculate the maximum reward, based on the povw value alone.
+                let uncapped_reward = weight.mul_unwrap(epoch_emissions);
+
+                // Apply the cap and add the reward to the final mapping.
+                let reward = U256::min(uncapped_reward, reward_cap);
+                if reward > U256::ZERO {
+                    *rewards.entry(recipient).or_default() += reward;
+                }
+
+                reward_cap = reward_cap.saturating_sub(reward);
             }
         }
     }

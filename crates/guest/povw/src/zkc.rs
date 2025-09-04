@@ -1,5 +1,6 @@
-// Copyright (c) 2025 RISC Zero, Inc.
+// Copyright 2025 RISC Zero, Inc.
 //
-// All rights reserved.
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
 
-alloy_sol_types::sol!("../../../contracts/src/povw/IZKC.sol",);
+alloy_sol_types::sol!("./src/contracts/artifacts/IZKC.sol",);
