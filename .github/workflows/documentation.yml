@@ -32,9 +32,7 @@ jobs:
         run: echo "LATEST_TAG=$(git describe --tags --abbrev=0 | sed 's/^v//')" >> $GITHUB_ENV
 
       - name: 🍞 Setup Bun
-        uses: risc0/setup-bun@v1.2.1
-        with:
-          bun-version: 1.1.38
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: bun install
