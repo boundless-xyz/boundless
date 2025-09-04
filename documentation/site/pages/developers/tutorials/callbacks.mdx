@@ -115,7 +115,7 @@ alloy::sol! {
     }
 }
 
-let (journal, seal) =
+let fulfillment =
     client.wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at).await?;
 
 // We interact with the Counter contract by calling the getCount function to check that the callback

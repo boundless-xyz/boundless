@@ -37,7 +37,7 @@ use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit
 
 use super::{
     eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
-    IBoundlessMarket::{self, IBoundlessMarketInstance},
+    IBoundlessMarket::{self, IBoundlessMarketInstance, ProofDelivered},
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
@@ -1006,7 +1006,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
-    ) -> Result<(Bytes, Bytes, Address), MarketError> {
+    ) -> Result<ProofDelivered, MarketError> {
         let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
             self.event_query_config.block_range * self.event_query_config.max_iterations,
@@ -1034,11 +1034,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let logs = event_filter.query().await?;
 
             if let Some((event, _)) = logs.first() {
-                return Ok((
-                    event.fulfillment.journal.clone(),
-                    event.fulfillment.seal.clone(),
-                    event.prover,
-                ));
+                return Ok(event.clone());
             }
 
             // Move the upper_block down for the next iteration
@@ -1101,16 +1097,16 @@ impl<P: Provider> BoundlessMarketService<P> {
         Err(MarketError::RequestNotFound(request_id))
     }
 
-    /// Returns journal and seal if the request is fulfilled.
+    /// Returns fulfillment data and seal if the request is fulfilled.
     pub async fn get_request_fulfillment(
         &self,
         request_id: U256,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<Fulfillment, MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (journal, seal, _) = self.query_fulfilled_event(request_id, None, None).await?;
-                Ok((journal, seal))
+                let event = self.query_fulfilled_event(request_id, None, None).await?;
+                Ok(event.fulfillment)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
@@ -1124,8 +1120,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (_, _, prover) = self.query_fulfilled_event(request_id, None, None).await?;
-                Ok(prover)
+                let event = self.query_fulfilled_event(request_id, None, None).await?;
+                Ok(event.prover)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
@@ -1154,7 +1150,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         self.query_request_submitted_event(request_id, None, None).await
     }
 
-    /// Returns journal and seal if the request is fulfilled.
+    /// Returns the fulfillment data and seal if the request is fulfilled.
     ///
     /// This method will poll the status of the request until it is Fulfilled or Expired.
     /// Polling is done at intervals of `retry_interval` until the request is Fulfilled, Expired or
@@ -1164,15 +1160,14 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         retry_interval: Duration,
         expires_at: u64,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<Fulfillment, MarketError> {
         loop {
             let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
                 RequestStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 RequestStatus::Fulfilled => {
-                    let (journal, seal, _) =
-                        self.query_fulfilled_event(request_id, None, None).await?;
-                    return Ok((journal, seal));
+                    let event = self.query_fulfilled_event(request_id, None, None).await?;
+                    return Ok(event.fulfillment);
                 }
                 _ => {
                     tracing::info!(

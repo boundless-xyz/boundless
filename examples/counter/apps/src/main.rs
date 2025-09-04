@@ -23,11 +23,11 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use boundless_market::{Client, Deployment, StorageProviderConfig};
 use clap::Parser;
-use guest_util::{ECHO_ELF, ECHO_ID};
-use risc0_zkvm::sha::{Digest, Digestible};
+use guest_util::ECHO_ELF;
+use risc0_zkvm::sha::Digestible;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
 
@@ -111,21 +111,31 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (journal, seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
             expires_at,
         )
         .await?;
+    let fulfillment_data = fulfillment.data()?;
+    tracing::info!("Fulfillment data: {:?}", fulfillment.data()?);
     tracing::info!("Request {:x} fulfilled", request_id);
 
     // We interact with the Counter contract by calling the increment function with the journal and
     // seal returned by the market.
     let counter = ICounterInstance::new(args.counter_address, client.provider().clone());
+
+    let image_id = fulfillment_data.image_id().ok_or_else(|| anyhow!("missing image ID"))?;
+    let journal = fulfillment_data.journal().ok_or_else(|| anyhow!("missing journal"))?;
     let journal_digest = B256::try_from(journal.digest().as_bytes())?;
-    let image_id = B256::try_from(Digest::from(ECHO_ID).as_bytes())?;
-    let call_increment = counter.increment(seal, image_id, journal_digest).from(client.caller());
+    let call_increment = counter
+        .increment(
+            fulfillment.seal,
+            <[u8; 32]>::from(image_id).into(),
+            <[u8; 32]>::from(journal_digest).into(),
+        )
+        .from(client.caller());
 
     // By calling the increment function, we verify the seal against the published roots
     // of the SetVerifier contract.

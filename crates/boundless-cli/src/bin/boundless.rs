@@ -82,7 +82,7 @@ use url::Url;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        Offer, ProofRequest, RequestInputType, Selector,
+        FulfillmentData, Offer, Predicate, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -687,29 +687,52 @@ async fn handle_request_command(cmd: &RequestCommands, client: StandardClient) -
         }
         RequestCommands::GetProof { request_id } => {
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
-            let (journal, seal) =
-                client.boundless_market.get_request_fulfillment(*request_id).await?;
+            let fulfillment = client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
             tracing::info!(
-                "Journal: {} - Seal: {}",
-                serde_json::to_string_pretty(&journal)?,
-                serde_json::to_string_pretty(&seal)?
+                "Fulfillment Data: {} - Seal: {}",
+                serde_json::to_string_pretty(&fulfillment.data()?)?,
+                serde_json::to_string_pretty(&fulfillment.seal)?
             );
             Ok(())
         }
         RequestCommands::VerifyProof { request_id, image_id } => {
             tracing::info!("Verifying proof for request 0x{:x}", request_id);
-            let (journal, seal) =
-                client.boundless_market.get_request_fulfillment(*request_id).await?;
-            let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
+
             let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
             let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
+            let fulfillment = client.boundless_market.get_request_fulfillment(*request_id).await?;
+            let fulfillment_data = fulfillment.data()?;
+            let seal = fulfillment.seal;
+            let (req, _) = client.boundless_market.get_submitted_request(*request_id, None).await?;
 
-            verifier
-                .verify(seal, *image_id, journal_digest)
-                .call()
-                .await
-                .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+            let predicate = Predicate::try_from(req.requirements.predicate)?;
+
+            match (&predicate, fulfillment_data.clone()) {
+                (_, FulfillmentData::ImageIdAndJournal(image_id_from_data, journal)) => {
+                    ensure!(
+                        image_id_from_data == Digest::from(<[u8; 32]>::from(*image_id)),
+                        "Image ID mismatch: expected {:?}, got {:?}",
+                        image_id_from_data,
+                        *image_id
+                    );
+                    let journal_digest =
+                        <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
+
+                    verifier
+                        .verify(seal, *image_id, journal_digest)
+                        .call()
+                        .await
+                        .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+                }
+                (_, _) => {
+                    bail!(
+                        "Verification failed due to invalid predicate {:?} or fulfillment data {:?}",
+                        predicate,
+                        fulfillment_data
+                    )
+                }
+            }
 
             tracing::info!("Successfully verified proof for request 0x{:x}", request_id);
             Ok(())
@@ -739,11 +762,15 @@ async fn handle_proving_command(cmd: &ProvingCommands, client: StandardClient) -
                 bail!("execute requires either a request file path or request ID")
             };
 
-            let session_info = execute(&request).await?;
+            let (image_id, session_info) = execute(&request).await?;
             let journal = session_info.journal.bytes;
+            let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
-            if !request.requirements.predicate.eval(&journal) {
-                tracing::error!("Predicate evaluation failed for request");
+            let fulfillment_data =
+                FulfillmentData::from_image_id_and_journal(image_id, journal.clone());
+
+            if predicate.eval(&fulfillment_data).is_none() {
+                tracing::error!("Predicate evaluation failed for request 0x{:x}", request.id);
                 bail!("Predicate evaluation failed");
             }
 
@@ -1186,15 +1213,17 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
     // Wait for fulfillment if requested
     if args.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (journal, seal) = client
+        let fulfillment = client
             .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
+        let fulfillment_data = fulfillment.data()?;
+        let seal = fulfillment.seal;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
-            "Journal: {} - Seal: {}",
-            serde_json::to_string_pretty(&journal)?,
+            "Fulfillment Data: {} - Seal: {}",
+            serde_json::to_string_pretty(&fulfillment_data)?,
             serde_json::to_string_pretty(&seal)?
         );
     }
@@ -1242,24 +1271,24 @@ where
     // Run preflight check if enabled
     if opts.preflight {
         tracing::info!("Running request preflight check");
-        let session_info = execute(&request).await?;
+        let (image_id, session_info) = execute(&request).await?;
         let journal = session_info.journal.bytes;
 
-        // Verify image ID if available
+        // Verify image ID
         if let Some(claim) = session_info.receipt_claim {
             ensure!(
-                claim.pre.digest().as_bytes() == request.requirements.imageId.as_slice(),
+                claim.pre.digest() == image_id,
                 "Image ID mismatch: requirements ({}) do not match the given program ({})",
-                hex::encode(request.requirements.imageId),
-                hex::encode(claim.pre.digest().as_bytes())
+                image_id,
+                claim.pre.digest(),
             );
         } else {
             tracing::debug!("Cannot check image ID; session info doesn't have receipt claim");
         }
+        let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
-        // Verify predicate
         ensure!(
-            request.requirements.predicate.eval(&journal),
+            predicate.eval(&FulfillmentData::from_image_id_and_journal(image_id, journal.clone())).is_some(),
             "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
             hex::encode(&journal),
             request.requirements.predicate.predicateType,
@@ -1288,26 +1317,26 @@ where
     // Wait for fulfillment if requested
     if opts.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (journal, seal) = client
+        let fulfillment = client
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
-            "Journal: {} - Seal: {}",
-            serde_json::to_string_pretty(&journal)?,
-            serde_json::to_string_pretty(&seal)?
+            "Fulfillment Data: {} - Seal: {}",
+            serde_json::to_string_pretty(&fulfillment.data()?)?,
+            serde_json::to_string_pretty(&fulfillment.seal)?
         );
     }
 
     Ok(())
 }
 
-/// Execute a proof request using the RISC Zero zkVM executor
-async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
+/// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
+async fn execute(request: &ProofRequest) -> Result<(Digest, SessionInfo)> {
     tracing::info!("Fetching program from {}", request.imageUrl);
     let program = fetch_url(&request.imageUrl).await?;
-
+    let image_id = compute_image_id(&program)?;
     tracing::info!("Processing input");
     let env = match request.input.inputType {
         RequestInputType::Inline => GuestEnv::decode(&request.input.data)?,
@@ -1322,7 +1351,9 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
 
     tracing::info!("Executing program in zkVM");
     r0vm_is_installed()?;
-    default_executor().execute(env.try_into()?, &program)
+    default_executor()
+        .execute(env.try_into()?, &program)
+        .map(|session_info| (image_id, session_info))
 }
 
 fn r0vm_is_installed() -> Result<()> {
@@ -1476,10 +1507,8 @@ async fn handle_config_command(args: &MainArgs) -> Result<()> {
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
-    use alloy::primitives::aliases::U96;
-    use boundless_market::contracts::{
-        Predicate, PredicateType, RequestId, RequestInput, Requirements,
-    };
+    use alloy::primitives::{aliases::U96, Bytes};
+    use boundless_market::contracts::{Predicate, RequestId, RequestInput, Requirements};
 
     use super::*;
 
@@ -1505,10 +1534,7 @@ mod tests {
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, id),
-            Requirements::new(
-                Digest::from(ECHO_ID),
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
@@ -2091,12 +2117,14 @@ mod tests {
             request.id
         )));
 
+        let predicate = Predicate::try_from(request.requirements.predicate.clone()).unwrap();
+
         // test the Verify command
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::VerifyProof {
                 request_id,
-                image_id: request.requirements.imageId,
+                image_id: <[u8; 32]>::from(predicate.image_id().unwrap()).into(),
             })),
         })
         .await
@@ -2279,8 +2307,8 @@ mod tests {
         .unwrap();
 
         // check the seal is aggregated
-        let (_journal, seal) =
-            ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
+        let fulfillment = ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
+        let seal = fulfillment.seal;
         let selector: FixedBytes<4> = seal[0..4].try_into().unwrap();
         assert!(is_groth16_selector(selector))
     }
