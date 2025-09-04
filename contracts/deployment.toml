@@ -33,7 +33,7 @@ admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-set-verifier = "0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64"
+set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8476627
 boundless-market = "0x13337C76fE2d1750246B68781ecEe164643b98Ec"
 boundless-market-impl = "0x4530b99e5e9944b97a9eb4c5064db1421505e344"
@@ -59,7 +59,7 @@ admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-set-verifier = "0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64"
+set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8430932
 boundless-market = "0x7b36Ed56ec6045679C178205a81AE878d85B773d"
 boundless-market-impl = "0x501b1689eaa5d8df274b234fa7f940a8dc45374b"
@@ -85,7 +85,7 @@ admin = "0xc182328072F1158c574539F43890090d81f4A5ab"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
+set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 31134603
 boundless-market = "0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"
 boundless-market-impl = "0x5533618ea16a68036d6842d2ca5072385bdd09d6"
@@ -111,7 +111,7 @@ admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
+set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26646012
 boundless-market = "0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"
 boundless-market-impl = "0xac852635b620648eb242b5c4e99d92dc8aec8ab2"
@@ -137,7 +137,7 @@ admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-set-verifier = "0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760"
+set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
 boundless-market = "0xAD0Bd6C436658aF457736d7224a87d2EF56365C8"
 boundless-market-impl = "0xa1d5e6794fea3b9fc44a5d06345816846875223f"

@@ -163,5 +163,5 @@ jobs:
           docker stop bento-postgres-test bento-redis-test || true
           docker rm bento-postgres-test bento-redis-test || true
 
-      - name: Sccache stats
+      - name: sccache stats
         run: sccache --show-stats
