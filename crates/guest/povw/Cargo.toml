@@ -19,6 +19,7 @@ alloy-sol-types = "1.0"
 anyhow = "1.0"
 borsh = { version = "1.5", default-features = false, features = ["std", "derive"] }
 bytemuck = { version = "1.23", features = ["must_cast"] }
+clap = { workspace = true, optional = true }
 derive_builder = "0.20.2"
 postcard = { version = "1.1", features = ["alloc"] }
 risc0-ethereum-contracts = { workspace = true, optional = true }
@@ -52,7 +53,7 @@ release = false
 
 [features]
 default = ["prover"]
-host = ["signer", "risc0-steel/host", "dep:alloy-provider", "dep:alloy-contract", "dep:serde_json"]
+host = ["signer", "risc0-steel/host", "dep:alloy-provider", "dep:alloy-contract", "dep:serde_json", "dep:clap"]
 prover = ["host", "dep:risc0-zkvm", "dep:risc0-ethereum-contracts"]
 signer = ["dep:alloy-signer"]
 build-guest = [
