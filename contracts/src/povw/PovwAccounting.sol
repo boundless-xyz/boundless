@@ -7,6 +7,7 @@
 pragma solidity ^0.8.24;
 
 import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -16,7 +17,16 @@ import {IPovwAccounting, WorkLogUpdate, Journal, PendingEpoch} from "./IPovwAcco
 
 bytes32 constant EMPTY_LOG_ROOT = hex"b26927f749929e8484785e36e7ec93d5eeae4b58182f76f1e760263ab67f540c";
 
+// Storage version of PendingEpoch, which fits in one slot.
+// NOTE: Assumes that the epoch number will never exceed 64 bits
+struct PendingEpochStorage {
+    uint96 totalWork;
+    uint64 number;
+}
+
 contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
+    using SafeCast for uint256;
+
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
 
@@ -39,7 +49,7 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
 
     mapping(address => bytes32) internal workLogCommits;
 
-    PendingEpoch internal _pendingEpoch;
+    PendingEpochStorage internal _pendingEpoch;
 
     // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -59,19 +69,19 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
         __UUPSUpgradeable_init();
         __EIP712_init("PovwAccounting", "1");
 
-        _pendingEpoch = PendingEpoch({number: TOKEN.getCurrentEpoch(), totalWork: 0});
+        _pendingEpoch = PendingEpochStorage({number: TOKEN.getCurrentEpoch().toUint64(), totalWork: 0});
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     /// @inheritdoc IPovwAccounting
     function pendingEpoch() external view returns (PendingEpoch memory) {
-        return _pendingEpoch;
+        return PendingEpoch({totalWork: _pendingEpoch.totalWork, number: _pendingEpoch.number});
     }
 
     /// @inheritdoc IPovwAccounting
     function finalizeEpoch() public {
-        uint256 newEpoch = TOKEN.getCurrentEpoch();
+        uint64 newEpoch = TOKEN.getCurrentEpoch().toUint64();
         require(_pendingEpoch.number < newEpoch, "pending epoch has not ended");
 
         _finalizePendingEpoch(newEpoch);
@@ -79,13 +89,13 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
 
     /// End the pending epoch and start the new epoch. This function should
     /// only be called after checking that the pending epoch has ended.
-    function _finalizePendingEpoch(uint256 newEpoch) internal {
+    function _finalizePendingEpoch(uint64 newEpoch) internal {
         // Emit the epoch finalized event, accessed with Steel to construct the mint authorization.
-        emit EpochFinalized(uint256(_pendingEpoch.number), uint256(_pendingEpoch.totalWork));
+        emit EpochFinalized(_pendingEpoch.number, _pendingEpoch.totalWork);
 
         // NOTE: This may cause the epoch number to increase by more than 1, if no updates occurred in
         // an interim epoch. Any interim epoch that was skipped will have no work associated with it.
-        _pendingEpoch = PendingEpoch({number: newEpoch, totalWork: 0});
+        _pendingEpoch = PendingEpochStorage({number: newEpoch, totalWork: 0});
     }
 
     /// @inheritdoc IPovwAccounting
@@ -96,7 +106,7 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
         address valueRecipient,
         bytes calldata seal
     ) public {
-        uint256 currentEpoch = TOKEN.getCurrentEpoch();
+        uint64 currentEpoch = TOKEN.getCurrentEpoch().toUint64();
         if (_pendingEpoch.number < currentEpoch) {
             _finalizePendingEpoch(currentEpoch);
         }
@@ -117,7 +127,7 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
         VERIFIER.verify(seal, LOG_UPDATER_ID, sha256(abi.encode(journal)));
 
         workLogCommits[workLogId] = updatedCommit;
-        _pendingEpoch.totalWork += updateValue;
+        _pendingEpoch.totalWork += uint96(updateValue);
 
         // Emit the update event, accessed with Steel to construct the mint authorization.
         // Note that there is no restriction on multiple updates in the same epoch. Posting more than
