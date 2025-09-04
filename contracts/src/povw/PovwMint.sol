@@ -2,11 +2,15 @@
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
+// SPDX-License-Identifier: BUSL-1.1
 
 pragma solidity ^0.8.24;
 
 import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {Math} from "openzeppelin/contracts/utils/math/Math.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {PovwAccounting, EMPTY_LOG_ROOT} from "./PovwAccounting.sol";
 import {IZKC, IZKCRewards} from "./IZKC.sol";
 import {IPovwMint, MintCalculatorUpdate, MintCalculatorMint, MintCalculatorJournal} from "./IPovwMint.sol";
@@ -16,10 +20,17 @@ import {Steel} from "steel/Steel.sol";
 ///
 /// This contract consumes updates produced by the mint calculator guest, mints token rewards, and
 /// maintains state to ensure that any given token reward is minted at most once.
-contract PovwMint is IPovwMint {
+contract PovwMint is IPovwMint, Initializable, OwnableUpgradeable, UUPSUpgradeable {
+    /// @dev The version of the contract, with respect to upgrades.
+    uint64 public constant VERSION = 1;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IRiscZeroVerifier public immutable VERIFIER;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IZKC public immutable TOKEN;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IZKCRewards public immutable TOKEN_REWARDS;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     PovwAccounting public immutable ACCOUNTING;
 
     /// @notice Image ID of the mint calculator guest.
@@ -32,6 +43,7 @@ contract PovwMint is IPovwMint {
     ///   * An event was logged by the PoVW accounting contract for epoch finalization.
     ///   * The total work from the epoch finalization event is used in the mint calculation.
     ///   * The mint recipient is set correctly.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 public immutable MINT_CALCULATOR_ID;
 
     /// @notice Mapping from work log ID to the most recent work log commit for which a mint has occurred.
@@ -40,6 +52,7 @@ contract PovwMint is IPovwMint {
     mapping(address => bytes32) public workLogCommits;
 
     // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         IRiscZeroVerifier verifier,
         PovwAccounting accounting,
@@ -58,7 +71,16 @@ contract PovwMint is IPovwMint {
         TOKEN = token;
         TOKEN_REWARDS = tokenRewards;
         MINT_CALCULATOR_ID = mintCalculatorId;
+
+        _disableInitializers();
     }
+
+    function initialize(address initialOwner) external initializer {
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     /// @inheritdoc IPovwMint
     function mint(bytes calldata journalBytes, bytes calldata seal) external {
