@@ -27,7 +27,7 @@ interface IStaking is IERC721 {
     event StakeBurned(uint256 indexed tokenId);
     event UnstakeInitiated(uint256 indexed tokenId, address indexed owner, uint256 withdrawableAt);
     event UnstakeCompleted(uint256 indexed tokenId, address indexed owner, uint256 amount);
-    
+
     /// @notice Stake ZKC tokens to mint veZKC NFT
     /// @param amount Amount of ZKC to stake
     /// @return tokenId The minted veZKC NFT token ID

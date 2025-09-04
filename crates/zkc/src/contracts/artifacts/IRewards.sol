@@ -67,12 +67,6 @@ interface IRewards {
     /// @param v Recovery byte of the signature
     /// @param r R component of the signature
     /// @param s S component of the signature
-    function delegateRewardsBySig(
-        address delegatee,
-        uint256 nonce,
-        uint256 expiry,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external;
+    function delegateRewardsBySig(address delegatee, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s)
+        external;
 }
