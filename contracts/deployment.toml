@@ -7,12 +7,12 @@ etherscan-url = ""
 admin = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
 # Contracts
-verifier = "0x0000000000000000000000000000000000000000"
-set-verifier = "0x0000000000000000000000000000000000000000"
-boundless-market = "0x0000000000000000000000000000000000000000"
-boundless-market-impl = "0x0000000000000000000000000000000000000000"
+verifier = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+set-verifier = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+boundless-market = "0xe902d9d4B97B8DF82E9e1CF3036F222E4290591E"
+boundless-market-impl = "0x59407DD41C8Ba12fc148c79C9727a719bA62ffB7"
 boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
-stake-token = "0x0000000000000000000000000000000000000000"
+stake-token = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
@@ -21,6 +21,25 @@ assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnue
 deprecated-assessor-duration = 0
 
 ###
+# PoVW contracts
+povw-accounting = "0xf52C066Ff41409c49126cfd6be8a540a216a63e2"
+povw-accounting-impl = "0x3c80D582E8019ed0A9bcc69F98781d90Fb3eAc4a"
+povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting-admin = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+povw-accounting-deployment-commit = "unknown"
+povw-mint = "0x4734C8f39548B124b0115f4927E6897765ee05C2"
+povw-mint-impl = "0xa028eB36CBBb07d0Ba894d686bD640A0F723f6F8"
+povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
+povw-mint-admin = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+povw-mint-deployment-commit = "unknown"
+
+# PoVW image IDs
+povw-log-updater-id = "0x1234567890123456789012345678901234567890123456789012345678901234"
+povw-mint-calculator-id = "0x5678901234567890123456789012345678901234567890123456789012345678"
+
+# ZKC contracts (could be mocks in dev mode)
+zkc = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+vezkc = "0x0165878A594ca255338adfa4d48449f69242Eb8F"
 
 [deployment.ethereum-sepolia-prod]
 name = "Ethereum Sepolia [production]"
@@ -38,7 +57,7 @@ set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 boundless-market = "0x13337C76fE2d1750246B68781ecEe164643b98Ec"
 boundless-market-impl = "0x4530b99e5e9944b97a9eb4c5064db1421505e344"
 boundless-market-old-impl = "0x2f77bbb6291e50a757f692b2689cfc575ae260a4"
-stake-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+stake-token = "0xb4fc69a452d09d2662bd8c3b5bb756902260ae28"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
@@ -46,7 +65,25 @@ assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
 deprecated-assessor-duration = 259200  # 3 days
 
-###
+# PoVW contracts
+povw-accounting = "0x139850F6e0Fa043900fE491eDf79Bdf3e9C082b3"
+povw-accounting-impl = "0x7D7D574Cb42800d1C8fDD428eDD0C149543a19D0"
+povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-accounting-deployment-commit = "f2a3f1d0"
+povw-mint = "0xbdA57a15E3C42A4f28DBA0Dd6031E2A188C26316"
+povw-mint-impl = "0x3597CAC859Fb1094d8747Eb60d2A9bBd59E2a7c6"
+povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
+povw-mint-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-mint-deployment-commit = "f2a3f1d0"
+
+# PoVW image IDs
+povw-log-updater-id = "0xd6bbd5be7815164e2ce5391db9155ef6f689cb6397736ae41281598d98ac6755"
+povw-mint-calculator-id = "0xaafed725002338f0ccb06814d6cc46f3488c387b2ad0ddcf828a1eb6f859de07"
+
+# ZKC contracts
+zkc = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
+vezkc = "0xEbaad909A60B83c9c3739C7939b0B6d5ceD5a3AB"
 
 [deployment.ethereum-sepolia-staging]
 name = "Ethereum Sepolia [staging]"
@@ -64,13 +101,73 @@ set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 boundless-market = "0x7b36Ed56ec6045679C178205a81AE878d85B773d"
 boundless-market-impl = "0x501b1689eaa5d8df274b234fa7f940a8dc45374b"
 boundless-market-old-impl = "0x947286e7522ef75543ad23253bb6d6ac9f5d97a3"
-stake-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+stake-token = "0x99a52662b576f4b2d4ffbc4504331a624a7b2846"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
 assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
 deprecated-assessor-duration = 259200  # 3 days
+
+# PoVW contracts
+povw-accounting-admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
+povw-mint-admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
+povw-accounting = "0xF34aC8e320a2F49BF4Bcb8208EdE29Ca83656f02"
+povw-accounting-impl = "0x55A38e70198301CB1A5BbaBfc9a3A164BbEe742A"
+povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
+povw-mint = "0xebF25e36a4B741EC5366757145C7883f20D93a59"
+povw-mint-impl = "0x976F526CAdfd53fa0E635088Ff501670167Ff7dE"
+povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
+povw-log-updater-id = "0xd6bbd5be7815164e2ce5391db9155ef6f689cb6397736ae41281598d98ac6755"
+povw-mint-calculator-id = "0xaafed725002338f0ccb06814d6cc46f3488c387b2ad0ddcf828a1eb6f859de07"
+povw-accounting-deployment-commit = "91da311d"
+povw-mint-deployment-commit = "91da311d"
+
+# ZKC contracts
+zkc = "0x99A52662b576f4b2D4FFBc4504331A624a7b2846"
+vezkc = "0xE39E18c1348b5F4501a2f2b85E12564dB6171600"
+
+[deployment.ethereum-mainnet]
+name = "Ethereum Mainnet"
+id = 1
+etherscan-url = "https://etherscan.io/"
+version = "v0.10.0"
+
+# Accounts
+admin = "0x0000000000000000000000000000000000000000"
+
+# Contracts
+verifier = "0x0000000000000000000000000000000000000000"
+set-verifier = "0x0000000000000000000000000000000000000000"
+boundless-market = "0x0000000000000000000000000000000000000000"
+boundless-market-impl = "0x0000000000000000000000000000000000000000"
+boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+stake-token = "0x0000000000000000000000000000000000000000"
+
+# Guests info
+deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
+assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+
+# PoVW contracts
+povw-accounting = "0x0000000000000000000000000000000000000000"
+povw-accounting-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting-admin = "0x0000000000000000000000000000000000000000"
+povw-accounting-deployment-commit = ""
+povw-mint = "0x0000000000000000000000000000000000000000"
+povw-mint-impl = "0x0000000000000000000000000000000000000000"
+povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
+povw-mint-admin = "0x0000000000000000000000000000000000000000"
+povw-mint-deployment-commit = ""
+
+# PoVW image IDs
+povw-log-updater-id = "0x0000000000000000000000000000000000000000000000000000000000000000"
+povw-mint-calculator-id = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# ZKC contracts (TODO: set to real addresses)
+zkc = "0x0000000000000000000000000000000000000000"
+zkc-staking-rewards = "0x0000000000000000000000000000000000000000"
 
 ###
 
@@ -149,3 +246,45 @@ deployment-commit = "f12f9c38" # v0.14.0 victor/update-to-3.0
 assessor-image-id = "0x04bc1b4de3e716d1cce670b18b3248737ecedf4e63f812b0552112fa97c9c6bd"
 assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeialyhnpa4iq6bjf4rwkcgcidpzpgpkwjw2qwpj67ddnkn2fhyaqve"
 deprecated-assessor-duration = 259200  # 3 days
+
+[deployment.ethereum-sepolia-quick-epoch]
+name = "Ethereum Sepolia [Quick Epoch]"
+id = 11155111
+etherscan-url = "https://sepolia.etherscan.io/"
+version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
+
+# Accounts
+admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
+
+# Contracts
+verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
+# deployed at block 8430932
+boundless-market = "0x0000000000000000000000000000000000000000"
+boundless-market-impl = "0x0000000000000000000000000000000000000000"
+boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+stake-token = "0x03f177Bd8A0CF725c29945C0a0434897A4a16628"
+
+# Guests info
+deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
+assessor-image-id = "0x0000000000000000000000000000000000000000000000000000000000000000"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deprecated-assessor-duration = 259200  # 3 days
+
+# PoVW contracts
+povw-accounting-admin = "0x48268bE6235A23eb7b67356469362869D5d0293f"
+povw-mint-admin = "0x48268bE6235A23eb7b67356469362869D5d0293f"
+povw-accounting = "0x48E11E1c6a00fc9F0226F6764fA4DE4973088E5B"
+povw-accounting-impl = "0x0924824d2ED88F2bF0f9626051be063C0fAA7a03"
+povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
+povw-mint = "0xaC2fcA0bEB0f51979403422B9d672291FdCb9A44"
+povw-mint-impl = "0xE3df2C27Fd53e6dcbCcDd53B6606A2e09bcff319"
+povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
+povw-log-updater-id = "0x9ad1e26d64c6e302edd81844d69eddf841920b55f3ad0c8283af78854117e299"
+povw-mint-calculator-id = "0xef162c968a10afa46766ba99df6a89093fbc722ea4b600a4da4524297d8996a2"
+povw-accounting-deployment-commit = "1d9f3d121"
+povw-mint-deployment-commit = "1d9f3d121"
+
+# ZKC contracts
+zkc = "0x03f177Bd8A0CF725c29945C0a0434897A4a16628"
+vezkc = "0x927Bfd130254a433EadA5A8063dbe01a5913bd57"

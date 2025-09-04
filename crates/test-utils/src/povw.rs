@@ -18,19 +18,18 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use crate::verifier::deploy_mock_verifier;
 use alloy::{
     network::EthereumWallet,
     node_bindings::{Anvil, AnvilInstance},
-    primitives::Address,
+    primitives::{utils::Unit, Address, U256},
     providers::{ext::AnvilApi, DynProvider, Provider, ProviderBuilder},
-    rpc::types::TransactionReceipt,
-    signers::local::PrivateKeySigner,
-    signers::Signer,
+    rpc::types::{TransactionReceipt, TransactionRequest},
+    signers::{local::PrivateKeySigner, Signer},
     sol,
-    sol_types::SolValue,
+    sol_types::{SolCall, SolValue},
 };
-use alloy_primitives::U256;
+use anyhow::Context;
+use boundless_market::contracts::bytecode::ERC1967Proxy;
 use boundless_povw::{
     contracts::bytecode::{PovwAccounting, PovwMint},
     log_updater::{
@@ -52,6 +51,8 @@ use risc0_zkvm::{
     ReceiptClaim, Work, WorkClaim,
 };
 use tokio::sync::Mutex;
+
+use crate::verifier::deploy_mock_verifier;
 
 // Import the Solidity contracts using alloy's sol! macro
 // Use the compiled contracts output to allow for deploying the contracts.
@@ -80,6 +81,7 @@ pub struct TestCtx {
     pub zkc_rewards: MockZKCRewards::MockZKCRewardsInstance<DynProvider>,
     pub povw_accounting: IPovwAccounting::IPovwAccountingInstance<DynProvider>,
     pub povw_mint: IPovwMintInstance<DynProvider>,
+    pub owner: PrivateKeySigner,
 }
 
 /// Creates a new [TestCtx] with all the setup needed to test PoVW.
@@ -100,6 +102,15 @@ pub async fn test_ctx_with(
     let signer: PrivateKeySigner = anvil.lock().await.keys()[signer_index].clone().into();
     let wallet = EthereumWallet::from(signer.clone());
     let provider = ProviderBuilder::new().wallet(wallet).connect_http(rpc_url).erased();
+
+    // Setup the owner wallet. We use a new wallet to ensure that we, by default, are testing from
+    // an address that does not have special rights.
+    let owner = PrivateKeySigner::random();
+    let tx_fund_owner = TransactionRequest::default()
+        .from(signer.address())
+        .to(owner.address())
+        .value(Unit::ETHER.wei());
+    provider.send_transaction(tx_fund_owner).await?.watch().await?;
 
     // Deploy PovwAccounting and PovwMint contracts to the Anvil instance, using a MockRiscZeroVerifier and a
     // basic ERC-20.
@@ -125,25 +136,37 @@ pub async fn test_ctx_with(
     )
     .await?;
     println!("PovwAccounting contract deployed at: {:?}", povw_accounting_contract.address());
-
+    let povw_accounting_proxy = ERC1967Proxy::deploy(
+        provider.clone(),
+        *povw_accounting_contract.address(),
+        PovwAccounting::initializeCall { initialOwner: owner.address() }.abi_encode().into(),
+    )
+    .await
+    .context("Failed to deploy PovwAccounting proxy")?;
+    println!("PovwAccounting proxy deployed at: {:?}", povw_accounting_proxy.address());
     let povw_accounting_interface =
-        IPovwAccountingInstance::new(*povw_accounting_contract.address(), provider.clone());
+        IPovwAccountingInstance::new(*povw_accounting_proxy.address(), provider.clone());
 
     // Deploy PovwMint contract (needs verifier, povw accounting, mint calculator ID, zkc, zkc rewards)
-    let mint_contract = PovwMint::deploy(
+    let povw_mint_contract = PovwMint::deploy(
         provider.clone(),
         mock_verifier,
-        *povw_accounting_contract.address(),
+        *povw_accounting_interface.address(),
         bytemuck::cast::<_, [u8; 32]>(BOUNDLESS_POVW_MINT_CALCULATOR_ID).into(),
         *zkc_contract.address(),
         *zkc_rewards_contract.address(),
     )
     .await?;
-    println!("PovwMint contract deployed at: {:?}", mint_contract.address());
-
-    // Cast the deployed PovwMintInstance to an IPovwMintInstance from the source crate, which is
-    // considered a fully independent type by Rust.
-    let mint_interface = IPovwMintInstance::new(*mint_contract.address(), provider.clone());
+    println!("PovwMint contract deployed at: {:?}", povw_mint_contract.address());
+    let povw_mint_proxy = ERC1967Proxy::deploy(
+        provider.clone(),
+        *povw_mint_contract.address(),
+        PovwMint::initializeCall { initialOwner: owner.address() }.abi_encode().into(),
+    )
+    .await
+    .context("Failed to deploy PovwMint proxy")?;
+    println!("PovwMint proxy deployed at: {:?}", povw_mint_proxy.address());
+    let povw_mint_interface = IPovwMintInstance::new(*povw_mint_proxy.address(), provider.clone());
 
     let chain_id = anvil.lock().await.chain_id();
     Ok(TestCtx {
@@ -153,7 +176,8 @@ pub async fn test_ctx_with(
         zkc: zkc_contract,
         zkc_rewards: zkc_rewards_contract,
         povw_accounting: povw_accounting_interface,
-        povw_mint: mint_interface,
+        povw_mint: povw_mint_interface,
+        owner,
     })
 }
 
@@ -421,7 +445,6 @@ impl From<MintOptionsBuilder> for MintOptions {
 }
 
 // Execute the log updater guest with the given input
-// TODO(povw): Replace this with usage of LogUpdaterProver (in dev mode)?
 pub fn execute_log_updater_guest(
     input: &log_updater::Input,
 ) -> anyhow::Result<log_updater::Journal> {
