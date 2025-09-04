@@ -18,7 +18,6 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use crate::verifier::deploy_mock_verifier;
 use alloy::{
     network::EthereumWallet,
     node_bindings::{Anvil, AnvilInstance},
@@ -29,7 +28,8 @@ use alloy::{
     sol,
     sol_types::{SolCall, SolValue},
 };
-use alloy_primitives::U256;
+use anyhow::Context;
+use boundless_market::contracts::bytecode::ERC1967Proxy;
 use boundless_povw::{
     contracts::bytecode::{PovwAccounting, PovwMint},
     log_updater::{
@@ -51,6 +51,8 @@ use risc0_zkvm::{
     ReceiptClaim, Work, WorkClaim,
 };
 use tokio::sync::Mutex;
+
+use crate::verifier::deploy_mock_verifier;
 
 // Import the Solidity contracts using alloy's sol! macro
 // Use the compiled contracts output to allow for deploying the contracts.
@@ -443,7 +445,6 @@ impl From<MintOptionsBuilder> for MintOptions {
 }
 
 // Execute the log updater guest with the given input
-// TODO(povw): Replace this with usage of LogUpdaterProver (in dev mode)?
 pub fn execute_log_updater_guest(
     input: &log_updater::Input,
 ) -> anyhow::Result<log_updater::Journal> {
