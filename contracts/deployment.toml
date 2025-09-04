@@ -15,9 +15,9 @@ boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
 stake-token = "0x0000000000000000000000000000000000000000"
 
 # Guests info
-deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
-assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deployment-commit = "1353e11c" # v0.14.0 main
+assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
+assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
 deprecated-assessor-duration = 0
 
 ###
@@ -26,7 +26,7 @@ deprecated-assessor-duration = 0
 name = "Ethereum Sepolia [production]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
-version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
+version = "v0.14.0" # 1353e11c main
 
 # Accounts
 admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
@@ -36,15 +36,15 @@ verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8476627
 boundless-market = "0x13337C76fE2d1750246B68781ecEe164643b98Ec"
-boundless-market-impl = "0x4530b99e5e9944b97a9eb4c5064db1421505e344"
-boundless-market-old-impl = "0x2f77bbb6291e50a757f692b2689cfc575ae260a4"
+boundless-market-impl = "0x87602baa3da1668e09e5e3b91976ad4b346ef246"
+boundless-market-old-impl = "0x4530b99e5e9944b97a9eb4c5064db1421505e344"
 stake-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
 
 # Guests info
-deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
-assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
-deprecated-assessor-duration = 259200  # 3 days
+deployment-commit = "1353e11c" # v0.14.0 main
+assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
+assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+deprecated-assessor-duration = 432000  # 5 days
 
 ###
 
@@ -52,7 +52,7 @@ deprecated-assessor-duration = 259200  # 3 days
 name = "Ethereum Sepolia [staging]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
-version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
+version = "v0.14.0" # 1353e11c main
 
 # Accounts
 admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
@@ -62,15 +62,15 @@ verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8430932
 boundless-market = "0x7b36Ed56ec6045679C178205a81AE878d85B773d"
-boundless-market-impl = "0x501b1689eaa5d8df274b234fa7f940a8dc45374b"
-boundless-market-old-impl = "0x947286e7522ef75543ad23253bb6d6ac9f5d97a3"
+boundless-market-impl = "0xba1e128a5ae6821c133487abb751727036687d71"
+boundless-market-old-impl = "0x501b1689eaa5d8df274b234fa7f940a8dc45374b"
 stake-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
 
 # Guests info
-deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
-assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
-deprecated-assessor-duration = 259200  # 3 days
+deployment-commit = "1353e11c" # v0.14.0 main
+assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
+assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+deprecated-assessor-duration = 432000  # 5 days
 
 ###
 
@@ -78,7 +78,7 @@ deprecated-assessor-duration = 259200  # 3 days
 name = "Base Mainnet"
 id = 8453
 etherscan-url = "https://basescan.org/"
-version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
+version = "v0.14.0" # 1353e11c main
 
 # Accounts
 admin = "0xc182328072F1158c574539F43890090d81f4A5ab"
@@ -88,15 +88,15 @@ verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 31134603
 boundless-market = "0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"
-boundless-market-impl = "0x5533618ea16a68036d6842d2ca5072385bdd09d6"
-boundless-market-old-impl = "0x2fcd5653d00badf7b48f22af404f8b72f9130b76"
+boundless-market-impl = "0x55c72c789f5b42323ad69fd3e0ff2df1b243c291"
+boundless-market-old-impl = "0x5533618ea16a68036d6842d2ca5072385bdd09d6"
 stake-token = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 # Guests info
-deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
-assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
-deprecated-assessor-duration = 259200  # 3 days
+deployment-commit = "1353e11c" # v0.14.0 main
+assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
+assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+deprecated-assessor-duration = 432000  # 5 days
 
 ###
 
@@ -104,7 +104,7 @@ deprecated-assessor-duration = 259200  # 3 days
 name = "Base Sepolia [prod]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
-version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
+version = "v0.14.0" # 1353e11c main
 
 # Accounts
 admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
@@ -114,15 +114,15 @@ verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26646012
 boundless-market = "0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"
-boundless-market-impl = "0xac852635b620648eb242b5c4e99d92dc8aec8ab2"
-boundless-market-old-impl = "0xfd815cc721f91f345cf217c3f165f483d04dcd98"
+boundless-market-impl = "0x38235e03abbaa6ffd1f8e7a8e0e54f33b290ab2f"
+boundless-market-old-impl = "0xac852635b620648eb242b5c4e99d92dc8aec8ab2"
 stake-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 
 # Guests info
-deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
-assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
-deprecated-assessor-duration = 259200  # 3 days
+deployment-commit = "1353e11c" # v0.14.0 main
+assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
+assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+deprecated-assessor-duration = 432000  # 5 days
 
 ###
 
@@ -130,7 +130,7 @@ deprecated-assessor-duration = 259200  # 3 days
 name = "Base Sepolia [staging]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
-version = "v0.14.0" # fd8e99f5 angelo/deprecated-assessor
+version = "v0.14.0" # 1353e11c main
 
 # Accounts
 admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
@@ -140,12 +140,12 @@ verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
 boundless-market = "0xAD0Bd6C436658aF457736d7224a87d2EF56365C8"
-boundless-market-impl = "0xa1d5e6794fea3b9fc44a5d06345816846875223f"
-boundless-market-old-impl = "0x87602baa3da1668e09e5e3b91976ad4b346ef246"
+boundless-market-impl = "0xa447130582f0ac817d986076709f257dfdd4b86a"
+boundless-market-old-impl = "0xa1d5e6794fea3b9fc44a5d06345816846875223f"
 stake-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 
 # Guests info
-deployment-commit = "f12f9c38" # v0.14.0 victor/update-to-3.0
-assessor-image-id = "0x04bc1b4de3e716d1cce670b18b3248737ecedf4e63f812b0552112fa97c9c6bd"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeialyhnpa4iq6bjf4rwkcgcidpzpgpkwjw2qwpj67ddnkn2fhyaqve"
-deprecated-assessor-duration = 259200  # 3 days
+deployment-commit = "1353e11c" # v0.14.0 main
+assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
+assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+deprecated-assessor-duration = 432000  # 5 days
