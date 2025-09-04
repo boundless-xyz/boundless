@@ -91,4 +91,22 @@ abstract contract PoVWScript is Script {
         require(deployer != address(0), "env var DEPLOYER_ADDRESS or DEPLOYER_PRIVATE_KEY required");
         return deployer;
     }
+
+    /// @notice Reads a 32-byte image ID from a .bin file using r0vm --id
+    function readImageIdFromFile(string memory filename) internal returns (bytes32) {
+        string memory filePath = string.concat(vm.projectRoot(), "/crates/guest/povw/elfs/", filename);
+        
+        string[] memory args = new string[](4);
+        args[0] = "r0vm";
+        args[1] = "--id";
+        args[2] = "--elf";
+        args[3] = filePath;
+        
+        try vm.ffi(args) returns (bytes memory result) {
+            return abi.decode(result, (bytes32));
+        } catch {
+            console2.log("Failed to read image ID from .bin file: %s", filename);
+            return bytes32(0);
+        }
+    }
 }
