@@ -27,6 +27,7 @@ interface IZKCRewards {
 /// by the PoVW rewards flow, and is copied here as the ZKC repo is not yet public.
 interface IZKC {
     function mintPoVWRewardsForRecipient(address recipient, uint256 amount) external;
+
     function getPoVWEmissionsForEpoch(uint256 epoch) external returns (uint256);
     function getEpochEndTime(uint256 epoch) external view returns (uint256);
     /// Get the current epoch number for the ZKC system.
@@ -34,4 +35,7 @@ interface IZKC {
     /// The epoch number is guaranteed to be a monotonic increasing function, and is guaranteed to
     /// be stable withing a block.
     function getCurrentEpoch() external view returns (uint256);
+
+    /// Mint staking rewards for a recipient.
+    function mintStakingRewardsForRecipient(address recipient, uint256 amount) external;
 }
