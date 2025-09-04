@@ -34,7 +34,7 @@ use crate::{
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
-        ProofRequest, RequestError,
+        Fulfillment, FulfillmentData, ProofRequest, RequestError,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -821,7 +821,7 @@ where
         request_id: U256,
         check_interval: std::time::Duration,
         expires_at: u64,
-    ) -> Result<(Bytes, Bytes), ClientError> {
+    ) -> Result<Fulfillment, ClientError> {
         Ok(self
             .boundless_market
             .wait_for_request_fulfillment(request_id, check_interval, expires_at)
@@ -852,11 +852,20 @@ where
     ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
         // TODO(#646): This logic is only correct under the assumption there is a single set
         // verifier.
-        let (journal, seal) = self.boundless_market.get_request_fulfillment(request_id).await?;
-        let claim = ReceiptClaim::ok(Digest::from(image_id.0), journal.to_vec());
-        let receipt =
-            self.set_verifier.fetch_receipt_with_claim(seal, claim, journal.to_vec()).await?;
-        Ok((journal, receipt))
+        let fulfillment = self.boundless_market.get_request_fulfillment(request_id).await?;
+        match fulfillment.data().context("failed to decode fulfillment data")? {
+            FulfillmentData::None => Err(ClientError::Error(anyhow!(
+                "No fulfillment data found for set inclusion receipt"
+            ))),
+            FulfillmentData::ImageIdAndJournal(_, journal) => {
+                let claim = ReceiptClaim::ok(Digest::from(image_id.0), journal.to_vec());
+                let receipt = self
+                    .set_verifier
+                    .fetch_receipt_with_claim(fulfillment.seal, claim, journal.to_vec())
+                    .await?;
+                Ok((journal, receipt))
+            }
+        }
     }
 
     /// Fetch a proof request and its signature, querying first offchain, and then onchain.

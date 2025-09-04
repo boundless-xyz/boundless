@@ -5,10 +5,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.24;
 
+import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
+
 using PredicateLibrary for Predicate global;
+using ReceiptClaimLib for ReceiptClaim;
 
 /// @title Predicate Struct and Library
-/// @notice Represents a predicate and provides functions to create and evaluate predicates.
+/// @notice A predicate is a function over the claim that determines whether it meets the clients requirements.
+/// The data field is used to store the specific data associated with the predicate.
+/// - DigestMatch: (bytes32, bytes32) -> abi.encodePacked(imageId, journalHash)
+/// - PrefixMatch: (bytes32, bytes) -> abi.encodePacked(imageId, prefix)
+/// - ClaimDigestMatch: (bytes32) -> abi.encode(claimDigest)
 struct Predicate {
     PredicateType predicateType;
     bytes data;
@@ -16,7 +24,8 @@ struct Predicate {
 
 enum PredicateType {
     DigestMatch,
-    PrefixMatch
+    PrefixMatch,
+    ClaimDigestMatch
 }
 
 library PredicateLibrary {
@@ -26,15 +35,26 @@ library PredicateLibrary {
     /// @notice Creates a digest match predicate.
     /// @param hash The hash to match.
     /// @return A Predicate struct with type DigestMatch and the provided hash.
-    function createDigestMatchPredicate(bytes32 hash) internal pure returns (Predicate memory) {
-        return Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(hash)});
+    function createDigestMatchPredicate(bytes32 imageId, bytes32 hash) internal pure returns (Predicate memory) {
+        return Predicate({predicateType: PredicateType.DigestMatch, data: abi.encodePacked(imageId, hash)});
     }
 
     /// @notice Creates a prefix match predicate.
     /// @param prefix The prefix to match.
     /// @return A Predicate struct with type PrefixMatch and the provided prefix.
-    function createPrefixMatchPredicate(bytes memory prefix) internal pure returns (Predicate memory) {
-        return Predicate({predicateType: PredicateType.PrefixMatch, data: prefix});
+    function createPrefixMatchPredicate(bytes32 imageId, bytes memory prefix)
+        internal
+        pure
+        returns (Predicate memory)
+    {
+        return Predicate({predicateType: PredicateType.PrefixMatch, data: abi.encodePacked(imageId, prefix)});
+    }
+
+    /// @notice Creates a claim digest match predicate.
+    /// @param claimDigest The claimDigest to match.
+    /// @return A Predicate struct with type ClaimDigestMatch and the provided claimDigest.
+    function createClaimDigestMatchPredicate(bytes32 claimDigest) internal pure returns (Predicate memory) {
+        return Predicate({predicateType: PredicateType.ClaimDigestMatch, data: abi.encodePacked(claimDigest)});
     }
 
     /// @notice Evaluates the predicate against the given journal and journal digest.
@@ -42,15 +62,19 @@ library PredicateLibrary {
     /// @param journal The journal to evaluate against.
     /// @param journalDigest The digest of the journal.
     /// @return True if the predicate is satisfied, false otherwise.
-    function eval(Predicate memory predicate, bytes memory journal, bytes32 journalDigest)
+    function eval(Predicate memory predicate, bytes32 imageId, bytes memory journal, bytes32 journalDigest)
         internal
         pure
         returns (bool)
     {
         if (predicate.predicateType == PredicateType.DigestMatch) {
-            return bytes32(predicate.data) == journalDigest;
+            bytes memory dataJournal = Bytes.slice(predicate.data, 32);
+            return bytes32(dataJournal) == journalDigest;
         } else if (predicate.predicateType == PredicateType.PrefixMatch) {
-            return startsWith(journal, predicate.data);
+            bytes memory dataJournal = Bytes.slice(predicate.data, 32);
+            return startsWith(journal, dataJournal);
+        } else if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
+            return bytes32(predicate.data) == ReceiptClaimLib.ok(imageId, journalDigest).digest();
         } else {
             revert("Unreachable code");
         }

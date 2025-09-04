@@ -26,9 +26,9 @@ use alloy::{
 };
 use alloy_primitives::{
     aliases::{U160, U32, U96},
-    Address, Bytes, FixedBytes, B256, U256,
+    Address, Bytes, FixedBytes, Keccak256, U256,
 };
-use alloy_sol_types::{eip712_domain, Eip712Domain};
+use alloy_sol_types::{eip712_domain, Eip712Domain, SolValue};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "zkvm"))]
 use std::time::Duration;
@@ -41,7 +41,10 @@ use token::{
 };
 use url::Url;
 
-use risc0_zkvm::sha::Digest;
+use risc0_zkvm::{
+    sha::{Digest, Digestible},
+    MaybePruned, ReceiptClaim,
+};
 
 #[cfg(not(target_os = "zkvm"))]
 pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
@@ -57,10 +60,11 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorJournalCallback,
-    AssessorReceipt, Callback, Fulfillment, FulfillmentContext, IBoundlessMarket,
-    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, Predicate,
-    PredicateType, ProofRequest, RequestLock, Requirements, Selector as AssessorSelector,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorReceipt, Callback, Fulfillment,
+    FulfillmentContext, FulfillmentDataImageIdAndJournal, FulfillmentDataType, IBoundlessMarket,
+    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer,
+    Predicate as RequestPredicate, PredicateType, ProofRequest, RequestLock, Requirements,
+    Selector as AssessorSelector,
 };
 
 #[allow(missing_docs)]
@@ -346,6 +350,10 @@ pub enum RequestError {
     /// Request digest mismatch.
     #[error("request digest mismatch")]
     DigestMismatch,
+
+    /// Predicate related errors
+    #[error("predicate data error: {0}")]
+    PredicateError(#[from] PredicateError),
 }
 
 #[cfg(not(target_os = "zkvm"))]
@@ -353,6 +361,18 @@ impl From<SignatureError> for RequestError {
     fn from(err: alloy::primitives::SignatureError) -> Self {
         RequestError::SignatureError(err.into())
     }
+}
+
+#[non_exhaustive]
+#[derive(thiserror::Error, Debug)]
+/// Errors that can occur when handling fulfillment data.
+pub enum FulfillmentDataError {
+    /// The fulfillment data is malformed.
+    #[error("malformed fulfillment data")]
+    Malformed,
+    /// Invalid fulfillment data type.
+    #[error("invalid fulfillment data type")]
+    InvalidType,
 }
 
 impl ProofRequest {
@@ -430,9 +450,9 @@ impl ProofRequest {
         }
         Url::parse(&self.imageUrl).map(|_| ())?;
 
-        if self.requirements.imageId == B256::default() {
-            return Err(RequestError::ImageIdIsZero);
-        }
+        // The conversion from RequestPredicate to Predicate will validate
+        Predicate::try_from(self.requirements.predicate.clone())?;
+
         if self.offer.timeout == 0 {
             return Err(RequestError::OfferTimeoutIsZero);
         }
@@ -510,23 +530,17 @@ impl ProofRequest {
 
 impl Requirements {
     /// Creates a new requirements with the given image ID and predicate.
-    pub fn new(image_id: impl Into<Digest>, predicate: Predicate) -> Self {
+    pub fn new(predicate: impl Into<RequestPredicate>) -> Self {
         Self {
-            imageId: <[u8; 32]>::from(image_id.into()).into(),
-            predicate,
+            predicate: predicate.into(),
             callback: Callback::default(),
             selector: UNSPECIFIED_SELECTOR,
         }
     }
 
-    /// Sets the image ID.
-    pub fn with_image_id(self, image_id: impl Into<Digest>) -> Self {
-        Self { imageId: <[u8; 32]>::from(image_id.into()).into(), ..self }
-    }
-
     /// Sets the predicate.
-    pub fn with_predicate(self, predicate: Predicate) -> Self {
-        Self { predicate, ..self }
+    pub fn with_predicate(self, predicate: impl Into<RequestPredicate>) -> Self {
+        Self { predicate: predicate.into(), ..self }
     }
 
     /// Sets the callback.
@@ -553,20 +567,260 @@ impl Requirements {
     }
 }
 
-impl Predicate {
-    /// Returns a predicate to match the journal digest. This ensures that the request's
-    /// fulfillment will contain a journal with the same digest.
-    pub fn digest_match(digest: impl Into<Digest>) -> Self {
-        Self {
-            predicateType: PredicateType::DigestMatch,
-            data: digest.into().as_bytes().to_vec().into(),
+/// The data that is used to construct the claim for a fulfillment.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FulfillmentData {
+    /// No data is provided in the fulfillment.
+    None,
+    /// Proofs fulfilled with both image id and journal and the claim is calculated from them.
+    ImageIdAndJournal(Digest, Bytes),
+}
+
+impl FulfillmentData {
+    /// Create the claim data from image_id and journal.
+    pub fn from_image_id_and_journal(
+        image_id: impl Into<Digest>,
+        journal: impl Into<Bytes>,
+    ) -> Self {
+        Self::ImageIdAndJournal(image_id.into(), journal.into())
+    }
+
+    /// Encodes to FulfillmentType and data
+    pub fn fulfillment_type_and_data(&self) -> (FulfillmentDataType, Vec<u8>) {
+        match self {
+            Self::None => (FulfillmentDataType::None, Vec::new()),
+            Self::ImageIdAndJournal(image_id, journal) => (
+                FulfillmentDataType::ImageIdAndJournal,
+                FulfillmentDataImageIdAndJournal {
+                    imageId: <[u8; 32]>::from(*image_id).into(),
+                    journal: journal.clone(),
+                }
+                .abi_encode(),
+            ),
         }
     }
 
+    /// Decodes the fulfillment data from the given type and data.
+    pub fn decode_with_type(
+        fill_type: FulfillmentDataType,
+        data: impl AsRef<[u8]>,
+    ) -> Result<Self, FulfillmentDataError> {
+        match fill_type {
+            FulfillmentDataType::None => {
+                if !data.as_ref().is_empty() {
+                    return Err(FulfillmentDataError::Malformed);
+                }
+                Ok(Self::None)
+            }
+            FulfillmentDataType::ImageIdAndJournal => {
+                let FulfillmentDataImageIdAndJournal { imageId, journal } =
+                    FulfillmentDataImageIdAndJournal::abi_decode(data.as_ref())
+                        .map_err(|_| FulfillmentDataError::Malformed)?;
+                Ok(Self::ImageIdAndJournal(imageId.0.into(), journal))
+            }
+            FulfillmentDataType::__Invalid => Err(FulfillmentDataError::InvalidType),
+        }
+    }
+
+    /// Returns the fulfillment data digest committed to by the assessor.
+    pub fn fulfillment_data_digest(&self) -> Result<Digest, FulfillmentDataError> {
+        let mut hasher = Keccak256::new();
+        match self {
+            FulfillmentData::None => hasher.update([FulfillmentDataType::None as u8]),
+            FulfillmentData::ImageIdAndJournal(image_id, journal) => {
+                hasher.update([FulfillmentDataType::ImageIdAndJournal as u8]);
+                hasher.update(
+                    FulfillmentDataImageIdAndJournal {
+                        imageId: <[u8; 32]>::from(*image_id).into(),
+                        journal: journal.clone(),
+                    }
+                    .abi_encode(),
+                );
+            }
+        }
+        Ok(hasher.finalize().0.into())
+    }
+
+    /// Returns the journal if available
+    pub fn journal(&self) -> Option<&Bytes> {
+        match self {
+            FulfillmentData::None => None,
+            FulfillmentData::ImageIdAndJournal(_, journal) => Some(journal),
+        }
+    }
+
+    /// Returns the image id if available
+    pub fn image_id(&self) -> Option<Digest> {
+        match self {
+            FulfillmentData::None => None,
+            FulfillmentData::ImageIdAndJournal(image_id, _) => Some(*image_id),
+        }
+    }
+}
+
+impl From<FulfillmentDataImageIdAndJournal> for FulfillmentData {
+    fn from(value: FulfillmentDataImageIdAndJournal) -> Self {
+        Self::ImageIdAndJournal(Digest::from_bytes(*value.imageId), value.journal)
+    }
+}
+
+impl Fulfillment {
+    /// Decode and return the [FulfillmentData] for the this fulfillment.
+    pub fn data(&self) -> Result<FulfillmentData, FulfillmentDataError> {
+        FulfillmentData::decode_with_type(self.fulfillmentDataType, &self.fulfillmentData)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+/// Errors related to predicate encoding/decoding and evaluation
+pub enum PredicateError {
+    /// Data was not correctly constructed
+    #[error("malformed predicate data")]
+    DataMalformed,
+    /// Invalid predicate type
+    #[error("invalid predicate type")]
+    InvalidType,
+}
+
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+/// A Predicate is a function over the claim that determines whether it meets the clients requirements.
+pub enum Predicate {
+    /// The image id and digest must match the provided image id and journal digest.
+    DigestMatch(Digest, Digest),
+    /// The image id and journal prefix must match the provided image id and journal.
+    PrefixMatch(Digest, Bytes),
+    /// The claim digest must match the provided claim digest.
+    ClaimDigestMatch(Digest),
+}
+
+impl From<Predicate> for RequestPredicate {
+    fn from(value: Predicate) -> Self {
+        match value {
+            Predicate::DigestMatch(image_id, journal_digest) => Self {
+                predicateType: PredicateType::DigestMatch,
+                data: [image_id.as_bytes(), journal_digest.as_bytes()].concat().into(),
+            },
+            Predicate::PrefixMatch(image_id, journal_prefix) => Self {
+                predicateType: PredicateType::PrefixMatch,
+                data: [image_id.as_bytes(), journal_prefix.as_ref()].concat().into(),
+            },
+            Predicate::ClaimDigestMatch(claim_digest) => Self {
+                predicateType: PredicateType::ClaimDigestMatch,
+                data: claim_digest.as_bytes().to_vec().into(),
+            },
+        }
+    }
+}
+
+impl TryFrom<RequestPredicate> for Predicate {
+    type Error = PredicateError;
+
+    fn try_from(value: RequestPredicate) -> Result<Self, Self::Error> {
+        match value.predicateType {
+            PredicateType::DigestMatch => {
+                let (image_id, journal_digest) = value
+                    .data
+                    .as_ref()
+                    .split_at_checked(32)
+                    .ok_or(PredicateError::DataMalformed)?;
+                Ok(Predicate::DigestMatch(
+                    Digest::try_from(image_id).map_err(|_| PredicateError::DataMalformed)?,
+                    Digest::try_from(journal_digest).map_err(|_| PredicateError::DataMalformed)?,
+                ))
+            }
+            PredicateType::PrefixMatch => {
+                let (image_id, journal_prefix) = value
+                    .data
+                    .as_ref()
+                    .split_at_checked(32)
+                    .ok_or(PredicateError::DataMalformed)?;
+                Ok(Predicate::PrefixMatch(
+                    Digest::try_from(image_id).map_err(|_| PredicateError::DataMalformed)?,
+                    journal_prefix.to_vec().into(),
+                ))
+            }
+            PredicateType::ClaimDigestMatch => {
+                // Don't need to check the length because that is checked when converting to Digest
+                Ok(Predicate::ClaimDigestMatch(
+                    Digest::try_from(value.data.as_ref())
+                        .map_err(|_| PredicateError::DataMalformed)?,
+                ))
+            }
+            PredicateType::__Invalid => Err(PredicateError::InvalidType),
+        }
+    }
+}
+
+impl Predicate {
+    /// Returns a predicate to match the journal digest. This ensures that the request's
+    /// fulfillment will contain a journal with the same digest.
+    pub fn digest_match(image_id: impl Into<Digest>, journal_digest: impl Into<Digest>) -> Self {
+        Self::DigestMatch(image_id.into(), journal_digest.into())
+    }
     /// Returns a predicate to match the journal prefix. This ensures that the request's
     /// fulfillment will contain a journal with the same prefix.
-    pub fn prefix_match(prefix: impl Into<Bytes>) -> Self {
-        Self { predicateType: PredicateType::PrefixMatch, data: prefix.into() }
+    pub fn prefix_match(image_id: impl Into<Digest>, journal_prefix: impl Into<Bytes>) -> Self {
+        Self::PrefixMatch(image_id.into(), journal_prefix.into())
+    }
+    /// Returns a predicate to match the claim digest. This ensures that the request's
+    /// fulfillment will contain a claim with the same digest.
+    pub fn claim_digest_match(claim_digest: impl Into<Digest>) -> Self {
+        Self::ClaimDigestMatch(claim_digest.into())
+    }
+
+    /// Returns the image_id if it exists.
+    pub fn image_id(&self) -> Option<Digest> {
+        match self {
+            Predicate::DigestMatch(image_id, ..) => Some(*image_id),
+            Predicate::PrefixMatch(image_id, ..) => Some(*image_id),
+            Predicate::ClaimDigestMatch(..) => None,
+        }
+    }
+
+    /// Evaluates the predicate against the fulfillment data, returning the claim digest if the
+    /// evaluation succeeds or `None` if it fails.
+    pub fn eval(&self, fulfillment_data: &FulfillmentData) -> Option<Digest> {
+        let claim_digest_data = match fulfillment_data {
+            FulfillmentData::None => None,
+            FulfillmentData::ImageIdAndJournal(image_id, journal) => {
+                Some(ReceiptClaim::ok(*image_id, journal.to_vec()).digest())
+            }
+        };
+        let claim_digest_predicate = match self {
+            Predicate::DigestMatch(image_id, journal) => {
+                // With the DigestMatch predicate, we require the delivery of the journal.
+                // If is checked to match the predicate by the claim digest comparison below.
+                let FulfillmentData::ImageIdAndJournal(_, _) = &fulfillment_data else {
+                    return None;
+                };
+                Some(ReceiptClaim::ok(*image_id, MaybePruned::Pruned(*journal)).digest())
+            }
+            Predicate::PrefixMatch(image_id, prefix) => {
+                // With the PrefixMatch predicate, we need to check the condition on the journal.
+                let FulfillmentData::ImageIdAndJournal(fill_image_id, fill_journal) =
+                    &fulfillment_data
+                else {
+                    return None;
+                };
+                let matches =
+                    fill_image_id == image_id && fill_journal.starts_with(prefix.as_ref());
+                if !matches {
+                    return None;
+                }
+                None
+            }
+            Predicate::ClaimDigestMatch(claim_digest) => Some(*claim_digest),
+        };
+        if let (Some(claim_digest_predicate), Some(claim_digest_data)) =
+            (claim_digest_predicate, claim_digest_data)
+        {
+            if claim_digest_predicate != claim_digest_data {
+                return None;
+            }
+        }
+        claim_digest_data.or(claim_digest_predicate)
     }
 }
 
@@ -700,23 +954,10 @@ impl Offer {
     }
 }
 
-use sha2::{Digest as _, Sha256};
 #[cfg(not(target_os = "zkvm"))]
 use IBoundlessMarket::IBoundlessMarketErrors;
 #[cfg(not(target_os = "zkvm"))]
 use IRiscZeroSetVerifier::IRiscZeroSetVerifierErrors;
-
-impl Predicate {
-    /// Evaluates the predicate against the given journal.
-    #[inline]
-    pub fn eval(&self, journal: impl AsRef<[u8]>) -> bool {
-        match self.predicateType {
-            PredicateType::DigestMatch => self.data.as_ref() == Sha256::digest(journal).as_slice(),
-            PredicateType::PrefixMatch => journal.as_ref().starts_with(&self.data),
-            PredicateType::__Invalid => panic!("invalid PredicateType"),
-        }
-    }
-}
 
 #[cfg(not(target_os = "zkvm"))]
 /// The Boundless market module.
@@ -867,10 +1108,10 @@ mod tests {
 
         let req = ProofRequest {
             id: request_id,
-            requirements: Requirements::new(
+            requirements: Requirements::new(Predicate::prefix_match(
                 Digest::ZERO,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+                Bytes::default(),
+            )),
             imageUrl: "https://dev.null".to_string(),
             input: RequestInput::builder().build_inline().unwrap(),
             offer: Offer {
