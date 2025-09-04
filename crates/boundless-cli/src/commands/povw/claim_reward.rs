@@ -32,6 +32,7 @@ use boundless_povw::{
 use clap::Args;
 use risc0_povw::PovwLogId;
 use risc0_zkvm::{default_prover, Digest};
+use url::Url;
 
 use crate::config::{GlobalConfig, ProverConfig};
 
@@ -48,6 +49,15 @@ pub struct PovwClaimReward {
     /// Path to the work log state file.
     #[arg(short, long)]
     pub log_id: PovwLogId,
+
+    // TODO: Deprecate and/or remove this when history support works without the Beacon API.
+    /// URL for an Ethereum Beacon chain (i.e. consensus chain) API.
+    ///
+    /// Providing a Beacon API is required when claiming rewards on Ethereum in order to get the
+    /// chain data required to prove your allocated rewards. A provider such as Quicknode can
+    /// supply a Beacon API.
+    #[arg(long, env)]
+    pub beacon_api_url: Option<Url>,
 
     // TODO(povw): Add a consensus RPC URL option.
     // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
@@ -189,6 +199,7 @@ impl PovwClaimReward {
         let mint_calculator_prover = MintCalculatorProver::builder()
             .prover(default_prover())
             .provider(provider.clone())
+            .beacon_api(self.beacon_api_url.clone())
             .povw_accounting_address(self.povw_accounting_address)
             .zkc_address(self.zkc_address)
             .zkc_rewards_address(self.vezkc_address)
