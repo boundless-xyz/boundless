@@ -410,7 +410,7 @@ mod tests {
     async fn test_fulfill_with_selector() {
         let signer = PrivateKeySigner::random();
         let (request, signature) =
-            setup_proving_request_and_signature(&signer, Some(Selector::Groth16V2_2)).await;
+            setup_proving_request_and_signature(&signer, Some(Selector::groth16_latest())).await;
 
         let domain = eip712_domain(Address::ZERO, 1);
         let prover = DefaultProver::new(

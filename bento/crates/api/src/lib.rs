@@ -5,13 +5,12 @@
 
 use anyhow::{Context, Error as AnyhowErr, Result};
 use axum::{
-    async_trait,
-    body::{to_bytes, Body},
+    Json, Router, async_trait,
+    body::{Body, to_bytes},
     extract::{FromRequestParts, Host, Path, State},
-    http::{request::Parts, StatusCode},
+    http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
     routing::{get, post, put},
-    Json, Router,
 };
 use bonsai_sdk::responses::{
     CreateSessRes, ImgUploadRes, ProofReq, ReceiptDownload, SessionStats, SessionStatusRes,
@@ -20,17 +19,17 @@ use bonsai_sdk::responses::{
 use clap::Parser;
 use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::sync::Arc;
 use taskdb::{JobState, TaskDbErr};
 use thiserror::Error;
 use uuid::Uuid;
 use workflow_common::{
-    s3::{
-        S3Client, ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR,
-        PREFLIGHT_JOURNALS_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
-    },
     CompressType, ExecutorReq, SnarkReq as WorkflowSnarkReq, TaskType,
+    s3::{
+        ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
+        RECEIPT_BUCKET_DIR, S3Client, STARK_BUCKET_DIR, WORK_RECEIPTS_BUCKET_DIR,
+    },
 };
 
 mod helpers;
@@ -42,16 +41,27 @@ pub struct ErrMsg {
 }
 impl ErrMsg {
     pub fn new(r#type: &str, msg: &str) -> Self {
-        Self {
-            r#type: r#type.into(),
-            msg: msg.into(),
-        }
+        Self { r#type: r#type.into(), msg: msg.into() }
     }
 }
 impl std::fmt::Display for ErrMsg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "error_type: {} msg: {}", self.r#type, self.msg)
     }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WorkReceiptInfo {
+    pub key: String,
+    /// PoVW log ID if PoVW is enabled, None otherwise
+    pub povw_log_id: Option<String>,
+    /// PoVW job number if PoVW is enabled, None otherwise
+    pub povw_job_number: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WorkReceiptList {
+    pub receipts: Vec<WorkReceiptInfo>,
 }
 
 pub struct ExtractApiKey(pub String);
@@ -150,14 +160,7 @@ impl IntoResponse for AppError {
             _ => tracing::error!("api error, code {code}: {self:?}"),
         }
 
-        (
-            code,
-            Json(ErrMsg {
-                r#type: self.type_str(),
-                msg: self.to_string(),
-            }),
-        )
-            .into_response()
+        (code, Json(ErrMsg { r#type: self.type_str(), msg: self.to_string() })).into_response()
     }
 }
 
@@ -272,9 +275,7 @@ async fn image_upload(
         return Err(AppError::ImgAlreadyExists(image_id));
     }
 
-    Ok(Json(ImgUploadRes {
-        url: format!("http://{hostname}/images/upload/{image_id}"),
-    }))
+    Ok(Json(ImgUploadRes { url: format!("http://{hostname}/images/upload/{image_id}") }))
 }
 
 async fn image_upload_put(
@@ -292,13 +293,11 @@ async fn image_upload_put(
         return Err(AppError::ImgAlreadyExists(image_id));
     }
 
-    let body_bytes = to_bytes(body, MAX_UPLOAD_SIZE)
-        .await
-        .context("Failed to convert body to bytes")?;
+    let body_bytes =
+        to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
 
-    let comp_img_id = compute_image_id(&body_bytes)
-        .context("Failed to compute image id")?
-        .to_string();
+    let comp_img_id =
+        compute_image_id(&body_bytes).context("Failed to compute image id")?.to_string();
     if comp_img_id != image_id {
         return Err(AppError::ImageIdMismatch(image_id, comp_img_id));
     }
@@ -352,9 +351,8 @@ async fn input_upload_put(
     }
 
     // TODO: Support streaming uploads
-    let body_bytes = to_bytes(body, MAX_UPLOAD_SIZE)
-        .await
-        .context("Failed to convert body to bytes")?;
+    let body_bytes =
+        to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
     state
         .s3_client
         .write_buf_to_s3(&new_input_key, body_bytes.to_vec())
@@ -403,9 +401,8 @@ async fn receipt_upload_put(
     }
 
     // TODO: Support streaming uploads
-    let body_bytes = to_bytes(body, MAX_UPLOAD_SIZE)
-        .await
-        .context("Failed to convert body to bytes")?;
+    let body_bytes =
+        to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
     state
         .s3_client
         .write_buf_to_s3(&new_receipt_key, body_bytes.to_vec())
@@ -450,9 +447,7 @@ async fn prove_stark(
     .await
     .context("Failed to create exec / init task")?;
 
-    Ok(Json(CreateSessRes {
-        uuid: job_id.to_string(),
-    }))
+    Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
 
 const STARK_STATUS_PATH: &str = "/sessions/status/:job_id";
@@ -543,9 +538,7 @@ async fn receipt_download(
         return Err(AppError::ReceiptMissing(job_id.to_string()));
     }
 
-    Ok(Json(ReceiptDownload {
-        url: format!("http://{hostname}/receipts/stark/receipt/{job_id}"),
-    }))
+    Ok(Json(ReceiptDownload { url: format!("http://{hostname}/receipts/stark/receipt/{job_id}") }))
 }
 
 const GET_JOURNAL_PATH: &str = "/sessions/exec_only_journal/:job_id";
@@ -602,9 +595,7 @@ async fn prove_groth16(
     .await
     .context("Failed to create exec / init task")?;
 
-    Ok(Json(CreateSessRes {
-        uuid: job_id.to_string(),
-    }))
+    Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
 
 const SNARK_STATUS_PATH: &str = "/snark/status/:job_id";
@@ -619,12 +610,9 @@ async fn groth16_status(
         .context("Failed to get job state")?;
     let (error_msg, output) = match job_state {
         JobState::Running => (None, None),
-        JobState::Done => (
-            None,
-            Some(format!(
-                "http://{hostname}/receipts/groth16/receipt/{job_id}"
-            )),
-        ),
+        JobState::Done => {
+            (None, Some(format!("http://{hostname}/receipts/groth16/receipt/{job_id}")))
+        }
         JobState::Failed => (
             Some(
                 taskdb::get_job_failure(&state.db_pool, &job_id)
@@ -634,11 +622,7 @@ async fn groth16_status(
             None,
         ),
     };
-    Ok(Json(SnarkStatusRes {
-        status: job_state.to_string(),
-        error_msg,
-        output,
-    }))
+    Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
 }
 
 const GET_GROTH16_PATH: &str = "/receipts/groth16/receipt/:job_id";
@@ -665,8 +649,154 @@ async fn groth16_download(
     Ok(receipt)
 }
 
+const GET_WORK_RECEIPT_PATH: &str = "/work-receipts/:receipt_id";
+async fn get_work_receipt(
+    State(state): State<Arc<AppState>>,
+    Path(receipt_id): Path<String>,
+) -> Result<Vec<u8>, AppError> {
+    let receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}.bincode");
+    if !state
+        .s3_client
+        .object_exists(&receipt_key)
+        .await
+        .context("Failed to check if object exists")?
+    {
+        return Err(AppError::ReceiptMissing(receipt_id));
+    }
+
+    let receipt = state
+        .s3_client
+        .read_buf_from_s3(&receipt_key)
+        .await
+        .context("Failed to read from object store")?;
+
+    Ok(receipt)
+}
+
+const LIST_WORK_RECEIPTS_PATH: &str = "/work-receipts";
+async fn list_work_receipts(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<WorkReceiptList>, AppError> {
+    // List all objects in the work receipts bucket
+    let objects = state
+        .s3_client
+        .list_objects(Some(WORK_RECEIPTS_BUCKET_DIR))
+        .await
+        .context("Failed to list work receipt objects")?;
+
+    tracing::info!("Found {} objects in work receipts bucket: {:?}", objects.len(), objects);
+    let mut receipts = Vec::new();
+
+    for object_key in objects {
+        // Extract the receipt ID from the object key
+        // Object keys are in format: "work_receipts/{receipt_id}.bincode"
+        if let Some(receipt_id) = object_key.strip_prefix(&format!("{WORK_RECEIPTS_BUCKET_DIR}/")) {
+            if receipt_id.ends_with(".bincode") && !receipt_id.ends_with("_povw.bincode") {
+                let receipt_id = receipt_id.trim_end_matches(".bincode");
+
+                // Try to extract POVW information from the stored receipt
+                let mut povw_log_id = None;
+                let mut povw_job_number = None;
+
+                // First check if there's a metadata file (this should exist for all receipts)
+                let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_metadata.json");
+                if let Ok(metadata_bytes) = state.s3_client.read_buf_from_s3(&metadata_key).await {
+                    if let Ok(metadata) =
+                        serde_json::from_slice::<serde_json::Value>(&metadata_bytes)
+                    {
+                        povw_log_id = metadata
+                            .get("povw_log_id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        povw_job_number = metadata
+                            .get("povw_job_number")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        tracing::debug!(
+                            "Found metadata for {}: log_id={:?}, job_number={:?}",
+                            receipt_id,
+                            povw_log_id,
+                            povw_job_number
+                        );
+                    }
+                } else {
+                    tracing::debug!("No metadata file found for receipt: {}", receipt_id);
+                }
+
+                // Check if there's a corresponding POVW receipt
+                let povw_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_povw.bincode");
+                let has_povw_receipt =
+                    state.s3_client.object_exists(&povw_key).await.unwrap_or(false);
+
+                if has_povw_receipt {
+                    tracing::debug!("POVW receipt found for: {}", receipt_id);
+
+                    // If we don't have metadata but have a POVW receipt, try to extract from the receipt
+                    if povw_log_id.is_none() || povw_job_number.is_none() {
+                        match state
+                            .s3_client
+                            .read_from_s3::<risc0_zkvm::GenericReceipt<
+                                risc0_zkvm::WorkClaim<risc0_zkvm::ReceiptClaim>,
+                            >>(&povw_key)
+                            .await
+                        {
+                            Ok(_receipt) => {
+                                tracing::debug!(
+                                    "Successfully parsed POVW receipt for: {}",
+                                    receipt_id
+                                );
+                                // For now, use receipt_id as fallback values
+                                // TODO: Extract actual POVW metadata from receipt when available
+                                if povw_log_id.is_none() {
+                                    povw_log_id = Some(receipt_id.to_string());
+                                }
+                                if povw_job_number.is_none() {
+                                    povw_job_number = Some(receipt_id.to_string());
+                                }
+                            }
+                            Err(err) => {
+                                tracing::warn!(
+                                    "Failed to parse POVW receipt for {}: {}",
+                                    receipt_id,
+                                    err
+                                );
+                                // Still mark as having POVW but without metadata
+                                if povw_log_id.is_none() {
+                                    povw_log_id = Some(receipt_id.to_string());
+                                }
+                                if povw_job_number.is_none() {
+                                    povw_job_number = Some(receipt_id.to_string());
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    tracing::debug!("No POVW receipt found for: {}", receipt_id);
+                }
+
+                receipts.push(WorkReceiptInfo {
+                    key: receipt_id.to_string(),
+                    povw_log_id,
+                    povw_job_number,
+                });
+            }
+        }
+    }
+
+    tracing::info!("Listed {} work receipts from bucket", receipts.len());
+    Ok(Json(WorkReceiptList { receipts }))
+}
+
+// Health check endpoint for Docker Compose
+const HEALTH_PATH: &str = "/health";
+async fn health_check() -> StatusCode {
+    StatusCode::OK
+}
+
 pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
+        .route(HEALTH_PATH, get(health_check))
         .route(IMAGE_UPLOAD_PATH, get(image_upload))
         .route(IMAGE_UPLOAD_PATH, put(image_upload_put))
         .route(INPUT_UPLOAD_PATH, get(input_upload))
@@ -681,13 +811,13 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(SNARK_START_PATH, post(prove_groth16))
         .route(SNARK_STATUS_PATH, get(groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
+        .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
+        .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
         .with_state(state)
 }
 
 pub async fn run(args: &Args) -> Result<()> {
-    let app_state = AppState::new(args)
-        .await
-        .context("Failed to initialize AppState")?;
+    let app_state = AppState::new(args).await.context("Failed to initialize AppState")?;
     let listener = tokio::net::TcpListener::bind(&args.bind_addr)
         .await
         .context("Failed to bind a TCP listener")?;
@@ -703,9 +833,7 @@ pub async fn run(args: &Args) -> Result<()> {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        tokio::signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]

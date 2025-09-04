@@ -17,7 +17,7 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   FOUNDRY_VERSION: v1.2.3
   RISC0_TOOLCHAIN_VERSION: 1.88.0
-  RISC0_CRATE_VERSION: "2.3.0"
+  RISC0_CRATE_VERSION: "3.0.3"
 
 jobs:
   contracts-changed:
@@ -159,9 +159,9 @@ jobs:
         with:
           version: v1.0.0
 
-      - uses: risc0/risc0/.github/actions/rustup@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
       
-      - uses: risc0/risc0/.github/actions/sccache@352dea62857ba57331053cd0986a12c1a4708732
+      - uses: risc0/risc0/.github/actions/sccache@v3.0.3
         with:
           key: ${{ matrix.os }}-${{ matrix.feature }}
 
