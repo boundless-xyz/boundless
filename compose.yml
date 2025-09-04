@@ -12,6 +12,7 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
 
 x-agent-common: &agent-common
+  runtime: nvidia
   build:
     context: .
     dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
@@ -185,7 +186,6 @@ services:
 
   gpu_prove_agent0:
     <<: *agent-common
-    runtime: nvidia
     mem_limit: 4G
     cpus: 4
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
