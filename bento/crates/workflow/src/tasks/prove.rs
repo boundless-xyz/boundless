@@ -9,7 +9,7 @@ use crate::{
     tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
+use risc0_zkvm::Segment;
 use uuid::Uuid;
 use workflow_common::ProveReq;
 
@@ -25,52 +25,37 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         .get::<_, Vec<u8>>(&segment_key)
         .await
         .with_context(|| format!("segment data not found for segment key: {segment_key}"))?;
-    let segment =
-        deserialize_obj(&segment_vec).context("Failed to deserialize segment data from redis")?;
 
-    let segment_receipt = agent
-        .prover
-        .as_ref()
-        .context("Missing prover from prove task")?
-        .prove_segment(&agent.verifier_ctx, &segment)
-        .context("Failed to prove segment")?;
+    // Try to deserialize as segment first, then prove it
+    let segment_receipt = match deserialize_obj::<Segment>(&segment_vec) {
+        Ok(segment) => {
+            // Successfully deserialized as segment, now prove it
+            agent
+                .prover
+                .as_ref()
+                .context("Missing prover from prove task")?
+                .prove_segment(&agent.verifier_ctx, &segment)
+                .context("Failed to prove segment")?
+        }
+        Err(_) => {
+            // Failed to deserialize as segment, try as already-proven receipt
+            deserialize_obj(&segment_vec)
+                .context("Failed to deserialize segment data from redis")?
+        }
+    };
 
     tracing::debug!("Completed proof: {job_id} - {index}");
-
-    tracing::debug!("lifting {job_id} - {index}");
-
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
 
-    if agent.is_povw_enabled() {
-        let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = agent
-            .prover
-            .as_ref()
-            .context("Missing prover from resolve task")?
-            .lift_povw(&segment_receipt)
-            .with_context(|| format!("Failed to POVW lift segment {index}"))?;
-
-        tracing::debug!("lifting complete {job_id} - {index}");
-
-        // Write out lifted POVW receipt
-        let lift_asset =
-            serialize_obj(&lift_receipt).expect("Failed to serialize the POVW segment");
-        redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
-            .await?;
-    } else {
-        let lift_receipt: SuccinctReceipt<ReceiptClaim> = agent
-            .prover
-            .as_ref()
-            .context("Missing prover from resolve task")?
-            .lift(&segment_receipt)
-            .with_context(|| format!("Failed to lift segment {index}"))?;
-
-        tracing::debug!("lifting complete {job_id} - {index}");
-
-        // Write out lifted regular receipt
-        let lift_asset = serialize_obj(&lift_receipt).expect("Failed to serialize the segment");
-        redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
-            .await?;
-    }
+    let serialized_receipt =
+        serialize_obj(&segment_receipt).context("Failed to serialize segment receipt")?;
+    redis::set_key_with_expiry(
+        &mut conn,
+        &output_key,
+        serialized_receipt,
+        Some(agent.args.redis_ttl),
+    )
+    .await?;
 
     Ok(())
 }
