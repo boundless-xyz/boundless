@@ -1388,6 +1388,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_cmd"
+version = "2.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bd389a4b2970a01282ee455294913c0a43724daedcd1a24c3eb0ec1c1320b66"
+dependencies = [
+ "anstyle",
+ "bstr",
+ "doc-comment",
+ "libc",
+ "predicates",
+ "predicates-core",
+ "predicates-tree",
+ "wait-timeout",
+]
+
+[[package]]
+name = "assert_fs"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a652f6cb1f516886fcfee5e7a5c078b9ade62cfcb889524efe5a64d682dd27a9"
+dependencies = [
+ "anstyle",
+ "doc-comment",
+ "globwalk",
+ "predicates",
+ "predicates-core",
+ "predicates-tree",
+ "tempfile",
+]
+
+[[package]]
 name = "async-attributes"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1624,6 +1655,17 @@ name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+
+[[package]]
+name = "atomicwrites"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ef1bb8d1b645fe38d51dfc331d720fb5fc2c94b440c76cc79c80ff265ca33e3"
+dependencies = [
+ "rustix 0.38.44",
+ "tempfile",
+ "windows-sys 0.52.0",
+]
 
 [[package]]
 name = "aurora-engine-modexp"
@@ -2538,7 +2580,7 @@ dependencies = [
  "anyhow",
  "boundless-indexer",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "broker",
  "bytemuck",
  "chrono",
@@ -2564,11 +2606,15 @@ version = "0.15.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "assert_cmd",
+ "assert_fs",
+ "atomicwrites",
  "bincode",
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-povw",
+ "boundless-test-utils",
  "bytemuck",
  "chrono",
  "clap",
@@ -2576,10 +2622,14 @@ dependencies = [
  "futures",
  "hex",
  "libc",
+ "num_enum",
  "order-stream",
+ "predicates",
+ "rand 0.9.2",
  "reqwest",
  "risc0-aggregation",
  "risc0-ethereum-contracts",
+ "risc0-povw",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -2601,7 +2651,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "hex",
  "rand 0.9.2",
@@ -2623,7 +2673,7 @@ dependencies = [
  "async-trait",
  "boundless-cli",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "futures-util",
  "hex",
@@ -2651,7 +2701,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "bytemuck",
  "chrono",
  "clap",
@@ -2685,31 +2735,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "boundless-market-test-utils"
-version = "0.15.0"
-dependencies = [
- "alloy",
- "alloy-primitives 1.3.1",
- "alloy-sol-types",
- "anyhow",
- "boundless-market",
- "guest-assessor",
- "guest-set-builder",
- "guest-util",
- "risc0-aggregation",
- "risc0-circuit-recursion",
- "risc0-ethereum-contracts",
- "risc0-zkvm",
-]
-
-[[package]]
 name = "boundless-order-generator"
 version = "0.15.0"
 dependencies = [
  "alloy",
  "anyhow",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "hex",
  "rand 0.9.2",
@@ -2723,6 +2755,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-povw"
+version = "0.15.0"
+dependencies = [
+ "alloy",
+ "alloy-chains",
+ "alloy-contract",
+ "alloy-primitives 1.3.1",
+ "alloy-provider",
+ "alloy-signer",
+ "alloy-sol-types",
+ "anyhow",
+ "borsh",
+ "boundless-test-utils",
+ "bytemuck",
+ "clap",
+ "derive_builder",
+ "postcard",
+ "rand 0.9.2",
+ "risc0-build",
+ "risc0-build-ethereum 3.0.1",
+ "risc0-ethereum-contracts",
+ "risc0-povw",
+ "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10)",
+ "risc0-zkvm",
+ "ruint",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "boundless-slasher"
 version = "0.15.0"
 dependencies = [
@@ -2731,7 +2795,7 @@ dependencies = [
  "async-trait",
  "boundless-cli",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "futures-util",
  "hex",
@@ -2744,6 +2808,39 @@ dependencies = [
  "tracing-subscriber 0.3.20",
  "tracing-test",
  "url",
+]
+
+[[package]]
+name = "boundless-test-utils"
+version = "0.15.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives 1.3.1",
+ "alloy-sol-types",
+ "anyhow",
+ "bincode",
+ "boundless-market",
+ "boundless-povw",
+ "bytemuck",
+ "derive_builder",
+ "guest-assessor",
+ "guest-set-builder",
+ "guest-util",
+ "postcard",
+ "rand 0.9.2",
+ "reqwest",
+ "risc0-aggregation",
+ "risc0-circuit-recursion",
+ "risc0-ethereum-contracts",
+ "risc0-povw",
+ "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10)",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]
@@ -2762,8 +2859,9 @@ dependencies = [
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "broker",
+ "bytemuck",
  "chrono",
  "clap",
  "elsa",
@@ -2810,7 +2908,7 @@ dependencies = [
  "anyhow",
  "axum",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "broker",
  "clap",
  "rand 0.9.2",
@@ -2837,6 +2935,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
 dependencies = [
  "tinyvec",
+]
+
+[[package]]
+name = "bstr"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "234113d19d0d7d613b40e86fb654acf958910802bcceab913a4f9e7cda03b1a4"
+dependencies = [
+ "memchr",
+ "regex-automata",
+ "serde",
 ]
 
 [[package]]
@@ -3602,6 +3711,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 
 [[package]]
+name = "deadpool"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0be2b1d1d6ec8d846f05e137292d0b89133caf95ef33695424c09568bdd39b1b"
+dependencies = [
+ "deadpool-runtime",
+ "lazy_static",
+ "num_cpus",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-runtime"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
+
+[[package]]
 name = "der"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3738,6 +3865,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 
 [[package]]
+name = "difflib"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6184e33543162437515c2e2b48714794e37845ec9851711914eec9d308f6ebe8"
+
+[[package]]
 name = "digest"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3821,6 +3954,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "doc-comment"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
+
+[[package]]
 name = "doc-test"
 version = "0.15.0"
 dependencies = [
@@ -3832,7 +3971,7 @@ dependencies = [
  "glob",
  "postcard",
  "regex",
- "risc0-steel",
+ "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?branch=release%2Fsteel-v2.3.0)",
  "risc0-zkvm",
  "tracing",
  "url",
@@ -4352,6 +4491,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-cmp"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b09cf3155332e944990140d967ff5eceb70df778b34f77d8075db46e4704e6d8"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "flume"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4679,6 +4827,30 @@ name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+
+[[package]]
+name = "globset"
+version = "0.4.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54a1028dfc5f5df5da8a56a73e6c153c9a9708ec57232470703592a3f18e49f5"
+dependencies = [
+ "aho-corasick",
+ "bstr",
+ "log",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
+name = "globwalk"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bf760ebf69878d9fd8f110c89703d90ce35095324d1f1edcb595c63945ee757"
+dependencies = [
+ "bitflags 2.9.4",
+ "ignore",
+ "walkdir",
+]
 
 [[package]]
 name = "gloo-timers"
@@ -5073,6 +5245,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hybrid-array"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "891d15931895091dea5c47afa5b3c9a01ba634b311919fd4d41388fa0e3d76af"
+dependencies = [
+ "serde",
+ "typenum",
+]
+
+[[package]]
 name = "hyper"
 version = "0.14.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5330,6 +5512,22 @@ checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "ignore"
+version = "0.4.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d89fd380afde86567dfba715db065673989d6253f42b88179abd3eae47bda4b"
+dependencies = [
+ "crossbeam-deque",
+ "globset",
+ "log",
+ "memchr",
+ "regex-automata",
+ "same-file",
+ "walkdir",
+ "winapi-util",
 ]
 
 [[package]]
@@ -6416,6 +6614,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "normalize-line-endings"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61807f77802ff30975e01f4f071c8ba10c022052f98b3294119f3e615d13e5be"
+
+[[package]]
 name = "notify"
 version = "6.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6767,7 +6971,7 @@ dependencies = [
  "async-stream",
  "axum",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "clap",
  "futures-util",
  "hex",
@@ -7170,6 +7374,36 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+
+[[package]]
+name = "predicates"
+version = "3.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d19ee57562043d37e82899fade9a22ebab7be9cef5026b07fda9cdd4293573"
+dependencies = [
+ "anstyle",
+ "difflib",
+ "float-cmp",
+ "normalize-line-endings",
+ "predicates-core",
+ "regex",
+]
+
+[[package]]
+name = "predicates-core"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "727e462b119fe9c93fd0eb1429a5f7647394014cf3c04ab2c0350eeb09095ffa"
+
+[[package]]
+name = "predicates-tree"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72dd2d6d381dfb73a193c7fca536518d7caee39fc8503f74e7dc0be0531b425c"
+dependencies = [
+ "predicates-core",
+ "termtree",
+]
 
 [[package]]
 name = "pretty_assertions"
@@ -8318,9 +8552,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "risc0-povw"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e14723827128770b53eb6550e2f995586ab79627581ff225de440d6e78bd69a3"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "bytemuck",
+ "derive_builder",
+ "hybrid-array",
+ "risc0-binfmt",
+ "risc0-zkvm",
+ "ruint",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "risc0-steel"
 version = "2.3.0"
 source = "git+https://github.com/boundless-xyz/steel?branch=release%2Fsteel-v2.3.0#eff67d3730665d546cb03780df5754770f246a7f"
+dependencies = [
+ "alloy",
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-evm",
+ "alloy-primitives 1.3.1",
+ "alloy-rlp",
+ "alloy-rpc-types",
+ "alloy-sol-types",
+ "alloy-trie 0.8.1",
+ "anyhow",
+ "bincode",
+ "enumn",
+ "ethereum-consensus",
+ "log",
+ "revm",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.16",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "risc0-steel"
+version = "2.3.0"
+source = "git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10#b251b3572cc004bc9f151be37dd59baaf9bbfe10"
 dependencies = [
  "alloy",
  "alloy-consensus",
@@ -9898,6 +10178,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "termtree"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
+
+[[package]]
 name = "test-log"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11366,6 +11652,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21a0236b59786fed61e2a80582dd500fe61f18b5dca67a4a067d0bc9039339cf"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "wiremock"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08db1edfb05d9b3c1542e521aea074442088292f00b5f28e435c714a98f85031"
+dependencies = [
+ "assert-json-diff",
+ "base64 0.22.1",
+ "deadpool",
+ "futures",
+ "http 1.3.1",
+ "http-body-util",
+ "hyper 1.7.0",
+ "hyper-util",
+ "log",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]
