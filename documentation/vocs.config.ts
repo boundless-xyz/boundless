@@ -241,7 +241,7 @@ const PROVERS_ITEMS = [
         link: "/provers/bento",
       },
       {
-        text: "PLACEHOLDER",
+        text: "PLACEHOLDER2",
         link: "/provers/bento",
       },
     ],
