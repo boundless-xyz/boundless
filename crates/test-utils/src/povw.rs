@@ -31,7 +31,9 @@ use alloy::{
     sol_types::SolValue,
 };
 use alloy_primitives::U256;
-use boundless_povw_guests::{
+use boundless_market::contracts::bytecode::ERC1967Proxy;
+use anyhow::Context;
+use boundless_povw::{
     contracts::bytecode::{PovwAccounting, PovwMint},
     log_updater::{
         self,
