@@ -17,7 +17,7 @@ use alloy::{
     providers::ProviderBuilder,
 };
 use anyhow::{ensure, Context};
-use boundless_zkc::contracts::IStaking;
+use boundless_zkc::contracts::{extract_tx_log, IStaking};
 use clap::Args;
 
 use crate::config::GlobalConfig;
@@ -68,8 +68,16 @@ impl Stake {
             tx_receipt.transaction_hash
         );
 
-        // TODO(povw): Display some info
-        tracing::info!("Staking completed");
+        let (token_id, owner, amount) = match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt)
+        {
+            Ok(log) => {
+                (U256::from(log.inner.data.tokenId), log.inner.data.owner, log.inner.data.amount)
+            }
+            Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
+        };
+        tracing::info!(
+            "Staking completed: token_id = {token_id}, owner = {owner}, amount = {amount}"
+        );
         Ok(())
     }
 }

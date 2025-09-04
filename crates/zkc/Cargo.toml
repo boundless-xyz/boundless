@@ -15,6 +15,7 @@ derive_builder = "0.20.2"
 risc0-zkvm = { workspace = true, features = ["client", "unstable"] }
 serde = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 boundless-test-utils = { workspace = true, features = ["povw"] }

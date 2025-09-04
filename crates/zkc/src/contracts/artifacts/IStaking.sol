@@ -22,6 +22,12 @@ import {IERC721} from "@openzeppelin/contracts/interfaces/IERC721.sol";
 /// @notice Interface for veZKC staking functionality
 /// @dev This interface defines the core staking operations for the veZKC system
 interface IStaking is IERC721 {
+    event StakeCreated(uint256 indexed tokenId, address indexed owner, uint256 amount);
+    event StakeAdded(uint256 indexed tokenId, address indexed owner, uint256 addedAmount, uint256 newTotal);
+    event StakeBurned(uint256 indexed tokenId);
+    event UnstakeInitiated(uint256 indexed tokenId, address indexed owner, uint256 withdrawableAt);
+    event UnstakeCompleted(uint256 indexed tokenId, address indexed owner, uint256 amount);
+    
     /// @notice Stake ZKC tokens to mint veZKC NFT
     /// @param amount Amount of ZKC to stake
     /// @return tokenId The minted veZKC NFT token ID
