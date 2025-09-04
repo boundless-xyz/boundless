@@ -8,8 +8,8 @@ repository = { workspace = true }
 publish = false
 
 [dependencies]
-alloy-chains = "0.2"
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy-chains = "0.2"
 anyhow = "1.0"
 derive_builder = "0.20.2"
 risc0-zkvm = { workspace = true, features = ["client", "unstable"] }
