@@ -59,7 +59,6 @@ pub struct PovwClaimReward {
     #[arg(long, env)]
     pub beacon_api_url: Option<Url>,
 
-    // TODO(povw): Add a consensus RPC URL option.
     // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
     /// Address of the [IPovwAccounting] contract.
     #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
