@@ -1940,6 +1940,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
+                    skip_health_check: true,
                 },
             })),
         })
@@ -2017,6 +2018,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
+                    skip_health_check: true,
                 },
             })),
         })
@@ -2100,6 +2102,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
+                    skip_health_check: true,
                 },
             })),
         })
@@ -2159,6 +2162,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
+                    skip_health_check: true,
                 },
             })),
         })
@@ -2257,6 +2261,7 @@ mod tests {
                     bento_api_key: None,
                     bento_api_url: "".to_string(),
                     use_default_prover: true,
+                    skip_health_check: true,
                 },
             })),
         })
