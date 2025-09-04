@@ -645,10 +645,14 @@ pub mod prover {
     use alloy_primitives::Address;
     use anyhow::Context;
     use derive_builder::Builder;
-    use risc0_steel::ethereum::{EthChainSpec, EthEvmEnv};
+    use risc0_steel::{
+        ethereum::{EthChainSpec, EthEvmEnv},
+        host::BlockNumberOrTag,
+    };
     use risc0_zkvm::{
         compute_image_id, Digest, ExecutorEnv, ProveInfo, Prover, ProverOpts, VerifierContext,
     };
+    use url::Url;
 
     use super::{
         Input, WorkLogFilter, BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
@@ -667,6 +671,9 @@ pub mod prover {
         /// The Ethereum provider for blockchain queries.
         #[builder(setter(custom))]
         pub provider: Q,
+        /// Beacon API URL, for building historical Ethereum data access proofs.
+        #[builder(setter(into), default)]
+        pub beacon_api: Option<Url>,
         /// Address of the PoVW accounting contract.
         #[builder(setter(into))]
         pub povw_accounting_address: Address,
@@ -704,6 +711,7 @@ pub mod prover {
             MintCalculatorProverBuilder {
                 prover: Some(prover),
                 provider: self.provider,
+                beacon_api: self.beacon_api,
                 povw_accounting_address: self.povw_accounting_address,
                 zkc_address: self.zkc_address,
                 zkc_rewards_address: self.zkc_rewards_address,
@@ -720,6 +728,7 @@ pub mod prover {
             MintCalculatorProverBuilder {
                 prover: self.prover,
                 provider: Some(provider),
+                beacon_api: self.beacon_api,
                 povw_accounting_address: self.povw_accounting_address,
                 zkc_address: self.zkc_address,
                 zkc_rewards_address: self.zkc_rewards_address,
@@ -761,20 +770,44 @@ pub mod prover {
             block_numbers: impl IntoIterator<Item = u64>,
             work_log_filter: impl Into<WorkLogFilter>,
         ) -> anyhow::Result<Input> {
-            let env_builder =
-                EthEvmEnv::builder().chain_spec(self.chain_spec).provider(self.provider.clone());
+            // NOTE: Branches repeat code because the types are distinct.
+            if let Some(beacon_api) = self.beacon_api.clone() {
+                // When a beacon API is provided, set up beacon commitments and enable History. Use
+                // the parent of the latest block as the commit.
+                let env_builder = EthEvmEnv::builder()
+                    .chain_spec(self.chain_spec)
+                    .provider(self.provider.clone())
+                    .beacon_api(beacon_api)
+                    .commitment_block_number_or_tag(BlockNumberOrTag::Parent);
 
-            Input::build(
-                self.povw_accounting_address,
-                self.zkc_address,
-                self.zkc_rewards_address,
-                self.chain_spec.chain_id,
-                env_builder,
-                block_numbers,
-                work_log_filter,
-            )
-            .await
-            .context("Failed to build Mint Calculator input")
+                Input::build(
+                    self.povw_accounting_address,
+                    self.zkc_address,
+                    self.zkc_rewards_address,
+                    self.chain_spec.chain_id,
+                    env_builder,
+                    block_numbers,
+                    work_log_filter,
+                )
+                .await
+                .context("Failed to build Mint Calculator input")
+            } else {
+                let env_builder = EthEvmEnv::builder()
+                    .chain_spec(self.chain_spec)
+                    .provider(self.provider.clone());
+
+                Input::build(
+                    self.povw_accounting_address,
+                    self.zkc_address,
+                    self.zkc_rewards_address,
+                    self.chain_spec.chain_id,
+                    env_builder,
+                    block_numbers,
+                    work_log_filter,
+                )
+                .await
+                .context("Failed to build Mint Calculator input")
+            }
         }
 
         /// Prove mint calculations using the given [Input].
