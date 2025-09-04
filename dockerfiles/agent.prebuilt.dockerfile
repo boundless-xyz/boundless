@@ -19,5 +19,11 @@ RUN if [ -z "$BINARY_URL" ]; then echo "ERROR: BINARY_URL is required" && exit 1
     mv /tmp/bento-bundle/bento-agent /app/agent && \
     rm -rf /tmp/*
 
+# Install RISC0 specifically for groth16 component - this layer will be cached unless RISC0_HOME changes
+RUN curl -L https://risczero.com/install | bash && \
+    /root/.risc0/bin/rzup install risc0-groth16 && \
+    # Clean up any temporary files to reduce image size
+    rm -rf /tmp/* /var/tmp/*    
+
 WORKDIR /app
 ENTRYPOINT ["/app/agent"]
