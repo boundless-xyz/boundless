@@ -17,7 +17,8 @@ use alloy_sol_types::SolValue;
 use boundless_povw_guests::log_updater::{
     Input, LogBuilderJournal, WorkLogUpdate, BOUNDLESS_POVW_LOG_UPDATER_ID,
 };
-use boundless_test_utils::povw::{encode_seal, execute_log_updater_guest, test_ctx};
+use boundless_test_utils::povw::{execute_log_updater_guest, test_ctx};
+use risc0_ethereum_contracts::encode_seal;
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_povw::WorkLog;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
