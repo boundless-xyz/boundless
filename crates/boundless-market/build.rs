@@ -254,7 +254,7 @@ fn get_interfaces(contract: &str) -> &str {
             "constructor(address verifier, bytes32 imageId, string memory imageUrl) {}"
         }
         "BoundlessMarket" => {
-            r#"constructor(address verifier, bytes32 assessorId, address stakeTokenContract) {}
+            r#"constructor(address verifier, bytes32 assessorId, bytes32 deprecatedAssessorId, uint32 deprecatedAssessorDuration, address stakeTokenContract) {}
             function initialize(address initialOwner, string calldata imageUrl) {}"#
         }
         "ERC1967Proxy" => "constructor(address implementation, bytes memory data) payable {}",

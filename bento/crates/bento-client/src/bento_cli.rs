@@ -3,12 +3,11 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use bonsai_sdk::non_blocking::Client as ProvingClient;
 use clap::Parser;
-use risc0_zkvm::{compute_image_id, serde::to_vec, Receipt};
+use risc0_zkvm::{Receipt, compute_image_id, serde::to_vec};
 use sample_guest_common::IterReq;
-use sample_guest_methods::METHOD_NAME_ID;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -32,14 +31,10 @@ pub struct Args {
     #[clap(short = 'c', long, conflicts_with = "input_file")]
     iter_count: Option<u64>,
 
-    /// Optionally Create a SNARK proof
-    #[clap(short, long, default_value_t = false, conflicts_with = "exec_only")]
-    snarkify: bool,
-
     /// Run a execute only job, aka preflight
     ///
     /// Useful for capturing metrics on a STARK proof like cycles.
-    #[clap(short, long, default_value_t = false, conflicts_with = "snarkify")]
+    #[clap(short, long, default_value_t = false)]
     exec_only: bool,
 
     /// Bento HTTP API Endpoint
@@ -61,8 +56,7 @@ async fn main() -> Result<()> {
     let (image, input) = if let Some(elf_file) = args.elf_file {
         let image = std::fs::read(elf_file).context("Failed to read elf file from disk")?;
         let input = std::fs::read(
-            args.input_file
-                .expect("if --elf-file is supplied, supply a --input-file"),
+            args.input_file.expect("if --elf-file is supplied, supply a --input-file"),
         )?;
         (image, input)
     } else if let Some(iter_count) = args.iter_count {
@@ -73,27 +67,13 @@ async fn main() -> Result<()> {
         bail!("Invalid arg config, either elf_file or iter_count should be supplied");
     };
 
-    // first round -- only iter
-    let (_session_uuid, receipt_id) =
+    // Execute STARK workflow
+    let (_session_uuid, _receipt_id) =
         stark_workflow(&client, image.clone(), input, vec![], args.exec_only).await?;
 
     // return if exec only and success
     if args.exec_only {
         return Ok(());
-    }
-
-    // second round -- composition and keccak
-    let input = IterReq::CompositionKeccakUnion(args.iter_count.unwrap(), METHOD_NAME_ID.into(), 5);
-    let input: Vec<u8> =
-        bytemuck::cast_slice(&to_vec(&input).expect("Failed to r0 to_vec")).to_vec();
-    let (session_uuid, _receipt_id) =
-        stark_workflow(&client, image, input, vec![receipt_id], args.exec_only)
-            .await
-            .context("STARK proof workflow failure")?;
-
-    // snarkify
-    if args.snarkify {
-        stark_2_snark(session_uuid, client).await?;
     }
 
     Ok(())
@@ -109,16 +89,10 @@ async fn stark_workflow(
     // elf/image
     let image_id = compute_image_id(&image).unwrap();
     let image_id_str = image_id.to_string();
-    client
-        .upload_img(&image_id_str, image)
-        .await
-        .context("Failed to upload image")?;
+    client.upload_img(&image_id_str, image).await.context("Failed to upload image")?;
 
     // input
-    let input_id = client
-        .upload_input(input)
-        .await
-        .context("Failed to upload_input")?;
+    let input_id = client.upload_input(input).await.context("Failed to upload input")?;
 
     tracing::info!("image_id: {image_id} | input_id: {input_id}");
 
@@ -131,10 +105,7 @@ async fn stark_workflow(
     let mut receipt_id = String::new();
 
     loop {
-        let res = session
-            .status(client)
-            .await
-            .context("Failed to get STARK status")?;
+        let res = session.status(client).await.context("Failed to get STARK status")?;
 
         match res.status.as_ref() {
             "RUNNING" => {
@@ -156,9 +127,10 @@ async fn stark_workflow(
                 receipt.verify(image_id).unwrap();
 
                 receipt_id = client
-                    .upload_receipt(receipt_bytes)
+                    .upload_receipt(receipt_bytes.clone())
                     .await
                     .context("Failed to upload receipt")?;
+
                 break;
             }
             _ => {
@@ -171,42 +143,4 @@ async fn stark_workflow(
         }
     }
     Ok((session.uuid, receipt_id))
-}
-
-async fn stark_2_snark(session_id: String, client: ProvingClient) -> Result<()> {
-    let snark_session = client
-        .create_snark(session_id)
-        .await
-        .context("Failed to create SNARK session")?;
-    tracing::info!("STARK 2 SNARK job_id: {}", snark_session.uuid);
-    loop {
-        let res = snark_session
-            .status(&client)
-            .await
-            .context("Failed to get snark session status")?;
-        match res.status.as_ref() {
-            "RUNNING" => {
-                tracing::info!("SNARK Job running....");
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                continue;
-            }
-            "SUCCEEDED" => {
-                tracing::info!("Job done!");
-
-                let _receipt = client
-                    .download(&res.output.context("SNARK missing output URL")?)
-                    .await
-                    .context("Failed to download snark receipt")?;
-                break;
-            }
-            _ => {
-                bail!(
-                    "SNARK Job failed: {} - {}",
-                    snark_session.uuid,
-                    res.error_msg.as_ref().unwrap_or(&String::new())
-                );
-            }
-        }
-    }
-    Ok(())
 }

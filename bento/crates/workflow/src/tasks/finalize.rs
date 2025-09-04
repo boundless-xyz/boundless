@@ -4,11 +4,11 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    redis::{self, AsyncCommands},
-    tasks::{deserialize_obj, read_image_id, RECUR_RECEIPT_PATH},
     Agent,
+    redis::{self, AsyncCommands},
+    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, read_image_id},
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use workflow_common::FinalizeReq;
 // use aws_sdk_s3::primitives::ByteStream;
 use risc0_zkvm::{InnerReceipt, Receipt, ReceiptClaim, SuccinctReceipt};
@@ -52,9 +52,7 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
         .with_context(|| format!("Journal data not found for key ID: {image_key}"))?;
     let image_id = read_image_id(&image_id_string)?;
 
-    rollup_receipt
-        .verify(image_id)
-        .context("Receipt verification failed")?;
+    rollup_receipt.verify(image_id).context("Receipt verification failed")?;
 
     if !matches!(rollup_receipt.inner, InnerReceipt::Succinct(_)) {
         bail!("rollup_receipt is not Succinct")
