@@ -24,7 +24,7 @@ use alloy::{
 use boundless_cli::OrderFulfilled;
 use boundless_market::contracts::{
     boundless_market::{FulfillmentTx, UnlockedRequest},
-    Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
+    Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
 use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
 use boundless_test_utils::market::create_test_ctx;
@@ -40,10 +40,7 @@ async fn create_order(
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         RequestId::new(signer_addr, order_id),
-        Requirements::new(
-            ECHO_ID,
-            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-        ),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {

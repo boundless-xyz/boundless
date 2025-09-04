@@ -57,21 +57,25 @@ contract SmartContractRequestor is IERC1271 {
             return 0xffffffff;
         }
 
-        // Validate that the request provided is as expected.
-        // For this example, we check the image id is as expected, and that the predicate restricts
-        // the output to match the day specified in the id.
-        if (request.requirements.imageId != ECHO_ID) {
-            return 0xffffffff;
-        }
-
         // Validate the predicate type and data are correct. This ensures that the request was executed with
         // the correct input and resulted in the correct output. In this case it ensures that the input
         // to the request was the correct day since epoch that corresponds to the request id.
         if (request.requirements.predicate.predicateType != PredicateType.DigestMatch) {
             return 0xffffffff;
         }
+
+        // We know the predicate is a DigestMatch, so the data is bytes32 and bytes32
+        (bytes32 imageId, bytes32 journalDigest) = abi.decode(request.requirements.predicate.data, (bytes32, bytes32));
+
+        // Validate that the request provided is as expected.
+        // For this example, we check the image id is as expected, and that the predicate restricts
+        // the output to match the day specified in the id.
+        if (imageId != ECHO_ID) {
+            return 0xffffffff;
+        }
+
         bytes32 expectedPredicate = sha256(abi.encodePacked(daysSinceEpoch));
-        if (bytes32(request.requirements.predicate.data) != expectedPredicate) {
+        if (journalDigest != expectedPredicate) {
             return 0xffffffff;
         }
 

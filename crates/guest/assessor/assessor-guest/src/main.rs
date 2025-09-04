@@ -13,13 +13,10 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};
 use boundless_assessor::{process_tree, AssessorInput};
 use boundless_market::contracts::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, RequestId,
-    UNSPECIFIED_SELECTOR,
+    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, FulfillmentData,
+    RequestId, UNSPECIFIED_SELECTOR,
 };
-use risc0_zkvm::{
-    guest::env,
-    sha::{Digest, Digestible},
-};
+use risc0_zkvm::{guest::env, sha::Digest};
 
 risc0_zkvm::guest::entry!(main);
 
@@ -45,9 +42,9 @@ fn main() {
     // For each fill we
     // - verify the request's signature
     // - evaluate the request's requirements
-    // - verify the integrity of its claim
     // - record the callback if it exists
     // - record the selector if it is present
+    // NOTE: We do not verify soundness of the claim. That is done on chain.
     // We additionally collect the request and claim digests.
     for (index, fill) in input.fills.iter().enumerate() {
         // Attempt to decode the request ID. If this fails, there may be flags that are not handled
@@ -63,24 +60,36 @@ fn main() {
         } else {
             fill.verify_signature(&eip_domain_separator).expect("signature does not verify")
         };
-        fill.evaluate_requirements().expect("requirements not met");
-        env::verify_integrity(&fill.receipt_claim()).expect("claim integrity check failed");
-        let claim_digest = fill.receipt_claim().digest();
+        let claim_digest = fill.evaluate_requirements().expect("requirements not met");
         let commit = AssessorCommitment {
             index: U256::from(index),
             id: fill.request.id,
             requestDigest: request_digest.into(),
             claimDigest: <[u8; 32]>::from(claim_digest).into(),
+            fulfillmentDataDigest: <[u8; 32]>::from(
+                fill.fulfillment_data
+                    .fulfillment_data_digest()
+                    .expect("failed to get fulfillment data digest"),
+            )
+            .into(),
         }
         .eip712_hash_struct();
         leaves.push(Digest::from_bytes(*commit));
-        if fill.request.requirements.callback.addr != Address::ZERO {
+
+        let callback = &fill.request.requirements.callback;
+
+        if callback.addr != Address::ZERO {
+            match &fill.fulfillment_data {
+                FulfillmentData::ImageIdAndJournal(_, _) => {}
+                _ => panic!("callback requested but no fulfillment data provided"),
+            }
             callbacks.push(AssessorCallback {
                 index: index.try_into().expect("callback index overflow"),
-                addr: fill.request.requirements.callback.addr,
-                gasLimit: fill.request.requirements.callback.gasLimit,
+                addr: callback.addr,
+                gasLimit: callback.gasLimit,
             });
         }
+
         if fill.request.requirements.selector != UNSPECIFIED_SELECTOR {
             selectors.push(AssessorSelector {
                 index: index.try_into().expect("selector index overflow"),

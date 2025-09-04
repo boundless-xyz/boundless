@@ -644,8 +644,8 @@ mod tests {
 
     use crate::{
         contracts::{
-            boundless_market::BoundlessMarketService, Predicate, RequestInput, RequestInputType,
-            Requirements,
+            boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestInput,
+            RequestInputType, Requirements,
         },
         input::GuestEnv,
         storage::{fetch_url, MockStorageProvider, StorageProvider},
@@ -733,10 +733,8 @@ mod tests {
         let program_url = storage.upload_program(ECHO_ELF).await?;
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
-        assert_eq!(
-            request.requirements.imageId,
-            risc0_zkvm::compute_image_id(ECHO_ELF)?.as_bytes()
-        );
+        let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
+        assert_eq!(predicate.image_id().unwrap(), risc0_zkvm::compute_image_id(ECHO_ELF)?);
         Ok(())
     }
 
@@ -836,12 +834,20 @@ mod tests {
         let bytes = b"journal_data".to_vec();
         let journal = Journal::new(bytes.clone());
         let req = layer.process((program, &journal, &Default::default())).await?;
-
+        let predicate = Predicate::try_from(req.predicate.clone())?;
+        let fulfillment_data = FulfillmentData::from_image_id_and_journal(
+            predicate.image_id().unwrap(),
+            journal.bytes.clone(),
+        );
         // Predicate should match the same journal
-        assert!(req.predicate.eval(&journal));
+        assert!(predicate.eval(&fulfillment_data).is_some());
         // And should not match different data
         let other = Journal::new(b"other_data".to_vec());
-        assert!(!req.predicate.eval(&other));
+        let fulfillment_data = FulfillmentData::from_image_id_and_journal(
+            predicate.image_id().unwrap(),
+            other.bytes.clone(),
+        );
+        assert!(predicate.eval(&fulfillment_data).is_none());
         Ok(())
     }
 
@@ -910,8 +916,8 @@ mod tests {
         let layer = OfferLayer::from(provider.clone());
         // Build minimal requirements and request ID
         let image_id = compute_image_id(ECHO_ELF).unwrap();
-        let predicate = Predicate::digest_match(Journal::new(b"hello".to_vec()).digest());
-        let requirements = Requirements::new(image_id, predicate);
+        let predicate = Predicate::digest_match(image_id, Journal::new(b"hello".to_vec()).digest());
+        let requirements = Requirements::new(predicate);
         let request_id = RequestId::new(test_ctx.customer_signer.address(), 0);
 
         // Zero cycles

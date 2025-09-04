@@ -22,7 +22,7 @@ import {Input, InputType} from "../src/types/Input.sol";
 import {Requirements} from "../src/types/Requirements.sol";
 import {Offer} from "../src/types/Offer.sol";
 import {ProofRequest} from "../src/types/ProofRequest.sol";
-import {Predicate, PredicateType} from "../src/types/Predicate.sol";
+import {PredicateLibrary} from "../src/types/Predicate.sol";
 import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
 import {RequestLock} from "../src/types/RequestLock.sol";
 
@@ -231,8 +231,7 @@ contract Client {
 
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
-            imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.PrefixMatch, data: hex"53797374"}),
+            predicate: PredicateLibrary.createPrefixMatchPredicate(bytes32(APP_IMAGE_ID), hex"53797374"),
             callback: Callback({gasLimit: 0, addr: address(0)}),
             selector: bytes4(0)
         });

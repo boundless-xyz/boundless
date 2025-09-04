@@ -165,6 +165,10 @@ interface IBoundlessMarket {
     /// @dev selector efc954a6
     error BatchSizeExceedsLimit(uint256 batchSize, uint256 limit);
 
+    /// @notice Error when the fulfillment has a unfulfillable callback
+    /// @dev selector 0xb90a25b1
+    error UnfulfillableCallback();
+
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
     /// @param requestId The ID of the request.

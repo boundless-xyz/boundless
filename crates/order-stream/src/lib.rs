@@ -592,7 +592,7 @@ mod tests {
     fn new_request(idx: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, idx),
-            Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
+            Requirements::new(Predicate::prefix_match(Digest::from_bytes([1; 32]), [])),
             "http://image_uri.null",
             GuestEnv::builder().build_inline().unwrap(),
             Offer {

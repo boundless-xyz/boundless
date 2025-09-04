@@ -276,10 +276,10 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                     id: boundless_client.boundless_market.request_id_from_rand().await?,
                     offer: Offer { biddingStart: bidding_start, ..initial_offer },
                     input: request_input,
-                    requirements: Requirements::new(
+                    requirements: Requirements::new(Predicate::digest_match(
                         image_id,
-                        Predicate::digest_match(journal.digest()),
-                    ),
+                        journal.digest(),
+                    )),
                     imageUrl: inital_request.imageUrl.clone(),
                 };
                 tracing::debug!("Request: {:?}", request);

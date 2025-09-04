@@ -7,11 +7,13 @@ CREATE TABLE IF NOT EXISTS assessor_receipts (
 );
 
 CREATE TABLE IF NOT EXISTS fulfillments (
-  request_digest      TEXT      NOT NULL,
-  request_id          TEXT      NOT NULL,
-  prover_address      TEXT      NOT NULL,
-  image_id            TEXT      NOT NULL,
-  journal             TEXT,
+  request_digest         TEXT      NOT NULL,
+  request_id             TEXT      NOT NULL,
+  prover_address         TEXT      NOT NULL,
+  claim_digest           TEXT      NOT NULL,
+  fulfillment_data_type  TEXT      NOT NULL,
+  fulfillment_data       TEXT,
+
   seal                TEXT      NOT NULL,
   tx_hash             TEXT      NOT NULL REFERENCES transactions(tx_hash),
   block_number        BIGINT    NOT NULL,
@@ -21,4 +23,3 @@ CREATE TABLE IF NOT EXISTS fulfillments (
 
 CREATE INDEX IF NOT EXISTS idx_fulfillments_request_id ON fulfillments(request_id);
 CREATE INDEX IF NOT EXISTS idx_fulfillments_prover_address ON fulfillments(prover_address);
-CREATE INDEX IF NOT EXISTS idx_fulfillments_image_id ON fulfillments(image_id);
