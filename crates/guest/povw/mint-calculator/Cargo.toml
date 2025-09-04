@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 alloy-primitives = { version = "1.0" }
 alloy-sol-types = { version = "1.0" }
-boundless-povw-guests = { path = "..", default-features = false }
+boundless-povw = { path = "..", default-features = false }
 # TODO(povw): Use a released verion of steel here. Keep the steel submodule up to date as well.
 risc0-steel = { git = "https://github.com/boundless-xyz/steel", rev = "b251b3572cc004bc9f151be37dd59baaf9bbfe10" }
 risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std", "unstable"] }

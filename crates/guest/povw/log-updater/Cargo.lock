@@ -998,7 +998,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "boundless-povw-guests"
+name = "boundless-povw"
 version = "0.14.0"
 dependencies = [
  "alloy-chains",
@@ -1022,7 +1022,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "borsh",
- "boundless-povw-guests",
+ "boundless-povw",
  "risc0-povw",
  "risc0-zkvm",
 ]

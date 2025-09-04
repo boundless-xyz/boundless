@@ -29,9 +29,10 @@ use alloy::{
     sol,
     sol_types::{SolCall, SolValue},
 };
-use anyhow::Context;
+use alloy_primitives::U256;
 use boundless_market::contracts::bytecode::ERC1967Proxy;
-use boundless_povw_guests::{
+use anyhow::Context;
+use boundless_povw::{
     contracts::bytecode::{PovwAccounting, PovwMint},
     log_updater::{
         self,

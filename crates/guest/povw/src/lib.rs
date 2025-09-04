@@ -23,6 +23,8 @@ mod guest_artifacts {
 }
 
 pub mod contracts;
+#[cfg(feature = "host")]
+pub mod deployments;
 pub mod log_updater;
 pub mod mint_calculator;
 pub mod zkc;
