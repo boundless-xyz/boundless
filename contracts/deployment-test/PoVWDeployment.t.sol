@@ -37,7 +37,7 @@ contract PoVWDeploymentTest is Test {
 
         require(deployment.verifier != address(0), "no verifier address is set");
         verifier = IRiscZeroVerifier(deployment.verifier);
-        
+
         // Load PoVW contract addresses from deployment config
         require(deployment.povwAccounting != address(0), "no PoVW accounting address is set");
         povwAccounting = PovwAccounting(deployment.povwAccounting);
@@ -72,10 +72,7 @@ contract PoVWDeploymentTest is Test {
     }
 
     function testPovwMintOwner() external view {
-        require(
-            deployment.povwMintAdmin == povwMint.owner(),
-            "PoVW mint owner does not match configured admin"
-        );
+        require(deployment.povwMintAdmin == povwMint.owner(), "PoVW mint owner does not match configured admin");
     }
 
     function testPovwAccountingAdminIsSet() external view {
@@ -95,10 +92,7 @@ contract PoVWDeploymentTest is Test {
 
     function testPovwAccountingLogUpdaterId() external view {
         // The log updater ID should be set to a non-zero value
-        require(
-            povwAccounting.LOG_UPDATER_ID() != bytes32(0),
-            "PoVW accounting log updater ID should not be zero"
-        );
+        require(povwAccounting.LOG_UPDATER_ID() != bytes32(0), "PoVW accounting log updater ID should not be zero");
     }
 
     function testPovwAccountingIsUpgradeable() external view {
@@ -114,7 +108,7 @@ contract PoVWDeploymentTest is Test {
     function testPovwAccountingPendingEpoch() external view {
         // Get the pending epoch from the accounting contract
         (uint96 totalWork, uint256 pendingEpochNumber) = povwAccounting.pendingEpoch();
-        
+
         // Pending epoch should have a reasonable number (not zero)
         require(pendingEpochNumber > 0, "Pending epoch number should be greater than zero");
         // Total work starts at zero
@@ -131,9 +125,12 @@ contract PoVWDeploymentTest is Test {
 
     function testOwnershipTransferCapability() external view {
         // Verify current owner is the configured admin
-        require(povwAccounting.owner() == deployment.povwAccountingAdmin, "PovwAccounting owner should match configured admin");
+        require(
+            povwAccounting.owner() == deployment.povwAccountingAdmin,
+            "PovwAccounting owner should match configured admin"
+        );
         require(povwMint.owner() == deployment.povwMintAdmin, "PovwMint owner should match configured admin");
-        
+
         // With regular Ownable, ownership transfer is immediate (no pending state)
         // Just verify the owner is correctly set
         require(deployment.povwAccountingAdmin != address(0), "PovwAccounting admin should be set");
@@ -144,7 +141,7 @@ contract PoVWDeploymentTest is Test {
         // Test getting work log commit for a random address (should be zero initially)
         address testWorkLogId = address(0x1111111111111111111111111111111111111111);
         bytes32 commit = povwAccounting.getWorkLogCommit(testWorkLogId);
-        
+
         // Should return zero bytes for non-existent work logs
         require(commit == bytes32(0), "Non-existent work log should return zero commit");
     }
