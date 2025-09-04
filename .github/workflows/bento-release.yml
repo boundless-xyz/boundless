@@ -100,7 +100,7 @@ jobs:
           CUDA_HOME: /usr/local/cuda
           PATH: /usr/local/cuda/bin:/usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
           LD_LIBRARY_PATH: /usr/local/cuda/lib64:$LD_LIBRARY_PATH
-          NVCC_FLAGS: "--generate-code arch=compute_86,code=sm_86 --generate-code arch=compute_89,code=sm_89 --generate-code arch=compute_120,code=sm_120"
+          NVCC_APPEND_FLAGS: "--generate-code arch=compute_75,code=sm_75 --generate-code arch=compute_86,code=sm_86 --generate-code arch=compute_89,code=sm_89 --generate-code arch=compute_120,code=sm_120"
           SCCACHE_CUDA: "1"
           SCCACHE_CUDA_COMPILER: "nvcc"
           SCCACHE_CUDA_INCLUDE: "/usr/local/cuda/include"
