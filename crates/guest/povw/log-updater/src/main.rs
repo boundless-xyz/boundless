@@ -5,9 +5,7 @@
 
 use alloy_primitives::Address;
 use alloy_sol_types::SolValue;
-use boundless_povw_guests::log_updater::{
-    Input, Journal, WorkLogUpdate, RISC0_POVW_LOG_BUILDER_ID,
-};
+use boundless_povw::log_updater::{Input, Journal, WorkLogUpdate, RISC0_POVW_LOG_BUILDER_ID};
 use risc0_zkvm::guest::env;
 
 fn main() {

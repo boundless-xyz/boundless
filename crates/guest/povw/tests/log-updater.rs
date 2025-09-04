@@ -14,7 +14,7 @@
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::{address, aliases::U96, Address, B256, U256};
 use alloy_sol_types::SolValue;
-use boundless_povw_guests::log_updater::{
+use boundless_povw::log_updater::{
     Input, LogBuilderJournal, WorkLogUpdate, BOUNDLESS_POVW_LOG_UPDATER_ID,
 };
 use boundless_test_utils::povw::{execute_log_updater_guest, test_ctx};
@@ -318,14 +318,14 @@ async fn reject_invalid_work_log_id() -> anyhow::Result<()> {
         .work_log_id(Address::ZERO) // Invalid zero address
         .build()?;
 
-    let signature = boundless_povw_guests::log_updater::WorkLogUpdate::from_log_builder_journal(
+    let signature = boundless_povw::log_updater::WorkLogUpdate::from_log_builder_journal(
         update.clone(),
         signer.address(),
     )
     .sign(&signer, contract_address, chain_id)
     .await?;
 
-    let input = boundless_povw_guests::log_updater::Input::builder()
+    let input = boundless_povw::log_updater::Input::builder()
         .update(update.clone())
         .value_recipient(signer.address())
         .signature(signature.as_bytes().to_vec())
@@ -353,7 +353,7 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
         .build()?;
 
     // Execute guest to get valid journal
-    let input = boundless_povw_guests::log_updater::Input::builder()
+    let input = boundless_povw::log_updater::Input::builder()
         .update(update.clone())
         .contract_address(*ctx.povw_accounting.address())
         .chain_id(ctx.chain_id)

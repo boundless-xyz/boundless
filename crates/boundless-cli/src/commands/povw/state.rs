@@ -19,7 +19,7 @@ use std::{collections::HashMap, io::Write, path::Path, time::SystemTime};
 use alloy::{primitives::B256, rpc::types::TransactionReceipt};
 use anyhow::{bail, ensure, Context, Result};
 use atomicwrites::{AtomicFile, OverwriteBehavior};
-use boundless_povw_guests::log_updater::IPovwAccounting::{self, WorkLogUpdated};
+use boundless_povw::log_updater::IPovwAccounting::{self, WorkLogUpdated};
 use num_enum::TryFromPrimitive;
 use risc0_povw::{
     guest::Journal as LogBuilderJournal, guest::RISC0_POVW_LOG_BUILDER_ID, PovwLogId, WorkLog,

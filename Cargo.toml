@@ -32,8 +32,8 @@ boundless-assessor = { version = "0.14.0", path = "crates/assessor" }
 boundless-cli = { version = "0.14.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.14.0", path = "crates/boundless-market" }
 boundless-test-utils = { path = "crates/test-utils" }
-boundless-povw-guests = { path = "crates/guest/povw" }
 boundless-zkc = { version = "0.14.0", path = "crates/zkc" }
+boundless-povw = { path = "crates/guest/povw" }
 distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }

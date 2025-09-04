@@ -15,7 +15,7 @@ alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
 bincode = { version = "1.3", optional = true }
 boundless-market = { workspace = true, features = ["test-utils"] }
-boundless-povw-guests = { workspace = true, optional = true }
+boundless-povw = { workspace = true, optional = true }
 bytemuck = { version = "1.23", optional = true }
 derive_builder = { version = "0.20.2", optional = true }
 guest-assessor = { workspace = true }
@@ -41,4 +41,4 @@ wiremock = { version = "0.6", optional = true }
 reqwest = { workspace = true, features = ["json"] }
 
 [features]
-povw = ["dep:boundless-povw-guests", "dep:bytemuck", "dep:derive_builder", "dep:postcard", "dep:rand", "dep:risc0-povw", "dep:risc0-steel", "dep:tokio", "dep:wiremock", "dep:serde", "dep:serde_json", "dep:uuid", "dep:bincode", "dep:tracing"]
+povw = ["dep:boundless-povw", "dep:bytemuck", "dep:derive_builder", "dep:postcard", "dep:rand", "dep:risc0-povw", "dep:risc0-steel", "dep:tokio", "dep:wiremock", "dep:serde", "dep:serde_json", "dep:uuid", "dep:bincode", "dep:tracing"]
