@@ -10,7 +10,7 @@ use alloy::{
 };
 use alloy_sol_types::SolValue;
 
-use boundless_povw_guests::{
+use boundless_povw::{
     log_updater::LogBuilderJournal,
     mint_calculator::{
         MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate, WorkLogFilter,

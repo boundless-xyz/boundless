@@ -2613,7 +2613,7 @@ dependencies = [
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
- "boundless-povw-guests",
+ "boundless-povw",
  "boundless-test-utils",
  "bytemuck",
  "chrono",
@@ -2755,7 +2755,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "boundless-povw-guests"
+name = "boundless-povw"
 version = "0.14.0"
 dependencies = [
  "alloy",
@@ -2818,7 +2818,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "boundless-market",
- "boundless-povw-guests",
+ "boundless-povw",
  "bytemuck",
  "derive_builder",
  "guest-assessor",

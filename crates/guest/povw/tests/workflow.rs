@@ -10,7 +10,7 @@ use std::ops::Deref;
 
 use alloy::{primitives::U256, signers::local::PrivateKeySigner};
 use alloy_provider::Provider;
-use boundless_povw_guests::{
+use boundless_povw::{
     log_updater::{prover::LogUpdaterProver, IPovwAccounting},
     mint_calculator::{prover::MintCalculatorProver, WorkLogFilter},
 };

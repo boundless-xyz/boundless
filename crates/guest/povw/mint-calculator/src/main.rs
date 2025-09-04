@@ -7,11 +7,11 @@ use std::collections::{btree_map, BTreeMap};
 
 use alloy_primitives::{Address, B256, U256};
 use alloy_sol_types::SolValue;
-use boundless_povw_guests::log_updater::IPovwAccounting;
-use boundless_povw_guests::mint_calculator::{
+use boundless_povw::log_updater::IPovwAccounting;
+use boundless_povw::mint_calculator::{
     FixedPoint, Input, MintCalculatorJournal, MintCalculatorMint, MintCalculatorUpdate, CHAIN_SPECS,
 };
-use boundless_povw_guests::zkc::{IZKCRewards, IZKC};
+use boundless_povw::zkc::{IZKCRewards, IZKC};
 use risc0_steel::{Contract, Event};
 use risc0_zkvm::guest::env;
 

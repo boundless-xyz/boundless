@@ -25,7 +25,7 @@ use alloy::{
     sol_types::SolEvent,
 };
 use anyhow::{bail, ensure, Context};
-use boundless_povw_guests::{
+use boundless_povw::{
     log_updater::IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
     mint_calculator::{prover::MintCalculatorProver, IPovwMint, CHAIN_SPECS},
 };

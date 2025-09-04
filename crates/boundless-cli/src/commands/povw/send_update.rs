@@ -20,7 +20,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, ensure, Context};
-use boundless_povw_guests::log_updater::{prover::LogUpdaterProver, IPovwAccounting};
+use boundless_povw::log_updater::{prover::LogUpdaterProver, IPovwAccounting};
 use clap::Args;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 use risc0_zkvm::{default_prover, ProverOpts};
