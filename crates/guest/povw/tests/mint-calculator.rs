@@ -18,8 +18,9 @@ use boundless_povw_guests::{
     },
 };
 use boundless_test_utils::povw::{
-    encode_seal, execute_mint_calculator_guest, test_ctx, test_ctx_with, MintOptions,
+    execute_mint_calculator_guest, test_ctx, test_ctx_with, MintOptions,
 };
+use risc0_ethereum_contracts::encode_seal;
 use risc0_povw::guest::RISC0_POVW_LOG_BUILDER_ID;
 use risc0_povw::WorkLog;
 use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
