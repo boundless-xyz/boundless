@@ -17,7 +17,6 @@ import {PovwMint} from "../src/povw/PovwMint.sol";
 import {IZKC, IZKCRewards} from "../src/povw/IZKC.sol";
 import {MockZKC, MockZKCRewards} from "../test/MockZKC.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
-import {ImageID} from "../src/libraries/PovwImageId.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {PoVWScript, PoVWLib} from "./PoVWLib.s.sol";
 
@@ -162,7 +161,7 @@ contract DeployPoVW is PoVWScript, RiscZeroCheats {
             console2.log("Using existing veZKC at", vezkcAddress);
         }
 
-        // PoVW image IDs from solidity library (use mock values in dev mode)
+        // PoVW image IDs (use mock values in dev mode)
         bytes32 logUpdaterId;
         bytes32 mintCalculatorId;
 
@@ -172,22 +171,25 @@ contract DeployPoVW is PoVWScript, RiscZeroCheats {
             mintCalculatorId = bytes32(uint256(0x2222222222222222222222222222222222222222222222222222222222222222));
             console2.log("Using mock PoVW image IDs for dev mode");
         } else {
-            // In production, use image IDs from environment variables if set, otherwise from solidity library
-            logUpdaterId = PoVWLib.requireLib(
-                vm.envOr("POVW_LOG_UPDATER_ID", ImageID.BOUNDLESS_POVW_LOG_UPDATER_ID), "Log Updater ID"
-            );
-            mintCalculatorId = PoVWLib.requireLib(
-                vm.envOr("POVW_MINT_CALCULATOR_ID", ImageID.BOUNDLESS_POVW_MINT_CALCULATOR_ID), "Mint Calculator ID"
-            );
+            // Check if environment variables are set first
+            bytes32 envLogUpdater = vm.envOr("POVW_LOG_UPDATER_ID", bytes32(0));
+            bytes32 envMintCalculator = vm.envOr("POVW_MINT_CALCULATOR_ID", bytes32(0));
 
-            if (
-                vm.envOr("POVW_LOG_UPDATER_ID", bytes32(0)) != bytes32(0)
-                    || vm.envOr("POVW_MINT_CALCULATOR_ID", bytes32(0)) != bytes32(0)
-            ) {
-                console2.log("Using PoVW image IDs from environment variables (overriding PovwImageId.sol)");
+            if (envLogUpdater != bytes32(0) && envMintCalculator != bytes32(0)) {
+                // Use environment variables if both are set
+                logUpdaterId = envLogUpdater;
+                mintCalculatorId = envMintCalculator;
+                console2.log("Using PoVW image IDs from environment variables");
             } else {
-                console2.log("Using production PoVW image IDs from PovwImageId.sol");
+                // Use .bin files as default
+                logUpdaterId = readImageIdFromFile("boundless-povw-log-updater.bin");
+                mintCalculatorId = readImageIdFromFile("boundless-povw-mint-calculator.bin");
+                console2.log("Using PoVW image IDs from .bin files");
             }
+
+            // Require that we have valid image IDs
+            logUpdaterId = PoVWLib.requireLib(logUpdaterId, "Log Updater ID");
+            mintCalculatorId = PoVWLib.requireLib(mintCalculatorId, "Mint Calculator ID");
         }
 
         console2.log("Log Updater ID: %s", vm.toString(logUpdaterId));
