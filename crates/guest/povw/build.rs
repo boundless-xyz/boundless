@@ -113,8 +113,8 @@ mod build_contracts {
     /// Get the contract constructor definition for a given contract
     fn get_contract_constructor(contract: &str) -> &str {
         match contract {
-            "PovwAccounting" => "constructor(address verifier, address zkc, bytes32 logUpdaterId) {}",
-            "PovwMint" => "constructor(address verifier, address povwAccounting, bytes32 mintCalculatorId, address zkc, address zkcRewards) {}",
+            "PovwAccounting" => "constructor(address verifier, address zkc, bytes32 logUpdaterId) {}\n        function initialize(address initialOwner) {}",
+            "PovwMint" => "constructor(address verifier, address povwAccounting, bytes32 mintCalculatorId, address zkc, address zkcRewards) {}\n        function initialize(address initialOwner) {}",
             _ => "",
         }
     }

@@ -685,15 +685,15 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
         .build()?;
 
     // First update: from the initial state.
-    assert!(measure_update_gas(first_update).await? < 95000);
+    assert!(measure_update_gas(first_update).await? < 100000);
 
     // First update: from the state of a fresh epoch.
     ctx.advance_epochs(U256::ONE).await?;
     ctx.finalize_epoch().await?;
-    assert!(measure_update_gas(second_update).await? < 70000);
+    assert!(measure_update_gas(second_update).await? < 80000);
 
     // Second update within the same epoch.
-    assert!(measure_update_gas(third_update).await? < 70000);
+    assert!(measure_update_gas(third_update).await? < 80000);
 
     Ok(())
 }
