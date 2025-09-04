@@ -240,10 +240,6 @@ const PROVERS_ITEMS = [
         text: "Bento Technical Design",
         link: "/provers/bento",
       },
-      {
-        text: "PLACEHOLDER2",
-        link: "/provers/bento",
-      },
     ],
   },
 ];
