@@ -114,6 +114,7 @@ impl ZkcStake {
         provider: impl Provider + Clone,
         value: U256,
     ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
+        tracing::trace!("Calling stake({})", value);
         let staking = IStaking::new(self.vezkc_address, provider);
         let call = staking.stake(value);
         Ok(call.send().await?)
@@ -140,7 +141,7 @@ impl ZkcStake {
         let r = B256::from_slice(&sig[..32]);
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
-        tracing::trace!("Calling depositStakeWithPermit({})", value);
+        tracing::trace!("Calling stakeWithPermit({})", value);
         let staking = IStaking::new(self.vezkc_address, provider);
         let call = staking.stakeWithPermit(value, deadline, v, r, s);
         Ok(call.send().await?)
