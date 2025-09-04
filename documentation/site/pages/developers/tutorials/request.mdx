@@ -128,9 +128,9 @@ Once submitted, you can keep track of the request using:
 # client: Client,
 # request_id: U256,
 # expires_at: u64) -> Result<()> {
-// Wait for the request to be fulfilled. The market will return the journal and seal.
+// Wait for the request to be fulfilled. The market will return the fulfillment.
 tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-let (journal, seal) = client
+let fulfillment = client
     .wait_for_request_fulfillment(
         request_id,
         Duration::from_secs(5), // check every 5 seconds

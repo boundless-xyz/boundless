@@ -37,7 +37,7 @@ use risc0_zkvm::{
 use boundless_market::{
     contracts::{
         AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
-        Fulfillment as BoundlessFulfillment, RequestInputType,
+        Fulfillment as BoundlessFulfillment, FulfillmentData, PredicateType, RequestInputType,
     },
     input::GuestEnv,
     selector::{is_groth16_selector, SupportedSelectors},
@@ -248,11 +248,15 @@ impl DefaultProver {
             let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
             let order_claim_digest = order_claim.digest();
 
-            let fill = Fulfillment {
-                request: req.clone(),
-                signature: sig.into(),
-                journal: order_journal.clone(),
+            let fulfillment_data = match req.requirements.predicate.predicateType {
+                PredicateType::ClaimDigestMatch => FulfillmentData::None,
+                PredicateType::PrefixMatch | PredicateType::DigestMatch => {
+                    FulfillmentData::from_image_id_and_journal(order_image_id, order_journal)
+                }
+                _ => bail!("Invalid predicate type"),
             };
+            let fill =
+                Fulfillment { request: req.clone(), signature: sig.into(), fulfillment_data };
 
             Ok::<_, anyhow::Error>((order_receipt, order_claim, order_claim_digest, fill))
         });
@@ -307,11 +311,16 @@ impl DefaultProver {
                 order_inclusion_receipt.abi_encode_seal()?
             };
 
+            let (fulfillment_data_type, fulfillment_data) =
+                fills[i].fulfillment_data.fulfillment_type_and_data();
+            let claim_digest = fills[i].evaluate_requirements()?;
+
             let fulfillment = BoundlessFulfillment {
+                claimDigest: <[u8; 32]>::from(claim_digest).into(),
+                fulfillmentData: fulfillment_data.into(),
+                fulfillmentDataType: fulfillment_data_type,
                 id: req.id,
                 requestDigest: req.eip712_signing_hash(&self.domain.alloy_struct()),
-                imageId: req.requirements.imageId,
-                journal: fills[i].journal.clone().into(),
                 seal: order_seal.into(),
             };
 
@@ -391,7 +400,7 @@ mod tests {
     ) -> (ProofRequest, Signature) {
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
-            Requirements::new(Digest::from(ECHO_ID), Predicate::prefix_match(vec![1]))
+            Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), vec![1]))
                 .with_selector(match selector {
                     Some(selector) => FixedBytes::from(selector as u32),
                     None => UNSPECIFIED_SELECTOR,

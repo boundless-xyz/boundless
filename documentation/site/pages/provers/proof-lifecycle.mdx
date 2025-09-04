@@ -183,7 +183,7 @@ When the prover fulfills their request, the requestor (the app developer) will r
 #    .build()
 #    .await?;
 # let (request_id, expires_at) = boundless_client.submit_request_onchain(&request).await?;
-let (_journal, seal) = boundless_client
+let fulfillment = boundless_client
   .wait_for_request_fulfillment(
     request_id,
     Duration::from_secs(5),

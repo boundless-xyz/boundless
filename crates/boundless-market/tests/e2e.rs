@@ -18,17 +18,21 @@ use alloy::{
     providers::Provider,
     sol_types::eip712_domain,
 };
+use alloy_primitives::Bytes;
 use boundless_market::{
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
         hit_points::default_allowance,
-        AssessorReceipt, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestStatus,
-        Requirements,
+        AssessorReceipt, FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest,
+        RequestId, RequestStatus, Requirements,
     },
     input::GuestEnv,
 };
 use boundless_market_test_utils::{create_test_ctx, mock_singleton, TestCtx, ECHO_ID};
-use risc0_zkvm::sha::Digest;
+use risc0_zkvm::{
+    sha::{Digest, Digestible},
+    ReceiptClaim,
+};
 use tracing_test::traced_test;
 
 fn now_timestamp() -> u64 {
@@ -41,10 +45,7 @@ fn now_timestamp() -> u64 {
 async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
     ProofRequest::new(
         RequestId::new(ctx.customer_signer.address(), idx),
-        Requirements::new(
-            Digest::from(ECHO_ID),
-            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-        ),
+        Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default())),
         "http://image_uri.null",
         GuestEnv::builder().build_inline().unwrap(),
         Offer {
@@ -194,8 +195,12 @@ async fn test_e2e() {
     );
 
     // mock the fulfillment
-    let (root, set_verifier_seal, fulfillment, assessor_seal) =
-        mock_singleton(request, eip712_domain, ctx.prover_signer.address());
+    let (root, set_verifier_seal, fulfillment, assessor_seal) = mock_singleton(
+        request,
+        eip712_domain,
+        ctx.prover_signer.address(),
+        FulfillmentDataType::ImageIdAndJournal,
+    );
 
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -213,11 +218,16 @@ async fn test_e2e() {
         .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
-    // retrieve journal and seal from the fulfilled request
-    let (journal, seal) = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
-
-    assert_eq!(journal, fulfillment.journal);
-    assert_eq!(seal, fulfillment.seal);
+    // retrieve fulfillment data data and seal from the fulfilled request
+    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let expected_fulfillment_data = FulfillmentData::decode_with_type(
+        fulfillment.fulfillmentDataType,
+        fulfillment.fulfillmentData.clone(),
+    )
+    .unwrap();
+    let fulfillment_data = fulfillment_result.data().unwrap();
+    assert_eq!(fulfillment_data, expected_fulfillment_data);
+    assert_eq!(fulfillment_result.seal, fulfillment.seal);
 }
 
 #[tokio::test]
@@ -259,8 +269,12 @@ async fn test_e2e_merged_submit_fulfill() {
     );
 
     // mock the fulfillment
-    let (root, set_verifier_seal, fulfillment, assessor_seal) =
-        mock_singleton(request, eip712_domain, ctx.prover_signer.address());
+    let (root, set_verifier_seal, fulfillment, assessor_seal) = mock_singleton(
+        request,
+        eip712_domain,
+        ctx.prover_signer.address(),
+        FulfillmentDataType::ImageIdAndJournal,
+    );
 
     let fulfillments = vec![fulfillment];
     let assessor_fill = AssessorReceipt {
@@ -279,11 +293,16 @@ async fn test_e2e_merged_submit_fulfill() {
         .await
         .unwrap();
 
-    // retrieve journal and seal from the fulfilled request
-    let (journal, seal) = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
-
-    assert_eq!(journal, fulfillments[0].journal);
-    assert_eq!(seal, fulfillments[0].seal);
+    // retrieve fulfillment data  and seal from the fulfilled request
+    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let expected_fulfillment_data = FulfillmentData::decode_with_type(
+        fulfillments[0].fulfillmentDataType,
+        fulfillments[0].fulfillmentData.clone(),
+    )
+    .unwrap();
+    let fulfillment_data = fulfillment_result.data().unwrap();
+    assert_eq!(fulfillment_data, expected_fulfillment_data);
+    assert_eq!(fulfillment_result.seal, fulfillments[0].seal);
 }
 
 #[tokio::test]
@@ -312,8 +331,12 @@ async fn test_e2e_price_and_fulfill_batch() {
     let customer_sig = &event.clientSignature;
 
     // mock the fulfillment
-    let (root, set_verifier_seal, fulfillment, assessor_seal) =
-        mock_singleton(request, eip712_domain, ctx.prover_signer.address());
+    let (root, set_verifier_seal, fulfillment, assessor_seal) = mock_singleton(
+        request,
+        eip712_domain,
+        ctx.prover_signer.address(),
+        FulfillmentDataType::ImageIdAndJournal,
+    );
 
     let fulfillments = vec![fulfillment];
     let assessor_fill = AssessorReceipt {
@@ -333,11 +356,17 @@ async fn test_e2e_price_and_fulfill_batch() {
         .await
         .unwrap();
 
-    // retrieve journal and seal from the fulfilled request
-    let (journal, seal) = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    // retrieve callback data and seal from the fulfilled request
+    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
-    assert_eq!(journal, fulfillments[0].journal);
-    assert_eq!(seal, fulfillments[0].seal);
+    let expected_fulfillment_data = FulfillmentData::decode_with_type(
+        fulfillments[0].fulfillmentDataType,
+        fulfillments[0].fulfillmentData.clone(),
+    )
+    .unwrap();
+    let fulfillment_data = fulfillment_result.data().unwrap();
+    assert_eq!(fulfillment_data, expected_fulfillment_data);
+    assert_eq!(fulfillment_result.seal, fulfillments[0].seal);
 }
 
 #[tokio::test]
@@ -383,8 +412,12 @@ async fn test_e2e_no_payment() {
     {
         // mock the fulfillment, using the wrong prover address. Address::from(3) arbitrary.
         let some_other_address = Address::from(U160::from(3));
-        let (root, set_verifier_seal, fulfillment, assessor_seal) =
-            mock_singleton(request, eip712_domain.clone(), some_other_address);
+        let (root, set_verifier_seal, fulfillment, assessor_seal) = mock_singleton(
+            request,
+            eip712_domain.clone(),
+            some_other_address,
+            FulfillmentDataType::ImageIdAndJournal,
+        );
 
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -406,17 +439,26 @@ async fn test_e2e_no_payment() {
         let balance_after = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         assert!(balance_before == balance_after);
 
-        // retrieve journal and seal from the fulfilled request
-        let (journal, seal) =
+        // retrieve fulfillment data and seal from the fulfilled request
+        let fulfillment_result =
             ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
-
-        assert_eq!(journal, fulfillment.journal);
-        assert_eq!(seal, fulfillment.seal);
+        let expected_fulfillment_data = FulfillmentData::decode_with_type(
+            fulfillment.fulfillmentDataType,
+            fulfillment.fulfillmentData.clone(),
+        )
+        .unwrap();
+        let fulfillment_data = fulfillment_result.data().unwrap();
+        assert_eq!(fulfillment_data, expected_fulfillment_data);
+        assert_eq!(fulfillment_result.seal, fulfillment.seal);
     }
 
     // mock the fulfillment, this time using the right prover address.
-    let (root, set_verifier_seal, fulfillment, assessor_seal) =
-        mock_singleton(request, eip712_domain, ctx.prover_signer.address());
+    let (root, set_verifier_seal, fulfillment, assessor_seal) = mock_singleton(
+        request,
+        eip712_domain,
+        ctx.prover_signer.address(),
+        FulfillmentDataType::ImageIdAndJournal,
+    );
 
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
@@ -436,11 +478,95 @@ async fn test_e2e_no_payment() {
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve journal and seal from the fulfilled request
-    let (_journal, _seal) = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let _fulfillment = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
 
     // TODO: Instead of checking that this is the same seal, check if this is some valid seal.
     // When there are multiple fulfillments one order, there will be multiple ProofDelivered
     // events. All proofs will be valid though.
     //assert_eq!(journal, fulfillment.journal);
     //assert_eq!(seal, fulfillment.seal);
+}
+
+#[tokio::test]
+#[traced_test]
+async fn test_e2e_claim_digest_no_fulfillment_data() {
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    let eip712_domain = eip712_domain! {
+        name: "IBoundlessMarket",
+        version: "1",
+        chain_id: anvil.chain_id(),
+        verifying_contract: *ctx.customer_market.instance().address(),
+    };
+
+    let claim_digest = ReceiptClaim::ok(ECHO_ID, vec![0x41, 0x41, 0x41, 0x41]).digest();
+
+    let request = {
+        let mut request = new_request(1, &ctx).await;
+        request.requirements =
+            request.requirements.with_predicate(Predicate::claim_digest_match(claim_digest));
+
+        request
+    };
+    let expires_at = request.expires_at();
+
+    let request_id =
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+    // fetch logs to retrieve the customer signature from the event
+    let logs = ctx.customer_market.instance().RequestSubmitted_filter().query().await.unwrap();
+
+    let (event, _) = logs.first().unwrap();
+    let request = &event.request;
+    let customer_sig = event.clientSignature.clone();
+
+    // Deposit prover balances
+    let deposit = default_allowance();
+    ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+
+    // Lock the request
+    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
+    assert!(
+        ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
+            == RequestStatus::Locked
+    );
+
+    // mock the fulfillment
+    let (root, set_verifier_seal, fulfillment, assessor_seal) = mock_singleton(
+        request,
+        eip712_domain,
+        ctx.prover_signer.address(),
+        FulfillmentDataType::None,
+    );
+
+    // publish the committed root
+    ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
+
+    let assessor_fill = AssessorReceipt {
+        seal: assessor_seal,
+        selectors: vec![],
+        prover: ctx.prover_signer.address(),
+        callbacks: vec![],
+    };
+    // fulfill the request
+    ctx.prover_market
+        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .await
+        .unwrap();
+    assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
+
+    // retrieve fulfillment data and seal from the fulfilled request
+    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let expected_fulfillment_data = FulfillmentData::decode_with_type(
+        fulfillment.fulfillmentDataType,
+        fulfillment.fulfillmentData.clone(),
+    )
+    .unwrap();
+    let fulfillment_data = fulfillment_result.data().unwrap();
+    assert_eq!(fulfillment_data, expected_fulfillment_data);
+    assert_eq!(fulfillment_result.seal, fulfillment.seal);
 }
