@@ -33,7 +33,7 @@ tab_width = 4
 quote_style = "double"
 
 [lint]
-exclude_lints = ["asm-keccak256", "incorrect-shift"]
+exclude_lints = ["asm-keccak256", "incorrect-shift", "mixed-case-function"]
 
 # Profile used to run deployment tests, which check the correctness of contracts as deployed.
 # TIP: You can select this profile by setting env var FOUNDRY_PROFILE=deployment-test

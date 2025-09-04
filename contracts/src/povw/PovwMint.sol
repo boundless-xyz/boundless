@@ -6,7 +6,6 @@
 pragma solidity ^0.8.24;
 
 import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
-import {Math} from "openzeppelin/contracts/utils/math/Math.sol";
 import {PovwAccounting, EMPTY_LOG_ROOT} from "./PovwAccounting.sol";
 import {IZKC, IZKCRewards} from "./IZKC.sol";
 import {IPovwMint, MintCalculatorUpdate, MintCalculatorMint, MintCalculatorJournal} from "./IPovwMint.sol";
