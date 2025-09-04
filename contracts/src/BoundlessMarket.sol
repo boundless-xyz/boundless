@@ -13,6 +13,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {
@@ -739,8 +740,7 @@ contract BoundlessMarket is
             accounts[client].balance += lock.price;
         }
 
-        ERC20(STAKE_TOKEN_CONTRACT).transfer(address(0xdEaD), burnValue);
-        (burnValue);
+        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
         emit ProverSlashed(requestId, burnValue, transferValue, stakeRecipient);
     }
 
