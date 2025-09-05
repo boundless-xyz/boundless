@@ -134,7 +134,7 @@ export abstract class LaunchBasePipeline extends pulumi.ComponentResource {
           name: "DeployProduction",
           actions: [
             {
-              name: "ApproveDeployToProduction",
+              name: "ApproveDeployToTestnetProduction",
               category: "Approval",
               owner: "AWS",
               provider: "Manual",
@@ -169,12 +169,21 @@ export abstract class LaunchBasePipeline extends pulumi.ComponentResource {
               inputArtifacts: ["source_output"],
             },
             {
+              name: "ApproveDeployToMainnetProduction",
+              category: "Approval",
+              owner: "AWS",
+              provider: "Manual",
+              version: "1",
+              runOrder: 3,
+              configuration: {}
+            },
+            {
               name: "DeployProductionBaseMainnet",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 2,
+              runOrder: 4,
               configuration: {
                 ProjectName: prodDeploymentBaseMainnet.name
               },
@@ -224,7 +233,7 @@ export abstract class LaunchBasePipeline extends pulumi.ComponentResource {
     const additionalCommands = this.config.additionalBuildSpecCommands || [];
     const postBuildCommands = this.config.postBuildCommands || [];
 
-    const additionalCommandsStr = additionalCommands.length > 0 
+    const additionalCommandsStr = additionalCommands.length > 0
       ? additionalCommands.map(cmd => `          - ${cmd}`).join('\n') + '\n'
       : '';
 

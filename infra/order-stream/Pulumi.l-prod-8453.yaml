@@ -2,7 +2,7 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFB3smUFiV/wHKyVC7uABCcAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMwqePOQerKER4MrUFAgEQgDs2RyOMyrs1MDzDDOcqbWmtWn184g6wnJVAXCbdIDVQCygl4icleMOfwrRw8wao8UsV0YnSBGr1SXOUug==
 config:
   aws:region: us-west-2
-  order-stream:ALB_DOMAIN: base-mainnet.beboundless.xyz
+  order-stream:ALB_DOMAIN: base-mainnet.boundless.network.xyz
   order-stream:BASE_STACK: organization/bootstrap/services-prod
   order-stream:BOUNDLESS_ADDRESS: 0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8
   order-stream:CHAIN_ID: "8453"
