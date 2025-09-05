@@ -24,6 +24,7 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 LOG_FILE="/var/log/${SCRIPT_NAME%.sh}.log"
+COMPLETION_MARKER="/var/log/${SCRIPT_NAME%.sh}.completed"
 
 # =============================================================================
 # Functions
@@ -46,6 +47,66 @@ error() {
 
 is_package_installed() {
     dpkg -s "$1" &> /dev/null
+}
+
+# Function to check if setup has already been completed
+check_completion() {
+    if [[ -f "$COMPLETION_MARKER" ]]; then
+        info "Setup has already been completed on $(cat "$COMPLETION_MARKER")"
+        info "To run setup again, remove the completion marker: sudo rm $COMPLETION_MARKER"
+        exit 0
+    fi
+}
+
+# Function to display risk warning and get user acceptance
+display_risk_warning() {
+    echo
+    echo "╔══════════════════════════════════════════════════════════════════════════╗"
+    echo "║                              RISK WARNING                                ║"
+    echo "╠══════════════════════════════════════════════════════════════════════════╣"
+    echo "║                                                                          ║"
+    echo "║  This script will make SIGNIFICANT changes to your system:               ║"
+    echo "║                                                                          ║"
+    echo "║  • Install/overwrite NVIDIA GPU drivers (may break existing drivers)     ║"
+    echo "║  • Modify Docker configuration and daemon settings                       ║"
+    echo "║  • Install CUDA toolkit and NVIDIA Container Toolkit                     ║"
+    echo "║  • Update system packages and install additional software                ║"
+    echo "║  • Modify user groups and permissions                                    ║"
+    echo "║                                                                          ║"
+    echo "║  THESE CHANGES MAY:                                                      ║"
+    echo "║     • Break existing GPU drivers or CUDA installations                   ║"
+    echo "║     • Overwrite custom Docker configurations                             ║"
+    echo "║     • Require system reboot to function properly                         ║"
+    echo "║     • Cause system instability if hardware is incompatible               ║"
+    echo "║                                                                          ║"
+    echo "║  USE AT YOUR OWN RISK! BACKUP IMPORTANT DATA FIRST!                      ║"
+    echo "║                                                                          ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════╝"
+    echo
+
+    if [[ -t 0 ]]; then
+        # We're in an interactive terminal
+        echo "Do you understand and accept ALL risks associated with this setup?"
+        echo "Type 'I ACCEPT ALL RISKS' (exactly) to continue, or anything else to abort:"
+        read -r response
+
+        if [[ "$response" != "I ACCEPT ALL RISKS" ]]; then
+            error "Setup aborted by user. No changes were made."
+            exit 1
+        fi
+
+        echo
+        info "Risk acceptance confirmed. Proceeding with setup..."
+        echo
+    else
+        # We're in a non-interactive environment (like EC2 user data)
+        error "Cannot run interactively. This script requires explicit risk acceptance."
+        error "To run non-interactively, set environment variable: ACCEPT_RISKS=true"
+        if [[ "${ACCEPT_RISKS:-}" != "true" ]]; then
+            exit 1
+        fi
+        info "Non-interactive risk acceptance confirmed via environment variable."
+    fi
 }
 
 
@@ -250,59 +311,53 @@ add_user_to_docker_group() {
 install_nvidia_container_toolkit() {
     info "Checking NVIDIA Container Toolkit installation..."
 
-    if is_package_installed "nvidia-docker2"; then
-        success "NVIDIA Container Toolkit (nvidia-docker2) is already installed."
+    if is_package_installed "nvidia-container-toolkit"; then
+        success "NVIDIA Container Toolkit is already installed."
         return
     fi
 
     info "Installing NVIDIA Container Toolkit..."
 
     {
-        # Add the package repositories
-        local distribution
-        distribution=$(grep '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
-        curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-        curl -s -L https://nvidia.github.io/nvidia-docker/"$distribution"/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+        # Get Ubuntu version for NVIDIA Container Toolkit repository
+        local ubuntu_version
+        ubuntu_version=$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
+
+        # Map Ubuntu versions to NVIDIA Container Toolkit repository versions
+        local nvidia_repo_version
+        case "$ubuntu_version" in
+            "22.04")
+                nvidia_repo_version="ubuntu22.04"
+                ;;
+            "24.04")
+                nvidia_repo_version="ubuntu24.04"
+                ;;
+            *)
+                error "Unsupported Ubuntu version: $ubuntu_version"
+                exit 1
+                ;;
+        esac
+
+        info "Installing NVIDIA Container Toolkit for $nvidia_repo_version"
+
+        # Add NVIDIA Container Toolkit GPG key and repository
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+            sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 
         # Update the package lists
         sudo apt update -y
 
-        # Install the NVIDIA Docker support
-        sudo apt install -y nvidia-docker2
+        # Install the NVIDIA Container Toolkit
+        sudo apt install -y nvidia-container-toolkit
 
-        # Restart Docker to apply changes
+        # Configure Docker to use NVIDIA runtime
+        sudo nvidia-ctk runtime configure --runtime=docker
         sudo systemctl restart docker
     } >> "$LOG_FILE" 2>&1
 
     success "NVIDIA Container Toolkit installed successfully."
-}
-
-# Function to configure Docker daemon for NVIDIA
-configure_docker_nvidia() {
-    info "Configuring Docker to use NVIDIA runtime by default..."
-
-    {
-        # Create Docker daemon configuration directory if it doesn't exist
-        sudo mkdir -p /etc/docker
-
-        # Create or overwrite daemon.json with NVIDIA runtime configuration
-        sudo tee /etc/docker/daemon.json <<EOF
-{
-    "default-runtime": "nvidia",
-    "runtimes": {
-        "nvidia": {
-            "path": "nvidia-container-runtime",
-            "runtimeArgs": []
-        }
-    }
-}
-EOF
-
-        # Restart Docker to apply the new configuration
-        sudo systemctl restart docker
-    } >> "$LOG_FILE" 2>&1
-
-    success "Docker configured to use NVIDIA runtime by default."
 }
 
 # Function to perform system cleanup
@@ -336,6 +391,12 @@ info "===== Script Execution Started at $(date) ====="
 # Check if the operating system is Ubuntu
 check_os
 
+# Check if setup has already been completed
+check_completion
+
+# Display risk warning and get user acceptance
+display_risk_warning
+
 # ensure all the require source code is present
 init_git_submodules
 
@@ -357,9 +418,6 @@ add_user_to_docker_group
 # Install NVIDIA Container Toolkit
 install_nvidia_container_toolkit
 
-# Configure Docker to use NVIDIA runtime
-configure_docker_nvidia
-
 # Install Rust
 install_rust
 
@@ -372,7 +430,10 @@ install_cuda
 # Cleanup
 cleanup
 
-success "All tasks completed successfully!"
+# Create completion marker
+info "Creating completion marker..."
+echo "$(date)" > "$COMPLETION_MARKER"
+success "Setup completed successfully! Marker created at $COMPLETION_MARKER"
 
 # Optionally, prompt to reboot if necessary
 if [ -t 0 ]; then
