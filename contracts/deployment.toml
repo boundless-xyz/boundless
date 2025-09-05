@@ -246,3 +246,45 @@ deployment-commit = "1353e11c" # v0.14.0 main
 assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
 assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
 deprecated-assessor-duration = 432000  # 5 days
+
+[deployment.ethereum-sepolia-quick-epoch]
+name = "Ethereum Sepolia [Quick Epoch]"
+id = 11155111
+etherscan-url = "https://sepolia.etherscan.io/"
+version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
+
+# Accounts
+admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
+
+# Contracts
+verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
+# deployed at block 8430932
+boundless-market = "0x0000000000000000000000000000000000000000"
+boundless-market-impl = "0x0000000000000000000000000000000000000000"
+boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+stake-token = "0x03f177Bd8A0CF725c29945C0a0434897A4a16628"
+
+# Guests info
+deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
+assessor-image-id = "0x0000000000000000000000000000000000000000000000000000000000000000"
+assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+deprecated-assessor-duration = 259200  # 3 days
+
+# PoVW contracts
+povw-accounting-admin = "0x48268bE6235A23eb7b67356469362869D5d0293f"
+povw-mint-admin = "0x48268bE6235A23eb7b67356469362869D5d0293f"
+povw-accounting = "0x705e261854555dEB5Ab125cE4f722f78C0074bE2"
+povw-accounting-impl = "0xa33dec083f4AfF0A7C99cB279562ba81C792286C"
+povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
+povw-mint = "0x35066ca433583441F5Db084775B9D065958205E7"
+povw-mint-impl = "0x3A41b19cD02E58aABAeF199E61bd27602333dcF2"
+povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
+povw-log-updater-id = "0x9ad1e26d64c6e302edd81844d69eddf841920b55f3ad0c8283af78854117e299"
+povw-mint-calculator-id = "0xef162c968a10afa46766ba99df6a89093fbc722ea4b600a4da4524297d8996a2"
+povw-accounting-deployment-commit = "9838791da"
+povw-mint-deployment-commit = "9838791da"
+
+# ZKC contracts
+zkc = "0x03f177Bd8A0CF725c29945C0a0434897A4a16628"
+vezkc = "0x645D173cEe5F16aDA0c7C6aDb66ed489Df7EB7Fc"
