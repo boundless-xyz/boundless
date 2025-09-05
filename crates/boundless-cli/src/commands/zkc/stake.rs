@@ -65,7 +65,6 @@ impl ZkcStake {
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
-        tracing::info!("Sending staking transaction");
         let pending_tx = match &self.no_permit {
             false => {
                 self.stake_with_permit(
@@ -77,7 +76,7 @@ impl ZkcStake {
                 )
                 .await?
             }
-            true => self.stake(provider, self.amount).await?,
+            true => self.stake(provider, self.amount).await.context("Sending stake transaction failed")?,
         };
         tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx.tx_hash();
@@ -156,6 +155,6 @@ impl ZkcStake {
         tracing::trace!("Calling stakeWithPermit({})", value);
         let staking = IStaking::new(self.vezkc_address, provider);
         let call = staking.stakeWithPermit(value, deadline, v, r, s);
-        Ok(call.send().await?)
+        call.send().await.context("Sending stake with permit transaction failed")
     }
 }
