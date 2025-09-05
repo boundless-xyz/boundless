@@ -257,7 +257,10 @@ impl Agent {
             };
 
             if let Err(err) = self.process_work(&task).await {
-                if !err.to_string().contains("Session limit exceeded") {
+                let mut err_str = err.to_string();
+                if !err_str.contains("stopped intentionally due to session limit")
+                    && !err_str.contains("Session limit exceeded")
+                {
                     tracing::error!("Failure during task processing: {err:?}");
                 }
 
@@ -270,7 +273,6 @@ impl Agent {
                     }
                 } else {
                     // Prevent massive errors from being reported to the DB
-                    let mut err_str = format!("{err:?}");
                     err_str.truncate(1024);
                     taskdb::update_task_failed(
                         &self.db_pool,

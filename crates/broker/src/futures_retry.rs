@@ -85,10 +85,24 @@ where
             Ok(result) => return Ok(result),
             Err(err) => {
                 if !should_retry(&err) {
-                    tracing::warn!(
-                        "Operation [{}] failed with non-retryable error: {err:?}, not retrying",
-                        function_name
-                    );
+                    let err_msg = format!("{err:?}");
+                    let is_expected_error = function_name == "preflight"
+                        && (err_msg
+                            .contains("Execution stopped intentionally due to session limit")
+                            || err_msg.contains("Session limit exceeded"));
+                    if is_expected_error {
+                        tracing::debug!(
+                            "Operation [{}] finished with expected non-retryable condition: {}",
+                            function_name,
+                            err_msg
+                        );
+                    } else {
+                        tracing::warn!(
+                            "Operation [{}] failed with non-retryable error: {}, not retrying",
+                            function_name,
+                            err_msg
+                        );
+                    }
                     return Err(err);
                 }
 
