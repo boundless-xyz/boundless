@@ -25,8 +25,7 @@ derive_builder = "0.20.2"
 postcard = { version = "1.1", features = ["alloc"] }
 risc0-ethereum-contracts = { workspace = true, optional = true }
 risc0-povw = { workspace = true, features = ["guest"] }
-# TODO(povw): Use a released version of steel.
-risc0-steel = { git = "https://github.com/boundless-xyz/steel", rev = "b251b3572cc004bc9f151be37dd59baaf9bbfe10" }
+risc0-steel = { git = "https://github.com/boundless-xyz/steel", branch = "release-2.4" }
 risc0-zkvm = { workspace = true, features = ["client", "unstable"], optional = true }
 ruint = { version = "1.15", default-features = false, features = ["borsh", "std"] }
 serde = "1"

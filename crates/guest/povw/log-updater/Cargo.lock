@@ -132,9 +132,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-evm"
-version = "0.18.4"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7808e88376405c92315b4d752d9b207f25328e04b31d13e9b1c73f9236486f63"
+checksum = "0dbe7c66c859b658d879b22e8aaa19546dab726b0639f4649a424ada3d99349e"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -152,9 +152,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-hardforks"
-version = "0.2.13"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3165210652f71dfc094b051602bafd691f506c54050a174b1cba18fb5ef706a3"
+checksum = "a20b180071d4f22db71702329101685ccff2e2a8f400d30a68ba907700163bf5"
 dependencies = [
  "alloy-chains",
  "alloy-eip2124",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-povw"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
@@ -2289,9 +2289,9 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "op-alloy-consensus"
-version = "0.18.14"
+version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c88d2940558fd69f8f07b3cbd7bb3c02fc7d31159c1a7ba9deede50e7881024"
+checksum = "d9ade20c592484ba1ea538006e0454284174447a3adf9bb59fa99ed512f95493"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -2303,9 +2303,9 @@ dependencies = [
 
 [[package]]
 name = "op-revm"
-version = "9.0.1"
+version = "10.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6889cdfed74c6c924a54b2357982fce232e06473c6bb73b9a0c71a9151bfabd"
+checksum = "5ba21d705bbbfc947a423cba466d75e4af0c7d43ee89ba0a0f1cfa04963cede9"
 dependencies = [
  "auto_impl",
  "revm",
@@ -2678,9 +2678,9 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
 name = "revm"
-version = "28.0.1"
+version = "29.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee5d3f7d031e90ab47c7488061bdc4875abc4e9dcea6c18f5dee09732d0436fb"
+checksum = "0c278b6ee9bba9e25043e3fae648fdce632d1944d3ba16f5203069b43bddd57f"
 dependencies = [
  "revm-bytecode",
  "revm-context",
@@ -2769,9 +2769,9 @@ dependencies = [
 
 [[package]]
 name = "revm-handler"
-version = "9.0.1"
+version = "10.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cb09d07e6799823ce5a344f1604236b53fe1a92bacd7122c0b16286f92254c2"
+checksum = "528d2d81cc918d311b8231c35330fac5fba8b69766ddc538833e2b5593ee016e"
 dependencies = [
  "auto_impl",
  "derive-where",
@@ -2788,9 +2788,9 @@ dependencies = [
 
 [[package]]
 name = "revm-inspector"
-version = "9.1.0"
+version = "10.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2770c0d7e9f4f23660dc0b8b954b7a1eee8989ec97f936ebce366c78b6d7b915"
+checksum = "bf443b664075999a14916b50c5ae9e35a7d71186873b8f8302943d50a672e5e0"
 dependencies = [
  "auto_impl",
  "either",
@@ -2818,9 +2818,9 @@ dependencies = [
 
 [[package]]
 name = "revm-precompile"
-version = "26.0.1"
+version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f7bb5e8b92891c5ac9dd8dae157bd1d90aab01973ad4f99d4135d507facc3e7"
+checksum = "25b57d4bd9e6b5fe469da5452a8a137bc2d030a3cd47c46908efc615bbc699da"
 dependencies = [
  "ark-bls12-381",
  "ark-bn254",
@@ -3029,8 +3029,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-steel"
-version = "2.3.0"
-source = "git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10#b251b3572cc004bc9f151be37dd59baaf9bbfe10"
+version = "2.4.0"
+source = "git+https://github.com/boundless-xyz/steel?branch=release-2.4#3731e48e9a7ba4bb0c6ef800b635d95f4114ca85"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
