@@ -296,8 +296,8 @@ impl State {
                 format!("Failed to write state to {}", state_path.as_ref().display())
             })?;
 
-        tracing::info!("Saved work log state: {}", state_path.as_ref().display());
-        tracing::info!("Updated commit: {}", self.work_log.commit());
+        tracing::debug!("Saved work log state: {}", state_path.as_ref().display());
+        tracing::debug!("Updated commit: {}", self.work_log.commit());
 
         Ok(())
     }

@@ -351,17 +351,18 @@ pub mod prover {
             // Prove the log update
             // NOTE: This may block the current thread for a significant amount of time. It is not
             // trivial to wrap this statement in e.g. tokio's spawn_blocking because self contains
-            // a VerifierContext which does not implement Send. If this causes any issues, the caller
-            // can mitigate the issue by building and calling the prover in a seperate thread.
-            let prove_info = self
-                .prover
-                .prove_with_ctx(
-                    env,
-                    &self.verifier_ctx,
-                    &self.log_updater_program,
-                    &self.prover_opts,
-                )
-                .context("failed to prove log update")?;
+            // a VerifierContext which does not implement Send. Using tokio block_in_place somewhat
+            // mitigates the issue, but not fully.
+            let prove_info = tokio::task::block_in_place(|| {
+                self.prover
+                    .prove_with_ctx(
+                        env,
+                        &self.verifier_ctx,
+                        &self.log_updater_program,
+                        &self.prover_opts,
+                    )
+                    .context("failed to prove log update")
+            })?;
 
             Ok(prove_info)
         }

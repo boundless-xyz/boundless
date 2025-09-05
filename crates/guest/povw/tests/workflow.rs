@@ -19,7 +19,7 @@ use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId};
 use risc0_steel::ethereum::STEEL_TEST_PRAGUE_CHAIN_SPEC;
 use risc0_zkvm::{default_prover, FakeReceipt, ProverOpts, VerifierContext};
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_workflow() -> anyhow::Result<()> {
     // Setup test context with smart contracts
     let ctx = test_ctx().await?;

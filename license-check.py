@@ -52,7 +52,7 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/contracts/src/IHitPoints.sol",
     str(Path.cwd()) + "/contracts/src/povw/IPovwAccounting.sol",
     str(Path.cwd()) + "/contracts/src/povw/IPovwMint.sol",
-    str(Path.cwd()) + "/contracts/src/povw/IZKC.sol",
+    str(Path.cwd()) + "/contracts/src/zkc/IZKC.sol",
     str(Path.cwd()) + "/crates/bench",
     str(Path.cwd()) + "/crates/boundless-cli",
     str(Path.cwd()) + "/crates/boundless-market",

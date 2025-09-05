@@ -62,7 +62,10 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_cli::{config::ProverConfig, convert_timestamp, DefaultProver, OrderFulfilled};
+use boundless_cli::{
+    commands::zkc::ZKCCommands, config::ProverConfig, convert_timestamp, DefaultProver,
+    OrderFulfilled,
+};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -111,6 +114,9 @@ enum Command {
 
     #[command(subcommand)]
     Povw(Box<PovwCommands>),
+
+    #[command(subcommand)]
+    Zkc(Box<ZKCCommands>),
 
     /// Display configuration and environment variables
     Config {},
@@ -426,6 +432,7 @@ pub(crate) async fn run(args: &MainArgs) -> Result<()> {
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, &args.config).await,
         Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, &args.config).await,
         Command::Povw(povw_cmd) => povw_cmd.run(&args.config).await,
+        Command::Zkc(zkc_cmd) => zkc_cmd.run(&args.config).await,
         Command::Config {} => handle_config_command(&args.config).await,
         Command::Completions { shell } => generate_shell_completions(shell),
     }
