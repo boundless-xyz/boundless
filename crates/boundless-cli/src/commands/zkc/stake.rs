@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use alloy::{
+    eips::BlockId,
     network::Ethereum,
     primitives::{Address, B256, U256},
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
@@ -29,27 +30,27 @@ use crate::config::GlobalConfig;
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct ZkcStake {
-    /// Address of the [IStaking] contract.
-    #[clap(long, env = "VEZKC_ADDRESS")]
-    pub vezkc_address: Address,
     /// Amount of ZKC to stake, in wei.
     #[clap(long)]
     pub amount: U256,
-    /// Parameters for permit-based staking.
-    #[clap(flatten)]
-    pub permit: Option<WithPermit>,
+    /// Do not use ERC20 permit to authorize the staking. You will need to send a separate
+    /// transaction to set an ERC20 allowance instead.
+    #[clap(long)]
+    pub no_permit: bool,
+    /// Deadline for the ERC20 permit, in seconds.
+    #[clap(long, default_value_t = 3600, conflicts_with = "no_permit")]
+    pub permit_deadline: u64,
+    /// Address of the [IStaking] contract.
+    #[clap(long, env = "VEZKC_ADDRESS")]
+    pub vezkc_address: Address,
+    /// Address of the ZKC token to permit.
+    #[clap(long, env = "ZKC_ADDRESS", required_unless_present = "no_permit")]
+    pub zkc_address: Option<Address>,
 }
 
 #[derive(Args, Clone, Debug)]
 /// Parameters for permit-based staking.
-pub struct WithPermit {
-    /// Address of the ZKC token to permit.
-    #[clap(long, env = "ZKC_ADDRESS")]
-    pub zkc_address: Address,
-    /// Deadline for the permit, in seconds.
-    #[clap(long, default_value_t = 3600)]
-    pub deadline: u64,
-}
+pub struct WithPermit {}
 
 impl ZkcStake {
     /// Run the [ZKCStake] command.
@@ -64,18 +65,19 @@ impl ZkcStake {
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
-        let pending_tx = match &self.permit {
-            Some(permit) => {
+        tracing::info!("Sending staking transaction");
+        let pending_tx = match &self.no_permit {
+            false => {
                 self.stake_with_permit(
                     provider,
-                    permit.zkc_address,
+                    self.zkc_address.context("ZKC contract address is required")?,
                     self.amount,
                     &tx_signer,
-                    permit.deadline,
+                    self.permit_deadline,
                 )
                 .await?
             }
-            None => self.stake(provider, self.amount).await?,
+            true => self.stake(provider, self.amount).await?,
         };
         tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx.tx_hash();
@@ -133,7 +135,16 @@ impl ZkcStake {
         let call = contract.nonces(owner);
         // TODO(zkc): Map to proper error
         let nonce = call.call().await.map_err(|e| anyhow::anyhow!("Failed to get nonce: {}", e))?;
-        let deadline = U256::from(deadline);
+
+        // Compute the deadline for the permit using the latest block.
+        let latest_block = provider
+            .get_block(BlockId::latest())
+            .await
+            .context("Failed to check the current block timestamp")?
+            .context("Latest block response is empty")?;
+        let deadline = U256::from(deadline + latest_block.header.timestamp);
+
+        // Build and sign a permit
         let permit = Permit { owner, spender: self.vezkc_address, value, nonce, deadline };
         tracing::debug!("Permit: {:?}", permit);
         let domain_separator = contract.DOMAIN_SEPARATOR().call().await?;
@@ -141,6 +152,7 @@ impl ZkcStake {
         let r = B256::from_slice(&sig[..32]);
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
+
         tracing::trace!("Calling stakeWithPermit({})", value);
         let staking = IStaking::new(self.vezkc_address, provider);
         let call = staking.stakeWithPermit(value, deadline, v, r, s);
