@@ -343,10 +343,10 @@ impl IndexerDb for AnyDb {
         .bind(format!("{:x}", request.input.data))
         .bind(request.offer.minPrice.to_string())
         .bind(request.offer.maxPrice.to_string())
-        .bind(request.offer.lockStake.to_string())
-        .bind(request.offer.biddingStart as i64)
-        .bind((request.offer.biddingStart + request.offer.timeout as u64)  as i64)
-        .bind((request.offer.biddingStart + request.offer.lockTimeout as u64)  as i64)
+        .bind(request.offer.lockCollateral.to_string())
+        .bind(request.offer.rampUpStart as i64)
+        .bind((request.offer.rampUpStart + request.offer.timeout as u64)  as i64)
+        .bind((request.offer.rampUpStart + request.offer.lockTimeout as u64)  as i64)
         .bind(request.offer.rampUpPeriod as i64)
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -758,11 +758,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: 0,
+                rampUpStart: 0,
                 timeout: 420,
                 lockTimeout: 420,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         )
     }

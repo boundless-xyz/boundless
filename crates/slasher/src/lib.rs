@@ -291,7 +291,7 @@ where
 
             let request = event.request.clone();
             let expires_at = request.expires_at();
-            let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;
+            let lock_expires_at = request.offer.rampUpStart + request.offer.lockTimeout as u64;
 
             self.add_order(event.requestId, expires_at, lock_expires_at).await?;
         }

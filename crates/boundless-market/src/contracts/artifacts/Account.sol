@@ -15,8 +15,8 @@ struct Account {
     /// @notice The balance of the account.
     /// @dev uint96 is enough to represent the entire token supply of Ether.
     uint96 balance;
-    /// @dev Balance of staked tokens.
-    uint96 stakeBalance;
+    /// @dev Balance of collateral tokens.
+    uint96 collateralBalance;
     /// @notice 32 pairs of 2 bits representing the status of a request. One bit is for lock-in and
     /// the other is for fulfillment.
     /// @dev Request state flags are packed into a uint64 to make balance and flags for the first

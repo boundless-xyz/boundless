@@ -51,11 +51,14 @@ interface IBoundlessMarket {
 
     /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.
-    /// @param stakeBurned The amount of stake burned.
-    /// @param stakeTransferred The amount of stake transferred to either the fulfilling prover or the market.
-    /// @param stakeRecipient The address of the stake recipient. Typically the fulfilling prover, but can be the market.
+    /// @param collateralBurned The amount of collateral burned.
+    /// @param collateralTransferred The amount of collateral transferred to either the fulfilling prover or the market.
+    /// @param collateralRecipient The address of the collateral recipient. Typically the fulfilling prover, but can be the market.
     event ProverSlashed(
-        RequestId indexed requestId, uint256 stakeBurned, uint256 stakeTransferred, address stakeRecipient
+        RequestId indexed requestId,
+        uint256 collateralBurned,
+        uint256 collateralTransferred,
+        address collateralRecipient
     );
 
     /// @notice Event when a deposit is made to the market.
@@ -67,14 +70,14 @@ interface IBoundlessMarket {
     /// @param account The account making the withdrawal.
     /// @param value The value of the withdrawal.
     event Withdrawal(address indexed account, uint256 value);
-    /// @notice Event when a stake deposit is made to the market.
+    /// @notice Event when a collateral deposit is made to the market.
     /// @param account The account making the deposit.
     /// @param value The value of the deposit.
-    event StakeDeposit(address indexed account, uint256 value);
-    /// @notice Event when a stake withdrawal is made to the market.
+    event CollateralDeposit(address indexed account, uint256 value);
+    /// @notice Event when a collateral withdrawal is made to the market.
     /// @param account The account making the withdrawal.
     /// @param value The value of the withdrawal.
-    event StakeWithdrawal(address indexed account, uint256 value);
+    event CollateralWithdrawal(address indexed account, uint256 value);
 
     /// @notice Event when the contract is upgraded to a new version.
     /// @param version The new version of the contract.
@@ -220,21 +223,21 @@ interface IBoundlessMarket {
     /// @param value The amount to withdraw.
     function withdrawFromTreasury(uint256 value) external;
 
-    /// @notice Withdraw funds from the market' stake treasury.
+    /// @notice Withdraw funds from the market' collateral treasury.
     /// @dev Value is debited from the market's account.
     /// @param value The amount to withdraw.
-    function withdrawFromStakeTreasury(uint256 value) external;
+    function withdrawFromCollateralTreasury(uint256 value) external;
 
-    /// @notice Deposit stake into the market to pay for lockin stake.
+    /// @notice Deposit collateral into the market to pay for lockin collateral.
     /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
-    function depositStake(uint256 value) external;
-    /// @notice Permit and deposit stake into the market to pay for lockin stake.
+    function depositCollateral(uint256 value) external;
+    /// @notice Permit and deposit collateral into the market to pay for lockin collateral.
     /// @dev This method requires a valid EIP-712 signature from the account owner.
-    function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
-    /// @notice Withdraw stake from the market.
-    function withdrawStake(uint256 value) external;
+    function depositCollateralWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    /// @notice Withdraw collateral from the market.
+    function withdrawCollateral(uint256 value) external;
     /// @notice Check the deposited balance, in HP, of the given account.
-    function balanceOfStake(address addr) external view returns (uint256);
+    function balanceOfCollateral(address addr) external view returns (uint256);
 
     /// @notice Submit a request such that it is publicly available for provers to evaluate and bid on.
     /// Any `msg.value` sent with the call will be added to the balance of `msg.sender`.
@@ -296,7 +299,7 @@ interface IBoundlessMarket {
     /// transient storage.
     /// @dev When called within the same transaction, this method can be used to fulfill a request
     /// that is not locked. This is useful when the prover wishes to fulfill a request, but does
-    /// not want to issue a lock transaction e.g. because the stake is too high or to save money by
+    /// not want to issue a lock transaction e.g. because the collateral is too high or to save money by
     /// avoiding the gas costs of the lock transaction.
     /// @param request The proof request details.
     /// @param clientSignature The signature of the client.
@@ -408,9 +411,9 @@ interface IBoundlessMarket {
     ) external returns (bytes[] memory paymentError);
 
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn
-    /// the associated prover stake.
-    /// @dev The provers stake has already been transferred to the contract when the request was locked.
-    ///      This method just burn the stake.
+    /// the associated prover collateral.
+    /// @dev The provers collateral has already been transferred to the contract when the request was locked.
+    ///      This method just burn the collateral.
     /// @param requestId The ID of the request.
     function slash(RequestId requestId) external;
 
@@ -422,7 +425,7 @@ interface IBoundlessMarket {
     /// @return The imageId and its url.
     function imageInfo() external view returns (bytes32, string memory);
 
-    /// Returns the address of the token used for stake deposits.
+    /// Returns the address of the token used for collateral deposits.
     // solhint-disable-next-line func-name-mixedcase
-    function STAKE_TOKEN_CONTRACT() external view returns (address);
+    function COLLATERAL_TOKEN_CONTRACT() external view returns (address);
 }

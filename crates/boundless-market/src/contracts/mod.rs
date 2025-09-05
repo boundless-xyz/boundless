@@ -323,9 +323,9 @@ pub enum RequestError {
     #[error("offer maxPrice must be greater than or equal to minPrice")]
     OfferMaxPriceIsLessThanMin,
 
-    /// The offer bidding start is zero.
-    #[error("offer biddingStart must be greater than 0")]
-    OfferBiddingStartIsZero,
+    /// The offer ramp-up start is zero.
+    #[error("offer rampUpStart must be greater than 0")]
+    OfferRampUpStartIsZero,
 
     /// The requirements are missing from the request.
     #[error("missing requirements")]
@@ -402,7 +402,7 @@ impl ProofRequest {
 
     /// Returns the time, in seconds since the UNIX epoch, at which the request expires.
     pub fn expires_at(&self) -> u64 {
-        self.offer.biddingStart + self.offer.timeout as u64
+        self.offer.rampUpStart + self.offer.timeout as u64
     }
 
     /// Returns true if the expiration time has passed, according to the system clock.
@@ -416,7 +416,7 @@ impl ProofRequest {
 
     /// Returns the time, in seconds since the UNIX epoch, at which the request lock expires.
     pub fn lock_expires_at(&self) -> u64 {
-        self.offer.biddingStart + self.offer.lockTimeout as u64
+        self.offer.rampUpStart + self.offer.lockTimeout as u64
     }
 
     /// Returns true if the lock expiration time has passed, according to the system clock.
@@ -474,8 +474,8 @@ impl ProofRequest {
         if self.offer.maxPrice < self.offer.minPrice {
             return Err(RequestError::OfferMaxPriceIsLessThanMin);
         }
-        if self.offer.biddingStart == 0 {
-            return Err(RequestError::OfferBiddingStartIsZero);
+        if self.offer.rampUpStart == 0 {
+            return Err(RequestError::OfferRampUpStartIsZero);
         }
 
         Ok(())
@@ -909,14 +909,14 @@ impl Offer {
         Self { maxPrice: max_price, ..self }
     }
 
-    /// Sets the offer lock-in stake.
-    pub fn with_lock_stake(self, lock_stake: U256) -> Self {
-        Self { lockStake: lock_stake, ..self }
+    /// Sets the offer lock-in collateral.
+    pub fn with_lock_collateral(self, lock_collateral: U256) -> Self {
+        Self { lockCollateral: lock_collateral, ..self }
     }
 
-    /// Sets the offer bidding start time, in seconds since the UNIX epoch.
-    pub fn with_bidding_start(self, bidding_start: u64) -> Self {
-        Self { biddingStart: bidding_start, ..self }
+    /// Sets the offer ramp-up start time, in seconds since the UNIX epoch.
+    pub fn with_ramp_up_start(self, ramp_up_start: u64) -> Self {
+        Self { rampUpStart: ramp_up_start, ..self }
     }
 
     /// Sets the offer timeout as seconds from the bidding start before expiring.
@@ -947,10 +947,10 @@ impl Offer {
         Self { maxPrice: max_price, ..self }
     }
 
-    /// Sets the offer lock-in stake based on the desired price per million cycles.
-    pub fn with_lock_stake_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
-        let lock_stake = mcycle_price * U256::from(mcycle);
-        Self { lockStake: lock_stake, ..self }
+    /// Sets the offer lock-in collateral based on the desired price per million cycles.
+    pub fn with_lock_collateral_per_mcycle(self, mcycle_price: U256, mcycle: u64) -> Self {
+        let lock_collateral = mcycle_price * U256::from(mcycle);
+        Self { lockCollateral: lock_collateral, ..self }
     }
 }
 
@@ -1117,11 +1117,11 @@ mod tests {
             offer: Offer {
                 minPrice: U256::from(0),
                 maxPrice: U256::from(1),
-                biddingStart: 0,
+                rampUpStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
                 lockTimeout: 1000,
-                lockStake: U256::from(0),
+                lockCollateral: U256::from(0),
             },
         };
 

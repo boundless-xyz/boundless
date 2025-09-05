@@ -17,8 +17,8 @@ struct Offer {
     uint256 minPrice;
     /// @notice Price at the end of the bidding period, this is the maximum price the client will pay.
     uint256 maxPrice;
-    /// @notice Time at which bidding starts, in seconds since the UNIX epoch.
-    uint64 biddingStart;
+    /// @notice Time at which the ramp-up period starts, in seconds since the UNIX epoch.
+    uint64 rampUpStart;
     /// @notice Length of the "ramp-up period," measured in seconds since bidding start.
     /// @dev Once bidding starts, the price begins to "ramp-up." During this time, the price rises
     /// each block until it reaches `maxPrice.
@@ -37,15 +37,15 @@ struct Offer {
     /// fulfilled. After this time, the `slash` action can be completed to finalize the transaction
     /// if it was locked but not fulfilled.
     uint32 timeout;
-    /// @notice Bidders must stake this amount as part of their bid.
-    uint256 lockStake;
+    /// @notice Bidders must provide this amount of collateral as part of their bid.
+    uint256 lockCollateral;
 }
 
 library OfferLibrary {
     using SafeCast for uint256;
 
     string constant OFFER_TYPE =
-        "Offer(uint256 minPrice,uint256 maxPrice,uint64 biddingStart,uint32 rampUpPeriod,uint32 lockTimeout,uint32 timeout,uint256 lockStake)";
+        "Offer(uint256 minPrice,uint256 maxPrice,uint64 rampUpStart,uint32 rampUpPeriod,uint32 lockTimeout,uint32 timeout,uint256 lockCollateral)";
     bytes32 constant OFFER_TYPEHASH = keccak256(abi.encodePacked(OFFER_TYPE));
 
     /// @notice Validates that price, ramp-up, timeout, and deadline are internally consistent and well formed.
@@ -70,7 +70,7 @@ library OfferLibrary {
     }
 
     /// @notice Calculates the earliest time at which the offer will be worth at least the given price.
-    /// @dev Returned time will always be in the range 0 to offer.biddingStart + offer.rampUpPeriod.
+    /// @dev Returned time will always be in the range 0 to offer.rampUpStart + offer.rampUpPeriod.
     /// @param offer The offer to calculate for.
     /// @param price The price to calculate the time for.
     /// @return The earliest time at which the offer will be worth at least the given price.
@@ -91,7 +91,7 @@ library OfferLibrary {
         uint256 run = uint256(offer.rampUpPeriod);
 
         uint256 delta = Math.ceilDiv(uint256(price - offer.minPrice) * run, rise);
-        return offer.biddingStart + delta.toUint64();
+        return offer.rampUpStart + delta.toUint64();
     }
 
     /// @notice Calculates the price at the given time.
@@ -103,7 +103,7 @@ library OfferLibrary {
     /// @param timestamp The time to calculate the price for, as a UNIX timestamp.
     /// @return The price at the given time.
     function priceAt(Offer memory offer, uint64 timestamp) internal pure returns (uint256) {
-        if (timestamp <= offer.biddingStart) {
+        if (timestamp <= offer.rampUpStart) {
             return offer.minPrice;
         }
 
@@ -111,13 +111,13 @@ library OfferLibrary {
             return 0;
         }
 
-        if (timestamp <= offer.biddingStart + offer.rampUpPeriod) {
+        if (timestamp <= offer.rampUpStart + offer.rampUpPeriod) {
             // Note: if we are in this branch, then 0 < offer.rampUpPeriod
             // This means it is safe to divide by offer.rampUpPeriod
 
             uint256 rise = uint256(offer.maxPrice - offer.minPrice);
             uint256 run = uint256(offer.rampUpPeriod);
-            uint256 delta = timestamp - uint256(offer.biddingStart);
+            uint256 delta = timestamp - uint256(offer.rampUpStart);
 
             // Note: delta <= run
             // This means (delta * rise) / run <= rise
@@ -134,14 +134,14 @@ library OfferLibrary {
     /// @param offer The offer to calculate the deadline for.
     /// @return The deadline for the offer, as a UNIX timestamp.
     function deadline(Offer memory offer) internal pure returns (uint64) {
-        return offer.biddingStart + offer.timeout;
+        return offer.rampUpStart + offer.timeout;
     }
 
     /// @notice Calculates the lock deadline for the offer.
     /// @param offer The offer to calculate the lock deadline for.
     /// @return The lock deadline for the offer, as a UNIX timestamp.
     function lockDeadline(Offer memory offer) internal pure returns (uint64) {
-        return offer.biddingStart + offer.lockTimeout;
+        return offer.rampUpStart + offer.lockTimeout;
     }
 
     /// @notice Computes the EIP-712 digest for the given offer.
@@ -153,11 +153,11 @@ library OfferLibrary {
                 OFFER_TYPEHASH,
                 offer.minPrice,
                 offer.maxPrice,
-                offer.biddingStart,
+                offer.rampUpStart,
                 offer.rampUpPeriod,
                 offer.lockTimeout,
                 offer.timeout,
-                offer.lockStake
+                offer.lockCollateral
             )
         );
     }

@@ -18,8 +18,8 @@ RUST_LOG=info boundless proving execute --request-id $REQUEST_ID
 - The offer price may be too low for the size of the job.
   - Try increasing the max price and ramp-up period.
   - The auction mechanism will ensure that the price you pay is the lowest price any online prover is willing to pay.
-- The lock-in stake may be too high.
+- The lock-in collateral may be too high.
 - The timeout may be too short.
-- The bidding start block may be in the past, causing the request to immediately expire.
+- The ramp-up start block may be in the past, causing the request to immediately expire.
 - The program or input URLs may not be accessible to the prover.
 

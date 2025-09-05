@@ -38,19 +38,19 @@ function calculateSuggestion(
   const maxPriceInWei = programMegaCycles  * 1e14
   const maxPrice = maxPriceInWei * 1e-18 ;
 
-  // allow people to execute before bidding go up
-  const biddingStartDelay = Math.ceil(programMegaCycles / 30); // assuming 30 Mhz execution trace gen
+  // allow people to execute before ramp up period starts
+  const rampUpStartDelay = Math.ceil(programMegaCycles / 30); // assuming 30 Mhz execution trace gen
 
-  // assume 1000 MCycles = $10 USD lock stake
-  const lockInStakeUSDC = Math.max(5, ( programMegaCycles / 1000 ) * 10);
+  // assume 1000 MCycles = $10 USD lock collateral
+  const lockInCollateralUSDC = Math.max(5, ( programMegaCycles / 1000 ) * 10);
 
   return {
     minPrice: 0,
     maxPrice: Math.min(0.1, maxPrice), // set to 0.1 ETH max
-    biddingStartDelay,
+    rampUpStartDelay,
     rampUpBlocks: Math.min(100, Math.ceil(proofDeliveryTime * 0.5 * networkConfig.blocksPerMinute)),
     lockTimeoutBlocks: Math.ceil(proofDeliveryTime * networkConfig.blocksPerMinute),
-    lockInStake: lockInStakeUSDC,
+    lockInCollateral: lockInCollateralUSDC,
   };
 }
 
@@ -72,11 +72,11 @@ export default function PricingCalculator() {
   const yamlConfig = `offer:
     min_price: ${suggestion.minPrice * 1e18} # wei
     max_price: ${suggestion.maxPrice * 1e18} # wei
-    biddingStart: ${suggestion.biddingStartDelay} # blocks
+    rampUpStart: ${suggestion.rampUpStartDelay} # blocks
     rampUpPeriod: ${suggestion.rampUpBlocks} # blocks
     timeout: 2700 # seconds
     lockTimeout: ${suggestion.lockTimeoutBlocks} # blocks
-    lockStake: ${suggestion.lockInStake * 1e6} # USDC`;
+    lockCollateral: ${suggestion.lockInCollateral * 1e6} # USDC`;
 
   const handleCopy = async () => {
     try {
@@ -182,12 +182,12 @@ export default function PricingCalculator() {
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt>Bidding Start Delay:</dt>
+                <dt>Ramp-up Start Delay:</dt>
                 <dd>
                   <NumberFlow
                     className="font-mono"
-                    value={suggestion.biddingStartDelay}
-                    suffix={suggestion.biddingStartDelay === 1 ? " block" : " blocks"}
+                    value={suggestion.rampUpStartDelay}
+                    suffix={suggestion.rampUpStartDelay === 1 ? " block" : " blocks"}
                   />
                 </dd>
               </div>
@@ -212,7 +212,7 @@ export default function PricingCalculator() {
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt>Lock-in Stake:</dt>
+                <dt>Lock-in Collateral:</dt>
                 <dd>
                   <NumberFlow
                     format={{
@@ -220,7 +220,7 @@ export default function PricingCalculator() {
                       maximumFractionDigits: 6,
                     }}
                     className="font-mono"
-                    value={suggestion.lockInStake}
+                    value={suggestion.lockInCollateral}
                     suffix=" USDC"
                   />
                 </dd>
