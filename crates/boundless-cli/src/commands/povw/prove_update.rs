@@ -155,8 +155,13 @@ impl PovwProveUpdate {
         let mut prover = prover_builder.build().context("Failed to build WorkLogUpdateProver")?;
 
         // Prove the work log update
-        let prove_info =
-            prover.prove_update(work_receipts).context("Failed to prove work log update")?;
+        // NOTE: We use tokio block_in_place here to mitigate two issues. One is that when using
+        // the Bonsai version of the default prover, tokio may panic with an error about the
+        // runtime being dropped. And spawn_blocking cannot be used because VerifierContext,
+        // default_prover(), and ExecutorEnv do not implement Send.
+        let prove_info = tokio::task::block_in_place(|| {
+            prover.prove_update(work_receipts).context("Failed to prove work log update")
+        })?;
 
         // Update and save the output state.
         state
