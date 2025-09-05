@@ -26,6 +26,12 @@ use risc0_povw::WorkLog;
 use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
 
+#[test]
+fn use_blst() {
+    // call something some blst to mitigate a build issue where is does not become linked.
+    let _ = unsafe { blst::blst_p1_sizeof() };
+}
+
 #[tokio::test]
 async fn basic() -> anyhow::Result<()> {
     // Setup test context

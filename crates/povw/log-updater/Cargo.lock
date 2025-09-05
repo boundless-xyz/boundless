@@ -1005,7 +1005,6 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
- "blst",
  "borsh",
  "bytemuck",
  "derive_builder",
