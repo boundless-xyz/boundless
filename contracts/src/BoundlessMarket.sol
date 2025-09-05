@@ -13,9 +13,12 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {
+    IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib, VerificationFailed
+} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket} from "./IBoundlessMarket.sol";
@@ -24,8 +27,13 @@ import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
+import {FulfillmentDataImageIdAndJournal} from "./types/FulfillmentData.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
+import {
+    FulfillmentDataImageIdAndJournal, FulfillmentDataLibrary, FulfillmentDataType
+} from "./types/FulfillmentData.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
+import {PredicateType} from "./types/Predicate.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
@@ -85,11 +93,33 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
     /// gas of an SLOAD. Can only be changed via contract upgrade.
     uint96 public constant MARKET_FEE_BPS = 0;
 
+    /// @notice The ID of the deprecated assessor image.
+    /// @dev After a contract upgrade, the ASSESSOR_ID might change, so this value is used to
+    /// keep active the previous version of the assessor until its expiration. In this way,
+    /// contract upgrades can be performed without disrupting ongoing fulfillments.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 public immutable DEPRECATED_ASSESSOR_ID;
+
+    /// @notice The expiration timestamp of the deprecated assessor.
+    /// @dev This value is used to determine when the previous version of the assessor is no longer
+    /// active. Any assessor seals that were created with the deprecated image ID must be fulfilled
+    /// before this timestamp.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint64 public immutable DEPRECATED_ASSESSOR_EXPIRES_AT;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
+    constructor(
+        IRiscZeroVerifier verifier,
+        bytes32 assessorId,
+        bytes32 deprecatedAssessorId,
+        uint32 deprecatedAssessorDuration,
+        address stakeTokenContract
+    ) {
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
         STAKE_TOKEN_CONTRACT = stakeTokenContract;
+        DEPRECATED_ASSESSOR_ID = deprecatedAssessorId;
+        DEPRECATED_ASSESSOR_EXPIRES_AT = uint64(block.timestamp) + deprecatedAssessorDuration;
 
         _disableInitializers();
     }
@@ -200,17 +230,9 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client, bool smartContractSigned) = request.id.clientAndIsSmartContractSigned();
+        address client = request.id.client();
 
-        bytes32 requestHash;
-        // We only need to validate the signature if it is a smart contract signature. This is because
-        // EOA signatures are validated in the assessor during fulfillment, so the assessor guarantees
-        // that the digest that is priced is one that was signed by the client.
-        if (smartContractSigned) {
-            requestHash = _verifyClientSignature(request, client, clientSignature);
-        } else {
-            requestHash = _hashTypedDataV4(request.eip712Digest());
-        }
+        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
 
         (, uint64 deadline) = request.validate();
         bool expired = deadline < block.timestamp;
@@ -249,16 +271,17 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
         // Verify the application receipts.
         for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
+            bytes32 fulfillmentDataDigest = fill.fulfillmentDataDigest();
 
-            bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, claimDigest).eip712Digest();
+            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, fill.claimDigest, fulfillmentDataDigest)
+                .eip712Digest();
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
             if (!hasSelector[i]) {
-                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
+                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, fill.claimDigest));
             } else {
-                VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigest));
+                VERIFIER.verifyIntegrity(Receipt(fill.seal, fill.claimDigest));
             }
         }
 
@@ -277,7 +300,13 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
             )
         );
         // Verification of the assessor seal does not need to comply with DEFAULT_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
+        try VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest) {}
+        catch {
+            if (block.timestamp > DEPRECATED_ASSESSOR_EXPIRES_AT) {
+                revert VerificationFailed();
+            }
+            VERIFIER.verify(assessorReceipt.seal, DEPRECATED_ASSESSOR_ID, assessorJournalDigest);
+        }
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -328,8 +357,15 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
             uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
             if (callbackIndexPlusOne > 0) {
-                AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
-                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+                if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
+                    (bytes32 imageId, bytes calldata journal) =
+                        FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
+                    AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
+                    _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
+                } else {
+                    // A callback was requested, but it cannot be fulfilled, so revert.
+                    revert UnfulfillableCallback();
+                }
             }
         }
     }
@@ -698,8 +734,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
             accounts[client].balance += lock.price;
         }
 
-        ERC20(STAKE_TOKEN_CONTRACT).transfer(address(0xdEaD), burnValue);
-        (burnValue);
+        ERC20Burnable(STAKE_TOKEN_CONTRACT).burn(burnValue);
         emit ProverSlashed(requestId, burnValue, transferValue, stakeRecipient);
     }
 

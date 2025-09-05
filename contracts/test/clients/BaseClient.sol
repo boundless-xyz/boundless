@@ -12,9 +12,12 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Callback} from "../../src/types/Callback.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {LockRequest} from "../../src/types/LockRequest.sol";
+import {Fulfillment} from "../../src/types/Fulfillment.sol";
+import {FulfillmentDataType} from "../../src/types/FulfillmentData.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Requirements} from "../../src/types/Requirements.sol";
-import {Predicate, PredicateType} from "../../src/types/Predicate.sol";
+import {PredicateLibrary, PredicateType} from "../../src/types/Predicate.sol";
+
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -67,8 +70,7 @@ abstract contract BaseClient {
 
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
-            imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))}),
+            predicate: PredicateLibrary.createDigestMatchPredicate(bytes32(APP_IMAGE_ID), sha256(APP_JOURNAL)),
             selector: bytes4(0),
             callback: Callback({addr: address(0), gasLimit: 0})
         });

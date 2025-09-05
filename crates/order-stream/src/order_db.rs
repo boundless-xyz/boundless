@@ -269,10 +269,13 @@ impl OrderDb {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{primitives::U256, signers::local::LocalSigner, sol_types::SolStruct};
+    use alloy::{
+        primitives::{Bytes, U256},
+        signers::local::LocalSigner,
+        sol_types::SolStruct,
+    };
     use boundless_market::contracts::{
-        eip712_domain, Offer, Predicate, PredicateType, ProofRequest, RequestInput,
-        RequestInputType, Requirements,
+        eip712_domain, Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
     use futures_util::StreamExt;
     use risc0_zkvm::sha::Digest;
@@ -285,10 +288,10 @@ mod tests {
         let signer = LocalSigner::random();
         let req = ProofRequest {
             id,
-            requirements: Requirements::new(
+            requirements: Requirements::new(Predicate::prefix_match(
                 Digest::ZERO,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+                Bytes::default(),
+            )),
             imageUrl: "test".to_string(),
             input: RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             offer: Offer {

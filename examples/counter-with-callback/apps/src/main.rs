@@ -109,7 +109,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (_journal, _seal) = client
+    let _fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds

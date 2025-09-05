@@ -22,7 +22,9 @@ use aws_sdk_s3::{
     error::ProvideErrorMetadata,
     Client as S3Client,
 };
+use boundless_market::contracts::Predicate;
 use futures::StreamExt;
+use hex::FromHex;
 use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheOptions};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
@@ -347,18 +349,24 @@ pub async fn upload_image_uri(
     request: &crate::ProofRequest,
     config: &crate::config::ConfigLock,
 ) -> Result<String> {
-    let required_image_id = Digest::from(request.requirements.imageId.0);
-    let image_id_str = required_image_id.to_string();
-    if prover.has_image(&image_id_str).await? {
-        tracing::debug!(
-            "Skipping program upload for cached image ID: {image_id_str} for request {:x}",
-            request.id
-        );
-        return Ok(image_id_str);
+    let predicate = Predicate::try_from(request.requirements.predicate.clone())
+        .with_context(|| format!("Failed to parse predicate for request {:x}", request.id))?;
+
+    let image_id_str = predicate.image_id().map(|image_id| image_id.to_string());
+
+    // When predicate is ClaimDigestMatch, we do not have the image id, so we must always download and upload the image.
+    if let Some(ref image_id_str) = image_id_str {
+        if prover.has_image(image_id_str).await? {
+            tracing::debug!(
+                "Skipping program upload for cached image ID: {image_id_str} for request {:x}",
+                request.id
+            );
+            return Ok(image_id_str.clone());
+        }
     }
 
     tracing::debug!(
-        "Fetching program for request {:x} with image ID {image_id_str} from URI {}",
+        "Fetching program for request {:x} with image ID {image_id_str:?} from URI {}",
         request.id,
         request.imageUrl
     );
@@ -373,12 +381,17 @@ pub async fn upload_image_uri(
     let image_id = risc0_zkvm::compute_image_id(&image_data)
         .context(format!("Failed to compute image ID for request {:x}", request.id))?;
 
-    anyhow::ensure!(
-        image_id == required_image_id,
-        "image ID does not match requirements; expect {}, got {}",
-        required_image_id,
-        image_id
-    );
+    if let Some(ref image_id_str) = image_id_str {
+        let required_image_id = Digest::from_hex(image_id_str)?;
+        anyhow::ensure!(
+            image_id == required_image_id,
+            "image ID does not match requirements; expect {}, got {}",
+            required_image_id,
+            image_id
+        );
+    }
+
+    let image_id_str = image_id.to_string();
 
     tracing::debug!(
         "Uploading program for request {:x} with image ID {image_id_str} to prover",

@@ -23,7 +23,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol_types::SolCall,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use boundless_market::{
     input::GuestEnv, request_builder::OfferParams, Client, Deployment, StorageProviderConfig,
 };
@@ -93,11 +93,12 @@ async fn run(args: Args) -> Result<()> {
         .await
         .context("failed to build boundless client")?;
 
+    let input = format!("{:?}", SystemTime::now());
     // Request an un-aggregated proof from the Boundless market using the ECHO guest.
     let echo_request = client
         .new_request()
         .with_program(ECHO_ELF)
-        .with_stdin(format!("{:?}", SystemTime::now()).as_bytes())
+        .with_stdin(input.as_bytes())
         .with_groth16_proof();
 
     // Submit the request to the Boundless market
@@ -106,18 +107,24 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (echo_journal, echo_seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
             expires_at,
         )
         .await?;
+    let fulfillment_data = fulfillment.data()?;
+    let cb_image_id = fulfillment_data.image_id().ok_or_else(|| anyhow!("missing cb_image_id"))?;
+    let echo_journal =
+        fulfillment_data.journal().ok_or_else(|| anyhow!("missing echo_journal"))?.to_vec();
+
     tracing::info!("Request {:x} fulfilled", request_id);
+    assert_eq!(Digest::from(<[u8; 32]>::from(cb_image_id)), Digest::from(ECHO_ID));
 
     // Decode the resulting RISC0-ZKVM receipt.
     let Ok(ContractReceipt::Base(echo_receipt)) =
-        risc0_ethereum_contracts::receipt::decode_seal(echo_seal, ECHO_ID, echo_journal.clone())
+        risc0_ethereum_contracts::receipt::decode_seal(fulfillment.seal, ECHO_ID, echo_journal)
     else {
         bail!("did not receive requested unaggregated receipt")
     };
@@ -138,7 +145,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled (check periodically)
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (identity_journal, identity_seal) = client
+    let identity_fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // periodic check every 5 seconds
@@ -146,14 +153,21 @@ async fn run(args: Args) -> Result<()> {
         )
         .await?;
     tracing::info!("Request {:x} fulfilled", request_id);
+    let identity_journal = identity_fulfillment
+        .data()?
+        .journal()
+        .ok_or_else(|| anyhow!("missing identity_journal"))?
+        .to_vec();
+
     debug_assert_eq!(&identity_journal, echo_claim_digest.as_bytes());
 
     // Interact with the Counter contract by calling the increment function.
     let counter = ICounterInstance::new(args.counter_address, client.provider());
     let journal_digest = B256::from_slice(identity_journal.digest().as_bytes());
     let image_id = B256::from_slice(Digest::from(IDENTITY_ID).as_bytes());
-    let call_increment =
-        counter.increment(identity_seal, image_id, journal_digest).from(client.caller());
+    let call_increment = counter
+        .increment(identity_fulfillment.seal, image_id, journal_digest)
+        .from(client.caller());
 
     tracing::info!("Calling Counter increment function");
     let pending_tx = call_increment.send().await.context("failed to broadcast transaction")?;
