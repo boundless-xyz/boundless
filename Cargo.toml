@@ -36,7 +36,7 @@ guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
 
 async-stream = "0.3"
-alloy = { version = "1.0.24", default-features = false }
+alloy = { version = "1.0", default-features = false }
 alloy-primitives = { version = "1.0" }
 alloy-sol-types = { version = "1.0", features = ["json"] }
 alloy-chains = "0.2.0"
