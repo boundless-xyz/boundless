@@ -108,16 +108,32 @@ impl ZkcStake {
             tx_receipt.transaction_hash
         );
 
-        let (token_id, owner, amount) = match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt)
-        {
-            Ok(log) => {
-                (U256::from(log.inner.data.tokenId), log.inner.data.owner, log.inner.data.amount)
-            }
-            Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
-        };
-        tracing::info!(
-            "Staking completed: token_id = {token_id}, owner = {owner}, amount = {amount}"
-        );
+        if self.add {
+            let (token_id, owner, amount) =
+                match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt) {
+                    Ok(log) => {
+                        (U256::from(log.data().tokenId), log.data().owner, log.data().amount)
+                    }
+                    Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
+                };
+            tracing::info!(
+                "Staking completed: token_id = {token_id}, owner = {owner}, amount = {amount}"
+            );
+        } else {
+            let (token_id, owner, amount_added, new_total) =
+                match extract_tx_log::<IStaking::StakeAdded>(&tx_receipt) {
+                    Ok(log) => (
+                        U256::from(log.data().tokenId),
+                        log.data().owner,
+                        log.data().addedAmount,
+                        log.data().newTotal,
+                    ),
+                    Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
+                };
+            tracing::info!(
+                "Staking completed: token_id = {token_id}, owner = {owner}, amount added = {amount_added}, new total = {new_total}"
+            );
+        }
         Ok(())
     }
 
