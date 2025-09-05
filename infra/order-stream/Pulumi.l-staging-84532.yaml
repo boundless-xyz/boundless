@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFmXzySu/SW1BLRtO
 config:
   aws:region: us-west-2
   order-stream:BASE_STACK: organization/bootstrap/services-staging
-  order-stream:BOUNDLESS_ADDRESS: 0xAD0Bd6C436658aF457736d7224a87d2EF56365C8
+  order-stream:BOUNDLESS_ADDRESS: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
   order-stream:CHAIN_ID: "84532"
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
