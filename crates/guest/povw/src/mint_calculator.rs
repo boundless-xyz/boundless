@@ -781,9 +781,11 @@ pub mod prover {
                 // Patch in extra blocks in order to complete the chain of blocks as needed. This
                 // is required because EIP 4788 has a buffer size of 8191. We use 8000 here as the
                 // max gap. Add a recent block to make sure we will chain to a present value.
-                let latest_block_number = self.provider.get_block_number().await.context("Failed to get block number")?;
-                let patched_block_numbers = 
-                    PatchedIterator::<_, 8000>::new(block_numbers.into_iter().chain([latest_block_number - 2]));
+                let latest_block_number =
+                    self.provider.get_block_number().await.context("Failed to get block number")?;
+                let patched_block_numbers = PatchedIterator::<_, 8000>::new(
+                    block_numbers.into_iter().chain([latest_block_number - 2]),
+                );
                 Input::build(
                     self.povw_accounting_address,
                     self.zkc_address,
@@ -900,10 +902,13 @@ pub mod prover {
 mod tests {
     use risc0_zkvm::compute_image_id;
 
-    use super::{BOUNDLESS_POVW_MINT_CALCULATOR_ID, BOUNDLESS_POVW_MINT_CALCULATOR_ELF};
+    use super::{BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID};
 
     #[test]
     fn image_id_consistency() {
-        assert_eq!(BOUNDLESS_POVW_MINT_CALCULATOR_ID, <[u32; 8]>::from(compute_image_id(BOUNDLESS_POVW_MINT_CALCULATOR_ELF).unwrap()));
+        assert_eq!(
+            BOUNDLESS_POVW_MINT_CALCULATOR_ID,
+            <[u32; 8]>::from(compute_image_id(BOUNDLESS_POVW_MINT_CALCULATOR_ELF).unwrap())
+        );
     }
 }
