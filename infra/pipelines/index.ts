@@ -186,6 +186,16 @@ const lDistributorPipeline = new LDistributorPipeline("lDistributorPipeline", {
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
 
+const lOrderStreamPipeline = new LOrderStreamPipeline("lOrderStreamPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
 /*
 const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
   connection: githubConnection,
@@ -198,16 +208,6 @@ const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
 })
 
 const lOrderGeneratorPipeline = new LOrderGeneratorPipeline("lOrderGeneratorPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
-const lOrderStreamPipeline = new LOrderStreamPipeline("lOrderStreamPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
