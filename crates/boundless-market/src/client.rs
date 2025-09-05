@@ -510,7 +510,7 @@ where
                 set_verifier_address: *set_verifier.instance().address(),
                 chain_id: None,
                 order_stream_url: None,
-                stake_token_address: None,
+                collateral_token_address: None,
                 verifier_router_address: None,
             },
             boundless_market,

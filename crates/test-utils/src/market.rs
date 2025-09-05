@@ -289,7 +289,7 @@ pub async fn create_test_ctx_with_rpc_url(
             .boundless_market_address(boundless_market_addr)
             .verifier_router_address(verifier_addr)
             .set_verifier_address(set_verifier_addr)
-            .stake_token_address(hit_points_addr)
+            .collateral_token_address(hit_points_addr)
             .build()?,
         prover_signer,
         customer_signer,

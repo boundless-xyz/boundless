@@ -185,7 +185,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         };
     tracing::debug!("Indexer URL: {}", indexer_url);
 
-    let stake_token_decimals = boundless_client.boundless_market.stake_token_decimals().await?;
+    let stake_token_decimals = boundless_client.boundless_market.collateral_token_decimals().await?;
 
     // Build the first request. We will clone this request, updating the id and bidding start, to
     // create each request sent.

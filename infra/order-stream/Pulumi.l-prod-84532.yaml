@@ -6,6 +6,7 @@ config:
   order-stream:DISABLE_CERT: true
   order-stream:BASE_STACK: organization/bootstrap/services-prod
   order-stream:BOUNDLESS_ADDRESS: 0x5b0b2825F4BAAdA9354aa5c0f106D32EE4E25fee
+  order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:CHAIN_ID: "84532"
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest

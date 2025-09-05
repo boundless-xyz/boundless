@@ -257,7 +257,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             );
 
             // Transfer the withdrawn stake to distributor
-            let stake_token = distributor_client.boundless_market.stake_token_address().await?;
+            let stake_token = distributor_client.boundless_market.collateral_token_address().await?;
             let stake_token_contract = IERC20::new(stake_token, prover_provider.clone());
 
             let pending_tx = match stake_token_contract
@@ -298,7 +298,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         let prover_wallet = EthereumWallet::from(prover_key.clone());
         let prover_address = prover_wallet.default_signer().address();
 
-        let stake_token = distributor_client.boundless_market.stake_token_address().await?;
+        let stake_token = distributor_client.boundless_market.collateral_token_address().await?;
         let stake_token_contract = IERC20::new(stake_token, distributor_provider.clone());
 
         let distributor_stake_balance =
