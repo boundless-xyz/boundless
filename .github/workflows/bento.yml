@@ -1,0 +1,167 @@
+name: Bento Testing
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release-*'
+    paths:
+      - 'bento/**'
+      - '.github/workflows/bento.yml'
+  push:
+    branches:
+      - main
+      - 'release-*'
+    paths:
+      - 'bento/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: read
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "3.0.1"
+  FOUNDRY_VERSION: v1.0.0
+
+jobs:
+  bento-test:
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    services:
+      postgres:
+        image: postgres:latest
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: bento_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Setup sccache + S3
+        uses: ./.github/actions/sccache
+
+      - name: Setup Rust toolchain
+        uses: risc0/risc0/.github/actions/rustup@v3.0.3
+
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Install cargo-sort
+        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
+        with:
+          crate: cargo-sort
+          version: "1.0"
+
+      - name: Change to bento directory
+        run: cd bento
+
+      - name: Cargo sort check
+        run: |
+          cd bento
+          cargo sort --workspace --check
+
+      - name: Cargo format check
+        run: |
+          cd bento
+          cargo fmt --all -- --check
+
+      - name: Cargo check
+        run: |
+          cd bento
+          cargo check
+
+      - name: Run database migrations
+        run: |
+          # Install sqlx-cli if not present
+          if ! command -v sqlx &> /dev/null; then
+            cargo install sqlx-cli --no-default-features --features postgres
+          fi
+          pwd
+
+          # Create database and run migrations for taskdb
+          cd bento/crates/taskdb
+          sqlx database create --database-url "postgres://postgres:password@localhost:5432/bento_test"
+          sqlx migrate run --database-url "postgres://postgres:password@localhost:5432/bento_test"
+          cd ../..
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
+
+      - name: Run bento tests
+        run: |
+          cd bento
+          cargo test
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
+          REDIS_URL: redis://localhost:6379
+          RISC0_DEV_MODE: true
+          POVW_ENABLED: false
+
+      - name: Test with POVW enabled
+        run: |
+          cd bento
+          cargo test
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
+          REDIS_URL: redis://localhost:6379
+          RISC0_DEV_MODE: true
+          POVW_ENABLED: true
+          POVW_LOG_ID: "0000000000000000000000000000000000000000"
+          POVW_JOB_NUMBER: "1"
+
+      - name: Test specific crates
+        run: |
+          cd bento
+          cargo test --locked -p taskdb
+          cargo test --locked -p workflow-common
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
+          REDIS_URL: redis://localhost:6379
+          RISC0_DEV_MODE: true
+
+      - name: Cleanup Docker services
+        if: always()
+        run: |
+          docker stop bento-postgres-test bento-redis-test || true
+          docker rm bento-postgres-test bento-redis-test || true
+
+      - name: sccache stats
+        run: sccache --show-stats

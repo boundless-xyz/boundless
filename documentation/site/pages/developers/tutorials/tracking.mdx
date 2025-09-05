@@ -20,7 +20,7 @@ Here's how to wait for a request to be fulfilled:
 # use anyhow::Result;
 # use alloy_primitives::U256;
 # use alloy::signers::local::PrivateKeySigner;
-# 
+#
 # async fn example() -> Result<()> {
 # let private_key = PrivateKeySigner::random();
 # let client = Client::builder().with_private_key(private_key).build().await?;
@@ -38,7 +38,7 @@ let (request_id, expires_at) = client.submit_onchain(request).await?;
 
 // Wait for the request to be fulfilled
 tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-let (journal, seal) = client
+let fulfillment = client
     .wait_for_request_fulfillment(
         request_id,
         Duration::from_secs(5), // check every 5 seconds
@@ -78,12 +78,12 @@ When tracking requests, handle these potential outcomes:
 <StripRustCodeComments>
 ```rust no_run
 # use boundless_market::client::ClientError;
-# use boundless_market::contracts::boundless_market::MarketError;
+# use boundless_market::contracts::{boundless_market::MarketError, FulfillmentData};
 # use boundless_market::Client;
 # use std::time::Duration;
 # use alloy_primitives::U256;
 # use anyhow::Result;
-# 
+#
 # async fn example() -> Result<()> {
 # let client = Client::builder().build().await?;
 # let request_id = U256::from(0); // Example request ID
@@ -91,9 +91,9 @@ When tracking requests, handle these potential outcomes:
 # let expires_at = 0u64; // Example expiry time
 
 match client.wait_for_request_fulfillment(request_id, check_interval, expires_at).await {
-    Ok((journal, seal)) => {
+    Ok(fulfillment) => {
         // Process the fulfilled proof
-        tracing::info!("Proof received with journal: {:?}", journal);
+        tracing::info!("Proof received with fulfillment data: {:?}", fulfillment.data()?);
     }
     Err(ClientError::MarketError(MarketError::RequestHasExpired(_))) => {
         tracing::error!("Request expired before fulfillment");
@@ -120,7 +120,7 @@ For more control, you can manually check request status:
 # use alloy_primitives::U256;
 # use anyhow::Result;
 # use std::time::Duration;
-# 
+#
 # async fn example() -> Result<()> {
 # let client = Client::builder().build().await?;
 # let request_id = U256::from(0); // Example request ID
@@ -130,8 +130,8 @@ For more control, you can manually check request status:
 let status = client.boundless_market.get_status(request_id, Some(expires_at)).await?;
 match status {
     RequestStatus::Fulfilled => {
-        // Retrieve the journal and seal for the fulfilled request
-        let (journal, seal) = client
+        // Retrieve the fulfillment for the fulfilled request
+        let fulfillment = client
             .wait_for_request_fulfillment(request_id, Duration::from_secs(1), expires_at)
             .await?;
     }

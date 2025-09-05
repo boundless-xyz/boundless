@@ -1077,7 +1077,10 @@ pub mod test_utils {
     use alloy::network::Ethereum;
     use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
-    use boundless_market_test_utils::{TestCtx, ASSESSOR_GUEST_PATH, SET_BUILDER_PATH};
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
+        market::TestCtx,
+    };
     use tempfile::NamedTempFile;
     use url::Url;
 

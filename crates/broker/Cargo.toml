@@ -22,7 +22,8 @@ bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
-boundless-market-test-utils = { workspace = true, optional = true }
+boundless-test-utils = { workspace = true, optional = true }
+bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 futures = "0.3"
@@ -71,4 +72,4 @@ tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }
 
 [features]
-test-utils = ["dep:boundless-market-test-utils"]
+test-utils = ["dep:boundless-test-utils"]

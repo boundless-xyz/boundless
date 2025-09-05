@@ -143,8 +143,7 @@ mod tests {
     };
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
-        Requirements,
+        Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
@@ -162,23 +161,17 @@ mod tests {
             target_timestamp: None,
             request: ProofRequest::new(
                 RequestId::new(Address::ZERO, id as u32),
-                Requirements::new(
-                    Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
                 "http://risczero.com",
                 RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
-                    biddingStart: 0,
+                    rampUpStart: 0,
                     timeout: 100,
                     lockTimeout: 100,
                     rampUpPeriod: 1,
-                    lockStake: U256::from(0),
+                    lockCollateral: U256::from(0),
                 },
             ),
             image_id: None,

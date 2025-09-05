@@ -85,7 +85,7 @@ let (request_id, expires_at) = client.submit_request_onchain(&request).await?;
 # async fn submit_request(client: Client, request: ProofRequest) -> anyhow::Result<()>
 # {
 # let (request_id, expires_at) = client.submit_request_onchain(&request).await?;
-let (journal, seal) = client
+let fulfillment = client
     .wait_for_request_fulfillment(request_id, Duration::from_secs(10), expires_at)
     .await?;
 # Ok(())
@@ -103,7 +103,7 @@ let (journal, seal) = client
 # async fn fetch_results(client: Client, request_id: U256) -> anyhow::Result<()>
 # {
 // If not using wait_for_request_fulfillment:
-let (journal, seal) = client.boundless_market.get_request_fulfillment(request_id).await?;
+let fulfillment = client.boundless_market.get_request_fulfillment(request_id).await?;
 
 // Advanced: Set-Inclusion Receipt
 let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32].into()).await?;
@@ -139,7 +139,7 @@ let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, [0u8; 32
 ```rust
 use boundless_market::{
   Client,
-  contracts::{RequestId, Requirements, Predicate, Offer},
+  contracts::{FulfillmentData, RequestId, Requirements, Predicate, Offer},
   storage::storage_provider_from_env,
   request_builder::OfferParams,
 };
@@ -169,11 +169,10 @@ async fn proof_submission(signer: &PrivateKeySigner, rpc_url: Url) -> anyhow::Re
     // Submit the request onchain.
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 
-    let (journal, seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(request_id, Duration::from_secs(10), expires_at)
         .await?;
-
-    println!("Journal: {journal:?}, Seal: {seal:?}");
+    println!("FulfillmentData: {:?}, Seal: {:?}", fulfillment.data()?, fulfillment.seal);
 
     Ok(())
 }

@@ -58,8 +58,8 @@ check_os() {
         if [[ "${ID,,}" != "ubuntu" ]]; then
             error "Unsupported operating system: $NAME. This script is intended for Ubuntu."
             exit 1
-        elif [[ "${VERSION_ID,,}" != "22.04" && "${VERSION_ID,,}" != "20.04" ]]; then
-            error "Unsupported operating system verion: $VERSION. This script is intended for Ubuntu 20.04 or 22.04."
+        elif [[ "${VERSION_ID,,}" != "22.04" && "${VERSION_ID,,}" != "24.04" ]]; then
+            error "Unsupported operating system version: $VERSION. This script is intended for Ubuntu 22.04 or 24.04."
             exit 1
         else
             info "Operating System: $PRETTY_NAME"
@@ -101,13 +101,24 @@ install_packages() {
     success "Essential packages installed successfully."
 }
 
-# Function to install GPU drivers
-install_gpu_drivers() {
-    info "Detecting and installing appropriate GPU drivers..."
-    {
-        sudo ubuntu-drivers install
-    } >> "$LOG_FILE" 2>&1
-    success "GPU drivers installed successfully."
+# Function to install specific GCC version for Ubuntu 22.04
+install_gcc_version() {
+    # Get Ubuntu version
+    local ubuntu_version
+    ubuntu_version=$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
+
+    if [[ "$ubuntu_version" == "22.04" ]]; then
+        info "Installing GCC 12 for Ubuntu 22.04..."
+        {
+            sudo apt install -y gcc-12 g++-12
+            # Set gcc-12 and g++-12 as alternatives with higher priority
+            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
+            sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+        } >> "$LOG_FILE" 2>&1
+        success "GCC 12 installed and configured successfully."
+    else
+        info "Skipping GCC 12 installation (not needed for Ubuntu $ubuntu_version)."
+    fi
 }
 
 # Function to install Rust
@@ -150,19 +161,36 @@ install_just() {
 
 # Function to install CUDA Toolkit
 install_cuda() {
-    if is_package_installed "cuda-toolkit"; then
-        info "CUDA Toolkit is already installed. Skipping CUDA installation."
+    if is_package_installed "cuda-toolkit-13-0" && is_package_installed "nvidia-open"; then
+        info "CUDA Toolkit and nvidia-open are already installed. Skipping CUDA installation."
     else
         info "Installing CUDA Toolkit and dependencies..."
         {
-            local distribution
-            distribution=$(grep '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"'| tr -d '\.')
-            info "Installing Nvidia CUDA keyring and repo"
-            wget https://developer.download.nvidia.com/compute/cuda/repos/$distribution/$(/usr/bin/uname -m)/cuda-keyring_1.1-1_all.deb
+            # Get Ubuntu version for CUDA repository
+            local ubuntu_version
+            ubuntu_version=$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
+
+            # Map Ubuntu versions to CUDA repository versions
+            local cuda_repo_version
+            case "$ubuntu_version" in
+                "22.04")
+                    cuda_repo_version="ubuntu2204"
+                    ;;
+                "24.04")
+                    cuda_repo_version="ubuntu2404"
+                    ;;
+                *)
+                    error "Unsupported Ubuntu version: $ubuntu_version"
+                    exit 1
+                    ;;
+            esac
+
+            info "Installing Nvidia CUDA keyring and repo for $cuda_repo_version"
+            wget https://developer.download.nvidia.com/compute/cuda/repos/$cuda_repo_version/x86_64/cuda-keyring_1.1-1_all.deb
             sudo dpkg -i cuda-keyring_1.1-1_all.deb
             rm cuda-keyring_1.1-1_all.deb
             sudo apt-get update
-            sudo apt-get install -y cuda-toolkit
+            sudo apt-get -y install cuda-toolkit-13-0 nvidia-open
         } >> "$LOG_FILE" 2>&1
         success "CUDA Toolkit installed successfully."
     fi
@@ -204,7 +232,7 @@ install_docker() {
 # Function to add user to Docker group
 add_user_to_docker_group() {
     local username
-    username=$(logname 2>/dev/null || echo "$SUDO_USER")
+    username=$(logname 2>/dev/null || echo "${SUDO_USER:-$(whoami)}")
 
     if id -nG "$username" | grep -qw "docker"; then
         info "User '$username' is already in the 'docker' group."
@@ -317,8 +345,8 @@ update_system
 # Install essential packages
 install_packages
 
-# Install GPU drivers
-install_gpu_drivers
+# Install specific GCC version for Ubuntu 22.04
+install_gcc_version
 
 # Install Docker
 install_docker

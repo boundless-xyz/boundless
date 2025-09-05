@@ -454,9 +454,9 @@ mod tests {
     };
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Offer, Predicate, PredicateType, ProofRequest, RequestInput, RequestInputType, Requirements,
+        Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
-    use boundless_market_test_utils::{ECHO_ELF, ECHO_ID};
+    use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID};
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
@@ -476,13 +476,11 @@ mod tests {
             target_timestamp: Some(0),
             request: ProofRequest {
                 id: request_id,
-                requirements: Requirements::new(
+                requirements: Requirements::new(Predicate::prefix_match(
                     Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                    Bytes::default(),
+                )),
+
                 imageUrl: "http://risczero.com/image".into(),
                 input: RequestInput {
                     inputType: RequestInputType::Inline,
@@ -491,11 +489,11 @@ mod tests {
                 offer: Offer {
                     minPrice: U256::from(2),
                     maxPrice: U256::from(4),
-                    biddingStart: now_timestamp(),
+                    rampUpStart: now_timestamp(),
                     rampUpPeriod: 1,
                     lockTimeout: 100,
                     timeout: 100,
-                    lockStake: U256::from(10),
+                    lockCollateral: U256::from(10),
                 },
             },
             image_id: Some(image_id),
@@ -630,13 +628,11 @@ mod tests {
             target_timestamp: Some(0),
             request: ProofRequest {
                 id: order_id,
-                requirements: Requirements::new(
+                requirements: Requirements::new(Predicate::prefix_match(
                     Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                    Bytes::default(),
+                )),
+
                 imageUrl: "http://risczero.com/image".into(),
                 input: RequestInput {
                     inputType: RequestInputType::Inline,
@@ -645,11 +641,11 @@ mod tests {
                 offer: Offer {
                     minPrice: U256::from(min_price),
                     maxPrice: U256::from(max_price),
-                    biddingStart: now_timestamp(),
+                    rampUpStart: now_timestamp(),
                     rampUpPeriod: 1,
                     timeout: 100,
                     lockTimeout: 100,
-                    lockStake: U256::from(10),
+                    lockCollateral: U256::from(10),
                 },
             },
             image_id: Some(image_id),

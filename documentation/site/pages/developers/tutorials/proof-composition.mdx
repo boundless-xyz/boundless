@@ -46,7 +46,7 @@ First, we request a raw Groth16 proof from the Echo guest program:
 # let image_id = [0u8; 32];
 # let journal = Vec::<u8>::new();
 # let groth16 = true;
-let mut requirements = Requirements::new(image_id, Predicate::digest_match(journal.digest()));
+let mut requirements = Requirements::new(Predicate::digest_match(image_id, journal.digest()));
 if groth16 {
     requirements = requirements.with_groth16_proof();
 }

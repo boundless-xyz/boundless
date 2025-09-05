@@ -37,7 +37,7 @@ use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit
 
 use super::{
     eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
-    IBoundlessMarket::{self, IBoundlessMarketInstance},
+    IBoundlessMarket::{self, IBoundlessMarketInstance, ProofDelivered},
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
@@ -1006,7 +1006,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
-    ) -> Result<(Bytes, Bytes, Address), MarketError> {
+    ) -> Result<ProofDelivered, MarketError> {
         let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
             self.event_query_config.block_range * self.event_query_config.max_iterations,
@@ -1034,11 +1034,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let logs = event_filter.query().await?;
 
             if let Some((event, _)) = logs.first() {
-                return Ok((
-                    event.fulfillment.journal.clone(),
-                    event.fulfillment.seal.clone(),
-                    event.prover,
-                ));
+                return Ok(event.clone());
             }
 
             // Move the upper_block down for the next iteration
@@ -1101,16 +1097,16 @@ impl<P: Provider> BoundlessMarketService<P> {
         Err(MarketError::RequestNotFound(request_id))
     }
 
-    /// Returns journal and seal if the request is fulfilled.
+    /// Returns fulfillment data and seal if the request is fulfilled.
     pub async fn get_request_fulfillment(
         &self,
         request_id: U256,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<Fulfillment, MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (journal, seal, _) = self.query_fulfilled_event(request_id, None, None).await?;
-                Ok((journal, seal))
+                let event = self.query_fulfilled_event(request_id, None, None).await?;
+                Ok(event.fulfillment)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
@@ -1124,8 +1120,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (_, _, prover) = self.query_fulfilled_event(request_id, None, None).await?;
-                Ok(prover)
+                let event = self.query_fulfilled_event(request_id, None, None).await?;
+                Ok(event.prover)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
@@ -1154,7 +1150,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         self.query_request_submitted_event(request_id, None, None).await
     }
 
-    /// Returns journal and seal if the request is fulfilled.
+    /// Returns the fulfillment data and seal if the request is fulfilled.
     ///
     /// This method will poll the status of the request until it is Fulfilled or Expired.
     /// Polling is done at intervals of `retry_interval` until the request is Fulfilled, Expired or
@@ -1164,15 +1160,14 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         retry_interval: Duration,
         expires_at: u64,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<Fulfillment, MarketError> {
         loop {
             let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
                 RequestStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 RequestStatus::Fulfilled => {
-                    let (journal, seal, _) =
-                        self.query_fulfilled_event(request_id, None, None).await?;
-                    return Ok((journal, seal));
+                    let event = self.query_fulfilled_event(request_id, None, None).await?;
+                    return Ok(event.fulfillment);
                 }
                 _ => {
                     tracing::info!(
@@ -1269,7 +1264,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling approve({:?}, {})", spender, value);
         let token_address = self
             .instance
-            .STAKE_TOKEN_CONTRACT()
+            .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
             .context("STAKE_TOKEN_CONTRACT call failed")?
@@ -1295,7 +1290,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// the Boundless market contract as an allowed spender by calling `approve_deposit_stake`.    
     pub async fn deposit_stake(&self, value: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling depositStake({})", value);
-        let call = self.instance.depositStake(value);
+        let call = self.instance.depositCollateral(value);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -1317,7 +1312,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<(), MarketError> {
         let token_address = self
             .instance
-            .STAKE_TOKEN_CONTRACT()
+            .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
             .context("STAKE_TOKEN_CONTRACT call failed")?
@@ -1347,7 +1342,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
         tracing::trace!("Calling depositStakeWithPermit({})", value);
-        let call = self.instance.depositStakeWithPermit(value, deadline, v, r, s);
+        let call = self.instance.depositCollateralWithPermit(value, deadline, v, r, s);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -1362,7 +1357,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// Withdraw stake from the market.
     pub async fn withdraw_stake(&self, value: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling withdrawStake({})", value);
-        let call = self.instance.withdrawStake(value);
+        let call = self.instance.withdrawCollateral(value);
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting stake withdraw tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
@@ -1379,7 +1374,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn balance_of_stake(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
         let account = account.into();
         tracing::trace!("Calling balanceOfStake({})", account);
-        let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?;
+        let balance =
+            self.instance.balanceOfCollateral(account).call().await.context("call failed")?;
         Ok(balance)
     }
 
@@ -1410,7 +1406,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling STAKE_TOKEN_CONTRACT()");
         let address = self
             .instance
-            .STAKE_TOKEN_CONTRACT()
+            .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
             .context("STAKE_TOKEN_CONTRACT call failed")?
@@ -1454,7 +1450,7 @@ impl Offer {
         let delta = ((price - min_price) * run).div_ceil(rise);
         let delta: u64 = delta.try_into().context("Failed to convert block delta to u64")?;
 
-        Ok(self.biddingStart + delta)
+        Ok(self.rampUpStart + delta)
     }
 
     /// Calculates the price at the given time, in seconds since the UNIX epoch.
@@ -1462,7 +1458,7 @@ impl Offer {
         let max_price = U256::from(self.maxPrice);
         let min_price = U256::from(self.minPrice);
 
-        if timestamp < self.biddingStart {
+        if timestamp < self.rampUpStart {
             return Ok(self.minPrice);
         }
 
@@ -1470,10 +1466,10 @@ impl Offer {
             return Ok(U256::ZERO);
         }
 
-        if timestamp < self.biddingStart + self.rampUpPeriod as u64 {
+        if timestamp < self.rampUpStart + self.rampUpPeriod as u64 {
             let rise = max_price - min_price;
             let run = U256::from(self.rampUpPeriod);
-            let delta = U256::from(timestamp) - U256::from(self.biddingStart);
+            let delta = U256::from(timestamp) - U256::from(self.rampUpStart);
 
             Ok(min_price + (delta * rise) / run)
         } else {
@@ -1483,7 +1479,7 @@ impl Offer {
 
     /// UNIX timestamp after which the request is considered completely expired.
     pub fn deadline(&self) -> u64 {
-        self.biddingStart + (self.timeout as u64)
+        self.rampUpStart + (self.timeout as u64)
     }
 
     /// UNIX timestamp after which any lock on the request expires, and the client fee is zero.
@@ -1494,13 +1490,13 @@ impl Offer {
     /// that after this time, and before `timeout` a proof can still be delivered to fulfill the
     /// request.
     pub fn lock_deadline(&self) -> u64 {
-        self.biddingStart + (self.lockTimeout as u64)
+        self.rampUpStart + (self.lockTimeout as u64)
     }
 
-    /// Returns the amount of stake that the protocol awards to the prover who fills an order that
+    /// Returns the amount of collateral that the protocol awards to the prover who fills an order that
     /// was locked by another prover but not fulfilled by lock expiry.
-    pub fn stake_reward_if_locked_and_not_fulfilled(&self) -> U256 {
-        self.lockStake
+    pub fn collateral_reward_if_locked_and_not_fulfilled(&self) -> U256 {
+        self.lockCollateral
             .checked_mul(U256::from(FRACTION_STAKE_NUMERATOR))
             .unwrap()
             .checked_div(U256::from(FRACTION_STAKE_DENOMINATOR))
@@ -1612,11 +1608,11 @@ mod tests {
         Offer {
             minPrice: ether("1"),
             maxPrice: ether("2"),
-            biddingStart: bidding_start,
+            rampUpStart: bidding_start,
             rampUpPeriod: 100,
             timeout: 500,
             lockTimeout: 500,
-            lockStake: ether("1"),
+            lockCollateral: ether("1"),
         }
     }
 
@@ -1659,8 +1655,8 @@ mod tests {
     }
 
     #[test]
-    fn test_stake_reward_if_locked_and_not_fulfilled() {
+    fn test_collateral_reward_if_locked_and_not_fulfilled() {
         let offer = &test_offer(100);
-        assert_eq!(offer.stake_reward_if_locked_and_not_fulfilled(), ether("0.8"));
+        assert_eq!(offer.collateral_reward_if_locked_and_not_fulfilled(), ether("0.8"));
     }
 }

@@ -32,7 +32,7 @@ tracing-subscriber = { workspace = true, features = ["json", "fmt", "env-filter"
 url = { workspace = true }
 
 [dev-dependencies]
-boundless-market-test-utils = { workspace = true }
+boundless-test-utils = { workspace = true }
 broker = { path = "../broker", features = ["test-utils"] }
 tracing-test = { workspace = true }
 

@@ -15,10 +15,13 @@ shadow-rs = "1.1"
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
+atomicwrites = "0.4.4"
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
+boundless-povw = { workspace = true }
+boundless-zkc = { workspace = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -26,9 +29,11 @@ clap_complete = { workspace = true }
 futures = { version = "0.3" }
 hex = { workspace = true }
 libc = "0.2.159"
+num_enum = "0.7.4"
 reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
+risc0-povw = { workspace = true, features = ["prover"] }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -47,9 +52,13 @@ name = "boundless"
 name = "boundless-ffi"
 
 [dev-dependencies]
+assert_cmd = "2.0"
+assert_fs = "1.1"
 boundless-market = { workspace = true }
-boundless-market-test-utils = { workspace = true }
+boundless-test-utils = { workspace = true, features = ["povw"] }
 order-stream = { workspace = true }
+predicates = "3.1"
+rand = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tempfile = { workspace = true }
 tracing-test = { workspace = true }

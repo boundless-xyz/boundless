@@ -43,7 +43,7 @@ Concretely, receiving the proof ([see code](https://github.com/boundless-xyz/bou
 # request_id: U256,
 # expires_at: u64) -> Result<()> {
 # let boundless_client = Client::builder().build().await?;
-let (journal, seal) = boundless_client
+let fulfillment = boundless_client
     .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
     .await?;
 # Ok(())

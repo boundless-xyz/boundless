@@ -92,8 +92,9 @@ contract DeployBoundlessMarket is BoundlessScript {
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
-        address newImplementation =
-            address(new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, stakeToken));
+        address newImplementation = address(
+            new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, bytes32(0), 0, stakeToken)
+        );
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(
                 newImplementation, abi.encodeCall(BoundlessMarket.initialize, (admin, assessorGuestUrl))
@@ -111,7 +112,7 @@ contract DeployBoundlessMarket is BoundlessScript {
             keccak256(bytes(guestUrl)) == keccak256(bytes(deploymentConfig.assessorGuestUrl)),
             "assessor guest URL does not match"
         );
-        require(market.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken, "stake token does not match");
+        require(market.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken, "collateral token does not match");
         require(market.owner() == deploymentConfig.admin, "market owner does not match the admin");
 
         console2.log("BoundlessMarket admin is %s", deploymentConfig.admin);
@@ -155,10 +156,11 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         address stakeToken = deploymentConfig.stakeToken.required("stake-token");
         address verifier = deploymentConfig.verifier.required("verifier");
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
+        uint32 deprecatedAssessorDuration = deploymentConfig.deprecatedAssessorDuration;
 
         // Get the current assessor image ID and guest URL
         BoundlessMarket market = BoundlessMarket(marketAddress);
-        (bytes32 currentImageId, string memory currentGuestUrl) = market.imageInfo();
+        (bytes32 deprecatedAssessorImageId, string memory deprecatedGuestUrl) = market.imageInfo();
 
         // Use the assessor image ID recorded in deployment.toml
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
@@ -175,8 +177,13 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         // cp -R out/build-info ../boundless/contracts/build-info-reference
         // ```
         UpgradeOptions memory opts;
-        opts.constructorData =
-            BoundlessMarketLib.encodeConstructorArgs(IRiscZeroVerifier(verifier), assessorImageId, stakeToken);
+        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(
+            IRiscZeroVerifier(verifier),
+            assessorImageId,
+            deprecatedAssessorImageId,
+            deprecatedAssessorDuration,
+            stakeToken
+        );
         opts.referenceContract = "build-info-reference:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
 
@@ -184,7 +191,8 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         // Otherwise, we don't include it to save gas.
         vm.startBroadcast(admin);
         if (
-            assessorImageId != currentImageId || keccak256(bytes(assessorGuestUrl)) != keccak256(bytes(currentGuestUrl))
+            assessorImageId != deprecatedAssessorImageId
+                || keccak256(bytes(assessorGuestUrl)) != keccak256(bytes(deprecatedGuestUrl))
         ) {
             Upgrades.upgradeProxy(
                 marketAddress,
@@ -211,7 +219,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
             "upgraded market assessor guest URL does not match"
         );
         require(
-            upgradedMarket.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
+            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
             "upgraded market stake token does not match"
         );
         require(upgradedMarket.owner() == deploymentConfig.admin, "upgraded market admin does not match the admin");
@@ -281,7 +289,7 @@ contract RollbackBoundlessMarket is BoundlessScript {
             "upgraded market assessor guest URL does not match"
         );
         require(
-            upgradedMarket.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
+            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
             "upgraded market stake token does not match"
         );
         require(upgradedMarket.owner() == deploymentConfig.admin, "upgraded market admin does not match the admin");
@@ -331,30 +339,6 @@ contract TransferOwnership is BoundlessScript {
         vm.broadcast(currentAdmin);
         market.transferOwnership(admin);
 
-        console2.log("Transfered ownership of the BoundlessMarket contract from %s to %s", currentAdmin, admin);
-        console2.log("Ownership must be accepted by the new admin %s", admin);
-    }
-}
-
-/// @notice Script from accepting an ownership transfer of the BoundlessMarket contract.
-///
-/// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract AcceptTransferOwnership is BoundlessScript {
-    function run() external {
-        // Load the config
-        DeploymentConfig memory deploymentConfig =
-            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
-
-        address admin = deploymentConfig.admin.required("admin");
-        address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        BoundlessMarket market = BoundlessMarket(marketAddress);
-
-        require(admin == market.pendingOwner(), "pending owner is not the configured admin");
-
-        vm.broadcast(admin);
-        market.acceptOwnership();
-
-        console2.log("Accepted transfer of ownership of the BoundlessMarket contract from %s", admin);
+        console2.log("Transferred ownership of the BoundlessMarket contract from %s to %s", currentAdmin, admin);
     }
 }

@@ -2,11 +2,12 @@
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
+
 use anyhow::{Context, Result};
 use sqlx::PgPool;
 use uuid::Uuid;
 use workflow_common::{
-    ExecutorResp, AUX_WORK_TYPE, COPROC_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
+    AUX_WORK_TYPE, COPROC_WORK_TYPE, EXEC_WORK_TYPE, ExecutorResp, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
 };
 
 pub async fn get_or_create_streams(
@@ -73,13 +74,7 @@ pub async fn get_or_create_streams(
             .context("Failed to create taskdb gpu join stream")?
     };
 
-    Ok((
-        aux_stream,
-        exec_stream,
-        gpu_prove_stream,
-        gpu_coproc_stream,
-        gpu_join_stream,
-    ))
+    Ok((aux_stream, exec_stream, gpu_prove_stream, gpu_coproc_stream, gpu_join_stream))
 }
 
 pub async fn get_exec_stats(pool: &PgPool, job_id: &Uuid) -> Result<ExecutorResp> {

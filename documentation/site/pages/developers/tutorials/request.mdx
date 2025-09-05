@@ -128,9 +128,9 @@ Once submitted, you can keep track of the request using:
 # client: Client,
 # request_id: U256,
 # expires_at: u64) -> Result<()> {
-// Wait for the request to be fulfilled. The market will return the journal and seal.
+// Wait for the request to be fulfilled. The market will return the fulfillment.
 tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-let (journal, seal) = client
+let fulfillment = client
     .wait_for_request_fulfillment(
         request_id,
         Duration::from_secs(5), // check every 5 seconds
@@ -355,7 +355,7 @@ let (request_id, expires_at) = client.submit_onchain(request).await?; // [!code 
 
 #### Offchain
 
-:::note[Sumbitting offchain?]
+:::note[Submitting offchain?]
 When using offchain requests, you are required to deposit funds into the Boundless market contract before you can make any proof requests. This can be done with the [Boundless CLI deposit subcommand](/developers/tooling/cli#deposit).
 :::
 
