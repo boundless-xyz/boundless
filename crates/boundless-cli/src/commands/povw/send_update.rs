@@ -202,7 +202,11 @@ impl PovwSendUpdate {
 
             if let Some(event) = work_log_updated_event {
                 let data = event.inner.data;
-                tracing::info!("Work log update confirmed in epoch {} with work value {}", data.epochNumber, data.updateValue.to::<u64>());
+                tracing::info!(
+                    "Work log update confirmed in epoch {} with work value {}",
+                    data.epochNumber,
+                    data.updateValue.to::<u64>()
+                );
                 tracing::debug!(updated_commit = %data.updatedCommit, "Updated work log commitment")
             }
 
