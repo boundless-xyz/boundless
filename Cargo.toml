@@ -9,12 +9,12 @@ members = [
     "crates/broker-stress",
     "crates/distributor",
     "crates/guest/assessor",
-    "crates/guest/povw",
     "crates/guest/util",
     "crates/indexer",
     "crates/ops-lambdas/indexer-monitor",
     "crates/order-generator",
     "crates/order-stream",
+    "crates/povw",
     "crates/slasher",
     "crates/test-utils",
     "crates/zkc",
@@ -33,7 +33,7 @@ boundless-cli = { version = "0.15.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.15.0", path = "crates/boundless-market" }
 boundless-test-utils = { path = "crates/test-utils" }
 boundless-zkc = { version = "0.15.0", path = "crates/zkc" }
-boundless-povw = { path = "crates/guest/povw" }
+boundless-povw = { path = "crates/povw" }
 distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }

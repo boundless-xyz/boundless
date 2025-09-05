@@ -8,7 +8,7 @@
 // drift if it appears.
 //
 // ```
-// cargo update -p risc0-povw --manifest-path Cargo.toml && cargo update -p risc0-povw --manifest-path crates/guest/povw/log-updater/Cargo.toml
+// cargo update -p risc0-povw --manifest-path Cargo.toml && cargo update -p risc0-povw --manifest-path crates/povw/log-updater/Cargo.toml
 // ```
 
 use alloy::signers::local::PrivateKeySigner;

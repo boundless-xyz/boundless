@@ -51,7 +51,7 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
 
     PendingEpochStorage internal _pendingEpoch;
 
-    // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
+    // NOTE: When updating this constructor, crates/povw/build.rs must be updated as well.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IRiscZeroVerifier verifier, IZKC token, bytes32 logUpdaterId) {
         require(address(verifier) != address(0), "verifier cannot be zero");
