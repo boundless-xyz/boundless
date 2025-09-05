@@ -277,7 +277,7 @@ pub mod host {
                 SteelVerifier::preflight(env)
                     .verify(&env_prev.commitment())
                     .await
-                    .with_context(|| format!("failed to preflight SteelVerifier verify of commit for block {} using env of block {}", env.header().number, env_prev.header().number))?;
+                    .with_context(|| format!("failed to preflight SteelVerifier verify of commit for block {} using env of block {}", env_prev.header().number, env.header().number))?;
                 env_prev = env;
             }
             Ok(())
