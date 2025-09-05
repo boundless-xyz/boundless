@@ -1021,7 +1021,6 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
- "blst",
  "boundless-povw",
  "risc0-steel",
  "risc0-zkvm",

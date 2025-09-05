@@ -8,8 +8,6 @@ edition = "2021"
 [dependencies]
 alloy-primitives = { version = "1.0" }
 alloy-sol-types = { version = "1.0" }
-# blst is included directly to mitigate a build isue where blst does not always end up linked.
-blst = { version = "0.3.15", default-features = false }
 boundless-povw = { path = "..", default-features = false }
 risc0-steel = { git = "https://github.com/boundless-xyz/steel", branch = "release-2.4" }
 risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std", "unstable"] }
