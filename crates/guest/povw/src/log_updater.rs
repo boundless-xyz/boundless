@@ -368,3 +368,15 @@ pub mod prover {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use risc0_zkvm::compute_image_id;
+
+    use super::{BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID};
+
+    #[test]
+    fn image_id_consistency() {
+        assert_eq!(BOUNDLESS_POVW_LOG_UPDATER_ID, <[u32; 8]>::from(compute_image_id(BOUNDLESS_POVW_LOG_UPDATER_ELF).unwrap()));
+    }
+}
