@@ -112,7 +112,7 @@ contract DeployBoundlessMarket is BoundlessScript {
             keccak256(bytes(guestUrl)) == keccak256(bytes(deploymentConfig.assessorGuestUrl)),
             "assessor guest URL does not match"
         );
-        require(market.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken, "stake token does not match");
+        require(market.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken, "collateral token does not match");
         require(market.owner() == deploymentConfig.admin, "market owner does not match the admin");
 
         console2.log("BoundlessMarket admin is %s", deploymentConfig.admin);
@@ -219,7 +219,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
             "upgraded market assessor guest URL does not match"
         );
         require(
-            upgradedMarket.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
+            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
             "upgraded market stake token does not match"
         );
         require(upgradedMarket.owner() == deploymentConfig.admin, "upgraded market admin does not match the admin");
@@ -289,7 +289,7 @@ contract RollbackBoundlessMarket is BoundlessScript {
             "upgraded market assessor guest URL does not match"
         );
         require(
-            upgradedMarket.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
+            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
             "upgraded market stake token does not match"
         );
         require(upgradedMarket.owner() == deploymentConfig.admin, "upgraded market admin does not match the admin");

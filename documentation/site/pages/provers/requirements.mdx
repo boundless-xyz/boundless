@@ -42,12 +42,12 @@ At the core of the Boundless proving software is [Bento](/provers/proving-stack#
 * [Docker Compose](https://docs.docker.com/compose/)
 * [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html)
 
-## Stake
+## Collateral
 
 :::tip
-To get started with the Broker and deposit stake to the market contract, please see [Broker](/provers/broker#broker-configuration).
+To get started with the Broker and deposit collateral to the market contract, please see [Broker](/provers/broker#broker-configuration).
 :::
 
 The Boundless Market works via an escrow system.
-Whgen provers win a bid on a [proof request](/provers/proof-lifecycle#3-provers-bid-on-the-request), they require tokens to cover staking requirements for the request, as specified by the client.
-The recommended way to carry out market interactions, such as depositing stake, is to use the [Broker](/provers/broker#broker-configuration), an optional service which runs within the Bento docker compose stack.
+When provers win a bid on a [proof request](/provers/proof-lifecycle#3-provers-bid-on-the-request), they require tokens to cover collateral requirements for the request, as specified by the client.
+The recommended way to carry out market interactions, such as depositing collateral, is to use the [Broker](/provers/broker#broker-configuration), an optional service which runs within the Bento docker compose stack.

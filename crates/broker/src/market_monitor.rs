@@ -684,11 +684,11 @@ mod tests {
             offer: Offer {
                 minPrice: U256::from(min_price),
                 maxPrice: U256::from(max_price),
-                biddingStart: now_timestamp() - 5,
+                rampUpStart: now_timestamp() - 5,
                 timeout: 1000,
                 lockTimeout: 1000,
                 rampUpPeriod: 1,
-                lockStake: U256::from(0),
+                lockCollateral: U256::from(0),
             },
         };
 
@@ -835,10 +835,10 @@ mod tests {
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
                 lockTimeout: 100,
             },
         )

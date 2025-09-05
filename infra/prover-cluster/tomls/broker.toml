@@ -1,18 +1,18 @@
 [market]
 mcycle_price = "0.0000000001"
-mcycle_price_stake_token = "0" # will fill any lock-expired orders regardless of cost
+mcycle_price_collateral_token = "0" # will fill any lock-expired orders regardless of cost
 peak_prove_khz = 3000
 min_deadline = 120
 lookback_blocks = 100
-max_stake = "50"
+max_collateral = "50"
 max_file_size = 50_000_000
 max_mcycle_limit = 8000
 max_concurrent_proofs = 1
 max_concurrent_preflights = 1
 balance_warn_threshold = "0.025"
 balance_error_threshold = "0.01"
-stake_balance_warn_threshold = "5"
-stake_balance_error_threshold = "1"
+collateral_balance_warn_threshold = "5"
+collateral_balance_error_threshold = "1"
 priority_requestor_addresses = [
   "0x47c76E56Ad9316A5c1ab17CBa87a1Cc134552183", 
   "0x734dF7809c4ef94Da037449C287166D114503198"

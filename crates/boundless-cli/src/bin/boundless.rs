@@ -147,18 +147,18 @@ enum AccountCommands {
         /// if not provided, defaults to the wallet address
         address: Option<Address>,
     },
-    /// Deposit stake funds into the market
-    DepositStake {
+    /// Deposit collateral funds into the market
+    DepositCollateral {
         /// Amount to deposit in HP or USDC based on the chain ID.
         amount: String,
     },
-    /// Withdraw stake funds from the market
-    WithdrawStake {
+    /// Withdraw collateral funds from the market
+    WithdrawCollateral {
         /// Amount to withdraw in HP or USDC based on the chain ID.
         amount: String,
     },
-    /// Check the stake balance of an account in the market
-    StakeBalance {
+    /// Check the collateral balance of an account in the market
+    CollateralBalance {
         /// Address to check the balance of;
         /// if not provided, defaults to the wallet address
         address: Option<Address>,
@@ -453,10 +453,10 @@ fn private_key_required(cmd: &Command) -> bool {
         Command::Account(cmd) => match cmd.deref() {
             AccountCommands::Balance { .. } => false,
             AccountCommands::Deposit { .. } => true,
-            AccountCommands::DepositStake { .. } => true,
-            AccountCommands::StakeBalance { .. } => false,
+            AccountCommands::DepositCollateral { .. } => true,
+            AccountCommands::CollateralBalance { .. } => false,
             AccountCommands::Withdraw { .. } => true,
-            AccountCommands::WithdrawStake { .. } => true,
+            AccountCommands::WithdrawCollateral { .. } => true,
         },
         Command::Request(cmd) => match cmd.deref() {
             RequestCommands::GetProof { .. } => false,
@@ -570,8 +570,8 @@ async fn handle_ops_command(cmd: &OpsCommands, client: StandardClient) -> Result
     }
 }
 
-/// Helper function to parse stake amounts with validation
-async fn parse_stake_amount(
+/// Helper function to parse collateral amounts with validation
+async fn parse_collateral_amount(
     client: &StandardClient,
     amount: &str,
 ) -> Result<(U256, String, String)> {
@@ -611,51 +611,53 @@ async fn handle_account_command(cmd: &AccountCommands, client: StandardClient) -
             tracing::info!("Balance for address {}: {} ETH", addr, format_ether(balance));
             Ok(())
         }
-        AccountCommands::DepositStake { amount } => {
+        AccountCommands::DepositCollateral { amount } => {
             let (parsed_amount, formatted_amount, symbol) =
-                parse_stake_amount(&client, amount).await?;
+                parse_collateral_amount(&client, amount).await?;
 
-            tracing::info!("Depositing {formatted_amount} {symbol} as stake");
+            tracing::info!("Depositing {formatted_amount} {symbol} as collateral");
             match client
                 .boundless_market
                 .deposit_stake_with_permit(parsed_amount, &client.signer.unwrap())
                 .await
             {
                 Ok(_) => {
-                    tracing::info!("Successfully deposited {formatted_amount} {symbol} as stake");
+                    tracing::info!(
+                        "Successfully deposited {formatted_amount} {symbol} as collateral"
+                    );
                     Ok(())
                 }
                 Err(e) => {
                     if e.to_string().contains("TRANSFER_FROM_FAILED") {
                         let addr = client.boundless_market.caller();
                         Err(anyhow!(
-                            "Failed to deposit stake: Ensure your address ({}) has funds on the {symbol} contract", addr
+                            "Failed to deposit collateral: Ensure your address ({}) has funds on the {symbol} contract", addr
                         ))
                     } else {
-                        Err(anyhow!("Failed to deposit stake: {}", e))
+                        Err(anyhow!("Failed to deposit collateral: {}", e))
                     }
                 }
             }
         }
-        AccountCommands::WithdrawStake { amount } => {
+        AccountCommands::WithdrawCollateral { amount } => {
             let (parsed_amount, formatted_amount, symbol) =
-                parse_stake_amount(&client, amount).await?;
-            tracing::info!("Withdrawing {formatted_amount} {symbol} from stake");
+                parse_collateral_amount(&client, amount).await?;
+            tracing::info!("Withdrawing {formatted_amount} {symbol} from collateral");
             client.boundless_market.withdraw_stake(parsed_amount).await?;
-            tracing::info!("Successfully withdrew {formatted_amount} {symbol} from stake");
+            tracing::info!("Successfully withdrew {formatted_amount} {symbol} from collateral");
             Ok(())
         }
-        AccountCommands::StakeBalance { address } => {
+        AccountCommands::CollateralBalance { address } => {
             let symbol = client.boundless_market.stake_token_symbol().await?;
             let decimals = client.boundless_market.stake_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
             if addr == Address::ZERO {
-                bail!("No address specified for stake balance query. Please provide an address or a private key.")
+                bail!("No address specified for collateral balance query. Please provide an address or a private key.")
             }
-            tracing::info!("Checking stake balance for address {}", addr);
+            tracing::info!("Checking collateral balance for address {}", addr);
             let balance = client.boundless_market.balance_of_stake(addr).await?;
             let balance = format_units(balance, decimals)
-                .map_err(|e| anyhow!("Failed to format stake balance: {}", e))?;
+                .map_err(|e| anyhow!("Failed to format collateral balance: {}", e))?;
             tracing::info!("Stake balance for address {}: {} {}", addr, balance, symbol);
             Ok(())
         }
@@ -1207,7 +1209,7 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
 
     tracing::info!(
         "Submitted request 0x{request_id:x}, bidding starts at {}",
-        convert_timestamp(request.offer.biddingStart)
+        convert_timestamp(request.offer.rampUpStart)
     );
 
     // Wait for fulfillment if requested
@@ -1258,10 +1260,10 @@ where
     // parameters that new need to updated on every reqeust. Namely, ID and bidding start.
     //
     // If set to 0, override the offer bidding_start field with the current timestamp + 30s
-    if request.offer.biddingStart == 0 {
+    if request.offer.rampUpStart == 0 {
         // Adding a delay to bidding start lets provers see and evaluate the request
         // before the price starts to ramp up
-        request.offer = Offer { biddingStart: now_timestamp() + 30, ..request.offer };
+        request.offer = Offer { rampUpStart: now_timestamp() + 30, ..request.offer };
     }
     if request.id == U256::ZERO {
         request.id = client.boundless_market.request_id_from_rand().await?;
@@ -1311,7 +1313,7 @@ where
 
     tracing::info!(
         "Submitted request 0x{request_id:x}, bidding starts at {}",
-        convert_timestamp(request.offer.biddingStart)
+        convert_timestamp(request.offer.rampUpStart)
     );
 
     // Wait for fulfillment if requested
@@ -1540,11 +1542,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 420,
                 lockTimeout: 420,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         )
     }
@@ -1708,18 +1710,18 @@ mod tests {
 
         let mut args = MainArgs {
             config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
+            command: Command::Account(Box::new(AccountCommands::DepositCollateral {
                 amount: format_ether(default_allowance()),
             })),
         };
 
         run(&args).await.unwrap();
         assert!(logs_contain(&format!(
-            "Depositing {} HP as stake",
+            "Depositing {} HP as collateral",
             format_ether(default_allowance())
         )));
         assert!(logs_contain(&format!(
-            "Successfully deposited {} HP as stake",
+            "Successfully deposited {} HP as collateral",
             format_ether(default_allowance())
         )));
 
@@ -1727,12 +1729,12 @@ mod tests {
             ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap();
         assert_eq!(balance, default_allowance());
 
-        args.command = Command::Account(Box::new(AccountCommands::StakeBalance {
+        args.command = Command::Account(Box::new(AccountCommands::CollateralBalance {
             address: Some(ctx.prover_signer.address()),
         }));
         run(&args).await.unwrap();
         assert!(logs_contain(&format!(
-            "Checking stake balance for address {}",
+            "Checking collateral balance for address {}",
             ctx.prover_signer.address()
         )));
         assert!(logs_contain(&format!(
@@ -1741,17 +1743,17 @@ mod tests {
             format_units(default_allowance(), "ether").unwrap()
         )));
 
-        args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
+        args.command = Command::Account(Box::new(AccountCommands::WithdrawCollateral {
             amount: format_ether(default_allowance()),
         }));
 
         run(&args).await.unwrap();
         assert!(logs_contain(&format!(
-            "Withdrawing {} HP from stake",
+            "Withdrawing {} HP from collateral",
             format_ether(default_allowance())
         )));
         assert!(logs_contain(&format!(
-            "Successfully withdrew {} HP from stake",
+            "Successfully withdrew {} HP from collateral",
             format_ether(default_allowance())
         )));
 
@@ -1762,14 +1764,14 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_deposit_stake_amount_below_denom_min() -> Result<()> {
+    async fn test_deposit_collateral_amount_below_denom_min() -> Result<()> {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         // Use amount below denom min
         let amount = "0.00000000000000000000000001".to_string();
         let args = MainArgs {
             config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
+            command: Command::Account(Box::new(AccountCommands::DepositCollateral {
                 amount: amount.clone(),
             })),
         };
@@ -1792,18 +1794,18 @@ mod tests {
 
         let mut args = MainArgs {
             config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
+            command: Command::Account(Box::new(AccountCommands::DepositCollateral {
                 amount: format_ether(default_allowance()),
             })),
         };
 
         let err = run(&args).await.unwrap_err();
         assert!(err.to_string().contains(&format!(
-            "Failed to deposit stake: Ensure your address ({}) has funds on the HP contract",
+            "Failed to deposit collateral: Ensure your address ({}) has funds on the HP contract",
             ctx.customer_signer.address()
         )));
 
-        args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
+        args.command = Command::Account(Box::new(AccountCommands::WithdrawCollateral {
             amount: format_ether(default_allowance()),
         }));
 
