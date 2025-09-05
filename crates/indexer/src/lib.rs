@@ -429,9 +429,9 @@ where
             self.db
                 .add_prover_slashed_event(
                     event.requestId,
-                    event.stakeBurned,
-                    event.stakeTransferred,
-                    event.stakeRecipient,
+                    event.collateralBurned,
+                    event.collateralTransferred,
+                    event.collateralRecipient,
                     &metadata,
                 )
                 .await?;
@@ -518,7 +518,7 @@ where
         let event_filter = self
             .boundless_market
             .instance()
-            .StakeDeposit_filter()
+            .CollateralDeposit_filter()
             .from_block(from_block)
             .to_block(to_block);
 
@@ -553,7 +553,7 @@ where
         let event_filter = self
             .boundless_market
             .instance()
-            .StakeWithdrawal_filter()
+            .CollateralWithdrawal_filter()
             .from_block(from_block)
             .to_block(to_block);
 

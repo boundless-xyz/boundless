@@ -46,11 +46,11 @@ async fn create_order(
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
-            biddingStart: now - 3,
+            rampUpStart: now - 3,
             timeout: 15,
             rampUpPeriod: 1,
             lockTimeout: 10,
-            lockStake: U256::from(0),
+            lockCollateral: U256::from(0),
         },
     );
 
@@ -121,7 +121,7 @@ async fn test_basic_usage() {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
             // Check that the stake recipient is the market treasury address
-            assert_eq!(request_slashed.stakeRecipient, ctx.deployment.boundless_market_address);
+            assert_eq!(request_slashed.collateralRecipient, ctx.deployment.boundless_market_address);
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(20)) => {
@@ -197,8 +197,8 @@ async fn test_slash_fulfilled() {
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
     let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt).unwrap();
-    let expires_at = request.offer.biddingStart + request.offer.timeout as u64;
-    let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;
+    let expires_at = request.offer.rampUpStart + request.offer.timeout as u64;
+    let lock_expires_at = request.offer.rampUpStart + request.offer.lockTimeout as u64;
 
     // Wait for the lock to expire
     loop {
@@ -237,7 +237,7 @@ async fn test_slash_fulfilled() {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
             // Check that the stake recipient is the market treasury address
-            assert_eq!(request_slashed.stakeRecipient, ctx.customer_signer.address());
+            assert_eq!(request_slashed.collateralRecipient, ctx.customer_signer.address());
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(20)) => {

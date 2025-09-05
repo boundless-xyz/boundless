@@ -194,12 +194,12 @@ where
             market = market.with_stake_balance_alert(
                 &config
                     .market
-                    .stake_balance_warn_threshold
+                    .collateral_balance_warn_threshold
                     .as_ref()
                     .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
                 &config
                     .market
-                    .stake_balance_error_threshold
+                    .collateral_balance_error_threshold
                     .as_ref()
                     .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
             );
@@ -255,7 +255,7 @@ where
         tracing::info!(
             "Locking request: 0x{:x} for stake: {}",
             request_id,
-            order.request.offer.lockStake
+            order.request.offer.lockCollateral
         );
         let lock_block = self
             .market
@@ -1033,11 +1033,11 @@ pub(crate) mod tests {
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
-                    biddingStart: bidding_start,
+                    rampUpStart: bidding_start,
                     rampUpPeriod: 1,
                     timeout: timeout as u32,
                     lockTimeout: lock_timeout as u32,
-                    lockStake: U256::from(0),
+                    lockCollateral: U256::from(0),
                 },
             );
 

@@ -297,10 +297,10 @@ mod tests {
             offer: Offer {
                 minPrice: U256::from(0),
                 maxPrice: U256::from(1),
-                biddingStart: 0,
+                rampUpStart: 0,
                 timeout: 1000,
                 rampUpPeriod: 1,
-                lockStake: U256::from(0),
+                lockCollateral: U256::from(0),
                 lockTimeout: 1000,
             },
         };

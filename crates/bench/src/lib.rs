@@ -261,20 +261,20 @@ pub async fn run(args: &MainArgs) -> Result<()> {
             let mut rows: Vec<BenchRow> = Vec::new();
 
             for i in (i..bench.requests_count as usize).step_by(threads) {
-                let bidding_start = now_timestamp() + 10;
+                let ramp_up_start = now_timestamp() + 10;
                 let request_input = GuestEnv::builder()
                     .write(&(i as u64))?
-                    .write(&bidding_start)?
+                    .write(&ramp_up_start)?
                     .build_inline()?;
                 let journal = Journal::new(bytemuck::pod_collect_to_vec(&to_vec(&(
                     i as u64,
-                    bidding_start,
+                    ramp_up_start,
                 ))?));
 
                 let initial_offer = inital_request.offer.clone();
                 let mut request = ProofRequest {
                     id: boundless_client.boundless_market.request_id_from_rand().await?,
-                    offer: Offer { biddingStart: bidding_start, ..initial_offer },
+                    offer: Offer { rampUpStart: ramp_up_start, ..initial_offer },
                     input: request_input,
                     requirements: Requirements::new(Predicate::digest_match(
                         image_id,
@@ -301,7 +301,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                     format!("{digest:x}"),
                     format!("{request_id:x}"),
                     i as u64,
-                    request.offer.biddingStart,
+                    request.offer.rampUpStart,
                     expires_at,
                 ));
 
@@ -522,7 +522,7 @@ mod tests {
         config.prover.status_poll_ms = 1000;
         config.prover.req_retry_count = 3;
         config.market.mcycle_price = "0.00001".into();
-        config.market.mcycle_price_stake_token = "0.0".into();
+        config.market.mcycle_price_collateral_token = "0.0".into();
         config.market.min_deadline = min_deadline;
         config.batcher.min_batch_size = Some(min_batch_size);
         config.write(config_file.path()).await.unwrap();

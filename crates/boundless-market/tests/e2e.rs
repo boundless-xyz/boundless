@@ -51,10 +51,10 @@ async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         Offer {
             minPrice: U256::from(20000000000000u64),
             maxPrice: U256::from(40000000000000u64),
-            biddingStart: now_timestamp(),
+            rampUpStart: now_timestamp(),
             timeout: 100,
             rampUpPeriod: 1,
-            lockStake: U256::from(10),
+            lockCollateral: U256::from(10),
             lockTimeout: 100,
         },
     )

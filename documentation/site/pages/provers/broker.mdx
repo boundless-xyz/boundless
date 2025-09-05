@@ -14,12 +14,12 @@ Broker configuration is primarily managed through the `broker.toml` file in the 
 
 ### Deposit / Balance
 
-The Boundless market requires funds (USDC) deposited as stake before a prover can bid on requests.
+The Boundless market requires funds (USDC) deposited as collateral before a prover can bid on requests.
 Brokers must first deposit some USDC into the market contract to fund their account.
-These funds cover staking during lock-in.
-It is recommend that a broker keep a balance on the market >= `max_stake` (configured via broker.toml).
+These funds cover collateral during lock-in.
+It is recommend that a broker keep a balance on the market >= `max_collateral` (configured via broker.toml).
 
-#### Deposit Stake to the Market
+#### Deposit Collateral to the Market
 
 :::note[Note]
 You will need the Boundless CLI installed to deposit/check your balance.
@@ -32,11 +32,11 @@ export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 # Use the env file based on the network you are connecting to
 source .env.eth-sepolia
 
-# Example: 'account deposit-stake 100'
-boundless account deposit-stake <USDC_TO_DEPOSIT>
+# Example: 'account deposit-collateral 100'
+boundless account deposit-collateral <USDC_TO_DEPOSIT>
 ```
 
-#### Check Current Stake Balance
+#### Check Current Collateral Balance
 
 ```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
@@ -44,7 +44,7 @@ export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
 # Use the env file based on the network you are connecting to
 source .env.eth-sepolia
 
-boundless account stake-balance [wallet_address]
+boundless account collateral-balance [wallet_address]
 ```
 
 You can omit the `PRIVATE_KEY` environment variable here and specify your `wallet_address` as a optional parameter to the `balance` command, i.e., `account balance 0x000....`
@@ -68,11 +68,11 @@ Below are some `broker.toml` settings:
 | peak\_prove\_khz         | `500`         | This should correspond to the maximum number of cycles per second (in kHz) your proving backend can operate - see [Benchmarking Bento](#benchmarking-bento). |
 | min\_deadline            | `150`         | This is a minimum number of blocks before the requested job expiration that Broker will attempt to lock a job. |
 | lookback\_blocks         | `100`         | This is used on Broker initialization, and sets the number of blocks to look back for candidate proofs.        |
-| max\_stake               | `"0.5"`       | The maximum amount used to lock in a job for any single order.                                                 |
+| max\_collateral          | `"0.5"`       | The maximum amount used to lock in a job for any single order.                                                 |
 | skip\_preflight\_ids     | `[]`          | A list of `imageID`s that the Broker should skip preflight checks in format `["0xID1","0xID2"]`.               |
 | max\_file\_size          | `50_000_000`  | The maximum guest image size in bytes that the Broker will accept.                                             |
 | allow\_client\_addresses | `["0x1234..."]` | Optional whitelist of requestor addresses. When defined, only requests from these requestor addresses will be processed. Use format `["0xAddress1", "0xAddress2"]`. |
-| lockin\_priority\_gas    | `100`         | Additional gas to add to the base price when locking in stake on a contract to increase priority.              |
+| lockin\_priority\_gas    | `100`         | Additional gas to add to the base price when locking in collateral on a contract to increase priority.         |
 
 
 ## Broker Operation

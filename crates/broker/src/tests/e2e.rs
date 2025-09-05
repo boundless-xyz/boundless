@@ -87,11 +87,11 @@ fn generate_request(
         offer.unwrap_or(Offer {
             minPrice: parse_ether("0.02").unwrap(),
             maxPrice: parse_ether("0.04").unwrap(),
-            biddingStart: now_timestamp(),
+            rampUpStart: now_timestamp(),
             timeout: 120,
             lockTimeout: 120,
             rampUpPeriod: 1,
-            lockStake: U256::from(10),
+            lockCollateral: U256::from(10),
         }),
     )
 }
@@ -111,7 +111,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     config.prover.status_poll_ms = 1000;
     config.prover.req_retry_count = 3;
     config.market.mcycle_price = "0.00001".into();
-    config.market.mcycle_price_stake_token = "0.0".into();
+    config.market.mcycle_price_collateral_token = "0.0".into();
     config.market.min_deadline = min_deadline;
     config.batcher.min_batch_size = Some(min_batch_size);
     config.write(config_file.path()).await.unwrap();
@@ -359,11 +359,11 @@ async fn e2e_fulfill_after_lock_expiry() {
         Some(Offer {
             minPrice: parse_ether("0.0").unwrap(),
             maxPrice: parse_ether("0.000000001").unwrap(),
-            biddingStart: now_timestamp(),
+            rampUpStart: now_timestamp(),
             rampUpPeriod: 40,
             lockTimeout: 40,
             timeout: 120,
-            lockStake: U256::from(5),
+            lockCollateral: U256::from(5),
         }),
         None,
         None,

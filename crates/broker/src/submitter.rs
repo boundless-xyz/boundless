@@ -282,7 +282,8 @@ where
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price
                         .push(UnlockedRequest::new(order_request.clone(), client_sig.clone()));
-                    stake_reward = order_request.offer.stake_reward_if_locked_and_not_fulfilled();
+                    stake_reward =
+                        order_request.offer.collateral_reward_if_locked_and_not_fulfilled();
                 }
 
                 order_prices.insert(order_id, OrderPrice { price: lock_price, stake_reward });
@@ -773,11 +774,11 @@ mod tests {
             Offer {
                 minPrice: U256::from(2),
                 maxPrice: U256::from(4),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -880,7 +881,7 @@ mod tests {
             orders: vec![order_id],
             fees: U256::ZERO,
             start_time: Utc::now(),
-            deadline: Some(order.request.offer.biddingStart + order.request.offer.timeout as u64),
+            deadline: Some(order.request.offer.rampUpStart + order.request.offer.timeout as u64),
             error_msg: None,
             aggregation_state: Some(AggregationState {
                 guest_state: batch_guest_state,

@@ -95,11 +95,11 @@ fn generate_test_order(request_id: u32) -> Order {
             Offer {
                 minPrice: U256::from(1),
                 maxPrice: U256::from(10),
-                biddingStart: 0,
+                rampUpStart: 0,
                 timeout: 1000,
                 lockTimeout: 1000,
                 rampUpPeriod: 1,
-                lockStake: U256::from(0),
+                lockCollateral: U256::from(0),
             },
         ),
         image_id: None,
