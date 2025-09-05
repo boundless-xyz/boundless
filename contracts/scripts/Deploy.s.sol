@@ -126,7 +126,9 @@ contract Deploy is Script, RiscZeroCheats {
 
         if (deploymentConfig.collateralToken == address(0)) {
             HitPoints(stakeToken).grantAuthorizedTransferRole(boundlessMarketAddress);
-            console2.log("Granted AUTHORIZED_TRANSFER role to BoundlessMarket on HitPoints collateral token", stakeToken);
+            console2.log(
+                "Granted AUTHORIZED_TRANSFER role to BoundlessMarket on HitPoints collateral token", stakeToken
+            );
         }
 
         vm.stopBroadcast();

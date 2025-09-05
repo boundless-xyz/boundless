@@ -447,7 +447,7 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
 
 /// Test prove-update command when Bento has no new receipts
 #[tokio::test]
-async fn prove_update_from_bento_no_new_receipts() -> anyhow::Result<()> {
+async fn prove_update_from_bento_no_receipts() -> anyhow::Result<()> {
     // Set up the mock Bento server (empty - no receipts)
     let bento_server = BentoMockServer::new().await;
     let bento_url = bento_server.base_url();
@@ -460,8 +460,6 @@ async fn prove_update_from_bento_no_new_receipts() -> anyhow::Result<()> {
     // Generate a work log ID
     let signer = PrivateKeySigner::random();
     let log_id: PovwLogId = signer.address().into();
-
-    tracing::info!("=== Testing prove-update with no receipts in Bento ===");
 
     // Run prove-update with --from-bento on empty Bento server
     let mut cmd = Command::cargo_bin("boundless")?;

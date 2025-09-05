@@ -2780,6 +2780,7 @@ dependencies = [
  "alloy-signer",
  "alloy-sol-types",
  "anyhow",
+ "blst",
  "borsh",
  "boundless-test-utils",
  "bytemuck",

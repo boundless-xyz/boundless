@@ -55,14 +55,7 @@ mod build_contracts {
     /// Generate Rust bytecode module from compiled contract artifacts
     fn generate_bytecode_module() {
         let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let out_dir = Path::new(&manifest_dir)
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("out");
+        let out_dir = Path::new(&manifest_dir).parent().unwrap().parent().unwrap().join("out");
 
         // Early return if compiled artifacts don't exist (enables cargo publish)
         if !out_dir.exists() {

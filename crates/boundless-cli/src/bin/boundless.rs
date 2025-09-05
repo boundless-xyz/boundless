@@ -394,39 +394,6 @@ struct MainArgs {
     config: GlobalConfig,
 }
 
-/// Return true if the subcommand requires a private key.
-// NOTE: It does not appear this is possible with clap natively
-fn private_key_required(cmd: &Command) -> bool {
-    match cmd {
-        Command::Ops(cmd) => match cmd.deref() {
-            OpsCommands::Slash { .. } => true,
-        },
-        Command::Config { .. } => false,
-        Command::Account(cmd) => match cmd.deref() {
-            AccountCommands::Balance { .. } => false,
-            AccountCommands::Deposit { .. } => true,
-            AccountCommands::DepositCollateral { .. } => true,
-            AccountCommands::CollateralBalance { .. } => false,
-            AccountCommands::Withdraw { .. } => true,
-            AccountCommands::WithdrawCollateral { .. } => true,
-        },
-        Command::Request(cmd) => match cmd.deref() {
-            RequestCommands::GetProof { .. } => false,
-            RequestCommands::Status { .. } => false,
-            RequestCommands::Submit { .. } => true,
-            RequestCommands::SubmitOffer { .. } => true,
-            RequestCommands::VerifyProof { .. } => false,
-        },
-        Command::Proving(cmd) => match cmd.deref() {
-            ProvingCommands::Benchmark { .. } => false,
-            ProvingCommands::Execute { .. } => false,
-            ProvingCommands::Fulfill { .. } => true,
-            ProvingCommands::Lock { .. } => true,
-        },
-        Command::Completions { .. } => false,
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = match MainArgs::try_parse() {
@@ -491,7 +458,7 @@ async fn handle_ops_command(cmd: &OpsCommands, config: &GlobalConfig) -> Result<
 
 /// Helper function to parse collateral amounts with validation
 async fn parse_collateral_amount(
-    client: &StandardClient,
+    client: &Client<impl Provider, impl Any, impl Any, impl Any>,
     amount: &str,
 ) -> Result<(U256, String, String)> {
     let symbol = client.boundless_market.collateral_token_symbol().await?;
@@ -534,6 +501,7 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             Ok(())
         }
         AccountCommands::DepositCollateral { amount } => {
+            let client = config.build_client_with_signer().await?;
             let (parsed_amount, formatted_amount, symbol) =
                 parse_collateral_amount(&client, amount).await?;
 
@@ -584,6 +552,7 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             }
         }
         AccountCommands::WithdrawCollateral { amount } => {
+            let client = config.build_client_with_signer().await?;
             let (parsed_amount, formatted_amount, symbol) =
                 parse_collateral_amount(&client, amount).await?;
             tracing::info!("Withdrawing {formatted_amount} {symbol} from collateral");
@@ -593,8 +562,8 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
         }
         AccountCommands::CollateralBalance { address } => {
             let client = config.build_client().await?;
-            let symbol = client.boundless_market.collateral_token_symbol().await?;
-            let decimals = client.boundless_market.collateral_token_decimals().await?;
+            let symbol = client.boundless_market.stake_token_symbol().await?;
+            let decimals = client.boundless_market.stake_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
             if addr == Address::ZERO {
                 bail!("No address specified for collateral balance query. Please provide an address or a private key.")
@@ -887,7 +856,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
 }
 
 /// Execute a proof request using the RISC Zero zkVM executor and measure performance
-async fn benchmark<P>(
+async fn benchmark<P: Provider + Clone + 'static>(
     client: Client<P, impl Any, impl Any, impl Any>,
     request_ids: &[U256],
     prover_config: &ProverConfig,
@@ -1447,21 +1416,19 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
-    use alloy::primitives::{aliases::U96, Bytes};
-    use boundless_market::contracts::{Predicate, RequestId, RequestInput, Requirements};
-
-    use super::*;
-
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
-        primitives::utils::format_units,
+        primitives::{aliases::U96, utils::format_units, Bytes},
         providers::WalletProvider,
     };
     use boundless_market::contracts::{
         Predicate, PredicateType, RequestId, RequestInput, Requirements,
     };
     use boundless_market::{
-        contracts::{hit_points::default_allowance, RequestStatus},
+        contracts::{
+            hit_points::default_allowance, Predicate, RequestId, RequestInput, RequestStatus,
+            Requirements,
+        },
         selector::is_groth16_selector,
     };
     use boundless_test_utils::{

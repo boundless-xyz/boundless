@@ -26,6 +26,12 @@ use risc0_povw::WorkLog;
 use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
 use risc0_zkvm::{Digest, FakeReceipt, Receipt, ReceiptClaim};
 
+#[test]
+fn use_blst() {
+    // call something some blst to mitigate a build issue where is does not become linked.
+    let _ = unsafe { blst::blst_p1_sizeof() };
+}
+
 #[tokio::test]
 async fn basic() -> anyhow::Result<()> {
     // Setup test context
@@ -505,7 +511,7 @@ async fn reject_mint_with_skipped_epoch() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn mint_with_one_finalized_and_one_unfinalized_epoch() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
 
     // First update in first epoch
@@ -1158,7 +1164,7 @@ async fn reward_cap() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reward_cap_two_recipients() -> anyhow::Result<()> {
-    let ctx = common::test_ctx().await?;
+    let ctx = test_ctx().await?;
     let work_log_signer = PrivateKeySigner::random();
     // Create two value recipients. Rewards are doled in the order of the addresses, as an
     // arbitrary way of deciding when rewards are capped.
@@ -1171,13 +1177,13 @@ async fn reward_cap_two_recipients() -> anyhow::Result<()> {
         (key1, key2)
     };
 
-    let initial_epoch = ctx.zkc_contract.getCurrentEpoch().call().await?;
+    let initial_epoch = ctx.zkc.getCurrentEpoch().call().await?;
     println!("Initial epoch: {initial_epoch}");
 
     // Set an epoch reward cap for the recipient.
     let epoch_reward = ctx.zkc.getPoVWEmissionsForEpoch(initial_epoch - U256::ONE).call().await?;
     let capped_epoch_reward = epoch_reward * U256::from(3) / U256::from(4);
-    ctx.zkc_rewards_contract
+    ctx.zkc_rewards
         .setPoVWRewardCap(work_log_signer.address(), capped_epoch_reward)
         .send()
         .await?
@@ -1196,7 +1202,11 @@ async fn reward_cap_two_recipients() -> anyhow::Result<()> {
 
     let work_log_event1 =
         ctx.post_work_log_update(&work_log_signer, &update1, value_recipient1.address()).await?;
-    println!("Work log update posted with value recipient {} for epoch {}", value_recipient1.address(), work_log_event1.epochNumber);
+    println!(
+        "Work log update posted with value recipient {} for epoch {}",
+        value_recipient1.address(),
+        work_log_event1.epochNumber
+    );
 
     let update2 = LogBuilderJournal::builder()
         .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
@@ -1209,7 +1219,11 @@ async fn reward_cap_two_recipients() -> anyhow::Result<()> {
 
     let work_log_event2 =
         ctx.post_work_log_update(&work_log_signer, &update2, value_recipient2.address()).await?;
-    println!("Work log update posted with value recipient {} for epoch {}", value_recipient2.address(), work_log_event2.epochNumber);
+    println!(
+        "Work log update posted with value recipient {} for epoch {}",
+        value_recipient2.address(),
+        work_log_event2.epochNumber
+    );
 
     // Advance time and finalize epoch
     ctx.advance_epochs(U256::ONE).await?;
@@ -1233,12 +1247,14 @@ async fn reward_cap_two_recipients() -> anyhow::Result<()> {
         "Work log signer should not receive any tokens"
     );
     assert_eq!(
-        value_recipient1_balance, epoch_reward / U256::from(2),
+        value_recipient1_balance,
+        epoch_reward / U256::from(2),
         "Value recipient {} should receive half the total reward (cap not reached)",
         value_recipient1.address(),
     );
     assert_eq!(
-        value_recipient2_balance, epoch_reward / U256::from(4),
+        value_recipient2_balance,
+        epoch_reward / U256::from(4),
         "Value recipient {} should receive a quarter of the total reward (cap exceeded)",
         value_recipient2.address(),
     );

@@ -107,7 +107,8 @@ library ConfigParser {
             stdToml.readAddressOr(config, string.concat(chain, ".boundless-market-impl"), address(0));
         deploymentConfig.boundlessMarketOldImpl =
             stdToml.readAddressOr(config, string.concat(chain, ".boundless-market-old-impl"), address(0));
-        deploymentConfig.collateralToken = stdToml.readAddressOr(config, string.concat(chain, ".collateral-token"), address(0));
+        deploymentConfig.collateralToken =
+            stdToml.readAddressOr(config, string.concat(chain, ".collateral-token"), address(0));
         deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));
         deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
         deploymentConfig.deprecatedAssessorDuration =
