@@ -44,11 +44,12 @@ export = () => {
   const logJson = bentoConfig.getBoolean('LOG_JSON');
   const bentoBrokerTomlPath = bentoConfig.require('BROKER_TOML_PATH')
 
-  const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-prover", chainId);
+  const bentoBroker1ServiceName = getServiceNameV1(stackName, "bento-prover-1", chainId);
+  const bentoBroker2ServiceName = getServiceNameV1(stackName, "bento-prover-2", chainId);
   let bentoBroker1: BentoEC2Broker | undefined;
   let bentoBroker2: BentoEC2Broker | undefined;
   if (process.env.SKIP_BENTO !== "true") {
-    bentoBroker1 = new BentoEC2Broker(bentoBrokerServiceName, {
+    bentoBroker1 = new BentoEC2Broker(bentoBroker1ServiceName, {
       chainId: getChainId(chainId),
       ethRpcUrl,
       gitBranch: bentoProverBranch,
@@ -71,7 +72,7 @@ export = () => {
       logJson,
     });
 
-    bentoBroker2 = new BentoEC2Broker(bentoBrokerServiceName, {
+    bentoBroker2 = new BentoEC2Broker(bentoBroker2ServiceName, {
       chainId: getChainId(chainId),
       ethRpcUrl,
       gitBranch: bentoProverBranch,
