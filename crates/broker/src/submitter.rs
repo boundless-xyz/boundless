@@ -486,7 +486,7 @@ where
                 .unwrap_or(&OrderPrice { price: U256::ZERO, stake_reward: U256::ZERO });
 
             let eth_reward_log = format!("eth_reward: {}", format_ether(order_price.price));
-            let stake_token_decimals = self.market.stake_token_decimals().await?;
+            let stake_token_decimals = self.market.collateral_token_decimals().await?;
             let stake_reward =
                 format_units(order_price.stake_reward, stake_token_decimals).unwrap();
             let mut stake_reward_log = format!("stake_reward: {stake_reward}");

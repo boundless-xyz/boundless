@@ -1267,7 +1267,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
-            .context("STAKE_TOKEN_CONTRACT call failed")?
+            .context("COLLATERAL_TOKEN_CONTRACT call failed")?
             .0;
         let contract = IERC20::new(token_address.into(), self.instance.provider());
         let call = contract.approve(spender, value).from(self.caller);
@@ -1315,7 +1315,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
-            .context("STAKE_TOKEN_CONTRACT call failed")?
+            .context("COLLATERAL_TOKEN_CONTRACT call failed")?
             .0;
         let contract = IERC20Permit::new(token_address.into(), self.instance.provider());
         let call = contract.nonces(self.caller());
@@ -1401,30 +1401,30 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
-    /// Returns the stake token address used by the market.
-    pub async fn stake_token_address(&self) -> Result<Address, MarketError> {
-        tracing::trace!("Calling STAKE_TOKEN_CONTRACT()");
+    /// Returns the collateral token address used by the market.
+    pub async fn collateral_token_address(&self) -> Result<Address, MarketError> {
+        tracing::trace!("Calling COLLATERAL_TOKEN_CONTRACT()");
         let address = self
             .instance
             .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
-            .context("STAKE_TOKEN_CONTRACT call failed")?
+            .context("COLLATERAL_TOKEN_CONTRACT call failed")?
             .0;
         Ok(address.into())
     }
 
-    /// Returns the stake token's symbol.
-    pub async fn stake_token_symbol(&self) -> Result<String, MarketError> {
-        let address = self.stake_token_address().await?;
+    /// Returns the collateral token's symbol.
+    pub async fn collateral_token_symbol(&self) -> Result<String, MarketError> {
+        let address = self.collateral_token_address().await?;
         let contract = IERC20::new(address, self.instance.provider());
         let symbol = contract.symbol().call().await.context("Failed to get token symbol")?;
         Ok(symbol)
     }
 
-    /// Returns the stake token's decimals.
-    pub async fn stake_token_decimals(&self) -> Result<u8, MarketError> {
-        let address = self.stake_token_address().await?;
+    /// Returns the collateral token's decimals.
+    pub async fn collateral_token_decimals(&self) -> Result<u8, MarketError> {
+        let address = self.collateral_token_address().await?;
         let contract = IERC20::new(address, self.instance.provider());
         let decimals = contract.decimals().call().await.context("Failed to get token decimals")?;
         Ok(decimals)

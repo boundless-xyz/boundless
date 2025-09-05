@@ -17,7 +17,7 @@ parser.add_argument("--set-verifier", help="SetVerifier contract address")
 parser.add_argument("--boundless-market", help="BoundlessMarket contract address")
 parser.add_argument("--boundless-market-impl", help="BoundlessMarket impl contract address")
 parser.add_argument("--boundless-market-old-impl", help="BoundlessMarket old impl contract address")
-parser.add_argument("--stake-token", help="StakeToken contract address")
+parser.add_argument("--collateral-token", help="CollateralToken contract address")
 parser.add_argument("--assessor-image-id", help="Assessor image ID (hex)")
 parser.add_argument("--assessor-guest-url", help="URL to the assessor guest package")
 
@@ -51,7 +51,7 @@ field_mapping = {
     "boundless-market": args.boundless_market,
     "boundless-market-impl": args.boundless_market_impl,
     "boundless-market-old-impl": args.boundless_market_old_impl,
-    "stake-token": args.stake_token,
+    "collateral-token": args.collateral_token,
     "assessor-image-id": args.assessor_image_id,
     "assessor-guest-url": args.assessor_guest_url,
     # PoVW contract fields
