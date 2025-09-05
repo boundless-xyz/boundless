@@ -1,5 +1,6 @@
 # TODO(povw): Move this crate out of guests into crates. It does indeed have guests in it, but also
 # a lot more and is essentially _the_ crate for PoVW + Boundless.
+
 [package]
 name = "boundless-povw"
 resolver = "2"
@@ -29,6 +30,7 @@ risc0-steel = { git = "https://github.com/boundless-xyz/steel", rev = "b251b3572
 risc0-zkvm = { workspace = true, features = ["client", "unstable"], optional = true }
 ruint = { version = "1.15", default-features = false, features = ["borsh", "std"] }
 serde = "1"
+tokio = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -55,7 +57,7 @@ release = false
 [features]
 default = ["prover"]
 host = ["signer", "risc0-steel/host", "dep:alloy-provider", "dep:alloy-contract", "dep:serde_json", "dep:clap", "dep:url"]
-prover = ["host", "dep:risc0-zkvm", "dep:risc0-ethereum-contracts"]
+prover = ["host", "dep:risc0-zkvm", "dep:risc0-ethereum-contracts", "dep:tokio"]
 signer = ["dep:alloy-signer"]
 build-guest = [
   "dep:risc0-build",
