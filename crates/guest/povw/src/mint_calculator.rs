@@ -655,7 +655,6 @@ pub mod prover {
         Input, WorkLogFilter, BOUNDLESS_POVW_MINT_CALCULATOR_ELF, BOUNDLESS_POVW_MINT_CALCULATOR_ID,
     };
 
-    // TODO(povw): Add an option for a beacon_api to use beacon commits.
     /// A prover for mint calculations which runs the Mint Calculator to produce a receipt for
     /// determining token mint distributions based on PoVW accounting data.
     #[derive(Builder)]

@@ -41,10 +41,13 @@ struct Journal {
     bytes32 eip712Domain;
 }
 
-// TODO(povw): If we can guarentee that the epoch number will never be greater than uint160, this
-// could be compressed into one slot.
+/// The currently pending epoch, which is still active.
 struct PendingEpoch {
+    /// @notice Verifiable work value that has been submitted in this epoch so far.
     uint96 totalWork;
+    /// @notice The pending epoch number.
+    /// @dev This may not be the current epoch number in the case that the epoch deadline has passed,
+    /// but the finalizeEpoch method has not been called.
     uint256 number;
 }
 
