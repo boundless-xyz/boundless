@@ -32,6 +32,9 @@ type RewardWeightMap = BTreeMap<U256, BTreeMap<Address, BTreeMap<Address, FixedP
 //   * The total work from the epoch finalization event is used in the mint calculation.
 //   * The mint recipient is set correctly.
 fn main() {
+    // call something some blst to mitigate a biuld issue where is does not become linked.
+    let _ = unsafe { blst::blst_p1_sizeof() };
+
     // Read the input from the guest environment.
     let input = Input::decode(env::read_frame()).expect("failed to deserialize input");
 
