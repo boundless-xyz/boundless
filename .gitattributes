@@ -2,4 +2,4 @@ Cargo.lock binary
 *.iid binary
 # Artifacts are generated on build, from checked-in files.
 crates/boundless-market/src/contracts/artifacts/* binary
-crates/guest/povw/src/contracts/artifacts/* binary
+crates/povw/src/contracts/artifacts/* binary

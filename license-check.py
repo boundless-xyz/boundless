@@ -42,8 +42,8 @@ SKIP_PATHS = [
     str(Path.cwd()) + "/contracts/src/libraries/UtilImageID.sol",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/artifacts",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/bytecode.rs",
-    str(Path.cwd()) + "/crates/guest/povw/src/contracts/artifacts",
-    str(Path.cwd()) + "/crates/guest/povw/src/contracts/bytecode.rs",
+    str(Path.cwd()) + "/crates/povw/src/contracts/artifacts",
+    str(Path.cwd()) + "/crates/povw/src/contracts/bytecode.rs",
 ]
 
 APACHE_PATHS = [
@@ -52,6 +52,8 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/contracts/src/IHitPoints.sol",
     str(Path.cwd()) + "/contracts/src/povw/IPovwAccounting.sol",
     str(Path.cwd()) + "/contracts/src/povw/IPovwMint.sol",
+    str(Path.cwd()) + "/contracts/src/zkc/IRewards.sol",
+    str(Path.cwd()) + "/contracts/src/zkc/IStaking.sol",
     str(Path.cwd()) + "/contracts/src/zkc/IZKC.sol",
     str(Path.cwd()) + "/crates/bench",
     str(Path.cwd()) + "/crates/boundless-cli",

@@ -94,7 +94,7 @@ abstract contract PoVWScript is Script {
 
     /// @notice Reads a 32-byte image ID from a .bin file using r0vm --id
     function readImageIdFromFile(string memory filename) internal returns (bytes32) {
-        string memory filePath = string.concat(vm.projectRoot(), "/crates/guest/povw/elfs/", filename);
+        string memory filePath = string.concat(vm.projectRoot(), "/crates/povw/elfs/", filename);
 
         string[] memory args = new string[](4);
         args[0] = "r0vm";

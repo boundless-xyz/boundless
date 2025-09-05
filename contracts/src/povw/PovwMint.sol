@@ -50,7 +50,7 @@ contract PovwMint is IPovwMint, Initializable, OwnableUpgradeable, UUPSUpgradeab
     /// It ensure that any given work log update can be used in at most one mint.
     mapping(address => bytes32) public workLogCommits;
 
-    // NOTE: When updating this constructor, crates/guest/povw/build.rs must be updated as well.
+    // NOTE: When updating this constructor, crates/povw/build.rs must be updated as well.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         IRiscZeroVerifier verifier,
