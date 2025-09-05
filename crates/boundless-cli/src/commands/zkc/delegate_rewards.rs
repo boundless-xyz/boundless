@@ -23,12 +23,11 @@ use crate::config::GlobalConfig;
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct ZkcDelegateRewards {
+    /// Address to delegate rewards to.
+    pub to: Address,
     /// Address of the [IRewards] contract.
     #[clap(long, env = "VEZKC_ADDRESS")]
     pub vezkc_address: Address,
-    /// Address to delegate rewards to.
-    #[clap(long)]
-    pub address: Address,
 }
 
 impl ZkcDelegateRewards {
@@ -47,7 +46,7 @@ impl ZkcDelegateRewards {
         let rewards = IRewards::new(self.vezkc_address, provider.clone());
 
         let tx_result = rewards
-            .delegateRewards(self.address)
+            .delegateRewards(self.to)
             .send()
             .await
             .context("Failed to send delegateRewards transaction")?;
