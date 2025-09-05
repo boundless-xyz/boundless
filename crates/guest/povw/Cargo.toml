@@ -30,7 +30,7 @@ risc0-steel = { git = "https://github.com/boundless-xyz/steel", rev = "b251b3572
 risc0-zkvm = { workspace = true, features = ["client", "unstable"], optional = true }
 ruint = { version = "1.15", default-features = false, features = ["borsh", "std"] }
 serde = "1"
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 url = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -41,7 +41,7 @@ rand = "0.9"
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-povw = { workspace = true, features = ["prover"] }
 risc0-zkvm = { workspace = true, features = ["client", "unstable"] }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [build-dependencies]
 risc0-build = { workspace = true, features = ["unstable"], optional = true }
