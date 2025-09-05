@@ -170,6 +170,7 @@ impl PovwProveUpdate {
             .save(&self.state)
             .context("Failed to save state")?;
 
+        tracing::info!("Added update to the work log");
         Ok(())
     }
 }
