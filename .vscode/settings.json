@@ -12,7 +12,9 @@
   "rust-analyzer.linkedProjects": [
     "./Cargo.toml",
     "./crates/distributor/Cargo.toml",
-    "./bento/crates/workflow/Cargo.toml"
+    "./bento/crates/workflow/Cargo.toml",
+    "./crates/povw/mint-calculator/Cargo.toml",
+	"./crates/povw/log-updater/Cargo.toml",
     // "./crates/guest/assessor/assessor-guest/Cargo.toml",
     // "./crates/guest/util/echo/Cargo.toml",
     // "./crates/guest/util/identity/Cargo.toml",

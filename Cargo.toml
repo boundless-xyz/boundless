@@ -5,7 +5,6 @@ members = [
     "crates/bench",
     "crates/boundless-cli",
     "crates/boundless-market",
-    "crates/boundless-market/test-utils",
     "crates/broker",
     "crates/broker-stress",
     "crates/distributor",
@@ -15,7 +14,10 @@ members = [
     "crates/ops-lambdas/indexer-monitor",
     "crates/order-generator",
     "crates/order-stream",
+    "crates/povw",
     "crates/slasher",
+    "crates/test-utils",
+    "crates/zkc",
     "documentation/doc-test",
 ]
 
@@ -29,7 +31,9 @@ repository = "https://github.com/boundless-xyz/boundless/"
 boundless-assessor = { version = "0.15.0", path = "crates/assessor" }
 boundless-cli = { version = "0.15.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.15.0", path = "crates/boundless-market" }
-boundless-market-test-utils = { path = "crates/boundless-market/test-utils" }
+boundless-test-utils = { path = "crates/test-utils" }
+boundless-zkc = { version = "0.15.0", path = "crates/zkc" }
+boundless-povw = { path = "crates/povw" }
 distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
@@ -64,6 +68,7 @@ risc0-circuit-recursion = { version = "4.0.2" }
 risc0-build-ethereum = { version = "3.0.1" }
 risc0-ethereum-contracts = { version = "3.0.1" }
 risc0-zkvm = { version = "3.0.3", default-features = false }
+risc0-povw = { version = "0.4", default-features = false }
 risc0-zkp = { version = "3.0.2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -86,14 +91,13 @@ url = "2.5"
 uuid = { version = "1.7", features = ["v4"] }
 utoipa = "5.2"
 
-# Always optimize; building and running the guest takes much longer without optimization.
+# Apply some optimizations on dev profile, to speed up tests.
 [profile.dev]
-opt-level = 3
+opt-level = 1
 
 [profile.release]
 debug = 1
 lto = true
-
 # [profile.release]
 # lto = "fat"
 # codegen-units = 1

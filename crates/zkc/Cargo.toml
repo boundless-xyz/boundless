@@ -1,0 +1,30 @@
+[package]
+name = "boundless-zkc"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[dependencies]
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy-chains = "0.2"
+anyhow = "1.0"
+derive_builder = "0.20.2"
+risc0-zkvm = { workspace = true, features = ["client", "unstable"] }
+serde = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+boundless-test-utils = { workspace = true, features = ["povw"] }
+rand = "0.9"
+
+[build-dependencies]
+risc0-build = { workspace = true, features = ["unstable"] }
+risc0-build-ethereum = { workspace = true }
+serde_json = { version = "1.0" }
+
+[package.metadata.release]
+release = false

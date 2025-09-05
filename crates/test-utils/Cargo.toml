@@ -1,0 +1,43 @@
+[package]
+name = "boundless-test-utils"
+description = "Test utils for the Boundless"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+license = "Apache-2.0"
+
+[dependencies]
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+anyhow = { workspace = true }
+bincode = { version = "1.3", optional = true }
+boundless-market = { workspace = true, features = ["test-utils"] }
+boundless-povw = { workspace = true, optional = true }
+bytemuck = { version = "1.23", optional = true }
+derive_builder = { version = "0.20.2", optional = true }
+guest-assessor = { workspace = true }
+guest-set-builder = { workspace = true }
+guest-util = { workspace = true }
+postcard = { version = "1.1", features = ["alloc"], optional = true }
+rand = { version = "0.9", optional = true }
+risc0-aggregation = { workspace = true }
+risc0-circuit-recursion = { workspace = true }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
+risc0-povw = { workspace = true, features = ["prover"], optional = true }
+risc0-steel = { git = "https://github.com/boundless-xyz/steel", branch = "release-2.4", optional = true }
+risc0-zkvm = { workspace = true, features = ["std"] }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+uuid = { workspace = true, features = ["v4"], optional = true }
+wiremock = { version = "0.6", optional = true }
+
+[dev-dependencies]
+reqwest = { workspace = true, features = ["json"] }
+
+[features]
+povw = ["dep:boundless-povw", "dep:bytemuck", "dep:derive_builder", "dep:postcard", "dep:rand", "dep:risc0-povw", "dep:risc0-steel", "dep:tokio", "dep:wiremock", "dep:serde", "dep:serde_json", "dep:uuid", "dep:bincode", "dep:tracing"]
