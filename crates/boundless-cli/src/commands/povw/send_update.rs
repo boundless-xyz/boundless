@@ -28,14 +28,14 @@ use risc0_zkvm::{default_prover, ProverOpts};
 use super::State;
 use crate::config::{GlobalConfig, ProverConfig};
 
-/// Send a work log update to the PoVW accounting contract.
+/// Submit a work log update to the PoVW accounting contract.
 ///
 /// To prepare the update, this command creates a Groth16 proof, compressing the updates to be sent
 /// and proving that they are authorized by the signing key for the work log.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
-pub struct PovwSendUpdate {
-    /// State of the work log, including receipts produced by the prove-update command.
+pub struct PovwSubmit {
+    /// State of the work log, including proven updates produces by the prepare command.
     #[arg(short, long, env = "POVW_STATE_PATH")]
     pub state: PathBuf,
 
@@ -50,6 +50,7 @@ pub struct PovwSendUpdate {
     pub value_recipient: Option<Address>,
 
     // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
+    // See crates/povw/src/deployments.rs
     /// Address of the PoVW accounting contract.
     #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
     pub povw_accounting_address: Address,
@@ -58,8 +59,8 @@ pub struct PovwSendUpdate {
     prover_config: ProverConfig,
 }
 
-impl PovwSendUpdate {
-    /// Run the [PovwSendUpdate] command.
+impl PovwSubmit {
+    /// Run the [PovwSubmit] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
         let work_log_signer = self.povw_private_key.as_ref().unwrap_or(&tx_signer);
@@ -69,6 +70,8 @@ impl PovwSendUpdate {
         let mut state = State::load(&self.state)
             .await
             .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
+        tracing::info!("Submitting work log update for log ID: {:x}", state.log_id);
+
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
             "Signer does not match the state log ID: signer: {}, state: {}",
