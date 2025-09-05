@@ -253,13 +253,13 @@ dependencies = [
 
 [[package]]
 name = "alloy-evm"
-version = "0.18.4"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7808e88376405c92315b4d752d9b207f25328e04b31d13e9b1c73f9236486f63"
+checksum = "0dbe7c66c859b658d879b22e8aaa19546dab726b0639f4649a424ada3d99349e"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
- "alloy-hardforks",
+ "alloy-hardforks 0.3.0",
  "alloy-primitives 1.3.1",
  "alloy-rpc-types-eth",
  "alloy-sol-types",
@@ -290,6 +290,19 @@ name = "alloy-hardforks"
 version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3165210652f71dfc094b051602bafd691f506c54050a174b1cba18fb5ef706a3"
+dependencies = [
+ "alloy-chains",
+ "alloy-eip2124",
+ "alloy-primitives 1.3.1",
+ "auto_impl",
+ "dyn-clone",
+]
+
+[[package]]
+name = "alloy-hardforks"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a20b180071d4f22db71702329101685ccff2e2a8f400d30a68ba907700163bf5"
 dependencies = [
  "alloy-chains",
  "alloy-eip2124",
@@ -371,7 +384,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb0af8bdb3ee8da43a1f1eb9d1df3c8e3bd657dd20eddd3f00f03105c0fdd3f5"
 dependencies = [
  "alloy-genesis",
- "alloy-hardforks",
+ "alloy-hardforks 0.2.13",
  "alloy-network",
  "alloy-primitives 1.3.1",
  "alloy-signer",
@@ -2778,7 +2791,7 @@ dependencies = [
  "risc0-build-ethereum 3.0.1",
  "risc0-ethereum-contracts",
  "risc0-povw",
- "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10)",
+ "risc0-steel",
  "risc0-zkvm",
  "ruint",
  "serde",
@@ -2834,7 +2847,7 @@ dependencies = [
  "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
  "risc0-povw",
- "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10)",
+ "risc0-steel",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -3955,7 +3968,7 @@ dependencies = [
  "glob",
  "postcard",
  "regex",
- "risc0-steel 2.3.0 (git+https://github.com/boundless-xyz/steel?branch=release%2Fsteel-v2.3.0)",
+ "risc0-steel",
  "risc0-zkvm",
  "tracing",
  "url",
@@ -6852,9 +6865,9 @@ checksum = "a4895175b425cb1f87721b59f0f286c2092bd4af812243672510e1ac53e2e0ad"
 
 [[package]]
 name = "op-alloy-consensus"
-version = "0.18.14"
+version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c88d2940558fd69f8f07b3cbd7bb3c02fc7d31159c1a7ba9deede50e7881024"
+checksum = "d9ade20c592484ba1ea538006e0454284174447a3adf9bb59fa99ed512f95493"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -6866,9 +6879,9 @@ dependencies = [
 
 [[package]]
 name = "op-revm"
-version = "9.0.1"
+version = "10.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6889cdfed74c6c924a54b2357982fce232e06473c6bb73b9a0c71a9151bfabd"
+checksum = "5ba21d705bbbfc947a423cba466d75e4af0c7d43ee89ba0a0f1cfa04963cede9"
 dependencies = [
  "auto_impl",
  "revm",
@@ -7977,9 +7990,9 @@ dependencies = [
 
 [[package]]
 name = "revm"
-version = "28.0.1"
+version = "29.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee5d3f7d031e90ab47c7488061bdc4875abc4e9dcea6c18f5dee09732d0436fb"
+checksum = "0c278b6ee9bba9e25043e3fae648fdce632d1944d3ba16f5203069b43bddd57f"
 dependencies = [
  "revm-bytecode",
  "revm-context",
@@ -8068,9 +8081,9 @@ dependencies = [
 
 [[package]]
 name = "revm-handler"
-version = "9.0.1"
+version = "10.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cb09d07e6799823ce5a344f1604236b53fe1a92bacd7122c0b16286f92254c2"
+checksum = "528d2d81cc918d311b8231c35330fac5fba8b69766ddc538833e2b5593ee016e"
 dependencies = [
  "auto_impl",
  "derive-where",
@@ -8087,9 +8100,9 @@ dependencies = [
 
 [[package]]
 name = "revm-inspector"
-version = "9.1.0"
+version = "10.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2770c0d7e9f4f23660dc0b8b954b7a1eee8989ec97f936ebce366c78b6d7b915"
+checksum = "bf443b664075999a14916b50c5ae9e35a7d71186873b8f8302943d50a672e5e0"
 dependencies = [
  "auto_impl",
  "either",
@@ -8117,9 +8130,9 @@ dependencies = [
 
 [[package]]
 name = "revm-precompile"
-version = "26.0.1"
+version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f7bb5e8b92891c5ac9dd8dae157bd1d90aab01973ad4f99d4135d507facc3e7"
+checksum = "25b57d4bd9e6b5fe469da5452a8a137bc2d030a3cd47c46908efc615bbc699da"
 dependencies = [
  "ark-bls12-381",
  "ark-bn254",
@@ -8530,36 +8543,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-steel"
-version = "2.3.0"
-source = "git+https://github.com/boundless-xyz/steel?branch=release%2Fsteel-v2.3.0#eff67d3730665d546cb03780df5754770f246a7f"
-dependencies = [
- "alloy",
- "alloy-consensus",
- "alloy-eips",
- "alloy-evm",
- "alloy-primitives 1.3.1",
- "alloy-rlp",
- "alloy-rpc-types",
- "alloy-sol-types",
- "alloy-trie 0.8.1",
- "anyhow",
- "bincode",
- "enumn",
- "ethereum-consensus",
- "log",
- "revm",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.16",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "risc0-steel"
-version = "2.3.0"
-source = "git+https://github.com/boundless-xyz/steel?rev=b251b3572cc004bc9f151be37dd59baaf9bbfe10#b251b3572cc004bc9f151be37dd59baaf9bbfe10"
+version = "2.4.0"
+source = "git+https://github.com/boundless-xyz/steel?branch=release-2.4#3731e48e9a7ba4bb0c6ef800b635d95f4114ca85"
 dependencies = [
  "alloy",
  "alloy-consensus",
