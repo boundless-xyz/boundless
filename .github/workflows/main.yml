@@ -22,8 +22,6 @@ env:
   RISC0_TOOLCHAIN_VERSION: 1.88.0
   RISC0_CRATE_VERSION: "3.0.3"
   FOUNDRY_VERSION: v1.0.0
-  # Set SCCACHE_RECACHE to clear sccache if needed.
-  SCCACHE_RECACHE: true
 
 jobs:
   # see: https://github.com/orgs/community/discussions/26822
