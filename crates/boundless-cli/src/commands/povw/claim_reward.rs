@@ -31,7 +31,7 @@ use boundless_povw::{
 };
 use clap::Args;
 use risc0_povw::PovwLogId;
-use risc0_zkvm::{default_prover, Digest};
+use risc0_zkvm::{default_prover, Digest, ProverOpts};
 use url::Url;
 
 use crate::config::{GlobalConfig, ProverConfig};
@@ -203,6 +203,7 @@ impl PovwClaimReward {
             .zkc_address(self.zkc_address)
             .zkc_rewards_address(self.vezkc_address)
             .chain_spec(chain_spec)
+            .prover_opts(ProverOpts::groth16())
             .build()?;
 
         tracing::info!("Building input data for Mint Calculator guest");
