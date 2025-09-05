@@ -1,6 +1,3 @@
-# TODO(povw): Move this crate out of guests into crates. It does indeed have guests in it, but also
-# a lot more and is essentially _the_ crate for PoVW + Boundless.
-
 [package]
 name = "boundless-povw"
 resolver = "2"
