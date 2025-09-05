@@ -16,15 +16,12 @@ config:
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging-84532.toml
   bento-prover:LOG_JSON: "true"
-  bento-prover:PRIVATE_KEY:
-    secure: v1:d6iehnlKMCcTxeNx:FKGGXvXiUr+gulHJFk9hqtzQQJSn8FqmPp3T6mB2TgnDXUQZhhRTST00xGXI1nS1+tMpH3F2e93Es4EOF/oaiC85WH8VD7YUTRAS3SJYQmw=
   bento-prover:SEGMENT_SIZE: "19"
   bento-prover:SNARK_TIMEOUT: "240"
-  bonsai-prover:BONSAI_API_KEY:
-    secure: v1:3nth4RWK5Lc5dpAY:bxNMyJ6mJ+tnp6fYksuygd7mVnydJixDabsajHrc/5k6SGrfX1trQjLWzjG1uwv+9T8bYAn18Yg=
-  bonsai-prover:BONSAI_API_URL: https://api.staging.bonsai.xyz/
-  bonsai-prover:BROKER_TOML_PATH: tomls/bonsai/broker-staging-84532.toml
-  bonsai-prover:PRIVATE_KEY:
-    secure: v1:I0VMAC45x7Zkhwxq:LXcrBM9sl8HqqDkjgxYUkqmwi1ROK9Wf09p5/DafaDYMKfZNr4SGMPetXCuTmlp97wG6nAhSul/0BumrU7MreJ0jjxgDGE9oUetTKgBEdmE=
   base-prover:ETH_RPC_URL:
     secure: v1:esz91sP38E6I6Wyx:fWH5PH0CEZveeZY7x3yP/uA0/7eiko1yShrAz0UJE86aJGbq+qiLlq8Abg3nzeR+sb6K80VZXzF/WSZ+dfj0TxAGMgH0v8RbMVhl
+  bento-prover:PRIVATE_KEY_1:
+    secure: v1:1d5kbiW4wf88a2MJ:iQrG7cV1JYemmwbHdgvM7pdkm1er8zjj7UnZBCEqsNr1jSZ5jH8ap+43Svc+ul8eBZRiWKmO1sk2IIf2iFWrPCsxxw1Yr4tVKlLjKJI4QLc=
+  bento-prover:PRIVATE_KEY_2:
+    secure: v1:bQ7SEGHARAraak8j:/9TMOSHu59noPh5yT7pCWaC2a9Fgl29kdQKxj7NRHPZ3mR+QfCmOZR2+Ni+q8/i2aIglhVktAebBfOWZcbPw0w0LHH3UfFQV14FsLUmmhM8=
+  bento-prover:BRANCH: launch-infra
