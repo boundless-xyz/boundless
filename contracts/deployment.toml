@@ -54,10 +54,10 @@ admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8476627
-boundless-market = "0x13337C76fE2d1750246B68781ecEe164643b98Ec"
-boundless-market-impl = "0x87602baa3da1668e09e5e3b91976ad4b346ef246"
-boundless-market-old-impl = "0x4530b99e5e9944b97a9eb4c5064db1421505e344"
-collateral-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+boundless-market = "0xc58403c189E00dD97506e9dc70499a8fbA6fc768"
+boundless-market-impl = "0x3853a7C6e3b7ccBe3c5EC326098C9FC1D7a3628F"
+boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+collateral-token = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main

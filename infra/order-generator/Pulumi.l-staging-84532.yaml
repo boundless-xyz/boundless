@@ -23,7 +23,7 @@ config:
     secure: v1:tZoaPELj24Sb/1SK:MqoMsiGa7DDWlklS/Awb5ALhvu1OQ4md86zIK3t7W+WloJsiyZn/Ho3S16GOsEGclXEUFxmPfB7eNjG74R/mhAhFAY87KnA57NrXsbdu7piL5LfmN2sugb8LWq5H5QwIcy9m2CJ1dfYybmjM+o7sQgMJKEY6gW73YJufczQbUpwmrQT37rwMVUQv+86s4y9a6RAObPOh9Iic6w5YtYnkbIpZ56V2wrlyN9uOTxBkNctMAJkL+CcBiMllfUYRKtMwtm7cFeHnBR5CdzBmGtBgXU2GG844wyMclPL90eEbQp0/XDIqBBGbyzoG2mOSCKTw1usn5Tn6p0s/XLHNxYJijAoeoReVyE1AMO4G5l3MoN41g82WtyngNntpR3FP2gWG3oGUZYE5EDxpnwsWGPznSmzgcuuuJfY8PfKLvAKJ2uuBVvqf1s0ao4STqCt3C+sr/AAqnWibsE3yMlhvS2nANFIXZhKD+d6xVold78LyPRHfzhMz0MXPc3Vvao4y974pLuBtDq/De+KUwiYRaTNlYy7PvJUXadrWwfcBCw/5jUtXQ793EJn1hOdtvVf0XkTezBYugEaJk0/y4VickQsN5PDcjKLgHBcT/N3kv1gDVG+Tvk9q+jpMlFfltpoGp6zEJP2MSUpo++Vd+fRIzRGAjhkgh6sWNMCHlQb8brbR5DrnDftiHHFtZx1gOjPGJsgc+RFE51NgvquVa6mLczHiJlsb2SO/8qKPQAViMrkpLU6MtMtK11tv5QBWAS1NHzTyxazu/rQjCwyH+pv/KJXpATDCoZIweWBR51O/Z/gdav0byAWpyXkeJWpJaXLfOE+XfBnCe5rhH7HnmBO72DPEgZNmRAzqZM/kUgyNVT/HaOc3ksfDWvuqxVyfzJuwqYImFdtjc94wiRD6QpiGCxeCs1H9xia5zLlZ
   order-generator-base:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
-  order-generator-base:TX_TIMEOUT: "120"
+  order-generator-base:TX_TIMEOUT: "300"
   order-generator-offchain:AUTO_DEPOSIT: "0.015"
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-offchain:EXEC_RATE_KHZ: "500"
@@ -37,8 +37,8 @@ config:
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "500"
-  order-generator-onchain:INPUT_MAX_MCYCLES: "500"
-  order-generator-onchain:INTERVAL: "1800"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-onchain:INTERVAL: "1200"
   order-generator-onchain:LOCK_TIMEOUT: "900"
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:8l5MCYXhXARv/H6i:zz/n6SPMe/RcicTZXMIvXBxUKa3m0se8qkLjsDcyTBE8ea6oZrIMVGM35OGbED756Inna/XcwkPblWvhFCy296cfs03E/0d1mtez2TBKZ9o=
