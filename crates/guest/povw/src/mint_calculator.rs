@@ -277,7 +277,7 @@ pub mod host {
                 SteelVerifier::preflight(env)
                     .verify(&env_prev.commitment())
                     .await
-                    .with_context(|| format!("failed to preflight SteelVerifier verify of commit for block {} using env of block {}", env.header().number, env_prev.header().number))?;
+                    .with_context(|| format!("failed to preflight SteelVerifier verify of commit for block {} using env of block {}", env_prev.header().number, env.header().number))?;
                 env_prev = env;
             }
             Ok(())
@@ -645,10 +645,7 @@ pub mod prover {
     use alloy_primitives::Address;
     use anyhow::Context;
     use derive_builder::Builder;
-    use risc0_steel::{
-        ethereum::{EthChainSpec, EthEvmEnv},
-        host::BlockNumberOrTag,
-    };
+    use risc0_steel::ethereum::{EthChainSpec, EthEvmEnv};
     use risc0_zkvm::{
         compute_image_id, Digest, ExecutorEnv, ProveInfo, Prover, ProverOpts, VerifierContext,
     };
@@ -774,19 +771,27 @@ pub mod prover {
             if let Some(beacon_api) = self.beacon_api.clone() {
                 // When a beacon API is provided, set up beacon commitments and enable History. Use
                 // the parent of the latest block as the commit.
+                // TODO: We would like to use the History commitment here, but it does not work
+                // with the current implementation of MultiblockEthEvmEnv. In particular, it
+                // results in the env.commitment() being "in the future" SteelVerifier rejects it.
                 let env_builder = EthEvmEnv::builder()
                     .chain_spec(self.chain_spec)
                     .provider(self.provider.clone())
-                    .beacon_api(beacon_api)
-                    .commitment_block_number_or_tag(BlockNumberOrTag::Parent);
+                    .beacon_api(beacon_api);
 
+                // Patch in extra blocks in order to complete the chain of blocks as needed. This
+                // is required because EIP 4788 has a buffer size of 8191. We use 8000 here as the
+                // max gap. Add a recent block to make sure we will chain to a present value.
+                let latest_block_number = self.provider.get_block_number().await.context("Failed to get block number")?;
+                let patched_block_numbers = 
+                    PatchedIterator::<_, 8000>::new(block_numbers.into_iter().chain([latest_block_number - 2]));
                 Input::build(
                     self.povw_accounting_address,
                     self.zkc_address,
                     self.zkc_rewards_address,
                     self.chain_spec.chain_id,
                     env_builder,
-                    block_numbers,
+                    patched_block_numbers,
                     work_log_filter,
                 )
                 .await
@@ -820,17 +825,18 @@ pub mod prover {
             // Prove the mint calculation
             // NOTE: This may block the current thread for a significant amount of time. It is not
             // trivial to wrap this statement in e.g. tokio's spawn_blocking because self contains
-            // a VerifierContext which does not implement Send. If this causes any issues, the caller
-            // can mitigate the issue by building and calling the prover in a seperate thread.
-            let prove_info = self
-                .prover
-                .prove_with_ctx(
-                    env,
-                    &self.verifier_ctx,
-                    &self.mint_calculator_program,
-                    &self.prover_opts,
-                )
-                .context("failed to prove mint calculation")?;
+            // a VerifierContext which does not implement Send. Using tokio block_in_place somewhat
+            // mitigates the issue, but not fully.
+            let prove_info = tokio::task::block_in_place(|| {
+                self.prover
+                    .prove_with_ctx(
+                        env,
+                        &self.verifier_ctx,
+                        &self.mint_calculator_program,
+                        &self.prover_opts,
+                    )
+                    .context("failed to prove mint calculation")
+            })?;
 
             Ok(prove_info)
         }
@@ -840,6 +846,53 @@ pub mod prover {
         /// Create a new builder for [MintCalculatorProver].
         pub fn builder() -> MintCalculatorProverBuilder<Infallible, Infallible> {
             Default::default()
+        }
+    }
+
+    // A utility type used to patch up a list of block numbers to have not too large of a gap.
+    struct PatchedIterator<I: Iterator<Item = u64>, const MAX_GAP: u64> {
+        iter: I,
+        prev: Option<u64>,
+        next: Option<u64>,
+    }
+
+    impl<I: Iterator<Item = u64>, const MAX_GAP: u64> PatchedIterator<I, MAX_GAP> {
+        pub fn new(iter: I) -> Self {
+            Self { iter, next: None, prev: None }
+        }
+    }
+
+    impl<I: Iterator<Item = u64>, const MAX_GAP: u64> Iterator for PatchedIterator<I, MAX_GAP> {
+        type Item = u64;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let mut next = self.next.take().or_else(|| self.iter.next())?;
+            // If the gap between the last value and the next would be too large, buffer next.
+            if self.prev.map(|prev| next > prev + MAX_GAP).unwrap_or(false) {
+                self.next = Some(next);
+                next = self.prev.unwrap() + MAX_GAP;
+            }
+            self.prev = Some(next);
+            Some(next)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::PatchedIterator;
+
+        fn patch(iter: impl IntoIterator<Item = u64>) -> Vec<u64> {
+            PatchedIterator::<_, 10>::new(iter.into_iter()).collect()
+        }
+
+        #[test]
+        fn patched_iter() {
+            assert_eq!(patch([]), Vec::<u64>::new());
+            assert_eq!(patch([1]), vec![1]);
+            assert_eq!(patch([1, 5]), vec![1, 5]);
+            assert_eq!(patch([1, 5, 20]), vec![1, 5, 15, 20]);
+            assert_eq!(patch([1, 5, 20, 25]), vec![1, 5, 15, 20, 25]);
+            assert_eq!(patch([1, 5, 20, 25, 50]), vec![1, 5, 15, 20, 25, 35, 45, 50]);
         }
     }
 }

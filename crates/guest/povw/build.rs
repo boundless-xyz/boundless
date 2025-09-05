@@ -8,7 +8,8 @@ mod build_contracts {
     use std::{env, fs, path::Path};
 
     // Contract interface files to copy to the artifacts folder
-    const INTERFACE_FILES: [&str; 3] = ["IPovwAccounting.sol", "IZKC.sol", "IPovwMint.sol"];
+    const INTERFACE_FILES: [&str; 3] =
+        ["povw/IPovwAccounting.sol", "povw/IPovwMint.sol", "zkc/IZKC.sol"];
 
     // Contracts to generate bytecode for (used for deployment in tests)
     const BYTECODE_CONTRACTS: [&str; 2] = ["PovwAccounting", "PovwMint"];
@@ -26,7 +27,7 @@ mod build_contracts {
             .unwrap()
             .parent()
             .unwrap()
-            .join("contracts/src/povw");
+            .join("contracts/src/");
 
         // Early return if contracts source doesn't exist (enables cargo publish)
         if !contracts_src.exists() {
@@ -40,7 +41,8 @@ mod build_contracts {
 
         for interface_file in INTERFACE_FILES {
             let src_path = contracts_src.join(interface_file);
-            let dest_path = artifacts_dir.join(interface_file);
+            let interface_filename = src_path.file_name().unwrap();
+            let dest_path = artifacts_dir.join(interface_filename);
 
             println!("cargo:rerun-if-changed={}", src_path.display());
 

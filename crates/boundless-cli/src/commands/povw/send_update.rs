@@ -202,7 +202,12 @@ impl PovwSendUpdate {
 
             if let Some(event) = work_log_updated_event {
                 let data = event.inner.data;
-                tracing::info!(updated_commit = %data.updatedCommit, update_value = data.updateValue.to::<u64>(), "Work log update confirmed");
+                tracing::info!(
+                    "Work log update confirmed in epoch {} with work value {}",
+                    data.epochNumber,
+                    data.updateValue.to::<u64>()
+                );
+                tracing::debug!(updated_commit = %data.updatedCommit, "Updated work log commitment")
             }
 
             // Confirm the transaction in the state.
@@ -212,6 +217,8 @@ impl PovwSendUpdate {
                 .save(&self.state)
                 .context("Failed to save state")?;
         }
+
+        // TODO: Display to the user the current epoch and when it will end (e.g. in "2h 25m (2025-09-04 16:23:45 PDT)")
 
         Ok(())
     }
