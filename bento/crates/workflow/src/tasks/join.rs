@@ -9,7 +9,7 @@ use crate::{
     tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt};
+use risc0_zkvm::{ReceiptClaim, SegmentReceipt, SuccinctReceipt};
 use uuid::Uuid;
 use workflow_common::JoinReq;
 
@@ -23,15 +23,52 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     let left_path_key = format!("{recur_receipts_prefix}:{}", request.left);
     let right_path_key = format!("{recur_receipts_prefix}:{}", request.right);
 
-    let (left_receipt, right_receipt): (Vec<u8>, Vec<u8>) =
+    let (left_receipt_data, right_receipt_data): (Vec<u8>, Vec<u8>) =
         conn.mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_path_key, &right_path_key]).await.with_context(
             || format!("failed to get receipts for keys: {left_path_key}, {right_path_key}"),
         )?;
 
-    let left_receipt: SuccinctReceipt<ReceiptClaim> =
-        deserialize_obj(&left_receipt).context("Failed to deserialize left receipt")?;
-    let right_receipt: SuccinctReceipt<ReceiptClaim> =
-        deserialize_obj(&right_receipt).context("Failed to deserialize right receipt")?;
+    // Handle each receipt independently - they could be mixed types
+    let prover = agent.prover.as_ref().context("Missing prover from resolve task")?;
+    let left_idx = request.left;
+    let right_idx = request.right;
+
+    let (left_receipt, right_receipt) = tokio::try_join!(
+        async {
+            match deserialize_obj::<SegmentReceipt>(&left_receipt_data) {
+                Ok(segment) => {
+                    let receipt = prover
+                        .lift(&segment)
+                        .with_context(|| format!("Failed to lift segment {left_idx}"))?;
+                    tracing::debug!("lifting complete {job_id} - {left_idx}");
+                    Ok::<_, anyhow::Error>(receipt)
+                }
+                Err(_) => {
+                    let receipt: SuccinctReceipt<ReceiptClaim> =
+                        deserialize_obj(&left_receipt_data)
+                            .context("Failed to deserialize left receipt")?;
+                    Ok(receipt)
+                }
+            }
+        },
+        async {
+            match deserialize_obj::<SegmentReceipt>(&right_receipt_data) {
+                Ok(segment) => {
+                    let receipt = prover
+                        .lift(&segment)
+                        .with_context(|| format!("Failed to lift segment {right_idx}"))?;
+                    tracing::debug!("lifting complete {job_id} - {right_idx}");
+                    Ok::<_, anyhow::Error>(receipt)
+                }
+                Err(_) => {
+                    let receipt: SuccinctReceipt<ReceiptClaim> =
+                        deserialize_obj(&right_receipt_data)
+                            .context("Failed to deserialize right receipt")?;
+                    Ok(receipt)
+                }
+            }
+        }
+    )?;
 
     tracing::trace!("Joining {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 
