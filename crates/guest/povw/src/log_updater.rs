@@ -377,6 +377,9 @@ mod tests {
 
     #[test]
     fn image_id_consistency() {
-        assert_eq!(BOUNDLESS_POVW_LOG_UPDATER_ID, <[u32; 8]>::from(compute_image_id(BOUNDLESS_POVW_LOG_UPDATER_ELF).unwrap()));
+        assert_eq!(
+            BOUNDLESS_POVW_LOG_UPDATER_ID,
+            <[u32; 8]>::from(compute_image_id(BOUNDLESS_POVW_LOG_UPDATER_ELF).unwrap())
+        );
     }
 }
