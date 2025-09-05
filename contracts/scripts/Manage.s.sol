@@ -339,30 +339,6 @@ contract TransferOwnership is BoundlessScript {
         vm.broadcast(currentAdmin);
         market.transferOwnership(admin);
 
-        console2.log("Transfered ownership of the BoundlessMarket contract from %s to %s", currentAdmin, admin);
-        console2.log("Ownership must be accepted by the new admin %s", admin);
-    }
-}
-
-/// @notice Script from accepting an ownership transfer of the BoundlessMarket contract.
-///
-/// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract AcceptTransferOwnership is BoundlessScript {
-    function run() external {
-        // Load the config
-        DeploymentConfig memory deploymentConfig =
-            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
-
-        address admin = deploymentConfig.admin.required("admin");
-        address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        BoundlessMarket market = BoundlessMarket(marketAddress);
-
-        require(admin == market.pendingOwner(), "pending owner is not the configured admin");
-
-        vm.broadcast(admin);
-        market.acceptOwnership();
-
-        console2.log("Accepted transfer of ownership of the BoundlessMarket contract from %s", admin);
+        console2.log("Transferred ownership of the BoundlessMarket contract from %s to %s", currentAdmin, admin);
     }
 }

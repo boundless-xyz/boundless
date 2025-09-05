@@ -9,7 +9,7 @@ pragma solidity ^0.8.24;
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
@@ -43,13 +43,7 @@ import {FulfillmentContext, FulfillmentContextLibrary} from "./types/Fulfillment
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "./libraries/MerkleProofish.sol";
 
-contract BoundlessMarket is
-    IBoundlessMarket,
-    Initializable,
-    EIP712Upgradeable,
-    Ownable2StepUpgradeable,
-    UUPSUpgradeable
-{
+contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for int256;
     using SafeCast for uint256;
