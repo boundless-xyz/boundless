@@ -66,24 +66,24 @@ assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v2/assessor/asses
 deprecated-assessor-duration = 432000  # 5 days
 
 # PoVW contracts
-povw-accounting = "0x139850F6e0Fa043900fE491eDf79Bdf3e9C082b3"
-povw-accounting-impl = "0x7D7D574Cb42800d1C8fDD428eDD0C149543a19D0"
+povw-accounting = "0xC5E956732F4bA6B1973a859Cf382244db6e84D0b"
+povw-accounting-impl = "0x3BDFC7Dcef6e93AF23aEBC61C9f0Cda8D9aD7CBa"
 povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
 povw-accounting-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
-povw-accounting-deployment-commit = "f2a3f1d0"
-povw-mint = "0xbdA57a15E3C42A4f28DBA0Dd6031E2A188C26316"
-povw-mint-impl = "0x3597CAC859Fb1094d8747Eb60d2A9bBd59E2a7c6"
+povw-accounting-deployment-commit = "8affce9b4"
+povw-mint = "0xc98218AafE225035a34795Bf4f6777b7d541E326"
+povw-mint-impl = "0x86d54CbD084674FA86c57A98eD9b8A5BA4B16a17"
 povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
 povw-mint-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
-povw-mint-deployment-commit = "f2a3f1d0"
+povw-mint-deployment-commit = "8affce9b4"
 
 # PoVW image IDs
-povw-log-updater-id = "0xd6bbd5be7815164e2ce5391db9155ef6f689cb6397736ae41281598d98ac6755"
-povw-mint-calculator-id = "0xaafed725002338f0ccb06814d6cc46f3488c387b2ad0ddcf828a1eb6f859de07"
+povw-log-updater-id = "0x004b225edce73d0fd399993c14bea083a08bc346eacd68a644946179ebc4818f"
+povw-mint-calculator-id = "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b8154109db76bf"
 
 # ZKC contracts
 zkc = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
-vezkc = "0xEbaad909A60B83c9c3739C7939b0B6d5ceD5a3AB"
+vezkc = "0xc23340732038ca6C5765763180E81B395d2e9cCA"
 
 [deployment.ethereum-sepolia-staging]
 name = "Ethereum Sepolia [staging]"
@@ -112,20 +112,20 @@ deprecated-assessor-duration = 432000  # 5 days
 # PoVW contracts
 povw-accounting-admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
 povw-mint-admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
-povw-accounting = "0xF34aC8e320a2F49BF4Bcb8208EdE29Ca83656f02"
-povw-accounting-impl = "0x55A38e70198301CB1A5BbaBfc9a3A164BbEe742A"
+povw-accounting = "0x129aEAB812d77c102ff1AD9D76DfB55FaAE4b8D3"
+povw-accounting-impl = "0x7959bc1A7A8dfe0B031964115e5E2EDa98a95d91"
 povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
-povw-mint = "0xebF25e36a4B741EC5366757145C7883f20D93a59"
-povw-mint-impl = "0x976F526CAdfd53fa0E635088Ff501670167Ff7dE"
+povw-mint = "0x8C2A4A28116Ed8b8Fe559BC53e30B6a056C5d3C9"
+povw-mint-impl = "0x43952737A52eD2ccc8C148884993120F2F94Fc98"
 povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
-povw-log-updater-id = "0xd6bbd5be7815164e2ce5391db9155ef6f689cb6397736ae41281598d98ac6755"
-povw-mint-calculator-id = "0xaafed725002338f0ccb06814d6cc46f3488c387b2ad0ddcf828a1eb6f859de07"
-povw-accounting-deployment-commit = "91da311d"
-povw-mint-deployment-commit = "91da311d"
+povw-log-updater-id = "0x004b225edce73d0fd399993c14bea083a08bc346eacd68a644946179ebc4818f"
+povw-mint-calculator-id = "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b8154109db76bf"
+povw-accounting-deployment-commit = "8affce9b4"
+povw-mint-deployment-commit = "8affce9b4"
 
 # ZKC contracts
 zkc = "0x99A52662b576f4b2D4FFBc4504331A624a7b2846"
-vezkc = "0xE39E18c1348b5F4501a2f2b85E12564dB6171600"
+vezkc = "0xB7c63161DA06eC56840465308e24C70dF65ABC56"
 
 [deployment.ethereum-mainnet]
 name = "Ethereum Mainnet"
