@@ -37,6 +37,13 @@ pub struct ZkcStake {
     /// transaction to set an ERC20 allowance instead.
     #[clap(long)]
     pub no_permit: bool,
+    // TODO(victor): Can we drop this flag and just call stake or addStake based on whether they
+    // are already staked?
+    /// Add to an existing staking position. If this flag is not specified, the there must be no
+    /// staked tokens for the given address. If there are staked tokens, this flag must be
+    /// specified.
+    #[clap(long)]
+    pub add: bool,
     /// Deadline for the ERC20 permit, in seconds.
     #[clap(long, default_value_t = 3600, conflicts_with = "no_permit")]
     pub permit_deadline: u64,
@@ -65,7 +72,7 @@ impl ZkcStake {
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
-        let pending_tx = match &self.no_permit {
+        let pending_tx = match self.no_permit {
             false => {
                 self.stake_with_permit(
                     provider,
@@ -73,10 +80,14 @@ impl ZkcStake {
                     self.amount,
                     &tx_signer,
                     self.permit_deadline,
+                    self.add,
                 )
                 .await?
             }
-            true => self.stake(provider, self.amount).await.context("Sending stake transaction failed")?,
+            true => self
+                .stake(provider, self.amount, self.add)
+                .await
+                .context("Sending stake transaction failed")?,
         };
         tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx.tx_hash();
@@ -114,11 +125,20 @@ impl ZkcStake {
         &self,
         provider: impl Provider + Clone,
         value: U256,
+        add: bool,
     ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
-        tracing::trace!("Calling stake({})", value);
         let staking = IStaking::new(self.vezkc_address, provider);
-        let call = staking.stake(value);
-        Ok(call.send().await?)
+        let send_result = match add {
+            false => {
+                tracing::trace!("Calling stake({})", value);
+                staking.stake(value).send().await
+            }
+            true => {
+                tracing::trace!("Calling addToStake({})", value);
+                staking.addToStake(value).send().await
+            }
+        };
+        send_result.context("Sending stake transaction failed")
     }
 
     async fn stake_with_permit(
@@ -128,6 +148,7 @@ impl ZkcStake {
         value: U256,
         signer: &impl Signer,
         deadline: u64,
+        add: bool,
     ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
         let contract = IERC20Permit::new(token_address, provider.clone());
         let owner = signer.address();
@@ -152,9 +173,17 @@ impl ZkcStake {
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
 
-        tracing::trace!("Calling stakeWithPermit({})", value);
         let staking = IStaking::new(self.vezkc_address, provider);
-        let call = staking.stakeWithPermit(value, deadline, v, r, s);
-        call.send().await.context("Sending stake with permit transaction failed")
+        let send_result = match add {
+            false => {
+                tracing::trace!("Calling stakeWithPermit({})", value);
+                staking.stakeWithPermit(value, deadline, v, r, s).send().await
+            }
+            true => {
+                tracing::trace!("Calling addToStakeWithPermit({})", value);
+                staking.addToStakeWithPermit(value, deadline, v, r, s).send().await
+            }
+        };
+        send_result.context("Sending stake with permit transaction failed")
     }
 }
