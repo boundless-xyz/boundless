@@ -23,6 +23,9 @@ use risc0_steel::{
 };
 use serde::{Deserialize, Serialize};
 
+// Import blst to mitigate a build issue where blst does not always end up linked.
+use blst as _;
+
 #[cfg(feature = "build-guest")]
 pub use crate::guest_artifacts::BOUNDLESS_POVW_MINT_CALCULATOR_PATH;
 pub use crate::guest_artifacts::{
