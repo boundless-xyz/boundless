@@ -196,7 +196,7 @@ contract DeployPoVW is PoVWScript, RiscZeroCheats {
         console2.log("Mint Calculator ID: %s", vm.toString(mintCalculatorId));
 
         // Deploy PovwAccounting
-        bytes32 salt = bytes32(0);
+        bytes32 salt = bytes32(vm.envOr("SALT", uint256(0)));
         address povwAccountingImpl = address(new PovwAccounting{salt: salt}(verifier, IZKC(zkcAddress), logUpdaterId));
         address povwAccountingAddress = address(
             new ERC1967Proxy{salt: salt}(
