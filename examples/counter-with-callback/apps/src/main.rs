@@ -141,7 +141,10 @@ mod tests {
     };
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderType;
-    use boundless_market_test_utils::{create_test_ctx, TestCtx, ECHO_ID};
+    use boundless_test_utils::{
+        guests::ECHO_ID,
+        market::{create_test_ctx, TestCtx},
+    };
     use broker::test_utils::BrokerBuilder;
     use risc0_zkvm::Digest;
     use test_log::test;

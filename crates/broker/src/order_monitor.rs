@@ -980,8 +980,9 @@ pub(crate) mod tests {
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
-    use boundless_market_test_utils::{
-        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH},
+        market::{deploy_boundless_market, deploy_hit_points},
     };
 
     use risc0_zkvm::Digest;

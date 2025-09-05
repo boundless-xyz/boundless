@@ -519,11 +519,11 @@ where
         }
 
         if let (Some(manual_addr), Some(expected_addr)) =
-            (manual.stake_token_address, expected.stake_token_address)
+            (manual.collateral_token_address, expected.collateral_token_address)
         {
             if manual_addr != expected_addr {
                 warnings.push(format!(
-                    "stake_token_address mismatch: configured={manual_addr}, expected={expected_addr}"
+                    "collateral_token_address mismatch: configured={manual_addr}, expected={expected_addr}"
                 ));
             }
         }
@@ -782,7 +782,7 @@ where
             self.provider.clone(),
             Address::ZERO,
         )
-        .stake_token_decimals()
+        .collateral_token_decimals()
         .await
         .context("Failed to get stake token decimals. Possible RPC error.")?;
 
@@ -1077,7 +1077,10 @@ pub mod test_utils {
     use alloy::network::Ethereum;
     use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
-    use boundless_market_test_utils::{TestCtx, ASSESSOR_GUEST_PATH, SET_BUILDER_PATH};
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
+        market::TestCtx,
+    };
     use tempfile::NamedTempFile;
     use url::Url;
 

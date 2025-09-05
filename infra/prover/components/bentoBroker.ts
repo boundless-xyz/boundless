@@ -56,7 +56,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
 
         let sshKey: aws.ec2.KeyPair | undefined = undefined;
         if (sshPublicKey) {
-            sshKey = new aws.ec2.KeyPair("ssh-key", {
+            sshKey = new aws.ec2.KeyPair(`${serviceName}-ssh-key`, {
                 publicKey: sshPublicKey,
             });
         }

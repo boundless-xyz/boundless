@@ -21,7 +21,7 @@ use alloy::{
 };
 use anyhow::{anyhow, Context, Result};
 use boundless_market::{Client, Deployment, RequestId, StorageProviderConfig};
-use boundless_market_test_utils::ECHO_ELF;
+use boundless_test_utils::guests::ECHO_ELF;
 use clap::Parser;
 use risc0_zkvm::serde::from_slice;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
@@ -158,7 +158,7 @@ mod tests {
         IBoundlessMarket::{self},
     };
     use boundless_market::storage::StorageProviderType;
-    use boundless_market_test_utils::{create_test_ctx, TestCtx};
+    use boundless_test_utils::market::{create_test_ctx, TestCtx};
     use broker::test_utils::BrokerBuilder;
     use test_log::test;
     use tokio::task::JoinSet;

@@ -16,6 +16,11 @@
 
 #![deny(missing_docs)]
 
+// TODO(victor): Break up the code below into modules.
+
+pub mod commands;
+pub mod config;
+
 use alloy::{
     primitives::{Address, Bytes},
     sol_types::{SolStruct, SolValue},
@@ -391,7 +396,7 @@ mod tests {
         eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         UNSPECIFIED_SELECTOR,
     };
-    use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
+    use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
     use risc0_ethereum_contracts::selector::Selector;
 
     async fn setup_proving_request_and_signature(

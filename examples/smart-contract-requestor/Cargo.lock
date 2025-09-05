@@ -2184,7 +2184,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "boundless-market-test-utils"
+name = "boundless-test-utils"
 version = "0.15.0"
 dependencies = [
  "alloy",
@@ -2216,7 +2216,8 @@ dependencies = [
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
+ "bytemuck",
  "chrono",
  "clap",
  "futures",
@@ -3414,7 +3415,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "broker",
  "clap",
  "guest-util",

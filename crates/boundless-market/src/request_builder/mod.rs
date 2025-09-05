@@ -632,7 +632,7 @@ mod tests {
         providers::{DynProvider, Provider},
         rpc::types::TransactionRequest,
     };
-    use boundless_market_test_utils::{create_test_ctx, ECHO_ELF};
+    use boundless_test_utils::{guests::ECHO_ELF, market::create_test_ctx};
     use tracing_test::traced_test;
     use url::Url;
 

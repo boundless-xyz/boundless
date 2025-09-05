@@ -185,7 +185,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         };
     tracing::debug!("Indexer URL: {}", indexer_url);
 
-    let stake_token_decimals = boundless_client.boundless_market.stake_token_decimals().await?;
+    let stake_token_decimals = boundless_client.boundless_market.collateral_token_decimals().await?;
 
     // Build the first request. We will clone this request, updating the id and bidding start, to
     // create each request sent.
@@ -456,7 +456,7 @@ mod tests {
     use alloy::{node_bindings::Anvil, primitives::Address};
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderConfig;
-    use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
+    use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use broker::{config::Config, Args, Broker};
     use tracing_test::traced_test;
 

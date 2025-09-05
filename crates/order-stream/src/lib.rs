@@ -537,7 +537,7 @@ mod tests {
         input::GuestEnv,
         order_stream_client::{order_stream, OrderStreamClient},
     };
-    use boundless_market_test_utils::{create_test_ctx, TestCtx};
+    use boundless_test_utils::market::{create_test_ctx, TestCtx};
 
     use futures_util::StreamExt;
     use reqwest::Url;

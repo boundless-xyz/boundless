@@ -268,7 +268,7 @@ localnet action="up": check-deps
                 --verifier "$VERIFIER_ADDRESS" \
                 --set-verifier "$SET_VERIFIER_ADDRESS" \
                 --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
-                --stake-token "$HIT_POINTS_ADDRESS" \
+                --collateral-token "$HIT_POINTS_ADDRESS" \
                 --assessor-image-id "$ASSESSOR_ID" \
                 --assessor-guest-url "$ASSESSOR_GUEST_URL"
         else

@@ -8,7 +8,7 @@ publish = false
 alloy = { workspace = true }
 anyhow = { workspace = true }
 boundless-market = { workspace = true }
-boundless-market-test-utils = { workspace = true }
+boundless-test-utils = { workspace = true }
 clap = { workspace = true }
 guest-util = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = true }
