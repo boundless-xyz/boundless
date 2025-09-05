@@ -204,16 +204,16 @@ etherscan-url = "https://sepolia.basescan.org/"
 version = "v0.14.0" # 1353e11c main
 
 # Accounts
-admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
+admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26646012
-boundless-market = "0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"
-boundless-market-impl = "0x38235e03abbaa6ffd1f8e7a8e0e54f33b290ab2f"
-boundless-market-old-impl = "0xac852635b620648eb242b5c4e99d92dc8aec8ab2"
-collateral-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+boundless-market = "0x5b0b2825F4BAAdA9354aa5c0f106D32EE4E25fee"
+boundless-market-impl = "0x3686428c111A6C2ca93bed819f448C5310Fff423"
+boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+collateral-token = "0x8d4dA4b7938471A919B08F941461b2ed1679d7bb"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
@@ -230,16 +230,16 @@ etherscan-url = "https://sepolia.basescan.org/"
 version = "v0.14.0" # 1353e11c main
 
 # Accounts
-admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
+admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
-boundless-market = "0xAD0Bd6C436658aF457736d7224a87d2EF56365C8"
-boundless-market-impl = "0xa447130582f0ac817d986076709f257dfdd4b86a"
-boundless-market-old-impl = "0xa1d5e6794fea3b9fc44a5d06345816846875223f"
-stake-token = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+boundless-market = "0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8"
+boundless-market-impl = "0x5F72C322F6322c53c610496D9b136e5b49104786"
+boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+collateral-token = "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
