@@ -25,7 +25,7 @@ struct Offer {
     uint32 rampUpPeriod;
     /// @notice Timeout for the lock, expressed as seconds from bidding start.
     /// @dev Once locked, if a valid proof is not submitted before this deadline, the prover can
-    /// be "slashed", which refunds the price to the requester and takes the prover collateral.
+    /// be "slashed", which refunds the price to the requester and takes the prover stake.
     ///
     /// Additionally, the fee paid by the client is zero for proofs delivered after this time.
     /// Note that after this time, and before `timeout` a proof can still be delivered to fulfill
@@ -97,8 +97,8 @@ library OfferLibrary {
     /// @notice Calculates the price at the given time.
     /// @dev Price increases linearly during the ramp-up period, then remains at the max price until
     /// the lock deadline. After the lock deadline, the price goes to zero. As a result, provers are
-    /// paid no fee from the client for requests that are fulfilled after lock deadline. Note, there
-    /// may be a reward of the collateral available, if a prover failed to deliver on the request.
+    /// paid no fee from the client for requests that are fulfilled after lock deadline. Note though
+    /// that there may be a reward of stake available, if a prover failed to deliver on the request.
     /// @param offer The offer to calculate for.
     /// @param timestamp The time to calculate the price for, as a UNIX timestamp.
     /// @return The price at the given time.
