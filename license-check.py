@@ -43,6 +43,7 @@ SKIP_PATHS = [
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/artifacts",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/bytecode.rs",
     str(Path.cwd()) + "/crates/povw/src/contracts/artifacts",
+    str(Path.cwd()) + "/crates/zkc/src/contracts/artifacts",
     str(Path.cwd()) + "/crates/povw/src/contracts/bytecode.rs",
 ]
 
