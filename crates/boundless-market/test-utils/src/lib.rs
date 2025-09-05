@@ -29,7 +29,8 @@ use boundless_market::{
         boundless_market::BoundlessMarketService,
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
-        AssessorCommitment, AssessorJournal, Fulfillment, ProofRequest,
+        AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, FulfillmentDataType,
+        ProofRequest,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -394,16 +395,32 @@ pub fn mock_singleton(
     request: &ProofRequest,
     eip712_domain: Eip712Domain,
     prover: Address,
+    fulfillment_data_type: FulfillmentDataType,
 ) -> (B256, Bytes, Fulfillment, Bytes) {
     let app_journal = Journal::new(vec![0x41, 0x41, 0x41, 0x41]);
     let app_receipt_claim = ReceiptClaim::ok(ECHO_ID, app_journal.clone().bytes);
     let app_claim_digest = app_receipt_claim.digest();
     let request_digest = request.eip712_signing_hash(&eip712_domain);
+
+    let (claim_digest, fulfillment_data) = match fulfillment_data_type {
+        FulfillmentDataType::ImageIdAndJournal => (
+            <[u8; 32]>::from(app_claim_digest).into(),
+            FulfillmentData::from_image_id_and_journal(ECHO_ID, app_journal.bytes.clone()),
+        ),
+        FulfillmentDataType::None => {
+            (<[u8; 32]>::from(app_claim_digest).into(), FulfillmentData::None)
+        }
+        _ => panic!("unsupported fulfillment data type"),
+    };
     let assessor_root = AssessorCommitment {
         index: U256::ZERO,
         id: request.id,
         requestDigest: request_digest,
         claimDigest: <[u8; 32]>::from(app_claim_digest).into(),
+        fulfillmentDataDigest: <[u8; 32]>::from(
+            fulfillment_data.fulfillment_data_digest().unwrap(),
+        )
+        .into(),
     }
     .eip712_hash_struct();
     let assessor_journal =
@@ -437,16 +454,19 @@ pub fn mock_singleton(
     .abi_encode_seal()
     .unwrap();
 
+    let (fulfillment_data_type, fulfillment_data) = fulfillment_data.fulfillment_type_and_data();
+
     let fulfillment = Fulfillment {
         id: request.id,
         requestDigest: request_digest,
-        imageId: to_b256(Digest::from(ECHO_ID)),
-        journal: app_journal.bytes.into(),
+        claimDigest: claim_digest,
+        fulfillmentData: fulfillment_data.into(),
+        fulfillmentDataType: fulfillment_data_type,
         seal: set_inclusion_seal.into(),
     };
 
     let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
-        ReceiptClaim::ok(ASSESSOR_GUEST_ID, MaybePruned::Pruned(Digest::ZERO)),
+        assesor_receipt_claim,
         merkle_path(&[app_claim_digest, assessor_claim_digest], 1),
         verifier_parameters.digest(),
     )

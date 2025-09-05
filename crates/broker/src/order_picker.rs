@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use hex::FromHex;
 use risc0_zkvm::sha::Digest;
 use sha2::{Digest as Sha2Digest, Sha256};
 use std::collections::BTreeMap;
@@ -43,7 +44,10 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, RequestError, RequestInputType},
+    contracts::{
+        boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestError,
+        RequestInputType,
+    },
     selector::SupportedSelectors,
 };
 use moka::future::Cache;
@@ -476,21 +480,21 @@ where
         );
 
         // Create cache key based on input type
-        let image_id = Digest::from(order.request.requirements.imageId.0);
+        let predicate_data = order.request.requirements.predicate.data.to_vec();
         let cache_key = match order.request.input.inputType {
             RequestInputType::Url => {
                 let input_url = std::str::from_utf8(&order.request.input.data)
                     .context("input url is not utf8")
                     .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?
                     .to_string();
-                PreflightCacheKey { image_id, input: InputCacheKey::Url(input_url) }
+                PreflightCacheKey { predicate_data, input: InputCacheKey::Url(input_url) }
             }
             RequestInputType::Inline => {
                 // For inline inputs, use SHA256 hash of the data
                 let mut hasher = Sha256::new();
                 Sha2Digest::update(&mut hasher, &order.request.input.data);
                 let input_hash: [u8; 32] = hasher.finalize().into();
-                PreflightCacheKey { image_id, input: InputCacheKey::Hash(input_hash) }
+                PreflightCacheKey { predicate_data, input: InputCacheKey::Hash(input_hash) }
             }
             RequestInputType::__Invalid => {
                 return Err(OrderPickerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
@@ -506,7 +510,7 @@ where
             let config = self.config.clone();
             let request = order.request.clone();
             let order_id_clone = order_id.clone();
-            let cache_key_clone = cache_key.clone();
+            let cache_key_clone: PreflightCacheKey = cache_key.clone();
 
             let cache_cloned = self.preflight_cache.clone();
             let result = tokio::task::spawn(async move {
@@ -605,7 +609,7 @@ where
         };
 
         // Handle the preflight result
-        let (exec_session_id, cycle_count) = match preflight_result? {
+        let (exec_session_id, cycle_count, image_id) = match preflight_result? {
             PreflightCacheValue::Success { exec_session_id, cycle_count, image_id, input_id } => {
                 tracing::debug!(
                     "Using preflight result for {order_id}: session id {} with {} mcycles",
@@ -617,7 +621,7 @@ where
                 order.image_id = Some(image_id.clone());
                 order.input_id = Some(input_id.clone());
 
-                (exec_session_id, cycle_count)
+                (exec_session_id, cycle_count, image_id)
             }
             PreflightCacheValue::Skip { .. } => {
                 return Ok(Skip);
@@ -657,7 +661,13 @@ where
         }
 
         // Validate the predicates:
-        if !order.request.requirements.predicate.eval(journal.clone()) {
+        let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
+            .map_err(|e| OrderPickerErr::RequestError(Arc::new(e.into())))?;
+        let eval_data = FulfillmentData::from_image_id_and_journal(
+            Digest::from_hex(image_id).unwrap(),
+            journal,
+        );
+        if predicate.eval(&eval_data).is_none() {
             tracing::info!("Order {order_id} predicate check failed, skipping");
             return Ok(Skip);
         }
@@ -1020,7 +1030,7 @@ enum InputCacheKey {
 /// Key type for the preflight cache
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 struct PreflightCacheKey {
-    image_id: Digest,
+    predicate_data: Vec<u8>,
     input: InputCacheKey,
 }
 
@@ -1333,14 +1343,13 @@ pub(crate) mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{address, aliases::U96, utils::parse_units, Address, Bytes, FixedBytes, B256},
+        primitives::{address, aliases::U96, utils::parse_units, Address, Bytes, FixedBytes},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use async_trait::async_trait;
     use boundless_market::contracts::{
-        Callback, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
-        Requirements,
+        Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use boundless_market_test_utils::{
@@ -1409,13 +1418,7 @@ pub(crate) mod tests {
             Box::new(OrderRequest {
                 request: ProofRequest::new(
                     RequestId::new(self.provider.default_signer_address(), params.order_index),
-                    Requirements::new(
-                        image_id,
-                        Predicate {
-                            predicateType: PredicateType::PrefixMatch,
-                            data: Default::default(),
-                        },
-                    ),
+                    Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
                     image_url,
                     RequestInput::builder()
                         .write_slice(&[0x41, 0x41, 0x41, 0x41])
@@ -1458,13 +1461,7 @@ pub(crate) mod tests {
             Box::new(OrderRequest {
                 request: ProofRequest::new(
                     RequestId::new(self.provider.default_signer_address(), params.order_index),
-                    Requirements::new(
-                        image_id,
-                        Predicate {
-                            predicateType: PredicateType::PrefixMatch,
-                            data: Default::default(),
-                        },
-                    ),
+                    Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
                     image_url,
                     RequestInput::builder()
                         .write(&cycles)
@@ -1643,7 +1640,7 @@ pub(crate) mod tests {
         let mut order = ctx.generate_next_order(Default::default()).await;
         // set a bad predicate
         order.request.requirements.predicate =
-            Predicate { predicateType: PredicateType::DigestMatch, data: B256::ZERO.into() };
+            Predicate::digest_match(Digest::from(ECHO_ID), Digest::ZERO).into();
 
         let order_id = order.id();
         let _request_id =

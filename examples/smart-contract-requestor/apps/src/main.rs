@@ -19,7 +19,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol_types::SolValue,
 };
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use boundless_market::{Client, Deployment, RequestId, StorageProviderConfig};
 use boundless_market_test_utils::ECHO_ELF;
 use clap::Parser;
@@ -117,18 +117,20 @@ async fn run(args: Args) -> Result<()> {
         client.submit_request_onchain_with_signature(&request, signature).await?;
     tracing::info!("Request {:x} submitted", request_id);
 
-    // Wait for the request to be fulfilled by the market. The market will return the journal and seal.
+    // Wait for the request to be fulfilled by the market. The market will return the fulfillment data and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (journal, seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
             expires_at,
         )
         .await?;
+    let journal =
+        fulfillment.data()?.journal().ok_or_else(|| anyhow!("no fulfillment data"))?.to_vec();
 
     tracing::info!("Request {:x} fulfilled", request_id);
-    tracing::info!("Seal: {:?}", seal);
+    tracing::info!("Seal: {:?}", fulfillment.seal);
 
     // We encoded the input to the guest as big endian for compatibility with Solidity. We reverse
     // to get back to little endian.

@@ -17,13 +17,17 @@ use std::{future::Future, path::PathBuf};
 use crate::{config::Config, now_timestamp, Args, Broker};
 use alloy::{
     node_bindings::Anvil,
-    primitives::{aliases::U96, utils, utils::parse_ether, Address, FixedBytes, U256},
+    primitives::{
+        aliases::U96,
+        utils::{self, parse_ether},
+        Address, Bytes, FixedBytes, U256,
+    },
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, Offer, Predicate, PredicateType, ProofRequest,
+        hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest,
         RequestId, RequestInput, Requirements,
     },
     selector::{is_groth16_selector, ProofType},
@@ -34,7 +38,10 @@ use boundless_market_test_utils::{
     create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_GUEST_PATH, ECHO_ELF,
     ECHO_ID, SET_BUILDER_PATH,
 };
-use risc0_zkvm::sha::Digest;
+use risc0_zkvm::{
+    sha::{Digest, Digestible},
+    ReceiptClaim,
+};
 use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
@@ -48,6 +55,7 @@ fn is_dev_mode() -> bool {
         .is_some()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_request(
     id: u32,
     addr: &Address,
@@ -55,11 +63,14 @@ fn generate_request(
     image_url: impl Into<String>,
     callback: Option<Callback>,
     offer: Option<Offer>,
+    predicate: Option<Predicate>,
+    input: Option<RequestInput>,
 ) -> ProofRequest {
     let mut requirements = Requirements::new(
-        Digest::from(ECHO_ID),
-        Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
+        predicate
+            .unwrap_or_else(|| Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default())),
     );
+
     if proof_type == ProofType::Groth16 {
         requirements = requirements.with_groth16_proof();
     }
@@ -70,7 +81,9 @@ fn generate_request(
         RequestId::new(*addr, id),
         requirements,
         image_url,
-        RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+        input.unwrap_or_else(|| {
+            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap()
+        }),
         offer.unwrap_or(Offer {
             minPrice: parse_ether("0.02").unwrap(),
             maxPrice: parse_ether("0.04").unwrap(),
@@ -195,6 +208,8 @@ async fn simple_e2e() {
         image_url,
         None,
         None,
+        None,
+        None,
     );
 
     run_with_broker(broker, async move {
@@ -264,6 +279,8 @@ async fn simple_e2e_with_callback() {
         ProofType::Any,
         image_url,
         Some(callback),
+        None,
+        None,
         None,
     );
 
@@ -348,6 +365,8 @@ async fn e2e_fulfill_after_lock_expiry() {
             timeout: 120,
             lockStake: U256::from(5),
         }),
+        None,
+        None,
     );
 
     run_with_broker(broker, async move {
@@ -406,6 +425,8 @@ async fn e2e_with_selector() {
         image_url,
         None,
         None,
+        None,
+        None,
     );
 
     run_with_broker(broker, async move {
@@ -413,7 +434,7 @@ async fn e2e_with_selector() {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         // Wait for fulfillment
-        let (_, seal) = ctx
+        let fulfillment = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request.id),
@@ -422,6 +443,7 @@ async fn e2e_with_selector() {
             )
             .await
             .unwrap();
+        let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(is_groth16_selector(selector));
     })
@@ -467,6 +489,8 @@ async fn e2e_with_multiple_requests() {
         &image_url,
         None,
         None,
+        None,
+        None,
     );
 
     run_with_broker(broker, async move {
@@ -480,12 +504,14 @@ async fn e2e_with_multiple_requests() {
             &image_url,
             None,
             None,
+            None,
+            None,
         );
 
         // Submit the second (groth16) order
         ctx.customer_market.submit_request(&request_groth16, &ctx.customer_signer).await.unwrap();
 
-        let (_, seal) = ctx
+        let fulfillment = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request.id),
@@ -494,10 +520,11 @@ async fn e2e_with_multiple_requests() {
             )
             .await
             .unwrap();
+        let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(!is_groth16_selector(selector));
 
-        let (_, seal) = ctx
+        let fulfillment = ctx
             .customer_market
             .wait_for_request_fulfillment(
                 U256::from(request_groth16.id),
@@ -506,8 +533,78 @@ async fn e2e_with_multiple_requests() {
             )
             .await
             .unwrap();
+        let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(is_groth16_selector(selector));
+    })
+    .await;
+}
+
+#[tokio::test]
+#[traced_test]
+async fn e2e_with_claim_digest_match() {
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    // Setup signers / providers
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Deposit prover / customer balances
+    ctx.prover_market
+        .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    // Start broker
+    let config = new_config(1).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
+    let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
+
+    // Provide URL for ECHO program
+    let storage = MockStorageProvider::start();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    let input_bytes = vec![0x41, 0x41, 0x41, 0x41];
+    let input = RequestInput::builder().write_slice(&input_bytes).build_inline().unwrap();
+
+    let correct_claim_digest = ReceiptClaim::ok(ECHO_ID, input_bytes).digest();
+
+    let predicate = Predicate::claim_digest_match(correct_claim_digest);
+
+    run_with_broker(broker, async move {
+        // Request 1: Regular valid request
+        let good_request = generate_request(
+            ctx.customer_market.index_from_nonce().await.unwrap(),
+            &ctx.customer_signer.address(),
+            ProofType::Groth16,
+            image_url.clone(),
+            None,
+            None,
+            Some(predicate),
+            Some(input.clone()),
+        );
+        ctx.customer_market.submit_request(&good_request, &ctx.customer_signer).await.unwrap();
+
+        // Wait for fulfillment
+        let fulfillment = ctx
+            .customer_market
+            .wait_for_request_fulfillment(
+                U256::from(good_request.id),
+                Duration::from_secs(1),
+                good_request.expires_at(),
+            )
+            .await
+            .unwrap();
+        let fulfillment_data = fulfillment.data().unwrap();
+
+        // When claim digest match is used without a callback, fulfillment data is empty
+        assert_eq!(fulfillment_data, FulfillmentData::None);
     })
     .await;
 }

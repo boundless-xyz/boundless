@@ -1,6 +1,6 @@
 {
   "ERC20 approve: required for depositStake": "45966",
-  "bytecode size implementation": "24340",
+  "bytecode size implementation": "24117",
   "bytecode size proxy": "89",
   "deposit: first ever deposit": "50964",
   "deposit: second deposit": "33864",
@@ -37,6 +37,6 @@
   "submitRootAndPriceAndFulfill: a single request that was not locked fulfilled by prover not in allow-list": "145211",
   "withdraw: 1 ether": "40314",
   "withdraw: full balance": "40326",
-  "withdrawStake: 1 HP balance": "68743",
-  "withdrawStake: full balance": "51739"
+  "withdrawStake: 1 HP balance": "68819",
+  "withdrawStake: full balance": "51815"
 }
