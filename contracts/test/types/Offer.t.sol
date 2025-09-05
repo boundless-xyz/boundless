@@ -15,11 +15,11 @@ contract OfferTest is Test {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(100),
+            rampUpStart: uint64(100),
             rampUpPeriod: 100,
             lockTimeout: uint32(500),
             timeout: uint32(500),
-            lockStake: 0.1 ether
+            lockCollateral: 0.1 ether
         });
 
         assertEq(offer.timeAtPrice(1 ether), 0);
@@ -42,11 +42,11 @@ contract OfferTest is Test {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(100),
+            rampUpStart: uint64(100),
             rampUpPeriod: 100,
             lockTimeout: uint32(500),
             timeout: uint32(500),
-            lockStake: 0.1 ether
+            lockCollateral: 0.1 ether
         });
 
         assertEq(offer.priceAt(0), 1 ether);
@@ -66,11 +66,11 @@ contract OfferTest is Test {
         Offer memory offer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(100),
+            rampUpStart: uint64(100),
             rampUpPeriod: 100,
             lockTimeout: uint32(150),
             timeout: uint32(200),
-            lockStake: 0.1 ether
+            lockCollateral: 0.1 ether
         });
 
         assertEq(offer.lockDeadline(), 250);
@@ -82,11 +82,11 @@ contract OfferTest is Test {
         Offer memory invalidOffer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(100),
+            rampUpStart: uint64(100),
             rampUpPeriod: 100,
             lockTimeout: uint32(250),
             timeout: uint32(200),
-            lockStake: 0.1 ether
+            lockCollateral: 0.1 ether
         });
 
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
@@ -98,11 +98,11 @@ contract OfferTest is Test {
         Offer memory invalidOffer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(100),
+            rampUpStart: uint64(100),
             rampUpPeriod: 100,
             lockTimeout: uint32(500),
             timeout: uint32(uint32(500) + type(uint24).max + 1), // Makes deadline - lockDeadline > type(uint24).max
-            lockStake: 0.1 ether
+            lockCollateral: 0.1 ether
         });
 
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.InvalidRequest.selector));
@@ -113,17 +113,17 @@ contract OfferTest is Test {
         Offer memory validOffer = Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(100),
+            rampUpStart: uint64(100),
             rampUpPeriod: 100,
             lockTimeout: uint32(500),
             timeout: uint32(uint32(500) + type(uint24).max), // Maximum valid difference
-            lockStake: 0.1 ether
+            lockCollateral: 0.1 ether
         });
 
         (uint64 lockDeadline, uint64 deadline) = validOffer.validate();
 
-        assertEq(lockDeadline, 600); // biddingStart + lockTimeout
-        assertEq(deadline, uint32(600) + type(uint24).max); // biddingStart + timeout
+        assertEq(lockDeadline, 600); // rampUpStart + lockTimeout
+        assertEq(deadline, uint32(600) + type(uint24).max); // rampUpStart + timeout
         assertEq(deadline - lockDeadline, type(uint24).max); // Maximum allowed difference
     }
 }

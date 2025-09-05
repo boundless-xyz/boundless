@@ -83,7 +83,7 @@ use boundless_cli::{commands::povw::PovwCommands, config::GlobalConfig};
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
-        Offer, ProofRequest, RequestInputType, Selector,
+        FulfillmentData, Offer, Predicate, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
@@ -154,18 +154,18 @@ enum AccountCommands {
         /// if not provided, defaults to the wallet address
         address: Option<Address>,
     },
-    /// Deposit stake funds into the market
-    DepositStake {
+    /// Deposit collateral funds into the market
+    DepositCollateral {
         /// Amount to deposit in HP or USDC based on the chain ID.
         amount: String,
     },
-    /// Withdraw stake funds from the market
-    WithdrawStake {
+    /// Withdraw collateral funds from the market
+    WithdrawCollateral {
         /// Amount to withdraw in HP or USDC based on the chain ID.
         amount: String,
     },
-    /// Check the stake balance of an account in the market
-    StakeBalance {
+    /// Check the collateral balance of an account in the market
+    CollateralBalance {
         /// Address to check the balance of;
         /// if not provided, defaults to the wallet address
         address: Option<Address>,
@@ -456,8 +456,8 @@ async fn handle_ops_command(cmd: &OpsCommands, config: &GlobalConfig) -> Result<
     }
 }
 
-/// Helper function to parse stake amounts with validation
-async fn parse_stake_amount(
+/// Helper function to parse collateral amounts with validation
+async fn parse_collateral_amount(
     client: &Client<impl Provider, impl Any, impl Any, impl Any>,
     amount: &str,
 ) -> Result<(U256, String, String)> {
@@ -500,54 +500,56 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             tracing::info!("Balance for address {}: {} ETH", addr, format_ether(balance));
             Ok(())
         }
-        AccountCommands::DepositStake { amount } => {
+        AccountCommands::DepositCollateral { amount } => {
             let client = config.build_client_with_signer().await?;
             let (parsed_amount, formatted_amount, symbol) =
-                parse_stake_amount(&client, amount).await?;
+                parse_collateral_amount(&client, amount).await?;
 
-            tracing::info!("Depositing {formatted_amount} {symbol} as stake");
+            tracing::info!("Depositing {formatted_amount} {symbol} as collateral");
             match client
                 .boundless_market
                 .deposit_stake_with_permit(parsed_amount, &client.signer.unwrap())
                 .await
             {
                 Ok(_) => {
-                    tracing::info!("Successfully deposited {formatted_amount} {symbol} as stake");
+                    tracing::info!(
+                        "Successfully deposited {formatted_amount} {symbol} as collateral"
+                    );
                     Ok(())
                 }
                 Err(e) => {
                     if e.to_string().contains("TRANSFER_FROM_FAILED") {
                         let addr = client.boundless_market.caller();
                         Err(anyhow!(
-                            "Failed to deposit stake: Ensure your address ({}) has funds on the {symbol} contract", addr
+                            "Failed to deposit collateral: Ensure your address ({}) has funds on the {symbol} contract", addr
                         ))
                     } else {
-                        Err(anyhow!("Failed to deposit stake: {}", e))
+                        Err(anyhow!("Failed to deposit collateral: {}", e))
                     }
                 }
             }
         }
-        AccountCommands::WithdrawStake { amount } => {
+        AccountCommands::WithdrawCollateral { amount } => {
             let client = config.build_client_with_signer().await?;
             let (parsed_amount, formatted_amount, symbol) =
-                parse_stake_amount(&client, amount).await?;
-            tracing::info!("Withdrawing {formatted_amount} {symbol} from stake");
+                parse_collateral_amount(&client, amount).await?;
+            tracing::info!("Withdrawing {formatted_amount} {symbol} from collateral");
             client.boundless_market.withdraw_stake(parsed_amount).await?;
-            tracing::info!("Successfully withdrew {formatted_amount} {symbol} from stake");
+            tracing::info!("Successfully withdrew {formatted_amount} {symbol} from collateral");
             Ok(())
         }
-        AccountCommands::StakeBalance { address } => {
+        AccountCommands::CollateralBalance { address } => {
             let client = config.build_client().await?;
             let symbol = client.boundless_market.stake_token_symbol().await?;
             let decimals = client.boundless_market.stake_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
             if addr == Address::ZERO {
-                bail!("No address specified for stake balance query. Please provide an address or a private key.")
+                bail!("No address specified for collateral balance query. Please provide an address or a private key.")
             }
-            tracing::info!("Checking stake balance for address {}", addr);
+            tracing::info!("Checking collateral balance for address {}", addr);
             let balance = client.boundless_market.balance_of_stake(addr).await?;
             let balance = format_units(balance, decimals)
-                .map_err(|e| anyhow!("Failed to format stake balance: {}", e))?;
+                .map_err(|e| anyhow!("Failed to format collateral balance: {}", e))?;
             tracing::info!("Stake balance for address {}: {} {}", addr, balance, symbol);
             Ok(())
         }
@@ -599,30 +601,53 @@ async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) ->
         RequestCommands::GetProof { request_id } => {
             let client = config.build_client().await?;
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
-            let (journal, seal) =
-                client.boundless_market.get_request_fulfillment(*request_id).await?;
+            let fulfillment = client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
             tracing::info!(
-                "Journal: {} - Seal: {}",
-                serde_json::to_string_pretty(&journal)?,
-                serde_json::to_string_pretty(&seal)?
+                "Fulfillment Data: {} - Seal: {}",
+                serde_json::to_string_pretty(&fulfillment.data()?)?,
+                serde_json::to_string_pretty(&fulfillment.seal)?
             );
             Ok(())
         }
         RequestCommands::VerifyProof { request_id, image_id } => {
             let client = config.build_client().await?;
             tracing::info!("Verifying proof for request 0x{:x}", request_id);
-            let (journal, seal) =
-                client.boundless_market.get_request_fulfillment(*request_id).await?;
-            let journal_digest = <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
+
             let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
             let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
+            let fulfillment = client.boundless_market.get_request_fulfillment(*request_id).await?;
+            let fulfillment_data = fulfillment.data()?;
+            let seal = fulfillment.seal;
+            let (req, _) = client.boundless_market.get_submitted_request(*request_id, None).await?;
 
-            verifier
-                .verify(seal, *image_id, journal_digest)
-                .call()
-                .await
-                .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+            let predicate = Predicate::try_from(req.requirements.predicate)?;
+
+            match (&predicate, fulfillment_data.clone()) {
+                (_, FulfillmentData::ImageIdAndJournal(image_id_from_data, journal)) => {
+                    ensure!(
+                        image_id_from_data == Digest::from(<[u8; 32]>::from(*image_id)),
+                        "Image ID mismatch: expected {:?}, got {:?}",
+                        image_id_from_data,
+                        *image_id
+                    );
+                    let journal_digest =
+                        <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
+
+                    verifier
+                        .verify(seal, *image_id, journal_digest)
+                        .call()
+                        .await
+                        .map_err(|_| anyhow::anyhow!("Verification failed"))?;
+                }
+                (_, _) => {
+                    bail!(
+                        "Verification failed due to invalid predicate {:?} or fulfillment data {:?}",
+                        predicate,
+                        fulfillment_data
+                    )
+                }
+            }
 
             tracing::info!("Successfully verified proof for request 0x{:x}", request_id);
             Ok(())
@@ -653,11 +678,15 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
                 bail!("execute requires either a request file path or request ID")
             };
 
-            let session_info = execute(&request).await?;
+            let (image_id, session_info) = execute(&request).await?;
             let journal = session_info.journal.bytes;
+            let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
-            if !request.requirements.predicate.eval(&journal) {
-                tracing::error!("Predicate evaluation failed for request");
+            let fulfillment_data =
+                FulfillmentData::from_image_id_and_journal(image_id, journal.clone());
+
+            if predicate.eval(&fulfillment_data).is_none() {
+                tracing::error!("Predicate evaluation failed for request 0x{:x}", request.id);
                 bail!("Predicate evaluation failed");
             }
 
@@ -1064,21 +1093,23 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
 
     tracing::info!(
         "Submitted request 0x{request_id:x}, bidding starts at {}",
-        convert_timestamp(request.offer.biddingStart)
+        convert_timestamp(request.offer.rampUpStart)
     );
 
     // Wait for fulfillment if requested
     if args.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (journal, seal) = client
+        let fulfillment = client
             .boundless_market
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
+        let fulfillment_data = fulfillment.data()?;
+        let seal = fulfillment.seal;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
-            "Journal: {} - Seal: {}",
-            serde_json::to_string_pretty(&journal)?,
+            "Fulfillment Data: {} - Seal: {}",
+            serde_json::to_string_pretty(&fulfillment_data)?,
             serde_json::to_string_pretty(&seal)?
         );
     }
@@ -1113,10 +1144,10 @@ where
     // parameters that new need to updated on every reqeust. Namely, ID and bidding start.
     //
     // If set to 0, override the offer bidding_start field with the current timestamp + 30s
-    if request.offer.biddingStart == 0 {
+    if request.offer.rampUpStart == 0 {
         // Adding a delay to bidding start lets provers see and evaluate the request
         // before the price starts to ramp up
-        request.offer = Offer { biddingStart: now_timestamp() + 30, ..request.offer };
+        request.offer = Offer { rampUpStart: now_timestamp() + 30, ..request.offer };
     }
     if request.id == U256::ZERO {
         request.id = client.boundless_market.request_id_from_rand().await?;
@@ -1126,24 +1157,24 @@ where
     // Run preflight check if enabled
     if opts.preflight {
         tracing::info!("Running request preflight check");
-        let session_info = execute(&request).await?;
+        let (image_id, session_info) = execute(&request).await?;
         let journal = session_info.journal.bytes;
 
-        // Verify image ID if available
+        // Verify image ID
         if let Some(claim) = session_info.receipt_claim {
             ensure!(
-                claim.pre.digest().as_bytes() == request.requirements.imageId.as_slice(),
+                claim.pre.digest() == image_id,
                 "Image ID mismatch: requirements ({}) do not match the given program ({})",
-                hex::encode(request.requirements.imageId),
-                hex::encode(claim.pre.digest().as_bytes())
+                image_id,
+                claim.pre.digest(),
             );
         } else {
             tracing::debug!("Cannot check image ID; session info doesn't have receipt claim");
         }
+        let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
-        // Verify predicate
         ensure!(
-            request.requirements.predicate.eval(&journal),
+            predicate.eval(&FulfillmentData::from_image_id_and_journal(image_id, journal.clone())).is_some(),
             "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
             hex::encode(&journal),
             request.requirements.predicate.predicateType,
@@ -1166,32 +1197,32 @@ where
 
     tracing::info!(
         "Submitted request 0x{request_id:x}, bidding starts at {}",
-        convert_timestamp(request.offer.biddingStart)
+        convert_timestamp(request.offer.rampUpStart)
     );
 
     // Wait for fulfillment if requested
     if opts.wait {
         tracing::info!("Waiting for request fulfillment...");
-        let (journal, seal) = client
+        let fulfillment = client
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
 
         tracing::info!("Request fulfilled!");
         tracing::info!(
-            "Journal: {} - Seal: {}",
-            serde_json::to_string_pretty(&journal)?,
-            serde_json::to_string_pretty(&seal)?
+            "Fulfillment Data: {} - Seal: {}",
+            serde_json::to_string_pretty(&fulfillment.data()?)?,
+            serde_json::to_string_pretty(&fulfillment.seal)?
         );
     }
 
     Ok(())
 }
 
-/// Execute a proof request using the RISC Zero zkVM executor
-async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
+/// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
+async fn execute(request: &ProofRequest) -> Result<(Digest, SessionInfo)> {
     tracing::info!("Fetching program from {}", request.imageUrl);
     let program = fetch_url(&request.imageUrl).await?;
-
+    let image_id = compute_image_id(&program)?;
     tracing::info!("Processing input");
     let env = match request.input.inputType {
         RequestInputType::Inline => GuestEnv::decode(&request.input.data)?,
@@ -1206,7 +1237,9 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
 
     tracing::info!("Executing program in zkVM");
     r0vm_is_installed()?;
-    default_executor().execute(env.try_into()?, &program)
+    default_executor()
+        .execute(env.try_into()?, &program)
+        .map(|session_info| (image_id, session_info))
 }
 
 fn r0vm_is_installed() -> Result<()> {
@@ -1361,17 +1394,16 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
-    use alloy::primitives::aliases::U96;
     use alloy::{
         node_bindings::{Anvil, AnvilInstance},
-        primitives::utils::format_units,
+        primitives::{aliases::U96, utils::format_units, Bytes},
         providers::WalletProvider,
     };
-    use boundless_market::contracts::{
-        Predicate, PredicateType, RequestId, RequestInput, Requirements,
-    };
     use boundless_market::{
-        contracts::{hit_points::default_allowance, RequestStatus},
+        contracts::{
+            hit_points::default_allowance, Predicate, RequestId, RequestInput, RequestStatus,
+            Requirements,
+        },
         selector::is_groth16_selector,
     };
     use boundless_test_utils::{
@@ -1391,20 +1423,17 @@ mod tests {
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, id),
-            Requirements::new(
-                Digest::from(ECHO_ID),
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 420,
                 lockTimeout: 420,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         )
     }
@@ -1568,18 +1597,18 @@ mod tests {
 
         let mut args = MainArgs {
             config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
+            command: Command::Account(Box::new(AccountCommands::DepositCollateral {
                 amount: format_ether(default_allowance()),
             })),
         };
 
         run(&args).await.unwrap();
         assert!(logs_contain(&format!(
-            "Depositing {} HP as stake",
+            "Depositing {} HP as collateral",
             format_ether(default_allowance())
         )));
         assert!(logs_contain(&format!(
-            "Successfully deposited {} HP as stake",
+            "Successfully deposited {} HP as collateral",
             format_ether(default_allowance())
         )));
 
@@ -1587,12 +1616,12 @@ mod tests {
             ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap();
         assert_eq!(balance, default_allowance());
 
-        args.command = Command::Account(Box::new(AccountCommands::StakeBalance {
+        args.command = Command::Account(Box::new(AccountCommands::CollateralBalance {
             address: Some(ctx.prover_signer.address()),
         }));
         run(&args).await.unwrap();
         assert!(logs_contain(&format!(
-            "Checking stake balance for address {}",
+            "Checking collateral balance for address {}",
             ctx.prover_signer.address()
         )));
         assert!(logs_contain(&format!(
@@ -1601,17 +1630,17 @@ mod tests {
             format_units(default_allowance(), "ether").unwrap()
         )));
 
-        args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
+        args.command = Command::Account(Box::new(AccountCommands::WithdrawCollateral {
             amount: format_ether(default_allowance()),
         }));
 
         run(&args).await.unwrap();
         assert!(logs_contain(&format!(
-            "Withdrawing {} HP from stake",
+            "Withdrawing {} HP from collateral",
             format_ether(default_allowance())
         )));
         assert!(logs_contain(&format!(
-            "Successfully withdrew {} HP from stake",
+            "Successfully withdrew {} HP from collateral",
             format_ether(default_allowance())
         )));
 
@@ -1622,14 +1651,14 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_deposit_stake_amount_below_denom_min() -> Result<()> {
+    async fn test_deposit_collateral_amount_below_denom_min() -> Result<()> {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         // Use amount below denom min
         let amount = "0.00000000000000000000000001".to_string();
         let args = MainArgs {
             config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
+            command: Command::Account(Box::new(AccountCommands::DepositCollateral {
                 amount: amount.clone(),
             })),
         };
@@ -1652,18 +1681,18 @@ mod tests {
 
         let mut args = MainArgs {
             config,
-            command: Command::Account(Box::new(AccountCommands::DepositStake {
+            command: Command::Account(Box::new(AccountCommands::DepositCollateral {
                 amount: format_ether(default_allowance()),
             })),
         };
 
         let err = run(&args).await.unwrap_err();
         assert!(err.to_string().contains(&format!(
-            "Failed to deposit stake: Ensure your address ({}) has funds on the HP contract",
+            "Failed to deposit collateral: Ensure your address ({}) has funds on the HP contract",
             ctx.customer_signer.address()
         )));
 
-        args.command = Command::Account(Box::new(AccountCommands::WithdrawStake {
+        args.command = Command::Account(Box::new(AccountCommands::WithdrawCollateral {
             amount: format_ether(default_allowance()),
         }));
 
@@ -1980,12 +2009,14 @@ mod tests {
             request.id
         )));
 
+        let predicate = Predicate::try_from(request.requirements.predicate.clone()).unwrap();
+
         // test the Verify command
         run(&MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::VerifyProof {
                 request_id,
-                image_id: request.requirements.imageId,
+                image_id: <[u8; 32]>::from(predicate.image_id().unwrap()).into(),
             })),
         })
         .await
@@ -2177,8 +2208,8 @@ mod tests {
         .unwrap();
 
         // check the seal is aggregated
-        let (_journal, seal) =
-            ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
+        let fulfillment = ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
+        let seal = fulfillment.seal;
         let selector: FixedBytes<4> = seal[0..4].try_into().unwrap();
         assert!(is_groth16_selector(selector))
     }

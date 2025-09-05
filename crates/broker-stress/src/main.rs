@@ -22,15 +22,15 @@ use std::{
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{utils, U256},
+    primitives::{utils, Bytes, U256},
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Offer, Predicate, PredicateType, ProofRequest, RequestId,
-        RequestInput, RequestInputType, Requirements,
+        hit_points::default_allowance, Offer, Predicate, ProofRequest, RequestId, RequestInput,
+        RequestInputType, Requirements,
     },
     input::GuestEnv,
 };
@@ -91,10 +91,7 @@ async fn request_spawner<P: Provider>(
                 ctx.customer_signer.address(),
                 ctx.customer_market.index_from_nonce().await?,
             ),
-            Requirements::new(
-                Digest::from(ECHO_ID),
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default())),
             program_url,
             RequestInput {
                 inputType: RequestInputType::Inline,
@@ -107,14 +104,14 @@ async fn request_spawner<P: Provider>(
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: SystemTime::now()
+                rampUpStart: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .unwrap()
                     .as_secs(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 

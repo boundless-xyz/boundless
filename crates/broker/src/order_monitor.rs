@@ -194,12 +194,12 @@ where
             market = market.with_stake_balance_alert(
                 &config
                     .market
-                    .stake_balance_warn_threshold
+                    .collateral_balance_warn_threshold
                     .as_ref()
                     .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
                 &config
                     .market
-                    .stake_balance_error_threshold
+                    .collateral_balance_error_threshold
                     .as_ref()
                     .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
             );
@@ -255,7 +255,7 @@ where
         tracing::info!(
             "Locking request: 0x{:x} for stake: {}",
             request_id,
-            order.request.offer.lockStake
+            order.request.offer.lockCollateral
         );
         let lock_block = self
             .market
@@ -963,6 +963,7 @@ pub(crate) mod tests {
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
     use alloy::node_bindings::AnvilInstance;
+    use alloy::primitives::Bytes;
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -977,8 +978,7 @@ pub(crate) mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
-        Requirements,
+        Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH},
@@ -1028,23 +1028,17 @@ pub(crate) mod tests {
 
             let request = ProofRequest::new(
                 RequestId::new(self.signer.address(), request_id),
-                Requirements::new(
-                    Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
                 "http://risczero.com/image",
                 RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
-                    biddingStart: bidding_start,
+                    rampUpStart: bidding_start,
                     rampUpPeriod: 1,
                     timeout: timeout as u32,
                     lockTimeout: lock_timeout as u32,
-                    lockStake: U256::from(0),
+                    lockCollateral: U256::from(0),
                 },
             );
 

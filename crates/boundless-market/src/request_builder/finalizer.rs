@@ -14,8 +14,9 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::RequestInput,
-    contracts::{Offer, ProofRequest, RequestId, Requirements},
+    contracts::{
+        FulfillmentData, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+    },
     util::now_timestamp,
 };
 use anyhow::{bail, Context};
@@ -128,11 +129,20 @@ impl Adapt<Finalizer> for RequestParams {
             .context("failed to build request: offer is incomplete")?;
         let request_id = self.require_request_id().context("failed to build request")?.clone();
 
-        // As an extra consistency check. verify the journal satisfies the required predicate.
-        if let Some(ref journal) = self.journal {
-            if !requirements.predicate.eval(journal) {
-                bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = 0x{}", requirements.predicate, hex::encode(journal));
+        // If enough data is provided, check that the known journal and image match the predicate.
+        let predicate = Predicate::try_from(requirements.predicate.clone())?;
+        let eval = match (&self.journal, self.image_id) {
+            (Some(journal), Some(image_id)) => {
+                tracing::debug!("Evaluating journal and image id against predicate ");
+                let eval_data =
+                    FulfillmentData::from_image_id_and_journal(image_id, journal.bytes.clone());
+                predicate.eval(&eval_data).is_some()
             }
+            // Do not run the check.
+            _ => true,
+        };
+        if !eval {
+            bail!("journal in request builder does not match requirements predicate; check request parameters.\npredicate = {:?}\njournal = {:?}", predicate, self.journal.as_ref().map(hex::encode));
         }
 
         layer.process((program_url, input, requirements, offer, request_id)).await

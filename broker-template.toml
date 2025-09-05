@@ -5,11 +5,11 @@
 # execution took, as calculated by running the request in preflight. This is one of the inputs to
 # decide the minimum price to accept for a request.
 mcycle_price = "0.0000005"
-# Mega-cycle price, denominated in the Boundless staking token.
+# Mega-cycle price, denominated in the Boundless collateral token.
 #
 # Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
-# order when paid in staking tokens, as is the case for orders with an expired lock.
-mcycle_price_stake_token = "0.0001"
+# order when paid in collateral tokens, as is the case for orders with an expired lock.
+mcycle_price_collateral_token = "0.0001"
 # Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
 #
 # If enabled, the order will be preflighted without constraints.
@@ -40,10 +40,10 @@ max_journal_bytes = 10000
 min_deadline = 300
 # On startup, the number of blocks to look back for possible open orders.
 lookback_blocks = 300 # 300 blocks ~ 1 hour @ 12s block times
-# Max stake amount, denominated in the Boundless staking token.
+# Max collateral amount, denominated in the Boundless collateral token.
 #
-# Requests that require a higher stake than this will not be considered.
-max_stake = "25" # USDC
+# Requests that require a higher collateral amount than this will not be considered.
+max_collateral = "25" # USDC
 # Max input / image file size allowed for downloading from request URLs.
 max_file_size = 50_000_000
 # Max retries for fetching input / image contents from URLs
@@ -96,14 +96,14 @@ balance_warn_threshold = "0.1"
 #
 # If the submitter balance drops below this the broker will issue error logs
 balance_error_threshold = "0.05"
-# Optional stake balance warning threshold (in stake tokens)
+# Optional collateral balance warning threshold (in collateral tokens)
 #
-# If the stake balance drops below this the broker will issue warning logs
-stake_balance_warn_threshold = "10"
-# Optional stake balance error threshold (in stake tokens)
+# If the collateral balance drops below this the broker will issue warning logs
+collateral_balance_warn_threshold = "10"
+# Optional collateral balance error threshold (in collateral tokens)
 #
-# If the stake balance drops below this the broker will issue error logs
-stake_balance_error_threshold = "5"
+# If the collateral balance drops below this the broker will issue error logs
+collateral_balance_error_threshold = "5"
 # Optional cache directory for storing downloaded images and inputs
 #
 # If not set, files will be re-downloaded every time

@@ -12,9 +12,12 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Callback} from "../../src/types/Callback.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {LockRequest} from "../../src/types/LockRequest.sol";
+import {Fulfillment} from "../../src/types/Fulfillment.sol";
+import {FulfillmentDataType} from "../../src/types/FulfillmentData.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Requirements} from "../../src/types/Requirements.sol";
-import {Predicate, PredicateType} from "../../src/types/Predicate.sol";
+import {PredicateLibrary, PredicateType} from "../../src/types/Predicate.sol";
+
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -33,17 +36,17 @@ abstract contract BaseClient {
     string public identifier;
 
     IBoundlessMarket public boundlessMarket;
-    HitPoints public stakeToken;
+    HitPoints public collateralToken;
 
     constructor() {}
 
-    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, HitPoints _stakeToken)
+    function initialize(string memory _identifier, IBoundlessMarket _boundlessMarket, HitPoints _collateralToken)
         public
         virtual
     {
         identifier = _identifier;
         boundlessMarket = _boundlessMarket;
-        stakeToken = _stakeToken;
+        collateralToken = _collateralToken;
         balanceSnapshot = type(int256).max;
     }
 
@@ -57,18 +60,17 @@ abstract contract BaseClient {
         return Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.timestamp),
+            rampUpStart: uint64(block.timestamp),
             rampUpPeriod: uint32(10),
             lockTimeout: uint32(100),
             timeout: uint32(200),
-            lockStake: 1 ether
+            lockCollateral: 1 ether
         });
     }
 
     function defaultRequirements() public pure returns (Requirements memory) {
         return Requirements({
-            imageId: bytes32(APP_IMAGE_ID),
-            predicate: Predicate({predicateType: PredicateType.DigestMatch, data: abi.encode(sha256(APP_JOURNAL))}),
+            predicate: PredicateLibrary.createDigestMatchPredicate(bytes32(APP_IMAGE_ID), sha256(APP_JOURNAL)),
             selector: bytes4(0),
             callback: Callback({addr: address(0), gasLimit: 0})
         });
@@ -82,8 +84,8 @@ abstract contract BaseClient {
         balanceSnapshot = boundlessMarket.balanceOf(addr()).toInt256();
     }
 
-    function snapshotStakeBalance() public {
-        stakeBalanceSnapshot = boundlessMarket.balanceOfStake(addr()).toInt256();
+    function snapshotCollateralBalance() public {
+        stakeBalanceSnapshot = boundlessMarket.balanceOfCollateral(addr()).toInt256();
     }
 
     function expectBalanceChange(int256 change) public view {
@@ -96,13 +98,15 @@ abstract contract BaseClient {
         require(expectedBalance == newBalance, "balance is not equal to expected value");
     }
 
-    function expectStakeBalanceChange(int256 change) public view {
-        require(stakeBalanceSnapshot != type(int256).max, "stake balance snapshot is not set");
-        int256 newBalance = boundlessMarket.balanceOfStake(addr()).toInt256();
-        console.log("%s stake balance at block %d: %d", identifier, block.number, newBalance.toUint256());
+    function expectCollateralBalanceChange(int256 change) public view {
+        require(stakeBalanceSnapshot != type(int256).max, "collateral balance snapshot is not set");
+        int256 newBalance = boundlessMarket.balanceOfCollateral(addr()).toInt256();
+        console.log("%s collateral balance at block %d: %d", identifier, block.number, newBalance.toUint256());
         int256 expectedBalance = stakeBalanceSnapshot + change;
-        require(expectedBalance >= 0, "expected stake balance cannot be less than 0");
-        console.log("%s expected stake balance at block %d: %d", identifier, block.number, expectedBalance.toUint256());
-        require(expectedBalance == newBalance, "stake balance is not equal to expected value");
+        require(expectedBalance >= 0, "expected collateral balance cannot be less than 0");
+        console.log(
+            "%s expected collateral balance at block %d: %d", identifier, block.number, expectedBalance.toUint256()
+        );
+        require(expectedBalance == newBalance, "collateral balance is not equal to expected value");
     }
 }

@@ -71,9 +71,9 @@ contract Client is BaseClient {
         return VM.sign(
             wallet,
             MessageHashUtils.toTypedDataHash(
-                stakeToken.DOMAIN_SEPARATOR(),
+                collateralToken.DOMAIN_SEPARATOR(),
                 TestUtils.getPermitHash(
-                    wallet.addr, spender, value, ERC20Permit(address(stakeToken)).nonces(wallet.addr), deadline
+                    wallet.addr, spender, value, ERC20Permit(address(collateralToken)).nonces(wallet.addr), deadline
                 )
             )
         );
