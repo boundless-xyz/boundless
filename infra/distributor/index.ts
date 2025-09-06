@@ -37,6 +37,7 @@ export = () => {
 
   const boundlessMarketAddr = config.get('BOUNDLESS_MARKET_ADDR');
   const setVerifierAddr = config.get('SET_VERIFIER_ADDR');
+  const collateralTokenAddr = config.get('COLLATERAL_TOKEN_ADDR');
 
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
 
@@ -205,14 +206,15 @@ export = () => {
     proverStakeDonateThreshold ? `--prover-stake-donate-threshold ${proverStakeDonateThreshold}` : '',
   ]
 
-  if (boundlessMarketAddr && setVerifierAddr) {
+  if (boundlessMarketAddr && setVerifierAddr && collateralTokenAddr) {
     distributorArgs.push(
       `--boundless-market-address ${boundlessMarketAddr}`,
       `--set-verifier-address ${setVerifierAddr}`,
       `--chain-id ${chainId}`,
+      `--collateral-token-address ${collateralTokenAddr}`,
     );
-  } else if (boundlessMarketAddr || setVerifierAddr) {
-    throw new Error('Must provide all of boundlessMarketAddr, setVerifierAddr, and chainId. Or none of them.');
+  } else if (boundlessMarketAddr || setVerifierAddr || collateralTokenAddr) {
+    throw new Error('Must provide all of boundlessMarketAddr, setVerifierAddr, and collateralTokenAddr. Or none of them.');
   }
 
   const distributorSecrets = [
