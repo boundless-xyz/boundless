@@ -100,7 +100,7 @@ impl Deployment {
     /// Check if the collateral token supports permit.
     /// Some chain's bridged tokens do not support permit, for example Base.
     pub fn collateral_token_supports_permit(&self) -> bool {
-        self.chain_id.unwrap() == 1 || self.chain_id.unwrap() == 11155111
+        collateral_token_supports_permit(self.chain_id.unwrap())
     }
 }
 
@@ -134,3 +134,9 @@ pub const BASE_SEPOLIA: Deployment = Deployment {
     collateral_token_address: Some(address!("0x8d4dA4b7938471A919B08F941461b2ed1679d7bb")),
     order_stream_url: Some(Cow::Borrowed("https://base-sepolia.boundless.network")),
 };
+
+/// Check if the collateral token supports permit.
+/// Some chain's bridged tokens do not support permit, for example Base.
+pub fn collateral_token_supports_permit(chain_id: u64) -> bool {
+    chain_id == 1 || chain_id == 11155111
+}
