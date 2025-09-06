@@ -110,7 +110,7 @@ async fn run(args: &MainArgs) -> Result<()> {
     let distributor_provider =
         ProviderBuilder::new().wallet(distributor_wallet).connect_http(args.rpc_url.clone());
 
-    tracing::info!("Deployment: {:?}", args.deployment);
+    tracing::info!("Using deployment: {:?}", args.deployment);
     let distributor_client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
         .with_private_key(args.private_key.clone())
