@@ -41,9 +41,9 @@ use super::{
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
-/// Fraction of stake the protocol gives to the prover who fills an order that was locked by another prover but expired
+/// Fraction of collateral the protocol gives to the prover who fills an order that was locked by another prover but expired
 /// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
-/// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
+/// The value is 4 because the slashing burn is 75% of the collateral, and we give the remaining 1/4 of that to the prover.
 /// TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
 const FRACTION_STAKE_NUMERATOR: u64 = 4;
 const FRACTION_STAKE_DENOMINATOR: u64 = 5;
@@ -231,8 +231,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         Self { event_query_config: config, ..self }
     }
 
-    /// Set stake balance thresholds to warn or error alert on
-    pub fn with_stake_balance_alert(
+    /// Set collateral balance thresholds to warn or error alert on
+    pub fn with_collateral_balance_alert(
         self,
         warn_threshold: &Option<U256>,
         error_threshold: &Option<U256>,
@@ -275,7 +275,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(eip712_domain(*self.instance.address(), self.get_chain_id().await?))
     }
 
-    /// Deposit Ether into the market to pay for proof and/or lockin stake.
+    /// Deposit Ether into the market to pay for proof and/or lockin collateral.
     pub async fn deposit(&self, value: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling deposit() value: {value}");
         let call = self.instance.deposit().value(value);
@@ -459,7 +459,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             receipt.transaction_hash
         );
 
-        self.check_stake_balance().await?;
+        self.check_collateral_balance().await?;
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -569,7 +569,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// When a prover fails to fulfill a request by the deadline, this function can be used to burn
-    /// the associated prover stake.
+    /// the associated prover collateral.
     pub async fn slash(
         &self,
         request_id: U256,
@@ -1259,7 +1259,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Approve a spender to spend `value` amount of HitPoints on behalf of the caller.
-    pub async fn approve_deposit_stake(&self, value: U256) -> Result<()> {
+    pub async fn approve_deposit_collateral(&self, value: U256) -> Result<()> {
         let spender = *self.instance.address();
         tracing::trace!("Calling approve({:?}, {})", spender, value);
         let token_address = self
@@ -1284,28 +1284,28 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
-    /// Deposit stake into the market to pay for lockin stake.
+    /// Deposit collateral into the market to pay for lockin collateral.
     ///
     /// Before calling this method, the account owner must first approve
-    /// the Boundless market contract as an allowed spender by calling `approve_deposit_stake`.    
-    pub async fn deposit_stake(&self, value: U256) -> Result<(), MarketError> {
-        tracing::trace!("Calling depositStake({})", value);
+    /// the Boundless market contract as an allowed spender by calling `approve_deposit_collateral`.    
+    pub async fn deposit_collateral(&self, value: U256) -> Result<(), MarketError> {
+        tracing::trace!("Calling depositCollateral({})", value);
         let call = self.instance.depositCollateral(value);
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
+        tracing::debug!("Broadcasting collateral deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted stake deposit {}", tx_hash);
+        tracing::debug!("Submitted collateral deposit {}", tx_hash);
         Ok(())
     }
 
-    /// Permit and deposit stake into the market to pay for lockin stake.
+    /// Permit and deposit collateral into the market to pay for lockin collateral.
     ///
     /// This method will send a single transaction.
-    pub async fn deposit_stake_with_permit(
+    pub async fn deposit_collateral_with_permit(
         &self,
         value: U256,
         signer: &impl Signer,
@@ -1344,34 +1344,34 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling depositStakeWithPermit({})", value);
         let call = self.instance.depositCollateralWithPermit(value, deadline, v, r, s);
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
+        tracing::debug!("Broadcasting collateral deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted stake deposit {}", tx_hash);
+        tracing::debug!("Submitted collateral deposit {}", tx_hash);
         Ok(())
     }
 
-    /// Withdraw stake from the market.
-    pub async fn withdraw_stake(&self, value: U256) -> Result<(), MarketError> {
+    /// Withdraw collateral from the market.
+    pub async fn withdraw_collateral(&self, value: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling withdrawStake({})", value);
         let call = self.instance.withdrawCollateral(value);
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting stake withdraw tx {}", pending_tx.tx_hash());
+        tracing::debug!("Broadcasting collateral withdraw tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted stake withdraw {}", tx_hash);
-        self.check_stake_balance().await?;
+        tracing::debug!("Submitted collateral withdraw {}", tx_hash);
+        self.check_collateral_balance().await?;
         Ok(())
     }
 
     /// Returns the deposited balance, in HP, of the given account.
-    pub async fn balance_of_stake(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
+    pub async fn balance_of_collateral(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
         let account = account.into();
         tracing::trace!("Calling balanceOfStake({})", account);
         let balance =
@@ -1379,24 +1379,24 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(balance)
     }
 
-    /// Check the current stake balance against the alert config
+    /// Check the current collateral balance against the alert config
     /// and log a warning or error or below the thresholds.
-    async fn check_stake_balance(&self) -> Result<(), MarketError> {
-        let stake_balance = self.balance_of_stake(self.caller()).await?;
-        if stake_balance < self.balance_alert_config.error_threshold.unwrap_or(U256::ZERO) {
+    async fn check_collateral_balance(&self) -> Result<(), MarketError> {
+        let collateral_balance = self.balance_of_collateral(self.caller()).await?;
+        if collateral_balance < self.balance_alert_config.error_threshold.unwrap_or(U256::ZERO) {
             tracing::error!(
-                "[B-BAL-STK] stake balance {} for {} < error threshold",
-                stake_balance,
+                "[B-BAL-STK] collateral balance {} for {} < error threshold",
+                collateral_balance,
                 self.caller(),
             );
-        } else if stake_balance < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO) {
+        } else if collateral_balance < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO) {
             tracing::warn!(
-                "[B-BAL-STK] stake balance {} for {} < warning threshold",
-                stake_balance,
+                "[B-BAL-STK] collateral balance {} for {} < warning threshold",
+                collateral_balance,
                 self.caller(),
             );
         } else {
-            tracing::trace!("stake balance for {} is: {}", self.caller(), stake_balance);
+            tracing::trace!("collateral balance for {} is: {}", self.caller(), collateral_balance);
         }
         Ok(())
     }
@@ -1485,7 +1485,7 @@ impl Offer {
     /// UNIX timestamp after which any lock on the request expires, and the client fee is zero.
     ///
     /// Once locked, if a valid proof is not submitted before this deadline, the prover can be
-    /// "slashed", which refunds the price to the requester and takes the prover stake.
+    /// "slashed", which refunds the price to the requester and takes the prover collateral.
     /// Additionally, the fee paid by the client is zero for proofs delivered after this time. Note
     /// that after this time, and before `timeout` a proof can still be delivered to fulfill the
     /// request.

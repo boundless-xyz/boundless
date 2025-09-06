@@ -213,7 +213,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         }
 
         let prover_collateral_balance =
-            distributor_client.boundless_market.balance_of_stake(prover_address).await?;
+            distributor_client.boundless_market.balance_of_collateral(prover_address).await?;
 
         tracing::info!(
             "Prover {} has {} collateral balance on market. Threshold for donation to distributor is {}.",
@@ -242,7 +242,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .await?;
 
             // Withdraw collateral from market to prover
-            if let Err(e) = prover_client.boundless_market.withdraw_stake(withdraw_amount).await {
+            if let Err(e) = prover_client.boundless_market.withdraw_collateral(withdraw_amount).await {
                 tracing::error!(
                     "Failed to withdraw collateral from boundless market for prover {}: {:?}. Skipping.",
                     prover_address,
@@ -305,7 +305,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         let distributor_collateral_balance =
             collateral_token_contract.balanceOf(distributor_address).call().await?;
         let prover_collateral_balance_market =
-            distributor_client.boundless_market.balance_of_stake(prover_address).await?;
+            distributor_client.boundless_market.balance_of_collateral(prover_address).await?;
 
         tracing::info!("Account {} has {} collateral balance deposited to market. Threshold for top up is {}. Distributor has {} collateral balance (Collateral token: 0x{:x}). ", prover_address, format_units(prover_collateral_balance_market, collateral_token_decimals)?, format_units(collateral_threshold, collateral_token_decimals)?, format_units(distributor_collateral_balance, collateral_token_decimals)?, collateral_token);
 
@@ -374,9 +374,10 @@ async fn run(args: &MainArgs) -> Result<()> {
             prover_collateral_balance_contract =
                 collateral_token_contract.balanceOf(prover_address).call().await?;
 
+            prover_client.boundless_market.approve_deposit_collateral(prover_collateral_balance_contract).await?;
             if let Err(e) = prover_client
                 .boundless_market
-                .deposit_stake_with_permit(prover_collateral_balance_contract, prover_key)
+                .deposit_collateral(prover_collateral_balance_contract)
                 .await
             {
                 tracing::error!(
@@ -386,7 +387,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 );
                 continue;
             }
-            tracing::info!("Collateral deposit completed for prover {}", prover_address);
+            tracing::info!("Collateral deposit of {} completed for prover {}", format_units(prover_collateral_balance_contract, collateral_token_decimals)?, prover_address);
         }
     }
 
@@ -526,14 +527,14 @@ mod tests {
             distributor_client.provider().get_balance(prover_signer_1.address()).await.unwrap();
         let prover_stake_balance = distributor_client
             .boundless_market
-            .balance_of_stake(prover_signer_1.address())
+            .balance_of_collateral(prover_signer_1.address())
             .await
             .unwrap();
         let prover_eth_balance_2 =
             distributor_client.provider().get_balance(prover_signer_2.address()).await.unwrap();
         let prover_stake_balance_2 = distributor_client
             .boundless_market
-            .balance_of_stake(prover_signer_2.address())
+            .balance_of_collateral(prover_signer_2.address())
             .await
             .unwrap();
         let slasher_eth_balance =

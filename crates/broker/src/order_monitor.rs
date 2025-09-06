@@ -172,7 +172,7 @@ where
         prover_addr: Address,
         market_addr: Address,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
-        stake_token_decimals: u8,
+        collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
     ) -> Result<Self> {
         let txn_timeout_opt = {
@@ -191,17 +191,17 @@ where
         {
             let config = config.lock_all()?;
 
-            market = market.with_stake_balance_alert(
+            market = market.with_collateral_balance_alert(
                 &config
                     .market
                     .collateral_balance_warn_threshold
                     .as_ref()
-                    .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
+                    .map(|s| parse_units(s, collateral_token_decimals).unwrap().into()),
                 &config
                     .market
                     .collateral_balance_error_threshold
                     .as_ref()
-                    .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
+                    .map(|s| parse_units(s, collateral_token_decimals).unwrap().into()),
             );
         }
         let monitor = Self {
@@ -1100,9 +1100,9 @@ pub(crate) mod tests {
 
         // Deposit ETH into the contract for the prover to use when locking orders
         // Using 10 ETH to ensure plenty of funds for tests
-        let stake_token_decimals = market_service.stake_token_decimals().await.unwrap();
+        let collateral_token_decimals = market_service.collateral_token_decimals().await.unwrap();
         market_service
-            .deposit(parse_units("10.0", stake_token_decimals).unwrap().into())
+            .deposit(parse_units("10.0", collateral_token_decimals).unwrap().into())
             .await
             .unwrap();
 
@@ -1131,7 +1131,7 @@ pub(crate) mod tests {
             signer.address(),
             market_address,
             priced_order_rx,
-            stake_token_decimals,
+            collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
         )
         .unwrap();

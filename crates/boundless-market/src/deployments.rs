@@ -96,6 +96,12 @@ impl Deployment {
         let chain = NamedChain::try_from(chain_id.into()).ok()?;
         Self::from_chain(chain)
     }
+
+    /// Check if the collateral token supports permit.
+    /// Some chain's bridged tokens do not support permit, for example Base.
+    pub fn collateral_token_supports_permit(&self) -> bool {
+        self.chain_id.unwrap() == 1 || self.chain_id.unwrap() == 11155111
+    }
 }
 
 // TODO(#654): Ensure consistency with deployment.toml and with docs
