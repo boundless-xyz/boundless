@@ -40,7 +40,8 @@ export = () => {
   const txTimeout = baseConfig.require('TX_TIMEOUT');
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
-  const repo = new awsx.ecr.Repository(`${imageName}-repo`, {
+  const repo = new awsx.ecr.Repository(`${imageName}-ecr-repo`, {
+    name: `${imageName}-ecr-repo`,
     forceDelete: true,
     lifecyclePolicy: {
       rules: [
