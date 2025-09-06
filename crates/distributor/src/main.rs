@@ -110,6 +110,7 @@ async fn run(args: &MainArgs) -> Result<()> {
     let distributor_provider =
         ProviderBuilder::new().wallet(distributor_wallet).connect_http(args.rpc_url.clone());
 
+    tracing::info!("Deployment: {:?}", args.deployment);
     let distributor_client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
         .with_private_key(args.private_key.clone())
@@ -145,8 +146,10 @@ async fn run(args: &MainArgs) -> Result<()> {
             format_units(collateral_threshold, collateral_token_decimals)?
         ));
     }
+    let collateral_token = distributor_client.boundless_market.collateral_token_address().await?;
 
     tracing::info!("Distributor address: {}", distributor_address);
+    tracing::info!("Collateral token address: {}", collateral_token);
     tracing::info!("Collateral token decimals: {}", collateral_token_decimals);
 
     // Transfer ETH from provers to the distributor from provers if above threshold
@@ -238,6 +241,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .with_rpc_url(args.rpc_url.clone())
                 .with_private_key(prover_key.clone())
                 .with_timeout(Some(TX_TIMEOUT))
+                .with_deployment(args.deployment.clone())
                 .build()
                 .await?;
 
@@ -258,7 +262,6 @@ async fn run(args: &MainArgs) -> Result<()> {
             );
 
             // Transfer the withdrawn collateral to distributor
-            let collateral_token = distributor_client.boundless_market.collateral_token_address().await?;
             let collateral_token_contract = IERC20::new(collateral_token, prover_provider.clone());
 
             let pending_tx = match collateral_token_contract
@@ -361,13 +364,14 @@ async fn run(args: &MainArgs) -> Result<()> {
                 }
             };
 
-            tracing::info!("Collateral transfer completed: {:x} from distributor to prover {}. About to deposit collateral", receipt, prover_address);
+            tracing::info!("Collateral transfer completed: Tx hash: 0x{:x}. Amount: {} from distributor to prover {}. About to deposit collateral", receipt, format_units(transfer_amount, collateral_token_decimals)?, prover_address);
 
             // Then have the prover deposit the collateral
             let prover_client = Client::builder()
                 .with_rpc_url(args.rpc_url.clone())
                 .with_private_key(prover_key.clone())
                 .with_timeout(Some(TX_TIMEOUT))
+                .with_deployment(args.deployment.clone())
                 .build()
                 .await?;
 
@@ -375,6 +379,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 collateral_token_contract.balanceOf(prover_address).call().await?;
 
             prover_client.boundless_market.approve_deposit_collateral(prover_collateral_balance_contract).await?;
+            tracing::info!("Approved {} collateral to deposit for prover {}. About to deposit collateral", format_units(prover_collateral_balance_contract, collateral_token_decimals)?, prover_address);
             if let Err(e) = prover_client
                 .boundless_market
                 .deposit_collateral(prover_collateral_balance_contract)
