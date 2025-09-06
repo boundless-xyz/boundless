@@ -89,7 +89,7 @@ export = () => {
       return hash.digest("hex");
     });
 
-  const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
+  const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
     forceDelete: true,
     lifecyclePolicy: {
       rules: [
