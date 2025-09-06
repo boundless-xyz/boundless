@@ -777,7 +777,7 @@ where
 
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
-        let stake_token_decimals = BoundlessMarketService::new(
+        let collateral_token_decimals = BoundlessMarketService::new(
             self.deployment().boundless_market_address,
             self.provider.clone(),
             Address::ZERO,
@@ -796,7 +796,7 @@ where
             chain_monitor.clone(),
             new_order_rx,
             pricing_tx,
-            stake_token_decimals,
+            collateral_token_decimals,
             order_state_tx.clone(),
         ));
         let cloned_config = config.clone();
@@ -841,7 +841,7 @@ where
             prover_addr,
             self.deployment().boundless_market_address,
             pricing_rx,
-            stake_token_decimals,
+            collateral_token_decimals,
             order_monitor::RpcRetryConfig {
                 retry_count: self.args.rpc_retry_max.into(),
                 retry_sleep_ms: self.args.rpc_retry_backoff,

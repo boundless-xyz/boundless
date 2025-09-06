@@ -68,7 +68,7 @@ struct MainArgs {
     max_price_per_mcycle: U256,
     /// Lockin stake amount in ether.
     #[clap(short, long, default_value = "0")]
-    lock_stake_raw: U256,
+    lock_collateral_raw: U256,
     /// Number of seconds, from the current time, before the auction period starts.
     /// If not provided, will be calculated based on cycle count assuming 5 MHz prove rate.
     #[clap(long)]
@@ -276,7 +276,7 @@ async fn handle_request(
                 .ramp_up_period(ramp_up)
                 .lock_timeout(lock_timeout)
                 .timeout(timeout)
-                .lock_stake(args.lock_stake_raw)
+                .lock_collateral(args.lock_collateral_raw)
                 .bidding_start(bidding_start),
         );
 
@@ -375,7 +375,7 @@ mod tests {
             count: Some(2),
             min_price_per_mcycle: parse_ether("0.001").unwrap(),
             max_price_per_mcycle: parse_ether("0.002").unwrap(),
-            lock_stake_raw: parse_ether("0.0").unwrap(),
+            lock_collateral_raw: parse_ether("0.0").unwrap(),
             bidding_start_delay: None,
             ramp_up: 0,
             timeout: 1000,

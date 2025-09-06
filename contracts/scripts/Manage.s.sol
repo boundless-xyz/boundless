@@ -87,7 +87,7 @@ contract DeployBoundlessMarket is BoundlessScript {
         address verifier = deploymentConfig.verifier.required("verifier");
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl.required("assessor-guest-url");
-        address collateralToken = deploymentConfig.stakeToken.required("collateral-token");
+        address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
 
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
@@ -153,7 +153,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
 
         address admin = deploymentConfig.admin.required("admin");
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        address collateralToken = deploymentConfig.stakeToken.required("collateral-token");
+        address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
         address verifier = deploymentConfig.verifier.required("verifier");
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         uint32 deprecatedAssessorDuration = deploymentConfig.deprecatedAssessorDuration;
