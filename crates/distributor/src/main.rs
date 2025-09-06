@@ -378,7 +378,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             prover_collateral_balance_contract =
                 collateral_token_contract.balanceOf(prover_address).call().await?;
 
-            prover_client.boundless_market.approve_deposit_collateral(prover_collateral_balance_contract).await?;
+            prover_client.boundless_market.approve_deposit_collateral(U256::MAX).await?;
             tracing::info!("Approved {} collateral to deposit for prover {}. About to deposit collateral", format_units(prover_collateral_balance_contract, collateral_token_decimals)?, prover_address);
             if let Err(e) = prover_client
                 .boundless_market

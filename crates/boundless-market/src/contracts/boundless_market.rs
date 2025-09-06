@@ -1291,6 +1291,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn deposit_collateral(&self, value: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling depositCollateral({})", value);
         let call = self.instance.depositCollateral(value);
+        tracing::debug!("Sending tx {}", format!("{:?}", call));
+        tracing::debug!("Market address: {:?}", self.instance.address());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting {} collateral deposit to market {:?}. Tx hash: {}", value, self.instance.address(), pending_tx.tx_hash());
         let tx_hash = pending_tx
