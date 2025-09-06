@@ -1258,7 +1258,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(id)
     }
 
-    /// Approve a spender to spend `value` amount of HitPoints on behalf of the caller.
+    /// Approves Boundless Market contract to deposit `value` amount of collateral on behalf of the caller.
     pub async fn approve_deposit_collateral(&self, value: U256) -> Result<()> {
         let spender = *self.instance.address();
         tracing::trace!("Calling approve({:?}, {})", spender, value);
@@ -1284,7 +1284,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
-    /// Deposit collateral into the market to pay for lockin collateral.
+    /// Deposit collateral into the market to pay for lock operations.
     ///
     /// Before calling this method, the account owner must first approve
     /// the Boundless market contract as an allowed spender by calling `approve_deposit_collateral`.    
