@@ -3,13 +3,13 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFtDEwEd4DokgsE4M
 config:
   aws:region: us-west-2
   order-generator-base:BASE_STACK: organization/bootstrap/services-staging
-  order-generator-base:BOUNDLESS_MARKET_ADDR: 0xAD0Bd6C436658aF457736d7224a87d2EF56365C8
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
   order-generator-base:CHAIN_ID: "84532"
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:MeGWFpq5rM1uNcVX:lt0N7dDlNj/paiQ17yLDY1BdRvbKRAP7zsNR9Z306290qNPbE3tAuR9NDmOqm/pSsIqENgYKZynGgQXIMepTKtf1EBVzQnSwP1cBfBm9u7AfQia+wJ9a38Vo4j9MYnsQfbt/3g1Z3rIb0fYnUA==
-  order-generator-base:INTERVAL: "300"
+  order-generator-base:INTERVAL: "600"
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
   order-generator-base:LOCK_STAKE_RAW: "5000000000000000000"
   order-generator-base:LOCK_TIMEOUT: "900"
@@ -17,11 +17,11 @@ config:
   order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL:
-    secure: v1:5X4WPW2rM1clIE8P:U1iXpsizlN4G2cKNH1jzUlgawx/7WLVSBkWSRsUDcxF8/xsqLWIuncXdDoTQ25O+PkMIBvV44XaCLNF51mtaiOK212HPZI4br/WXhp3nII7aEVcv1+/GhrRJGg==
+    secure: v1:dkoKx8J2A9Fk5RGH:F+h0kv2xve/0fAUak7a42u4bM/6EnDq2Nv1O1KGchcFp0vOxQj1DNPVGoE9cOssuPCp4kNk5ZO+QFZ15snfVU+iY2NPuphh2px6jdpUL+3g+xqYgf5YolJihRTk=
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:PINATA_JWT:
     secure: v1:tZoaPELj24Sb/1SK:MqoMsiGa7DDWlklS/Awb5ALhvu1OQ4md86zIK3t7W+WloJsiyZn/Ho3S16GOsEGclXEUFxmPfB7eNjG74R/mhAhFAY87KnA57NrXsbdu7piL5LfmN2sugb8LWq5H5QwIcy9m2CJ1dfYybmjM+o7sQgMJKEY6gW73YJufczQbUpwmrQT37rwMVUQv+86s4y9a6RAObPOh9Iic6w5YtYnkbIpZ56V2wrlyN9uOTxBkNctMAJkL+CcBiMllfUYRKtMwtm7cFeHnBR5CdzBmGtBgXU2GG844wyMclPL90eEbQp0/XDIqBBGbyzoG2mOSCKTw1usn5Tn6p0s/XLHNxYJijAoeoReVyE1AMO4G5l3MoN41g82WtyngNntpR3FP2gWG3oGUZYE5EDxpnwsWGPznSmzgcuuuJfY8PfKLvAKJ2uuBVvqf1s0ao4STqCt3C+sr/AAqnWibsE3yMlhvS2nANFIXZhKD+d6xVold78LyPRHfzhMz0MXPc3Vvao4y974pLuBtDq/De+KUwiYRaTNlYy7PvJUXadrWwfcBCw/5jUtXQ793EJn1hOdtvVf0XkTezBYugEaJk0/y4VickQsN5PDcjKLgHBcT/N3kv1gDVG+Tvk9q+jpMlFfltpoGp6zEJP2MSUpo++Vd+fRIzRGAjhkgh6sWNMCHlQb8brbR5DrnDftiHHFtZx1gOjPGJsgc+RFE51NgvquVa6mLczHiJlsb2SO/8qKPQAViMrkpLU6MtMtK11tv5QBWAS1NHzTyxazu/rQjCwyH+pv/KJXpATDCoZIweWBR51O/Z/gdav0byAWpyXkeJWpJaXLfOE+XfBnCe5rhH7HnmBO72DPEgZNmRAzqZM/kUgyNVT/HaOc3ksfDWvuqxVyfzJuwqYImFdtjc94wiRD6QpiGCxeCs1H9xia5zLlZ
-  order-generator-base:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  order-generator-base:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   order-generator-base:TX_TIMEOUT: "300"
   order-generator-offchain:AUTO_DEPOSIT: "0.015"

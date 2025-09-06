@@ -10,7 +10,7 @@ config:
   base-prover:GH_TOKEN_SECRET:
     secure: v1:GKRiUGOQfXxNl7/A:THbb9JBhwVBNW7vS6HG9B6fO4HpVN595HtnetKJsJ/LNWPTmYdY9OUktzLuAyBzkHM/gj9kQsGK9opAZzIZNS5v6+M7y+i7smop/etyMg8vdP43mt/EWLaX6BQS74aThoxiTFuZHmFB3OL0flw==
   base-prover:ORDER_STREAM_URL:
-    secure: v1:wZ9kxIluuK4xHlDm:+QX40ilWZGnxJ4LkMZXylBTz85NlEADe97sB4HTkdRwa7CkFbevWlMUrOELHnU2BkcNDNnnnJ7/51BxnsWF66JfrfmmKkdIPGAWIRy1et7Jra057441N9Yqapw==
+    secure: v1:8Ih8Nn6nZSu7Obqt:7RJFDjW1uS9uIMavGMI1DeTed+IrRIXTvGlv8kRGOc/JCEbrFaPP5y90eA1UdwpN8QiG/g/g35IQf0dusnOFNwTqRzeOKLC5hVj1/aZeXyhvIZs7zsMJyCMyiQk=
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch

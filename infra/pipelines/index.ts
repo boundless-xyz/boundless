@@ -196,8 +196,7 @@ const lOrderStreamPipeline = new LOrderStreamPipeline("lOrderStreamPipeline", {
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
 
-/*
-const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
+const lProverPipeline = new LProverPipeline("lProverPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
@@ -217,7 +216,8 @@ const lOrderGeneratorPipeline = new LOrderGeneratorPipeline("lOrderGeneratorPipe
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
 
-const lProverPipeline = new LProverPipeline("lProverPipeline", {
+/*
+const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
