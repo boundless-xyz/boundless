@@ -18,7 +18,7 @@ interface OrderGeneratorArgs {
   collateralTokenAddress?: string;
   ipfsGateway: string;
   interval: string;
-  lockStakeRaw: string;
+  lockCollateralRaw: string;
   rampUp?: string;
   minPricePerMCycle: string;
   maxPricePerMCycle: string;
@@ -162,7 +162,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       `--interval ${args.interval}`,
       `--min ${args.minPricePerMCycle}`,
       `--max ${args.maxPricePerMCycle}`,
-      `--lock-stake-raw ${args.lockStakeRaw}`,
+      `--lock-collateral-raw ${args.lockCollateralRaw}`,
       `--set-verifier-address ${args.setVerifierAddr}`,
       `--boundless-market-address ${args.boundlessMarketAddr}`,
       `--tx-timeout ${args.txTimeout}`

@@ -12,7 +12,7 @@ config:
     secure: v1:MeGWFpq5rM1uNcVX:lt0N7dDlNj/paiQ17yLDY1BdRvbKRAP7zsNR9Z306290qNPbE3tAuR9NDmOqm/pSsIqENgYKZynGgQXIMepTKtf1EBVzQnSwP1cBfBm9u7AfQia+wJ9a38Vo4j9MYnsQfbt/3g1Z3rIb0fYnUA==
   order-generator-base:INTERVAL: "600"
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
-  order-generator-base:LOCK_STAKE_RAW: "5000000000000000000"
+  order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
   order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"

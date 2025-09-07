@@ -35,7 +35,7 @@ export = () => {
   const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const interval = baseConfig.require('INTERVAL');
-  const lockStakeRaw = baseConfig.require('LOCK_STAKE_RAW');
+  const lockCollateralRaw = baseConfig.require('LOCK_COLLATERAL_RAW');
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
   const txTimeout = baseConfig.require('TX_TIMEOUT');
@@ -139,7 +139,7 @@ export = () => {
     boundlessMarketAddr,
     ipfsGateway,
     interval: offchainInterval ?? interval,
-    lockStakeRaw,
+    lockCollateralRaw,
     minPricePerMCycle,
     maxPricePerMCycle,
     vpcId,
