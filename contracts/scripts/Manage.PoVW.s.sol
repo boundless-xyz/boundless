@@ -42,7 +42,37 @@ contract UpgradePoVWAccounting is PoVWScript {
         address zkcAddress = PoVWLib.requireLib(deploymentConfig.zkc, "zkc");
         IZKC zkc = IZKC(zkcAddress);
 
-        bytes32 logUpdaterId = PoVWLib.requireLib(deploymentConfig.povwLogUpdaterId, "povw-log-updater-id");
+        // Get the latest log updater ID dynamically
+        bytes32 logUpdaterId;
+        bool devMode = bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0;
+
+        if (devMode) {
+            // Use mock ID in dev mode
+            logUpdaterId = bytes32(uint256(0x1111111111111111111111111111111111111111111111111111111111111111));
+            console2.log("Using mock PoVW log updater ID for dev mode");
+        } else {
+            // Try environment variable first
+            bytes32 envLogUpdater = vm.envOr("POVW_LOG_UPDATER_ID", bytes32(0));
+            if (envLogUpdater != bytes32(0)) {
+                logUpdaterId = envLogUpdater;
+                console2.log("Using PoVW log updater ID from environment variable");
+            } else {
+                // Try reading from .bin file
+                logUpdaterId = readImageIdFromFile("boundless-povw-log-updater.bin");
+                if (logUpdaterId == bytes32(0)) {
+                    // Fall back to config as last resort
+                    logUpdaterId = deploymentConfig.povwLogUpdaterId;
+                    console2.log("Using PoVW log updater ID from deployment config (fallback)");
+                } else {
+                    console2.log("Using PoVW log updater ID from .bin file");
+                }
+            }
+            
+            // Require that we have a valid log updater ID
+            logUpdaterId = PoVWLib.requireLib(logUpdaterId, "Log Updater ID");
+        }
+
+        console2.log("Log Updater ID: %s", vm.toString(logUpdaterId));
 
         UpgradeOptions memory opts;
         opts.referenceContract = "build-info-reference:PovwAccounting";
@@ -65,7 +95,7 @@ contract UpgradePoVWAccounting is PoVWScript {
         // Get current git commit hash
         string memory currentCommit = getCurrentCommit();
 
-        string[] memory args = new string[](8);
+        string[] memory args = new string[](10);
         args[0] = "python3";
         args[1] = "contracts/update_deployment_toml.py";
         args[2] = "--povw-accounting-impl";
@@ -74,9 +104,12 @@ contract UpgradePoVWAccounting is PoVWScript {
         args[5] = Strings.toHexString(currentImplementation);
         args[6] = "--povw-accounting-deployment-commit";
         args[7] = currentCommit;
+        args[8] = "--povw-log-updater-id";
+        args[9] = vm.toString(logUpdaterId);
 
         vm.ffi(args);
         console2.log("Updated PovwAccounting deployment commit: %s", currentCommit);
+        console2.log("Updated PoVW log updater ID: %s", vm.toString(logUpdaterId));
 
         // Check for uncommitted changes warning
         checkUncommittedChangesWarning("Upgrade");
@@ -109,7 +142,38 @@ contract UpgradePoVWMint is PoVWScript {
         IRiscZeroVerifier verifier = IRiscZeroVerifier(PoVWLib.requireLib(deploymentConfig.verifier, "verifier"));
         PovwAccounting povwAccounting =
             PovwAccounting(PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
-        bytes32 mintCalculatorId = PoVWLib.requireLib(deploymentConfig.povwMintCalculatorId, "povw-mint-calculator-id");
+
+        // Get the latest mint calculator ID dynamically
+        bytes32 mintCalculatorId;
+        bool devMode = bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0;
+
+        if (devMode) {
+            // Use mock ID in dev mode
+            mintCalculatorId = bytes32(uint256(0x2222222222222222222222222222222222222222222222222222222222222222));
+            console2.log("Using mock PoVW mint calculator ID for dev mode");
+        } else {
+            // Try environment variable first
+            bytes32 envMintCalculator = vm.envOr("POVW_MINT_CALCULATOR_ID", bytes32(0));
+            if (envMintCalculator != bytes32(0)) {
+                mintCalculatorId = envMintCalculator;
+                console2.log("Using PoVW mint calculator ID from environment variable");
+            } else {
+                // Try reading from .bin file
+                mintCalculatorId = readImageIdFromFile("boundless-povw-mint-calculator.bin");
+                if (mintCalculatorId == bytes32(0)) {
+                    // Fall back to config as last resort
+                    mintCalculatorId = deploymentConfig.povwMintCalculatorId;
+                    console2.log("Using PoVW mint calculator ID from deployment config (fallback)");
+                } else {
+                    console2.log("Using PoVW mint calculator ID from .bin file");
+                }
+            }
+            
+            // Require that we have a valid mint calculator ID
+            mintCalculatorId = PoVWLib.requireLib(mintCalculatorId, "Mint Calculator ID");
+        }
+
+        console2.log("Mint Calculator ID: %s", vm.toString(mintCalculatorId));
 
         // Handle ZKC addresses - if zero address, don't upgrade (production should have real ZKC)
         address zkcAddress = PoVWLib.requireLib(deploymentConfig.zkc, "zkc");
@@ -139,7 +203,7 @@ contract UpgradePoVWMint is PoVWScript {
         // Get current git commit hash
         string memory currentCommit = getCurrentCommit();
 
-        string[] memory args = new string[](8);
+        string[] memory args = new string[](10);
         args[0] = "python3";
         args[1] = "contracts/update_deployment_toml.py";
         args[2] = "--povw-mint-impl";
@@ -148,9 +212,12 @@ contract UpgradePoVWMint is PoVWScript {
         args[5] = Strings.toHexString(currentImplementation);
         args[6] = "--povw-mint-deployment-commit";
         args[7] = currentCommit;
+        args[8] = "--povw-mint-calculator-id";
+        args[9] = vm.toString(mintCalculatorId);
 
         vm.ffi(args);
         console2.log("Updated PovwMint deployment commit: %s", currentCommit);
+        console2.log("Updated PoVW mint calculator ID: %s", vm.toString(mintCalculatorId));
 
         // Check for uncommitted changes warning
         checkUncommittedChangesWarning("Upgrade");
