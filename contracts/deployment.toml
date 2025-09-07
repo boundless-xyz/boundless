@@ -21,8 +21,8 @@ collateral-token = "0x0000000000000000000000000000000000000000"
 
 # Guests info
 deployment-commit = "918934a418b00cce8524caf7a061e058cc945451" # v0.10.0 main
-assessor-image-id = "0xff686da102e474eb25c50f5f7446d832a22e06da99dc692fd2fa94eea56040a9"
-assessor-guest-url = "https://gateway.pinata.cloud/ipfs/bafybeieou3q7djwsatlqnuerppne7ppprzvhwm7eggnzrayrznhrq6bvcm"
+assessor-image-id = "0x03831182a226b5f5a4d358704a9f9d0bcd4dc48e6e577dc7db84d94892024938"
+assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
 
 # PoVW contracts
 povw-accounting = "0x0000000000000000000000000000000000000000"
@@ -64,8 +64,8 @@ collateral-token = "0xAA61bB7777bD01B684347961918f1E07fBbCe7CF"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
-assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
-assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+assessor-image-id = "0x03831182a226b5f5a4d358704a9f9d0bcd4dc48e6e577dc7db84d94892024938"
+assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
 deprecated-assessor-duration = 432000  # 5 days
 
 [deployment.ethereum-sepolia-prod]
@@ -88,8 +88,8 @@ collateral-token = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
-assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
-assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+assessor-image-id = "0x03831182a226b5f5a4d358704a9f9d0bcd4dc48e6e577dc7db84d94892024938"
+assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
 deprecated-assessor-duration = 432000  # 5 days
 
 # PoVW contracts
@@ -132,8 +132,8 @@ collateral-token = "0x8d4dA4b7938471A919B08F941461b2ed1679d7bb"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
-assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
-assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+assessor-image-id = "0x03831182a226b5f5a4d358704a9f9d0bcd4dc48e6e577dc7db84d94892024938"
+assessor-guest-url = "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
 deprecated-assessor-duration = 432000  # 5 days
 
 #################################################################################
@@ -160,8 +160,8 @@ collateral-token = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
-assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
-assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+assessor-image-id = "0x03831182a226b5f5a4d358704a9f9d0bcd4dc48e6e577dc7db84d94892024938"
+assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
 deprecated-assessor-duration = 432000  # 5 days
 
 # PoVW contracts
@@ -196,14 +196,14 @@ verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
 boundless-market = "0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8"
-boundless-market-impl = "0xaf197b862d09cae2d431ad39e363c0e3b84d85e7"
-boundless-market-old-impl = "0x5f72c322f6322c53c610496d9b136e5b49104786"
+boundless-market-impl = "0xff0c64b19d230b72e2451277dd949e57058ec49c"
+boundless-market-old-impl = "0xaf197b862d09cae2d431ad39e363c0e3b84d85e7"
 collateral-token = "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
-assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
-assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v2/assessor/assessor_guest.bin"
+assessor-image-id = "0x03831182a226b5f5a4d358704a9f9d0bcd4dc48e6e577dc7db84d94892024938"
+assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
 deprecated-assessor-duration = 432000  # 5 days
 
 #################################################################################
