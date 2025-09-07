@@ -25,6 +25,7 @@ export = () => {
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const setVerifierAddr = baseConfig.require('SET_VERIFIER_ADDR');
   const boundlessMarketAddr = baseConfig.require('BOUNDLESS_MARKET_ADDR');
+  const collateralTokenAddress = baseConfig.get('COLLATERAL_TOKEN_ADDR');
   const ipfsGateway = baseConfig.require('IPFS_GATEWAY_URL');
   const baseStackName = baseConfig.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);

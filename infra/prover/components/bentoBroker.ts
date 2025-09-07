@@ -25,6 +25,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         dockerTag: string;
         setVerifierAddress: string;
         boundlessMarketAddress: string;
+        collateralTokenAddress: string;
         ciCacheSecret?: pulumi.Output<string>;
         githubTokenSecret?: pulumi.Output<string>;
         brokerTomlPath: string;
@@ -37,6 +38,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         const {
             chainId,
             boundlessMarketAddress,
+            collateralTokenAddress,
             setVerifierAddress,
             ethRpcUrl,
             sshPublicKey,
@@ -346,6 +348,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                     brokerBucket,
                     setVerifierAddress: setVerifierAddress,
                     boundlessMarketAddress,
+                    collateralTokenAddress,
                     gitBranch,
                     segmentSize,
                     snarkTimeout,
@@ -515,6 +518,7 @@ REGION=$(echo $CONFIG | jq -r '.region')
 BUCKET=$(echo $CONFIG | jq -r '.brokerBucket')
 SET_VERIFIER_ADDRESS=$(echo $CONFIG | jq -r '.setVerifierAddress')
 BOUNDLESS_MARKET_ADDRESS=$(echo $CONFIG | jq -r '.boundlessMarketAddress')
+COLLATERAL_TOKEN_ADDRESS=$(echo $CONFIG | jq -r '.collateralTokenAddress')
 ETH_RPC_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.ethRpcUrl')
 PRIVATE_KEY_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.privateKey')
 ORDER_STREAM_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.orderStreamUrl')
@@ -536,6 +540,7 @@ HOME=/home/ubuntu
 BUCKET=$BUCKET
 SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS
 BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS
+COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS
 AWS_REGION=$REGION
 RPC_URL=$RPC_URL
 PRIVATE_KEY=$PRIVATE_KEY

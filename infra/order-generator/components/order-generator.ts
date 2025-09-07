@@ -15,6 +15,7 @@ interface OrderGeneratorArgs {
   logLevel: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
+  collateralTokenAddress?: string;
   ipfsGateway: string;
   interval: string;
   lockStakeRaw: string;
@@ -166,6 +167,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
       `--boundless-market-address ${args.boundlessMarketAddr}`,
       `--tx-timeout ${args.txTimeout}`
     ]
+    if (args.collateralTokenAddress) {
+      ogArgs.push(`--collateral-token-address ${args.collateralTokenAddress}`);
+    }
     if (offchainConfig) {
       ogArgs.push('--submit-offchain');
     }
