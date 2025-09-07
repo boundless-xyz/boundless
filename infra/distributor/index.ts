@@ -107,8 +107,7 @@ export = () => {
     registryId: repo.repository.registryId,
   });
 
-  const tag = Date.now();
-  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${tag}`;
+  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
 
   // Optionally add in the gh token secret.
   let buildSecrets = {};

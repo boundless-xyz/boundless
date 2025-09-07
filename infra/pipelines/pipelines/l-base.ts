@@ -257,7 +257,7 @@ ${postBuildCommands.map(cmd => `          - ${cmd}`).join('\n')}`
           - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
           - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
           - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
-          - curl -fsSL https://get.pulumi.com/ | sh
+          - curl -fsSL https://get.pulumi.com/ | sh -s -- --version 3.193.0
           - export PATH=$PATH:$HOME/.pulumi/bin
           - pulumi login --non-interactive "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
           - git submodule update --init --recursive
