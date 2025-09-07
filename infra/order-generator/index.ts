@@ -179,7 +179,7 @@ export = () => {
     boundlessMarketAddr,
     ipfsGateway,
     interval: onchainInterval ?? interval,
-    lockStakeRaw,
+    lockCollateralRaw,
     rampUp: onchainRampUp,
     inputMaxMCycles: onchainInputMaxMCycles,
     minPricePerMCycle,

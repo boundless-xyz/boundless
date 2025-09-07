@@ -35,3 +35,4 @@ config:
     secure: v1:LHeRf1HVcscfrxMK:Veo5eMjFNMwc8K0ckxv4epytnDrN4AXt7lhBeCjLmpVh6WbJ0G+QakJiGUJbU4taixqcK+fP7NjXGAob+f/PNB2VvjMLum56N17Y
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:o1j5hrSs4Dlv+j5t:iKBafCHLZdXFip4d8rf2H8aKLXv0Jp/BHCgRuM+m53MOvUvdDZAAdJ14vUrvW3IDrVvmq4pz4KSM4ZLr33/C4W0MlzWxP29owSP1Z1mk+Yw=
+  order-generator-onchain:INPUT_MAX_MCYCLES: "120"
