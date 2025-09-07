@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAHOwl7XB0oQkYiM6j
 config:
   aws:region: us-west-2
   base-prover:BASE_STACK: organization/bootstrap/services-staging
-  base-prover:BOUNDLESS_MARKET_ADDR: 0xAD0Bd6C436658aF457736d7224a87d2EF56365C8
+  base-prover:BOUNDLESS_MARKET_ADDR: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
   base-prover:CHAIN_ID: "84532"
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
@@ -12,7 +12,7 @@ config:
   base-prover:ORDER_STREAM_URL:
     secure: v1:8Ih8Nn6nZSu7Obqt:7RJFDjW1uS9uIMavGMI1DeTed+IrRIXTvGlv8kRGOc/JCEbrFaPP5y90eA1UdwpN8QiG/g/g35IQf0dusnOFNwTqRzeOKLC5hVj1/aZeXyhvIZs7zsMJyCMyiQk=
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
-  base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  base-prover:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
   base-prover:COLLATERAL_TOKEN_ADDRESS: 0xCBA5Fd30105984125395c18B6E6b1bf603408629
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging-84532.toml

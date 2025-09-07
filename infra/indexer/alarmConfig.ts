@@ -48,7 +48,7 @@ export const alarmConfig: ChainStageAlarms = {
       clients: [
         {
           name: "og_offchain",
-          address: "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3",
+          address: "0x2624B8Bb6526CDcBAe94A25505ebc0C653B87eD8",
           submissionRate: [
             {
               description: "no submitted orders in 30 minutes from og_offchain",
@@ -85,7 +85,7 @@ export const alarmConfig: ChainStageAlarms = {
         },
         {
           name: "og_onchain",
-          address: "0x8934790e351cbcadd11fc6f9729257cd64f860bf",
+          address: "0x2B0E9678b8db1DD44980802754beFFd89eD3c495",
           submissionRate: [
             {
               description: "no submitted orders in 60 minutes from og_onchain",
@@ -124,12 +124,12 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       provers: [
         {
-          name: "r0-bonsai-staging",
-          address: "0x6bf69b603e9e655068e683bbffe285ea34e0f802"
+          name: "boundless-bento-1",
+          address: "0x17bFC5a095B1F76dc8DADC6BC237E8473082D3b2"
         },
         {
-          name: "r0-bento-staging",
-          address: "0xd51001491dF1c653d3ef8017Cc9f8B5282FD81FB"
+          name: "boundless-bento-2",
+          address: "0x55C0615B1B87054072434f277b72bB85ceF173C9"
         }
       ],
       topLevel: {
@@ -195,7 +195,7 @@ export const alarmConfig: ChainStageAlarms = {
       clients: [
         {
           name: "og_offchain",
-          address: "0x2546c553d857d20658ece248f7c7d0861a240681",
+          address: "0xc197eBE12C7Bcf1d9F3b415342bDbC795425335C",
           submissionRate: [
             {
               description: "no submitted orders in 60 minutes from og_offchain",
@@ -258,7 +258,7 @@ export const alarmConfig: ChainStageAlarms = {
         },
         {
           name: "og_onchain",
-          address: "0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db0",
+          address: "0xE198C6944Cae382902A375b0B8673084270A7f8e",
           submissionRate: [
             {
               description: "no submitted orders in 60 minutes from og_onchain",
@@ -346,16 +346,16 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       provers: [
         {
-          name: "r0-bonsai-prod",
-          address: "0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c"
+          name: "r0-bento-1",
+          address: "0xade5C4b00Ab283608928c29e55917899DA8aC608"
         },
         {
           name: "r0-bento-prod-coreweave",
           address: "0xf8087e8f3ba5fc4865eda2fcd3c05846982da136"
         },
         {
-          name: "r0-bento-prod",
-          address: "0xbdA9Dd4b984b3f0b62A167f965c5fDC18EED5542"
+          name: "r0-bento-2",
+          address: "0x15a9A6A719c89Ecfd7fCa1893b975D68aB2D77A9"
         }
       ],
       topLevel: {
@@ -452,7 +452,7 @@ export const alarmConfig: ChainStageAlarms = {
       clients: [
         {
           name: "og_offchain",
-          address: "0x2546c553d857d20658ece248f7c7d0861a240681",
+          address: "0xc197eBE12C7Bcf1d9F3b415342bDbC795425335C",
           submissionRate: [
             {
               description: "no submitted orders in 60 minutes from og_offchain",
@@ -515,7 +515,7 @@ export const alarmConfig: ChainStageAlarms = {
         },
         {
           name: "og_onchain",
-          address: "0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db0",
+          address: "0xE198C6944Cae382902A375b0B8673084270A7f8e",
           submissionRate: [
             {
               description: "no submitted orders in 60 minutes from og_onchain",
@@ -666,16 +666,16 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       provers: [
         {
-          name: "r0-bonsai-prod",
-          address: "0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c"
+          name: "r0-bonsai-1",
+          address: "0xade5C4b00Ab283608928c29e55917899DA8aC608"
         },
         {
           name: "r0-bento-prod-coreweave",
           address: "0xf8087e8f3ba5fc4865eda2fcd3c05846982da136"
         },
         {
-          name: "r0-bento-prod",
-          address: "0xbdA9Dd4b984b3f0b62A167f965c5fDC18EED5542"
+          name: "r0-bento-2",
+          address: "0x15a9A6A719c89Ecfd7fCa1893b975D68aB2D77A9"
         }
       ],
       topLevel: {
@@ -767,158 +767,12 @@ export const alarmConfig: ChainStageAlarms = {
     }
   },
   [ChainId.ETH_SEPOLIA]: {
-    [Stage.STAGING]: {
-      clients: [
-        {
-          name: "og_offchain",
-          address: "0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3",
-          submissionRate: [
-            {
-              description: "no submitted orders in 30 minutes from og_offchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 1800
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            }
-          ],
-          successRate: [
-            {
-              // Since we deploy with CI to staging, and this causes all the provers to restart,
-              // we set a longer time period for the success rate.
-              description: "less than 90% success rate for two consecutive hours from og_offchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 2,
-                datapointsToAlarm: 2,
-                comparisonOperator: "LessThanThreshold"
-              }
-            }
-          ]
-        },
-        {
-          name: "og_onchain",
-          address: "0x8934790e351cbcadd11fc6f9729257cd64f860bf",
-          submissionRate: [
-            {
-              description: "no submitted orders in 60 minutes from og_onchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            }
-          ],
-          successRate: [
-            {
-              // Since current submit every 5 mins, this is >= 2 failures an hour
-              // Since we deploy with CI to staging, and this causes all the provers to restart,
-              // we set a longer time period for the success rate.
-              description: "less than 90% success rate for two consecutive hours from og_onchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 2,
-                datapointsToAlarm: 2,
-                comparisonOperator: "LessThanThreshold"
-              }
-            }
-          ]
-        }
-      ],
-      provers: [
-        {
-          name: "r0-bonsai-staging",
-          address: "0x6bf69b603e9e655068e683bbffe285ea34e0f802"
-        },
-        {
-          name: "r0-bento-staging",
-          address: "0xd51001491dF1c653d3ef8017Cc9f8B5282FD81FB"
-        }
-      ],
-      topLevel: {
-        fulfilledRequests: [{
-          description: "less than 2 fulfilled orders in 60 minutes",
-          severity: Severity.SEV2,
-          metricConfig: {
-            period: 3600
-          },
-          alarmConfig: {
-            threshold: 2,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "LessThanThreshold",
-            treatMissingData: "breaching"
-          }
-        }],
-        submittedRequests: [{
-          description: "less than 2 submitted orders in 30 minutes",
-          severity: Severity.SEV2,
-          metricConfig: {
-            period: 1800
-          },
-          alarmConfig: {
-            threshold: 2,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "LessThanThreshold",
-            treatMissingData: "breaching"
-          }
-        }],
-        // Expired and slashed requests are not necessarily problems with the market. We keep these at low threshold
-        // just during the initial launch for monitoring purposes.
-        expiredRequests: [{
-          description: "greater than 15 expired orders in 60 minutes",
-          severity: Severity.SEV2,
-          metricConfig: {
-            period: 3600,
-          },
-          alarmConfig: {
-            threshold: 15,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "GreaterThanOrEqualToThreshold",
-          }
-        }],
-        slashedRequests: [{
-          description: "greater than 15 slashed orders in 60 minutes",
-          severity: Severity.SEV2,
-          metricConfig: {
-            period: 3600,
-          },
-          alarmConfig: {
-            threshold: 15,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "GreaterThanOrEqualToThreshold",
-          }
-        }]
-      }
-    },
+    [Stage.STAGING]: undefined,
     [Stage.PROD]: {
       clients: [
         {
           name: "og_offchain",
-          address: "0x2546c553d857d20658ece248f7c7d0861a240681",
+          address: "0xc197eBE12C7Bcf1d9F3b415342bDbC795425335C",
           submissionRate: [
             {
               description: "no submitted orders in 60 minutes from og_offchain",
@@ -982,7 +836,7 @@ export const alarmConfig: ChainStageAlarms = {
         },
         {
           name: "og_onchain",
-          address: "0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db0",
+          address: "0xE198C6944Cae382902A375b0B8673084270A7f8e",
           submissionRate: [
             {
               description: "no submitted orders in 60 minutes from og_onchain",
@@ -1035,16 +889,16 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       provers: [
         {
-          name: "r0-bonsai-prod",
-          address: "0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c"
+          name: "r0-bento-1",
+          address: "0xade5C4b00Ab283608928c29e55917899DA8aC608"
         },
         {
           name: "r0-bento-prod-coreweave",
           address: "0xf8087e8f3ba5fc4865eda2fcd3c05846982da136"
         },
         {
-          name: "r0-bento-prod",
-          address: "0xbdA9Dd4b984b3f0b62A167f965c5fDC18EED5542"
+          name: "r0-bento-2",
+          address: "0x15a9A6A719c89Ecfd7fCa1893b975D68aB2D77A9"
         }
       ],
       topLevel: {

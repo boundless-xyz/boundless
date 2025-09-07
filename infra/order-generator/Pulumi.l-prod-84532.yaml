@@ -29,10 +29,10 @@ config:
   order-generator-offchain:INPUT_MAX_MCYCLES: "10"
   order-generator-offchain:LOCK_TIMEOUT: "900"
   order-generator-offchain:PRIVATE_KEY:
-    secure: v1:8Ujr/sRowpf/0xwa:UyXsRMPTHixcvMg4gfPCm/rjnnLMr3n7o0fbqheFNSKEaVto3KMz+2AJhilG2ec01gSpAO0Tq9K5aDfiIMDpawKnbHjivDZ0cutT8JSp6V4=
+    secure: v1:M07kJ0tmcZgagVKz:3KrMZyOCWXWVEguJBUA0fK5g74eUQAs2Nl64rC/X1a1PV975M6XDAvcu8WVpsFEC8mnN5kZAZQQaeoYs+4n1J+TJV0HK1Ly8C44CsEruZFE=
   order-generator-offchain:RAMP_UP: "300"
   order-generator-base:ETH_RPC_URL:
     secure: v1:LHeRf1HVcscfrxMK:Veo5eMjFNMwc8K0ckxv4epytnDrN4AXt7lhBeCjLmpVh6WbJ0G+QakJiGUJbU4taixqcK+fP7NjXGAob+f/PNB2VvjMLum56N17Y
   order-generator-onchain:PRIVATE_KEY:
-    secure: v1:o1j5hrSs4Dlv+j5t:iKBafCHLZdXFip4d8rf2H8aKLXv0Jp/BHCgRuM+m53MOvUvdDZAAdJ14vUrvW3IDrVvmq4pz4KSM4ZLr33/C4W0MlzWxP29owSP1Z1mk+Yw=
+    secure: v1:OyulKh+LRE/0Jv0o:Mw0ZnN8GxEOv4DeqgVP6kNjh9vimxeLgweKEB7KpJBSve6Me8g4LQ2VH3DaNGSzBNs6ZJ27rI3E7dJFvQvX6o4GvEu6Zf2RkNBO3JmPLKII=
   order-generator-onchain:INPUT_MAX_MCYCLES: "120"

@@ -5,13 +5,13 @@ config:
     secure: v1:UWKahVYfQMHlSj/5:srW5XQ49v8PXiu+7CmiQE3IB7UzRSE924iHHB/KIWnvvFYdGnMoqFXH3If+GiIi2SkwVI8FOQw4k4dQNWYSRTB2vD0dMJXyOA5AN
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   order-generator-onchain:PRIVATE_KEY:
-    secure: v1:3Smyp8guox7zLjqy:vZBnDSBp01WCSHFhjg+nwJwGvRt2E095+1SxYw5w2oSMnoqz4pFP+ttU2R+FXs3eB8kP158uLPjjPiTg0A0u/d9dOVrvlGKH+PxE75JK7nE=
+    secure: v1:rmBL4NkfXRYo6SLG:ImsHzoSfEtXMVctmwZB0QnlTCRux+1AiejvN9ut8MKEwTt/bD+WaoOGMpdbf6gM52y/6kLr5lkD0E5qnpL32qYUUvSTie2TVWHO/hozpIao=
   order-generator-offchain:PRIVATE_KEY:
-    secure: v1:oBU6mgDmu5InBGEV:TDz2uVO1zfQvf61xNeE2rW7YdWCgWVQZpUqnbqFeJRZ2kfCNgLfI5T4+QUZHz84ZIIcdkBeWN8r/5jlWNYU0xDaZY4T9J6ra/NaiDnk/C+I=
+    secure: v1:WEbBQouaysCToyQm:ocQr3fzrchk57sQcjxBExbPLqdEUFQNV6w2UWAPoNI5MXq1FEaQeq2rOhpZHKM7+gRIhNrnXdhOYVApQ5uxmzA5aUF2CupvIItjeta1kGlQ=
   aws:region: us-west-2
   order-generator-base:BASE_STACK: organization/bootstrap/services-prod
-  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x0000000000000000000000000000000000000000
-  order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0x0000000000000000000000000000000000000000
+  order-generator-base:BOUNDLESS_MARKET_ADDR: "0"
+  order-generator-base:COLLATERAL_TOKEN_ADDRESS: "0"
   order-generator-base:CHAIN_ID: "8453"
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
