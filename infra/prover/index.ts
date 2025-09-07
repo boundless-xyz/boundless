@@ -27,6 +27,7 @@ export = () => {
   const dockerTag = baseConfig.require('DOCKER_TAG');
   const setVerifierAddr = baseConfig.require('SET_VERIFIER_ADDR');
   const boundlessMarketAddr = baseConfig.require('BOUNDLESS_MARKET_ADDR');
+  const collateralTokenAddress = baseConfig.require('COLLATERAL_TOKEN_ADDRESS');
   const ciCacheSecret = baseConfig.getSecret('CI_CACHE_SECRET');
   const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
   const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
@@ -51,6 +52,7 @@ export = () => {
   if (process.env.SKIP_BENTO !== "true") {
     bentoBroker1 = new BentoEC2Broker(bentoBroker1ServiceName, {
       chainId: getChainId(chainId),
+      collateralTokenAddress,
       ethRpcUrl,
       gitBranch: bentoProverBranch,
       privateKey: bentoProverPrivateKey1,
@@ -74,6 +76,7 @@ export = () => {
 
     bentoBroker2 = new BentoEC2Broker(bentoBroker2ServiceName, {
       chainId: getChainId(chainId),
+      collateralTokenAddress,
       ethRpcUrl,
       gitBranch: bentoProverBranch,
       privateKey: bentoProverPrivateKey2,

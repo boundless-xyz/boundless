@@ -13,6 +13,7 @@ config:
     secure: v1:8Ih8Nn6nZSu7Obqt:7RJFDjW1uS9uIMavGMI1DeTed+IrRIXTvGlv8kRGOc/JCEbrFaPP5y90eA1UdwpN8QiG/g/g35IQf0dusnOFNwTqRzeOKLC5hVj1/aZeXyhvIZs7zsMJyCMyiQk=
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  base-prover:COLLATERAL_TOKEN_ADDRESS: 0xCBA5Fd30105984125395c18B6E6b1bf603408629
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-staging-84532.toml
   bento-prover:LOG_JSON: "true"
