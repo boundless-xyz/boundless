@@ -11,7 +11,7 @@ config:
   aws:region: us-west-2
   order-generator-base:BASE_STACK: organization/bootstrap/services-prod
   order-generator-base:BOUNDLESS_MARKET_ADDR: 0x13337C76fE2d1750246B68781ecEe164643b98Ec
-  order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0x0000000000000000000000000000000000000000
+  order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0xb4FC69A452D09D2662BD8C3B5BB756902260aE28
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest

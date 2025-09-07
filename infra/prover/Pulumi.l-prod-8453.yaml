@@ -12,6 +12,7 @@ config:
   base-prover:ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  base-prover:COLLATERAL_TOKEN_ADDRESS: 0x0000000000000000000000000000000000000000
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-8453.toml
   bento-prover:LOG_JSON: "true"
@@ -21,3 +22,8 @@ config:
   bento-prover:SNARK_TIMEOUT: "240"
   base-prover:ETH_RPC_URL:
     secure: v1:ovrcruMnvKZjIICR:7qotyH8Ca5IVM7ECqD955weUhIbKIVg9hMYl4iRHePUtT/+YfRYCltw+FH41UOlyn7hzk2oLkrgWcVGnBj5j3j7mSCQGZJ8idFNS
+  bento-prover:PRIVATE_KEY_1:
+    secure: v1:Il8wwAnhl0UjgXNy:3JnJPNHs4LsfgbgLt2KmWVYjMVJWlrVXtDRYGOKjv3DPvIzBlFqsxXvFnrAoh99THuKhgi1Ji4bMc7KWqbgdR5VkDzvl7q/wCV6you8WKF8=
+  bento-prover:PRIVATE_KEY_2:
+    secure: v1:USxT79/20kyPnXPn:pVC6p71NL/TNJlld11okIOK0wDFJKnd/ttMeVgy5fibMpCfyIS468KX04qvde10h+4L+uXfXWz9XP0IDaRJpP/QmVjomFKwjgPHebuDsD8o=
+  bento-prover:BRANCH: launch-infra
