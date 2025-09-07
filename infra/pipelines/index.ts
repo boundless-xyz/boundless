@@ -216,7 +216,6 @@ const lOrderGeneratorPipeline = new LOrderGeneratorPipeline("lOrderGeneratorPipe
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
 
-/*
 const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
@@ -236,7 +235,6 @@ const lSlasherPipeline = new LSlasherPipeline("lSlasherPipeline", {
   dockerToken,
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
-*/
 
 export const bucketName = pulumiStateBucket.bucket.id;
 export const kmsKeyArn = pulumiSecrets.kmsKey.arn;
