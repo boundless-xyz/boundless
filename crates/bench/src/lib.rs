@@ -536,8 +536,9 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
         ctx.customer_market.deposit(default_allowance()).await.unwrap();
+        ctx.prover_market.approve_deposit_collateral(default_allowance()).await.unwrap();
         ctx.prover_market
-            .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+            .deposit_collateral(default_allowance())
             .await
             .unwrap();
 
