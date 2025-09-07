@@ -79,7 +79,20 @@ impl S3StorageProvider {
         let bucket = std::env::var("S3_BUCKET")?;
         let url = std::env::var("S3_URL")?;
         let region = std::env::var("AWS_REGION")?;
-        let presigned = std::env::var_os("S3_NO_PRESIGNED").is_none();
+
+        let presigned = match std::env::var("S3_USE_PRESIGNED") {
+            Ok(val) => parse_bool(&val).unwrap_or(true),
+            Err(_) => {
+                if std::env::var_os("S3_NO_PRESIGNED").is_some() {
+                    tracing::warn!(
+                        "`S3_NO_PRESIGNED` is deprecated; use `S3_USE_PRESIGNED=false` instead."
+                    );
+                    false
+                } else {
+                    true
+                }
+            }
+        };
 
         Ok(Self::from_parts(access_key, secret_key, bucket, url, region, presigned))
     }
@@ -208,6 +221,14 @@ impl S3StorageProvider {
             .await
             // a simple incantation.
             .map(|&()| ())
+    }
+}
+
+fn parse_bool(s: &str) -> Option<bool> {
+    match s.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
     }
 }
 

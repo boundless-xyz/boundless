@@ -179,7 +179,7 @@ pub struct StorageProviderConfig {
     #[builder(setter(strip_option, into), default)]
     pub aws_region: Option<String>,
     /// Use presigned URLs for S3
-    #[arg(long, env, requires("s3_access_key"), default_value = "true")]
+    #[arg(long, env = "S3_USE_PRESIGNED", requires("s3_access_key"), default_value = "true")]
     #[builder(setter(strip_option), default)]
     pub s3_use_presigned: Option<bool>,
 
