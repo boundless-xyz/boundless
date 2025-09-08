@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFKrf1QS07VRzI7g5
 config:
   aws:region: us-west-2
   base-prover:BASE_STACK: organization/bootstrap/services-prod
-  base-prover:BOUNDLESS_MARKET_ADDR: 0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8
+  base-prover:BOUNDLESS_MARKET_ADDR: 0xCF5A9DFC8E09b35C4135E4878c665774bc922d35
   base-prover:CHAIN_ID: "8453"
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
@@ -12,7 +12,7 @@ config:
   base-prover:ORDER_STREAM_URL: https://base-mainnet.boundless.network
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
-  base-prover:COLLATERAL_TOKEN_ADDRESS: 0x0000000000000000000000000000000000000000
+  base-prover:COLLATERAL_TOKEN_ADDRESS: 0xAA61bB7777bD01B684347961918f1E07fBbCe7CF
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-8453.toml
   bento-prover:LOG_JSON: "true"

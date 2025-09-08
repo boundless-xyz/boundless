@@ -108,7 +108,7 @@ impl Deployment {
 /// [Deployment] for the Sepolia testnet.
 pub const SEPOLIA: Deployment = Deployment {
     chain_id: Some(NamedChain::Sepolia as u64),
-    boundless_market_address: address!("0xc58403c189E00dD97506e9dc70499a8fbA6fc768"),
+    boundless_market_address: address!("0x400B5e943B5b5A8dAD5185A073fb1f98E59D5A3f"),
     verifier_router_address: Some(address!("0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187")),
     set_verifier_address: address!("0xcb9D14347b1e816831ECeE46EC199144F360B55c"),
     collateral_token_address: Some(address!("0xb4FC69A452D09D2662BD8C3B5BB756902260aE28")),
@@ -118,7 +118,7 @@ pub const SEPOLIA: Deployment = Deployment {
 /// [Deployment] for the Base mainnet.
 pub const BASE: Deployment = Deployment {
     chain_id: Some(NamedChain::Base as u64),
-    boundless_market_address: address!("0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"),
+    boundless_market_address: address!("0xCF5A9DFC8E09b35C4135E4878c665774bc922d35"),
     verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
     collateral_token_address: Some(address!("0xAA61bB7777bD01B684347961918f1E07fBbCe7CF")),
@@ -138,5 +138,5 @@ pub const BASE_SEPOLIA: Deployment = Deployment {
 /// Check if the collateral token supports permit.
 /// Some chain's bridged tokens do not support permit, for example Base.
 pub fn collateral_token_supports_permit(chain_id: u64) -> bool {
-    chain_id == 1 || chain_id == 11155111
+    chain_id == 1 || chain_id == 11155111 || chain_id == 31337
 }

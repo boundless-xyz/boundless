@@ -10,7 +10,7 @@ config:
     secure: v1:zLBqj2aNJPgmjk0j:Y7RqCWAb8D8az1hL5/zs6wof/q8hzTJZ6/5Nj1t4El45sHgCCsxPm75a/v/iEwCZJSd1tfZAnijrPxmKrrC0PjPKBA2Sqr8QsIQ8MXkDJEE=
   aws:region: us-west-2
   order-generator-base:BASE_STACK: organization/bootstrap/services-prod
-  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x13337C76fE2d1750246B68781ecEe164643b98Ec
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x400B5e943B5b5A8dAD5185A073fb1f98E59D5A3f
   order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0xb4FC69A452D09D2662BD8C3B5BB756902260aE28
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:DOCKER_DIR: ../../
@@ -27,7 +27,7 @@ config:
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:PINATA_JWT:
     secure: v1:gZhTUWYhNP6NKfwa:b+NeBHD83JDT5FyYg4zUM6rHh5W9fNTreHNQqz+PJnMstR/oDW1nAe0dPGaFXL8JW+MA04YIGZxyDMLX36wvjcZtZbTM351kLMq4np+LZfKH3pk9KUHrnoDV6klbMFhON2btid5q/egAMbphn/RmJpZWncnbwLu7kkq+9oalfsQPmymkakeTBVMbzv+iyjHu6sdOMwTcBDvTvub5QTbeJAXRzqzW3YZ5SLtdiA/FYCV+j8CkH9JteaAJB682ateK6D7yjlhz8sS0zoEwhcck4biEUDE8H/gPhfbfegGMX222/W/PT247OtJVZwISk4/X295YbU56Aw/g9RF8EkhfFx1/wJfSe1WyZXY2y9Y5GabE5gxWk7bP0Cc29cQari+zOwahZVfgHWXWUyQOotHPi2HVachJDACUk6iU/gMmH6Jp5OdiqDbnHHy7YJMIvgqx6dkN9zFmnE4SouUMFln8A403FCPChoYZxl2MBfwRjH1lkspu7Y4LW7NXagoGYBFYUvosZcq/Rim62N7BuIwRjOO5XMnZpjEW4vpgG/CzHrr8q58rhqGaxvQg+TXeRHIm7trizxUT/LSW25ljNoFVqNlhD4a4r0sJWxn2BDsty52DPu3yWgHBx4N3ZzbezqhhM2uZxv9MmluV2wqqI6Wxsa3ZMyG7Nfp/g87c6C3mzTOore4aOmkPCegvCfNr3ov2b/p7GLK+KVmg37Wa5nmePrwHpOk8iRuZ2kckqtnHqpyGYOs9ztJjvLUsILY4sNfXg1CSebk15zILAS9aUwOsDiOfsns2ivbvKa91OhygQcDn2t/zphN842qNlnjTOj+8XnQlsZK1JKCUYJm2TOeeEMIDqb8vG0q7E+770RIdsxhHfBu9QvC+50kqGSopcMWiBymV6d9C94zZHUF20gzEUdL4UylKiJmp
-  order-generator-base:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64
+  order-generator-base:SET_VERIFIER_ADDR: 0xcb9D14347b1e816831ECeE46EC199144F360B55c
   order-generator-base:TX_TIMEOUT: "120"
   order-generator-offchain:AUTO_DEPOSIT: "15"
   order-generator-offchain:ERROR_BALANCE_BELOW: "25"

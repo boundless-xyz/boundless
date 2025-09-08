@@ -123,6 +123,7 @@ impl From<alloy::contract::Error> for MarketError {
 pub struct BoundlessMarketService<P> {
     instance: IBoundlessMarketInstance<P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
+    // Note: always access via get_chain_id()
     chain_id: AtomicU64,
     caller: Address,
     timeout: Duration,
@@ -1306,13 +1307,13 @@ impl<P: Provider> BoundlessMarketService<P> {
 
     /// Permit and deposit collateral into the market to pay for lockin collateral.
     ///
-    /// This method will send a single transaction.
+    /// WARNING: The collateral tokens on some networks do not support permit. To ensure successful deposits regardless of the network, use `approve_deposit_collateral` and `deposit_collateral` instead.
     pub async fn deposit_collateral_with_permit(
         &self,
         value: U256,
         signer: &impl Signer,
     ) -> Result<(), MarketError> {
-        if !collateral_token_supports_permit(self.chain_id.load(Ordering::Relaxed)) {
+        if !collateral_token_supports_permit(self.get_chain_id().await?) {
             return Err(MarketError::Error(anyhow!("Collateral token does not support permit. Use approve_deposit_collateral and deposit_collateral instead.")));
         }
         let token_address = self

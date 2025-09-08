@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEpLSmVp2hAdyXcfY
 config:
   aws:region: us-west-2
   base-prover:BASE_STACK: organization/bootstrap/services-prod
-  base-prover:BOUNDLESS_MARKET_ADDR: 0x13337C76fE2d1750246B68781ecEe164643b98Ec
+  base-prover:BOUNDLESS_MARKET_ADDR: 0x400B5e943B5b5A8dAD5185A073fb1f98E59D5A3f
   base-prover:CHAIN_ID: "11155111"
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
