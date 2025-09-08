@@ -12,7 +12,7 @@ config:
   distributor:ETH_TOP_UP_AMOUNT: "20"
   distributor:GH_TOKEN_SECRET:
     secure: v1:gXcoqObB8QEmZ0aq:FfjInL8vsnK62642Axb+8omzUuD0nWgPXxB7EmQvUtKJ4NNNHM4owRmgmwS30EPdAzpMSAX110lyymiEKRIK34Okpy0Db3ow1B+tJC8NJjarUhcWLsakkQzypSagPDsngxp2dTViG64DM80t4g==
-  distributor:LOG_LEVEL: info
+  distributor:LOG_LEVEL: "info,boundless_market=debug"
   distributor:ORDER_GENERATOR_KEYS:
     secure: v1:kPZbPZiC/rb4Ee2E:DsWN24kg+Ylk/Zwf7/19/Qty9WXm9rVSsa3us0n25lh6aXT3+yvGaHcadxoV+kEEo4uiLwgTfiUW7JskQMVTBh/QKpYxCy4cNzRLFcJO81B+ecnbFDglsKeuluc4W0pkB39mUGhXJ3rM/k2943mXrtu3byooNbodKTrJWfqw9gK63p2LsQqWWgZ2hHcPNQgn5XlYgMx2xExLcNbCGDcsM6g5wNYhbmtTFS/2EVPkxezAdHsfZWkYO9WCU1+Ey6+/VaMx8r7sv0/w8wexfkv8CUTFK4HVK3chIRoNxqv9dprKtMfa5N5l/5uS6Yg2jrWZc85G3a6oe73ivKvGlNJ/r16M5VXaqkBaHuJ7XejqReDwrgduhsSPg8VMspd07nFdrOtM/rG/KuIrhi89hQ4DoPxQoLb81RO0uP1s2siKLLBntYSWgwdKymrCtZWgM5/y3ABqHEgK8G9qJy+jCQGAGkrl3tGmEPXy7QLaON2hj/Nj45SwmOS8NhdzVNqZ4/Lu5Q44ouhW/eMnYyYJnV7oEMfjLIAo
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
@@ -20,7 +20,7 @@ config:
   distributor:PROVER_KEYS:
     secure: v1:f4hEZSfS06SJzTX7:7Lz7KKrOmkZvQf0pqMi7GyL0lBILCoh/TXoHSxYlp0o8w280l08ZDeVvButEs03k/bUmctnogYhisd4suJ9NJ2Z5StE2ougup1uxb4ceNfVzr89PFvFkdnJDz244JtXEVJmoPkMRJgyBSxSYfvKQjLq5n9xl4sh7ZXKDiV6Vjboq4QaiwXNC4jelkkanL0WGiQ==
   distributor:PROVER_STAKE_DONATE_THRESHOLD: "150.0"
-  distributor:SCHEDULE_MINUTES: "240"
+  distributor:SCHEDULE_MINUTES: "10"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   distributor:SLASHER_KEY:
     secure: v1:XMk3bJV6QyRvThSZ:vSS4GwVe98dZmqbmJPnp88iljMNfMFx4DGPmOrX3tJELIZ4b3j8leAYKHVRh4m+oigxH/5tMzkK534twD22OlQBr7GpJxNmyAr38nVpHUkE=
