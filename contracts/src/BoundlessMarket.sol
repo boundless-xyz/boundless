@@ -486,7 +486,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
@@ -527,7 +527,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
         }
 
         // Deduct any additionally owned funds from client account. The client was already charged
@@ -586,7 +586,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id, assessorProver, fill);
+        emit RequestFulfilled(id, assessorProver, fill.requestDigest);
 
         // Deduct the funds from client account.
         // NOTE: In the case of InsufficientBalance, the payment can never be transferred in the
