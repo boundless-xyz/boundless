@@ -44,3 +44,7 @@ config:
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "50"
   order-generator-onchain:INPUT_MAX_MCYCLES: "20"
+  order-generator-base:LOCK_TIMEOUT: "900"
+  order-generator-offchain:EXEC_RATE_KHZ: "500"
+  order-generator-onchain:EXEC_RATE_KHZ: "500"
+  order-generator-onchain:INTERVAL: "1200"
