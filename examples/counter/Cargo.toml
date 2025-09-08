@@ -11,7 +11,7 @@ edition = "2021"
 # Intra-workspace dependencies
 guest-util = { path = "../../crates/guest/util" }
 boundless-market = { path = "../../crates/boundless-market" }
-boundless-market-test-utils = { path = "../../crates/boundless-market/test-utils" }
+boundless-test-utils = { path = "../../crates/test-utils" }
 broker = { path = "../../crates/broker" }
 
 # risc0 monorepo dependencies.

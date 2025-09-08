@@ -21,6 +21,26 @@ parser.add_argument("--stake-token", help="StakeToken contract address")
 parser.add_argument("--assessor-image-id", help="Assessor image ID (hex)")
 parser.add_argument("--assessor-guest-url", help="URL to the assessor guest package")
 
+# PoVW contract fields
+parser.add_argument("--povw-accounting", help="PovwAccounting contract address")
+parser.add_argument("--povw-accounting-impl", help="PovwAccounting impl contract address")
+parser.add_argument("--povw-accounting-old-impl", help="PovwAccounting old impl contract address")
+parser.add_argument("--povw-mint", help="PovwMint contract address")
+parser.add_argument("--povw-mint-impl", help="PovwMint impl contract address")
+parser.add_argument("--povw-mint-old-impl", help="PovwMint old impl contract address")
+
+# PoVW image ID fields
+parser.add_argument("--povw-log-updater-id", help="PoVW log updater image ID (hex)")
+parser.add_argument("--povw-mint-calculator-id", help="PoVW mint calculator image ID (hex)")
+
+# PoVW deployment commit fields
+parser.add_argument("--povw-accounting-deployment-commit", help="PoVW accounting deployment commit hash")
+parser.add_argument("--povw-mint-deployment-commit", help="PoVW mint deployment commit hash")
+
+# ZKC contract fields
+parser.add_argument("--zkc", help="ZKC contract address")
+parser.add_argument("--vezkc", help="veZKC contract address")
+
 args = parser.parse_args()
 
 # Map CLI args to TOML field keys
@@ -34,6 +54,22 @@ field_mapping = {
     "stake-token": args.stake_token,
     "assessor-image-id": args.assessor_image_id,
     "assessor-guest-url": args.assessor_guest_url,
+    # PoVW contract fields
+    "povw-accounting": args.povw_accounting,
+    "povw-accounting-impl": args.povw_accounting_impl,
+    "povw-accounting-old-impl": args.povw_accounting_old_impl,
+    "povw-mint": args.povw_mint,
+    "povw-mint-impl": args.povw_mint_impl,
+    "povw-mint-old-impl": args.povw_mint_old_impl,
+    # PoVW image ID fields
+    "povw-log-updater-id": args.povw_log_updater_id,
+    "povw-mint-calculator-id": args.povw_mint_calculator_id,
+    # PoVW deployment commit fields
+    "povw-accounting-deployment-commit": args.povw_accounting_deployment_commit,
+    "povw-mint-deployment-commit": args.povw_mint_deployment_commit,
+    # ZKC contract fields
+    "zkc": args.zkc,
+    "vezkc": args.vezkc,
 }
 
 # Load TOML file
@@ -49,6 +85,9 @@ except KeyError:
 # Apply updates only for explicitly provided values
 for key, value in field_mapping.items():
     if value is not None:
+        # Strip whitespace from the value
+        if isinstance(value, str):
+            value = value.strip()
         section[key] = value
         print(f"Updated '{key}' to '{value}' in [deployment.{CHAIN_KEY}]")
 

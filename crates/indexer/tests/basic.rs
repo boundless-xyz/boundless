@@ -27,8 +27,9 @@ use boundless_market::contracts::{
     boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,
     Requirements,
 };
-use boundless_market_test_utils::{
-    create_test_ctx, ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF,
+use boundless_test_utils::{
+    guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
+    market::create_test_ctx,
 };
 use sqlx::Row;
 

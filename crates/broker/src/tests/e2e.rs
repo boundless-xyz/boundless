@@ -34,9 +34,9 @@ use boundless_market::{
     storage::{MockStorageProvider, StorageProvider},
     Deployment,
 };
-use boundless_market_test_utils::{
-    create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_GUEST_PATH, ECHO_ELF,
-    ECHO_ID, SET_BUILDER_PATH,
+use boundless_test_utils::{
+    guests::{ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, SET_BUILDER_PATH},
+    market::{create_test_ctx, deploy_mock_callback, get_mock_callback_count},
 };
 use risc0_zkvm::{
     sha::{Digest, Digestible},

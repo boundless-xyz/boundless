@@ -87,7 +87,7 @@ contract DeployBoundlessMarket is BoundlessScript {
         address verifier = deploymentConfig.verifier.required("verifier");
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl.required("assessor-guest-url");
-        address stakeToken = deploymentConfig.stakeToken.required("stake-token");
+        address stakeToken = deploymentConfig.collateralToken.required("stake-token");
 
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
@@ -112,11 +112,13 @@ contract DeployBoundlessMarket is BoundlessScript {
             keccak256(bytes(guestUrl)) == keccak256(bytes(deploymentConfig.assessorGuestUrl)),
             "assessor guest URL does not match"
         );
-        require(market.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken, "collateral token does not match");
+        require(
+            market.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken, "collateral token does not match"
+        );
         require(market.owner() == deploymentConfig.admin, "market owner does not match the admin");
 
         console2.log("BoundlessMarket admin is %s", deploymentConfig.admin);
-        console2.log("BoundlessMarket stake token contract at %s", deploymentConfig.stakeToken);
+        console2.log("BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
         console2.log("BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("BoundlessMarket assessor guest URL %s", guestUrl);
@@ -153,7 +155,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
 
         address admin = deploymentConfig.admin.required("admin");
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        address stakeToken = deploymentConfig.stakeToken.required("stake-token");
+        address stakeToken = deploymentConfig.collateralToken.required("stake-token");
         address verifier = deploymentConfig.verifier.required("verifier");
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         uint32 deprecatedAssessorDuration = deploymentConfig.deprecatedAssessorDuration;
@@ -219,7 +221,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
             "upgraded market assessor guest URL does not match"
         );
         require(
-            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
+            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
             "upgraded market stake token does not match"
         );
         require(upgradedMarket.owner() == deploymentConfig.admin, "upgraded market admin does not match the admin");
@@ -229,7 +231,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
         console2.log("Upgraded BoundlessMarket impl contract at %s", boundlessMarketImpl);
-        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.stakeToken);
+        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
         console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
@@ -289,14 +291,14 @@ contract RollbackBoundlessMarket is BoundlessScript {
             "upgraded market assessor guest URL does not match"
         );
         require(
-            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
+            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
             "upgraded market stake token does not match"
         );
         require(upgradedMarket.owner() == deploymentConfig.admin, "upgraded market admin does not match the admin");
 
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
-        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.stakeToken);
+        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
         console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
