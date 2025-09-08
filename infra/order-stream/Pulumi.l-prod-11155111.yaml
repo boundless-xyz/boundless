@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAE1GUAlsUVjoBw6L0
 config:
   aws:region: us-west-2
   order-stream:ALB_DOMAIN: eth-sepolia.boundless.network
-  order-stream:DISABLE_CERT: "true"
+  order-stream:DISABLE_CERT: false
   order-stream:BASE_STACK: organization/bootstrap/services-prod
   order-stream:BOUNDLESS_ADDRESS: 0x400B5e943B5b5A8dAD5185A073fb1f98E59D5A3f
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
