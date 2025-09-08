@@ -134,7 +134,7 @@ export abstract class LaunchBasePipeline extends pulumi.ComponentResource {
           name: "DeployProduction",
           actions: [
             {
-              name: "ApproveDeployToTestnetProduction",
+              name: "ApproveDeployToProduction",
               category: "Approval",
               owner: "AWS",
               provider: "Manual",
@@ -169,21 +169,12 @@ export abstract class LaunchBasePipeline extends pulumi.ComponentResource {
               inputArtifacts: ["source_output"],
             },
             {
-              name: "ApproveDeployToMainnetProduction",
-              category: "Approval",
-              owner: "AWS",
-              provider: "Manual",
-              version: "1",
-              runOrder: 3,
-              configuration: {}
-            },
-            {
               name: "DeployProductionBaseMainnet",
               category: "Build",
               owner: "AWS",
               provider: "CodeBuild",
               version: "1",
-              runOrder: 4,
+              runOrder: 2,
               configuration: {
                 ProjectName: prodDeploymentBaseMainnet.name
               },
