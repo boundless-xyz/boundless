@@ -58,8 +58,8 @@ verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 31134603
 boundless-market = "0xCF5A9DFC8E09b35C4135E4878c665774bc922d35"
-boundless-market-impl = "0x53ADE5f1B5Eb271602A354677485DF9355B873B4"
-boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+boundless-market-impl = "0x1fcabd18680fdc31d0b2f5670b863516edfe269b"
+boundless-market-old-impl = "0x53ade5f1b5eb271602a354677485df9355b873b4"
 collateral-token = "0xAA61bB7777bD01B684347961918f1E07fBbCe7CF"
 
 # Guests info
@@ -82,8 +82,8 @@ verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8476627
 boundless-market = "0x400B5e943B5b5A8dAD5185A073fb1f98E59D5A3f"
-boundless-market-impl = "0x807803f9536b22c14c838C9a7EAec468Dadad3Ba"
-boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+boundless-market-impl = "0x8d0e8ea045d50c495fccc51dd6b3c5e2be580700"
+boundless-market-old-impl = "0x807803f9536b22c14c838c9a7eaec468dadad3ba"
 collateral-token = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 
 # Guests info
@@ -126,8 +126,8 @@ verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26646012
 boundless-market = "0x5b0b2825F4BAAdA9354aa5c0f106D32EE4E25fee"
-boundless-market-impl = "0xc6505745d4b0036d1280c7abc4b37a7f446c1613"
-boundless-market-old-impl = "0x3686428c111a6c2ca93bed819f448c5310fff423"
+boundless-market-impl = "0x588a5bf10c4881ee1189690d5d7721cc2badbc30"
+boundless-market-old-impl = "0xc6505745d4b0036d1280c7abc4b37a7f446c1613"
 collateral-token = "0x8d4dA4b7938471A919B08F941461b2ed1679d7bb"
 
 # Guests info
@@ -195,8 +195,8 @@ verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
 boundless-market = "0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8"
-boundless-market-impl = "0xff0c64b19d230b72e2451277dd949e57058ec49c"
-boundless-market-old-impl = "0xaf197b862d09cae2d431ad39e363c0e3b84d85e7"
+boundless-market-impl = "0x1cbfde6cda575e4fab5ee816553212d4e95bc2b9"
+boundless-market-old-impl = "0xff0c64b19d230b72e2451277dd949e57058ec49c"
 collateral-token = "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
 
 # Guests info

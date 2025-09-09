@@ -31,6 +31,7 @@ config:
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:M07kJ0tmcZgagVKz:3KrMZyOCWXWVEguJBUA0fK5g74eUQAs2Nl64rC/X1a1PV975M6XDAvcu8WVpsFEC8mnN5kZAZQQaeoYs+4n1J+TJV0HK1Ly8C44CsEruZFE=
   order-generator-offchain:RAMP_UP: "300"
+  order-generator-offchain:INTERVAL: "1200"
   order-generator-base:ETH_RPC_URL:
     secure: v1:LHeRf1HVcscfrxMK:Veo5eMjFNMwc8K0ckxv4epytnDrN4AXt7lhBeCjLmpVh6WbJ0G+QakJiGUJbU4taixqcK+fP7NjXGAob+f/PNB2VvjMLum56N17Y
   order-generator-onchain:PRIVATE_KEY:
@@ -42,7 +43,7 @@ config:
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "500"
-  order-generator-onchain:INTERVAL: "1200"
+  order-generator-onchain:INTERVAL: "600"
   order-generator-onchain:LOCK_TIMEOUT: "900"
   order-generator-onchain:RAMP_UP: "600"
   order-generator-onchain:SECONDS_PER_MCYCLE: "15"
