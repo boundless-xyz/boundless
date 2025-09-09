@@ -20,7 +20,7 @@ config:
   distributor:PROVER_KEYS:
     secure: v1:eDUhEncXCP2SfDO+:stU3Q2DLqxDbwvUP1ykwN+Gi4BuUU2w5F0l2w9rOUT9QbivAEgXE/VaRjWnyzIfxejuZuSbu5ZPuk6nF5uoCuhxN95PCK6zUJhdNniO8ClgocelNf3xGyBp98cKk/lRvMF/K2yenz0cHEXGpFx5GCP1TYN32a7DGeBdZKZa0qwEEXjK+GnjWTm8fcJxrqYg1yQ==
   distributor:PROVER_STAKE_DONATE_THRESHOLD: "150.0"
-  distributor:SCHEDULE_MINUTES: "10"
+  distributor:SCHEDULE_MINUTES: "240"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   distributor:SLASHER_KEY:
     secure: v1:6pXt8zGgP90WQw61:0HqUjkJk7jMnCFFD4L+FpdRXZpkXZBTMbiBY1Fn5h+wAJpt4Jn3vwsK40aSI2wCLQvhWQogBivT2NVoA0M2tEHa1pCO/rU73GQ1dAhl23q4=
