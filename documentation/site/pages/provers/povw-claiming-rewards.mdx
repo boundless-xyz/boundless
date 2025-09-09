@@ -2,10 +2,12 @@
 
 ## What is "Proof of Verifiable Work"?
 
-Proof of Verifiable Work (PoVW), a novel invention within Boundless, is a permissionless incentive mechanism which enables provers to be rewarded in $ZKC in exchange for their proving work on the Boundless marketplace or elsewhere. Provers generating unique zero-knowledge proofs are rewarded with $ZKC. This tutorial explains the process of claiming $ZKC rewards for provers who enable PoVW. 
+Proof of Verifiable Work (PoVW), a novel invention within Boundless, is a permissionless incentive mechanism which enables provers to be rewarded in $ZKC in exchange for their proving work on the Boundless marketplace or elsewhere. Provers generating unique zero-knowledge proofs are rewarded with $ZKC. *This page explains the process of claiming PoVW $ZKC rewards.*
+
+
 
 :::note[Note]
-This page introduces the concepts necessary to understand Proof of Verifiable Work (PoVW) and effectively claim rewards. For more information on PoVW, refer to section 2.3.1 of the [Boundless whitepaper](https://read.boundless.network/)* *and the “[Introducing ZK Coin](https://boundless.network/blog/introducing-zk-coin)” blog post.
+This page introduces the concepts necessary to understand Proof of Verifiable Work (PoVW) and effectively claim rewards. For more information on PoVW, refer to section 2.3.1 of the [Boundless whitepaper](https://read.boundless.network/) and the “[Introducing ZK Coin](https://boundless.network/blog/introducing-zk-coin)” blog post.
 :::
 
 ## Prerequisites
@@ -85,8 +87,6 @@ To stake 100 $ZKC, run the following command:
 boundless zkc stake --amount $(cast parse-units 100 18)
 ```
 
-
-
 To get the current epoch:
 
 ```bash
@@ -99,63 +99,70 @@ To get the end time for the current epoch:
 cast call ${ZKC_ADDRESS:?} 'getEpochEndTime(uint256) returns (uint256)' ${EPOCH:?}
 ```
 
-### Running Valid Work
+### Start Proving
 
-Provers are now ready to run proving workloads with PoVW enabled; this can be done by [running a prover](/provers/quick-start) on the Boundless marketplace or elsewhere. For each proving job, R0VM will automatically generate [work receipts](#TODO). These work receipts track the amount of proving work done. Each epoch, provers will need to submit their accumulated work to the PoVW accounting smart contract. To do this, provers must use the PoVW CLI and run the following three commands, `prove-update`, `send-update` and `claim-reward`.
+Provers are now ready to run proving workloads with PoVW enabled; this can be done by [running a prover](/provers/quick-start) on the Boundless marketplace or elsewhere. 
 
-### Creating a New Work Log
+For each proving job, R0VM will automatically generate [work receipts](/provers/povw-claiming-rewards#terminology). These work receipts track the amount of proving work done. Each epoch, provers will need to submit their accumulated work to the PoVW accounting smart contract. To do this, provers must use the PoVW CLI and run the following three commands, `prove-update`, `send-update` and `claim-reward`.
 
-Provers must first create a new work log, associated with the `POVW_LOG_ID`:
+### Create and Update the Work Log
+
+Once provers have run some jobs, they can create a new work log (i.e. state file) from receipts stored in Bento using `prove-update`:
 
 ```bash
-boundless povw prove-update --new ${POVW_LOG_ID} --state <STATE_FILE_LOCATION>
+boundless povw prove-update --new ${POVW_LOG_ID} --state ${STATE_FILE_LOCATION} --from-bento
 ```
 
-where `<STATE_FILE_LOCATION>` is something like: `~/folder/state.bin`.
-
-### prove-update
-
-Once provers have run some jobs, they can run `prove-update` from receipts stored in Bento:
-
-```
-boundless povw prove-update --state ~/tmp/zkc_test/state.bin --from-bento
-```
+where `${STATE_FILE_LOCATION}` is something like: `~/folder/state.bin`.
 
 `prove-update` compresses all work receipts and stores the work log update to the state file. This process is entirely local (i.e. it does not send any transaction). For this work to be eligible for $ZKC rewards from the PoVW contract, this work log update must now be sent onchain. 
 
-### send-update
+Provers can omit `--new ${POVW_LOG_ID}` once the state file is created. For further updates to the work log, run the following:
+
+```bash
+boundless povw prove-update --state ${STATE_FILE_LOCATION} --from-bento
+```
+
+### Send the Work Log Update Onchain
 
 After running `prove-update`, provers are ready to post the work log update onchain:
 
 ```bash
-boundless povw send-update --state <STATE_FILE> --rpc-url <RPC_URL> [--value-recipient <VALUE_RECIPIENT>](TODO)
+boundless povw send-update --state ${STATE_FILE_LOCATION} --rpc-url ${RPC_URL}
 ```
 
-### claim-reward
+### Claiming Rewards
 
 After the reward epoch has finalized, rewards can be claimed with:
 
 ```bash
-boundless povw claim-rewards --beacon-chain-rpc <BEACON_CHAIN_RPC_ENDPOINT> --archive-node-rpc <ARCHIVE_NODE_RPC_ENDPOINT> --private_key <PRIVATE_KEY>
+boundless povw claim-rewards --beacon-chain-rpc ${BEACON_CHAIN_RPC_ENDPOINT} --archive-node-rpc ${ARCHIVE_NODE_RPC_ENDPOINT}
 ```
 
 ::::
 
 ## Terminology
 
-* **Log ID:** This is the Ethereum address set with the `POVW_LOG_ID` environment variable. This address can be the same as the one used for a prover on the Boundless Market, but it doesn't have to be. See *Recommended Practices* for more information.  
-* **Work Receipts:** For each proving workload, PoVW generates work receipts alongside the expected ZK proof. These work receipts are compressed into a “work log” update to post onchain. This work log update represents the combined work of all compressed work receipts. Work receipts are compressed using the `prove-update` CLI command, and this process is entirely local. **(link to prove-update CLI code in Boundless repo once merged)**  
-* **Work Log:** The work log is a record of work tracked against a specific log ID i.e. it represents a tally of all work done by that address. A work log commitment prevents “double-spending” of verifiable work when claiming PoVW rewards. The work log is updated using the `send-update` CLI command, which takes a work log update (generated by `prove-update`) and updates the commitment onchain to reflect all the work done by the log ID since the last update.  
-* **Reward Epoch:** The PoVW reward epoch is approximately 2 days. Verifiable work submitted within a given epoch is eligible for that epoch’s reward emissions.   
-  * **To be eligible for these rewards, a prover must stake an amount of $ZKC** that scales with the size of their rewards for a given epoch. For more information, please see this [blog post](https://boundless.network/blog/introducing-zk-coin).
+| Term | Description |
+|------|-------------|
+| **Log ID** | This is the Ethereum address set with the `POVW_LOG_ID` environment variable. This address can be the same as the one used for a prover on the Boundless Market, but it doesn't have to be. See [Recommended Practices](/provers/povw-claiming-rewards#recommended-practices) for more information. |
+| **Work Receipts** | For each proving workload, PoVW generates work receipts alongside the expected ZK proof. These work receipts are compressed into a “work log” update to post onchain. This work log update represents the combined work of all compressed work receipts. Work receipts are compressed using the `prove-update` CLI command, and this process is entirely local. |
+| **Work Log** | The work log is a record of work tracked against a specific log ID i.e. it represents a tally of all work done by that address. A work log commitment prevents “double-spending” of verifiable work when claiming PoVW rewards. The work log is updated using the `send-update` CLI command, which takes a work log update (generated by `prove-update`) and updates the commitment onchain to reflect all the work done by the log ID since the last update. |
+| **Reward Epoch** | The PoVW reward epoch is approximately 2 days. Verifiable work submitted within a given epoch is eligible for that epoch’s reward emissions. To be eligible for these rewards, a prover must stake an amount of $ZKC that scales with the size of their rewards for a given epoch. For more information, please see this [blog post](https://boundless.network/blog/introducing-zk-coin). |
+
 
 ## Reward Claiming Workflow 
+
+### Staking Requirements
 
 * Provers must stake $ZKC to be eligible for PoVW rewards. Before staking, any proving work done ***is not*** eligible for rewards. Only work done after staking $ZKC is eligible for PoVW rewards, and this is *effective immediately* i.e. provers **do not** have to wait after staking for the next reward epoch after staking to begin proving.   
 * Once provers have staked, any work done immediately after staking is eligible for rewards in the current reward epoch.   
 * Any work done after staking by a prover will be eligible  
 * Provers generate ZK proofs with the POVW feature enabled in Bento.  
-* Towards the end of an epoch, the prover must verify their work done to the PoVW contracts using the PoVW CLI:
+
+### Overview
+
+Towards the end of an epoch, the prover must verify their work done to the PoVW contracts using the PoVW CLI:
 
 1. The `prove-update` command compresses all local work receipts to reflect work done during any given epoch \- this update is stored in a local “state” file.  
 2. The `send-update` command signs the work log update using the Log ID’s key and posts the update to the PoVW contracts.   
@@ -170,7 +177,7 @@ In PoVW, the prover specifies the Log ID which must be a valid Ethereum address.
 
 #### Separating the Staking Wallet from the Log ID
 
-When [enabling PoVW in Bento](#enabling-povw-in-bento), provers specify the following environment variables:
+When [enabling PoVW in Bento](/provers/povw-claiming-rewards#specify-the-log-id-address), provers specify the following environment variables:
 
 ```bash
 export POVW_LOG_ID="0x0000...0000"
@@ -184,7 +191,7 @@ export ZKC_WALLET_ADDRESS="0x0000...0000"
 export PRIVATE_KEY="..."
 ```
 
-Provers can now follow the [staking instructions](#TODO) to stake $ZKC from the `ZKC_WALLET_ADDRESS`. Once staked, provers must delegate rewards i.e. associate the `POVW_LOG_ID` with `ZKC_WALLET_ADDRESS`. This is done with the following command:
+Provers can now follow the [staking instructions](/provers/povw-claiming-rewards#staking-zkc) to stake $ZKC from the `ZKC_WALLET_ADDRESS`. Once staked, provers must delegate rewards i.e. associate the `POVW_LOG_ID` with `ZKC_WALLET_ADDRESS`. This is done with the following command:
 
 ```bash
 boundless zkc delegate-rewards ${POVW_LOG_ID}
@@ -192,7 +199,7 @@ boundless zkc delegate-rewards ${POVW_LOG_ID}
 
 This command uses the `PRIVATE_KEY` environment variable to send a transaction onchain, therefore funds are required on `ZKC_WALLET_ADDRESS`.
 
-Once the rewards are delegated, the prover can continue with the normal reward claiming workflow starting with [Running Valid Work](#running-valid-work).
+Once the rewards are delegated, the prover can continue with the normal reward claiming workflow and they can [start proving](/provers/povw-claiming-rewards#start-proving).
 
 #### Separating the Staking Wallet from the Value Recipient
 
@@ -204,11 +211,11 @@ Since many Boundless provers run clusters on hosted cloud providers, and because
 
 At the minimum, we recommend most provers separate their value recipient address, such that:
 
-* Boundless Prover Address \+ Log ID Address can be the same  
+* Boundless Prover Address + Log ID Address can be the same  
 * Value Recipient is a separate address
 
 This setup allows the proving cluster to prove orders on the Boundless market and generate and post work log updates onchain to be eligible for rewards. It also means that after running `claim-reward`, the reward $ZKC is transferred to a separate address. Claiming rewards is a permissionless process and does not require access to the private key for the Log ID. 
 
-### Keep the state file safe
+### Keeping the State File Safe
 
 `prove-update` uses a state file to track compressed work receipts. Loss of this state file **will result in the loss of all work that is not submitted**for the respective Log ID, meaning rewards for any work done since the last work log update (via `send-update`) **will be lost**. In this scenario, a new work log ID must be specified for Bento, and Bento should be restarted to allow further work to be recorded properly against the new Log ID. *To avoid this scenario, it is recommended to store the state file in a durable location.*
