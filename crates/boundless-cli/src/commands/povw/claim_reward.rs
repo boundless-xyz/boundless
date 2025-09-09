@@ -79,7 +79,7 @@ pub struct PovwClaimReward {
     /// rewards claim. If all log update events to claim occured in fewer than the specified number
     /// of days, this command will not scan for events in the full range.
     #[clap(long, default_value_t = 30)]
-    pub days: u64,
+    pub days: u32,
     /// Chunk size to use when querying the RPC node for events using `eth_getLogs`.
     ///
     /// If using a free-tier RPC provider, you may need to set this to a lower value. You may also
@@ -112,8 +112,9 @@ impl PovwClaimReward {
         // Determine the limits on the blocks that will be searched for events.
         let latest_block_number =
             provider.get_block_number().await.context("Failed to query the block number")?;
-        let search_limit_time =
-            SystemTime::now().checked_sub(24 * HOUR).context("Invalid number of days")?;
+        let search_limit_time = SystemTime::now()
+            .checked_sub(self.days * 24 * HOUR)
+            .context("Invalid number of days")?;
         let lower_limit_block_number = block_number_near_timestamp(
             &provider,
             latest_block_number,
