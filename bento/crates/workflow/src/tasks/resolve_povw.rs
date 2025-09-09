@@ -160,7 +160,7 @@ pub async fn resolve_povw(
 
     // Save the resolved receipt to work receipts bucket for later consumption
     // Wrap the POVW receipt as GenericReceipt::Succinct for RISC Zero VM integration
-    let wrapped_povw_receipt = GenericReceipt::Succinct(povw_receipt);
+    let wrapped_povw_receipt = GenericReceipt::Succinct(povw_receipt.clone());
 
     agent
         .s3_client
@@ -174,31 +174,22 @@ pub async fn resolve_povw(
     // Only include POVW fields if they are actually set and non-empty
     let mut metadata_fields = serde_json::Map::new();
     metadata_fields.insert("job_id".to_string(), serde_json::Value::String(job_id.to_string()));
-
     if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
-        if !log_id.is_empty() {
-            metadata_fields.insert("povw_log_id".to_string(), serde_json::Value::String(log_id));
-        }
+        metadata_fields.insert("povw_log_id".to_string(), serde_json::Value::String(log_id));
     }
 
-    // For POVW job number, use environment variable if set, otherwise generate one based on job_id
-    let povw_job_number = if let Ok(job_number) = std::env::var("POVW_JOB_NUMBER") {
-        if !job_number.is_empty() { Some(job_number) } else { None }
-    } else {
-        None
-    };
-
-    // If no POVW job number is set, generate one based on the job_id hash
-    let final_job_number = povw_job_number.unwrap_or_else(|| {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        job_id.hash(&mut hasher);
-        format!("{}", hasher.finish())
-    });
+    let povw_job_number = povw_receipt
+        .clone()
+        .claim
+        .value()
+        .and_then(|x| x.work.value())
+        .ok()
+        .map(|work| format!("{}", work.nonce_min.job))
+        .context("Failed to get POVW job number")
+        .unwrap();
 
     metadata_fields
-        .insert("povw_job_number".to_string(), serde_json::Value::String(final_job_number));
+        .insert("povw_job_number".to_string(), serde_json::Value::String(povw_job_number));
 
     let povw_metadata = serde_json::Value::Object(metadata_fields);
 

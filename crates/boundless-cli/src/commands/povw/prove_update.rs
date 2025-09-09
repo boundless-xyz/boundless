@@ -82,10 +82,7 @@ impl PovwPrepare {
             State::new(log_id)
         } else {
             let state = State::load(&self.state).await.context("Failed to load state file")?;
-            tracing::info!(
-                "Loaded work log state from {}",
-                self.state.display(),
-            );
+            tracing::info!("Loaded work log state from {}", self.state.display(),);
             tracing::debug!(commit = %state.work_log.commit(), "Loaded work log commit");
             tracing::info!("Preparing work log update for log ID: {:x}", state.log_id);
             state

@@ -31,6 +31,8 @@ url = { workspace = true, optional = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+# blst is included directly to mitigate a build issue where blst does not always end up linked.
+blst = { version = "0.3.15", default-features = false }
 boundless-test-utils = { workspace = true, features = ["povw"] }
 derive_builder = "0.20.2"
 rand = "0.9"

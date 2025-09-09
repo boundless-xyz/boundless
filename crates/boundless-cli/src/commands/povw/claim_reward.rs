@@ -50,6 +50,10 @@ pub struct PovwClaim {
     ///
     /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
     /// the claim can be done for any log ID and does not require authorization.
+    /// Work log ID for the reward claim.
+    ///
+    /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
+    /// the claim can be done for any log ID and does not require authorization.
     #[arg(short, long)]
     pub log_id: PovwLogId,
 
@@ -83,7 +87,7 @@ pub struct PovwClaim {
     /// rewards claim. If all log update events to claim occured in fewer than the specified number
     /// of days, this command will not scan for events in the full range.
     #[clap(long, default_value_t = 30)]
-    pub days: u64,
+    pub days: u32,
     /// Chunk size to use when querying the RPC node for events using `eth_getLogs`.
     ///
     /// If using a free-tier RPC provider, you may need to set this to a lower value. You may also
@@ -116,8 +120,9 @@ impl PovwClaim {
         // Determine the limits on the blocks that will be searched for events.
         let latest_block_number =
             provider.get_block_number().await.context("Failed to query the block number")?;
-        let search_limit_time =
-            SystemTime::now().checked_sub(24 * HOUR).context("Invalid number of days")?;
+        let search_limit_time = SystemTime::now()
+            .checked_sub(self.days * 24 * HOUR)
+            .context("Invalid number of days")?;
         let lower_limit_block_number = block_number_near_timestamp(
             &provider,
             latest_block_number,
@@ -171,15 +176,26 @@ impl PovwClaim {
 
         // Check to see what the current pending epoch is on the PoVW accounting contract. Filter
         // out update events with an epoch that has not finalized (with a warning).
-        let pending_epoch = povw_accounting.pendingEpoch().call().await.context("Failed to check the pending epoch")?.number;
-        let finalized_update_events = update_events.into_iter().filter(|(event, _)| {
-            if event.epochNumber >= pending_epoch {
-                tracing::warn!("Skipping update in epoch {}, which has not been finalized", event.epochNumber);
-                false
-            } else {
-                true
-            }
-        }).collect::<Vec<_>>();
+        let pending_epoch = povw_accounting
+            .pendingEpoch()
+            .call()
+            .await
+            .context("Failed to check the pending epoch")?
+            .number;
+        let finalized_update_events = update_events
+            .into_iter()
+            .filter(|(event, _)| {
+                if event.epochNumber >= pending_epoch {
+                    tracing::warn!(
+                        "Skipping update in epoch {}, which has not been finalized",
+                        event.epochNumber
+                    );
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<_>>();
 
         // NOTE: At least one epoch must be skipped to reach this error.
         if finalized_update_events.is_empty() {
@@ -191,8 +207,10 @@ impl PovwClaim {
             .first()
             .map(|(_, block_numer)| *block_numer)
             .unwrap_or(lower_limit_block_number);
-        let epochs =
-            finalized_update_events.iter().map(|(event, _)| event.epochNumber).collect::<BTreeSet<_>>();
+        let epochs = finalized_update_events
+            .iter()
+            .map(|(event, _)| event.epochNumber)
+            .collect::<BTreeSet<_>>();
 
         ensure!(!epochs.is_empty(), "List of epochs for claim is empty");
         let first_epoch = epochs.iter().next().unwrap();
