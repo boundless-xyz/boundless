@@ -940,10 +940,12 @@ where
 
             if eth_based_limit > stake_based_limit {
                 // Eth based limit is higher, use that for both preflight and prove
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) > stake based limit ({stake_based_limit}), using eth based limit for both preflight and prove");
                 preflight_limit = eth_based_limit;
                 prove_limit = eth_based_limit;
             } else {
                 // Otherwise lower the prove cycle limit for this order variant
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) < stake based limit ({stake_based_limit}), using eth based limit for prove");
                 prove_limit = eth_based_limit;
             }
             tracing::debug!(
