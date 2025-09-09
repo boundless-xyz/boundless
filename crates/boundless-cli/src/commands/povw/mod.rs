@@ -16,13 +16,13 @@
 
 mod claim;
 mod prepare;
-mod submit;
 mod state;
+mod submit;
 
 pub use claim::PovwClaim;
 pub use prepare::PovwPrepare;
-pub use submit::PovwSubmit;
 pub use state::State;
+pub use submit::PovwSubmit;
 
 use clap::Subcommand;
 use risc0_zkvm::{GenericReceipt, ReceiptClaim, WorkClaim};
