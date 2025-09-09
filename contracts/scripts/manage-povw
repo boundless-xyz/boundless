@@ -169,7 +169,7 @@ create_reference_build() {
         echo "Foundry config check:"
         forge config --basic || echo "Forge config failed"
         
-        if forge build 2>&1; then
+        if FOUNDRY_PROFILE=povw-deploy forge build 2>&1; then
             echo "✅ Forge build completed successfully"
             # Check if build info directory was created (using FOUNDRY_OUT path)
             if [ -d "contracts/out/build-info" ] && [ "$(ls -A contracts/out/build-info)" ]; then
@@ -323,14 +323,14 @@ EOF
 
         # Run forge via fireblocks
         fireblocks-json-rpc --verbose --rpcUrl ${RPC_URL:?} --http --apiKey ${FIREBLOCKS_API_KEY:?} -- \
-            forge script ${FORGE_SCRIPT_FLAGS} \
+            FOUNDRY_PROFILE=povw-deploy forge script ${FORGE_SCRIPT_FLAGS} \
             --slow --unlocked \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
             --rpc-url {} \
             "$target" "$@"
     else
         # Run forge
-        forge script ${FORGE_SCRIPT_FLAGS} \
+        FOUNDRY_PROFILE=povw-deploy forge script ${FORGE_SCRIPT_FLAGS} \
             --private-key=${DEPLOYER_PRIVATE_KEY:?} \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
             --rpc-url ${RPC_URL:?} \
@@ -377,7 +377,7 @@ if [ $# -gt 0 ]; then
                 echo "Running cargo build to generate required files..."
                 cargo build
                 forge clean
-                forge build
+                FOUNDRY_PROFILE=povw-deploy forge build
                 echo "✅ Current build completed"
             else
                 echo "⏩ Skipping current build (reference build was reused)"
@@ -392,7 +392,7 @@ if [ $# -gt 0 ]; then
                 echo "Running cargo build to generate required files..."
                 cargo build
                 forge clean
-                forge build
+                FOUNDRY_PROFILE=povw-deploy forge build
                 echo "✅ Current build completed"
             else
                 echo "⏩ Skipping current build (reference build was reused)"
