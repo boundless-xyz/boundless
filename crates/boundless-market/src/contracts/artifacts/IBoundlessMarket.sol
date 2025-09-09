@@ -31,15 +31,15 @@ interface IBoundlessMarket {
     /// @notice Event logged when a request is locked in by the given prover.
     /// @param requestId The ID of the request.
     /// @param prover The address of the prover.
-    /// @param request The proof request details.
+    /// @param request The full proof request details.
     /// @param clientSignature The signature of the client.
     event RequestLocked(RequestId indexed requestId, address prover, ProofRequest request, bytes clientSignature);
 
     /// @notice Event logged when a request is fulfilled.
     /// @param requestId The ID of the request.
     /// @param prover The address of the prover fulfilling the request.
-    /// @param fulfillment The fulfillment details.
-    event RequestFulfilled(RequestId indexed requestId, address indexed prover, Fulfillment fulfillment);
+    /// @param requestDigest The digest of the request.
+    event RequestFulfilled(RequestId indexed requestId, address indexed prover, bytes32 requestDigest);
 
     /// @notice Event logged when a proof is delivered that satisfies the request's requirements.
     /// @dev It is possible for this event to be logged multiple times for a single request. The

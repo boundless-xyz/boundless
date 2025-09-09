@@ -23,7 +23,7 @@ struct Offer {
     /// @dev Once bidding starts, the price begins to "ramp-up." During this time, the price rises
     /// each block until it reaches `maxPrice.
     uint32 rampUpPeriod;
-    /// @notice Timeout for the lock, expressed as seconds from bidding start.
+    /// @notice Timeout for the lock, expressed as seconds from ramp up start.
     /// @dev Once locked, if a valid proof is not submitted before this deadline, the prover can
     /// be "slashed", which refunds the price to the requester and takes the prover stake.
     ///
@@ -32,7 +32,7 @@ struct Offer {
     /// the request. This applies both to locked and unlocked requests; if a proof is delivered
     /// after this timeout, no fee will be paid from the client.
     uint32 lockTimeout;
-    /// @notice Timeout for the request, expressed as seconds from bidding start.
+    /// @notice Timeout for the request, expressed as seconds from ramp up start.
     /// @dev After this time the request is considered completely expired and can no longer be
     /// fulfilled. After this time, the `slash` action can be completed to finalize the transaction
     /// if it was locked but not fulfilled.
