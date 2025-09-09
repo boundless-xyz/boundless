@@ -71,9 +71,9 @@ For all relevant commands below: `stake`, `delegate-rewards` and ` send-update`,
 
 ### Staking $ZKC
 
-Before provers can begin contributing work to claim PoVW rewards, they must stake $ZKC. 
+Before provers can begin contributing work to claim PoVW rewards, they must stake $ZKC. Once staked, provers are eligible for $ZKC rewards effective immediately i.e. starting from the reward epoch they staked in. Reward epochs are approximately 2 days long. 
 
-To check the current $ZKC balance of `POVW_LOG_ID`:
+* To check the current $ZKC balance of `POVW_LOG_ID`:
 
 ```bash
 cast call ${POVW_LOG_ID:?} 'balanceOf(address) returns (uint256)' ${POVW_LOG_ID:?}
@@ -85,9 +85,7 @@ To stake 100 $ZKC, run the following command:
 boundless zkc stake --amount $(cast parse-units 100 18)
 ```
 
-### Checking the Current Epoch
 
-Once staked, provers are eligible for $ZKC rewards effective immediately i.e. starting from the reward epoch they staked in. Reward epochs are approximately 2 days long. 
 
 To get the current epoch:
 
@@ -113,7 +111,7 @@ Provers must first create a new work log, associated with the `POVW_LOG_ID`:
 boundless povw prove-update --new ${POVW_LOG_ID} --state <STATE_FILE_LOCATION>
 ```
 
-where <STATE_FILE_LOCATION> usually ends in 
+where `<STATE_FILE_LOCATION>` is something like: `~/folder/state.bin`.
 
 ### prove-update
 
