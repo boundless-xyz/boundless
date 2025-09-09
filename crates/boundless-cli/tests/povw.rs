@@ -25,6 +25,8 @@ use risc0_povw::PovwLogId;
 use risc0_zkvm::{FakeReceipt, GenericReceipt, ReceiptClaim, VerifierContext, WorkClaim};
 use tempfile::TempDir;
 
+// NOTE: Tests in this file print the CLI output. Run `cargo test -- --nocapture --test-threads=1` to see it.
+
 /// Test that the PoVW prepare command shows help correctly.
 /// This is a smoke test to ensure the command is properly registered and accessible.
 #[test]

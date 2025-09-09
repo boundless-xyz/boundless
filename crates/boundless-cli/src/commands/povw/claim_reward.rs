@@ -161,7 +161,6 @@ impl PovwClaim {
         tracing::info!(
             "Searching for work log update events in the past {} days", self.days
         );
-        tracing::debug!(%initial_commit, %final_commit, %latest_block_number, %lower_limit_block_number, "Searching for WorkLogUpdated events");
         let update_events = search_work_log_updated(
             &povw_accounting,
             self.log_id,
@@ -219,9 +218,8 @@ impl PovwClaim {
         if first_epoch == last_epoch {
             tracing::info!("Searching for epoch finalization event for epoch {first_epoch}");
         } else {
-            tracing::info!("Searching for epoch finalization events, from epochs {first_epoch} to {last_epoch}");
+            tracing::info!("Searching for epoch finalization events, from epoch {first_epoch} to epoch {last_epoch}");
         }
-        tracing::debug!(?epochs, "Searching for EpochFinalized events");
         let epoch_events = search_epoch_finalized(
             &povw_accounting,
             epochs,
@@ -392,7 +390,7 @@ async fn search_work_log_updated(
         .event_signature(WorkLogUpdated::SIGNATURE_HASH)
         .topic1(Address::from(log_id));
 
-    tracing::debug!("Searching for WorkLogUpdated events");
+    tracing::debug!(%initial_commit, %final_commit, %upper_limit_block_number, %lower_limit_block_number, "Searching for WorkLogUpdated events");
     search_events(
         povw_accounting.provider(),
         filter,
@@ -427,6 +425,8 @@ async fn search_epoch_finalized(
     lower_limit_block_number: u64,
     chunk_size: u64,
 ) -> anyhow::Result<BTreeMap<u64, EpochFinalized>> {
+    tracing::debug!(?epochs, "Searching for EpochFinalized events");
+
     let mut events = BTreeMap::<u64, EpochFinalized>::new();
     let search_predicate = |query_logs: &[(EpochFinalized, Log)]| {
         for (event, log) in query_logs {
@@ -450,7 +450,6 @@ async fn search_epoch_finalized(
         .address(*povw_accounting.address())
         .event_signature(EpochFinalized::SIGNATURE_HASH);
 
-    tracing::debug!("Searching for EpochFinalized events");
     search_events(
         povw_accounting.provider(),
         filter,
