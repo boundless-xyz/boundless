@@ -112,8 +112,9 @@ impl PovwClaimReward {
         // Determine the limits on the blocks that will be searched for events.
         let latest_block_number =
             provider.get_block_number().await.context("Failed to query the block number")?;
-        let search_limit_time =
-            SystemTime::now().checked_sub(self.days * 24 * HOUR).context("Invalid number of days")?;
+        let search_limit_time = SystemTime::now()
+            .checked_sub(self.days * 24 * HOUR)
+            .context("Invalid number of days")?;
         let lower_limit_block_number = block_number_near_timestamp(
             &provider,
             latest_block_number,
