@@ -379,7 +379,9 @@ export const createProverAlarms = (
   // the batch was not submitted.
   // This may indicate a misconfiguration of the tx timeout config.
   createErrorCodeAlarm('"[B-SUB-006]"', 'submitter-txn-confirmation-error', Severity.SEV2, {
-    threshold: chainId == ChainId.ETH_SEPOLIA ? 10 : 5,
+    threshold: chainId == ChainId.ETH_SEPOLIA ? 20 : 5,
+    evaluationPeriods: chainId == ChainId.ETH_SEPOLIA ? 2 : 1,
+    datapointsToAlarm: chainId == ChainId.ETH_SEPOLIA ? 2 : 1,
   }, { period: 3600 });
 
   // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
