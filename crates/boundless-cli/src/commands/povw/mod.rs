@@ -14,14 +14,14 @@
 
 //! Commands of the Boundless CLI for Proof of Verifiable Work (PoVW) operations.
 
-mod claim_reward;
-mod prove_update;
-mod send_update;
+mod claim;
+mod prepare;
+mod submit;
 mod state;
 
-pub use claim_reward::PovwClaim;
-pub use prove_update::PovwPrepare;
-pub use send_update::PovwSubmit;
+pub use claim::PovwClaim;
+pub use prepare::PovwPrepare;
+pub use submit::PovwSubmit;
 pub use state::State;
 
 use clap::Subcommand;
