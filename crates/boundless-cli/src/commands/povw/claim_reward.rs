@@ -159,8 +159,9 @@ impl PovwClaim {
 
         // Search for the WorkLogUpdated events, and the the EpochFinalized events.
         tracing::info!(
-            "Searching for work log update events, from commit {initial_commit} to {final_commit}"
+            "Searching for work log update events in the past {} days", self.days
         );
+        tracing::debug!(%initial_commit, %final_commit, %latest_block_number, %lower_limit_block_number, "Searching for WorkLogUpdated events");
         let update_events = search_work_log_updated(
             &povw_accounting,
             self.log_id,
@@ -171,7 +172,7 @@ impl PovwClaim {
             self.event_query_chunk_size,
         )
         .await
-        .context("Failed to search for WorkLogUpdated events")?;
+        .context("Search for work log update events failed")?;
         tracing::info!("Found {} work log update events", update_events.len());
 
         // Check to see what the current pending epoch is on the PoVW accounting contract. Filter
@@ -199,7 +200,7 @@ impl PovwClaim {
 
         // NOTE: At least one epoch must be skipped to reach this error.
         if finalized_update_events.is_empty() {
-            bail!("No update events ready to claim rewards")
+            bail!("No update events found for finalized epochs; no rewards to claim")
         }
 
         // We can refine the range we search for EpochFinalized events using the first event.
@@ -220,7 +221,7 @@ impl PovwClaim {
         } else {
             tracing::info!("Searching for epoch finalization events, from epochs {first_epoch} to {last_epoch}");
         }
-        tracing::debug!(?epochs, %initial_commit, %final_commit, "Searching for events");
+        tracing::debug!(?epochs, "Searching for EpochFinalized events");
         let epoch_events = search_epoch_finalized(
             &povw_accounting,
             epochs,
@@ -229,11 +230,11 @@ impl PovwClaim {
             self.event_query_chunk_size,
         )
         .await
-        .context("Failed to search for EpochFinalized events")?;
+        .context("Search for epoch finalized events failed")?;
         tracing::info!("Found {} epoch finalization events", epoch_events.len());
 
         let event_block_numbers = BTreeSet::from_iter(
-            update_events
+            finalized_update_events
                 .iter()
                 .map(|(_, block_number)| *block_number)
                 .chain(epoch_events.keys().copied()),
