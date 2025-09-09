@@ -11,7 +11,7 @@ config:
     secure: v1:6s1Bn7EWogMLO62b:mkijYAxp9hT+yICykkBvNK2J5rRkRhYfNRulGhhe6N1DGXm4eyRG91DACgl5V7p2GcvWVn9mJpAg5MWJJsWZ6UXGTYNw2XQCzcGqPZBQZhs9UwwWfLlFRbRIAO6IUwLA7Io/qLoN7NGoR79psw==
   base-prover:ORDER_STREAM_URL: https://base-mainnet.boundless.network
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
-  base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  base-prover:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
   base-prover:COLLATERAL_TOKEN_ADDRESS: 0xAA61bB7777bD01B684347961918f1E07fBbCe7CF
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-8453.toml

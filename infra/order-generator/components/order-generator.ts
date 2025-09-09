@@ -351,7 +351,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
       evaluationPeriods: 60,
-      datapointsToAlarm: 3,
+      datapointsToAlarm: 4,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} log ERROR level 3 times within an hour`,
       actionsEnabled: true,
