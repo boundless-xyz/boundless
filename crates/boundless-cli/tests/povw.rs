@@ -297,10 +297,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str());
 
     let result = cmd.assert().success().stdout(contains("Reward claim completed"));
-    println!(
-        "claim command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("claim command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Verify that tokens were minted to the value recipient (not the work log signer)
     let final_balance = ctx.zkc.balanceOf(value_recipient).call().await?;
@@ -343,25 +340,23 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt1_path)?;
 
     let mut cmd = Command::cargo_bin("boundless")?;
-    let result = cmd.args([
-        "povw",
-        "prepare",
-        "--new",
-        &format!("{:#x}", log_id),
-        "--state",
-        state_path.to_str().unwrap(),
-        receipt1_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .env("RUST_LOG", "boundless_cli=debug,info")
-    .env("RISC0_DEV_MODE", "1")
-    .assert()
-    .success();
+    let result = cmd
+        .args([
+            "povw",
+            "prepare",
+            "--new",
+            &format!("{:#x}", log_id),
+            "--state",
+            state_path.to_str().unwrap(),
+            receipt1_path.to_str().unwrap(),
+        ])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .env("RISC0_DEV_MODE", "1")
+        .assert()
+        .success();
 
-    println!(
-        "prepare command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("prepare command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Send the update to the blockchain
     let mut cmd = Command::cargo_bin("boundless")?;
@@ -383,10 +378,7 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
 
     let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
 
-    println!(
-        "submit command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("submit command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Advance to next epoch after the first update and finalize.
     ctx.advance_epochs(alloy::primitives::U256::from(1)).await?;
@@ -398,23 +390,21 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
     make_fake_work_receipt_file(log_id, 2000, 20, &receipt2_path)?;
 
     let mut cmd = Command::cargo_bin("boundless")?;
-    let result = cmd.args([
-        "povw",
-        "prepare",
-        "--state",
-        state_path.to_str().unwrap(),
-        receipt2_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .env("RUST_LOG", "boundless_cli=debug,info")
-    .env("RISC0_DEV_MODE", "1")
-    .assert()
-    .success();
+    let result = cmd
+        .args([
+            "povw",
+            "prepare",
+            "--state",
+            state_path.to_str().unwrap(),
+            receipt2_path.to_str().unwrap(),
+        ])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .env("RISC0_DEV_MODE", "1")
+        .assert()
+        .success();
 
-    println!(
-        "prepare command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("prepare command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Send the update to the blockchain
     let mut cmd = Command::cargo_bin("boundless")?;
@@ -436,10 +426,7 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
 
     let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
 
-    println!(
-        "submit command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("submit command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Advance to next epoch after second update; do not finalize.
     ctx.advance_epochs(alloy::primitives::U256::from(1)).await?;
@@ -460,11 +447,12 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
         .env("RISC0_DEV_MODE", "1")
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str());
 
-    let result = cmd.assert().success().stdout(contains("Reward claim completed")).stdout(contains("Skipping update in epoch"));
-    println!(
-        "claim command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    let result = cmd
+        .assert()
+        .success()
+        .stdout(contains("Reward claim completed"))
+        .stdout(contains("Skipping update in epoch"));
+    println!("claim command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Verify that tokens were minted to the value recipient (not the work log signer)
     let final_balance = ctx.zkc.balanceOf(value_recipient).call().await?;

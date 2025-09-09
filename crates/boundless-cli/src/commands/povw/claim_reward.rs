@@ -158,9 +158,7 @@ impl PovwClaim {
         }
 
         // Search for the WorkLogUpdated events, and the the EpochFinalized events.
-        tracing::info!(
-            "Searching for work log update events in the past {} days", self.days
-        );
+        tracing::info!("Searching for work log update events in the past {} days", self.days);
         let update_events = search_work_log_updated(
             &povw_accounting,
             self.log_id,
