@@ -621,41 +621,46 @@ where
             return Ok(());
         }
 
-        let (program_bytes, source_name) = if let Some(path) = program_path {
+        let program_bytes = if let Some(path) = program_path {
             // Read from local file if provided
-            let bytes = tokio::fs::read(&path)
+            tokio::fs::read(&path)
                 .await
-                .with_context(|| format!("Failed to read program file: {}", path.display()))?;
-            (bytes, format!("file {}", path.display()))
+                .with_context(|| format!("Failed to read program file: {}", path.display()))?
         } else {
-            // Try default URL first, fall back to contract URL if it fails
+            // Try default URL first, fall back to contract URL if it fails or ID doesn't match
             match self.download_image(&default_url, "default").await {
-                Ok(bytes) => (bytes, "default URL".to_string()),
+                Ok(bytes) => {
+                    let computed_id = risc0_zkvm::compute_image_id(&bytes)
+                        .context("Failed to compute image ID")?;
+                    if computed_id == image_id {
+                        tracing::debug!("Successfully verified image from default URL");
+                        bytes
+                    } else {
+                        tracing::warn!(
+                            "Image ID mismatch from default URL: expected {}, got {}, falling back to contract URL",
+                            image_id,
+                            computed_id
+                        );
+                        self.download_image(&contract_url, "contract").await?
+                    }
+                }
                 Err(e) => {
                     tracing::warn!(
                         "Failed to use default URL: {}, falling back to contract URL",
                         e
                     );
-                    let bytes = self.download_image(&contract_url, "contract").await?;
-                    (bytes, "contract URL".to_string())
+                    self.download_image(&contract_url, "contract").await?
                 }
             }
         };
 
-        // Verify the image ID matches what the contract expects
+        // Final verification - ensure we have the correct image
         let computed_id =
             risc0_zkvm::compute_image_id(&program_bytes).context("Failed to compute image ID")?;
 
         if computed_id != image_id {
-            anyhow::bail!(
-                "Image ID mismatch from {}: expected {}, got {}",
-                source_name,
-                image_id,
-                computed_id
-            );
+            anyhow::bail!("Image ID mismatch: expected {}, got {}", image_id, computed_id);
         }
-
-        tracing::debug!("Successfully verified image from {}", source_name);
 
         prover
             .upload_image(&image_id.to_string(), program_bytes)
