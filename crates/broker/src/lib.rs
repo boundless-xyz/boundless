@@ -665,7 +665,7 @@ where
     }
 
     async fn download_image(&self, url: &str, source_name: &str) -> Result<Vec<u8>> {
-        tracing::debug!("Attempting to download image from {}: {}", source_name, url);
+        tracing::trace!("Attempting to download image from {}: {}", source_name, url);
 
         let handler = create_uri_handler(url, &self.config_watcher.config, false)
             .await
@@ -676,7 +676,7 @@ where
             .await
             .with_context(|| format!("Failed to download image from {}", source_name))?;
 
-        tracing::debug!("Successfully downloaded image from {}", source_name);
+        tracing::trace!("Successfully downloaded image from {}", source_name);
         Ok(bytes)
     }
 
