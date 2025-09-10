@@ -77,6 +77,13 @@ contract UpgradePoVWAccounting is PoVWScript {
         opts.referenceContract = "build-info-reference:PovwAccounting";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
         opts.constructorData = abi.encode(verifier, zkc, logUpdaterId);
+        
+        // Check if safety checks should be skipped
+        bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
+        if (skipSafetyChecks) {
+            console2.log("WARNING: Skipping all upgrade safety checks (SKIP_SAFETY_CHECKS=true)");
+            opts.unsafeSkipAllChecks = true;
+        }
 
         vm.startBroadcast(currentAdmin);
         Upgrades.upgradeProxy(povwAccountingAddress, "PovwAccounting.sol:PovwAccounting", "", opts, currentAdmin);
@@ -184,6 +191,13 @@ contract UpgradePoVWMint is PoVWScript {
         opts.referenceContract = "build-info-reference:PovwMint";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
         opts.constructorData = abi.encode(verifier, povwAccounting, mintCalculatorId, zkc, vezkc);
+        
+        // Check if safety checks should be skipped
+        bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
+        if (skipSafetyChecks) {
+            console2.log("WARNING: Skipping all upgrade safety checks (SKIP_SAFETY_CHECKS=true)");
+            opts.unsafeSkipAllChecks = true;
+        }
 
         vm.startBroadcast(currentAdmin);
         Upgrades.upgradeProxy(povwMintAddress, "PovwMint.sol:PovwMint", "", opts, currentAdmin);
