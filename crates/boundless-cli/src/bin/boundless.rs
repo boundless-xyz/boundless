@@ -511,7 +511,9 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
                 tracing::info!("Depositing {formatted_amount} {symbol} as collateral");
                 match client.boundless_market.deposit_collateral(parsed_amount).await {
                     Ok(_) => {
-                        tracing::info!("Successfully deposited {formatted_amount} {symbol} as collateral");
+                        tracing::info!(
+                            "Successfully deposited {formatted_amount} {symbol} as collateral"
+                        );
                         Ok(())
                     }
                     Err(e) => {

@@ -33,7 +33,10 @@ use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
 
-use crate::{contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20}, deployments::collateral_token_supports_permit};
+use crate::{
+    contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20},
+    deployments::collateral_token_supports_permit,
+};
 
 use super::{
     eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
@@ -1280,7 +1283,13 @@ impl<P: Provider> BoundlessMarketService<P> {
             .await
             .context("failed to confirm tx")?;
 
-        tracing::debug!("Approved {} to spend {} of token 0x{:x}. Tx hash: {}", spender, value, token_address, tx_hash);
+        tracing::debug!(
+            "Approved {} to spend {} of token 0x{:x}. Tx hash: {}",
+            spender,
+            value,
+            token_address,
+            tx_hash
+        );
 
         Ok(())
     }
@@ -1295,13 +1304,23 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::debug!("Sending tx {}", format!("{:?}", call));
         tracing::debug!("Market address: {:?}", self.instance.address());
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting {} collateral deposit to market {:?}. Tx hash: {}", value, self.instance.address(), pending_tx.tx_hash());
+        tracing::debug!(
+            "Broadcasting {} collateral deposit to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            pending_tx.tx_hash()
+        );
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted {} collateral deposit to market {:?}. Tx hash: {}", value, self.instance.address(), tx_hash);
+        tracing::debug!(
+            "Submitted {} collateral deposit to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            tx_hash
+        );
         Ok(())
     }
 
@@ -1350,13 +1369,23 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling depositStakeWithPermit({})", value);
         let call = self.instance.depositCollateralWithPermit(value, deadline, v, r, s);
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting {} collateral deposit to market {:?}. Tx hash: {}", value, self.instance.address(), pending_tx.tx_hash());
+        tracing::debug!(
+            "Broadcasting {} collateral deposit to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            pending_tx.tx_hash()
+        );
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted {} collateral deposit to market {:?}. Tx hash: {}", value, self.instance.address(), tx_hash);
+        tracing::debug!(
+            "Submitted {} collateral deposit to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            tx_hash
+        );
         Ok(())
     }
 
@@ -1365,19 +1394,32 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling withdrawStake({})", value);
         let call = self.instance.withdrawCollateral(value);
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting {} collateral withdraw to market {:?}. Tx hash: {}", value, self.instance.address(), pending_tx.tx_hash());
+        tracing::debug!(
+            "Broadcasting {} collateral withdraw to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            pending_tx.tx_hash()
+        );
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted {} collateral withdraw to market {:?}. Tx hash: {}", value, self.instance.address(), tx_hash);
+        tracing::debug!(
+            "Submitted {} collateral withdraw to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            tx_hash
+        );
         self.check_collateral_balance().await?;
         Ok(())
     }
 
     /// Returns the deposited balance, in HP, of the given account.
-    pub async fn balance_of_collateral(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
+    pub async fn balance_of_collateral(
+        &self,
+        account: impl Into<Address>,
+    ) -> Result<U256, MarketError> {
         let account = account.into();
         tracing::trace!("Calling balanceOfCollateral({})", account);
         let balance =
@@ -1395,7 +1437,9 @@ impl<P: Provider> BoundlessMarketService<P> {
                 collateral_balance,
                 self.caller(),
             );
-        } else if collateral_balance < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO) {
+        } else if collateral_balance
+            < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO)
+        {
             tracing::warn!(
                 "[B-BAL-STK] collateral balance {} for {} < warning threshold",
                 collateral_balance,

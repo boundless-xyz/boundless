@@ -185,7 +185,8 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         };
     tracing::debug!("Indexer URL: {}", indexer_url);
 
-    let collateral_token_decimals = boundless_client.boundless_market.collateral_token_decimals().await?;
+    let collateral_token_decimals =
+        boundless_client.boundless_market.collateral_token_decimals().await?;
 
     // Build the first request. We will clone this request, updating the id and bidding start, to
     // create each request sent.
@@ -198,7 +199,10 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                 .with_env(env.clone())
                 .with_offer(
                     OfferParams::builder()
-                        .lock_collateral(parse_units(&bench.lockin_stake, collateral_token_decimals)?)
+                        .lock_collateral(parse_units(
+                            &bench.lockin_stake,
+                            collateral_token_decimals,
+                        )?)
                         .ramp_up_period(bench.ramp_up)
                         .timeout(bench.timeout)
                         .lock_timeout(bench.lock_timeout),
@@ -537,10 +541,7 @@ mod tests {
         let ctx = create_test_ctx(&anvil).await.unwrap();
         ctx.customer_market.deposit(default_allowance()).await.unwrap();
         ctx.prover_market.approve_deposit_collateral(default_allowance()).await.unwrap();
-        ctx.prover_market
-            .deposit_collateral(default_allowance())
-            .await
-            .unwrap();
+        ctx.prover_market.deposit_collateral(default_allowance()).await.unwrap();
 
         // Start a broker
         let config = new_config_with_min_deadline(2, 10).await;

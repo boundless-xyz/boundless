@@ -201,7 +201,9 @@ impl TryFrom<OfferParams> for Offer {
             timeout: value.timeout.ok_or(MissingFieldError::new("timeout"))?,
             minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?,
             maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?,
-            lockCollateral: value.lock_collateral.ok_or(MissingFieldError::new("lock_collateral"))?,
+            lockCollateral: value
+                .lock_collateral
+                .ok_or(MissingFieldError::new("lock_collateral"))?,
             lockTimeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
             rampUpStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
             rampUpPeriod: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,

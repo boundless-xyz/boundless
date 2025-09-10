@@ -120,11 +120,13 @@ async fn run(args: &MainArgs) -> Result<()> {
 
     // Parse thresholds
     let prover_eth_donate_threshold = parse_ether(&args.prover_eth_donate_threshold)?;
-    let collateral_token_decimals = distributor_client.boundless_market.collateral_token_decimals().await?;
+    let collateral_token_decimals =
+        distributor_client.boundless_market.collateral_token_decimals().await?;
     let prover_collateral_donate_threshold: U256 =
         parse_units(&args.prover_stake_donate_threshold, collateral_token_decimals)?.into();
     let eth_threshold = parse_ether(&args.eth_threshold)?;
-    let collateral_threshold: U256 = parse_units(&args.stake_threshold, collateral_token_decimals)?.into();
+    let collateral_threshold: U256 =
+        parse_units(&args.stake_threshold, collateral_token_decimals)?.into();
     let eth_top_up_amount = parse_ether(&args.eth_top_up_amount)?;
     let collateral_top_up_amount: U256 =
         parse_units(&args.stake_top_up_amount, collateral_token_decimals)?.into();
@@ -246,7 +248,9 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .await?;
 
             // Withdraw collateral from market to prover
-            if let Err(e) = prover_client.boundless_market.withdraw_collateral(withdraw_amount).await {
+            if let Err(e) =
+                prover_client.boundless_market.withdraw_collateral(withdraw_amount).await
+            {
                 tracing::error!(
                     "Failed to withdraw collateral from boundless market for prover {}: {:?}. Skipping.",
                     prover_address,
@@ -302,7 +306,8 @@ async fn run(args: &MainArgs) -> Result<()> {
         let prover_wallet = EthereumWallet::from(prover_key.clone());
         let prover_address = prover_wallet.default_signer().address();
 
-        let collateral_token = distributor_client.boundless_market.collateral_token_address().await?;
+        let collateral_token =
+            distributor_client.boundless_market.collateral_token_address().await?;
         let collateral_token_contract = IERC20::new(collateral_token, distributor_provider.clone());
 
         let distributor_collateral_balance =
@@ -316,7 +321,8 @@ async fn run(args: &MainArgs) -> Result<()> {
             let mut prover_collateral_balance_contract =
                 collateral_token_contract.balanceOf(prover_address).call().await?;
 
-            let transfer_amount = collateral_top_up_amount.saturating_sub(prover_collateral_balance_market);
+            let transfer_amount =
+                collateral_top_up_amount.saturating_sub(prover_collateral_balance_market);
 
             if transfer_amount > distributor_collateral_balance {
                 tracing::error!("[B-DIST-STK]: Distributor {} has insufficient collateral balance to top up prover {} with {} collateral", distributor_address, prover_address, format_units(transfer_amount, collateral_token_decimals)?);
@@ -379,7 +385,11 @@ async fn run(args: &MainArgs) -> Result<()> {
                 collateral_token_contract.balanceOf(prover_address).call().await?;
 
             prover_client.boundless_market.approve_deposit_collateral(U256::MAX).await?;
-            tracing::info!("Approved {} collateral to deposit for prover {}. About to deposit collateral", format_units(prover_collateral_balance_contract, collateral_token_decimals)?, prover_address);
+            tracing::info!(
+                "Approved {} collateral to deposit for prover {}. About to deposit collateral",
+                format_units(prover_collateral_balance_contract, collateral_token_decimals)?,
+                prover_address
+            );
             if let Err(e) = prover_client
                 .boundless_market
                 .deposit_collateral(prover_collateral_balance_contract)
@@ -392,7 +402,11 @@ async fn run(args: &MainArgs) -> Result<()> {
                 );
                 continue;
             }
-            tracing::info!("Collateral deposit of {} completed for prover {}", format_units(prover_collateral_balance_contract, collateral_token_decimals)?, prover_address);
+            tracing::info!(
+                "Collateral deposit of {} completed for prover {}",
+                format_units(prover_collateral_balance_contract, collateral_token_decimals)?,
+                prover_address
+            );
         }
     }
 

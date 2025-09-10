@@ -99,8 +99,9 @@ async fn test_deposit_withdraw_stake() {
     let deposit = U256::from(10);
 
     // set stake balance alerts
-    ctx.prover_market =
-        ctx.prover_market.with_collateral_balance_alert(&Some(U256::from(10)), &Some(U256::from(5)));
+    ctx.prover_market = ctx
+        .prover_market
+        .with_collateral_balance_alert(&Some(U256::from(10)), &Some(U256::from(5)));
 
     // Approve and deposit stake
     ctx.prover_market.approve_deposit_collateral(deposit).await.unwrap();

@@ -766,9 +766,12 @@ where
     ) -> Result<OrderPricingOutcome, OrderPickerErr> {
         let config_min_mcycle_price_collateral_tokens: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            parse_units(&config.market.mcycle_price_collateral_token, self.collateral_token_decimals)
-                .context("Failed to parse mcycle_price")?
-                .into()
+            parse_units(
+                &config.market.mcycle_price_collateral_token,
+                self.collateral_token_decimals,
+            )
+            .context("Failed to parse mcycle_price")?
+            .into()
         };
 
         let total_cycles = U256::from(proof_res.stats.total_cycles);
@@ -855,7 +858,8 @@ where
     ///
     /// This is defined as the balance in staking tokens of the signer account minus any pending locked stake.
     async fn available_stake_balance(&self) -> Result<U256> {
-        let balance = self.market.balance_of_collateral(self.provider.default_signer_address()).await?;
+        let balance =
+            self.market.balance_of_collateral(self.provider.default_signer_address()).await?;
         Ok(balance)
     }
 

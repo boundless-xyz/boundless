@@ -333,7 +333,10 @@ async fn e2e_fulfill_after_lock_expiry() {
     ctx.hit_points_service.mint(prover_signer.address(), default_allowance()).await.unwrap();
 
     // Deposit locker balances
-    locker_market.deposit_collateral_with_permit(default_allowance(), &locker_signer).await.unwrap();
+    locker_market
+        .deposit_collateral_with_permit(default_allowance(), &locker_signer)
+        .await
+        .unwrap();
     locker_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     let config = new_config_with_min_deadline(1, 0).await;
