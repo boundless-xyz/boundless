@@ -12,7 +12,7 @@ version = "v0.10.0"
 admin = "0x0000000000000000000000000000000000000000"
 
 # Contracts
-verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+verifier = "0x0b144E07A0826182B6b59788c34b32Bfa86Fb711"
 set-verifier = "0x0000000000000000000000000000000000000000"
 boundless-market = "0x0000000000000000000000000000000000000000"
 boundless-market-impl = "0x0000000000000000000000000000000000000000"
@@ -26,24 +26,24 @@ assessor-guest-url = "0x0000000000000000000000000000000000000000"
 deprecated-assessor-duration = 0  # 5 days
 
 # PoVW contracts
-povw-accounting = "0x0000000000000000000000000000000000000000"
-povw-accounting-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting = "0xF4a9Dd1aE7904a6031C35348C921fcDb605d3d1b"
+povw-accounting-impl = "0x6366C0f7511239d353a7e3E5C94Cb4C7FB8C84eC"
 povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
 povw-accounting-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
-povw-accounting-deployment-commit = ""
-povw-mint = "0x0000000000000000000000000000000000000000"
-povw-mint-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting-deployment-commit = "61ab81e65"
+povw-mint = "0x14D7E7a4f240FFEa740431AC3Ca16CCaEB7f41de"
+povw-mint-impl = "0xc504c7d9F6644083831fe53A56Cc031684800399"
 povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
 povw-mint-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
-povw-mint-deployment-commit = ""
+povw-mint-deployment-commit = "61ab81e65"
 
 # PoVW image IDs
-povw-log-updater-id = "0x0000000000000000000000000000000000000000000000000000000000000000"
-povw-mint-calculator-id = "0x0000000000000000000000000000000000000000000000000000000000000000"
+povw-log-updater-id = "0x004b225edce73d0fd399993c14bea083a08bc346eacd68a644946179ebc4818f"
+povw-mint-calculator-id = "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b8154109db76bf"
 
 # ZKC contracts (TODO: set to real addresses)
 zkc = "0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555"
-vezkc = "0xe8ae8ee8ffa57f6a79b6cbe06bafc0b05f3ffbf4"
+vezkc = "0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4"
 
 [deployment.base-mainnet]
 name = "Base Mainnet"
@@ -238,15 +238,15 @@ deprecated-assessor-duration = 259200  # 3 days
 povw-accounting-admin = "0x48268bE6235A23eb7b67356469362869D5d0293f"
 povw-mint-admin = "0x48268bE6235A23eb7b67356469362869D5d0293f"
 povw-accounting = "0x705e261854555dEB5Ab125cE4f722f78C0074bE2"
-povw-accounting-impl = "0xa33dec083f4AfF0A7C99cB279562ba81C792286C"
-povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
+povw-accounting-impl = "0xedba590f7d6252cf259247396036f22def7b40dd"
+povw-accounting-old-impl = "0xa33dec083f4aff0a7c99cb279562ba81c792286c"
 povw-mint = "0x35066ca433583441F5Db084775B9D065958205E7"
-povw-mint-impl = "0x3A41b19cD02E58aABAeF199E61bd27602333dcF2"
-povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
-povw-log-updater-id = "0x9ad1e26d64c6e302edd81844d69eddf841920b55f3ad0c8283af78854117e299"
-povw-mint-calculator-id = "0xef162c968a10afa46766ba99df6a89093fbc722ea4b600a4da4524297d8996a2"
-povw-accounting-deployment-commit = "9838791da"
-povw-mint-deployment-commit = "9838791da"
+povw-mint-impl = "0x8a7ef7d77f372642d9a360bd6a326819f634a7a0"
+povw-mint-old-impl = "0x3a41b19cd02e58aabaef199e61bd27602333dcf2"
+povw-log-updater-id = "0x004b225edce73d0fd399993c14bea083a08bc346eacd68a644946179ebc4818f"
+povw-mint-calculator-id = "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b8154109db76bf"
+povw-accounting-deployment-commit = "61ab81e65"
+povw-mint-deployment-commit = "61ab81e65"
 
 # ZKC contracts
 zkc = "0x03f177Bd8A0CF725c29945C0a0434897A4a16628"
