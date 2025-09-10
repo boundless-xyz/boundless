@@ -67,7 +67,7 @@ contract UpgradePoVWAccounting is PoVWScript {
                     console2.log("Using PoVW log updater ID from .bin file");
                 }
             }
-            
+
             // Require that we have a valid log updater ID
             logUpdaterId = PoVWLib.requireLib(logUpdaterId, "Log Updater ID");
         }
@@ -167,7 +167,7 @@ contract UpgradePoVWMint is PoVWScript {
                     console2.log("Using PoVW mint calculator ID from .bin file");
                 }
             }
-            
+
             // Require that we have a valid mint calculator ID
             mintCalculatorId = PoVWLib.requireLib(mintCalculatorId, "Mint Calculator ID");
         }

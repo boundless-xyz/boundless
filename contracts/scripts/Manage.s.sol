@@ -93,7 +93,9 @@ contract DeployBoundlessMarket is BoundlessScript {
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
         address newImplementation = address(
-            new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, bytes32(0), 0, collateralToken)
+            new BoundlessMarket{salt: salt}(
+                IRiscZeroVerifier(verifier), assessorImageId, bytes32(0), 0, collateralToken
+            )
         );
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(
