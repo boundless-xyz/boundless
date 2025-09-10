@@ -21,7 +21,7 @@ config:
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
   order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00002"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://eth-sepolia.boundless.network
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
@@ -44,7 +44,7 @@ config:
   order-generator-onchain:SECONDS_PER_MCYCLE: "15"
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "50"
-  order-generator-onchain:INPUT_MAX_MCYCLES: "20"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "15"
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-offchain:EXEC_RATE_KHZ: "500"
   order-generator-onchain:EXEC_RATE_KHZ: "500"
