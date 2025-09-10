@@ -48,6 +48,12 @@ max_collateral = "25" # USDC
 max_file_size = 50_000_000
 # Max retries for fetching input / image contents from URLs
 #max_fetch_retries = 2
+# Default URL for assessor image
+# This URL will be tried first before falling back to the image URL from the boundless market contract.
+#assessor_default_image_url = "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
+# Default URL for set builder image  
+# This URL will be tried first before falling back to the image URL from the set verifier contract.
+#set_builder_default_image_url = "https://signal-artifacts.beboundless.xyz/v2/set-builder/guest.bin"
 # Max concurrent locks
 #
 # Maximum number of concurrent proofs that can be processed at once
