@@ -87,7 +87,7 @@ contract DeployBoundlessMarket is BoundlessScript {
         address verifier = deploymentConfig.verifier.required("verifier");
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl.required("assessor-guest-url");
-        address stakeToken = deploymentConfig.collateralToken.required("stake-token");
+        address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
 
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
@@ -157,7 +157,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
 
         address admin = deploymentConfig.admin.required("admin");
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        address stakeToken = deploymentConfig.collateralToken.required("stake-token");
+        address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
         address verifier = deploymentConfig.verifier.required("verifier");
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         uint32 deprecatedAssessorDuration = deploymentConfig.deprecatedAssessorDuration;
@@ -233,7 +233,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
         console2.log("Upgraded BoundlessMarket impl contract at %s", boundlessMarketImpl);
-        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
+        console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
         console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
@@ -300,7 +300,7 @@ contract RollbackBoundlessMarket is BoundlessScript {
 
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
-        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
+        console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
         console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);

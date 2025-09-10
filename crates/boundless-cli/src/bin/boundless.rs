@@ -564,8 +564,8 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
         }
         AccountCommands::CollateralBalance { address } => {
             let client = config.build_client().await?;
-            let symbol = client.boundless_market.stake_token_symbol().await?;
-            let decimals = client.boundless_market.stake_token_decimals().await?;
+            let symbol = client.boundless_market.collateral_token_symbol().await?;
+            let decimals = client.boundless_market.collateral_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
             if addr == Address::ZERO {
                 bail!("No address specified for collateral balance query. Please provide an address or a private key.")
@@ -1422,9 +1422,6 @@ mod tests {
         node_bindings::{Anvil, AnvilInstance},
         primitives::{aliases::U96, utils::format_units, Bytes},
         providers::WalletProvider,
-    };
-    use boundless_market::contracts::{
-        Predicate, PredicateType, RequestId, RequestInput, Requirements,
     };
     use boundless_market::{
         contracts::{
