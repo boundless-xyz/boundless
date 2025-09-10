@@ -576,10 +576,16 @@ where
             )
         };
 
-        tracing::debug!("Uploading set builder image");
-        self.fetch_and_upload_image(prover, image_id, image_url_str, path, default_url)
-            .await
-            .context("uploading set builder image")?;
+        self.fetch_and_upload_image(
+            "set builder",
+            prover,
+            image_id,
+            image_url_str,
+            path,
+            default_url,
+        )
+        .await
+        .context("uploading set builder image")?;
         Ok(image_id)
     }
 
@@ -601,8 +607,7 @@ where
             )
         };
 
-        tracing::debug!("Uploading assessor image");
-        self.fetch_and_upload_image(prover, image_id, image_url_str, path, default_url)
+        self.fetch_and_upload_image("assessor", prover, image_id, image_url_str, path, default_url)
             .await
             .context("uploading assessor image")?;
         Ok(image_id)
@@ -610,6 +615,7 @@ where
 
     async fn fetch_and_upload_image(
         &self,
+        image_label: &'static str,
         prover: &ProverObj,
         image_id: Digest,
         contract_url: String,
@@ -617,10 +623,11 @@ where
         default_url: String,
     ) -> Result<()> {
         if prover.has_image(&image_id.to_string()).await? {
-            tracing::debug!("Image for {} already uploaded, skipping pull", image_id);
+            tracing::debug!("{} image {} already uploaded, skipping pull", image_label, image_id);
             return Ok(());
         }
 
+        tracing::debug!("Fetching {} image", image_label);
         let program_bytes = if let Some(path) = program_path {
             // Read from local file if provided
             tokio::fs::read(&path)
@@ -633,11 +640,15 @@ where
                     let computed_id = risc0_zkvm::compute_image_id(&bytes)
                         .context("Failed to compute image ID")?;
                     if computed_id == image_id {
-                        tracing::debug!("Successfully verified image from default URL");
+                        tracing::debug!(
+                            "Successfully verified {} image from default URL",
+                            image_label
+                        );
                         bytes
                     } else {
                         tracing::warn!(
-                            "Image ID mismatch from default URL: expected {}, got {}, falling back to contract URL",
+                            "{} image ID mismatch from default URL: expected {}, got {}, falling back to contract URL",
+                            image_label,
                             image_id,
                             computed_id
                         );
@@ -646,7 +657,8 @@ where
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "Failed to use default URL: {}, falling back to contract URL",
+                        "Failed to download {} image from default URL: {}, falling back to contract URL",
+                        image_label,
                         e
                     );
                     self.download_image(&contract_url, "contract").await?
@@ -659,13 +671,19 @@ where
             risc0_zkvm::compute_image_id(&program_bytes).context("Failed to compute image ID")?;
 
         if computed_id != image_id {
-            anyhow::bail!("Image ID mismatch: expected {}, got {}", image_id, computed_id);
+            anyhow::bail!(
+                "{} image ID mismatch: expected {}, got {}",
+                image_label,
+                image_id,
+                computed_id
+            );
         }
 
+        tracing::debug!("Uploading {} image to bento", image_label);
         prover
             .upload_image(&image_id.to_string(), program_bytes)
             .await
-            .context("Failed to upload image to prover")?;
+            .with_context(|| format!("Failed to upload {} image to prover", image_label))?;
         Ok(())
     }
 
