@@ -110,9 +110,9 @@ impl ZkcStake {
 
         if self.add {
             let (token_id, owner, amount) =
-                match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt) {
+                match extract_tx_log::<IStaking::StakeAdded>(&tx_receipt) {
                     Ok(log) => {
-                        (U256::from(log.data().tokenId), log.data().owner, log.data().amount)
+                        (U256::from(log.data().tokenId), log.data().owner, log.data().addedAmount)
                     }
                     Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
                 };
@@ -121,12 +121,12 @@ impl ZkcStake {
             );
         } else {
             let (token_id, owner, amount_added, new_total) =
-                match extract_tx_log::<IStaking::StakeAdded>(&tx_receipt) {
+                match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt) {
                     Ok(log) => (
                         U256::from(log.data().tokenId),
                         log.data().owner,
-                        log.data().addedAmount,
-                        log.data().newTotal,
+                        log.data().amount,
+                        log.data().amount,
                     ),
                     Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
                 };
