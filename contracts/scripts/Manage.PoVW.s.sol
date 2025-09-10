@@ -143,7 +143,6 @@ contract UpgradePoVWMint is PoVWScript {
         PovwAccounting povwAccounting =
             PovwAccounting(PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
 
-        // Get the latest mint calculator ID dynamically
         bytes32 mintCalculatorId;
         bool devMode = bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0;
 
