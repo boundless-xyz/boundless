@@ -17,7 +17,10 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::Context;
-use boundless_zkc::{contracts::IStaking, deployments::Deployment};
+use boundless_zkc::{
+    contracts::{DecodeRevert, IStaking},
+    deployments::Deployment,
+};
 use chrono::DateTime;
 use clap::Args;
 
@@ -72,6 +75,10 @@ pub async fn get_staked_amount(
     account: Address,
 ) -> anyhow::Result<(U256, U256)> {
     let staking = IStaking::new(staking_address, provider);
-    let result = staking.getStakedAmountAndWithdrawalTime(account).call().await?;
+    let result = staking
+        .getStakedAmountAndWithdrawalTime(account)
+        .call()
+        .await
+        .maybe_decode_revert::<IStaking::IStakingErrors>()?;
     Ok((result.amount, result.withdrawableAt))
 }

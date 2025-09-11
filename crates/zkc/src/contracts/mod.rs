@@ -9,7 +9,7 @@ use std::fmt::Debug;
 
 use alloy::{
     rpc::types::{Log, TransactionReceipt},
-    sol_types::SolEvent,
+    sol_types::{SolEvent, SolInterface},
 };
 use anyhow::{anyhow, Context, Result};
 
@@ -101,5 +101,18 @@ pub fn extract_tx_logs<E: SolEvent + Debug + Clone>(
             E::SIGNATURE
         )),
         _ => Ok(logs),
+    }
+}
+
+pub trait DecodeRevert<T> {
+    fn maybe_decode_revert<E: SolInterface + Debug>(self) -> Result<T>;
+}
+
+impl<T> DecodeRevert<T> for alloy::contract::Result<T, alloy::contract::Error> {
+    fn maybe_decode_revert<E: SolInterface + Debug>(self) -> Result<T> {
+        self.map_err(|err| match err.as_decoded_interface_error::<E>() {
+            Some(e) => anyhow!("execution reverted with error: {e:?}"),
+            None => err.into(),
+        })
     }
 }

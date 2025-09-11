@@ -17,7 +17,10 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{bail, Context};
-use boundless_zkc::{contracts::IStaking, deployments::Deployment};
+use boundless_zkc::{
+    contracts::{DecodeRevert, IStaking},
+    deployments::Deployment,
+};
 use clap::Args;
 
 use crate::config::GlobalConfig;
@@ -65,6 +68,10 @@ pub async fn get_active_token_id(
     account: Address,
 ) -> anyhow::Result<U256> {
     let staking = IStaking::new(staking_address, provider);
-    let token_id = staking.getActiveTokenId(account).call().await?;
+    let token_id = staking
+        .getActiveTokenId(account)
+        .call()
+        .await
+        .maybe_decode_revert::<IStaking::IStakingErrors>()?;
     Ok(token_id)
 }
