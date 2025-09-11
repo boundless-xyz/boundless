@@ -2192,6 +2192,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "boundless-market",
+ "boundless-zkc",
  "guest-assessor",
  "guest-set-builder",
  "guest-util",
@@ -2199,6 +2200,25 @@ dependencies = [
  "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
+ "tokio",
+]
+
+[[package]]
+name = "boundless-zkc"
+version = "0.15.0"
+dependencies = [
+ "alloy",
+ "alloy-chains",
+ "anyhow",
+ "clap",
+ "derive_builder",
+ "risc0-build",
+ "risc0-build-ethereum 3.0.1",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
