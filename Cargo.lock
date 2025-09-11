@@ -2836,6 +2836,7 @@ dependencies = [
  "bincode",
  "boundless-market",
  "boundless-povw",
+ "boundless-zkc",
  "bytemuck",
  "derive_builder",
  "guest-assessor",
