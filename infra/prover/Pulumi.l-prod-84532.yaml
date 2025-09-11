@@ -27,3 +27,5 @@ config:
   bento-prover:PRIVATE_KEY_2:
     secure: v1:E/4+400ZRDFLDq08:JxoIVE87uyBxhycfhG0LSY4aRNpPIRFwTNQQyjrQpK014Q+YrhHxlmsgADHi4hrTVA02Fu8FkF1E6dx9eWR/Oqc7y79RbZ/d3MIurblMdwI=
   bento-prover:BRANCH: launch-infra
+  bento-prover:POVW_LOG_ID:
+    secure: v1:pGvXW8vJI5nCPU42:tVTUMFLYey3yOY+bHxU1ArN7gy12ZgxlFjP+UqOXnJGvTVVqC7MUzF3PHkRY9qLMi3k5fnoewg//jA==

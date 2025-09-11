@@ -32,6 +32,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         boundlessAlertsTopicArns?: string[];
         sshPublicKey?: string | pulumi.Output<string>;
         logJson?: boolean;
+        povwLogId?: string | pulumi.Output<string>;
     }, opts?: pulumi.ComponentResourceOptions) {
         super(name, name, opts);
 
@@ -50,7 +51,8 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
             boundlessAlertsTopicArns,
             segmentSize,
             snarkTimeout,
-            logJson
+            logJson,
+            povwLogId,
         } = args;
 
         const region = "us-west-2";
@@ -326,19 +328,23 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
             }
         }, { parent: this });
 
-        // Store all config in a json string in SSM. 
+        // Store all config in a json string in SSM.
         // EC2 instances will fetch this config and use it to setup the environment.
         // During updates, the instance will fetch the latest config from SSM and overwrite the existing files.
         const ethRpcUrlSecretArn = ethRpcUrlSecret.arn.apply(arn => arn);
         const privateKeySecretArn = privateKeySecret.arn.apply(arn => arn);
         const orderStreamUrlSecretArn = orderStreamUrlSecret.arn.apply(arn => arn);
         const brokerConfigName = `/boundless/${name}/broker-config`;
+        const povwLogIdValue = povwLogId ?
+            (typeof povwLogId === 'string' ? pulumi.output(povwLogId) : povwLogId) :
+            pulumi.output("");
         pulumi.all([
             brokerS3BucketName,
             ethRpcUrlSecretArn,
             privateKeySecretArn,
-            orderStreamUrlSecretArn
-        ]).apply(([brokerBucket, ethRpcArn, privateKeyArn, orderStreamArn]) => {
+            orderStreamUrlSecretArn,
+            povwLogIdValue
+        ]).apply(([brokerBucket, ethRpcArn, privateKeyArn, orderStreamArn, povwLogIdVal]) => {
             new aws.ssm.Parameter(`${name}-broker-config`, {
                 name: brokerConfigName,
                 type: "String",
@@ -357,6 +363,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                         privateKey: privateKeyArn,
                         orderStreamUrl: orderStreamArn
                     },
+                    povwLogId: povwLogIdVal,
                     logJson: logJson ?? false
                 }),
             }, { parent: this });
@@ -366,7 +373,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         const userData = pulumi.interpolate`#!/bin/bash
 set -euxo pipefail
 
-# Format and mount the instance store volume. 
+# Format and mount the instance store volume.
 # We use instance storage rather than EBS to avoid issues with sqlite.
 export VOLUME_NAME=/dev/$(lsblk -o NAME,MODEL,SIZE,MOUNTPOINT | awk '/NVMe Instance Storage/ {print $1}' | head -n1)
 mkfs -t xfs $VOLUME_NAME
@@ -525,6 +532,7 @@ ORDER_STREAM_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.orderStreamUrl')
 SEGMENT_SIZE=$(echo $CONFIG | jq -r '.segmentSize')
 SNARK_TIMEOUT=$(echo $CONFIG | jq -r '.snarkTimeout')
 LOG_JSON=$(echo $CONFIG | jq -r '.logJson')
+POVW_LOG_ID=$(echo $CONFIG | jq -r '.povwLogId // empty')
 # Get secrets from AWS Secrets Manager
 RPC_URL=$(aws --region ${region} secretsmanager get-secret-value --secret-id $ETH_RPC_URL_SECRET_ARN --query SecretString --output text)
 PRIVATE_KEY=$(aws --region ${region} secretsmanager get-secret-value --secret-id $PRIVATE_KEY_SECRET_ARN --query SecretString --output text)
@@ -548,6 +556,7 @@ ORDER_STREAM_URL=$ORDER_STREAM_URL
 SEGMENT_SIZE=$SEGMENT_SIZE
 SNARK_TIMEOUT=$SNARK_TIMEOUT
 LOG_JSON=$LOG_JSON
+POVW_LOG_ID=$POVW_LOG_ID
 ENVEOF
 
 EOF

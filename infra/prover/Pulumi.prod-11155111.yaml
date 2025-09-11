@@ -26,4 +26,6 @@ config:
   bento-prover:SNARK_TIMEOUT: "240"
   bento-prover:PRIVATE_KEY:
     secure: v1:cgpG7U1bBLQOirzh:Y4xEEpBVhnHcnnf9qrIfu+xyq0t21Yk1Zj33xEgK1l5eZGuy17yJJUR3HBUSRqQQPr1hW03GHR/XbodZsFIXWrH8jjpHQ+DALakgMOjZbSo=
-  bento-prover:LOG_JSON: true
+  bento-prover:LOG_JSON: "true"
+  bento-prover:POVW_LOG_ID:
+    secure: v1:8NOC3crQCogQUag6:VaD5YPZ8uGssvC/e4E6IXcdG4CGVM4GtycVzwyh4Z9qKfn4FINLVR7TU76jGPKw5kRwtfaucqMeh+A==
