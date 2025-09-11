@@ -2623,7 +2623,6 @@ dependencies = [
  "assert_fs",
  "atomicwrites",
  "bincode",
- "blst",
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
