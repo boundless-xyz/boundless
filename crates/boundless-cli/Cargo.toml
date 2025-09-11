@@ -17,6 +17,7 @@ alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
 atomicwrites = "0.4.4"
 bincode = { workspace = true }
+blst = { version = "0.3" } # ensures -lblst is linked
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
