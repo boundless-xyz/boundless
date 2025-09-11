@@ -14,7 +14,6 @@
 
 pragma solidity ^0.8.20;
 
-
 /// @title StakingRewards
 /// @notice Contract for distributing staking rewards based on veZKC staking positions
 /// @dev Users can claim rewards for specific epochs based on their staking value
