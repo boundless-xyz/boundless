@@ -65,7 +65,7 @@ jobs:
       - name: print forge version
         run: forge --version
 
-      - name: Ensure gas snapshots have been updated. TODO: Fix this. Snapshot checks are currently disabled as they don't match in CI.
+      - name: Ensure gas snapshots have been updated. TODO Fix this. Snapshot checks are currently disabled as they don't match in CI.
         run: FORGE_SNAPSHOT_CHECK=false forge test --isolate
 
   upgradability:
