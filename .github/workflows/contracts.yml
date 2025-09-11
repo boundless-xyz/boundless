@@ -204,12 +204,6 @@ jobs:
         run: forge build
 
       - name: cargo install boundless-cli
-        env:
-          RUSTFLAGS: >-
-            -Clink-arg=-Wl,--start-group
-            -Clink-arg=-lckzg
-            -Clink-arg=-lblst
-            -Clink-arg=-Wl,--end-group
         run: cargo install boundless-cli --path crates/boundless-cli --locked
 
       - name: cargo install just
