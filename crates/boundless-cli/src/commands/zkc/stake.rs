@@ -22,7 +22,7 @@ use alloy::{
 use anyhow::{ensure, Context};
 use boundless_market::contracts::token::{IERC20Permit, Permit};
 use boundless_zkc::{
-    contracts::{extract_tx_log, IStaking},
+    contracts::{extract_tx_log, DecodeRevert, IStaking},
     deployments::Deployment,
 };
 use clap::Args;
@@ -156,7 +156,9 @@ impl ZkcStake {
                 staking.addToStake(value).send().await
             }
         };
-        send_result.context("Sending stake transaction failed")
+        send_result
+            .maybe_decode_revert::<IStaking::IStakingErrors>()
+            .context("Sending stake transaction failed")
     }
 
     async fn stake_with_permit(
@@ -202,6 +204,8 @@ impl ZkcStake {
                 staking.addToStakeWithPermit(value, deadline, v, r, s).send().await
             }
         };
-        send_result.context("Sending stake with permit transaction failed")
+        send_result
+            .maybe_decode_revert::<IStaking::IStakingErrors>()
+            .context("Sending stake with permit transaction failed")
     }
 }

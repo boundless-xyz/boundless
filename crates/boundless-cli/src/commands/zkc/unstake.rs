@@ -19,7 +19,10 @@ use alloy::{
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
 };
 use anyhow::{ensure, Context};
-use boundless_zkc::{contracts::IStaking, deployments::Deployment};
+use boundless_zkc::{
+    contracts::{DecodeRevert, IStaking},
+    deployments::Deployment,
+};
 use chrono::DateTime;
 use clap::Args;
 
@@ -68,8 +71,8 @@ impl ZkcUnstake {
             anyhow::bail!("No staked amount found");
         }
 
-        let pending_tx = if withdrawable_at.is_zero() {
-            self.initiate_unstake(provider.clone(), deployment).await?
+        let send_result = if withdrawable_at.is_zero() {
+            self.initiate_unstake(provider.clone(), deployment).await
         } else {
             let block_timestamp = get_block_timestamp(provider.clone()).await?;
             let withdrawable_at = u64::try_from(withdrawable_at)?;
@@ -81,8 +84,9 @@ impl ZkcUnstake {
                     datetime.format("%Y-%m-%d %H:%M:%S")
                 );
             }
-            self.complete_unstake(provider.clone(), deployment).await?
+            self.complete_unstake(provider.clone(), deployment).await
         };
+        let pending_tx = send_result.maybe_decode_revert::<IStaking::IStakingErrors>()?;
 
         tracing::debug!("Broadcasting unstake deposit tx {}", pending_tx.tx_hash());
         let tx_hash = pending_tx.tx_hash();
@@ -111,20 +115,18 @@ impl ZkcUnstake {
         &self,
         provider: impl Provider + Clone,
         deployment: Deployment,
-    ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
+    ) -> alloy::contract::Result<PendingTransactionBuilder<Ethereum>, alloy::contract::Error> {
         let staking = IStaking::new(deployment.vezkc_address, provider);
-        let result = staking.initiateUnstake().send().await?;
-        Ok(result)
+        staking.initiateUnstake().send().await
     }
 
     async fn complete_unstake(
         &self,
         provider: impl Provider + Clone,
         deployment: Deployment,
-    ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
+    ) -> alloy::contract::Result<PendingTransactionBuilder<Ethereum>, alloy::contract::Error> {
         let staking = IStaking::new(deployment.vezkc_address, provider);
-        let result = staking.completeUnstake().send().await?;
-        Ok(result)
+        staking.completeUnstake().send().await
     }
 }
 
