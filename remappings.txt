@@ -6,3 +6,4 @@ forge-std/=lib/forge-std/src/
 risc0/=lib/risc0-ethereum/contracts/src/
 steel/=lib/steel/contracts/src/
 solmate/=lib/solmate/src
+zkc/=lib/zkc/src/

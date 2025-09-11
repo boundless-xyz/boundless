@@ -2866,6 +2866,7 @@ dependencies = [
  "alloy-chains",
  "anyhow",
  "boundless-test-utils",
+ "clap",
  "derive_builder",
  "rand 0.9.2",
  "risc0-build",

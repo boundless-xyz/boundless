@@ -14,10 +14,27 @@
 
 //! Commands of the Boundless CLI for ZKC operations.
 
+mod balance_of;
+mod calculate_rewards;
+mod claim_rewards;
 mod delegate_rewards;
+mod get_active_token_id;
+mod get_current_epoch;
+mod get_epoch_end_time;
+mod get_staked_amount;
 mod stake;
+mod unstake;
+
+pub use balance_of::{balance_of, ZkcBalanceOf};
+pub use calculate_rewards::{calculate_rewards, ZkcCalculateRewards};
+pub use claim_rewards::{claim_rewards, ZkcClaimRewards};
 pub use delegate_rewards::ZkcDelegateRewards;
-pub use stake::{WithPermit, ZkcStake};
+pub use get_active_token_id::{get_active_token_id, ZkcGetActiveTokenId};
+pub use get_current_epoch::{get_current_epoch, ZkcGetCurrentEpoch};
+pub use get_epoch_end_time::{get_epoch_end_time, ZkcGetEpochEndTime};
+pub use get_staked_amount::{get_staked_amount, ZkcGetStakedAmount};
+pub use stake::ZkcStake;
+pub use unstake::ZkcUnstake;
 
 use clap::Subcommand;
 
@@ -28,8 +45,24 @@ use crate::config::GlobalConfig;
 pub enum ZKCCommands {
     /// Stake ZKC tokens.
     Stake(ZkcStake),
+    /// Unstake ZKC tokens.
+    Unstake(ZkcUnstake),
+    /// Get staked amount and withdrawable time for a specified address.
+    GetStakedAmount(ZkcGetStakedAmount),
     /// Delegate rewards to a specified address.
     DelegateRewards(ZkcDelegateRewards),
+    /// Get active token ID for a specified address.
+    GetActiveTokenId(ZkcGetActiveTokenId),
+    /// Get balance for a specified address.
+    BalanceOf(ZkcBalanceOf),
+    /// Get current epoch for a specified address.
+    GetCurrentEpoch(ZkcGetCurrentEpoch),
+    /// Get epoch end time for a specified address.
+    GetEpochEndTime(ZkcGetEpochEndTime),
+    /// Calculate rewards for a specified address.
+    CalculateRewards(ZkcCalculateRewards),
+    /// Claim rewards for a specified address.
+    ClaimRewards(ZkcClaimRewards),
 }
 
 impl ZKCCommands {
@@ -38,6 +71,14 @@ impl ZKCCommands {
         match self {
             Self::Stake(cmd) => cmd.run(global_config).await,
             Self::DelegateRewards(cmd) => cmd.run(global_config).await,
+            Self::GetStakedAmount(cmd) => cmd.run(global_config).await,
+            Self::GetActiveTokenId(cmd) => cmd.run(global_config).await,
+            Self::BalanceOf(cmd) => cmd.run(global_config).await,
+            Self::GetCurrentEpoch(cmd) => cmd.run(global_config).await,
+            Self::GetEpochEndTime(cmd) => cmd.run(global_config).await,
+            Self::Unstake(cmd) => cmd.run(global_config).await,
+            Self::CalculateRewards(cmd) => cmd.run(global_config).await,
+            Self::ClaimRewards(cmd) => cmd.run(global_config).await,
         }
     }
 }

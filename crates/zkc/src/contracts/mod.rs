@@ -28,6 +28,11 @@ alloy::sol!(
     "src/contracts/artifacts/IRewards.sol"
 );
 
+alloy::sol!(
+    #![sol(rpc, all_derives)]
+    "src/contracts/artifacts/IStakingRewards.sol"
+);
+
 pub fn extract_tx_log<E: SolEvent + Debug + Clone>(
     receipt: &TransactionReceipt,
 ) -> Result<Log<E>, anyhow::Error> {
@@ -63,5 +68,38 @@ pub fn extract_tx_log<E: SolEvent + Debug + Clone>(
             E::SIGNATURE,
             logs
         )),
+    }
+}
+
+pub fn extract_tx_logs<E: SolEvent + Debug + Clone>(
+    receipt: &TransactionReceipt,
+) -> Result<Vec<Log<E>>, anyhow::Error> {
+    let logs = receipt
+        .inner
+        .logs()
+        .iter()
+        .filter_map(|log| {
+            if log.topic0().map(|topic| E::SIGNATURE_HASH == *topic).unwrap_or(false) {
+                Some(
+                    log.log_decode::<E>()
+                        .with_context(|| format!("failed to decode event {}", E::SIGNATURE)),
+                )
+            } else {
+                tracing::debug!(
+                    "skipping log on receipt; does not match {}: {log:?}",
+                    E::SIGNATURE
+                );
+                None
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    match &logs[..] {
+        [] => Err(anyhow!(
+            "transaction 0x{:x} did not emit event {}",
+            receipt.transaction_hash,
+            E::SIGNATURE
+        )),
+        _ => Ok(logs),
     }
 }
