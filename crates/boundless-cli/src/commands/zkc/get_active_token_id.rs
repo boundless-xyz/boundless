@@ -16,7 +16,7 @@ use alloy::{
     primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
 };
-use anyhow::Context;
+use anyhow::{bail, Context};
 use boundless_zkc::{contracts::IStaking, deployments::Deployment};
 use clap::Args;
 
@@ -49,6 +49,9 @@ impl ZkcGetActiveTokenId {
 
         let token_id =
             get_active_token_id(provider, deployment.vezkc_address, self.account).await?;
+        if token_id.is_zero() {
+            bail!("No active token ID for account {:#x}", self.account);
+        }
         tracing::info!("Active token ID: {token_id}");
 
         Ok(())
