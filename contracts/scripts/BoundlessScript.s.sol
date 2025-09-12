@@ -8,8 +8,8 @@ pragma solidity ^0.8.20;
 
 import {Script, console2} from "forge-std/Script.sol";
 
-/// @notice Shared library for PoVW deployment and management scripts
-library PoVWLib {
+/// @notice Shared library for Boundless deployment and management scripts
+library BoundlessScript {
     /// @notice Validates that an address value is not zero, with descriptive error message
     function requireLib(address value, string memory label) internal pure returns (address) {
         if (value == address(0)) {
@@ -49,11 +49,11 @@ library PoVWLib {
     }
 }
 
-/// @notice Base contract for PoVW scripts with shared functionality
-abstract contract PoVWScript is Script {
-    using PoVWLib for address;
-    using PoVWLib for bytes32;
-    using PoVWLib for string;
+/// @notice Base contract for Boundless scripts with shared functionality
+abstract contract BoundlessScriptBase is Script {
+    using BoundlessScript for address;
+    using BoundlessScript for bytes32;
+    using BoundlessScript for string;
 
     // Path to deployment config file, relative to the project root.
     string constant CONFIG = "contracts/deployment.toml";
@@ -73,7 +73,7 @@ abstract contract PoVWScript is Script {
             console2.log(string.concat("WARNING: ", actionType, " was done with uncommitted changes!"));
             console2.log(string.concat("- The ", actionType, " commit hash may not reflect actual code state"));
             console2.log(
-                string.concat("- Consider committing changes before production ", PoVWLib._toLowerCase(actionType), "s")
+                string.concat("- Consider committing changes before production ", BoundlessScript._toLowerCase(actionType), "s")
             );
             console2.log("=================================================================");
         }

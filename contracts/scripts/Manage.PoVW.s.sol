@@ -15,18 +15,18 @@ import {IRewards as IZKCRewards} from "zkc/interfaces/IRewards.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
-import {PoVWScript, PoVWLib} from "./PoVWLib.s.sol";
+import {BoundlessScriptBase, BoundlessScript} from "./BoundlessScript.s.sol";
 
 /// @notice Upgrade script for the PovwAccounting contract.
 /// @dev Set values in deployment.toml to configure the upgrade.
-contract UpgradePoVWAccounting is PoVWScript {
+contract UpgradePoVWAccounting is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
         // Get PoVW proxy address from deployment.toml
-        address povwAccountingAddress = PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
+        address povwAccountingAddress = BoundlessScript.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
 
         // Get current admin from the proxy contract
         PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
@@ -35,10 +35,10 @@ contract UpgradePoVWAccounting is PoVWScript {
         address currentImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
 
         // Get constructor arguments for PovwAccounting
-        IRiscZeroVerifier verifier = IRiscZeroVerifier(PoVWLib.requireLib(deploymentConfig.verifier, "verifier"));
+        IRiscZeroVerifier verifier = IRiscZeroVerifier(BoundlessScript.requireLib(deploymentConfig.verifier, "verifier"));
 
         // Handle ZKC address - if zero address, don't upgrade (production should have real ZKC)
-        address zkcAddress = PoVWLib.requireLib(deploymentConfig.zkc, "zkc");
+        address zkcAddress = BoundlessScript.requireLib(deploymentConfig.zkc, "zkc");
         IZKC zkc = IZKC(zkcAddress);
 
         // Get the latest log updater ID dynamically
@@ -68,7 +68,7 @@ contract UpgradePoVWAccounting is PoVWScript {
             }
 
             // Require that we have a valid log updater ID
-            logUpdaterId = PoVWLib.requireLib(logUpdaterId, "Log Updater ID");
+            logUpdaterId = BoundlessScript.requireLib(logUpdaterId, "Log Updater ID");
         }
 
         console2.log("Log Updater ID: %s", vm.toString(logUpdaterId));
@@ -77,6 +77,13 @@ contract UpgradePoVWAccounting is PoVWScript {
         opts.referenceContract = "build-info-reference:PovwAccounting";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
         opts.constructorData = abi.encode(verifier, zkc, logUpdaterId);
+        
+        // Check if safety checks should be skipped
+        bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
+        if (skipSafetyChecks) {
+            console2.log("WARNING: Skipping all upgrade safety checks (SKIP_SAFETY_CHECKS=true)");
+            opts.unsafeSkipAllChecks = true;
+        }
 
         vm.startBroadcast(currentAdmin);
         Upgrades.upgradeProxy(povwAccountingAddress, "PovwAccounting.sol:PovwAccounting", "", opts, currentAdmin);
@@ -117,14 +124,14 @@ contract UpgradePoVWAccounting is PoVWScript {
 
 /// @notice Upgrade script for the PovwMint contract.
 /// @dev Set values in deployment.toml to configure the upgrade.
-contract UpgradePoVWMint is PoVWScript {
+contract UpgradePoVWMint is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
         // Get PoVW proxy address from deployment.toml
-        address povwMintAddress = PoVWLib.requireLib(deploymentConfig.povwMint, "povw-mint");
+        address povwMintAddress = BoundlessScript.requireLib(deploymentConfig.povwMint, "povw-mint");
 
         // Get current admin from the proxy contract
         PovwMint povwMint = PovwMint(povwMintAddress);
@@ -138,9 +145,9 @@ contract UpgradePoVWMint is PoVWScript {
         console2.log("Current PovwMint implementation: %s", currentImplementation);
 
         // Get constructor arguments for PovwMint
-        IRiscZeroVerifier verifier = IRiscZeroVerifier(PoVWLib.requireLib(deploymentConfig.verifier, "verifier"));
+        IRiscZeroVerifier verifier = IRiscZeroVerifier(BoundlessScript.requireLib(deploymentConfig.verifier, "verifier"));
         PovwAccounting povwAccounting =
-            PovwAccounting(PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
+            PovwAccounting(BoundlessScript.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
 
         bytes32 mintCalculatorId;
         bool devMode = bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0;
@@ -168,14 +175,14 @@ contract UpgradePoVWMint is PoVWScript {
             }
 
             // Require that we have a valid mint calculator ID
-            mintCalculatorId = PoVWLib.requireLib(mintCalculatorId, "Mint Calculator ID");
+            mintCalculatorId = BoundlessScript.requireLib(mintCalculatorId, "Mint Calculator ID");
         }
 
         console2.log("Mint Calculator ID: %s", vm.toString(mintCalculatorId));
 
         // Handle ZKC addresses - if zero address, don't upgrade (production should have real ZKC)
-        address zkcAddress = PoVWLib.requireLib(deploymentConfig.zkc, "zkc");
-        address vezkcAddress = PoVWLib.requireLib(deploymentConfig.vezkc, "vezkc");
+        address zkcAddress = BoundlessScript.requireLib(deploymentConfig.zkc, "zkc");
+        address vezkcAddress = BoundlessScript.requireLib(deploymentConfig.vezkc, "vezkc");
 
         IZKC zkc = IZKC(zkcAddress);
         IZKCRewards vezkc = IZKCRewards(vezkcAddress);
@@ -184,6 +191,13 @@ contract UpgradePoVWMint is PoVWScript {
         opts.referenceContract = "build-info-reference:PovwMint";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
         opts.constructorData = abi.encode(verifier, povwAccounting, mintCalculatorId, zkc, vezkc);
+        
+        // Check if safety checks should be skipped
+        bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
+        if (skipSafetyChecks) {
+            console2.log("WARNING: Skipping all upgrade safety checks (SKIP_SAFETY_CHECKS=true)");
+            opts.unsafeSkipAllChecks = true;
+        }
 
         vm.startBroadcast(currentAdmin);
         Upgrades.upgradeProxy(povwMintAddress, "PovwMint.sol:PovwMint", "", opts, currentAdmin);
@@ -224,15 +238,15 @@ contract UpgradePoVWMint is PoVWScript {
 
 /// @notice Script for transferring ownership of the PoVW contracts.
 /// @dev Transfer will be from the current owner to the NEW_ADMIN environment variable
-contract TransferPoVWOwnership is PoVWScript {
+contract TransferPoVWOwnership is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address newAdmin = PoVWLib.requireLib(vm.envOr("NEW_ADMIN", address(0)), "NEW_ADMIN");
-        address povwAccountingAddress = PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
-        address povwMintAddress = PoVWLib.requireLib(deploymentConfig.povwMint, "povw-mint");
+        address newAdmin = BoundlessScript.requireLib(vm.envOr("NEW_ADMIN", address(0)), "NEW_ADMIN");
+        address povwAccountingAddress = BoundlessScript.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
+        address povwMintAddress = BoundlessScript.requireLib(deploymentConfig.povwMint, "povw-mint");
 
         PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
         PovwMint povwMint = PovwMint(povwMintAddress);
@@ -259,15 +273,15 @@ contract TransferPoVWOwnership is PoVWScript {
 
 /// @notice Rollback script for the PovwAccounting contract.
 /// @dev Set values in deployment.toml to configure the rollback.
-contract RollbackPoVWAccounting is PoVWScript {
+contract RollbackPoVWAccounting is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address povwAccountingAddress = PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
+        address povwAccountingAddress = BoundlessScript.requireLib(deploymentConfig.povwAccounting, "povw-accounting");
         address oldImplementation =
-            PoVWLib.requireLib(deploymentConfig.povwAccountingOldImpl, "povw-accounting-old-impl");
+            BoundlessScript.requireLib(deploymentConfig.povwAccountingOldImpl, "povw-accounting-old-impl");
 
         // Get current admin from the proxy contract
         PovwAccounting povwAccounting = PovwAccounting(povwAccountingAddress);
@@ -310,14 +324,14 @@ contract RollbackPoVWAccounting is PoVWScript {
 
 /// @notice Rollback script for the PovwMint contract.
 /// @dev Set values in deployment.toml to configure the rollback.
-contract RollbackPoVWMint is PoVWScript {
+contract RollbackPoVWMint is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address povwMintAddress = PoVWLib.requireLib(deploymentConfig.povwMint, "povw-mint");
-        address oldImplementation = PoVWLib.requireLib(deploymentConfig.povwMintOldImpl, "povw-mint-old-impl");
+        address povwMintAddress = BoundlessScript.requireLib(deploymentConfig.povwMint, "povw-mint");
+        address oldImplementation = BoundlessScript.requireLib(deploymentConfig.povwMintOldImpl, "povw-mint-old-impl");
 
         // Get current admin from the proxy contract
         PovwMint povwMint = PovwMint(povwMintAddress);
@@ -358,14 +372,14 @@ contract RollbackPoVWMint is PoVWScript {
 
 /// @notice Script for transferring ownership of the PovwMint contract.
 /// @dev Transfer will be from the current owner to the NEW_ADMIN environment variable
-contract TransferPoVWMintOwnership is PoVWScript {
+contract TransferPoVWMintOwnership is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address newAdmin = PoVWLib.requireLib(vm.envOr("NEW_ADMIN", address(0)), "NEW_ADMIN");
-        address povwMintAddress = PoVWLib.requireLib(deploymentConfig.povwMint, "povw-mint");
+        address newAdmin = BoundlessScript.requireLib(vm.envOr("NEW_ADMIN", address(0)), "NEW_ADMIN");
+        address povwMintAddress = BoundlessScript.requireLib(deploymentConfig.povwMint, "povw-mint");
         PovwMint povwMint = PovwMint(povwMintAddress);
 
         address currentAdmin = povwMint.owner();

@@ -33,7 +33,8 @@ parser.add_argument("--povw-mint-old-impl", help="PovwMint old impl contract add
 parser.add_argument("--povw-log-updater-id", help="PoVW log updater image ID (hex)")
 parser.add_argument("--povw-mint-calculator-id", help="PoVW mint calculator image ID (hex)")
 
-# PoVW deployment commit fields
+# Deployment commit fields
+parser.add_argument("--boundless-market-deployment-commit", help="Boundless Market deployment commit hash")
 parser.add_argument("--povw-accounting-deployment-commit", help="PoVW accounting deployment commit hash")
 parser.add_argument("--povw-mint-deployment-commit", help="PoVW mint deployment commit hash")
 
@@ -64,7 +65,8 @@ field_mapping = {
     # PoVW image ID fields
     "povw-log-updater-id": args.povw_log_updater_id,
     "povw-mint-calculator-id": args.povw_mint_calculator_id,
-    # PoVW deployment commit fields
+    # Deployment commit fields
+    "boundless-market-deployment-commit": args.boundless_market_deployment_commit,
     "povw-accounting-deployment-commit": args.povw_accounting_deployment_commit,
     "povw-mint-deployment-commit": args.povw_mint_deployment_commit,
     # ZKC contract fields
