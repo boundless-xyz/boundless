@@ -40,7 +40,8 @@ export = () => {
   const bentoProverSshPublicKey = isDev ? process.env.BENTO_PROVER_SSH_PUBLIC_KEY : bentoConfig.getSecret('SSH_PUBLIC_KEY');
   const bentoProverPrivateKey1 = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY_1") : bentoConfig.requireSecret('PRIVATE_KEY_1');
   const bentoProverPrivateKey2 = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY_2") : bentoConfig.requireSecret('PRIVATE_KEY_2');
-  const povwLogId = bentoConfig.requireSecret('POVW_LOG_ID');
+  const prover1PovwLogId = bentoConfig.requireSecret('POVW_LOG_ID_1');
+  const prover2PovwLogId = bentoConfig.requireSecret('POVW_LOG_ID_2');
   const segmentSize = bentoConfig.requireNumber('SEGMENT_SIZE');
   const snarkTimeout = bentoConfig.requireNumber('SNARK_TIMEOUT');
   const logJson = bentoConfig.getBoolean('LOG_JSON');
@@ -73,7 +74,7 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       sshPublicKey: bentoProverSshPublicKey,
       logJson,
-      povwLogId,
+      povwLogId: prover1PovwLogId,
     });
 
     bentoBroker2 = new BentoEC2Broker(bentoBroker2ServiceName, {
@@ -98,7 +99,7 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       sshPublicKey: bentoProverSshPublicKey,
       logJson,
-      povwLogId,
+      povwLogId: prover2PovwLogId,
     });
   }
 

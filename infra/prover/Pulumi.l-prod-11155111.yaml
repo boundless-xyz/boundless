@@ -31,3 +31,7 @@ config:
   bento-prover:BRANCH: launch-infra
   bento-prover:POVW_LOG_ID:
     secure: v1:gjKw3ZFMYszS7DwS:h1PCEavoaPDGjRWVsVPLDL4/Rt33YRYaIBEcaGHRZVzUGSVbewHv9CPsxxCtEmjm4w491FV6J4LEsQ==
+  bento-prover:POVW_LOG_ID_1:
+    secure: v1:IWpfAGS+CBV8VliS:AU9aSMLv2UcoRa0i/Y30Pyc62I45FkiJsf7RjOOQ0Mxe4czkNHtI8jBXO9wS6rQkyhiNDP718cOg+w==
+  bento-prover:POVW_LOG_ID_2:
+    secure: v1:u3KGhXqINg/L5M3T:+TZ7D1ex3C1BkZbSUP45yl0LPZZOFRDeKeH2SsBp7p8qVl+U9KzBc8GHRyoFSPiVdS+cFFX2LxAXTQ==
