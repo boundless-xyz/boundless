@@ -6,7 +6,7 @@
 
 pragma solidity ^0.8.9;
 
-import {Script, console2} from "forge-std/Script.sol";
+import {console2} from "forge-std/Script.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
@@ -145,11 +145,11 @@ contract DeployPoVW is PoVWScript, RiscZeroCheats {
 
         if (devMode) {
             // Deploy mock ZKC contracts only in dev mode
-            MockZKC mockZKC = new MockZKC();
-            MockZKCRewards mockZKCRewards = new MockZKCRewards();
+            MockZKC mockZkc = new MockZKC();
+            MockZKCRewards mockZkcRewards = new MockZKCRewards();
 
-            zkcAddress = address(mockZKC);
-            vezkcAddress = address(mockZKCRewards);
+            zkcAddress = address(mockZkc);
+            vezkcAddress = address(mockZkcRewards);
 
             console2.log("In DEV MODE. Redeploying Mock ZKC and Mock ZKCRewards");
             console2.log("Deployed MockZKC to", zkcAddress);

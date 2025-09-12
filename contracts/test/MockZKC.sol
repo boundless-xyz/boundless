@@ -46,10 +46,12 @@ contract MockZKC is IZKC, ERC20, ERC20Permit {
     }
 
     // This function only exists on the mock contract.
+    // forge-lint: disable-next-item(mixed-case-function)
     function setPoVWEmissionsPerEpoch(uint256 emissions) external {
         epochEmissionsUpdates.push(EpochEmissionsUpdate({epoch: getCurrentEpoch(), emissions: emissions}));
     }
 
+    // forge-lint: disable-next-item(mixed-case-function)
     function getPoVWEmissionsForEpoch(uint256 epoch) external view returns (uint256) {
         require(epoch < getCurrentEpoch(), "epoch must be past");
 
@@ -62,6 +64,7 @@ contract MockZKC is IZKC, ERC20, ERC20Permit {
         revert("unreachable");
     }
 
+    // forge-lint: disable-next-item(mixed-case-function)
     function mintPoVWRewardsForRecipient(address recipient, uint256 amount) external {
         _mint(recipient, amount);
     }
@@ -70,35 +73,43 @@ contract MockZKC is IZKC, ERC20, ERC20Permit {
         _mint(recipient, amount);
     }
 
-    function claimedTotalSupply() external view returns (uint256) {
+    function claimedTotalSupply() external pure returns (uint256) {
         revert("not implemented");
     }
 
-    function getCurrentEpochEndTime() external view returns (uint256) {
+    function getCurrentEpochEndTime() external pure returns (uint256) {
         revert("not implemented");
     }
 
-    function getEmissionsForEpoch(uint256 epoch) external returns (uint256) {
+    function getEmissionsForEpoch(uint256 epoch) external pure returns (uint256) {
+        epoch;
         revert("not implemented");
     }
 
-    function getStakingEmissionsForEpoch(uint256 epoch) external returns (uint256) {
+    function getStakingEmissionsForEpoch(uint256 epoch) external pure returns (uint256) {
+        epoch;
         revert("not implemented");
     }
 
     function getSupplyAtEpochStart(uint256 epoch) external pure returns (uint256) {
+        epoch;
         revert("not implemented");
     }
 
-    function getTotalPoVWEmissionsAtEpochStart(uint256 epoch) external returns (uint256) {
+    // forge-lint: disable-next-item(mixed-case-function)
+    function getTotalPoVWEmissionsAtEpochStart(uint256 epoch) external pure returns (uint256) {
+        epoch;
         revert("not implemented");
     }
 
-    function getTotalStakingEmissionsAtEpochStart(uint256 epoch) external returns (uint256) {
+    function getTotalStakingEmissionsAtEpochStart(uint256 epoch) external pure returns (uint256) {
+        epoch;
         revert("not implemented");
     }
 
-    function initialMint(address[] calldata recipients, uint256[] calldata amounts) external {
+    function initialMint(address[] calldata recipients, uint256[] calldata amounts) external pure {
+        recipients;
+        amounts;
         revert("not implemented");
     }
 }
@@ -112,14 +123,17 @@ contract MockZKCRewards is IZKCRewards {
     mapping(address => RewardsCapUpdate[]) internal rewardsPovwPerEpochCapUpdates;
 
     // This function only exists on the mock contract. Setting to 0 resets the cap to uint256 max.
+    // forge-lint: disable-next-item(mixed-case-function)
     function setPoVWRewardCap(address account, uint256 cap) external {
         rewardsPovwPerEpochCapUpdates[account].push(RewardsCapUpdate({timepoint: block.timestamp, cap: cap}));
     }
 
+    // forge-lint: disable-next-item(mixed-case-function)
     function getPoVWRewardCap(address account) external view returns (uint256) {
         return getPastPoVWRewardCap(account, block.timestamp);
     }
 
+    // forge-lint: disable-next-item(mixed-case-function)
     function getPastPoVWRewardCap(address account, uint256 timepoint) public view returns (uint256) {
         require(timepoint <= block.timestamp, "timepoint must be less than current timestamp");
 
@@ -136,33 +150,46 @@ contract MockZKCRewards is IZKCRewards {
         revert("unreachable");
     }
 
-    function delegateRewards(address delegatee) external {
+    function delegateRewards(address delegatee) external pure {
+        delegatee;
         revert("not implemented");
     }
 
     function delegateRewardsBySig(address delegatee, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s)
         external
+        pure
     {
+        delegatee;
+        nonce;
+        expiry;
+        v;
+        r;
+        s;
         revert("not implemented");
     }
 
-    function getPastStakingRewards(address account, uint256 timepoint) external view returns (uint256) {
+    function getPastStakingRewards(address account, uint256 timepoint) external pure returns (uint256) {
+        account;
+        timepoint;
         revert("not implemented");
     }
 
-    function getPastTotalStakingRewards(uint256 timepoint) external view returns (uint256) {
+    function getPastTotalStakingRewards(uint256 timepoint) external pure returns (uint256) {
+        timepoint;
         revert("not implemented");
     }
 
-    function getStakingRewards(address account) external view returns (uint256) {
+    function getStakingRewards(address account) external pure returns (uint256) {
+        account;
         revert("not implemented");
     }
 
-    function getTotalStakingRewards() external view returns (uint256) {
+    function getTotalStakingRewards() external pure returns (uint256) {
         revert("not implemented");
     }
 
-    function rewardDelegates(address account) external view returns (address) {
+    function rewardDelegates(address account) external pure returns (address) {
+        account;
         revert("not implemented");
     }
 }
