@@ -88,9 +88,9 @@ contract BoundlessMarket is
     /// @notice When a prover is slashed for failing to fulfill a request, a portion of the collateral
     /// is burned, and the remaining portion is either send to the prover that ultimately fulfilled
     /// the order, or to the market treasury. This fraction controls that ratio.
-    /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
+    /// @dev The value is configured as a constant to avoid accessing storage and thus paying for the
     /// gas of an SLOAD. Can only be changed via contract upgrade.
-    uint256 public constant SLASHING_BURN_BPS = 2000;
+    uint256 public constant SLASHING_BURN_BPS = 5000;
 
     /// @notice When an order is fulfilled, the market takes a fee based on the price of the order.
     /// This fraction is multiplied by the price to decide the fee.
