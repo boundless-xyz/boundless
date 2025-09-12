@@ -55,7 +55,7 @@ pub enum PinataStorageProviderError {
     Config(String),
 
     /// Error type for other errors.
-    #[error("{0}")]
+    #[error("{0:#}")]
     Other(#[from] anyhow::Error),
 }
 

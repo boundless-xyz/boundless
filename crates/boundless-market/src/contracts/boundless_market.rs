@@ -56,7 +56,7 @@ pub enum MarketError {
     TxnError(#[from] TxnErr),
 
     /// Transaction confirmation error.
-    #[error("Transaction confirmation error: {0:?}")]
+    #[error("Transaction confirmation error: {0:#}")]
     TxnConfirmationError(anyhow::Error),
 
     /// Request not fulfilled.
@@ -104,7 +104,7 @@ pub enum MarketError {
     LogNotEmitted(B256, anyhow::Error),
 
     /// General market error.
-    #[error("Other error: {0:?}")]
+    #[error("Other error: {0:#}")]
     Error(#[from] anyhow::Error),
 
     /// Timeout reached.

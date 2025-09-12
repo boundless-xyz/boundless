@@ -42,9 +42,9 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum AggregatorErr {
-    #[error("{code} Compression error: {0}", code = self.code())]
+    #[error("{code} Compression error: {0:#}", code = self.code())]
     CompressionErr(crate::provers::ProverError),
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 

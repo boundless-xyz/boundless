@@ -42,7 +42,7 @@ pub enum TempFileStorageProviderError {
     UrlParse(#[from] url::ParseError),
 
     /// Error type for other errors.
-    #[error("{0}")]
+    #[error("{0:#}")]
     Other(#[from] anyhow::Error),
 }
 

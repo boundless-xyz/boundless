@@ -57,7 +57,7 @@ pub enum ServiceError {
     #[error("Event query error: {0}")]
     EventQueryError(#[from] alloy::contract::Error),
 
-    #[error("Error: {0}")]
+    #[error("Error: {0:#}")]
     Error(#[from] anyhow::Error),
 
     #[error("Maximum retries reached")]

@@ -482,7 +482,7 @@ pub enum ClientError {
     #[error("Error building RequestBuilder {0}")]
     BuilderError(#[from] StandardRequestBuilderBuilderError),
     /// General error
-    #[error("Error {0}")]
+    #[error("Error {0:#}")]
     Error(#[from] anyhow::Error),
 }
 

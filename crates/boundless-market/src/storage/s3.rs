@@ -67,7 +67,7 @@ pub enum S3StorageProviderError {
     UrlParseError(#[from] ParseError),
 
     /// Error type for other errors.
-    #[error("{0}")]
+    #[error("{0:#}")]
     Other(#[from] anyhow::Error),
 }
 
