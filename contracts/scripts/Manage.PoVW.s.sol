@@ -68,7 +68,7 @@ contract UpgradePoVWAccounting is BoundlessScriptBase {
             }
 
             // Require that we have a valid log updater ID
-            logUpdaterId = PoVWLib.requireLib(logUpdaterId, "Log Updater ID");
+            logUpdaterId = BoundlessScript.requireLib(logUpdaterId, "Log Updater ID");
         }
 
         console2.log("Log Updater ID: %s", vm.toString(logUpdaterId));
@@ -147,7 +147,7 @@ contract UpgradePoVWMint is BoundlessScriptBase {
         // Get constructor arguments for PovwMint
         IRiscZeroVerifier verifier = IRiscZeroVerifier(BoundlessScript.requireLib(deploymentConfig.verifier, "verifier"));
         PovwAccounting povwAccounting =
-            PovwAccounting(PoVWLib.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
+            PovwAccounting(BoundlessScript.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
 
         bytes32 mintCalculatorId;
         bool devMode = bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0;
@@ -175,7 +175,7 @@ contract UpgradePoVWMint is BoundlessScriptBase {
             }
 
             // Require that we have a valid mint calculator ID
-            mintCalculatorId = PoVWLib.requireLib(mintCalculatorId, "Mint Calculator ID");
+            mintCalculatorId = BoundlessScript.requireLib(mintCalculatorId, "Mint Calculator ID");
         }
 
         console2.log("Mint Calculator ID: %s", vm.toString(mintCalculatorId));
