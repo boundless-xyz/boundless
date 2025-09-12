@@ -41,7 +41,7 @@ povw-mint-deployment-commit = "61ab81e65"
 povw-log-updater-id = "0x004b225edce73d0fd399993c14bea083a08bc346eacd68a644946179ebc4818f"
 povw-mint-calculator-id = "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b8154109db76bf"
 
-# ZKC contracts (TODO: set to real addresses)
+# ZKC contracts
 zkc = "0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555"
 vezkc = "0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4"
 
@@ -69,8 +69,8 @@ assessor-image-id = "0x03831182a226b5f5a4d358704a9f9d0bcd4dc48e6e577dc7db84d9489
 assessor-guest-url = "https://gateway.beboundless.cloud/ipfs/bafybeibf7u5cltvkqg3yduo3yycrlxruoig4ew5pcvljx2zjua3gnypv2q"
 deprecated-assessor-duration = 0  # 5 days
 
-[deployment.ethereum-sepolia-prod]
-name = "Ethereum Sepolia [production]"
+[deployment.ethereum-sepolia]
+name = "Ethereum Sepolia [prod]"
 id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
 version = "v0.14.0" # 1353e11c main
@@ -113,7 +113,7 @@ povw-mint-calculator-id = "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b
 zkc = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 vezkc = "0xc23340732038ca6C5765763180E81B395d2e9cCA"
 
-[deployment.base-sepolia-prod]
+[deployment.base-sepolia]
 name = "Base Sepolia [prod]"
 id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
