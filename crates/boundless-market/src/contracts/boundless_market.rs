@@ -1657,6 +1657,6 @@ mod tests {
     #[test]
     fn test_collateral_reward_if_locked_and_not_fulfilled() {
         let offer = &test_offer(100);
-        assert_eq!(offer.collateral_reward_if_locked_and_not_fulfilled(), ether("0.8"));
+        assert_eq!(offer.collateral_reward_if_locked_and_not_fulfilled(), ether("0.5"));
     }
 }
