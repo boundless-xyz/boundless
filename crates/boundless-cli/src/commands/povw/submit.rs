@@ -20,7 +20,10 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, ensure, Context};
-use boundless_povw::log_updater::{prover::LogUpdaterProver, IPovwAccounting};
+use boundless_povw::{
+    deployments::Deployment,
+    log_updater::{prover::LogUpdaterProver, IPovwAccounting},
+};
 use clap::Args;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 use risc0_zkvm::{default_prover, ProverOpts};
@@ -49,11 +52,9 @@ pub struct PovwSubmit {
     #[clap(short, long, env = "POVW_VALUE_RECIPIENT")]
     pub value_recipient: Option<Address>,
 
-    // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
-    // See crates/povw/src/deployments.rs
-    /// Address of the PoVW accounting contract.
-    #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
-    pub povw_accounting_address: Address,
+    /// Deployment configuration for the PoVW and ZKC contracts.
+    #[clap(flatten, next_help_heading = "Deployment")]
+    pub deployment: Option<Deployment>,
 
     #[clap(flatten, next_help_heading = "Prover")]
     prover_config: ProverConfig,
@@ -90,14 +91,22 @@ impl PovwSubmit {
             .get_chain_id()
             .await
             .with_context(|| format!("Failed to get chain ID from {rpc_url}"))?;
-        let povw_accounting = IPovwAccounting::new(self.povw_accounting_address, provider.clone());
+        let deployment = self
+            .deployment
+            .clone()
+            .or_else(|| Deployment::from_chain_id(chain_id))
+            .context(
+            "could not determine deployment from chain ID; please specify deployment explicitly",
+        )?;
+        let povw_accounting =
+            IPovwAccounting::new(deployment.povw_accounting_address, provider.clone());
 
         // Get the current work log commit, to determine which update(s) should be applied.
         let onchain_commit =
             povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(|| {
                 format!(
                     "Failed to get work log commit for {:x} from {:x}",
-                    state.log_id, self.povw_accounting_address
+                    state.log_id, deployment.povw_accounting_address
                 )
             })?;
 
@@ -154,7 +163,7 @@ impl PovwSubmit {
                 .prover(default_prover())
                 .chain_id(chain_id)
                 .value_recipient(self.value_recipient)
-                .contract_address(self.povw_accounting_address)
+                .contract_address(deployment.povw_accounting_address)
                 .prover_opts(ProverOpts::groth16())
                 .build()
                 .context("Failed to build prover for Log Updater")?;
