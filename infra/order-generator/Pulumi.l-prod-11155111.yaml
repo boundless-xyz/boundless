@@ -10,7 +10,7 @@ config:
     secure: v1:zLBqj2aNJPgmjk0j:Y7RqCWAb8D8az1hL5/zs6wof/q8hzTJZ6/5Nj1t4El45sHgCCsxPm75a/v/iEwCZJSd1tfZAnijrPxmKrrC0PjPKBA2Sqr8QsIQ8MXkDJEE=
   aws:region: us-west-2
   order-generator-base:BASE_STACK: organization/bootstrap/services-prod
-  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x400B5e943B5b5A8dAD5185A073fb1f98E59D5A3f
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0xc211b581cb62e3a6d396a592bab34979e1bbba7d
   order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0xb4FC69A452D09D2662BD8C3B5BB756902260aE28
   order-generator-base:CHAIN_ID: "11155111"
   order-generator-base:DOCKER_DIR: ../../

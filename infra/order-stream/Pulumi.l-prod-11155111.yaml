@@ -5,7 +5,7 @@ config:
   order-stream:ALB_DOMAIN: eth-sepolia.boundless.network
   order-stream:DISABLE_CERT: false
   order-stream:BASE_STACK: organization/bootstrap/services-prod
-  order-stream:BOUNDLESS_ADDRESS: 0x400B5e943B5b5A8dAD5185A073fb1f98E59D5A3f
+  order-stream:BOUNDLESS_ADDRESS: 0xc211b581cb62e3a6d396a592bab34979e1bbba7d
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:CHAIN_ID: "11155111"
   order-stream:DOCKER_DIR: ../../

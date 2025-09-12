@@ -5,7 +5,7 @@ config:
   order-stream:ALB_DOMAIN: base-mainnet.boundless.network
   order-stream:DISABLE_CERT: false
   order-stream:BASE_STACK: organization/bootstrap/services-prod
-  order-stream:BOUNDLESS_ADDRESS: 0xCF5A9DFC8E09b35C4135E4878c665774bc922d35
+  order-stream:BOUNDLESS_ADDRESS: 0xfd152dadc5183870710fe54f939eae3ab9f0fe82
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:CHAIN_ID: "8453"
   order-stream:DOCKER_DIR: ../../
