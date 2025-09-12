@@ -115,7 +115,9 @@ contract DeployBoundlessMarket is BoundlessScript {
         require(
             market.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken, "collateral token does not match"
         );
-        require(market.hasRole(market.ADMIN_ROLE(), deploymentConfig.admin), "market admin role does not match the admin");
+        require(
+            market.hasRole(market.ADMIN_ROLE(), deploymentConfig.admin), "market admin role does not match the admin"
+        );
 
         console2.log("BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
@@ -224,7 +226,10 @@ contract UpgradeBoundlessMarket is BoundlessScript {
             upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
             "upgraded market stake token does not match"
         );
-        require(upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin), "upgraded market admin does not match the admin");
+        require(
+            upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin),
+            "upgraded market admin does not match the admin"
+        );
 
         address boundlessMarketImpl = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
 
@@ -294,7 +299,10 @@ contract RollbackBoundlessMarket is BoundlessScript {
             upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
             "upgraded market stake token does not match"
         );
-        require(upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin), "upgraded market admin does not match the admin");
+        require(
+            upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin),
+            "upgraded market admin does not match the admin"
+        );
 
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
