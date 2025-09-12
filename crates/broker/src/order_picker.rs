@@ -2368,7 +2368,7 @@ pub(crate) mod tests {
 
         let order2_id = order2.id();
         let stake_reward2 = order2.request.offer.collateral_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward2, U256::from(32));
+        assert_eq!(stake_reward2, U256::from(20));
 
         let locked = ctx.picker.price_order(&mut order2).await;
         assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
