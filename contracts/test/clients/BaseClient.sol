@@ -12,11 +12,9 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Callback} from "../../src/types/Callback.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {LockRequest} from "../../src/types/LockRequest.sol";
-import {Fulfillment} from "../../src/types/Fulfillment.sol";
-import {FulfillmentDataType} from "../../src/types/FulfillmentData.sol";
 import {Offer} from "../../src/types/Offer.sol";
 import {Requirements} from "../../src/types/Requirements.sol";
-import {PredicateLibrary, PredicateType} from "../../src/types/Predicate.sol";
+import {PredicateLibrary} from "../../src/types/Predicate.sol";
 
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
 

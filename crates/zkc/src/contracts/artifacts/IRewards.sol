@@ -1,25 +1,21 @@
-// Copyright 2025 RISC Zero, Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// TODO(povw) Use IRewards from the zkc repo directly.
-
-pragma solidity ^0.8.20;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
 
 /// @title IRewards
 /// @notice Interface for reward distribution calculations
 /// @dev Used by external contracts to determine reward allocations based on stake amounts
 interface IRewards {
+    // Custom errors
+    error CannotDelegateRewardsWhileWithdrawing();
+    error RewardsExpiredSignature(uint256 expiry);
+
+    /// @notice Emitted when an account changes their reward delegation
+    /// @param delegator The account that changed their delegation
+    /// @param fromDelegate The previous delegate (or the delegator if they were self-delegated)
+    /// @param toDelegate The new delegate (or the delegator if they are self-delegating)
+    event RewardDelegateChanged(address indexed delegator, address indexed fromDelegate, address indexed toDelegate);
+    event DelegateRewardsChanged(address indexed delegate, uint256 previousRewards, uint256 newRewards);
+
     /// @notice Get current staking rewards power for an account
     /// @param account Account to query
     /// @return Reward power (staked amount / REWARD_POWER_SCALAR)

@@ -34,6 +34,7 @@ library AccountLibrary {
     /// @param idx The index of the request.
     /// @return locked True if the request is locked, false otherwise.
     /// @return fulfilled True if the request is fulfilled, false otherwise.
+    // forge-lint: disable-next-item(incorrect-shift)
     function requestFlags(Account storage self, uint32 idx) internal view returns (bool locked, bool fulfilled) {
         if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
             uint64 masked = (
@@ -55,6 +56,7 @@ library AccountLibrary {
     /// @param self The account to set the request flags for.
     /// @param idx The index of the request.
     /// @param flags The flags to set for the request.
+    // forge-lint: disable-next-item(incorrect-shift)
     function setRequestFlags(Account storage self, uint32 idx, uint8 flags) internal {
         assert(flags < (1 << REQUEST_FLAGS_BITWIDTH));
         if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
