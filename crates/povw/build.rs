@@ -8,8 +8,8 @@ mod build_contracts {
     use std::{env, fs, path::Path};
 
     // Contract interface files to copy to the artifacts folder
-    const INTERFACE_FILES: [&str; 3] =
-        ["povw/IPovwAccounting.sol", "povw/IPovwMint.sol", "zkc/IZKC.sol"];
+    const INTERFACE_FILES: [&str; 2] = ["povw/IPovwAccounting.sol", "povw/IPovwMint.sol"];
+    const ZKC_INTERFACE_FILES: [&str; 1] = ["IZKC.sol"];
 
     // Contracts to generate bytecode for (used for deployment in tests)
     const BYTECODE_CONTRACTS: [&str; 2] = ["PovwAccounting", "PovwMint"];
@@ -28,9 +28,18 @@ mod build_contracts {
             .parent()
             .unwrap()
             .join("contracts/src/");
+        let zkc_contracts_src = Path::new(&manifest_dir)
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("lib/zkc/src/interfaces");
 
         // Early return if contracts source doesn't exist (enables cargo publish)
         if !contracts_src.exists() {
+            return;
+        }
+        if !zkc_contracts_src.exists() {
             return;
         }
 
@@ -41,6 +50,18 @@ mod build_contracts {
 
         for interface_file in INTERFACE_FILES {
             let src_path = contracts_src.join(interface_file);
+            let interface_filename = src_path.file_name().unwrap();
+            let dest_path = artifacts_dir.join(interface_filename);
+
+            println!("cargo:rerun-if-changed={}", src_path.display());
+
+            if src_path.exists() {
+                fs::copy(&src_path, &dest_path).unwrap();
+            }
+        }
+
+        for interface_file in ZKC_INTERFACE_FILES {
+            let src_path = zkc_contracts_src.join(interface_file);
             let interface_filename = src_path.file_name().unwrap();
             let dest_path = artifacts_dir.join(interface_filename);
 

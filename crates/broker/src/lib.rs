@@ -568,15 +568,24 @@ where
             .await
             .context("Failed to get set builder image_info")?;
         let image_id = Digest::from_bytes(image_id.0);
-        let path = {
+        let (path, default_url) = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
-            config.prover.set_builder_guest_path.clone()
+            (
+                config.prover.set_builder_guest_path.clone(),
+                config.market.set_builder_default_image_url.clone(),
+            )
         };
 
-        tracing::debug!("Uploading set builder image: {}", image_url_str);
-        self.fetch_and_upload_image(prover, image_id, image_url_str, path)
-            .await
-            .context("uploading set builder image")?;
+        self.fetch_and_upload_image(
+            "set builder",
+            prover,
+            image_id,
+            image_url_str,
+            path,
+            default_url,
+        )
+        .await
+        .context("uploading set builder image")?;
         Ok(image_id)
     }
 
@@ -590,13 +599,15 @@ where
             boundless_market.image_info().await.context("Failed to get assessor image_info")?;
         let image_id = Digest::from_bytes(image_id.0);
 
-        let path = {
+        let (path, default_url) = {
             let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
-            config.prover.assessor_set_guest_path.clone()
+            (
+                config.prover.assessor_set_guest_path.clone(),
+                config.market.assessor_default_image_url.clone(),
+            )
         };
 
-        tracing::debug!("Uploading assessor image: {}", image_url_str);
-        self.fetch_and_upload_image(prover, image_id, image_url_str, path)
+        self.fetch_and_upload_image("assessor", prover, image_id, image_url_str, path, default_url)
             .await
             .context("uploading assessor image")?;
         Ok(image_id)
@@ -604,46 +615,92 @@ where
 
     async fn fetch_and_upload_image(
         &self,
+        image_label: &'static str,
         prover: &ProverObj,
         image_id: Digest,
-        image_url_str: String,
+        contract_url: String,
         program_path: Option<PathBuf>,
+        default_url: String,
     ) -> Result<()> {
         if prover.has_image(&image_id.to_string()).await? {
-            tracing::debug!("Image for {} already uploaded, skipping pull", image_id);
+            tracing::debug!("{} image {} already uploaded, skipping pull", image_label, image_id);
             return Ok(());
         }
 
+        tracing::debug!("Fetching {} image", image_label);
         let program_bytes = if let Some(path) = program_path {
-            let file_program_buf =
-                tokio::fs::read(&path).await.context("Failed to read program file")?;
-            let file_img_id = risc0_zkvm::compute_image_id(&file_program_buf)
-                .context("Failed to compute imageId")?;
-
-            if image_id != file_img_id {
-                anyhow::bail!(
-                    "Image ID mismatch for {}, expected {}, got {}",
-                    path.display(),
-                    image_id,
-                    file_img_id.to_string()
-                );
-            }
-
-            file_program_buf
-        } else {
-            let image_uri = create_uri_handler(&image_url_str, &self.config_watcher.config, false)
+            // Read from local file if provided
+            tokio::fs::read(&path)
                 .await
-                .context("Failed to parse image URI")?;
-            tracing::debug!("Downloading image from: {image_uri}");
-
-            image_uri.fetch().await.context("Failed to download image")?
+                .with_context(|| format!("Failed to read program file: {}", path.display()))?
+        } else {
+            // Try default URL first, fall back to contract URL if it fails or ID doesn't match
+            match self.download_image(&default_url, "default").await {
+                Ok(bytes) => {
+                    let computed_id = risc0_zkvm::compute_image_id(&bytes)
+                        .context("Failed to compute image ID")?;
+                    if computed_id == image_id {
+                        tracing::debug!(
+                            "Successfully verified {} image from default URL",
+                            image_label
+                        );
+                        bytes
+                    } else {
+                        tracing::warn!(
+                            "{} image ID mismatch from default URL: expected {}, got {}, falling back to contract URL",
+                            image_label,
+                            image_id,
+                            computed_id
+                        );
+                        self.download_image(&contract_url, "contract").await?
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to download {} image from default URL: {}, falling back to contract URL",
+                        image_label,
+                        e
+                    );
+                    self.download_image(&contract_url, "contract").await?
+                }
+            }
         };
 
+        // Final verification - ensure we have the correct image
+        let computed_id =
+            risc0_zkvm::compute_image_id(&program_bytes).context("Failed to compute image ID")?;
+
+        if computed_id != image_id {
+            anyhow::bail!(
+                "{} image ID mismatch: expected {}, got {}",
+                image_label,
+                image_id,
+                computed_id
+            );
+        }
+
+        tracing::debug!("Uploading {} image to bento", image_label);
         prover
             .upload_image(&image_id.to_string(), program_bytes)
             .await
-            .context("Failed to upload image to prover")?;
+            .with_context(|| format!("Failed to upload {} image to prover", image_label))?;
         Ok(())
+    }
+
+    async fn download_image(&self, url: &str, source_name: &str) -> Result<Vec<u8>> {
+        tracing::trace!("Attempting to download image from {}: {}", source_name, url);
+
+        let handler = create_uri_handler(url, &self.config_watcher.config, false)
+            .await
+            .with_context(|| format!("Failed to create handler for {} URL", source_name))?;
+
+        let bytes = handler
+            .fetch()
+            .await
+            .with_context(|| format!("Failed to download image from {}", source_name))?;
+
+        tracing::trace!("Successfully downloaded image from {}", source_name);
+        Ok(bytes)
     }
 
     pub async fn start_service(&self) -> Result<()> {

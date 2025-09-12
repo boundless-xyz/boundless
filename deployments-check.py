@@ -22,7 +22,7 @@ def extract_docs_addresses(docs_content, network_section):
         addresses['boundless_market_address'] = next(iter(re.findall(r'BoundlessMarket.*?(0x[a-fA-F0-9]{40})', section)), '').lower()
         addresses['set_verifier_address'] = next(iter(re.findall(r'SetVerifier.*?(0x[a-fA-F0-9]{40})', section)), '').lower()
         addresses['verifier_router_address'] = next(iter(re.findall(r'RiscZeroVerifierRouter.*?(0x[a-fA-F0-9]{40})', section)), '').lower()
-        addresses['collateral_token_address'] = next(iter(re.findall(r'StakeToken.*?(0x[a-fA-F0-9]{40})', section)), '').lower()
+        addresses['collateral_token_address'] = next(iter(re.findall(r'CollateralToken.*?(0x[a-fA-F0-9]{40})', section)), '').lower()
     return addresses
 
 

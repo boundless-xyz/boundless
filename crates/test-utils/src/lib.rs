@@ -22,6 +22,7 @@ pub mod market;
 #[cfg(feature = "povw")]
 pub mod povw;
 pub mod verifier;
+pub mod zkc;
 
 pub mod guests {
     // Export image IDs and paths publicly to ensure all dependants use the same ones.

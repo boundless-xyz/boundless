@@ -16,4 +16,6 @@ use shadow_rs::ShadowBuilder;
 
 fn main() {
     ShadowBuilder::builder().build().unwrap();
+    println!("cargo:rustc-link-lib=static=ckzg");
+    println!("cargo:rustc-link-lib=static=blst");
 }

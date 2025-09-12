@@ -18,7 +18,7 @@ use alloy::{
     network::{EthereumWallet, TransactionBuilder},
     primitives::{
         utils::{format_units, parse_ether, parse_units},
-        U256,
+        Address, U256,
     },
     providers::{Provider, ProviderBuilder},
     rpc::types::TransactionRequest,
@@ -58,6 +58,9 @@ struct MainArgs {
     /// List of order generator private keys
     #[clap(long, env, value_delimiter = ',')]
     order_generator_keys: Vec<PrivateKeySigner>,
+    /// List of offchain requestor addresses (these will have ETH deposited to market)
+    #[clap(long, env, value_delimiter = ',')]
+    offchain_requestor_addresses: Vec<Address>,
     /// Slasher private key
     #[clap(long, env)]
     slasher_key: PrivateKeySigner,
@@ -418,15 +421,28 @@ async fn run(args: &MainArgs) -> Result<()> {
     ]
     .concat();
 
+    let offchain_requestor_addresses: std::collections::HashSet<_> =
+        args.offchain_requestor_addresses.iter().cloned().collect();
+
     for key in all_accounts {
         let wallet = EthereumWallet::from(key.clone());
         let address = wallet.default_signer().address();
 
-        let account_eth_balance = distributor_client.provider().get_balance(address).await?;
+        let is_offchain_requestor = offchain_requestor_addresses.contains(&address);
+
+        // For offchain requestors, check market balance; for others, check wallet balance
+        let (account_eth_balance, balance_location) = if is_offchain_requestor {
+            let market_balance = distributor_client.boundless_market.balance_of(address).await?;
+            (market_balance, "market")
+        } else {
+            let wallet_balance = distributor_client.provider().get_balance(address).await?;
+            (wallet_balance, "wallet")
+        };
+
         let distributor_eth_balance =
             distributor_client.provider().get_balance(distributor_address).await?;
 
-        tracing::info!("Account {} has {} ETH balance. Threshold for top up is {}. Distributor has {} ETH balance. ", address, format_units(account_eth_balance, "ether")?, format_units(eth_threshold, "ether")?, format_units(distributor_eth_balance, "ether")?);
+        tracing::info!("Account {} has {} ETH balance in {}. Threshold for top up is {}. Distributor has {} ETH balance. ", address, format_units(account_eth_balance, "ether")?, balance_location, format_units(eth_threshold, "ether")?, format_units(distributor_eth_balance, "ether")?);
 
         if account_eth_balance < eth_threshold {
             let transfer_amount = eth_top_up_amount.saturating_sub(account_eth_balance);
@@ -447,11 +463,20 @@ async fn run(args: &MainArgs) -> Result<()> {
                 address
             );
 
+            let eth_amount = if is_offchain_requestor
+                && distributor_client.provider().get_balance(address).await? < parse_ether("0.01")?
+            {
+                // If offchain requestor, add some ETH for gas
+                transfer_amount.saturating_add(parse_ether("0.01")?)
+            } else {
+                transfer_amount
+            };
+
             // Transfer ETH for gas
             let tx = TransactionRequest::default()
                 .with_from(distributor_address)
                 .with_to(address)
-                .with_value(transfer_amount);
+                .with_value(eth_amount);
 
             let pending_tx = match distributor_client.provider().send_transaction(tx).await {
                 Ok(tx) => tx,
@@ -481,6 +506,33 @@ async fn run(args: &MainArgs) -> Result<()> {
                 format_units(transfer_amount, "ether")?,
                 address
             );
+
+            // Only deposit to market for offchain requestors
+            if is_offchain_requestor {
+                tracing::info!("Depositing ETH to market for offchain requestor {}", address);
+
+                let account_client = Client::builder()
+                    .with_rpc_url(args.rpc_url.clone())
+                    .with_private_key(key.clone())
+                    .with_deployment(args.deployment.clone())
+                    .with_timeout(Some(TX_TIMEOUT))
+                    .build()
+                    .await?;
+
+                if let Err(e) = account_client.boundless_market.deposit(transfer_amount).await {
+                    tracing::error!(
+                            "Failed to deposit ETH to boundless market for offchain requestor {}: {:?}. Skipping.",
+                            address,
+                            e
+                        );
+                    continue;
+                }
+                tracing::info!(
+                    "ETH deposit completed for offchain requestor {} with {} ETH",
+                    address,
+                    format_units(transfer_amount, "ether")?
+                );
+            }
         }
     }
 
@@ -508,6 +560,7 @@ mod tests {
         let distributor_signer: PrivateKeySigner = PrivateKeySigner::random();
         let slasher_signer: PrivateKeySigner = PrivateKeySigner::random();
         let order_generator_signer: PrivateKeySigner = PrivateKeySigner::random();
+        let offchain_requestor_signer: PrivateKeySigner = order_generator_signer.clone(); // Use order generator as offchain requestor for testing
         let prover_signer_1: PrivateKeySigner = PrivateKeySigner::random();
         let prover_signer_2: PrivateKeySigner = PrivateKeySigner::random();
 
@@ -536,33 +589,47 @@ mod tests {
             eth_top_up_amount: "0.5".to_string(),
             stake_top_up_amount: "5".to_string(),
             order_generator_keys: vec![order_generator_signer.clone()],
+            offchain_requestor_addresses: vec![offchain_requestor_signer.address()],
             slasher_key: slasher_signer.clone(),
             deployment: Some(ctx.deployment.clone()),
         };
 
         run(&args).await.unwrap();
 
+        // Check wallet ETH balances after run (for non-offchain requestors)
         let prover_eth_balance =
             distributor_client.provider().get_balance(prover_signer_1.address()).await.unwrap();
+        let prover_eth_balance_2 =
+            distributor_client.provider().get_balance(prover_signer_2.address()).await.unwrap();
+        let slasher_eth_balance =
+            distributor_client.provider().get_balance(slasher_signer.address()).await.unwrap();
+
+        // Check market ETH balance for offchain requestor (order generator in this test)
+        let offchain_requestor_eth_balance_market = distributor_client
+            .boundless_market
+            .balance_of(order_generator_signer.address())
+            .await
+            .unwrap();
+
+        // Check stake balances on the market
         let prover_stake_balance = distributor_client
             .boundless_market
             .balance_of_collateral(prover_signer_1.address())
             .await
             .unwrap();
-        let prover_eth_balance_2 =
-            distributor_client.provider().get_balance(prover_signer_2.address()).await.unwrap();
         let prover_stake_balance_2 = distributor_client
             .boundless_market
             .balance_of_collateral(prover_signer_2.address())
             .await
             .unwrap();
-        let slasher_eth_balance =
-            distributor_client.provider().get_balance(slasher_signer.address()).await.unwrap();
 
         let eth_top_up_amount = parse_ether(&args.eth_top_up_amount).unwrap();
+
         assert_eq!(prover_eth_balance, eth_top_up_amount);
         assert_eq!(prover_eth_balance_2, eth_top_up_amount);
         assert_eq!(slasher_eth_balance, eth_top_up_amount);
+
+        assert!(offchain_requestor_eth_balance_market == eth_top_up_amount);
 
         // Distributor should not have any collateral
         assert_eq!(prover_stake_balance, U256::ZERO);

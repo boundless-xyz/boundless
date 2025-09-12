@@ -35,7 +35,6 @@ import {
     FulfillmentDataType
 } from "../src/types/FulfillmentData.sol";
 import {RequestId} from "../src/types/RequestId.sol";
-import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "../src/libraries/MerkleProofish.sol";
@@ -828,8 +827,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Expect the event to be emitted
         vm.expectEmit(true, true, true, true);
-        bytes32 requestDigest =
-            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
         emit IBoundlessMarket.RequestLocked(request.id, testProverAddress, request, clientSignature);
         if (withSig) {
             boundlessMarket.lockRequestWithSignature(request, clientSignature, proverSignature);
