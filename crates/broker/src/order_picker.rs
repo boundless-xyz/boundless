@@ -2375,7 +2375,7 @@ pub(crate) mod tests {
 
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!(
-            "Starting preflight execution of {order2_id} with limit of 32 cycles"
+            "Starting preflight execution of {order2_id} with limit of 20 cycles"
         )));
         assert!(logs_contain(&format!(
             "Skipping order {order2_id} due to intentional execution limit of"
