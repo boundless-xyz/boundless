@@ -7,7 +7,8 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import {IZKC, IZKCRewards} from "../src/zkc/IZKC.sol";
+import {IZKC} from "zkc/interfaces/IZKC.sol";
+import {IRewards as IZKCRewards} from "zkc/interfaces/IRewards.sol";
 
 struct EpochEmissionsUpdate {
     uint256 epoch;
@@ -68,6 +69,38 @@ contract MockZKC is IZKC, ERC20, ERC20Permit {
     function mintStakingRewardsForRecipient(address recipient, uint256 amount) external {
         _mint(recipient, amount);
     }
+
+    function claimedTotalSupply() external view returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getCurrentEpochEndTime() external view returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getEmissionsForEpoch(uint256 epoch) external returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getStakingEmissionsForEpoch(uint256 epoch) external returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getSupplyAtEpochStart(uint256 epoch) external pure returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getTotalPoVWEmissionsAtEpochStart(uint256 epoch) external returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getTotalStakingEmissionsAtEpochStart(uint256 epoch) external returns (uint256) {
+        revert("not implemented");
+    }
+
+    function initialMint(address[] calldata recipients, uint256[] calldata amounts) external {
+        revert("not implemented");
+    }
 }
 
 struct RewardsCapUpdate {
@@ -101,5 +134,35 @@ contract MockZKCRewards is IZKCRewards {
             }
         }
         revert("unreachable");
+    }
+
+    function delegateRewards(address delegatee) external {
+        revert("not implemented");
+    }
+
+    function delegateRewardsBySig(address delegatee, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s)
+        external
+    {
+        revert("not implemented");
+    }
+
+    function getPastStakingRewards(address account, uint256 timepoint) external view returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getPastTotalStakingRewards(uint256 timepoint) external view returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getStakingRewards(address account) external view returns (uint256) {
+        revert("not implemented");
+    }
+
+    function getTotalStakingRewards() external view returns (uint256) {
+        revert("not implemented");
+    }
+
+    function rewardDelegates(address account) external view returns (address) {
+        revert("not implemented");
     }
 }

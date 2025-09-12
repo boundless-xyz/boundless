@@ -11,9 +11,10 @@ import {console2} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 
-import {PovwAccounting} from "../src/povw/PovwAccounting.sol";
+import {PovwAccounting, PendingEpoch} from "../src/povw/PovwAccounting.sol";
 import {PovwMint} from "../src/povw/PovwMint.sol";
-import {IZKC, IZKCRewards} from "../src/zkc/IZKC.sol";
+import {IZKC} from "zkc/interfaces/IZKC.sol";
+import {IRewards as IZKCRewards} from "zkc/interfaces/IRewards.sol";
 import {ConfigLoader, DeploymentConfig} from "../scripts/Config.s.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -107,12 +108,12 @@ contract PoVWDeploymentTest is Test {
 
     function testPovwAccountingPendingEpoch() external view {
         // Get the pending epoch from the accounting contract
-        (uint96 totalWork, uint256 pendingEpochNumber) = povwAccounting.pendingEpoch();
+        PendingEpoch memory pendingEpoch = povwAccounting.pendingEpoch();
 
         // Pending epoch should have a reasonable number (not zero)
-        require(pendingEpochNumber > 0, "Pending epoch number should be greater than zero");
+        require(pendingEpoch.number > 0, "Pending epoch number should be greater than zero");
         // Total work starts at zero
-        require(totalWork == 0, "Initial total work should be zero");
+        require(pendingEpoch.totalWork == 0, "Initial total work should be zero");
     }
 
     function testContractIntegration() external view {
@@ -140,7 +141,7 @@ contract PoVWDeploymentTest is Test {
     function testWorkLogCommitInitialState() external view {
         // Test getting work log commit for a random address (should be zero initially)
         address testWorkLogId = address(0x1111111111111111111111111111111111111111);
-        bytes32 commit = povwAccounting.getWorkLogCommit(testWorkLogId);
+        bytes32 commit = povwAccounting.workLogCommit(testWorkLogId);
 
         // Should return zero bytes for non-existent work logs
         require(commit == bytes32(0), "Non-existent work log should return zero commit");

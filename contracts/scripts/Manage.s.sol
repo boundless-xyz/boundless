@@ -87,13 +87,15 @@ contract DeployBoundlessMarket is BoundlessScript {
         address verifier = deploymentConfig.verifier.required("verifier");
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl.required("assessor-guest-url");
-        address stakeToken = deploymentConfig.collateralToken.required("stake-token");
+        address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
 
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
         address newImplementation = address(
-            new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, bytes32(0), 0, stakeToken)
+            new BoundlessMarket{salt: salt}(
+                IRiscZeroVerifier(verifier), assessorImageId, bytes32(0), 0, collateralToken
+            )
         );
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(
@@ -155,7 +157,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
 
         address admin = deploymentConfig.admin.required("admin");
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        address stakeToken = deploymentConfig.collateralToken.required("stake-token");
+        address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
         address verifier = deploymentConfig.verifier.required("verifier");
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         uint32 deprecatedAssessorDuration = deploymentConfig.deprecatedAssessorDuration;
@@ -184,7 +186,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
             assessorImageId,
             deprecatedAssessorImageId,
             deprecatedAssessorDuration,
-            stakeToken
+            collateralToken
         );
         opts.referenceContract = "build-info-reference:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";

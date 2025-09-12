@@ -95,7 +95,7 @@ contract DeploymentTest is Test {
         verifier = IRiscZeroVerifier(deployment.verifier);
         setVerifier = IRiscZeroSetVerifier(deployment.setVerifier);
         boundlessMarket = IBoundlessMarket(deployment.boundlessMarket);
-        stakeToken = IERC20(deployment.stakeToken);
+        stakeToken = IERC20(deployment.collateralToken);
     }
 
     function testAdminIsSet() external view {
@@ -125,7 +125,7 @@ contract DeploymentTest is Test {
         require(address(stakeToken) != address(0), "no stake token address is set");
         require(keccak256(address(stakeToken).code) != keccak256(bytes("")), "stake token code is empty");
         require(
-            address(stakeToken) == BoundlessMarket(address(boundlessMarket)).STAKE_TOKEN_CONTRACT(),
+            address(stakeToken) == BoundlessMarket(address(boundlessMarket)).COLLATERAL_TOKEN_CONTRACT(),
             "stake token address does not match boundless market"
         );
     }
@@ -190,7 +190,7 @@ contract DeploymentTest is Test {
         setVerifier.submitMerkleRoot(result.root, result.seal);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), result.fills[0]);
+        emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), result.fills[0].requestDigest);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, address(testProver), result.fills[0]);
 
@@ -221,11 +221,11 @@ contract Client {
         return Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.timestamp),
+            rampUpStart: uint64(block.timestamp),
             rampUpPeriod: uint32(300),
             timeout: uint32(3600),
             lockTimeout: uint32(2700),
-            lockStake: 1 ether
+            lockCollateral: 1 ether
         });
     }
 

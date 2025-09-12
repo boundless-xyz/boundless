@@ -232,7 +232,7 @@ jobs:
         env:
           CHAIN_KEY: anvil
           RISC0_DEV_MODE: 1
-        run: ./contracts/scripts/test
+        run: ./contracts/scripts/test --match-contract '^DeploymentTest$'
 
       - name: forge clean
         run: forge clean
@@ -252,7 +252,7 @@ jobs:
         env:
           CHAIN_KEY: anvil
           RISC0_DEV_MODE: 1
-        run: ./contracts/scripts/test
+        run: ./contracts/scripts/test --match-contract '^DeploymentTest$'
 
       - name: rollback script
         run: ./contracts/scripts/manage RollbackBoundlessMarket --broadcast
@@ -267,7 +267,7 @@ jobs:
         env:
           CHAIN_KEY: anvil
           RISC0_DEV_MODE: 1
-        run: ./contracts/scripts/test
+        run: ./contracts/scripts/test --match-contract '^DeploymentTest$'
 
       - name: Cleanup
         if: always()

@@ -78,19 +78,19 @@ type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum OrderPickerErr {
-    #[error("{code} failed to fetch / push input: {0}", code = self.code())]
+    #[error("{code} failed to fetch / push input: {0:#}", code = self.code())]
     FetchInputErr(#[source] Arc<anyhow::Error>),
 
-    #[error("{code} failed to fetch / push image: {0}", code = self.code())]
+    #[error("{code} failed to fetch / push image: {0:#}", code = self.code())]
     FetchImageErr(#[source] Arc<anyhow::Error>),
 
     #[error("{code} invalid request: {0}", code = self.code())]
     RequestError(Arc<RequestError>),
 
-    #[error("{code} RPC error: {0:?}", code = self.code())]
+    #[error("{code} RPC error: {0:#}", code = self.code())]
     RpcErr(Arc<anyhow::Error>),
 
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedErr(Arc<anyhow::Error>),
 }
 
