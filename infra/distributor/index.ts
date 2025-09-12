@@ -18,6 +18,7 @@ export = () => {
   const slasherKey = isDev ? getEnvVar("SLASHER_KEY") : config.requireSecret('SLASHER_KEY');
   const proverKeys = isDev ? getEnvVar("PROVER_KEYS") : config.requireSecret('PROVER_KEYS');
   const orderGeneratorKeys = isDev ? getEnvVar("ORDER_GENERATOR_KEYS") : config.requireSecret('ORDER_GENERATOR_KEYS');
+  const offchainRequestorAddresses = isDev ? getEnvVar("OFFCHAIN_REQUESTOR_ADDRESSES") : config.get('OFFCHAIN_REQUESTOR_ADDRESSES');
 
   const ethThreshold = isDev ? getEnvVar("ETH_THRESHOLD") : config.require('ETH_THRESHOLD');
   const stakeThreshold = isDev ? getEnvVar("STAKE_THRESHOLD") : config.require('STAKE_THRESHOLD');
@@ -203,6 +204,7 @@ export = () => {
     stakeTopUpAmount ? `--stake-top-up-amount ${stakeTopUpAmount}` : '',
     proverEthDonateThreshold ? `--prover-eth-donate-threshold ${proverEthDonateThreshold}` : '',
     proverStakeDonateThreshold ? `--prover-stake-donate-threshold ${proverStakeDonateThreshold}` : '',
+    offchainRequestorAddresses ? `--offchain-requestor-addresses ${offchainRequestorAddresses}` : '',
   ]
 
   if (boundlessMarketAddr && setVerifierAddr) {
