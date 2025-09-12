@@ -2503,8 +2503,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // Check that we logged the task being added
-        assert!(logs_contain("Current pricing tasks: ["));
+        // Check that we logged the task being added (or that it was completed before the interval)
+        assert!(logs_contain("Current pricing tasks: [") || logs_contain("Priced task for order"));
         assert!(logs_contain(&order1_id));
 
         // Send another order to see the task being removed and a new one added
