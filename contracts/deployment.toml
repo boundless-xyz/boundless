@@ -58,8 +58,8 @@ admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 31134603
-boundless-market = "0x39877c8ebac64ad7d0b431d1fc536bf2e484d389"
-boundless-market-impl = "0xb01f0b0b5a26a76bfb5fef756e4ffc53490ca7e9"
+boundless-market = "0xfd152dadc5183870710fe54f939eae3ab9f0fe82"
+boundless-market-impl = "0x0786bf3387db42475f56e15a507147a716d79b35"
 boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
 collateral-token = "0xAA61bB7777bD01B684347961918f1E07fBbCe7CF"
 
@@ -68,7 +68,7 @@ deployment-commit = "1353e11c" # v0.14.0 main
 assessor-image-id = "0x03831182a226b5f5a4d358704a9f9d0bcd4dc48e6e577dc7db84d94892024938"
 assessor-guest-url = "https://gateway.beboundless.cloud/ipfs/bafybeibf7u5cltvkqg3yduo3yycrlxruoig4ew5pcvljx2zjua3gnypv2q"
 deprecated-assessor-duration = 0  # 5 days
-boundless-market-deployment-commit = "932c76287"
+boundless-market-deployment-commit = "b55392eae"
 
 [deployment.ethereum-sepolia]
 name = "Ethereum Sepolia [prod]"
@@ -83,9 +83,9 @@ admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8476627
-boundless-market = "0x400B5e943B5b5A8dAD5185A073fb1f98E59D5A3f"
-boundless-market-impl = "0x43636c68f9392febd0aa9b081106cc509a17c768"
-boundless-market-old-impl = "0x8d0e8ea045d50c495fccc51dd6b3c5e2be580700"
+boundless-market = "0xc211b581cb62e3a6d396a592bab34979e1bbba7d"
+boundless-market-impl = "0x9ef96f69881d54ea521cbbdec63617af0e484aa3"
+boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
 collateral-token = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 
 # Guests info
@@ -113,6 +113,7 @@ povw-mint-calculator-id = "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b
 # ZKC contracts
 zkc = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 vezkc = "0xc23340732038ca6C5765763180E81B395d2e9cCA"
+boundless-market-deployment-commit = "b55392eae"
 
 [deployment.base-sepolia]
 name = "Base Sepolia [prod]"
@@ -127,10 +128,10 @@ admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26646012
-boundless-market = "0x59d39fef27bfe4af709c8075531a10b28ad0214e"
-boundless-market-impl = "0x719a15b87aa6d94e91e1267271007eb86e0d0902"
+boundless-market = "0x56da3786061c82214d18e634d2817e86ad42d7ce"
+boundless-market-impl = "0x3966c33ee391c6c16a874ef4609eea875424d52b"
 boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
-boundless-market-deployment-commit = "932c76287"
+boundless-market-deployment-commit = "b55392eae"
 collateral-token = "0x8d4dA4b7938471A919B08F941461b2ed1679d7bb"
 
 # Guests info
@@ -197,10 +198,10 @@ admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
-boundless-market = "0xab765c9ec1faaf5da24e98a59e2b02aa12ca71a7"
-boundless-market-impl = "0x6fe7e4f85a20c5093fb3b7ed5c9fe1335e118c0e"
+boundless-market = "0x7abb16522f4599481361d318b765af988bfcca8e"
+boundless-market-impl = "0xec7562b21409bf9085ad70964211a3db628d75eb"
 boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
-boundless-market-deployment-commit = "932c76287"
+boundless-market-deployment-commit = "b55392eae"
 collateral-token = "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
 
 # Guests info
