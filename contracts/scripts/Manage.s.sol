@@ -15,6 +15,7 @@ import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
+import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
 
 library RequireLib {
     function required(address value, string memory label) internal pure returns (address) {
@@ -52,32 +53,13 @@ using RequireLib for bytes32;
 // This is the EIP-1967 implementation slot:
 bytes32 constant IMPLEMENTATION_SLOT = 0x360894A13BA1A3210667C828492DB98DCA3E2076CC3735A920A3CA505D382BBC;
 
-/// @notice Base contract for the scripts below, providing common context and functions.
-contract BoundlessScript is Script {
-    // Path to deployment config file, relative to the project root.
-    string constant CONFIG = "contracts/deployment.toml";
-
-    /// @notice Returns the address of the deployer, set in the DEPLOYER_ADDRESS env var.
-    function deployerAddress() internal returns (address deployer) {
-        uint256 deployerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
-        if (deployerKey != 0) {
-            deployer = vm.envOr("DEPLOYER_ADDRESS", vm.addr(deployerKey));
-            require(vm.addr(deployerKey) == deployer, "DEPLOYER_ADDRESS and DEPLOYER_PRIVATE_KEY are inconsistent");
-            vm.rememberKey(deployerKey);
-        } else {
-            deployer = vm.envOr("DEPLOYER_ADDRESS", address(0));
-            require(deployer != address(0), "env var DEPLOYER_ADDRESS or DEPLOYER_PRIVATE_KEY required");
-        }
-        return deployer;
-    }
-}
 
 /// @notice Deployment script for the market deployment.
 /// @dev Set values in deployment.toml to configure the deployment.
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract DeployBoundlessMarket is BoundlessScript {
+contract DeployBoundlessMarket is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -89,7 +71,7 @@ contract DeployBoundlessMarket is BoundlessScript {
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl.required("assessor-guest-url");
         address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
 
-        vm.startBroadcast(deployerAddress());
+        vm.startBroadcast(getDeployer());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
         address newImplementation = address(
@@ -132,7 +114,10 @@ contract DeployBoundlessMarket is BoundlessScript {
             "Deployed BoundlessMarket proxy contract at %s with impl at %s", marketAddress, boundlessMarketImpl
         );
 
-        string[] memory args = new string[](8);
+        // Get current git commit hash
+        string memory currentCommit = getCurrentCommit();
+
+        string[] memory args = new string[](10);
         args[0] = "python3";
         args[1] = "contracts/update_deployment_toml.py";
         args[2] = "--boundless-market";
@@ -141,8 +126,14 @@ contract DeployBoundlessMarket is BoundlessScript {
         args[5] = Strings.toHexString(boundlessMarketImpl);
         args[6] = "--boundless-market-old-impl";
         args[7] = Strings.toHexString(address(0)); // Old impl is not set at deployment time
+        args[8] = "--boundless-market-deployment-commit";
+        args[9] = currentCommit;
 
         vm.ffi(args);
+        console2.log("Updated BoundlessMarket deployment commit: %s", currentCommit);
+
+        // Check for uncommitted changes warning
+        checkUncommittedChangesWarning("Deployment");
     }
 }
 
@@ -151,7 +142,7 @@ contract DeployBoundlessMarket is BoundlessScript {
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract UpgradeBoundlessMarket is BoundlessScript {
+contract UpgradeBoundlessMarket is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -257,7 +248,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
 
 /// @notice Deployment script for the market contract rollback.
 /// @dev Set values in deployment.toml to configure the deployment.
-contract RollbackBoundlessMarket is BoundlessScript {
+contract RollbackBoundlessMarket is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -335,7 +326,7 @@ contract RollbackBoundlessMarket is BoundlessScript {
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract GrantAdminRole is BoundlessScript {
+contract GrantAdminRole is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -348,7 +339,7 @@ contract GrantAdminRole is BoundlessScript {
         require(!market.hasRole(market.ADMIN_ROLE(), newAdmin), "address already has admin role");
 
         // Get current admin with ADMIN_ROLE - use deployer as they should have admin role
-        address currentAdmin = deployerAddress();
+        address currentAdmin = getDeployer();
         require(market.hasRole(market.ADMIN_ROLE(), currentAdmin), "deployer does not have admin role");
 
         vm.broadcast(currentAdmin);
