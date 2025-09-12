@@ -87,13 +87,15 @@ contract DeployBoundlessMarket is BoundlessScript {
         address verifier = deploymentConfig.verifier.required("verifier");
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl.required("assessor-guest-url");
-        address stakeToken = deploymentConfig.stakeToken.required("stake-token");
+        address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
 
         vm.startBroadcast(deployerAddress());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
         address newImplementation = address(
-            new BoundlessMarket{salt: salt}(IRiscZeroVerifier(verifier), assessorImageId, bytes32(0), 0, stakeToken)
+            new BoundlessMarket{salt: salt}(
+                IRiscZeroVerifier(verifier), assessorImageId, bytes32(0), 0, collateralToken
+            )
         );
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(
@@ -112,11 +114,15 @@ contract DeployBoundlessMarket is BoundlessScript {
             keccak256(bytes(guestUrl)) == keccak256(bytes(deploymentConfig.assessorGuestUrl)),
             "assessor guest URL does not match"
         );
-        require(market.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken, "stake token does not match");
-        require(market.owner() == deploymentConfig.admin, "market owner does not match the admin");
+        require(
+            market.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken, "collateral token does not match"
+        );
+        require(
+            market.hasRole(market.ADMIN_ROLE(), deploymentConfig.admin), "market admin role does not match the admin"
+        );
 
         console2.log("BoundlessMarket admin is %s", deploymentConfig.admin);
-        console2.log("BoundlessMarket stake token contract at %s", deploymentConfig.stakeToken);
+        console2.log("BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
         console2.log("BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("BoundlessMarket assessor guest URL %s", guestUrl);
@@ -153,7 +159,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
 
         address admin = deploymentConfig.admin.required("admin");
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        address stakeToken = deploymentConfig.stakeToken.required("stake-token");
+        address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
         address verifier = deploymentConfig.verifier.required("verifier");
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         uint32 deprecatedAssessorDuration = deploymentConfig.deprecatedAssessorDuration;
@@ -182,7 +188,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
             assessorImageId,
             deprecatedAssessorImageId,
             deprecatedAssessorDuration,
-            stakeToken
+            collateralToken
         );
         opts.referenceContract = "build-info-reference:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
@@ -219,17 +225,20 @@ contract UpgradeBoundlessMarket is BoundlessScript {
             "upgraded market assessor guest URL does not match"
         );
         require(
-            upgradedMarket.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
+            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
             "upgraded market stake token does not match"
         );
-        require(upgradedMarket.owner() == deploymentConfig.admin, "upgraded market admin does not match the admin");
+        require(
+            upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin),
+            "upgraded market admin does not match the admin"
+        );
 
         address boundlessMarketImpl = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
 
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
         console2.log("Upgraded BoundlessMarket impl contract at %s", boundlessMarketImpl);
-        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.stakeToken);
+        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
         console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
@@ -289,14 +298,17 @@ contract RollbackBoundlessMarket is BoundlessScript {
             "upgraded market assessor guest URL does not match"
         );
         require(
-            upgradedMarket.STAKE_TOKEN_CONTRACT() == deploymentConfig.stakeToken,
+            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
             "upgraded market stake token does not match"
         );
-        require(upgradedMarket.owner() == deploymentConfig.admin, "upgraded market admin does not match the admin");
+        require(
+            upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin),
+            "upgraded market admin does not match the admin"
+        );
 
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
-        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.stakeToken);
+        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
         console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
@@ -318,51 +330,30 @@ contract RollbackBoundlessMarket is BoundlessScript {
     }
 }
 
-/// @notice Script from transferring ownership of the BoundlessMarket contract.
-/// @dev Transfer will be from the current admin (i.e. owner) address to the admin address set in deployment.toml
+/// @notice Script for granting admin role to a new address on the BoundlessMarket contract.
+/// @dev Grants ADMIN_ROLE to the admin address set in deployment.toml
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract TransferOwnership is BoundlessScript {
+contract GrantAdminRole is BoundlessScript {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address admin = deploymentConfig.admin.required("admin");
+        address newAdmin = deploymentConfig.admin.required("admin");
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
         BoundlessMarket market = BoundlessMarket(marketAddress);
 
-        address currentAdmin = market.owner();
-        require(admin != currentAdmin, "current and new admin address are the same");
+        require(!market.hasRole(market.ADMIN_ROLE(), newAdmin), "address already has admin role");
+
+        // Get current admin with ADMIN_ROLE - use deployer as they should have admin role
+        address currentAdmin = deployerAddress();
+        require(market.hasRole(market.ADMIN_ROLE(), currentAdmin), "deployer does not have admin role");
 
         vm.broadcast(currentAdmin);
-        market.transferOwnership(admin);
+        market.grantRole(market.ADMIN_ROLE(), newAdmin);
 
-        console2.log("Transfered ownership of the BoundlessMarket contract from %s to %s", currentAdmin, admin);
-        console2.log("Ownership must be accepted by the new admin %s", admin);
-    }
-}
-
-/// @notice Script from accepting an ownership transfer of the BoundlessMarket contract.
-///
-/// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract AcceptTransferOwnership is BoundlessScript {
-    function run() external {
-        // Load the config
-        DeploymentConfig memory deploymentConfig =
-            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
-
-        address admin = deploymentConfig.admin.required("admin");
-        address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        BoundlessMarket market = BoundlessMarket(marketAddress);
-
-        require(admin == market.pendingOwner(), "pending owner is not the configured admin");
-
-        vm.broadcast(admin);
-        market.acceptOwnership();
-
-        console2.log("Accepted transfer of ownership of the BoundlessMarket contract from %s", admin);
+        console2.log("Granted admin role on the BoundlessMarket contract to %s", newAdmin);
     }
 }

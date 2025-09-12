@@ -2129,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -2142,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2184,14 +2184,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "boundless-market-test-utils"
-version = "0.14.0"
+name = "boundless-test-utils"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
  "boundless-market",
+ "boundless-zkc",
  "guest-assessor",
  "guest-set-builder",
  "guest-util",
@@ -2199,11 +2200,30 @@ dependencies = [
  "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
+ "tokio",
+]
+
+[[package]]
+name = "boundless-zkc"
+version = "0.15.0"
+dependencies = [
+ "alloy",
+ "alloy-chains",
+ "anyhow",
+ "clap",
+ "derive_builder",
+ "risc0-build",
+ "risc0-build-ethereum 3.0.1",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
 name = "broker"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2216,7 +2236,8 @@ dependencies = [
  "bonsai-sdk",
  "boundless-assessor",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
+ "bytemuck",
  "chrono",
  "clap",
  "futures",
@@ -3414,7 +3435,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "boundless-market",
- "boundless-market-test-utils",
+ "boundless-test-utils",
  "broker",
  "clap",
  "guest-util",
@@ -3913,7 +3934,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3931,7 +3952,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "hex",
  "risc0-build",

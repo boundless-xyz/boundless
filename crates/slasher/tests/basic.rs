@@ -24,10 +24,10 @@ use alloy::{
 use boundless_cli::OrderFulfilled;
 use boundless_market::contracts::{
     boundless_market::{FulfillmentTx, UnlockedRequest},
-    Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, Requirements,
+    Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
-use boundless_market_test_utils::create_test_ctx;
-use boundless_market_test_utils::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
+use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
+use boundless_test_utils::market::create_test_ctx;
 use futures_util::StreamExt;
 
 async fn create_order(
@@ -40,20 +40,17 @@ async fn create_order(
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         RequestId::new(signer_addr, order_id),
-        Requirements::new(
-            ECHO_ID,
-            Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-        ),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
-            biddingStart: now - 3,
+            rampUpStart: now - 3,
             timeout: 15,
             rampUpPeriod: 1,
             lockTimeout: 10,
-            lockStake: U256::from(0),
+            lockCollateral: U256::from(0),
         },
     );
 
@@ -124,7 +121,7 @@ async fn test_basic_usage() {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
             // Check that the stake recipient is the market treasury address
-            assert_eq!(request_slashed.stakeRecipient, ctx.deployment.boundless_market_address);
+            assert_eq!(request_slashed.collateralRecipient, ctx.deployment.boundless_market_address);
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(20)) => {
@@ -200,8 +197,8 @@ async fn test_slash_fulfilled() {
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
     let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt).unwrap();
-    let expires_at = request.offer.biddingStart + request.offer.timeout as u64;
-    let lock_expires_at = request.offer.biddingStart + request.offer.lockTimeout as u64;
+    let expires_at = request.offer.rampUpStart + request.offer.timeout as u64;
+    let lock_expires_at = request.offer.rampUpStart + request.offer.lockTimeout as u64;
 
     // Wait for the lock to expire
     loop {
@@ -240,7 +237,7 @@ async fn test_slash_fulfilled() {
             let request_slashed = event.unwrap().0;
             println!("Detected prover slashed for request {:?}", request_slashed.requestId);
             // Check that the stake recipient is the market treasury address
-            assert_eq!(request_slashed.stakeRecipient, ctx.customer_signer.address());
+            assert_eq!(request_slashed.collateralRecipient, ctx.customer_signer.address());
             cli_process.kill().unwrap();
         }
         _ = tokio::time::sleep(Duration::from_secs(20)) => {

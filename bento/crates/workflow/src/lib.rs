@@ -257,7 +257,10 @@ impl Agent {
             };
 
             if let Err(err) = self.process_work(&task).await {
-                if !err.to_string().contains("Session limit exceeded") {
+                let mut err_str = err.to_string();
+                if !err_str.contains("stopped intentionally due to session limit")
+                    && !err_str.contains("Session limit exceeded")
+                {
                     tracing::error!("Failure during task processing: {err:?}");
                 }
 
@@ -270,7 +273,6 @@ impl Agent {
                     }
                 } else {
                     // Prevent massive errors from being reported to the DB
-                    let mut err_str = format!("{err:?}");
                     err_str.truncate(1024);
                     taskdb::update_task_failed(
                         &self.db_pool,
@@ -388,36 +390,5 @@ impl Agent {
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn test_task_routing_povw_disabled() {
-        // Test that when POVW is disabled, tasks route to regular functions
-        unsafe {
-            std::env::remove_var("POVW_LOG_ID");
-        }
-
-        // This is a basic test to ensure the module compiles and can be tested
-        assert!(std::env::var("POVW_LOG_ID").is_err());
-    }
-
-    #[test]
-    fn test_task_routing_povw_enabled() {
-        // Test that when POVW is enabled, tasks route to POVW functions
-        unsafe {
-            std::env::set_var("POVW_LOG_ID", "0000000000000000000000000000000000000000");
-            std::env::set_var("POVW_JOB_NUMBER", "1");
-        }
-
-        // This is a basic test to ensure the module compiles and can be tested
-        assert_eq!(
-            std::env::var("POVW_LOG_ID").unwrap_or_default(),
-            "0000000000000000000000000000000000000000"
-        );
-        assert_eq!(std::env::var("POVW_JOB_NUMBER").unwrap_or_default(), "1");
     }
 }

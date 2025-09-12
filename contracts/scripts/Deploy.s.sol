@@ -102,18 +102,18 @@ contract Deploy is Script, RiscZeroCheats {
             console2.log("Using IRiscZeroVerifier deployed at", address(verifier));
         }
 
-        if (deploymentConfig.stakeToken == address(0)) {
+        if (deploymentConfig.collateralToken == address(0)) {
             // Deploy the HitPoints contract
             stakeToken = address(new HitPoints(boundlessMarketOwner));
             HitPoints(stakeToken).grantMinterRole(boundlessMarketOwner);
-            console2.log("Deployed HitPoints to", stakeToken);
+            console2.log("Deployed HitPoints collateral token to", stakeToken);
         } else {
-            stakeToken = deploymentConfig.stakeToken;
-            console2.log("Using HitPoints deployed at", stakeToken);
+            stakeToken = deploymentConfig.collateralToken;
+            console2.log("Using collateral token deployed at", stakeToken);
         }
 
         // Deploy the Boundless market
-        bytes32 salt = keccak256(abi.encodePacked("salt"));
+        bytes32 salt = vm.envOr("SALT", keccak256(abi.encodePacked("salt")));
         address newImplementation =
             address(new BoundlessMarket{salt: salt}(verifier, assessorImageId, bytes32(0), 0, stakeToken));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
@@ -124,7 +124,12 @@ contract Deploy is Script, RiscZeroCheats {
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
 
-        HitPoints(stakeToken).grantAuthorizedTransferRole(boundlessMarketAddress);
+        if (deploymentConfig.collateralToken == address(0)) {
+            HitPoints(stakeToken).grantAuthorizedTransferRole(boundlessMarketAddress);
+            console2.log(
+                "Granted AUTHORIZED_TRANSFER role to BoundlessMarket on HitPoints collateral token", stakeToken
+            );
+        }
 
         vm.stopBroadcast();
     }

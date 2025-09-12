@@ -558,15 +558,15 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let log_file_copy = log_file.clone();
     let guest_log_path = log_file.path().to_path_buf();
     let segment_po2 = agent.args.segment_po2;
+    let povw_job_number = rand::random();
 
     let exec_task: JoinHandle<anyhow::Result<SessionData>> = tokio::task::spawn_blocking(
         move || {
             let mut env = ExecutorEnv::builder();
-
             // Enable POVW if configured (agent POVW setting)
             if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
                 if let Ok(povw_log_id) = PovwLogId::from_str(&log_id) {
-                    env.povw((povw_log_id, rand::random()));
+                    env.povw((povw_log_id, povw_job_number));
                 } else {
                     tracing::warn!("Invalid POVW_LOG_ID format: {}", log_id);
                 }
@@ -696,7 +696,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         total_cycles: session.total_cycles,
         assumption_count: assumption_count as u64,
         povw_log_id: std::env::var("POVW_LOG_ID").ok(),
-        povw_job_number: std::env::var("POVW_JOB_NUMBER").ok(),
+        povw_job_number: Some(povw_job_number.to_string()),
     };
     Ok(resp)
 }

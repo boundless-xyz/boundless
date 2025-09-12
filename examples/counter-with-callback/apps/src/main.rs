@@ -109,7 +109,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (_journal, _seal) = client
+    let _fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
@@ -141,7 +141,10 @@ mod tests {
     };
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderType;
-    use boundless_market_test_utils::{create_test_ctx, TestCtx, ECHO_ID};
+    use boundless_test_utils::{
+        guests::ECHO_ID,
+        market::{create_test_ctx, TestCtx},
+    };
     use broker::test_utils::BrokerBuilder;
     use risc0_zkvm::Digest;
     use test_log::test;
