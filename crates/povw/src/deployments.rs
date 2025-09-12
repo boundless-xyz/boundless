@@ -73,7 +73,7 @@ pub const SEPOLIA: Deployment = Deployment {
     vezkc_address: address!("0xc23340732038ca6C5765763180E81B395d2e9cCA"),
 };
 
-/// [Deployment] for the Base mainnet.
+/// [Deployment] for the Ethereum mainnet.
 pub const MAINNET: Deployment = Deployment {
     chain_id: Some(NamedChain::Mainnet as u64),
     povw_accounting_address: address!("0xF4a9Dd1aE7904a6031C35348C921fcDb605d3d1b"),
