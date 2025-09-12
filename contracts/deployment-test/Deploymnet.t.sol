@@ -128,8 +128,8 @@ contract DeploymentTest is Test {
 
     function testBoundlessMarketOwner() external view {
         require(
-            deployment.admin == BoundlessMarket(address(boundlessMarket)).owner(),
-            "boundless market owner does not match admin"
+            BoundlessMarket(address(boundlessMarket)).hasRole(BoundlessMarket(address(boundlessMarket)).ADMIN_ROLE(), deployment.admin),
+            "boundless market admin role does not match admin"
         );
     }
 
