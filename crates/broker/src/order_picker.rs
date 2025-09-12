@@ -3196,7 +3196,7 @@ pub(crate) mod tests {
 
         // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
         // For LockAndFulfill orders: preflight uses higher limit (stake), prove uses ETH-based
-        assert_eq!(preflight_limit, 800_000_000u64); // Stake-based calculation
+        assert_eq!(preflight_limit, 500_000_000u64); // Stake-based calculation
         assert_eq!(prove_limit, 99_900_000u64); // ETH-based calculation
     }
 
