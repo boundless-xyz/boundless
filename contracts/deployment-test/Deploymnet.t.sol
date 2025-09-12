@@ -6,15 +6,12 @@
 pragma solidity ^0.8.9;
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
-import {Account} from "../src/types/Account.sol";
-import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 import {AssessorReceipt} from "../src/types/AssessorReceipt.sol";
 import {Callback} from "../src/types/Callback.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
@@ -23,8 +20,7 @@ import {Requirements} from "../src/types/Requirements.sol";
 import {Offer} from "../src/types/Offer.sol";
 import {ProofRequest} from "../src/types/ProofRequest.sol";
 import {PredicateLibrary} from "../src/types/Predicate.sol";
-import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
-import {RequestLock} from "../src/types/RequestLock.sol";
+import {RequestIdLibrary} from "../src/types/RequestId.sol";
 
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
@@ -95,7 +91,7 @@ contract DeploymentTest is Test {
         verifier = IRiscZeroVerifier(deployment.verifier);
         setVerifier = IRiscZeroSetVerifier(deployment.setVerifier);
         boundlessMarket = IBoundlessMarket(deployment.boundlessMarket);
-        stakeToken = IERC20(deployment.stakeToken);
+        stakeToken = IERC20(deployment.collateralToken);
     }
 
     function testAdminIsSet() external view {
@@ -190,7 +186,7 @@ contract DeploymentTest is Test {
         setVerifier.submitMerkleRoot(result.root, result.seal);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), result.fills[0]);
+        emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), result.fills[0].requestDigest);
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, address(testProver), result.fills[0]);
 
@@ -221,11 +217,11 @@ contract Client {
         return Offer({
             minPrice: 1 ether,
             maxPrice: 2 ether,
-            biddingStart: uint64(block.timestamp),
+            rampUpStart: uint64(block.timestamp),
             rampUpPeriod: uint32(300),
             timeout: uint32(3600),
             lockTimeout: uint32(2700),
-            lockStake: 1 ether
+            lockCollateral: 1 ether
         });
     }
 
