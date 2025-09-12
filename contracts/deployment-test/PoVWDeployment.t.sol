@@ -7,14 +7,11 @@
 pragma solidity ^0.8.9;
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 
 import {PovwAccounting, PendingEpoch} from "../src/povw/PovwAccounting.sol";
 import {PovwMint} from "../src/povw/PovwMint.sol";
-import {IZKC} from "zkc/interfaces/IZKC.sol";
-import {IRewards as IZKCRewards} from "zkc/interfaces/IRewards.sol";
 import {ConfigLoader, DeploymentConfig} from "../scripts/Config.s.sol";
 
 Vm constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
