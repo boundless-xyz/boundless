@@ -625,7 +625,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.snapshotGasLastCall("deposit: second deposit");
     }
 
-    function testAdminRoleSetup() public {
+    function testAdminRoleSetup() public view {
         assertTrue(
             boundlessMarket.hasRole(boundlessMarket.ADMIN_ROLE(), ownerWallet.addr), "Owner should have admin role"
         );
