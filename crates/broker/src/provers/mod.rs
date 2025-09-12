@@ -71,7 +71,7 @@ pub enum ProverError {
     #[error("{code} Prover internal error: {0}", code = self.code())]
     ProverInternalError(String),
 
-    #[error("{code} {0:?}", code = self.code())]
+    #[error("{code} Unexpected prover error: {0:#}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
 

@@ -62,10 +62,10 @@ pub enum OrderMonitorErr {
     #[error("{code} Order already locked", code = self.code())]
     AlreadyLocked,
 
-    #[error("{code} RPC error: {0:?}", code = self.code())]
+    #[error("{code} RPC error: {0:#}", code = self.code())]
     RpcErr(anyhow::Error),
 
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
 }
 
