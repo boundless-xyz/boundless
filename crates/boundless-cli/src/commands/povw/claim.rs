@@ -26,6 +26,7 @@ use alloy::{
 };
 use anyhow::{bail, ensure, Context};
 use boundless_povw::{
+    deployments::Deployment,
     log_updater::IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
     mint_calculator::{prover::MintCalculatorProver, IPovwMint, CHAIN_SPECS},
 };
@@ -41,12 +42,19 @@ const HOUR: Duration = Duration::from_secs(60 * 60);
 // TODO: Figure out what rewards the user is eligible for and warn them if they are receiving less
 // than their cycles could get them.
 
-/// Command to claim PoVW rewards associated with posted work log updated.
+/// Command to claim PoVW rewards associated with submitted work log updates.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
-pub struct PovwClaimReward {
+pub struct PovwClaim {
     // TODO(povw): Support providing multiple log IDs.
-    /// Path to the work log state file.
+    /// Work log ID for the reward claim.
+    ///
+    /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
+    /// the claim can be done for any log ID and does not require authorization.
+    /// Work log ID for the reward claim.
+    ///
+    /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
+    /// the claim can be done for any log ID and does not require authorization.
     #[arg(short, long)]
     pub log_id: PovwLogId,
 
@@ -59,19 +67,9 @@ pub struct PovwClaimReward {
     #[arg(long, env)]
     pub beacon_api_url: Option<Url>,
 
-    // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
-    /// Address of the [IPovwAccounting] contract.
-    #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
-    pub povw_accounting_address: Address,
-    /// Address of the [IPovwMint] contract.
-    #[clap(long, env = "POVW_MINT_ADDRESS")]
-    pub povw_mint_address: Address,
-    /// Address of the ZKC contract to query.
-    #[clap(long, env = "ZKC_ADDRESS")]
-    pub zkc_address: Address,
-    /// Address of the veZKC contract to query.
-    #[clap(long, env = "VEZKC_ADDRESS")]
-    pub vezkc_address: Address,
+    /// Deployment configuration for the PoVW and ZKC contracts.
+    #[clap(flatten, next_help_heading = "Deployment")]
+    pub deployment: Option<Deployment>,
 
     /// Maximum number of days to consider for the reward claim.
     ///
@@ -91,8 +89,8 @@ pub struct PovwClaimReward {
     prover_config: ProverConfig,
 }
 
-impl PovwClaimReward {
-    /// Run the [PovwClaimReward] command.
+impl PovwClaim {
+    /// Run the [PovwClaim] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
@@ -108,6 +106,13 @@ impl PovwClaimReward {
         let chain_spec = CHAIN_SPECS.get(&chain_id).with_context(|| {
             format!("No known Steel chain specification for chain ID {chain_id}")
         })?;
+        let deployment = self
+            .deployment
+            .clone()
+            .or_else(|| Deployment::from_chain_id(chain_id))
+            .context(
+            "could not determine deployment from chain ID; please specify deployment explicitly",
+        )?;
 
         // Determine the limits on the blocks that will be searched for events.
         let latest_block_number =
@@ -125,20 +130,25 @@ impl PovwClaimReward {
         .context("Failed to determine the block number for the event search limit")?;
         tracing::debug!("Event search will use a lower limit of block {lower_limit_block_number}");
 
-        let povw_accounting = IPovwAccounting::new(self.povw_accounting_address, provider.clone());
-        let povw_mint = IPovwMint::new(self.povw_mint_address, provider.clone());
+        let povw_accounting =
+            IPovwAccounting::new(deployment.povw_accounting_address, provider.clone());
+        let povw_mint = IPovwMint::new(deployment.povw_mint_address, provider.clone());
 
         // Determine the commit range for which we can mint. This is the difference between the
         // recoreded work log commit on the accounting contract and on the mint contract.
-        let initial_commit =
-            Digest::from(*povw_mint.workLogCommit(self.log_id.into()).call().await.with_context(
-                || format!("Failed to call IPovwMint.workLogCommit on {}", self.povw_mint_address),
-            )?);
+        let initial_commit = Digest::from(
+            *povw_mint.workLogCommit(self.log_id.into()).call().await.with_context(|| {
+                format!(
+                    "Failed to call IPovwMint.workLogCommit on {}",
+                    deployment.povw_mint_address
+                )
+            })?,
+        );
         let final_commit = Digest::from(
             *povw_accounting.workLogCommit(self.log_id.into()).call().await.with_context(|| {
                 format!(
                     "Failed to call IPovwAccounting.workLogCommit on {}",
-                    self.povw_accounting_address
+                    deployment.povw_accounting_address
                 )
             })?,
         );
@@ -150,9 +160,7 @@ impl PovwClaimReward {
         }
 
         // Search for the WorkLogUpdated events, and the the EpochFinalized events.
-        tracing::info!(
-            "Searching for work log update events, from commit {initial_commit} to {final_commit}"
-        );
+        tracing::info!("Searching for work log update events in the past {} days", self.days);
         let update_events = search_work_log_updated(
             &povw_accounting,
             self.log_id,
@@ -163,20 +171,55 @@ impl PovwClaimReward {
             self.event_query_chunk_size,
         )
         .await
-        .context("Failed to search for WorkLogUpdated events")?;
+        .context("Search for work log update events failed")?;
         tracing::info!("Found {} work log update events", update_events.len());
 
+        // Check to see what the current pending epoch is on the PoVW accounting contract. Filter
+        // out update events with an epoch that has not finalized (with a warning).
+        let pending_epoch = povw_accounting
+            .pendingEpoch()
+            .call()
+            .await
+            .context("Failed to check the pending epoch")?
+            .number;
+        let finalized_update_events = update_events
+            .into_iter()
+            .filter(|(event, _)| {
+                if event.epochNumber >= pending_epoch {
+                    tracing::warn!(
+                        "Skipping update in epoch {}, which has not been finalized",
+                        event.epochNumber
+                    );
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // NOTE: At least one epoch must be skipped to reach this error.
+        if finalized_update_events.is_empty() {
+            bail!("No update events found for finalized epochs; no rewards to claim")
+        }
+
         // We can refine the range we search for EpochFinalized events using the first event.
-        // NOTE: update_events should always be a non-empty list.
-        let lower_limit_block_number = update_events
+        let lower_limit_block_number = finalized_update_events
             .first()
             .map(|(_, block_numer)| *block_numer)
             .unwrap_or(lower_limit_block_number);
-        let epochs =
-            update_events.iter().map(|(event, _)| event.epochNumber).collect::<BTreeSet<_>>();
+        let epochs = finalized_update_events
+            .iter()
+            .map(|(event, _)| event.epochNumber)
+            .collect::<BTreeSet<_>>();
 
-        tracing::info!("Searching for epoch finalization events, from commit {initial_commit} to {final_commit}");
-        tracing::debug!(?epochs, "Epochs to find events for");
+        ensure!(!epochs.is_empty(), "List of epochs for claim is empty");
+        let first_epoch = epochs.iter().next().unwrap();
+        let last_epoch = epochs.iter().last().unwrap();
+        if first_epoch == last_epoch {
+            tracing::info!("Searching for epoch finalization event for epoch {first_epoch}");
+        } else {
+            tracing::info!("Searching for epoch finalization events, from epoch {first_epoch} to epoch {last_epoch}");
+        }
         let epoch_events = search_epoch_finalized(
             &povw_accounting,
             epochs,
@@ -185,11 +228,11 @@ impl PovwClaimReward {
             self.event_query_chunk_size,
         )
         .await
-        .context("Failed to search for EpochFinalized events")?;
+        .context("Search for epoch finalized events failed")?;
         tracing::info!("Found {} epoch finalization events", epoch_events.len());
 
         let event_block_numbers = BTreeSet::from_iter(
-            update_events
+            finalized_update_events
                 .iter()
                 .map(|(_, block_number)| *block_number)
                 .chain(epoch_events.keys().copied()),
@@ -200,9 +243,9 @@ impl PovwClaimReward {
             .prover(default_prover())
             .provider(provider.clone())
             .beacon_api(self.beacon_api_url.clone())
-            .povw_accounting_address(self.povw_accounting_address)
-            .zkc_address(self.zkc_address)
-            .zkc_rewards_address(self.vezkc_address)
+            .povw_accounting_address(deployment.povw_accounting_address)
+            .zkc_address(deployment.zkc_address)
+            .zkc_rewards_address(deployment.vezkc_address)
             .chain_spec(chain_spec)
             .prover_opts(ProverOpts::groth16())
             .build()?;
@@ -347,7 +390,7 @@ async fn search_work_log_updated(
         .event_signature(WorkLogUpdated::SIGNATURE_HASH)
         .topic1(Address::from(log_id));
 
-    tracing::debug!("Searching for WorkLogUpdated events");
+    tracing::debug!(%initial_commit, %final_commit, %upper_limit_block_number, %lower_limit_block_number, "Searching for WorkLogUpdated events");
     search_events(
         povw_accounting.provider(),
         filter,
@@ -382,6 +425,8 @@ async fn search_epoch_finalized(
     lower_limit_block_number: u64,
     chunk_size: u64,
 ) -> anyhow::Result<BTreeMap<u64, EpochFinalized>> {
+    tracing::debug!(?epochs, "Searching for EpochFinalized events");
+
     let mut events = BTreeMap::<u64, EpochFinalized>::new();
     let search_predicate = |query_logs: &[(EpochFinalized, Log)]| {
         for (event, log) in query_logs {
@@ -405,7 +450,6 @@ async fn search_epoch_finalized(
         .address(*povw_accounting.address())
         .event_signature(EpochFinalized::SIGNATURE_HASH);
 
-    tracing::debug!("Searching for EpochFinalized events");
     search_events(
         povw_accounting.provider(),
         filter,

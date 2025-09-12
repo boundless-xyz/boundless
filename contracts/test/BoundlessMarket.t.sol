@@ -7,6 +7,7 @@ pragma solidity ^0.8.20;
 
 import {console} from "forge-std/console.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Test} from "forge-std/Test.sol";
@@ -152,8 +153,11 @@ contract BoundlessMarketTest is Test {
         stakeBalanceSnapshot = type(int256).max;
         collateralTreasuryBalanceSnapshot = type(int256).max;
 
-        // Verify that OWNER is the actual owner
-        assertEq(boundlessMarket.owner(), ownerWallet.addr, "OWNER address is not the contract owner after deployment");
+        // Verify that OWNER has the admin role
+        assertTrue(
+            boundlessMarket.hasRole(boundlessMarket.ADMIN_ROLE(), ownerWallet.addr),
+            "OWNER address does not have admin role after deployment"
+        );
     }
 
     function expectedSlashBurnAmount(uint256 amount) internal pure returns (uint96) {
@@ -620,6 +624,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.snapshotGasLastCall("deposit: second deposit");
     }
 
+    function testAdminRoleSetup() public view {
+        assertTrue(
+            boundlessMarket.hasRole(boundlessMarket.ADMIN_ROLE(), ownerWallet.addr), "Owner should have admin role"
+        );
+    }
+
     function testWithdraw() public {
         // Deposit funds into the market
         vm.deal(testProverAddress, 1 ether);
@@ -647,7 +657,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.deposit{value: 1 ether}();
 
         // Attempt to withdraw funds from the treasury from an unauthorized account.
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, testProverAddress));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                testProverAddress,
+                boundlessMarket.ADMIN_ROLE()
+            )
+        );
         vm.prank(testProverAddress);
         boundlessMarket.withdrawFromTreasury(1 ether);
 
@@ -665,7 +681,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         testSlashLockedRequestFullyExpired();
 
         // Attempt to withdraw funds from the stake treasury from an unauthorized account.
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, testProverAddress));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                testProverAddress,
+                boundlessMarket.ADMIN_ROLE()
+            )
+        );
         vm.prank(testProverAddress);
         uint256 expectedWithdrawal = 1 ether - (1 ether * EXPECTED_SLASH_BURN_BPS / 10000);
         boundlessMarket.withdrawFromCollateralTreasury(expectedWithdrawal);
@@ -4255,11 +4277,14 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
     }
 
-    function testTransferOwnership() public {
-        address newOwner = vm.createWallet("NEW_OWNER").addr;
-        vm.prank(ownerWallet.addr);
-        boundlessMarket.transferOwnership(newOwner);
+    function testGrantAdminRole() public {
+        address newAdmin = vm.createWallet("NEW_ADMIN").addr;
+        bytes32 adminRole = boundlessMarket.ADMIN_ROLE();
 
-        assertEq(boundlessMarket.owner(), newOwner, "Owner should be changed");
+        vm.prank(ownerWallet.addr);
+        boundlessMarket.grantRole(adminRole, newAdmin);
+
+        assertTrue(boundlessMarket.hasRole(adminRole, newAdmin), "New admin should have admin role");
+        assertTrue(boundlessMarket.hasRole(adminRole, ownerWallet.addr), "Original owner should still have admin role");
     }
 }

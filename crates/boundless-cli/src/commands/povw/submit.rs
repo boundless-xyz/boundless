@@ -20,7 +20,10 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, ensure, Context};
-use boundless_povw::log_updater::{prover::LogUpdaterProver, IPovwAccounting};
+use boundless_povw::{
+    deployments::Deployment,
+    log_updater::{prover::LogUpdaterProver, IPovwAccounting},
+};
 use clap::Args;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 use risc0_zkvm::{default_prover, ProverOpts};
@@ -28,14 +31,14 @@ use risc0_zkvm::{default_prover, ProverOpts};
 use super::State;
 use crate::config::{GlobalConfig, ProverConfig};
 
-/// Send a work log update to the PoVW accounting contract.
+/// Submit a work log update to the PoVW accounting contract.
 ///
 /// To prepare the update, this command creates a Groth16 proof, compressing the updates to be sent
 /// and proving that they are authorized by the signing key for the work log.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
-pub struct PovwSendUpdate {
-    /// State of the work log, including receipts produced by the prove-update command.
+pub struct PovwSubmit {
+    /// State of the work log, including proven updates produces by the prepare command.
     #[arg(short, long, env = "POVW_STATE_PATH")]
     pub state: PathBuf,
 
@@ -49,17 +52,16 @@ pub struct PovwSendUpdate {
     #[clap(short, long, env = "POVW_VALUE_RECIPIENT")]
     pub value_recipient: Option<Address>,
 
-    // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
-    /// Address of the PoVW accounting contract.
-    #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
-    pub povw_accounting_address: Address,
+    /// Deployment configuration for the PoVW and ZKC contracts.
+    #[clap(flatten, next_help_heading = "Deployment")]
+    pub deployment: Option<Deployment>,
 
     #[clap(flatten, next_help_heading = "Prover")]
     prover_config: ProverConfig,
 }
 
-impl PovwSendUpdate {
-    /// Run the [PovwSendUpdate] command.
+impl PovwSubmit {
+    /// Run the [PovwSubmit] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
         let work_log_signer = self.povw_private_key.as_ref().unwrap_or(&tx_signer);
@@ -69,6 +71,8 @@ impl PovwSendUpdate {
         let mut state = State::load(&self.state)
             .await
             .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
+        tracing::info!("Submitting work log update for log ID: {:x}", state.log_id);
+
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
             "Signer does not match the state log ID: signer: {}, state: {}",
@@ -87,14 +91,22 @@ impl PovwSendUpdate {
             .get_chain_id()
             .await
             .with_context(|| format!("Failed to get chain ID from {rpc_url}"))?;
-        let povw_accounting = IPovwAccounting::new(self.povw_accounting_address, provider.clone());
+        let deployment = self
+            .deployment
+            .clone()
+            .or_else(|| Deployment::from_chain_id(chain_id))
+            .context(
+            "could not determine deployment from chain ID; please specify deployment explicitly",
+        )?;
+        let povw_accounting =
+            IPovwAccounting::new(deployment.povw_accounting_address, provider.clone());
 
         // Get the current work log commit, to determine which update(s) should be applied.
         let onchain_commit =
             povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(|| {
                 format!(
                     "Failed to get work log commit for {:x} from {:x}",
-                    state.log_id, self.povw_accounting_address
+                    state.log_id, deployment.povw_accounting_address
                 )
             })?;
 
@@ -151,7 +163,7 @@ impl PovwSendUpdate {
                 .prover(default_prover())
                 .chain_id(chain_id)
                 .value_recipient(self.value_recipient)
-                .contract_address(self.povw_accounting_address)
+                .contract_address(deployment.povw_accounting_address)
                 .prover_opts(ProverOpts::groth16())
                 .build()
                 .context("Failed to build prover for Log Updater")?;
