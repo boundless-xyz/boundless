@@ -84,19 +84,16 @@ Below are some `broker.toml` settings:
 
 ### Benchmarking Bento
 
-Load environment variables for the target network:
-
-```bash [Terminal]
-# For example, to benchmark an order on Ethereum Sepolia
-source .env.eth-sepolia
-
-# Load any other relevant env variables here, specifically `RPC_URL` and postgres env (if not default)
-```
-
 Start a bento cluster:
 
 ```bash [Terminal]
 just bento
+```
+
+Set the `RPC_URL` environment variable to the network the order is on:
+
+```bash [Terminal]
+export RPC_URL=<TARGET_CHAIN_RPC_URL>
 ```
 
 Then, run the benchmark:
