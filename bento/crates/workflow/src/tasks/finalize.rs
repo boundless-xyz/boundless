@@ -31,8 +31,14 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
         .await
         .with_context(|| format!("failed to get the root receipt key: {root_receipt_key}"))?;
 
-    let root_receipt: SuccinctReceipt<ReceiptClaim> =
-        deserialize_obj(&root_receipt).context("could not deseriailize the root receipt")?;
+    let root_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&root_receipt)
+        .with_context(|| {
+            format!(
+                "could not deserialize the root receipt. Data length: {} bytes, first 32 bytes (hex): {:02x?}",
+                root_receipt.len(),
+                &root_receipt[..root_receipt.len().min(32)]
+            )
+        })?;
 
     // construct the journal key and grab the journal from redis
     let journal_key = format!("{job_prefix}:journal");
@@ -41,7 +47,14 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
         .await
         .with_context(|| format!("Journal data not found for key ID: {journal_key}"))?;
 
-    let journal = deserialize_obj(&journal).context("could not deseriailize the journal");
+    let journal = deserialize_obj(&journal)
+        .with_context(|| {
+            format!(
+                "could not deserialize the journal. Data length: {} bytes, first 32 bytes (hex): {:02x?}",
+                journal.len(),
+                &journal[..journal.len().min(32)]
+            )
+        });
     let rollup_receipt = Receipt::new(InnerReceipt::Succinct(root_receipt), journal?);
 
     // build the image ID for pulling the image from redis
