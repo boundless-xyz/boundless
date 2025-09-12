@@ -29,8 +29,6 @@ Please see [Installing the Boundless CLI](/developers/tooling/cli#installation) 
 ```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-# Use the env file based on the network you are connecting to
-source .env.eth-sepolia
 
 # Example: 'account deposit-collateral 100'
 boundless account deposit-collateral <USDC_TO_DEPOSIT>
@@ -41,8 +39,6 @@ boundless account deposit-collateral <USDC_TO_DEPOSIT>
 ```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-# Use the env file based on the network you are connecting to
-source .env.eth-sepolia
 
 boundless account collateral-balance [wallet_address]
 ```
