@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS proof_requests (
     -- Offer fields
     min_price           TEXT      NOT NULL, -- Minimum price in wei
     max_price           TEXT      NOT NULL, -- Maximum price in wei
-    lock_stake          TEXT      NOT NULL, -- Lock stake amount in wei
+    lock_collateral          TEXT      NOT NULL, -- Lock collateral amount in wei
     bidding_start       BIGINT    NOT NULL, -- Unix timestamp when bidding starts
     expires_at          BIGINT    NOT NULL, -- Unix timestamp when request expires
     lock_end            BIGINT    NOT NULL, -- Unix timestamp when lock ends

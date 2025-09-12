@@ -15,9 +15,10 @@ interface OrderGeneratorArgs {
   logLevel: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
+  collateralTokenAddress?: string;
   ipfsGateway: string;
   interval: string;
-  lockStakeRaw: string;
+  lockCollateralRaw: string;
   rampUp?: string;
   minPricePerMCycle: string;
   maxPricePerMCycle: string;
@@ -161,11 +162,14 @@ export class OrderGenerator extends pulumi.ComponentResource {
       `--interval ${args.interval}`,
       `--min ${args.minPricePerMCycle}`,
       `--max ${args.maxPricePerMCycle}`,
-      `--lock-stake-raw ${args.lockStakeRaw}`,
+      `--lock-collateral-raw ${args.lockCollateralRaw}`,
       `--set-verifier-address ${args.setVerifierAddr}`,
       `--boundless-market-address ${args.boundlessMarketAddr}`,
       `--tx-timeout ${args.txTimeout}`
     ]
+    if (args.collateralTokenAddress) {
+      ogArgs.push(`--collateral-token-address ${args.collateralTokenAddress}`);
+    }
     if (offchainConfig) {
       ogArgs.push('--submit-offchain');
     }
@@ -347,7 +351,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
       evaluationPeriods: 60,
-      datapointsToAlarm: 3,
+      datapointsToAlarm: 4,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} log ERROR level 3 times within an hour`,
       actionsEnabled: true,

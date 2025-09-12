@@ -196,8 +196,8 @@ where
         self.process_slashed_events(from, to).await?;
         self.process_deposit_events(from, to).await?;
         self.process_withdrawal_events(from, to).await?;
-        self.process_stake_deposit_events(from, to).await?;
-        self.process_stake_withdrawal_events(from, to).await?;
+        self.process_collateral_deposit_events(from, to).await?;
+        self.process_collateral_withdrawal_events(from, to).await?;
         self.clear_cache();
 
         self.update_last_processed_block(to).await?;
@@ -507,7 +507,7 @@ where
         Ok(())
     }
 
-    async fn process_stake_deposit_events(
+    async fn process_collateral_deposit_events(
         &mut self,
         from_block: u64,
         to_block: u64,
@@ -522,7 +522,7 @@ where
         // Query the logs for the event
         let logs = event_filter.query().await?;
         tracing::debug!(
-            "Found {} stake deposit events from block {} to block {}",
+            "Found {} collateral deposit events from block {} to block {}",
             logs.len(),
             from_block,
             to_block
@@ -531,18 +531,18 @@ where
         for (event, log_data) in logs {
             let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
-                "Processing stake deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
+                "Processing collateral deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
                 event.account,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_stake_deposit_event(event.account, event.value, &metadata).await?;
+            self.db.add_collateral_deposit_event(event.account, event.value, &metadata).await?;
         }
 
         Ok(())
     }
 
-    async fn process_stake_withdrawal_events(
+    async fn process_collateral_withdrawal_events(
         &mut self,
         from_block: u64,
         to_block: u64,
@@ -557,7 +557,7 @@ where
         // Query the logs for the event
         let logs = event_filter.query().await?;
         tracing::debug!(
-            "Found {} stake withdrawal events from block {} to block {}",
+            "Found {} collateral withdrawal events from block {} to block {}",
             logs.len(),
             from_block,
             to_block
@@ -566,12 +566,12 @@ where
         for (event, log_data) in logs {
             let metadata = self.fetch_tx_metadata(log_data).await?;
             tracing::debug!(
-                "Processing stake withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
+                "Processing collateral withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
                 event.account,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_stake_withdrawal_event(event.account, event.value, &metadata).await?;
+            self.db.add_collateral_withdrawal_event(event.account, event.value, &metadata).await?;
         }
 
         Ok(())

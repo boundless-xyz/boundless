@@ -8,6 +8,12 @@ import { OrderGeneratorPipeline } from "./pipelines/order-generator";
 import { OrderStreamPipeline } from "./pipelines/order-stream";
 import { IndexerPipeline } from "./pipelines/indexer";
 import { DistributorPipeline } from "./pipelines/distributor";
+import { LDistributorPipeline } from "./pipelines/l-distributor";
+import { LIndexerPipeline } from "./pipelines/l-indexer";
+import { LOrderGeneratorPipeline } from "./pipelines/l-order-generator";
+import { LOrderStreamPipeline } from "./pipelines/l-order-stream";
+import { LProverPipeline } from "./pipelines/l-prover";
+import { LSlasherPipeline } from "./pipelines/l-slasher";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import {
@@ -167,6 +173,67 @@ const distributorPipeline = new DistributorPipeline("distributorPipeline", {
   dockerUsername,
   dockerToken,
   slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+})
+
+// Launch pipelines
+const lDistributorPipeline = new LDistributorPipeline("lDistributorPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
+const lOrderStreamPipeline = new LOrderStreamPipeline("lOrderStreamPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
+const lProverPipeline = new LProverPipeline("lProverPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
+const lOrderGeneratorPipeline = new LOrderGeneratorPipeline("lOrderGeneratorPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
+const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
+const lSlasherPipeline = new LSlasherPipeline("lSlasherPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
 
 export const bucketName = pulumiStateBucket.bucket.id;

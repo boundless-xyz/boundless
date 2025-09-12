@@ -130,7 +130,9 @@ async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider>(
     db_url: &str,
 ) -> Result<(tokio::task::JoinHandle<()>, NamedTempFile)> {
     // Setup initial balances
-    ctx.prover_market.deposit_stake_with_permit(default_allowance(), &ctx.prover_signer).await?;
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await?;
     ctx.customer_market.deposit(utils::parse_ether("10.0")?).await?;
 
     // Start broker

@@ -1,12 +1,25 @@
 export const SERVICE_TO_QUERY_STRING_MAPPING = (service: string, logGroup: string, metricAlarmName: string) => {
   switch (service) {
-    case 'bento-prover':
+    case 'bento-prover-1':
       // Note we have to escape two backslashes in the query string. In
       // CW it should look like: regexp_replace(log, '\\x1b\\[[0-9;]*[mK]', '') AS msg
       return `
 SELECT
   \`@timestamp\`,
   regexp_replace(log, '\\\\x1b\\\\[[0-9;]*[mK]', '') AS msg
+FROM \`${logGroup}\`
+--WHERE
+-- log LIKE '%order_picker%' -- Filter to services
+-- AND log LIKE '%ERROR%' -- Only see error logs
+ORDER BY \`@timestamp\` ASC -- Note this uses the timestamps that Cloudwatch received the log at, not the original timestamp
+`.trim();
+    case 'bento-prover-2':
+      // Note we have to escape two backslashes in the query string. In
+      // CW it should look like: regexp_replace(log, '\\x1b\\[[0-9;]*[mK]', '') AS msg
+      return `
+SELECT
+\`@timestamp\`,
+regexp_replace(log, '\\\\x1b\\\\[[0-9;]*[mK]', '') AS msg
 FROM \`${logGroup}\`
 --WHERE
 -- log LIKE '%order_picker%' -- Filter to services

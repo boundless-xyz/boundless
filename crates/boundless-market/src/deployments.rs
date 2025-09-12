@@ -62,10 +62,10 @@ pub struct Deployment {
     #[builder(setter(into))]
     pub set_verifier_address: Address,
 
-    /// Address of the stake token contract. The staking token is an ERC-20.
+    /// Address of the collateral token contract. The collateral token is an ERC-20.
     #[clap(long, env)]
     #[builder(setter(strip_option), default)]
-    pub stake_token_address: Option<Address>,
+    pub collateral_token_address: Option<Address>,
 
     /// URL for the offchain [order stream service].
     ///
@@ -96,35 +96,47 @@ impl Deployment {
         let chain = NamedChain::try_from(chain_id.into()).ok()?;
         Self::from_chain(chain)
     }
+
+    /// Check if the collateral token supports permit.
+    /// Some chain's bridged tokens do not support permit, for example Base.
+    pub fn collateral_token_supports_permit(&self) -> bool {
+        collateral_token_supports_permit(self.chain_id.unwrap())
+    }
 }
 
 // TODO(#654): Ensure consistency with deployment.toml and with docs
 /// [Deployment] for the Sepolia testnet.
 pub const SEPOLIA: Deployment = Deployment {
     chain_id: Some(NamedChain::Sepolia as u64),
-    boundless_market_address: address!("0x13337C76fE2d1750246B68781ecEe164643b98Ec"),
+    boundless_market_address: address!("0xc211b581cb62e3a6d396a592bab34979e1bbba7d"),
     verifier_router_address: Some(address!("0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187")),
     set_verifier_address: address!("0xcb9D14347b1e816831ECeE46EC199144F360B55c"),
-    stake_token_address: Some(address!("0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238")),
-    order_stream_url: Some(Cow::Borrowed("https://eth-sepolia.beboundless.xyz")),
+    collateral_token_address: Some(address!("0xb4FC69A452D09D2662BD8C3B5BB756902260aE28")),
+    order_stream_url: Some(Cow::Borrowed("https://eth-sepolia.boundless.network")),
 };
 
 /// [Deployment] for the Base mainnet.
 pub const BASE: Deployment = Deployment {
     chain_id: Some(NamedChain::Base as u64),
-    boundless_market_address: address!("0x26759dbB201aFbA361Bec78E097Aa3942B0b4AB8"),
+    boundless_market_address: address!("0xfd152dadc5183870710fe54f939eae3ab9f0fe82"),
     verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
-    stake_token_address: Some(address!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")),
-    order_stream_url: Some(Cow::Borrowed("https://base-mainnet.beboundless.xyz")),
+    collateral_token_address: Some(address!("0xAA61bB7777bD01B684347961918f1E07fBbCe7CF")),
+    order_stream_url: Some(Cow::Borrowed("https://base-mainnet.boundless.network")),
 };
 
 /// [Deployment] for the Base Sepolia.
 pub const BASE_SEPOLIA: Deployment = Deployment {
     chain_id: Some(NamedChain::BaseSepolia as u64),
-    boundless_market_address: address!("0x6B7ABa661041164b8dB98E30AE1454d2e9D5f14b"),
+    boundless_market_address: address!("0x56da3786061c82214d18e634d2817e86ad42d7ce"),
     verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
-    stake_token_address: Some(address!("0x036CbD53842c5426634e7929541eC2318f3dCF7e")),
-    order_stream_url: Some(Cow::Borrowed("https://base-sepolia.beboundless.xyz")),
+    collateral_token_address: Some(address!("0x8d4dA4b7938471A919B08F941461b2ed1679d7bb")),
+    order_stream_url: Some(Cow::Borrowed("https://base-sepolia.boundless.network")),
 };
+
+/// Check if the collateral token supports permit.
+/// Some chain's bridged tokens do not support permit, for example Base.
+pub fn collateral_token_supports_permit(chain_id: u64) -> bool {
+    chain_id == 1 || chain_id == 11155111 || chain_id == 31337
+}

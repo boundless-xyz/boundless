@@ -519,11 +519,11 @@ where
         }
 
         if let (Some(manual_addr), Some(expected_addr)) =
-            (manual.stake_token_address, expected.stake_token_address)
+            (manual.collateral_token_address, expected.collateral_token_address)
         {
             if manual_addr != expected_addr {
                 warnings.push(format!(
-                    "stake_token_address mismatch: configured={manual_addr}, expected={expected_addr}"
+                    "collateral_token_address mismatch: configured={manual_addr}, expected={expected_addr}"
                 ));
             }
         }
@@ -834,12 +834,12 @@ where
 
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
-        let stake_token_decimals = BoundlessMarketService::new(
+        let collateral_token_decimals = BoundlessMarketService::new(
             self.deployment().boundless_market_address,
             self.provider.clone(),
             Address::ZERO,
         )
-        .stake_token_decimals()
+        .collateral_token_decimals()
         .await
         .context("Failed to get stake token decimals. Possible RPC error.")?;
 
@@ -853,7 +853,7 @@ where
             chain_monitor.clone(),
             new_order_rx,
             pricing_tx,
-            stake_token_decimals,
+            collateral_token_decimals,
             order_state_tx.clone(),
         ));
         let cloned_config = config.clone();
@@ -898,7 +898,7 @@ where
             prover_addr,
             self.deployment().boundless_market_address,
             pricing_rx,
-            stake_token_decimals,
+            collateral_token_decimals,
             order_monitor::RpcRetryConfig {
                 retry_count: self.args.rpc_retry_max.into(),
                 retry_sleep_ms: self.args.rpc_retry_backoff,

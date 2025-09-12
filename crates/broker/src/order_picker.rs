@@ -130,7 +130,7 @@ pub struct OrderPicker<P> {
     // TODO ideal not to wrap in mutex, but otherwise would require supervisor refactor, try to find alternative
     new_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
     priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
-    stake_token_decimals: u8,
+    collateral_token_decimals: u8,
     order_cache: OrderCache,
     preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
@@ -170,7 +170,7 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
-        stake_token_decimals: u8,
+        collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
     ) -> Self {
         let market = BoundlessMarketService::new(
@@ -189,7 +189,7 @@ where
             supported_selectors: SupportedSelectors::default(),
             new_order_rx: Arc::new(Mutex::new(new_order_rx)),
             priced_orders_tx: order_result_tx,
-            stake_token_decimals,
+            collateral_token_decimals,
             order_cache: Arc::new(
                 Cache::builder()
                     .max_capacity(ORDER_DEDUP_CACHE_SIZE)
@@ -368,7 +368,7 @@ where
         // For lock expired orders, we don't check the max stake because we can't lock those orders.
         let max_collateral: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            parse_units(&config.market.max_collateral, self.stake_token_decimals)
+            parse_units(&config.market.max_collateral, self.collateral_token_decimals)
                 .context("Failed to parse max_collateral")?
                 .into()
         };
@@ -719,7 +719,7 @@ where
             format_ether(U256::from(order.request.offer.maxPrice)),
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            format_units(U256::from(order.request.offer.lockCollateral), self.stake_token_decimals).unwrap_or_default(),
+            format_units(U256::from(order.request.offer.lockCollateral), self.collateral_token_decimals).unwrap_or_default(),
             format_ether(order_gas_cost),
         );
 
@@ -766,9 +766,12 @@ where
     ) -> Result<OrderPricingOutcome, OrderPickerErr> {
         let config_min_mcycle_price_collateral_tokens: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            parse_units(&config.market.mcycle_price_collateral_token, self.stake_token_decimals)
-                .context("Failed to parse mcycle_price")?
-                .into()
+            parse_units(
+                &config.market.mcycle_price_collateral_token,
+                self.collateral_token_decimals,
+            )
+            .context("Failed to parse mcycle_price")?
+            .into()
         };
 
         let total_cycles = U256::from(proof_res.stats.total_cycles);
@@ -855,7 +858,8 @@ where
     ///
     /// This is defined as the balance in staking tokens of the signer account minus any pending locked stake.
     async fn available_stake_balance(&self) -> Result<U256> {
-        let balance = self.market.balance_of_stake(self.provider.default_signer_address()).await?;
+        let balance =
+            self.market.balance_of_collateral(self.provider.default_signer_address()).await?;
         Ok(balance)
     }
 
@@ -894,7 +898,7 @@ where
                 parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?,
                 parse_units(
                     &config.market.mcycle_price_collateral_token,
-                    self.stake_token_decimals,
+                    self.collateral_token_decimals,
                 )
                 .context("Failed to parse mcycle_price")?
                 .into(),
@@ -940,10 +944,12 @@ where
 
             if eth_based_limit > stake_based_limit {
                 // Eth based limit is higher, use that for both preflight and prove
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) > stake based limit ({stake_based_limit}), using eth based limit for both preflight and prove");
                 preflight_limit = eth_based_limit;
                 prove_limit = eth_based_limit;
             } else {
                 // Otherwise lower the prove cycle limit for this order variant
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) < stake based limit ({stake_based_limit}), using eth based limit for prove");
                 prove_limit = eth_based_limit;
             }
             tracing::debug!(
@@ -1502,7 +1508,7 @@ pub(crate) mod tests {
         initial_signer_eth: Option<i32>,
         initial_hp: Option<U256>,
         config: Option<ConfigLock>,
-        stake_token_decimals: Option<u8>,
+        collateral_token_decimals: Option<u8>,
         prover: Option<ProverObj>,
     }
 
@@ -1520,8 +1526,8 @@ pub(crate) mod tests {
         pub(crate) fn with_prover(self, prover: ProverObj) -> Self {
             Self { prover: Some(prover), ..self }
         }
-        pub(crate) fn with_stake_token_decimals(self, decimals: u8) -> Self {
-            Self { stake_token_decimals: Some(decimals), ..self }
+        pub(crate) fn with_collateral_token_decimals(self, decimals: u8) -> Self {
+            Self { collateral_token_decimals: Some(decimals), ..self }
         }
         pub(crate) async fn build(
             self,
@@ -1561,10 +1567,10 @@ pub(crate) mod tests {
 
             if let Some(initial_hp) = self.initial_hp {
                 tracing::debug!("Setting initial locked hitpoints to {}", initial_hp);
-                boundless_market.deposit_stake_with_permit(initial_hp, &signer).await.unwrap();
+                boundless_market.deposit_collateral_with_permit(initial_hp, &signer).await.unwrap();
                 assert_eq!(
                     boundless_market
-                        .balance_of_stake(provider.default_signer_address())
+                        .balance_of_collateral(provider.default_signer_address())
                         .await
                         .unwrap(),
                     initial_hp
@@ -1593,7 +1599,7 @@ pub(crate) mod tests {
                 chain_monitor,
                 new_order_rx,
                 priced_orders_tx,
-                self.stake_token_decimals.unwrap_or(6),
+                self.collateral_token_decimals.unwrap_or(6),
                 order_state_tx,
             );
 
@@ -2029,7 +2035,7 @@ pub(crate) mod tests {
 
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: parse_units("11", ctx.picker.stake_token_decimals).unwrap().into(),
+                lock_stake: parse_units("11", ctx.picker.collateral_token_decimals).unwrap().into(),
                 ..Default::default()
             })
             .await;
@@ -2157,7 +2163,7 @@ pub(crate) mod tests {
             config.load_write().unwrap().market.mcycle_price_collateral_token = "0.1".into();
         }
         let ctx = PickerTestCtxBuilder::default()
-            .with_stake_token_decimals(6)
+            .with_collateral_token_decimals(6)
             .with_config(config)
             .build()
             .await;
@@ -2328,7 +2334,7 @@ pub(crate) mod tests {
         }
         let ctx = PickerTestCtxBuilder::default()
             .with_config(config.clone())
-            .with_stake_token_decimals(6)
+            .with_collateral_token_decimals(6)
             .build()
             .await;
 

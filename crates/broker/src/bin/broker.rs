@@ -98,7 +98,7 @@ async fn main() -> Result<()> {
 
         tracing::info!("pre-depositing {deposit_amount} stake tokens into the market contract");
         boundless_market
-            .deposit_stake_with_permit(*deposit_amount, &args.private_key)
+            .deposit_collateral_with_permit(*deposit_amount, &args.private_key)
             .await
             .context("Failed to deposit to market")?;
     }

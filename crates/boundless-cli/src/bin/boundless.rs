@@ -461,8 +461,8 @@ async fn parse_collateral_amount(
     client: &Client<impl Provider, impl Any, impl Any, impl Any>,
     amount: &str,
 ) -> Result<(U256, String, String)> {
-    let symbol = client.boundless_market.stake_token_symbol().await?;
-    let decimals = client.boundless_market.stake_token_decimals().await?;
+    let symbol = client.boundless_market.collateral_token_symbol().await?;
+    let decimals = client.boundless_market.collateral_token_decimals().await?;
     let parsed_amount =
         parse_units(amount, decimals).map_err(|e| anyhow!("Failed to parse amount: {}", e))?.into();
     if parsed_amount == U256::from(0) {
@@ -505,26 +505,50 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             let (parsed_amount, formatted_amount, symbol) =
                 parse_collateral_amount(&client, amount).await?;
 
-            tracing::info!("Depositing {formatted_amount} {symbol} as collateral");
-            match client
-                .boundless_market
-                .deposit_stake_with_permit(parsed_amount, &client.signer.unwrap())
-                .await
-            {
-                Ok(_) => {
-                    tracing::info!(
-                        "Successfully deposited {formatted_amount} {symbol} as collateral"
-                    );
-                    Ok(())
+            if !client.deployment.collateral_token_supports_permit() {
+                tracing::info!("Approving {formatted_amount} {symbol} as collateral");
+                client.boundless_market.approve_deposit_collateral(parsed_amount).await?;
+                tracing::info!("Depositing {formatted_amount} {symbol} as collateral");
+                match client.boundless_market.deposit_collateral(parsed_amount).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            "Successfully deposited {formatted_amount} {symbol} as collateral"
+                        );
+                        Ok(())
+                    }
+                    Err(e) => {
+                        if e.to_string().contains("TRANSFER_FROM_FAILED") {
+                            let addr = client.boundless_market.caller();
+                            Err(anyhow!(
+                                "Failed to deposit collateral: Ensure your address ({}) has funds on the {symbol} contract", addr
+                            ))
+                        } else {
+                            Err(anyhow!("Failed to deposit collateral: {}", e))
+                        }
+                    }
                 }
-                Err(e) => {
-                    if e.to_string().contains("TRANSFER_FROM_FAILED") {
-                        let addr = client.boundless_market.caller();
-                        Err(anyhow!(
-                            "Failed to deposit collateral: Ensure your address ({}) has funds on the {symbol} contract", addr
-                        ))
-                    } else {
-                        Err(anyhow!("Failed to deposit collateral: {}", e))
+            } else {
+                tracing::info!("Depositing {formatted_amount} {symbol} as collateral");
+                match client
+                    .boundless_market
+                    .deposit_collateral_with_permit(parsed_amount, &client.signer.unwrap())
+                    .await
+                {
+                    Ok(_) => {
+                        tracing::info!(
+                            "Successfully deposited {formatted_amount} {symbol} as collateral"
+                        );
+                        Ok(())
+                    }
+                    Err(e) => {
+                        if e.to_string().contains("TRANSFER_FROM_FAILED") {
+                            let addr = client.boundless_market.caller();
+                            Err(anyhow!(
+                                "Failed to deposit collateral: Ensure your address ({}) has funds on the {symbol} contract", addr
+                            ))
+                        } else {
+                            Err(anyhow!("Failed to deposit collateral: {}", e))
+                        }
                     }
                 }
             }
@@ -534,20 +558,20 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             let (parsed_amount, formatted_amount, symbol) =
                 parse_collateral_amount(&client, amount).await?;
             tracing::info!("Withdrawing {formatted_amount} {symbol} from collateral");
-            client.boundless_market.withdraw_stake(parsed_amount).await?;
+            client.boundless_market.withdraw_collateral(parsed_amount).await?;
             tracing::info!("Successfully withdrew {formatted_amount} {symbol} from collateral");
             Ok(())
         }
         AccountCommands::CollateralBalance { address } => {
             let client = config.build_client().await?;
-            let symbol = client.boundless_market.stake_token_symbol().await?;
-            let decimals = client.boundless_market.stake_token_decimals().await?;
+            let symbol = client.boundless_market.collateral_token_symbol().await?;
+            let decimals = client.boundless_market.collateral_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
             if addr == Address::ZERO {
                 bail!("No address specified for collateral balance query. Please provide an address or a private key.")
             }
             tracing::info!("Checking collateral balance for address {}", addr);
-            let balance = client.boundless_market.balance_of_stake(addr).await?;
+            let balance = client.boundless_market.balance_of_collateral(addr).await?;
             let balance = format_units(balance, decimals)
                 .map_err(|e| anyhow!("Failed to format collateral balance: {}", e))?;
             tracing::info!("Stake balance for address {}: {} {}", addr, balance, symbol);
@@ -1455,7 +1479,7 @@ mod tests {
         let private_key = match owner {
             AccountOwner::Customer => {
                 ctx.prover_market
-                    .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+                    .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
                     .await
                     .unwrap();
                 ctx.customer_signer.clone()
@@ -1613,7 +1637,7 @@ mod tests {
         )));
 
         let balance =
-            ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap();
+            ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await.unwrap();
         assert_eq!(balance, default_allowance());
 
         args.command = Command::Account(Box::new(AccountCommands::CollateralBalance {
@@ -1645,7 +1669,7 @@ mod tests {
         )));
 
         let balance =
-            ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap();
+            ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await.unwrap();
         assert_eq!(balance, U256::from(0));
     }
 
@@ -1664,7 +1688,7 @@ mod tests {
         };
 
         // Sanity check to make sure that the amount is below the denom min
-        let decimals = ctx.customer_market.stake_token_decimals().await?;
+        let decimals = ctx.customer_market.collateral_token_decimals().await?;
         let parsed_amount: U256 = parse_units(&amount, decimals).unwrap().into();
         assert_eq!(parsed_amount, U256::from(0));
 

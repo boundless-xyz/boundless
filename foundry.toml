@@ -43,6 +43,28 @@ test = "contracts/deployment-test"
 fs_permissions = [{ access = "read", path = "contracts/deployment.toml" }]
 isolate = true
 
+# Profile used for deploying PoVW contracts with higher optimization
+# TIP: You can select this profile by setting env var FOUNDRY_PROFILE=povw-deploy
+[profile.povw-deploy]
+src = "./contracts/src"
+out = "./out"
+fs_permissions = [{ access = "read", path = "./out" }, { access = "read", path = "./contracts/out" }, { access = "read-write", path = "./contracts/deployment.toml" }]
+libs = ["./lib"]
+script = "./contracts/scripts"
+test = "./contracts/test"
+ffi = true
+evm_version = 'cancun'
+via_ir = true
+optimizer = true
+# Use higher optimization runs for PoVW deployments to reduce gas costs
+optimizer_runs = 1000000
+ast = true
+build_info = true
+extra_output = ["storageLayout"]
+solc_version = "0.8.26"
+bytecode_hash = "none"
+isolate = true
+
 # Profile used to run upgradeability tests.
 # TIP: You can select this profile by setting env vars FOUNDRY_PROFILE=reference-contract and FOUNDRY_OUT="contracts/reference-contract/out"
 [profile.reference-contract]

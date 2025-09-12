@@ -6,7 +6,7 @@
 use crate::{
     Agent,
     redis::{self, AsyncCommands},
-    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
+    tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
@@ -22,6 +22,7 @@ pub async fn resolve_povw(
 ) -> Result<Option<u64>> {
     let max_idx = &request.max_idx;
     let job_prefix = format!("job:{job_id}");
+    let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
     let root_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{max_idx}");
 
     tracing::debug!("Starting POVW resolve for job_id: {job_id}, max_idx: {max_idx}");
@@ -102,8 +103,7 @@ pub async fn resolve_povw(
                         tracing::debug!("Skipping already resolved union claim: {union_claim}");
                         continue;
                     }
-                    let assumption_key =
-                        format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{assumption_claim}");
+                    let assumption_key = format!("{receipts_key}:{assumption_claim}");
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
                     let assumption_bytes: Vec<u8> = conn
                         .get(&assumption_key)

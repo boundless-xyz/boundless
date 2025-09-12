@@ -51,13 +51,12 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
 
   // Process metric alarm name to get stage, chain id, service name.
   // Supports two formats:
-  // 1. <stage>-<chainId>-<service>-<chainId>
-  //    e.g. prod-11155111-bento-prover-11155111
-  //    e.g. staging-11155111-og-onchain-11155111-log-fatal-SEV2
-  // 2. <stage>-<service>-<chainId>-<description>-<severity>
-  //    e.g. staging-monitor-11155111-requests_number_from_0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3-SEV2
-  const format1Regex = /^([^-]+)-(\d+)-(.+?)-\2/;
-  const format2Regex = /^([^-]+)-(.+?)-(\d+)-.+$/;
+  // 1. l-<stage>-<chainId>-<service>-<chainId>-<additional-parts>
+  //    e.g. l-prod-84532-og-offchain-84532-log-err-SEV1
+  // 2. l-<stage>-<service>-<chainId>-<description>-<severity>
+  //    e.g. l-staging-monitor-11155111-requests_number_from_0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3-SEV2
+  const format1Regex = /^l-([^-]+)-(\d+)-(.+?)-\2/;
+  const format2Regex = /^l-([^-]+)-(.+?)-(\d+)-.+$/;
 
   let stage: string;
   let chainId: string;

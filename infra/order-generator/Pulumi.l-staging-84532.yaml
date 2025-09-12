@@ -1,0 +1,52 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFtDEwEd4DokgsE4MVOHUtcAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM4WRMKe/RTs500zvZAgEQgDtQ2eCBkl8/LjExNPf2ur+A7uLQFZMgejzs37yMD2GEIGfTCVCGbyxZf8BzxD9trpiDrGN++LO+f9/AyA==
+config:
+  aws:region: us-west-2
+  order-generator-base:BASE_STACK: organization/bootstrap/services-staging
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
+  order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0xCBA5Fd30105984125395c18B6E6b1bf603408629
+  order-generator-base:CHAIN_ID: "84532"
+  order-generator-base:DOCKER_DIR: ../../
+  order-generator-base:DOCKER_TAG: latest
+  order-generator-base:GH_TOKEN_SECRET:
+    secure: v1:MeGWFpq5rM1uNcVX:lt0N7dDlNj/paiQ17yLDY1BdRvbKRAP7zsNR9Z306290qNPbE3tAuR9NDmOqm/pSsIqENgYKZynGgQXIMepTKtf1EBVzQnSwP1cBfBm9u7AfQia+wJ9a38Vo4j9MYnsQfbt/3g1Z3rIb0fYnUA==
+  order-generator-base:INTERVAL: "600"
+  order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
+  order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"
+  order-generator-base:LOCK_TIMEOUT: "900"
+  order-generator-base:LOG_LEVEL: info
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00001"
+  order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
+  order-generator-base:ORDER_STREAM_URL:
+    secure: v1:dkoKx8J2A9Fk5RGH:F+h0kv2xve/0fAUak7a42u4bM/6EnDq2Nv1O1KGchcFp0vOxQj1DNPVGoE9cOssuPCp4kNk5ZO+QFZ15snfVU+iY2NPuphh2px6jdpUL+3g+xqYgf5YolJihRTk=
+  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  order-generator-base:PINATA_JWT:
+    secure: v1:tZoaPELj24Sb/1SK:MqoMsiGa7DDWlklS/Awb5ALhvu1OQ4md86zIK3t7W+WloJsiyZn/Ho3S16GOsEGclXEUFxmPfB7eNjG74R/mhAhFAY87KnA57NrXsbdu7piL5LfmN2sugb8LWq5H5QwIcy9m2CJ1dfYybmjM+o7sQgMJKEY6gW73YJufczQbUpwmrQT37rwMVUQv+86s4y9a6RAObPOh9Iic6w5YtYnkbIpZ56V2wrlyN9uOTxBkNctMAJkL+CcBiMllfUYRKtMwtm7cFeHnBR5CdzBmGtBgXU2GG844wyMclPL90eEbQp0/XDIqBBGbyzoG2mOSCKTw1usn5Tn6p0s/XLHNxYJijAoeoReVyE1AMO4G5l3MoN41g82WtyngNntpR3FP2gWG3oGUZYE5EDxpnwsWGPznSmzgcuuuJfY8PfKLvAKJ2uuBVvqf1s0ao4STqCt3C+sr/AAqnWibsE3yMlhvS2nANFIXZhKD+d6xVold78LyPRHfzhMz0MXPc3Vvao4y974pLuBtDq/De+KUwiYRaTNlYy7PvJUXadrWwfcBCw/5jUtXQ793EJn1hOdtvVf0XkTezBYugEaJk0/y4VickQsN5PDcjKLgHBcT/N3kv1gDVG+Tvk9q+jpMlFfltpoGp6zEJP2MSUpo++Vd+fRIzRGAjhkgh6sWNMCHlQb8brbR5DrnDftiHHFtZx1gOjPGJsgc+RFE51NgvquVa6mLczHiJlsb2SO/8qKPQAViMrkpLU6MtMtK11tv5QBWAS1NHzTyxazu/rQjCwyH+pv/KJXpATDCoZIweWBR51O/Z/gdav0byAWpyXkeJWpJaXLfOE+XfBnCe5rhH7HnmBO72DPEgZNmRAzqZM/kUgyNVT/HaOc3ksfDWvuqxVyfzJuwqYImFdtjc94wiRD6QpiGCxeCs1H9xia5zLlZ
+  order-generator-base:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
+  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
+  order-generator-base:TX_TIMEOUT: "300"
+  order-generator-offchain:AUTO_DEPOSIT: "0.015"
+  order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-offchain:EXEC_RATE_KHZ: "500"
+  order-generator-offchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-offchain:LOCK_TIMEOUT: "900"
+  order-generator-offchain:INTERVAL: "1200"
+  order-generator-offchain:PRIVATE_KEY:
+    secure: v1:b1kEleFFhhI/CnaM:k55i8UWdEvAPV4hj04DSPe7Y1iwY6ntXtcVUStmWC2YuiX7nz4OemLZ26Hbr7hkE2Hr80CqF5A7JjiiTZFdP6KOnKGsuUFswT8u6h2Jg988=
+  order-generator-offchain:RAMP_UP: "300"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "0"
+  order-generator-offchain:TIMEOUT: "1500"
+  order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
+  order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-onchain:EXEC_RATE_KHZ: "500"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-onchain:INTERVAL: "600"
+  order-generator-onchain:LOCK_TIMEOUT: "900"
+  order-generator-onchain:PRIVATE_KEY:
+    secure: v1:8l5MCYXhXARv/H6i:zz/n6SPMe/RcicTZXMIvXBxUKa3m0se8qkLjsDcyTBE8ea6oZrIMVGM35OGbED756Inna/XcwkPblWvhFCy296cfs03E/0d1mtez2TBKZ9o=
+  order-generator-onchain:RAMP_UP: "600"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "15"
+  order-generator-onchain:TIMEOUT: "1800"
+  order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
+  order-generator-base:ETH_RPC_URL:
+    secure: v1:YP+CF2BqS/NX4+su:z/scpjNuzYkYYISmGxH9BEq3AO5gwfeR+v3EdCuIfbJWXxwPpc7mZtd/H6v6QeL/jZQt+1Nn/nYgMTJMDeRsB39sNO8v2bG8QZQO

@@ -28,3 +28,5 @@ config:
   bento-prover:PRIVATE_KEY:
     secure: v1:AahxbrDObsEuAjpx:YDw8lqLxNq1CDhvIn4DEDvNn2JVoH79A0nFbTXbPeJb24omW13zK0u13GeCEH7XYEqdKfeRnv1rVkEVB7anoeUzXvhdSp3z5frKi14D1YJo=
   bento-prover:LOG_JSON: "true"
+  bento-prover:POVW_LOG_ID:
+    secure: v1:mLlQKjLxd1R44DC1:D1UvHNo4LlRxjS7RRAJoWlZVkJNDwsFEomjETa3GDua8wF72c/zpCqgTa2we8htZtxF+A3R2eVjEug==

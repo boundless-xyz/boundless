@@ -25,6 +25,7 @@ export = () => {
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const setVerifierAddr = baseConfig.require('SET_VERIFIER_ADDR');
   const boundlessMarketAddr = baseConfig.require('BOUNDLESS_MARKET_ADDR');
+  const collateralTokenAddress = baseConfig.get('COLLATERAL_TOKEN_ADDR');
   const ipfsGateway = baseConfig.require('IPFS_GATEWAY_URL');
   const baseStackName = baseConfig.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
@@ -34,13 +35,14 @@ export = () => {
   const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const interval = baseConfig.require('INTERVAL');
-  const lockStakeRaw = baseConfig.require('LOCK_STAKE_RAW');
+  const lockCollateralRaw = baseConfig.require('LOCK_COLLATERAL_RAW');
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
   const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
   const txTimeout = baseConfig.require('TX_TIMEOUT');
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
-  const repo = new awsx.ecr.Repository(`${imageName}-repo`, {
+  const repo = new awsx.ecr.Repository(`${imageName}-ecr-repo`, {
+    name: `${imageName}-ecr-repo`,
     forceDelete: true,
     lifecyclePolicy: {
       rules: [
@@ -137,7 +139,7 @@ export = () => {
     boundlessMarketAddr,
     ipfsGateway,
     interval: offchainInterval ?? interval,
-    lockStakeRaw,
+    lockCollateralRaw,
     minPricePerMCycle,
     maxPricePerMCycle,
     vpcId,
@@ -177,7 +179,7 @@ export = () => {
     boundlessMarketAddr,
     ipfsGateway,
     interval: onchainInterval ?? interval,
-    lockStakeRaw,
+    lockCollateralRaw,
     rampUp: onchainRampUp,
     inputMaxMCycles: onchainInputMaxMCycles,
     minPricePerMCycle,

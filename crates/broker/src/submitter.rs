@@ -255,7 +255,7 @@ where
 
         struct OrderPrice {
             price: U256,
-            stake_reward: U256,
+            collateral_reward: U256,
         }
         let mut order_prices: HashMap<&str, OrderPrice> = HashMap::new();
         let mut fulfillment_to_order_id: HashMap<U256, &str> = HashMap::new();
@@ -278,15 +278,15 @@ where
 
                 let order_img_id =
                     Digest::from_hex(order_img_id).context("Failed to decode order image ID")?;
-                let mut stake_reward = U256::ZERO;
+                let mut collateral_reward = U256::ZERO;
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price
                         .push(UnlockedRequest::new(order_request.clone(), client_sig.clone()));
-                    stake_reward =
+                    collateral_reward =
                         order_request.offer.collateral_reward_if_locked_and_not_fulfilled();
                 }
 
-                order_prices.insert(order_id, OrderPrice { price: lock_price, stake_reward });
+                order_prices.insert(order_id, OrderPrice { price: lock_price, collateral_reward });
 
                 let order_journal = self
                     .prover
@@ -483,20 +483,20 @@ where
             }
             let order_price = order_prices
                 .get(order_id)
-                .unwrap_or(&OrderPrice { price: U256::ZERO, stake_reward: U256::ZERO });
+                .unwrap_or(&OrderPrice { price: U256::ZERO, collateral_reward: U256::ZERO });
 
             let eth_reward_log = format!("eth_reward: {}", format_ether(order_price.price));
-            let stake_token_decimals = self.market.stake_token_decimals().await?;
-            let stake_reward =
-                format_units(order_price.stake_reward, stake_token_decimals).unwrap();
-            let mut stake_reward_log = format!("stake_reward: {stake_reward}");
+            let collateral_token_decimals = self.market.collateral_token_decimals().await?;
+            let collateral_reward =
+                format_units(order_price.collateral_reward, collateral_token_decimals).unwrap();
+            let mut collateral_reward_log = format!("collateral_reward: {collateral_reward}");
 
             // If we expect a stake reward, check if we won the proof race to be the first secondary prover.
-            if order_price.stake_reward > U256::ZERO {
+            if order_price.collateral_reward > U256::ZERO {
                 let prover = self.market.get_request_fulfillment_prover(fulfillment.id).await;
                 if let Ok(prover) = prover {
                     if prover != self.prover_address {
-                        stake_reward_log = format!("stake_reward: 0 (lost secondary prover race to {prover} for {stake_reward})");
+                        collateral_reward_log = format!("collateral_reward: 0 (lost secondary prover race to {prover} for {collateral_reward})");
                     }
                 } else {
                     tracing::warn!("Failed to confirm if we were the first secondary prover for fulfillment {:x}", fulfillment.id);
@@ -507,7 +507,7 @@ where
                 "✨ Completed order: 0x{:x} {} {} ✨",
                 fulfillment.id,
                 eth_reward_log,
-                stake_reward_log
+                collateral_reward_log
             );
         }
 
@@ -740,7 +740,7 @@ mod tests {
         .unwrap();
 
         let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
-        market.deposit_stake_with_permit(default_allowance(), &signer).await.unwrap();
+        market.deposit_collateral_with_permit(default_allowance(), &signer).await.unwrap();
 
         let market_customer =
             BoundlessMarketService::new(market_address, customer_provider.clone(), customer_addr);
