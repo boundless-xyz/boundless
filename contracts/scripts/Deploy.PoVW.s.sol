@@ -6,7 +6,7 @@
 
 pragma solidity ^0.8.9;
 
-import {Script, console2} from "forge-std/Script.sol";
+import {console2} from "forge-std/Script.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
@@ -14,7 +14,8 @@ import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {PovwAccounting} from "../src/povw/PovwAccounting.sol";
 import {PovwMint} from "../src/povw/PovwMint.sol";
-import {IZKC, IZKCRewards} from "../src/zkc/IZKC.sol";
+import {IZKC} from "zkc/interfaces/IZKC.sol";
+import {IRewards as IZKCRewards} from "zkc/interfaces/IRewards.sol";
 import {MockZKC, MockZKCRewards} from "../test/MockZKC.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -144,11 +145,11 @@ contract DeployPoVW is PoVWScript, RiscZeroCheats {
 
         if (devMode) {
             // Deploy mock ZKC contracts only in dev mode
-            MockZKC mockZKC = new MockZKC();
-            MockZKCRewards mockZKCRewards = new MockZKCRewards();
+            MockZKC mockZkc = new MockZKC();
+            MockZKCRewards mockZkcRewards = new MockZKCRewards();
 
-            zkcAddress = address(mockZKC);
-            vezkcAddress = address(mockZKCRewards);
+            zkcAddress = address(mockZkc);
+            vezkcAddress = address(mockZkcRewards);
 
             console2.log("In DEV MODE. Redeploying Mock ZKC and Mock ZKCRewards");
             console2.log("Deployed MockZKC to", zkcAddress);

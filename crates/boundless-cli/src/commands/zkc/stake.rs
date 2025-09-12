@@ -15,21 +15,25 @@
 use alloy::{
     eips::BlockId,
     network::Ethereum,
-    primitives::{Address, B256, U256},
+    primitives::{utils::format_ether, B256, U256},
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
 };
 use anyhow::{ensure, Context};
 use boundless_market::contracts::token::{IERC20Permit, Permit};
-use boundless_zkc::contracts::{extract_tx_log, IStaking};
+use boundless_zkc::{
+    contracts::{extract_tx_log, DecodeRevert, IStaking},
+    deployments::Deployment,
+};
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::{commands::zkc::get_active_token_id, config::GlobalConfig};
 
 /// Command to stake ZKC.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct ZkcStake {
+    // TODO(zkc): what units should we use here?
     /// Amount of ZKC to stake, in wei.
     #[clap(long)]
     pub amount: U256,
@@ -37,27 +41,13 @@ pub struct ZkcStake {
     /// transaction to set an ERC20 allowance instead.
     #[clap(long)]
     pub no_permit: bool,
-    // TODO(victor): Can we drop this flag and just call stake or addStake based on whether they
-    // are already staked?
-    /// Add to an existing staking position. If this flag is not specified, the there must be no
-    /// staked tokens for the given address. If there are staked tokens, this flag must be
-    /// specified.
-    #[clap(long)]
-    pub add: bool,
     /// Deadline for the ERC20 permit, in seconds.
     #[clap(long, default_value_t = 3600, conflicts_with = "no_permit")]
     pub permit_deadline: u64,
-    /// Address of the [IStaking] contract.
-    #[clap(long, env = "VEZKC_ADDRESS")]
-    pub vezkc_address: Address,
-    /// Address of the ZKC token to permit.
-    #[clap(long, env = "ZKC_ADDRESS", required_unless_present = "no_permit")]
-    pub zkc_address: Option<Address>,
+    /// Configuration for the ZKC deployment to use.
+    #[clap(flatten, next_help_heading = "ZKC Deployment")]
+    pub deployment: Option<Deployment>,
 }
-
-#[derive(Args, Clone, Debug)]
-/// Parameters for permit-based staking.
-pub struct WithPermit {}
 
 impl ZkcStake {
     /// Run the [ZKCStake] command.
@@ -71,21 +61,29 @@ impl ZkcStake {
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+        let chain_id = provider.get_chain_id().await?;
+        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+
+        let token_id =
+            get_active_token_id(provider.clone(), deployment.vezkc_address, tx_signer.address())
+                .await?;
+        let add = !token_id.is_zero();
 
         let pending_tx = match self.no_permit {
             false => {
                 self.stake_with_permit(
                     provider,
-                    self.zkc_address.context("ZKC contract address is required")?,
+                    deployment,
                     self.amount,
                     &tx_signer,
                     self.permit_deadline,
-                    self.add,
+                    add,
                 )
                 .await?
             }
             true => self
-                .stake(provider, self.amount, self.add)
+                .stake(provider, deployment, self.amount, add)
                 .await
                 .context("Sending stake transaction failed")?,
         };
@@ -108,18 +106,7 @@ impl ZkcStake {
             tx_receipt.transaction_hash
         );
 
-        if self.add {
-            let (token_id, owner, amount) =
-                match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt) {
-                    Ok(log) => {
-                        (U256::from(log.data().tokenId), log.data().owner, log.data().amount)
-                    }
-                    Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
-                };
-            tracing::info!(
-                "Staking completed: token_id = {token_id}, owner = {owner}, amount = {amount}"
-            );
-        } else {
+        if add {
             let (token_id, owner, amount_added, new_total) =
                 match extract_tx_log::<IStaking::StakeAdded>(&tx_receipt) {
                     Ok(log) => (
@@ -131,7 +118,21 @@ impl ZkcStake {
                     Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
                 };
             tracing::info!(
-                "Staking completed: token_id = {token_id}, owner = {owner}, amount added = {amount_added}, new total = {new_total}"
+                "Staking completed: token_id = {token_id}, owner = {owner}, amount added = {} ZKC, new total = {} ZKC",
+                format_ether(amount_added),
+                format_ether(new_total)
+            );
+        } else {
+            let (token_id, owner, amount) =
+                match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt) {
+                    Ok(log) => {
+                        (U256::from(log.data().tokenId), log.data().owner, log.data().amount)
+                    }
+                    Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
+                };
+            tracing::info!(
+                "Staking completed: token_id = {token_id}, owner = {owner}, amount = {} ZKC",
+                format_ether(amount)
             );
         }
         Ok(())
@@ -140,10 +141,11 @@ impl ZkcStake {
     async fn stake(
         &self,
         provider: impl Provider + Clone,
+        deployment: Deployment,
         value: U256,
         add: bool,
     ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
-        let staking = IStaking::new(self.vezkc_address, provider);
+        let staking = IStaking::new(deployment.vezkc_address, provider);
         let send_result = match add {
             false => {
                 tracing::trace!("Calling stake({})", value);
@@ -154,19 +156,21 @@ impl ZkcStake {
                 staking.addToStake(value).send().await
             }
         };
-        send_result.context("Sending stake transaction failed")
+        send_result
+            .maybe_decode_revert::<IStaking::IStakingErrors>()
+            .context("Sending stake transaction failed")
     }
 
     async fn stake_with_permit(
         &self,
         provider: impl Provider + Clone,
-        token_address: Address,
+        deployment: Deployment,
         value: U256,
         signer: &impl Signer,
         deadline: u64,
         add: bool,
     ) -> Result<PendingTransactionBuilder<Ethereum>, anyhow::Error> {
-        let contract = IERC20Permit::new(token_address, provider.clone());
+        let contract = IERC20Permit::new(deployment.zkc_address, provider.clone());
         let owner = signer.address();
         let call = contract.nonces(owner);
         // TODO(zkc): Map to proper error
@@ -181,7 +185,7 @@ impl ZkcStake {
         let deadline = U256::from(deadline + latest_block.header.timestamp);
 
         // Build and sign a permit
-        let permit = Permit { owner, spender: self.vezkc_address, value, nonce, deadline };
+        let permit = Permit { owner, spender: deployment.vezkc_address, value, nonce, deadline };
         tracing::debug!("Permit: {:?}", permit);
         let domain_separator = contract.DOMAIN_SEPARATOR().call().await?;
         let sig = permit.sign(signer, domain_separator).await?.as_bytes();
@@ -189,7 +193,7 @@ impl ZkcStake {
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
 
-        let staking = IStaking::new(self.vezkc_address, provider);
+        let staking = IStaking::new(deployment.vezkc_address, provider);
         let send_result = match add {
             false => {
                 tracing::trace!("Calling stakeWithPermit({})", value);
@@ -200,6 +204,8 @@ impl ZkcStake {
                 staking.addToStakeWithPermit(value, deadline, v, r, s).send().await
             }
         };
-        send_result.context("Sending stake with permit transaction failed")
+        send_result
+            .maybe_decode_revert::<IStaking::IStakingErrors>()
+            .context("Sending stake with permit transaction failed")
     }
 }

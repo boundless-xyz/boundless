@@ -30,8 +30,8 @@ use boundless_market::{
 /// Common configuration options for all commands
 #[derive(Args, Debug, Clone)]
 pub struct GlobalConfig {
-    /// URL of the Ethereum RPC endpoint
-    #[clap(short, long, env = "RPC_URL")]
+    /// URL of the RPC endpoint
+    #[clap(long, env = "RPC_URL", global = true)]
     pub rpc_url: Option<Url>,
 
     /// Private key of the wallet (without 0x prefix)
