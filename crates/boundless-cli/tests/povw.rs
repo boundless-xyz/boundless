@@ -25,19 +25,21 @@ use risc0_povw::PovwLogId;
 use risc0_zkvm::{FakeReceipt, GenericReceipt, ReceiptClaim, VerifierContext, WorkClaim};
 use tempfile::TempDir;
 
-/// Test that the PoVW prove-update command shows help correctly.
+// NOTE: Tests in this file print the CLI output. Run `cargo test -- --nocapture --test-threads=1` to see it.
+
+/// Test that the PoVW prepare command shows help correctly.
 /// This is a smoke test to ensure the command is properly registered and accessible.
 #[test]
 fn test_prove_update_help() {
     let mut cmd = Command::cargo_bin("boundless").unwrap();
 
-    cmd.args(["povw", "prove-update", "--help"])
+    cmd.args(["povw", "prepare", "--help"])
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
         .assert()
         .success()
         .stdout(predicates::str::contains("Usage:"))
-        .stdout(predicates::str::contains("prove-update"))
+        .stdout(predicates::str::contains("prepare"))
         .stderr("");
 }
 
@@ -55,12 +57,12 @@ async fn prove_update_basic() -> anyhow::Result<()> {
     let receipt1_path = temp_path.join("receipt1.bin");
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt1_path)?;
 
-    // 3. Run the prove-update command to create a new work log with that receipt
+    // 3. Run the prepare command to create a new work log with that receipt
     let state_path = temp_path.join("state.bin");
     let mut cmd = Command::cargo_bin("boundless")?;
     cmd.args([
         "povw",
-        "prove-update",
+        "prepare",
         "--new",
         &format!("{:#x}", log_id),
         "--state",
@@ -82,11 +84,11 @@ async fn prove_update_basic() -> anyhow::Result<()> {
     let receipt2_path = temp_path.join("receipt2.bin");
     make_fake_work_receipt_file(log_id, 2000, 5, &receipt2_path)?;
 
-    // 5. Run the prove-update command again to add the new receipt to the log
+    // 5. Run the prepare command again to add the new receipt to the log
     let mut cmd = Command::cargo_bin("boundless")?;
     cmd.args([
         "povw",
-        "prove-update",
+        "prepare",
         "--state",
         state_path.to_str().unwrap(),
         receipt2_path.to_str().unwrap(),
@@ -124,12 +126,12 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
     let receipt_path = temp_path.join("receipt.bin");
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt_path)?;
 
-    // Run prove-update to create a work log update
+    // Run prepare to create a work log update
     let state_path = temp_path.join("state.bin");
     let mut cmd = Command::cargo_bin("boundless")?;
     cmd.args([
         "povw",
-        "prove-update",
+        "prepare",
         "--new",
         &format!("{:#x}", log_id),
         "--state",
@@ -147,9 +149,9 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         .await?
         .validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
-    // 3. Use the send-update command to post an update to the PoVW accounting contract
+    // 3. Use the submit command to post an update to the PoVW accounting contract
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["povw", "send-update", "--state", state_path.to_str().unwrap()])
+    cmd.args(["povw", "submit", "--state", state_path.to_str().unwrap()])
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
@@ -178,7 +180,7 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Test the claim-reward command with multiple epochs of work log updates.
+/// Test the claim command with multiple epochs of work log updates.
 #[tokio::test]
 async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
     // Set up a local Anvil node with the required contracts
@@ -216,7 +218,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
             // First update: create new work log
             vec![
                 "povw",
-                "prove-update",
+                "prepare",
                 "--new",
                 &log_id_str,
                 "--state",
@@ -227,7 +229,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
             // Subsequent updates: update existing work log (CLI overwrites same state file)
             vec![
                 "povw",
-                "prove-update",
+                "prepare",
                 "--state",
                 state_path.to_str().unwrap(),
                 receipt_path.to_str().unwrap(),
@@ -243,7 +245,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
             .success();
 
         println!(
-            "prove-update command output:\n{}",
+            "prepare command output:\n{}",
             String::from_utf8_lossy(&result.get_output().stdout)
         );
 
@@ -251,7 +253,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         let mut cmd = Command::cargo_bin("boundless")?;
         cmd.args([
             "povw",
-            "send-update",
+            "submit",
             "--state",
             state_path.to_str().unwrap(),
             "--value-recipient",
@@ -268,7 +270,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
 
         println!(
-            "send-update command output:\n{}",
+            "submit command output:\n{}",
             String::from_utf8_lossy(&result.get_output().stdout)
         );
 
@@ -280,10 +282,10 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
     ctx.finalize_epoch().await?;
     ctx.provider.anvil_mine(Some(1), None).await?;
 
-    // Run the claim-reward command to mint the accumulated rewards
-    println!("Running claim-reward command");
+    // Run the claim command to mint the accumulated rewards
+    println!("Running claim command");
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["povw", "claim-reward", "--log-id", &format!("{:#x}", log_id)])
+    cmd.args(["povw", "claim", "--log-id", &format!("{:#x}", log_id)])
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
@@ -295,10 +297,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str());
 
     let result = cmd.assert().success().stdout(contains("Reward claim completed"));
-    println!(
-        "claim-reward command output:\n{}",
-        String::from_utf8_lossy(&result.get_output().stdout)
-    );
+    println!("claim command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
     // Verify that tokens were minted to the value recipient (not the work log signer)
     let final_balance = ctx.zkc.balanceOf(value_recipient).call().await?;
@@ -308,8 +307,161 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         final_balance > alloy::primitives::U256::ZERO,
         "Value recipient should have received tokens"
     );
-    println!("✓ Multi-epoch claim-reward test completed. Final balance: {}", final_balance);
+    println!("✓ Multi-epoch claim test completed. Final balance: {}", final_balance);
 
+    Ok(())
+}
+
+/// Test that if mint is called when one update is in a finalized epoch, and a second update is in
+/// an unfinalized epoch, that the process succeeds but provides a warning about the skipped epoch.
+#[tokio::test]
+async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
+    // Set up a local Anvil node with the required contracts
+    let ctx = test_ctx().await?;
+
+    // Create temp dir for receipts and state
+    let temp_dir = TempDir::new()?;
+    let temp_path = temp_dir.path();
+
+    // Use a random signer for the work log
+    let work_log_signer = PrivateKeySigner::random();
+    let log_id: PovwLogId = work_log_signer.address().into();
+
+    // Use a different address as the value recipient
+    let value_recipient = PrivateKeySigner::random().address();
+
+    // Use an Anvil-provided signer for transaction signing (with balance)
+    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[1].clone().into();
+
+    let state_path = temp_path.join("state.bin");
+
+    // Create a work receipt for the first epoch
+    let receipt1_path = temp_path.join("receipt1.bin");
+    make_fake_work_receipt_file(log_id, 1000, 10, &receipt1_path)?;
+
+    let mut cmd = Command::cargo_bin("boundless")?;
+    let result = cmd
+        .args([
+            "povw",
+            "prepare",
+            "--new",
+            &format!("{:#x}", log_id),
+            "--state",
+            state_path.to_str().unwrap(),
+            receipt1_path.to_str().unwrap(),
+        ])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .env("RISC0_DEV_MODE", "1")
+        .assert()
+        .success();
+
+    println!("prepare command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
+
+    // Send the update to the blockchain
+    let mut cmd = Command::cargo_bin("boundless")?;
+    cmd.args([
+        "povw",
+        "submit",
+        "--state",
+        state_path.to_str().unwrap(),
+        "--value-recipient",
+        &format!("{:#x}", value_recipient),
+    ])
+    .env("NO_COLOR", "1")
+    .env("RUST_LOG", "boundless_cli=debug,info")
+    .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
+    .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
+    .env("RISC0_DEV_MODE", "1")
+    .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+    .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
+
+    let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
+
+    println!("submit command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
+
+    // Advance to next epoch after the first update and finalize.
+    ctx.advance_epochs(alloy::primitives::U256::from(1)).await?;
+    ctx.finalize_epoch().await?;
+    ctx.provider.anvil_mine(Some(1), None).await?;
+
+    // Create a work receipt for the second epoch
+    let receipt2_path = temp_path.join("receipt2.bin");
+    make_fake_work_receipt_file(log_id, 2000, 20, &receipt2_path)?;
+
+    let mut cmd = Command::cargo_bin("boundless")?;
+    let result = cmd
+        .args([
+            "povw",
+            "prepare",
+            "--state",
+            state_path.to_str().unwrap(),
+            receipt2_path.to_str().unwrap(),
+        ])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .env("RISC0_DEV_MODE", "1")
+        .assert()
+        .success();
+
+    println!("prepare command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
+
+    // Send the update to the blockchain
+    let mut cmd = Command::cargo_bin("boundless")?;
+    cmd.args([
+        "povw",
+        "submit",
+        "--state",
+        state_path.to_str().unwrap(),
+        "--value-recipient",
+        &format!("{:#x}", value_recipient),
+    ])
+    .env("NO_COLOR", "1")
+    .env("RUST_LOG", "boundless_cli=debug,info")
+    .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
+    .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
+    .env("RISC0_DEV_MODE", "1")
+    .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+    .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
+
+    let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
+
+    println!("submit command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
+
+    // Advance to next epoch after second update; do not finalize.
+    ctx.advance_epochs(alloy::primitives::U256::from(1)).await?;
+    ctx.provider.anvil_mine(Some(1), None).await?;
+
+    // Run the claim command to mint the rewards for the first epoch.
+    // Will warn about the second epoch.
+    println!("Running claim command");
+    let mut cmd = Command::cargo_bin("boundless")?;
+    cmd.args(["povw", "claim", "--log-id", &format!("{:#x}", log_id)])
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
+        .env("POVW_MINT_ADDRESS", format!("{:#x}", ctx.povw_mint.address()))
+        .env("ZKC_ADDRESS", format!("{:#x}", ctx.zkc.address()))
+        .env("VEZKC_ADDRESS", format!("{:#x}", ctx.zkc_rewards.address()))
+        .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
+        .env("RISC0_DEV_MODE", "1")
+        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str());
+
+    let result = cmd
+        .assert()
+        .success()
+        .stdout(contains("Reward claim completed"))
+        .stdout(contains("Skipping update in epoch"));
+    println!("claim command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
+
+    // Verify that tokens were minted to the value recipient (not the work log signer)
+    let final_balance = ctx.zkc.balanceOf(value_recipient).call().await?;
+
+    // The value recipient should have received rewards for all the work across the epochs
+    assert!(
+        final_balance > alloy::primitives::U256::ZERO,
+        "Value recipient should have received tokens"
+    );
     Ok(())
 }
 
@@ -326,7 +478,7 @@ fn make_fake_work_receipt_file(
     Ok(())
 }
 
-/// Test prove-update command with Bento API integration
+/// Test prepare command with Bento API integration
 #[tokio::test]
 async fn prove_update_from_bento() -> anyhow::Result<()> {
     // 1. Set up the mock Bento server
@@ -342,7 +494,7 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
     let log_id: PovwLogId = signer.address().into();
 
-    // PHASE 1: Add one receipt and run prove-update
+    // PHASE 1: Add one receipt and run prepare
     tracing::info!("=== Phase 1: Testing with single receipt ===");
 
     // Add first work receipt to Bento
@@ -352,12 +504,12 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
     let receipt_id_1 = bento_server.add_work_receipt(&work_receipt_1)?;
     tracing::info!("Added receipt 1 with ID: {}", receipt_id_1);
 
-    // Run prove-update with --from-bento to create new work log
+    // Run prepare with --from-bento to create new work log
     let mut cmd = Command::cargo_bin("boundless")?;
     let result = cmd
         .args([
             "povw",
-            "prove-update",
+            "prepare",
             "--new",
             &format!("{:#x}", log_id),
             "--state",
@@ -387,7 +539,7 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
     );
     tracing::info!("✓ Phase 1 complete: 1 receipt, 1 update");
 
-    // PHASE 2: Add three more receipts and run prove-update again
+    // PHASE 2: Add three more receipts and run prepare again
     tracing::info!("=== Phase 2: Testing with three additional receipts ===");
 
     // Add three more work receipts to Bento
@@ -403,11 +555,11 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
 
     assert_eq!(bento_server.receipt_count(), 4, "Should have 4 receipts in mock server");
 
-    // Run prove-update again (without --new, updating existing work log)
+    // Run prepare again (without --new, updating existing work log)
     let mut cmd = Command::cargo_bin("boundless")?;
     cmd.args([
         "povw",
-        "prove-update",
+        "prepare",
         "--state",
         state_path.to_str().unwrap(),
         "--from-bento",
@@ -445,7 +597,7 @@ async fn prove_update_from_bento() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Test prove-update command when Bento has no new receipts
+/// Test prepare command when Bento has no new receipts
 #[tokio::test]
 async fn prove_update_from_bento_no_receipts() -> anyhow::Result<()> {
     // Set up the mock Bento server (empty - no receipts)
@@ -461,12 +613,12 @@ async fn prove_update_from_bento_no_receipts() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
     let log_id: PovwLogId = signer.address().into();
 
-    // Run prove-update with --from-bento on empty Bento server
+    // Run prepare with --from-bento on empty Bento server
     let mut cmd = Command::cargo_bin("boundless")?;
     let result = cmd
         .args([
             "povw",
-            "prove-update",
+            "prepare",
             "--new",
             &format!("{:#x}", log_id),
             "--state",
@@ -495,7 +647,7 @@ async fn prove_update_from_bento_no_receipts() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Test prove-update command with work receipts for multiple log IDs
+/// Test prepare command with work receipts for multiple log IDs
 #[tokio::test]
 async fn prove_update_from_bento_multiple_log_ids() -> anyhow::Result<()> {
     // Set up the mock Bento server
@@ -511,7 +663,7 @@ async fn prove_update_from_bento_multiple_log_ids() -> anyhow::Result<()> {
     let target_log_id: PovwLogId = PrivateKeySigner::random().address().into();
     let other_log_id: PovwLogId = PrivateKeySigner::random().address().into();
 
-    tracing::info!("=== Testing prove-update with multiple log IDs ===");
+    tracing::info!("=== Testing prepare with multiple log IDs ===");
     tracing::info!("Target log ID: {:#x}", target_log_id);
     tracing::info!("Other log ID: {:#x}", other_log_id);
 
@@ -545,12 +697,12 @@ async fn prove_update_from_bento_multiple_log_ids() -> anyhow::Result<()> {
     tracing::info!("Added 2 other receipts: {} {}", other_receipt_1, other_receipt_2);
     assert_eq!(bento_server.receipt_count(), 4, "Should have 4 total receipts in mock server");
 
-    // Run prove-update with --from-bento for the target log ID
+    // Run prepare with --from-bento for the target log ID
     let mut cmd = Command::cargo_bin("boundless")?;
     let result = cmd
         .args([
             "povw",
-            "prove-update",
+            "prepare",
             "--new",
             &format!("{:#x}", target_log_id),
             "--state",

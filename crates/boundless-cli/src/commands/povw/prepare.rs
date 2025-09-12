@@ -28,7 +28,7 @@ use super::{State, WorkReceipt};
 /// Compress a directory of work receipts into a work log update.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
-pub struct PovwProveUpdate {
+pub struct PovwPrepare {
     /// Create a new work log with the given work log identifier.
     ///
     /// The work log identifier is a 160-bit public key hash (i.e. an Ethereum address) which is
@@ -41,7 +41,7 @@ pub struct PovwProveUpdate {
     #[arg(short, long = "new")]
     new_log_id: Option<PovwLogId>,
 
-    /// Path for the Log Builder receipt and work log state.
+    /// Path of the work log state file to load the work log and store the prepared update.
     #[arg(short, long, env = "POVW_STATE_PATH")]
     state: PathBuf,
 
@@ -70,8 +70,8 @@ pub struct PovwProveUpdate {
     prover_config: ProverConfig,
 }
 
-impl PovwProveUpdate {
-    /// Run the [PovwProveUpdate] command.
+impl PovwPrepare {
+    /// Run the [PovwPrepare] command.
     pub async fn run(&self) -> Result<()> {
         // Load the existing state, if provided.
         let mut state = if let Some(log_id) = self.new_log_id {
@@ -82,15 +82,11 @@ impl PovwProveUpdate {
             State::new(log_id)
         } else {
             let state = State::load(&self.state).await.context("Failed to load state file")?;
-            tracing::info!(
-                "Loaded work log state from {} with commit {}",
-                self.state.display(),
-                state.work_log.commit()
-            );
+            tracing::info!("Loaded work log state from {}", self.state.display(),);
+            tracing::debug!(commit = %state.work_log.commit(), "Loaded work log commit");
+            tracing::info!("Preparing work log update for log ID: {:x}", state.log_id);
             state
         };
-
-        tracing::info!("Starting PoVW prove-update for log ID: {:x}", state.log_id);
 
         let work_receipt_results = if self.from_bento {
             // Load the work receipts from Bento.
@@ -123,13 +119,13 @@ impl PovwProveUpdate {
             bail!("Encountered errors in loading receipts");
         }
 
-        tracing::info!("Loaded {} work receipts", work_receipts.len());
         if work_receipts.is_empty() {
             tracing::info!("No work receipts to process");
             // Save the state file anyway, to create an empty one if it does not yet exist.
             state.save(&self.state).context("Failed to save state")?;
             return Ok(());
         }
+        tracing::info!("Loaded {} work receipts", work_receipts.len());
 
         // Set up the work log update prover
         self.prover_config.configure_proving_backend_with_health_check().await?;
@@ -170,7 +166,7 @@ impl PovwProveUpdate {
             .save(&self.state)
             .context("Failed to save state")?;
 
-        tracing::info!("Added update to the work log");
+        tracing::info!("Updated work log and prepared an update proof");
         Ok(())
     }
 }
