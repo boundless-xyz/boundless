@@ -1,20 +1,5 @@
-// Copyright 2025 RISC Zero, Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// TODO(povw) Use IStaking from the zkc repo directly.
-
-pragma solidity ^0.8.20;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
 
 import {IERC721} from "@openzeppelin/contracts/interfaces/IERC721.sol";
 
@@ -22,10 +7,45 @@ import {IERC721} from "@openzeppelin/contracts/interfaces/IERC721.sol";
 /// @notice Interface for veZKC staking functionality
 /// @dev This interface defines the core staking operations for the veZKC system
 interface IStaking is IERC721 {
+    error ZeroAmount();
+    error UserAlreadyHasActivePosition();
+    error NoActivePosition();
+    error TokenDoesNotExist();
+    error CannotAddToWithdrawingPosition();
+    error WithdrawalAlreadyInitiated();
+    error WithdrawalNotInitiated();
+    error WithdrawalPeriodNotComplete();
+    error NonTransferable();
+    error MustUndelegateVotesFirst();
+    error MustUndelegateRewardsFirst();
+
+    /// @notice Emitted when a new stake position is created
+    /// @param tokenId The ID of the newly minted veZKC NFT
+    /// @param owner The address that owns the new stake position
+    /// @param amount The amount of ZKC tokens staked
     event StakeCreated(uint256 indexed tokenId, address indexed owner, uint256 amount);
+
+    /// @notice Emitted when additional tokens are added to an existing stake
+    /// @param tokenId The ID of the veZKC NFT that was increased
+    /// @param owner The address that owns the stake position
+    /// @param addedAmount The amount of ZKC tokens added to the stake
+    /// @param newTotal The new total amount of ZKC tokens in the stake
     event StakeAdded(uint256 indexed tokenId, address indexed owner, uint256 addedAmount, uint256 newTotal);
+
+    /// @notice Emitted when a veZKC NFT is burned after unstaking is completed
+    /// @param tokenId The ID of the burned veZKC NFT
     event StakeBurned(uint256 indexed tokenId);
+
+    /// @notice Emitted when a user initiates the unstaking process
+    /// @param tokenId The ID of the veZKC NFT being unstaked
+    /// @param owner The address that owns the stake position
+    /// @param withdrawableAt The timestamp when the unstake can be completed
     event UnstakeInitiated(uint256 indexed tokenId, address indexed owner, uint256 withdrawableAt);
+
+    /// @notice Emitted when unstaking is completed and tokens are returned to the owner
+    /// @param tokenId The ID of the veZKC NFT that was unstaked
+    /// @param owner The address that received the unstaked tokens
+    /// @param amount The amount of ZKC tokens that were returned
     event UnstakeCompleted(uint256 indexed tokenId, address indexed owner, uint256 amount);
 
     /// @notice Stake ZKC tokens to mint veZKC NFT

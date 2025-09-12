@@ -27,13 +27,9 @@ import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
-import {FulfillmentDataImageIdAndJournal} from "./types/FulfillmentData.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
-import {
-    FulfillmentDataImageIdAndJournal, FulfillmentDataLibrary, FulfillmentDataType
-} from "./types/FulfillmentData.sol";
+import {FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
-import {PredicateType} from "./types/Predicate.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
@@ -496,7 +492,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
@@ -537,7 +533,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
         }
 
         // Deduct any additionally owned funds from client account. The client was already charged
@@ -596,7 +592,7 @@ contract BoundlessMarket is
 
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id, assessorProver, fill);
+        emit RequestFulfilled(id, assessorProver, fill.requestDigest);
 
         // Deduct the funds from client account.
         // NOTE: In the case of InsufficientBalance, the payment can never be transferred in the

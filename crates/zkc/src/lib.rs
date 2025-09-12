@@ -4,3 +4,4 @@
 // as found in the LICENSE-BSL file.
 
 pub mod contracts;
+pub mod deployments;
