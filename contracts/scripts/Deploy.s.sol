@@ -6,6 +6,7 @@
 pragma solidity ^0.8.20;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {Strings} from "openzeppelin/contracts/utils/Strings.sol";
 import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
@@ -15,8 +16,9 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {HitPoints} from "../src/HitPoints.sol";
+import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
 
-contract Deploy is Script, RiscZeroCheats {
+contract Deploy is BoundlessScriptBase, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG_FILE = "contracts/deployment.toml";
 
@@ -132,5 +134,35 @@ contract Deploy is Script, RiscZeroCheats {
         }
 
         vm.stopBroadcast();
+
+        // Update deployment.toml with deployment information
+        string memory currentCommit = getCurrentCommit();
+
+        string[] memory args = new string[](8);
+        args[0] = "python3";
+        args[1] = "contracts/update_deployment_toml.py";
+        args[2] = "--boundless-market";
+        args[3] = Strings.toHexString(boundlessMarketAddress);
+        args[4] = "--boundless-market-impl";
+        args[5] = Strings.toHexString(newImplementation);
+        args[6] = "--boundless-market-deployment-commit";
+        args[7] = currentCommit;
+
+        vm.ffi(args);
+        console2.log("Updated BoundlessMarket deployment commit: %s", currentCommit);
+
+        // Also update collateral token if we deployed it
+        if (deploymentConfig.collateralToken == address(0)) {
+            string[] memory tokenArgs = new string[](4);
+            tokenArgs[0] = "python3";
+            tokenArgs[1] = "contracts/update_deployment_toml.py";
+            tokenArgs[2] = "--collateral-token";
+            tokenArgs[3] = Strings.toHexString(stakeToken);
+            vm.ffi(tokenArgs);
+            console2.log("Updated collateral token address: %s", stakeToken);
+        }
+
+        // Check for uncommitted changes warning
+        checkUncommittedChangesWarning("Deployment");
     }
 }

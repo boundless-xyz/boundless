@@ -136,4 +136,8 @@ forge_script() {
 # Run from the repo root for consistency.
 cd ${REPO_ROOT_DIR:?}
 
+# Get current git commit hash for deployment tracking
+CURRENT_COMMIT=$(git rev-parse --short HEAD)
+export CURRENT_COMMIT
+
 forge_script "$@"
