@@ -9,7 +9,7 @@ use crate::{
     tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
+use risc0_zkvm::{ReceiptClaim, SegmentReceipt, SuccinctReceipt, WorkClaim};
 use uuid::Uuid;
 use workflow_common::JoinReq;
 
@@ -29,14 +29,50 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
             format!("failed to get receipts for keys: {left_receipt_key}, {right_receipt_key}")
         })?;
 
-    // Deserialize POVW receipts
+    // Handle each receipt independently - they could be mixed types
+    let prover = agent.prover.as_ref().context("Missing prover from POVW join task")?;
+
     let (left_receipt, right_receipt): (
         SuccinctReceipt<WorkClaim<ReceiptClaim>>,
         SuccinctReceipt<WorkClaim<ReceiptClaim>>,
-    ) = (
-        deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&left_receipt_bytes)?,
-        deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&right_receipt_bytes)?,
-    );
+    ) = tokio::try_join!(
+        async {
+            match deserialize_obj::<SegmentReceipt>(&left_receipt_bytes) {
+                Ok(segment_receipt) => {
+                    // Successfully deserialized as segment receipt, now lift to POVW
+                    let povw_receipt = prover
+                        .lift_povw(&segment_receipt)
+                        .context("Failed to lift left segment to POVW")?;
+                    Ok::<_, anyhow::Error>(povw_receipt)
+                }
+                Err(_) => {
+                    // Failed to deserialize as segment, try as already-lifted POVW receipt
+                    let povw_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> =
+                        deserialize_obj(&left_receipt_bytes)
+                            .context("Failed to deserialize left POVW receipt")?;
+                    Ok(povw_receipt)
+                }
+            }
+        },
+        async {
+            match deserialize_obj::<SegmentReceipt>(&right_receipt_bytes) {
+                Ok(segment_receipt) => {
+                    // Successfully deserialized as segment receipt, now lift to POVW
+                    let povw_receipt = prover
+                        .lift_povw(&segment_receipt)
+                        .context("Failed to lift right segment to POVW")?;
+                    Ok::<_, anyhow::Error>(povw_receipt)
+                }
+                Err(_) => {
+                    // Failed to deserialize as segment, try as already-lifted POVW receipt
+                    let povw_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> =
+                        deserialize_obj(&right_receipt_bytes)
+                            .context("Failed to deserialize right POVW receipt")?;
+                    Ok(povw_receipt)
+                }
+            }
+        }
+    )?;
 
     tracing::debug!("Starting POVW join of receipts {} and {}", request.left, request.right);
 
