@@ -498,6 +498,7 @@ cd /local
 git clone https://github.com/boundless-xyz/boundless.git
 cd boundless
 git checkout $GIT_BRANCH
+git submodule update --init --recursive
 
 # Get the custom compose.yml, broker toml, justfile, and setup script that we uploaded to S3 in advance.
 # This is only necessary when you are trying to deploy .
