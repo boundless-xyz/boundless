@@ -6,7 +6,6 @@
 pragma solidity ^0.8.20;
 
 import {console} from "forge-std/console.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -97,7 +96,7 @@ contract BoundlessMarketTest is Test {
 
     uint256 constant DEFAULT_BALANCE = 1000 ether;
     uint256 constant EXPECTED_DEFAULT_MAX_GAS_FOR_VERIFY = 50000;
-    uint256 constant EXPECTED_SLASH_BURN_BPS = 2000;
+    uint256 constant EXPECTED_SLASH_BURN_BPS = 5000;
 
     ReceiptClaim internal appClaim = ReceiptClaimLib.ok(APP_IMAGE_ID, sha256(APP_JOURNAL));
 
@@ -849,8 +848,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Expect the event to be emitted
         vm.expectEmit(true, true, true, true);
-        bytes32 requestDigest =
-            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
         emit IBoundlessMarket.RequestLocked(request.id, testProverAddress, request, clientSignature);
         if (withSig) {
             boundlessMarket.lockRequestWithSignature(request, clientSignature, proverSignature);
