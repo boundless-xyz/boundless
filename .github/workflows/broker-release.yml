@@ -19,6 +19,7 @@ env:
   RISC0_TOOLCHAIN_VERSION: 1.88.0
   RISC0_CRATE_VERSION: "2.3.1"
   RUST_VERSION: "1.88.0"
+  FOUNDRY_VERSION: v1.0.0
 
 jobs:
   build-broker:
