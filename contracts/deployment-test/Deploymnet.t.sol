@@ -6,15 +6,12 @@
 pragma solidity ^0.8.9;
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
-import {Account} from "../src/types/Account.sol";
-import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 import {AssessorReceipt} from "../src/types/AssessorReceipt.sol";
 import {Callback} from "../src/types/Callback.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
@@ -23,8 +20,7 @@ import {Requirements} from "../src/types/Requirements.sol";
 import {Offer} from "../src/types/Offer.sol";
 import {ProofRequest} from "../src/types/ProofRequest.sol";
 import {PredicateLibrary} from "../src/types/Predicate.sol";
-import {RequestId, RequestIdLibrary} from "../src/types/RequestId.sol";
-import {RequestLock} from "../src/types/RequestLock.sol";
+import {RequestIdLibrary} from "../src/types/RequestId.sol";
 
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";

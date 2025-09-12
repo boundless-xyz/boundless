@@ -27,13 +27,9 @@ import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
-import {FulfillmentDataImageIdAndJournal} from "./types/FulfillmentData.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
-import {
-    FulfillmentDataImageIdAndJournal, FulfillmentDataLibrary, FulfillmentDataType
-} from "./types/FulfillmentData.sol";
+import {FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
-import {PredicateType} from "./types/Predicate.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";

@@ -426,6 +426,6 @@ interface IBoundlessMarket {
     function imageInfo() external view returns (bytes32, string memory);
 
     /// Returns the address of the token used for collateral deposits.
-    // solhint-disable-next-line func-name-mixedcase
+    // forge-lint: disable-next-item(mixed-case-function)
     function COLLATERAL_TOKEN_CONTRACT() external view returns (address);
 }

@@ -5,7 +5,6 @@
 
 pragma solidity ^0.8.9;
 
-import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {Strings} from "openzeppelin/contracts/utils/Strings.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
@@ -13,8 +12,7 @@ import {PovwAccounting} from "../src/povw/PovwAccounting.sol";
 import {PovwMint} from "../src/povw/PovwMint.sol";
 import {IZKC} from "zkc/interfaces/IZKC.sol";
 import {IRewards as IZKCRewards} from "zkc/interfaces/IRewards.sol";
-import {ConfigLoader, DeploymentConfig, ConfigParser} from "./Config.s.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
 import {PoVWScript, PoVWLib} from "./PoVWLib.s.sol";
