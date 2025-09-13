@@ -38,6 +38,13 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
         deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&right_receipt_bytes)?,
     );
 
+    left_receipt
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify left receipt integrity")?;
+    right_receipt
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify right receipt integrity")?;
+
     tracing::debug!("Starting POVW join of receipts {} and {}", request.left, request.right);
 
     // Use POVW-specific join - this is required for POVW functionality
@@ -48,6 +55,10 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
     } else {
         return Err(anyhow::anyhow!("No prover available for join task"));
     };
+
+    joined_receipt
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify joined POVW receipt integrity")?;
 
     tracing::debug!("Completed POVW join: {} and {}", request.left, request.right);
 
