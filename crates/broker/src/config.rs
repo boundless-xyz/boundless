@@ -77,6 +77,14 @@ mod defaults {
     pub const fn max_concurrent_preflights() -> u32 {
         4
     }
+
+    pub fn assessor_default_image_url() -> String {
+        "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin".to_string()
+    }
+
+    pub fn set_builder_default_image_url() -> String {
+        "https://signal-artifacts.beboundless.xyz/v2/set-builder/guest.bin".to_string()
+    }
 }
 
 /// Order pricing priority mode for determining which orders to price first
@@ -235,6 +243,16 @@ pub struct MarketConf {
     ///
     /// If not set, files will be re-downloaded every time
     pub cache_dir: Option<PathBuf>,
+    /// Default URL for assessor image
+    ///
+    /// This URL will be tried first before falling back to the contract URL
+    #[serde(default = "defaults::assessor_default_image_url")]
+    pub assessor_default_image_url: String,
+    /// Default URL for set builder image
+    ///
+    /// This URL will be tried first before falling back to the contract URL
+    #[serde(default = "defaults::set_builder_default_image_url")]
+    pub set_builder_default_image_url: String,
     /// Maximum number of orders to concurrently work on pricing
     ///
     /// Used to limit pricing tasks spawned to prevent overwhelming the system
@@ -287,6 +305,8 @@ impl Default for MarketConf {
             collateral_balance_error_threshold: None,
             max_concurrent_proofs: None,
             cache_dir: None,
+            assessor_default_image_url: defaults::assessor_default_image_url(),
+            set_builder_default_image_url: defaults::set_builder_default_image_url(),
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),

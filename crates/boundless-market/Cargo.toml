@@ -56,7 +56,7 @@ time = "0.3"
 utoipa = { workspace = true }
 
 [dev-dependencies]
-boundless-market-test-utils = { workspace = true }
+boundless-test-utils = { workspace = true }
 tracing-test = { workspace = true }
 
 [build-dependencies]

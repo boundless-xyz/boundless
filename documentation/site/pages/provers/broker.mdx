@@ -29,8 +29,6 @@ Please see [Installing the Boundless CLI](/developers/tooling/cli#installation) 
 ```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-# Use the env file based on the network you are connecting to
-source .env.eth-sepolia
 
 # Example: 'account deposit-collateral 100'
 boundless account deposit-collateral <USDC_TO_DEPOSIT>
@@ -41,8 +39,6 @@ boundless account deposit-collateral <USDC_TO_DEPOSIT>
 ```bash [Terminal]
 export RPC_URL=<TARGET_CHAIN_RPC_URL>
 export PRIVATE_KEY=<BROKER_PRIVATE_KEY>
-# Use the env file based on the network you are connecting to
-source .env.eth-sepolia
 
 boundless account collateral-balance [wallet_address]
 ```
@@ -88,19 +84,16 @@ Below are some `broker.toml` settings:
 
 ### Benchmarking Bento
 
-Load environment variables for the target network:
-
-```bash [Terminal]
-# For example, to benchmark an order on Ethereum Sepolia
-source .env.eth-sepolia
-
-# Load any other relevant env variables here, specifically `RPC_URL` and postgres env (if not default)
-```
-
 Start a bento cluster:
 
 ```bash [Terminal]
 just bento
+```
+
+Set the `RPC_URL` environment variable to the network the order is on:
+
+```bash [Terminal]
+export RPC_URL=<TARGET_CHAIN_RPC_URL>
 ```
 
 Then, run the benchmark:

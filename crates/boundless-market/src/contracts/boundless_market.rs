@@ -43,10 +43,10 @@ use super::{
 
 /// Fraction of stake the protocol gives to the prover who fills an order that was locked by another prover but expired
 /// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
-/// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
+/// The value is 1/2 because the slashing burn is 50% of the stake.
 /// TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
-const FRACTION_STAKE_NUMERATOR: u64 = 4;
-const FRACTION_STAKE_DENOMINATOR: u64 = 5;
+const FRACTION_STAKE_NUMERATOR: u64 = 1;
+const FRACTION_STAKE_DENOMINATOR: u64 = 2;
 
 /// Boundless market errors.
 #[derive(Error, Debug)]
@@ -1657,6 +1657,6 @@ mod tests {
     #[test]
     fn test_collateral_reward_if_locked_and_not_fulfilled() {
         let offer = &test_offer(100);
-        assert_eq!(offer.collateral_reward_if_locked_and_not_fulfilled(), ether("0.8"));
+        assert_eq!(offer.collateral_reward_if_locked_and_not_fulfilled(), ether("0.5"));
     }
 }

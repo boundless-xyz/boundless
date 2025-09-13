@@ -78,19 +78,19 @@ type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum OrderPickerErr {
-    #[error("{code} failed to fetch / push input: {0}", code = self.code())]
+    #[error("{code} failed to fetch / push input: {0:#}", code = self.code())]
     FetchInputErr(#[source] Arc<anyhow::Error>),
 
-    #[error("{code} failed to fetch / push image: {0}", code = self.code())]
+    #[error("{code} failed to fetch / push image: {0:#}", code = self.code())]
     FetchImageErr(#[source] Arc<anyhow::Error>),
 
     #[error("{code} invalid request: {0}", code = self.code())]
     RequestError(Arc<RequestError>),
 
-    #[error("{code} RPC error: {0:?}", code = self.code())]
+    #[error("{code} RPC error: {0:#}", code = self.code())]
     RpcErr(Arc<anyhow::Error>),
 
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedErr(Arc<anyhow::Error>),
 }
 
@@ -1355,9 +1355,9 @@ pub(crate) mod tests {
         Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
-    use boundless_market_test_utils::{
-        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
-        ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID,
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
+        market::{deploy_boundless_market, deploy_hit_points},
     };
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
@@ -2368,14 +2368,14 @@ pub(crate) mod tests {
 
         let order2_id = order2.id();
         let stake_reward2 = order2.request.offer.collateral_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward2, U256::from(32));
+        assert_eq!(stake_reward2, U256::from(20));
 
         let locked = ctx.picker.price_order(&mut order2).await;
         assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
 
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!(
-            "Starting preflight execution of {order2_id} with limit of 32 cycles"
+            "Starting preflight execution of {order2_id} with limit of 20 cycles"
         )));
         assert!(logs_contain(&format!(
             "Skipping order {order2_id} due to intentional execution limit of"
@@ -2503,8 +2503,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // Check that we logged the task being added
-        assert!(logs_contain("Current pricing tasks: ["));
+        // Check that we logged the task being added (or that it was completed before the interval)
+        assert!(logs_contain("Current pricing tasks: [") || logs_contain("Priced task for order"));
         assert!(logs_contain(&order1_id));
 
         // Send another order to see the task being removed and a new one added
@@ -3196,7 +3196,7 @@ pub(crate) mod tests {
 
         // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
         // For LockAndFulfill orders: preflight uses higher limit (stake), prove uses ETH-based
-        assert_eq!(preflight_limit, 800_000_000u64); // Stake-based calculation
+        assert_eq!(preflight_limit, 500_000_000u64); // Stake-based calculation
         assert_eq!(prove_limit, 99_900_000u64); // ETH-based calculation
     }
 

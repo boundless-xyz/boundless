@@ -9,7 +9,7 @@ pragma solidity ^0.8.24;
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
@@ -27,13 +27,9 @@ import {Account} from "./types/Account.sol";
 import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
-import {FulfillmentDataImageIdAndJournal} from "./types/FulfillmentData.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
-import {
-    FulfillmentDataImageIdAndJournal, FulfillmentDataLibrary, FulfillmentDataType
-} from "./types/FulfillmentData.sol";
+import {FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
-import {PredicateType} from "./types/Predicate.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
@@ -43,7 +39,13 @@ import {FulfillmentContext, FulfillmentContextLibrary} from "./types/Fulfillment
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "./libraries/MerkleProofish.sol";
 
-contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
+contract BoundlessMarket is
+    IBoundlessMarket,
+    Initializable,
+    EIP712Upgradeable,
+    AccessControlUpgradeable,
+    UUPSUpgradeable
+{
     using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for int256;
     using SafeCast for uint256;
@@ -51,6 +53,9 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
+
+    /// @notice Admin role identifier
+    bytes32 public constant ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
 
     /// Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
     mapping(RequestId => RequestLock) public requestLocks;
@@ -83,9 +88,9 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
     /// @notice When a prover is slashed for failing to fulfill a request, a portion of the collateral
     /// is burned, and the remaining portion is either send to the prover that ultimately fulfilled
     /// the order, or to the market treasury. This fraction controls that ratio.
-    /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
+    /// @dev The value is configured as a constant to avoid accessing storage and thus paying for the
     /// gas of an SLOAD. Can only be changed via contract upgrade.
-    uint256 public constant SLASHING_BURN_BPS = 2000;
+    uint256 public constant SLASHING_BURN_BPS = 5000;
 
     /// @notice When an order is fulfilled, the market takes a fee based on the price of the order.
     /// This fraction is multiplied by the price to decide the fee.
@@ -125,17 +130,18 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
     }
 
     function initialize(address initialOwner, string calldata _imageUrl) external initializer {
-        __Ownable_init(initialOwner);
+        __AccessControl_init();
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
+        _grantRole(ADMIN_ROLE, initialOwner);
         imageUrl = _imageUrl;
     }
 
-    function setImageUrl(string calldata _imageUrl) external onlyOwner {
+    function setImageUrl(string calldata _imageUrl) external onlyRole(ADMIN_ROLE) {
         imageUrl = _imageUrl;
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
 
     // NOTE: We could verify the client signature here, but this adds about 18k gas (with a naive
     // implementation), doubling the cost of calling this method. It is not required for protocol
@@ -486,7 +492,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
@@ -527,7 +533,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
         }
 
         // Deduct any additionally owned funds from client account. The client was already charged
@@ -586,7 +592,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id, assessorProver, fill);
+        emit RequestFulfilled(id, assessorProver, fill.requestDigest);
 
         // Deduct the funds from client account.
         // NOTE: In the case of InsufficientBalance, the payment can never be transferred in the
@@ -775,7 +781,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
 
     /// @inheritdoc IBoundlessMarket
     /// @dev We withdraw from address(this) but send to msg.sender, so _withdraw is not used.
-    function withdrawFromTreasury(uint256 value) public onlyOwner {
+    function withdrawFromTreasury(uint256 value) public onlyRole(ADMIN_ROLE) {
         if (accounts[address(this)].balance < value.toUint96()) {
             revert InsufficientBalance(address(this));
         }
@@ -829,7 +835,7 @@ contract BoundlessMarket is IBoundlessMarket, Initializable, EIP712Upgradeable, 
     }
 
     /// @inheritdoc IBoundlessMarket
-    function withdrawFromCollateralTreasury(uint256 value) public onlyOwner {
+    function withdrawFromCollateralTreasury(uint256 value) public onlyRole(ADMIN_ROLE) {
         if (accounts[address(this)].collateralBalance < value.toUint96()) {
             revert InsufficientBalance(address(this));
         }

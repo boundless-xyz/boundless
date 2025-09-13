@@ -16,3 +16,9 @@
 [submodule "lib/solmate"]
 	path = lib/solmate
 	url = https://github.com/transmissions11/solmate
+[submodule "lib/steel"]
+	path = lib/steel
+	url = https://github.com/boundless-xyz/steel.git
+[submodule "lib/zkc"]
+	path = lib/zkc
+	url = https://github.com/boundless-xyz/zkc

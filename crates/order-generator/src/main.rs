@@ -355,7 +355,7 @@ mod tests {
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
     use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
-    use boundless_market_test_utils::{create_test_ctx, LOOP_PATH};
+    use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use tracing_test::traced_test;
 
     use super::*;
