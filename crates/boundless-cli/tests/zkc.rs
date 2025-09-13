@@ -179,6 +179,19 @@ async fn test_delegate_rewards() -> anyhow::Result<()> {
         .success()
         .stdout(contains("Delegating rewards completed"));
 
+    // Run get rewards delegates
+    let mut cmd = Command::cargo_bin("boundless")?;
+    cmd.args(["zkc", "get-rewards-delegates", &format!("{:#x}", user.address())])
+        .env("ZKC_ADDRESS", format!("{:#x}", ctx.deployment.zkc_address))
+        .env("VEZKC_ADDRESS", format!("{:#x}", ctx.deployment.vezkc_address))
+        .env("STAKING_REWARDS_ADDRESS", format!("{:#x}", ctx.deployment.staking_rewards_address))
+        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "boundless_cli=debug,info")
+        .assert()
+        .success()
+        .stdout(contains(format!("{:#x}", user2.address())));
+
     Ok(())
 }
 
