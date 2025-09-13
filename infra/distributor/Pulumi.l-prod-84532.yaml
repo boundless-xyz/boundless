@@ -16,11 +16,11 @@ config:
   distributor:ORDER_GENERATOR_KEYS:
     secure: v1:/HxWVWdyZF0KC0G0:GLCGhTJO6wKxd7lk1HpfjBLYiBQhifZbl4KBxJDTuRuGiyL8/lmBpoBw2YvhYb4wiJwXxeOMulhlwQDpjrKusfkjd9LT22IaiH70Out0qLOnNdczShE6kENBOgXEcXp9uxQ+8bU4QkXUOAkFbGBUlmH9KJmg2nedzrb35eUqkklV848tlBCqD9eytVIy/UqM4+y24/m+v1Okbyc11TKHolco38340sx+UvAu6yPMEILxKiMk/DU1NQ+Tu4I8OCT6A9wPfO6w7PaGAWtpfUPQY9LX5eNBqAZUKMkjvOhk4vRQtnkhQujOSt/ual3zeztxmrjUg1lOt69qEnWsgpnXzXEz+gIdryADLgVg+7LaYk/7WEsqOGCqQcfpvBm2oeNJkJIuZlBPXl8nWNxpC8Z8cUSvSRBnpty+uidtVVUTsWrIRqeSSrJkA0q6Aq9x2aqMgL2ykNCy5N3cMh8Fj+/I5QsQAaDCRVWE7Q5Jy4T4JJinKKAzSQ2v6Li7UUirGg/3VVxbWJRD0enoDOScGUCHJY6IfqqK
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
-  distributor:PROVER_ETH_DONATE_THRESHOLD: "15"
+  distributor:PROVER_ETH_DONATE_THRESHOLD: "20"
   distributor:PROVER_KEYS:
     secure: v1:eDUhEncXCP2SfDO+:stU3Q2DLqxDbwvUP1ykwN+Gi4BuUU2w5F0l2w9rOUT9QbivAEgXE/VaRjWnyzIfxejuZuSbu5ZPuk6nF5uoCuhxN95PCK6zUJhdNniO8ClgocelNf3xGyBp98cKk/lRvMF/K2yenz0cHEXGpFx5GCP1TYN32a7DGeBdZKZa0qwEEXjK+GnjWTm8fcJxrqYg1yQ==
-  distributor:PROVER_STAKE_DONATE_THRESHOLD: "150.0"
-  distributor:SCHEDULE_MINUTES: "10"
+  distributor:PROVER_STAKE_DONATE_THRESHOLD: "1500.0"
+  distributor:SCHEDULE_MINUTES: "180"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   distributor:SLASHER_KEY:
     secure: v1:6pXt8zGgP90WQw61:0HqUjkJk7jMnCFFD4L+FpdRXZpkXZBTMbiBY1Fn5h+wAJpt4Jn3vwsK40aSI2wCLQvhWQogBivT2NVoA0M2tEHa1pCO/rU73GQ1dAhl23q4=

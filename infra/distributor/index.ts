@@ -372,7 +372,7 @@ export = () => {
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     // >=2 error periods per hour
     evaluationPeriods: 60,
-    datapointsToAlarm: 2,
+    datapointsToAlarm: chainId === '11155111' ? 10 : 2, // Sepolia is flakey and has issues with tx timeouts
     treatMissingData: 'notBreaching',
     alarmDescription: 'Distributor log ERROR level 2 times in one hour',
     actionsEnabled: true,

@@ -320,7 +320,7 @@ export = () => {
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     // >=2 error periods per hour
     evaluationPeriods: 60,
-    datapointsToAlarm: 2,
+    datapointsToAlarm: chainId === '11155111' ? 10 : 2, // Sepolia is flakey and has issues with tx timeouts
     treatMissingData: 'notBreaching',
     alarmDescription: 'Order slasher log ERROR level 2 times in one hour',
     actionsEnabled: true,
@@ -356,7 +356,7 @@ export = () => {
     threshold: 1,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     evaluationPeriods: 60,
-    datapointsToAlarm: 2,
+    datapointsToAlarm: chainId === '11155111' ? 10 : 2, // Sepolia is flakey and has issues with tx timeouts
     treatMissingData: 'notBreaching',
     alarmDescription: `Order slasher FATAL (task exited) twice in 1 hour`,
     actionsEnabled: true,

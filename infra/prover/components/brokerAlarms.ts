@@ -282,7 +282,7 @@ export const createProverAlarms = (
   // Other networks, 3 lock tx not confirmed errors within 1 hour in the order monitor triggers a SEV2 alarm.
   // This may indicate a misconfiguration of the tx timeout config.
   createErrorCodeAlarm('"[B-OM-006]"', 'order-monitor-lock-tx-not-confirmed', Severity.SEV2, {
-    threshold: chainId == ChainId.ETH_SEPOLIA ? 5 : 3,
+    threshold: chainId == ChainId.ETH_SEPOLIA ? 10 : 3,
   }, { period: 3600 });
 
   // 3 rpc errors within 15 minutes in the order monitor triggers a SEV2 alarm.
