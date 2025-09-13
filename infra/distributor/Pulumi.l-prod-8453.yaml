@@ -24,7 +24,7 @@ config:
   distributor:SCHEDULE_MINUTES: "180"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   distributor:SLASHER_KEY:
-    secure: v1:R5qNxiSbwxNhgCcQ:Sbh0gpk1+BUh9NUw+/5sUxUOWeKQQLBwV6RAD8ETNFK2kYhpPL/Y6WrFP3F4xzCJoAg6c1nO8DE1jwzXUfMrEAvzbRdgt/cdQ5LdQ8Oc810=
+    secure: v1:XBrxv0bakL92pjka:Zaw0da9L5v0rFJYJ03owljQkhjwAaNw5VbCdkSAwCj0REkN9Wz7cwVKRsicG86UjusQH4mVeVz6omfiOJJKiBGdULROheWu49FpU3uDFI3U=
   distributor:STAKE_THRESHOLD: "5"
   distributor:STAKE_TOP_UP_AMOUNT: "10"
   distributor:ETH_RPC_URL:
