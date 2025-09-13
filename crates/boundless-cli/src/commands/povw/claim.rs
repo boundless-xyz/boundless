@@ -26,6 +26,7 @@ use alloy::{
 };
 use anyhow::{bail, ensure, Context};
 use boundless_povw::{
+    deployments::Deployment,
     log_updater::IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
     mint_calculator::{prover::MintCalculatorProver, IPovwMint, CHAIN_SPECS},
 };
@@ -66,20 +67,9 @@ pub struct PovwClaim {
     #[arg(long, env)]
     pub beacon_api_url: Option<Url>,
 
-    // TODO(povw): Provide a default here, similar to the Deployment struct in boundless-market.
-    // See crates/povw/src/deployments.rs
-    /// Address of the [IPovwAccounting] contract.
-    #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
-    pub povw_accounting_address: Address,
-    /// Address of the [IPovwMint] contract.
-    #[clap(long, env = "POVW_MINT_ADDRESS")]
-    pub povw_mint_address: Address,
-    /// Address of the ZKC contract to query.
-    #[clap(long, env = "ZKC_ADDRESS")]
-    pub zkc_address: Address,
-    /// Address of the veZKC contract to query.
-    #[clap(long, env = "VEZKC_ADDRESS")]
-    pub vezkc_address: Address,
+    /// Deployment configuration for the PoVW and ZKC contracts.
+    #[clap(flatten, next_help_heading = "Deployment")]
+    pub deployment: Option<Deployment>,
 
     /// Maximum number of days to consider for the reward claim.
     ///
@@ -116,6 +106,13 @@ impl PovwClaim {
         let chain_spec = CHAIN_SPECS.get(&chain_id).with_context(|| {
             format!("No known Steel chain specification for chain ID {chain_id}")
         })?;
+        let deployment = self
+            .deployment
+            .clone()
+            .or_else(|| Deployment::from_chain_id(chain_id))
+            .context(
+            "could not determine deployment from chain ID; please specify deployment explicitly",
+        )?;
 
         // Determine the limits on the blocks that will be searched for events.
         let latest_block_number =
@@ -133,20 +130,25 @@ impl PovwClaim {
         .context("Failed to determine the block number for the event search limit")?;
         tracing::debug!("Event search will use a lower limit of block {lower_limit_block_number}");
 
-        let povw_accounting = IPovwAccounting::new(self.povw_accounting_address, provider.clone());
-        let povw_mint = IPovwMint::new(self.povw_mint_address, provider.clone());
+        let povw_accounting =
+            IPovwAccounting::new(deployment.povw_accounting_address, provider.clone());
+        let povw_mint = IPovwMint::new(deployment.povw_mint_address, provider.clone());
 
         // Determine the commit range for which we can mint. This is the difference between the
         // recoreded work log commit on the accounting contract and on the mint contract.
-        let initial_commit =
-            Digest::from(*povw_mint.workLogCommit(self.log_id.into()).call().await.with_context(
-                || format!("Failed to call IPovwMint.workLogCommit on {}", self.povw_mint_address),
-            )?);
+        let initial_commit = Digest::from(
+            *povw_mint.workLogCommit(self.log_id.into()).call().await.with_context(|| {
+                format!(
+                    "Failed to call IPovwMint.workLogCommit on {}",
+                    deployment.povw_mint_address
+                )
+            })?,
+        );
         let final_commit = Digest::from(
             *povw_accounting.workLogCommit(self.log_id.into()).call().await.with_context(|| {
                 format!(
                     "Failed to call IPovwAccounting.workLogCommit on {}",
-                    self.povw_accounting_address
+                    deployment.povw_accounting_address
                 )
             })?,
         );
@@ -241,9 +243,9 @@ impl PovwClaim {
             .prover(default_prover())
             .provider(provider.clone())
             .beacon_api(self.beacon_api_url.clone())
-            .povw_accounting_address(self.povw_accounting_address)
-            .zkc_address(self.zkc_address)
-            .zkc_rewards_address(self.vezkc_address)
+            .povw_accounting_address(deployment.povw_accounting_address)
+            .zkc_address(deployment.zkc_address)
+            .zkc_rewards_address(deployment.vezkc_address)
             .chain_spec(chain_spec)
             .prover_opts(ProverOpts::groth16())
             .build()?;

@@ -5,7 +5,7 @@
 
 //! Deployment configuration types and values for PoVW and ZKC contracts.
 
-use alloy_primitives::Address;
+use alloy_primitives::{address, Address};
 use clap::Args;
 use derive_builder::Builder;
 
@@ -49,8 +49,12 @@ impl Deployment {
     }
 
     /// Lookup the [Deployment] for a named chain.
-    pub const fn from_chain(_chain: NamedChain) -> Option<Deployment> {
-        None
+    pub const fn from_chain(chain: NamedChain) -> Option<Deployment> {
+        match chain {
+            NamedChain::Sepolia => Some(SEPOLIA),
+            NamedChain::Mainnet => Some(MAINNET),
+            _ => None,
+        }
     }
 
     /// Lookup the [Deployment] by chain ID.
@@ -59,3 +63,21 @@ impl Deployment {
         Self::from_chain(chain)
     }
 }
+
+/// [Deployment] for the Sepolia testnet.
+pub const SEPOLIA: Deployment = Deployment {
+    chain_id: Some(NamedChain::Sepolia as u64),
+    povw_accounting_address: address!("0xC5E956732F4bA6B1973a859Cf382244db6e84D0b"),
+    povw_mint_address: address!("0xc98218AafE225035a34795Bf4f6777b7d541E326"),
+    zkc_address: address!("0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"),
+    vezkc_address: address!("0xc23340732038ca6C5765763180E81B395d2e9cCA"),
+};
+
+/// [Deployment] for the Ethereum mainnet.
+pub const MAINNET: Deployment = Deployment {
+    chain_id: Some(NamedChain::Mainnet as u64),
+    povw_accounting_address: address!("0xF4a9Dd1aE7904a6031C35348C921fcDb605d3d1b"),
+    povw_mint_address: address!("0x14D7E7a4f240FFEa740431AC3Ca16CCaEB7f41de"),
+    zkc_address: address!("0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555"),
+    vezkc_address: address!("0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4"),
+};
