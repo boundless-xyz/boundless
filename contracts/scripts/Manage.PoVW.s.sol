@@ -35,7 +35,8 @@ contract UpgradePoVWAccounting is BoundlessScriptBase {
         address currentImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
 
         // Get constructor arguments for PovwAccounting
-        IRiscZeroVerifier verifier = IRiscZeroVerifier(BoundlessScript.requireLib(deploymentConfig.verifier, "verifier"));
+        IRiscZeroVerifier verifier =
+            IRiscZeroVerifier(BoundlessScript.requireLib(deploymentConfig.verifier, "verifier"));
 
         // Handle ZKC address - if zero address, don't upgrade (production should have real ZKC)
         address zkcAddress = BoundlessScript.requireLib(deploymentConfig.zkc, "zkc");
@@ -77,7 +78,7 @@ contract UpgradePoVWAccounting is BoundlessScriptBase {
         opts.referenceContract = "build-info-reference:PovwAccounting";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
         opts.constructorData = abi.encode(verifier, zkc, logUpdaterId);
-        
+
         // Check if safety checks should be skipped
         bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
         if (skipSafetyChecks) {
@@ -145,7 +146,8 @@ contract UpgradePoVWMint is BoundlessScriptBase {
         console2.log("Current PovwMint implementation: %s", currentImplementation);
 
         // Get constructor arguments for PovwMint
-        IRiscZeroVerifier verifier = IRiscZeroVerifier(BoundlessScript.requireLib(deploymentConfig.verifier, "verifier"));
+        IRiscZeroVerifier verifier =
+            IRiscZeroVerifier(BoundlessScript.requireLib(deploymentConfig.verifier, "verifier"));
         PovwAccounting povwAccounting =
             PovwAccounting(BoundlessScript.requireLib(deploymentConfig.povwAccounting, "povw-accounting"));
 
@@ -191,7 +193,7 @@ contract UpgradePoVWMint is BoundlessScriptBase {
         opts.referenceContract = "build-info-reference:PovwMint";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
         opts.constructorData = abi.encode(verifier, povwAccounting, mintCalculatorId, zkc, vezkc);
-        
+
         // Check if safety checks should be skipped
         bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
         if (skipSafetyChecks) {

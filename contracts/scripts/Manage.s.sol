@@ -53,7 +53,6 @@ using RequireLib for bytes32;
 // This is the EIP-1967 implementation slot:
 bytes32 constant IMPLEMENTATION_SLOT = 0x360894A13BA1A3210667C828492DB98DCA3E2076CC3735A920A3CA505D382BBC;
 
-
 /// @notice Deployment script for the market deployment.
 /// @dev Set values in deployment.toml to configure the deployment.
 ///

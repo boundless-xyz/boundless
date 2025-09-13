@@ -93,7 +93,8 @@ contract DeployPoVW is BoundlessScriptBase, RiscZeroCheats {
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
         // Validate admin addresses are set (use deployment config instead of env var)
-        address povwAccountingAdmin = BoundlessScript.requireLib(deploymentConfig.povwAccountingAdmin, "PovwAccounting admin");
+        address povwAccountingAdmin =
+            BoundlessScript.requireLib(deploymentConfig.povwAccountingAdmin, "PovwAccounting admin");
         address povwMintAdmin = BoundlessScript.requireLib(deploymentConfig.povwMintAdmin, "PovwMint admin");
 
         IRiscZeroVerifier verifier;

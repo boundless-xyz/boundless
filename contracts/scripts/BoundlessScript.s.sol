@@ -73,7 +73,9 @@ abstract contract BoundlessScriptBase is Script {
             console2.log(string.concat("WARNING: ", actionType, " was done with uncommitted changes!"));
             console2.log(string.concat("- The ", actionType, " commit hash may not reflect actual code state"));
             console2.log(
-                string.concat("- Consider committing changes before production ", BoundlessScript._toLowerCase(actionType), "s")
+                string.concat(
+                    "- Consider committing changes before production ", BoundlessScript._toLowerCase(actionType), "s"
+                )
             );
             console2.log("=================================================================");
         }
