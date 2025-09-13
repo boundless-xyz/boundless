@@ -33,6 +33,13 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     let right_receipt: SuccinctReceipt<ReceiptClaim> =
         deserialize_obj(&right_receipt).context("Failed to deserialize right receipt")?;
 
+    left_receipt
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify left receipt integrity")?;
+    right_receipt
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify right receipt integrity")?;
+
     tracing::trace!("Joining {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 
     let joined = agent
@@ -40,6 +47,10 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
         .as_ref()
         .context("Missing prover from join task")?
         .join(&left_receipt, &right_receipt)?;
+    joined
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify join receipt integrity")?;
+
     let join_result = serialize_obj(&joined).expect("Failed to serialize the segment");
     let output_key = format!("{recur_receipts_prefix}:{}", request.idx);
     redis::set_key_with_expiry(&mut conn, &output_key, join_result, Some(agent.args.redis_ttl))

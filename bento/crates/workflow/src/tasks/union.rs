@@ -46,6 +46,10 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
         .context("Failed to union on left/right receipt")?
         .into_unknown();
 
+    unioned
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify union receipt integrity")?;
+
     // send result to redis
     let union_result = serialize_obj(&unioned).context("Failed to serialize union receipt")?;
     let output_key = format!("{keccak_receipts_prefix}:{}", request.idx);
