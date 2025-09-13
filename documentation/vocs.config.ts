@@ -242,6 +242,15 @@ const PROVERS_ITEMS = [
       },
     ],
   },
+  {
+    text: "Proof Of Verifiable Work",
+    items: [
+      {
+        text: "Claiming Rewards",
+        link: "/provers/povw-claiming-rewards",
+      },
+    ],
+  },
 ];
 
 const DEVELOPERS_SIDEBAR = [...SHARED_LINKS, ...DEVELOPERS_ITEMS];
@@ -274,7 +283,6 @@ export function generateSitemap() {
 }
 
 export default defineConfig({
-  banner: '🎉 Boundless is launching prover incentives for Mainnet Beta 🎉 Join the [Discord](https://discord.com/invite/boundlessxyz) and [claim the Prover role](https://guild.xyz/boundless-xyz) to ask for technical support 🎉',
   logoUrl: "/logo.svg",
   topNav: [
     { text: "Explorer", link: "https://explorer.beboundless.xyz" },
