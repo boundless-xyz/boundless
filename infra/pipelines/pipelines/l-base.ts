@@ -12,7 +12,7 @@ export interface LaunchPipelineConfig {
 }
 
 export abstract class LaunchBasePipeline extends pulumi.ComponentResource {
-  protected readonly BRANCH_NAME = "launch-infra";
+  protected readonly BRANCH_NAME = "main";
   protected readonly config: LaunchPipelineConfig;
 
   constructor(
