@@ -223,6 +223,10 @@ const SIDEBAR_ITEMS = [
         link: "/zkc/staking"
       },
       {
+        text: "Bridging $ZKC",
+        link: "/zkc/bridging"
+      },
+      {
         text: "Governance",
         link: "/zkc/governance"
       },
