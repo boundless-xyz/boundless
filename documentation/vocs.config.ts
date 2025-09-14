@@ -232,7 +232,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Governance",
-        link: "zkv/governance"
+        link: "/zkc/governance"
       },
       {
         text: "Proof of Verifiable Work",
