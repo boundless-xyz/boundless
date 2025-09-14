@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use risc0_binfmt::PovwLogId;
 use risc0_zkvm::{
     CoprocessorCallback, ExecutorEnv, ExecutorImpl, Journal, NullSegmentRef, ProveKeccakRequest,
-    Receipt, Segment, SuccinctReceipt, Unknown, compute_image_id, sha::Digestible,
+    Segment, SuccinctReceipt, Unknown, compute_image_id, sha::Digestible,
 };
 use sqlx::postgres::PgPool;
 use std::str::FromStr;
@@ -314,24 +314,53 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let mut assumption_receipts = vec![];
     let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
 
-    for receipt_id in request.assumptions.iter() {
+    tracing::info!(
+        "Processing {} assumption receipts for job {}",
+        request.assumptions.len(),
+        job_id
+    );
+
+    for (idx, receipt_id) in request.assumptions.iter().enumerate() {
+        tracing::debug!(
+            "Processing assumption receipt {} of {}: {}",
+            idx + 1,
+            request.assumptions.len(),
+            receipt_id
+        );
+
         let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
+        tracing::debug!("Downloading receipt from S3: {}", receipt_key);
+
         let receipt_bytes = agent
             .s3_client
             .read_buf_from_s3(&receipt_key)
             .await
             .context("Failed to download receipt from obj store")?;
+
+        tracing::debug!("Downloaded {} bytes for receipt {}", receipt_bytes.len(), receipt_id);
+
         let receipt: SuccinctReceipt<Unknown> =
             bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?;
 
+        tracing::debug!("Successfully deserialized SuccinctReceipt for {}", receipt_id);
+
         assumption_receipts.push(receipt.clone());
+        tracing::debug!(
+            "Added receipt to assumption_receipts list (total: {})",
+            assumption_receipts.len()
+        );
 
         let assumption_claim = receipt.claim.digest().to_string();
+        tracing::debug!("Generated assumption claim digest: {}", assumption_claim);
 
         let succinct_receipt_bytes =
             serialize_obj(&receipt).context("Failed to serialize succinct assumption receipt")?;
 
+        tracing::debug!("Serialized succinct receipt to {} bytes", succinct_receipt_bytes.len());
+
         let assumption_key = format!("{receipts_key}:{assumption_claim}");
+        tracing::debug!("Storing assumption in Redis with key: {}", assumption_key);
+
         redis::set_key_with_expiry(
             &mut conn,
             &assumption_key,
@@ -340,7 +369,11 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         )
         .await
         .context("Failed to put assumption claim in redis")?;
+
+        tracing::debug!("Successfully stored assumption {} in Redis", receipt_id);
     }
+
+    tracing::info!("Completed processing all {} assumption receipts", request.assumptions.len());
 
     // Set the exec limit in 1 million cycle increments
     let mut exec_limit = agent.args.exec_cycle_limit * 1024 * 1024;
