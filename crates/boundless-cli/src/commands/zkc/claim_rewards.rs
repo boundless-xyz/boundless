@@ -29,8 +29,6 @@ use crate::config::GlobalConfig;
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct ZkcClaimRewards {
-    /// Address to claim rewards for.
-    pub account: Address,
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
@@ -55,7 +53,7 @@ impl ZkcClaimRewards {
         let total = claim_rewards(
             provider,
             deployment.staking_rewards_address,
-            self.account,
+            tx_signer.address(),
             global_config,
         )
         .await?;

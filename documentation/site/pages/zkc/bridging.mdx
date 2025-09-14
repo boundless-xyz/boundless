@@ -1,0 +1,52 @@
+# Bridging $ZKC
+
+$ZKC is deployed on Ethereum mainnet. To use $ZKC in the Boundless market on Base mainnet, $ZKC must be bridged from mainnet to Base mainet.
+
+## Bridging using Base's Native Bridges
+
+To bridge $ZKC from Ethereum mainnet to Base mainnet, see the [Base documentation for bridging assets to Base](https://docs.base.org/base-chain/network-information/bridges-mainnet).
+
+## Manual Briding using `cast`
+
+If the native bridges do not include $ZKC yet (see this [open PR](https://github.com/ethereum-optimism/ethereum-optimism.github.io/pull/1198)), there is the option to manually bridge using `cast`. This is not ideal, and should only be used as a temporary measure until $ZKC is available on Superbridge and other supported bridges.
+
+To start, make sure to have `cast` installed. This will require [installing Foundry](https://getfoundry.sh/introduction/installation/). Next, export the `PRIVATE_KEY` for the address holding the $ZKC tokens:
+
+```bash
+export PRIVATE_KEY=0x1234...5678
+```
+
+Set the `AMOUNT` and `ETH_MAINNET_RPC_URL` environment variables:
+
+```bash
+export AMOUNT=10000000000000000000 # 10 ZKC
+ETH_MAINNET_RPC_URL="https://"
+```
+
+with the amount to be bridged, and a valid RPC URL for Ethereum mainnet respectively.
+
+Next, approve the Base bridge to spend $AMOUNT tokens:
+
+```bash
+cast send 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555 \
+  "approve(address,uint256)" \
+  0x3154Cf16ccdb4C6d922629664174b904d80F2C35 \
+  $AMOUNT \
+  --private-key $PRIVATE_KEY \
+  --rpc-url $ETH_MAINNET_RPC_URL
+```
+
+Finally, bridge $AMOUNT tokens:
+
+```bash
+cast send 0x3154Cf16ccdb4C6d922629664174b904d80F2C35 \
+  "bridgeERC20(address,address,uint256,uint32,bytes)" \
+  0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555 \
+  0xAA61bB7777bD01B684347961918f1E07fBbCe7CF \
+  $AMOUNT \
+  300000 \
+  0x \
+  --private-key $PRIVATE_KEY \
+  --rpc-url $ETH_MAINNET_RPC_URL
+```
+

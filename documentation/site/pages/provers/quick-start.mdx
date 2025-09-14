@@ -2,11 +2,6 @@ import { YoutubeEmbed } from '../../components/youtube-embed';
 
 # Quick Start
 
-:::tip[Incentives]
-- Incentives for provers are live for Mainnet Beta from 2025-07-15.
-- Please check the [Proving Leaderboard](https://mining.beboundless.xyz/leaderboard) here for more details.
-:::
-
 :::tip[Need Help?]
 If you encounter issues that need technical support, join our [Discord community](https://discord.gg/aXRuD6spez) and claim the prover role via [Guild.xyz](https://guild.xyz/boundless-xyz) to get access to the *#prover-support-forum* channel. The Boundless team and experienced provers are there to help troubleshoot issues and share best practices.
 :::
@@ -25,10 +20,22 @@ export RPC_URL="https://base-mainnet.g.alchemy.com/v2/{YOUR_ALCHEMY_APP_ID}"`
 This video was recorded early July 2025; there may be some further changes to the setup process. For the latest commands, make sure to check the tutorial below.
 :::
 
+## Requirements
+
+A recommended minimum configuration for proving performance:
+
+* CPU - 16 threads, reasonable single core boost performance (>3Ghz)
+* RAM - 32 GB
+* Disk - 200 GB of solid state storage, NVME / SSD preferred
+* GPUs: at least one NVIDIA GPU with >= 8GB of VRAM.
+    - In testing, we've found the best performance on the following NVIDIA GPUs: 4090, and L4.
+    - While it's possible to use a single GPU, we recommend at least 10 GPUs to run a competitive prover.
+* OS: Ubuntu 24.04
+
 ## Clone the Boundless Repo
 
-:::tip[Use Ubuntu 22.04]
-We recommend using Ubuntu 22.04 LTS for your proving node.
+:::tip[Use Ubuntu]
+We recommend using Ubuntu 24.04 for your proving node.
 :::
 
 To get started, first clone the Boundless monorepo on your proving machine, and switch to the [latest release](https://github.com/boundless-xyz/boundless/releases):
@@ -36,7 +43,7 @@ To get started, first clone the Boundless monorepo on your proving machine, and 
 ```bash [Terminal]
 git clone https://github.com/boundless-xyz/boundless
 cd boundless
-git checkout release-0.14
+git checkout release-1.0
 ```
 
 ## Install Dependencies
@@ -50,7 +57,7 @@ To run a Boundless prover, you'll need the following dependencies:
 * [Docker compose](https://docs.docker.com/compose)
 * [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) (*Note: the install process requires enabling NVIDIA’s experimental packages*)
 
-For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating System Requirements](/provers/requirements#operating-system)), please run:
+For a quick set up of Boundless dependencies on Ubuntu 24.04, please run:
 
 ```bash
 sudo ./scripts/setup.sh
@@ -80,7 +87,7 @@ Boundless is comprised of two major components:
 To get started with a test proof on a new proving machine, you'll need to install the `bento_cli`:
 
 ```bash [Terminal]
-cargo install --locked --git https://github.com/risc0/risc0 bento-client --branch release-2.3 --bin bento_cli
+cargo install --locked --git https://github.com/boundless-xyz/boundless bento-client --branch release-1.0 --bin bento_cli
 ```
 Once installed, you can run bento with:
 
@@ -117,7 +124,7 @@ We have checked that bento successfully generated a test proof. We are now ready
 Before we start, we'll need to install the *Boundless CLI* (which is separate to the Bento CLI we installed earlier):
 
 ```bash [Terminal]
-cargo install --locked boundless-cli
+cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless
 ```
 
 ### Deposit Collateral

@@ -92,6 +92,10 @@ pub struct PovwClaim {
 impl PovwClaim {
     /// Run the [PovwClaim] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
+        if self.beacon_api_url.is_none() {
+            tracing::warn!("No Beacon API URL provided; claiming rewards may fail the multi-block continuity check.");
+            tracing::warn!("You can provide it using the --beacon-api-url flag.");
+        }
         let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
 

@@ -16,7 +16,8 @@
     "preview": "vocs preview"
   },
   "dependencies": {
-    "@risc0/ui": "0.0.351",
+    "@risc0/ui": "0.0.429",
+    "caniuse-lite": "^1.0.30001741",
     "markdown-link-check": "3.13.7",
     "remark": "15.0.1",
     "remark-cli": "12.0.1",
@@ -29,14 +30,14 @@
     "remark-preset-lint-consistent": "6.0.1",
     "remark-preset-lint-markdown-style-guide": "6.0.1",
     "remark-preset-lint-recommended": "7.0.1",
-    "remark-remove-url-trailing-slash": "2.0.0",
-    "remark-sort-definitions": "2.0.0",
+    "remark-remove-url-trailing-slash": "3.0.0",
+    "remark-sort-definitions": "3.0.0",
     "remark-toc": "9.0.0",
     "remark-wiki-link": "2.0.1",
-    "tailwindcss": "^4.1.8",
+    "tailwindcss": "^4.1.13",
     "vite-plugin-biome": "1.0.12",
-    "vite-plugin-sitemap": "0.7.1",
-    "vocs": "1.0.12"
+    "vite-plugin-sitemap": "0.8.2",
+    "vocs": "1.0.13"
   },
-  "packageManager": "bun@1.2.15"
+  "packageManager": "bun@1.2.22"
 }

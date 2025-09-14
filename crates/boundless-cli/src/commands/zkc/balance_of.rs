@@ -26,7 +26,7 @@ use crate::config::GlobalConfig;
 /// Command to get balance for ZKC.
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
-pub struct ZkcBalanceOf {
+pub struct ZkcBalance {
     /// Address to get balance for.
     pub account: Address,
     /// Configuration for the ZKC deployment to use.
@@ -34,7 +34,7 @@ pub struct ZkcBalanceOf {
     pub deployment: Option<Deployment>,
 }
 
-impl ZkcBalanceOf {
+impl ZkcBalance {
     /// Run the [ZkcBalanceOf] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rpc_url = global_config.require_rpc_url()?;
