@@ -10,6 +10,10 @@ This page introduces the concepts necessary to understand Proof of Verifiable Wo
 
 ## Prerequisites
 
+:::note[Requirements]
+Provers will require NVIDIA GPUs and Ubuntu 24.04. For a full list of requirements, please see [Requirements](/provers/quick-start#requirements).
+:::
+
 ::::steps
 
 #### Install the latest release
@@ -20,15 +24,45 @@ To install the latest release, and use the helpful setup script, provers can fol
 
 #### Make sure to have the Boundless CLI installed
 
-Provers use the Boundless CLI to stake $ZKC, prepare work log updates, and submit them onchain. To install the Boundless CLI, run:
+Provers use the Boundless CLI to stake $ZKC, prepare work log updates, and submit them onchain. To install the Boundless CLI (and build with CUDA support), run:
 
 ```bash
-cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless
+cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless -F cuda
 ```
 
 #### Install the latest version of Foundry
 
 Some commands in this tutorial use [cast](https://getfoundry.sh/cast/overview) from the [Foundry toolkit](https://getfoundry.sh/). This is not necessary, but it will make some CLI commands more straightforward. 
+
+#### Install the latest version of Rust 
+
+Follow the instructions [here](https://www.rust-lang.org/tools/install).
+
+#### Install the latest version of rzup
+
+Follow the instructions [here](https://dev.risczero.com/api/zkvm/install#installation-for-x86-64-linux-and-arm64-macos).
+
+#### Install `risc0-groth16` using `rzup`
+
+Run the following:
+
+```bash
+rzup install risc0-groth16
+```
+
+#### Install all the necessary NVIDIA drivers 
+
+```bash
+apt install nvidia-cuda-toolkit build-essential libssl-dev cuda-toolkit-13-0 nvidia-open
+```
+
+#### Update $PATH and export the necessary CUDA flags
+
+```bash
+export PATH=/usr/local/cuda/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+export NVCC_APPEND_FLAGS="--generate-code arch=compute_75,code=sm_75 --generate-code arch=compute_86,code=sm_86 --generate-code arch=compute_89,code=sm_89 --generate-code arch=compute_90,code=sm_90 --generate-code arch=compute_120,code=sm_120"
+```
 
 #### Stop Bento Safely
 
@@ -66,7 +100,16 @@ x-base-environment: &base-environment
   POVW_LOG_ID: "0x1234...5678" // [!code hl] [!code focus]
 ```
 
-Provers will need the private key for this address when using the PoVW CLI to prepare and submit valid work to the PoVW contracts.  Please see [Provers submit a Work Log Update](/zkc/povw-claiming-rewards#provers-submit-a-work-log-update-with-submit)  for more information.
+Provers will need the private key for this address when using the PoVW CLI to prepare and submit valid work to the PoVW contracts.  Please see [Provers submit a Work Log Update](/zkc/povw-claiming-rewards#provers-submit-a-work-log-update-with-submit) for more information.
+
+#### Export the PRIVATE_KEY and RPC_URL environment variables
+
+Export the private key for the `POVW_LOG_ID`, and a valid RPC endpoint URL for Ethereum mainnet:
+
+```bash
+export PRIVATE_KEY=[PRIVATE_KEY]
+export RPC_URL=[RPC_URL]
+```
 
 #### Start Bento
 
@@ -112,7 +155,7 @@ export RPC_URL=https://...
 To check the current $ZKC balance of `POVW_LOG_ID`:
 
 ```bash
-boundless zkc balance-of ${POVW_LOG_ID:?} --rpc-url
+boundless zkc balance ${POVW_LOG_ID:?} --rpc-url ${RPC_URL}
 ```
 
 To stake 100 $ZKC, run the following command:
@@ -158,7 +201,7 @@ boundless povw submit --state ${STATE_FILE_LOCATION} --rpc-url ${RPC_URL}
 After the reward epoch has finalized, rewards can be claimed with:
 
 ```bash
-boundless povw claim --beacon-api-url${BEACON_CHAIN_RPC_ENDPOINT} --rpc-url ${RPC_URL}
+boundless povw claim --log-id ${POVW_LOG_ID} --beacon-api-url${BEACON_CHAIN_RPC_ENDPOINT} --rpc-url ${RPC_URL}
 ```
 
 ### Checking Details of Current Reward Epoch 
@@ -166,13 +209,13 @@ boundless povw claim --beacon-api-url${BEACON_CHAIN_RPC_ENDPOINT} --rpc-url ${RP
 If the reward epoch has not been finalized yet, provers can check details of the the current epoch:
 
 ```bash
-cast call ${ZKC_ADDRESS:?} 'getCurrentEpoch() returns (uint256)'
+boundless zkc get-current-epoch
 ```
 
 This will return the epoch number; this epoch number can be passed into the following command to get the end time for the current epoch:
 
 ```bash
-cast call ${ZKC_ADDRESS:?} 'getEpochEndTime(uint256) returns (uint256)' <EPOCH_NUMBER>
+boundless zkc get-epoch-end-time <EPOCH_NUMBER>
 ```
 
 ::::

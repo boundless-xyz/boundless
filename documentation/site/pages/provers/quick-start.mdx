@@ -30,12 +30,12 @@ A recommended minimum configuration for proving performance:
 * GPUs: at least one NVIDIA GPU with >= 8GB of VRAM.
     - In testing, we've found the best performance on the following NVIDIA GPUs: 4090, and L4.
     - While it's possible to use a single GPU, we recommend at least 10 GPUs to run a competitive prover.
-* OS: Ubuntu 22.04/24.04
+* OS: Ubuntu 24.04
 
 ## Clone the Boundless Repo
 
 :::tip[Use Ubuntu]
-We recommend using Ubuntu 22.04/24.04 for your proving node.
+We recommend using Ubuntu 24.04 for your proving node.
 :::
 
 To get started, first clone the Boundless monorepo on your proving machine, and switch to the [latest release](https://github.com/boundless-xyz/boundless/releases):
@@ -57,7 +57,7 @@ To run a Boundless prover, you'll need the following dependencies:
 * [Docker compose](https://docs.docker.com/compose)
 * [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) (*Note: the install process requires enabling NVIDIA’s experimental packages*)
 
-For a quick set up of Boundless dependencies on Ubuntu 22.04/24.04, please run:
+For a quick set up of Boundless dependencies on Ubuntu 24.04, please run:
 
 ```bash
 sudo ./scripts/setup.sh
