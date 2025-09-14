@@ -339,10 +339,33 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
         tracing::debug!("Downloaded {} bytes for receipt {}", receipt_bytes.len(), receipt_id);
 
-        let receipt: SuccinctReceipt<Unknown> =
-            bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?;
+        // Validate file size and basic structure
+        if receipt_bytes.is_empty() {
+            tracing::error!("Receipt file is empty: {}", receipt_key);
+            bail!("Receipt file is empty: {}", receipt_key);
+        }
 
-        tracing::debug!("Successfully deserialized SuccinctReceipt for {}", receipt_id);
+        // Log first few bytes for debugging
+        let preview_len = std::cmp::min(32, receipt_bytes.len());
+        tracing::debug!("First {} bytes: {:02x?}", preview_len, &receipt_bytes[..preview_len]);
+
+        // Try to deserialize with better error context
+        let receipt: SuccinctReceipt<Unknown> = match bincode::deserialize(&receipt_bytes) {
+            Ok(receipt) => {
+                tracing::debug!("Successfully deserialized SuccinctReceipt for {}", receipt_id);
+                receipt
+            }
+            Err(e) => {
+                tracing::error!("Failed to deserialize receipt {}: {}", receipt_id, e);
+                tracing::error!("Receipt file size: {} bytes", receipt_bytes.len());
+                tracing::error!("Receipt file path: {}", receipt_key);
+                tracing::error!(
+                    "First 64 bytes: {:02x?}",
+                    &receipt_bytes[..std::cmp::min(64, receipt_bytes.len())]
+                );
+                return Err(e).context("Failed to decode assumption Receipt");
+            }
+        };
 
         assumption_receipts.push(receipt.clone());
         tracing::debug!(
