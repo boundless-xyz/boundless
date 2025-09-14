@@ -162,10 +162,6 @@ const SIDEBAR_ITEMS = [
             text: "Introducing Kailua",
             link: "/developers/kailua/how",
           },
-          // {
-          //   text: "Quick Start",
-          //   link: "/developers/kailua/quick-start",
-          // },
           {
             text: "The Kailua Book",
             link: "https://boundless-xyz.github.io/kailua/",
@@ -177,18 +173,10 @@ const SIDEBAR_ITEMS = [
   {
     text: "Prove",
     items: [
-      // {
-      //   text: "Who should run a prover?",
-      //   link: "/provers/becoming-a-prover",
-      // },
       {
         text: "Quick Start",
         link: "/provers/quick-start",
       },
-      // {
-      //   text: "Requirements",
-      //   link: "/provers/requirements",
-      // },
       {
         text: "Core Concepts",
         collapsed: true,
@@ -224,10 +212,14 @@ const SIDEBAR_ITEMS = [
     ],
   },
   {
-    text: "ZKC",
+    text: "$ZKC",
     items: [
       {
-        text: "Staking",
+        text: "Introduction",
+        link: "/zkc/introduction"
+      },
+      {
+        text: "Staking $ZKC",
         link: "/zkc/staking"
       },
       {
@@ -236,7 +228,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Proof of Verifiable Work",
-        collapsed: true,
+        collapsed: false,
         items: [
           {
             text: "Claiming Rewards",

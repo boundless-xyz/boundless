@@ -23,7 +23,7 @@ To install the latest release, and use the helpful setup script, provers can fol
 Provers use the Boundless CLI to stake $ZKC, prepare work log updates, and submit them onchain. To install the Boundless CLI, run:
 
 ```bash
-cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-0.14 --bin boundless
+cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-0.15 --bin boundless
 ```
 
 #### Install the latest version of Foundry
@@ -105,7 +105,7 @@ Once staked, provers are eligible for $ZKC rewards effective immediately i.e. st
 To check the current $ZKC balance of `POVW_LOG_ID`:
 
 ```bash
-cast call ${POVW_LOG_ID:?} 'balanceOf(address) returns (uint256)' ${POVW_LOG_ID:?}
+boundless zkc balance-of ${POVW_LOG_ID:?}
 ```
 
 To stake 100 $ZKC, run the following command:

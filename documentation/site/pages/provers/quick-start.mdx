@@ -2,11 +2,6 @@ import { YoutubeEmbed } from '../../components/youtube-embed';
 
 # Quick Start
 
-:::tip[Incentives]
-- Incentives for provers are live for Mainnet Beta from 2025-07-15.
-- Please check the [Proving Leaderboard](https://mining.beboundless.xyz/leaderboard) here for more details.
-:::
-
 :::tip[Need Help?]
 If you encounter issues that need technical support, join our [Discord community](https://discord.gg/aXRuD6spez) and claim the prover role via [Guild.xyz](https://guild.xyz/boundless-xyz) to get access to the *#prover-support-forum* channel. The Boundless team and experienced provers are there to help troubleshoot issues and share best practices.
 :::
@@ -24,6 +19,19 @@ export RPC_URL="https://base-mainnet.g.alchemy.com/v2/{YOUR_ALCHEMY_APP_ID}"`
 :::note[Boundless is in Beta!]
 This video was recorded early July 2025; there may be some further changes to the setup process. For the latest commands, make sure to check the tutorial below.
 :::
+
+
+## Requirements
+
+A recommended minimum configuration for proving performance:
+
+* CPU - 16 threads, reasonable single core boost performance (>3Ghz)
+* RAM - 32 GB
+* Disk - 200 GB of solid state storage, NVME / SSD preferred
+* GPUs: at least one NVIDIA GPU with >= 8GB of VRAM.
+    - In testing, we've found the best performance on the following NVIDIA GPUs: 4090, and L4.
+    - While it's possible to use a single GPU, we recommend at least 10 GPUs to run a competitive prover.
+* OS: Ubuntu 22.04/24.04
 
 ## Clone the Boundless Repo
 
@@ -50,7 +58,7 @@ To run a Boundless prover, you'll need the following dependencies:
 * [Docker compose](https://docs.docker.com/compose)
 * [Docker Nvidia Support](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) (*Note: the install process requires enabling NVIDIA’s experimental packages*)
 
-For a quick set up of Boundless dependencies on Ubuntu 22.04 LTS (see [Operating System Requirements](/provers/requirements#operating-system)), please run:
+For a quick set up of Boundless dependencies on Ubuntu 22.04/24.04, please run:
 
 ```bash
 sudo ./scripts/setup.sh

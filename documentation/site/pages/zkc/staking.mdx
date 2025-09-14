@@ -1,28 +1,43 @@
-Overview of Governance on Boundless day 1
-Background: On our journey we are working on giving the protocol away to the community as
-we advance forward, through this we want to be careful on not giving it away too early so we
-want to decentralize gradually
-Key Terms
-● Technical Team Multisig — Controlled by Boundless core developers.
-● Overview Multisig — Controlled by Foundation board members.
-● Stage — A time-boxed phase; if the designated actor does not act, the proposal can
-advance or expire.
-Processes by Category
-To initiate these upgrades, either the technical team or foundation must sign the proposal
-Boundless Upgrades
-● Stage 1 — 7 days (early advance allowed): Technical Team Multisig signs off
-● Stage 2 — 2 days (optimistic): Staked $ZKC can veto with ≥50% “No” votes (no
-quorum required; votes can be changed).
-Grants
-● Stage 1 — 7 days (early advance allowed): Foundation Multisig signs off
-● Stage 2 — 7 days (optimistic): Staked $ZKC veto (≥50% “No”; 0% quorum; vote
-change enabled).
-Token Upgrades
-● Stage 1 — 30 days (no early advance): Foundation Multisig signs off.
-● Stage 2 — 7 days (normal vote): Staked $ZKC approval required (≥50% “Yes”; 0%
-quorum; vote change enabled).
-Emergency Upgrades (applies to Boundless and Token)
-● Stage 1 — 1 day: Foundation Multisig + Technical Team + RISC Zero team may act
-unilaterally for urgent fixes. To be replaced by a security council with multiple external
-parties
-Governance Updates
+# Staking
+
+Token holders can stake $ZKC to earn passive staking rewards, as well as participate in governance. 
+
+## Staking Rewards
+
+Staking rewards are earned by token holders who have staked $ZKC. These rewards are distributed every reward epoch. $ZKC staking rewards are emitted every reward epoch. Each epoch lasts 2 days, resulting in 182.5 epochs per year.
+
+### Emission Rate
+
+The initial supply is 1 billion ZKC. Emissions are divided equally across epochs throughout the year. The annual emission rate decreases over time based on the years since token launch:
+
+* Year 0: ~7.0% annual  
+* Year 1: ~6.5% annual  
+* Year 2: ~6.0% annual  
+* Year 3: ~5.5% annual  
+* Year 4: ~5.0% annual  
+* Year 5: ~4.5% annual  
+* Year 6: ~4.0% annual  
+* Year 7: ~3.5% annual  
+* Year 8+: ~3.0% annual (minimum rate)
+
+### Emissions Distribution
+
+Emissions occur at the end of each epoch. Every epoch's emissions are allocated to two external contracts for distribution:
+
+- *Passive Pool*:
+    - 25% of epoch emissions are divided proportionately to stakers. For example, if you stake 10% of the $ZKC in the passive staking pool, you will receive 2.5% of the total emissions i.e. 10% of 25%.
+
+- *Active Pool*:
+    - A maximum of 75% of epoch emissions are given to provers who have generated proofs during the epoch. Provers receive a reward for proving based on the percentage of proving (this is tracked via the number of cycles) they have carried out during the epoch. Provers must stake $ZKC to be eligible for these rewards. Each prover has a reward cap based on their staked $ZKC.
+    
+    as long as they have staked a multiple of 15 of that reward in the staking pool. If a prover would have received more $ZKC due to their cycle contribution but under-staked $ZKC, the delta remains unclaimed which can be distributed at a later date.
+
+    TODO
+
+    Note: The scalar of 15 was chosen to keep provers aligned with the long term success of the protocol while keeping the barrier entry to proving low to keep the market as open as possible. Future work is to be done to make this scalar more dynamic that encompasses these values.
+
+## Staking Mechanics
+
+- Staking locks $ZKC tokens and mints a veZKC NFT representing an active position. Adding further stake increases the ZKC amount for that active position.
+- Initiating withdrawal starts the 30-day withdrawal period and causes governance voting power and staking rewards to drop to 0 immediately. This is a common mechanism to prevent attacks on governance and the staking reward by timing withdrawals around epoch boundaries. After thirty days, the withdrawal can be completed. Once withdrawn, the veZKC NFT is burned and the tokens previously staked become unlocked. It is not possible to add stake to a position that has already initiated a withdrawal.
+- For staked $ZKC, governance voting power is calculated based on the percentage stake represented in the total staking pool. For more information, please see [Governance](/zkc/governance). Please note that voting power drops to zero immediately when withdrawal is initiated, ensuring only committed stakers can participate in governance votes.
