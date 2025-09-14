@@ -22,22 +22,22 @@ pub struct Deployment {
     pub chain_id: Option<u64>,
 
     /// Address of the PoVW accounting contract.
-    #[clap(long, env = "POVW_ACCOUNTING_ADDRESS")]
-    #[builder(setter(into))]
+    #[clap(long, env = "POVW_ACCOUNTING_ADDRESS", required = false)]
+    #[builder(setter(into), default)]
     pub povw_accounting_address: Address,
 
     /// Address of the PoVW mint contract.
-    #[clap(long, env = "POVW_MINT_ADDRESS")]
+    #[clap(long, env = "POVW_MINT_ADDRESS", required = false)]
     #[builder(setter(into), default)]
     pub povw_mint_address: Address,
 
     /// Address of the ZKC token contract.
-    #[clap(long, env = "ZKC_ADDRESS")]
+    #[clap(long, env = "ZKC_ADDRESS", required = false)]
     #[builder(setter(into), default)]
     pub zkc_address: Address,
 
     /// Address of the veZKC contract.
-    #[clap(long, env = "VEZKC_ADDRESS")]
+    #[clap(long, env = "VEZKC_ADDRESS", required = false)]
     #[builder(setter(into), default)]
     pub vezkc_address: Address,
 }
