@@ -54,21 +54,15 @@ done
 
 set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
 
-if [ -n "$STACK_TAG" ]; then
-    DEPLOY_KEY=${CHAIN_KEY:?}-${STACK_TAG:?}
-else
-    DEPLOY_KEY=${CHAIN_KEY:?}
-fi
-
 # HINT: deployment_secrets.toml contains API keys. You can write it yourself, or ask a friend.
 load_env_var() {
     local var_name="$1"
     local config_key="$2"
     local config_file="$3"
-    
+
     # Get current value of the variable
     local current_value=$(eval echo \$$var_name)
-    
+
     if [ -z "$current_value" ]; then
         echo "$var_name from $config_file: " > /dev/stderr
         local new_value=$(yq eval -e "$config_key" "$REPO_ROOT_DIR/contracts/$config_file")
@@ -79,18 +73,6 @@ load_env_var() {
     fi
 }
 
-echo "Loading environment variables from deployment TOML files"
-load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
-load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
-load_env_var "CHAIN_ID" ".deployment[\"${DEPLOY_KEY:?}\"].id" "deployment.toml"
-
-# Check if we're on the correct network
-CONNECTED_CHAIN_ID=$(cast chain-id --rpc-url ${RPC_URL:?})
-if [[ "${CONNECTED_CHAIN_ID:?}" != "${CHAIN_ID:?}" ]]; then
-    echo -e "${RED}Error: connected chain id and configured chain id do not match: ${CONNECTED_CHAIN_ID:?} != ${CHAIN_ID:?} ${NC}"
-    exit 1
-fi
-
 # Run a Forge script with support for Fireblocks with options set automatically
 forge_script() {
     # Set our function. If the function is "help", or if the function is
@@ -99,9 +81,72 @@ forge_script() {
     shift
 
     if [ "${script_function:?}" == "help" ]; then
-        echo "Usage:"
-        echo "  CHAIN_KEY=ethereum-sepolia [STACK_TAG=staging] ${0} <script_function> [--fireblocks] [--verify] [--broadcast]"
+        cat << EOF
+🔧 BoundlessMarket Management Script
+==================================
+
+Usage: $0 <command> [options]
+
+Commands:
+  DeployBoundlessMarket          Deploy the BoundlessMarket contract
+  UpgradeBoundlessMarket         Upgrade the BoundlessMarket contract
+  RollbackBoundlessMarket        Rollback the BoundlessMarket contract to previous version
+  AddBoundlessMarketAdmin        Add admin to BoundlessMarket contract
+  RemoveBoundlessMarketAdmin     Remove admin from BoundlessMarket contract
+
+Options:
+  -f, --fireblocks       Use Fireblocks for transaction signing
+  --broadcast            Broadcast transactions to network
+  --verify               Verify contracts on Etherscan
+  -h, --help             Show this help message
+
+Environment Variables:
+  CHAIN_KEY              Required. Deployment environment key (anvil, ethereum-mainnet, ethereum-sepolia, ethereum-sepolia-staging)
+  STACK_TAG              Optional. Stack tag for multi-deployment environments
+  DEPLOYER_PRIVATE_KEY   Required. Private key for transaction signing (0x...)
+  ADMIN_TO_ADD           Required for AddBoundlessMarketAdmin. Admin address to add (0x...)
+  ADMIN_TO_REMOVE        Required for RemoveBoundlessMarketAdmin. Admin address to remove (0x...)
+
+Examples:
+  # Deploy BoundlessMarket
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... $0 DeployBoundlessMarket --broadcast
+
+  # Upgrade BoundlessMarket
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... $0 UpgradeBoundlessMarket --broadcast
+
+  # Add admin to BoundlessMarket
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... ADMIN_TO_ADD=0x... $0 AddBoundlessMarketAdmin --broadcast
+
+  # Remove admin from BoundlessMarket
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... ADMIN_TO_REMOVE=0x... $0 RemoveBoundlessMarketAdmin --broadcast
+
+Notes:
+  - Network configuration is loaded from deployment.toml and deployment_secrets.toml
+  - Private keys must be provided via DEPLOYER_PRIVATE_KEY environment variable
+  - Admin operations support GNOSIS_EXECUTE=true for Gnosis Safe calldata generation
+  - Admin removal ensures at least one admin remains on the contract
+  - All operations automatically update deployment.toml
+EOF
         exit 0
+    fi
+
+    # Load environment variables only when running actual commands
+    if [ -n "$STACK_TAG" ]; then
+        DEPLOY_KEY=${CHAIN_KEY:?}-${STACK_TAG:?}
+    else
+        DEPLOY_KEY=${CHAIN_KEY:?}
+    fi
+
+    echo "Loading environment variables from deployment TOML files"
+    load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
+    load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
+    load_env_var "CHAIN_ID" ".deployment[\"${DEPLOY_KEY:?}\"].id" "deployment.toml"
+
+    # Check if we're on the correct network
+    CONNECTED_CHAIN_ID=$(cast chain-id --rpc-url ${RPC_URL:?})
+    if [[ "${CONNECTED_CHAIN_ID:?}" != "${CHAIN_ID:?}" ]]; then
+        echo -e "${RED}Error: connected chain id and configured chain id do not match: ${CONNECTED_CHAIN_ID:?} != ${CHAIN_ID:?} ${NC}"
+        exit 1
     fi
 
     local target="${SCRIPT_FILE:?}:${script_function:?}"

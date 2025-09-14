@@ -7,6 +7,8 @@
 pragma solidity ^0.8.20;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 
 /// @notice Shared library for Boundless deployment and management scripts
 library BoundlessScript {
@@ -109,6 +111,45 @@ abstract contract BoundlessScriptBase is Script {
         } catch {
             console2.log("Failed to read image ID from .bin file: %s", filename);
             return bytes32(0);
+        }
+    }
+
+    /// @notice Updates a specific field in deployment.toml via FFI
+    /// @param key The field name to update (e.g., "admin", "admin-2")
+    /// @param value The address value to set
+    function _updateDeploymentConfig(string memory key, address value) internal {
+        string[] memory args = new string[](4);
+        args[0] = "python3";
+        args[1] = "contracts/update_deployment_toml.py";
+        args[2] = string.concat("--", key);
+        args[3] = Strings.toHexString(value);
+
+        vm.ffi(args);
+    }
+
+    /// @notice Removes an admin from deployment.toml by clearing the matching admin field
+    /// @param adminField1 First admin field to check (e.g., "admin")
+    /// @param adminField2 Second admin field to check (e.g., "admin-2")
+    /// @param removedAdmin The admin address being removed
+    /// @dev Only clears the TOML field that contains the specific admin address being removed
+    function _removeAdminFromToml(string memory adminField1, string memory adminField2, address removedAdmin)
+        internal
+    {
+        // Load current deployment config to check which field contains the removed admin
+        DeploymentConfig memory deploymentConfig =
+            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
+
+        // Clear the field that matches the removed admin address
+        if (deploymentConfig.admin == removedAdmin) {
+            _updateDeploymentConfig(adminField1, address(0));
+            console2.log("Cleared %s field in deployment.toml", adminField1);
+        } else if (deploymentConfig.admin2 == removedAdmin) {
+            _updateDeploymentConfig(adminField2, address(0));
+            console2.log("Cleared %s field in deployment.toml", adminField2);
+        } else {
+            console2.log(
+                "Admin address %s not found in TOML fields, no update needed", Strings.toHexString(removedAdmin)
+            );
         }
     }
 }

@@ -18,9 +18,10 @@ use alloy::{
     primitives::{utils::format_ether, B256, U256},
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
+    sol_types::SolCall,
 };
 use anyhow::{ensure, Context};
-use boundless_market::contracts::token::{IERC20Permit, Permit};
+use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
     contracts::{extract_tx_log, DecodeRevert, IStaking},
     deployments::Deployment,
@@ -44,6 +45,9 @@ pub struct ZkcStake {
     /// Deadline for the ERC20 permit, in seconds.
     #[clap(long, default_value_t = 3600, conflicts_with = "no_permit")]
     pub permit_deadline: u64,
+    /// Whether to only print the calldata without sending the transaction.
+    #[clap(long)]
+    pub calldata: bool,
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
@@ -69,6 +73,10 @@ impl ZkcStake {
             get_active_token_id(provider.clone(), deployment.vezkc_address, tx_signer.address())
                 .await?;
         let add = !token_id.is_zero();
+
+        if self.calldata {
+            return self.approve_then_stake(deployment, self.amount, add).await;
+        }
 
         let pending_tx = match self.no_permit {
             false => {
@@ -135,6 +143,28 @@ impl ZkcStake {
                 format_ether(amount)
             );
         }
+        Ok(())
+    }
+
+    async fn approve_then_stake(
+        &self,
+        deployment: Deployment,
+        value: U256,
+        add: bool,
+    ) -> anyhow::Result<()> {
+        let approve_call = IERC20::approveCall { spender: deployment.vezkc_address, value };
+        println!("========= Approve Call =========");
+        println!("target address: {}", deployment.zkc_address);
+        println!("calldata: 0x{}", hex::encode(approve_call.abi_encode()));
+
+        println!("========= Staking Call =========");
+        println!("target address: {}", deployment.vezkc_address);
+        let staking_call = if add {
+            IStaking::addToStakeCall { amount: value }.abi_encode()
+        } else {
+            IStaking::stakeCall { amount: value }.abi_encode()
+        };
+        println!("calldata: 0x{}", hex::encode(staking_call));
         Ok(())
     }
 

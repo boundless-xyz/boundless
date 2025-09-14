@@ -21,6 +21,7 @@ mod delegate_rewards;
 mod get_active_token_id;
 mod get_current_epoch;
 mod get_epoch_end_time;
+mod get_rewards_delegates;
 mod get_staked_amount;
 mod stake;
 mod unstake;
@@ -32,6 +33,7 @@ pub use delegate_rewards::ZkcDelegateRewards;
 pub use get_active_token_id::{get_active_token_id, ZkcGetActiveTokenId};
 pub use get_current_epoch::{get_current_epoch, ZkcGetCurrentEpoch};
 pub use get_epoch_end_time::{get_epoch_end_time, ZkcGetEpochEndTime};
+pub use get_rewards_delegates::{get_rewards_delegates, ZkcGetRewardsDelegates};
 pub use get_staked_amount::{get_staked_amount, ZkcGetStakedAmount};
 pub use stake::ZkcStake;
 pub use unstake::ZkcUnstake;
@@ -63,6 +65,8 @@ pub enum ZKCCommands {
     CalculateRewards(ZkcCalculateRewards),
     /// Claim rewards for a specified address.
     ClaimRewards(ZkcClaimRewards),
+    /// Get rewards delegates for a specified address.
+    GetRewardsDelegates(ZkcGetRewardsDelegates),
 }
 
 impl ZKCCommands {
@@ -79,6 +83,7 @@ impl ZKCCommands {
             Self::Unstake(cmd) => cmd.run(global_config).await,
             Self::CalculateRewards(cmd) => cmd.run(global_config).await,
             Self::ClaimRewards(cmd) => cmd.run(global_config).await,
+            Self::GetRewardsDelegates(cmd) => cmd.run(global_config).await,
         }
     }
 }

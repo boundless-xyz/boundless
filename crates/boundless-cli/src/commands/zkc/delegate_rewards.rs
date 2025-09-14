@@ -15,6 +15,7 @@
 use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
+    sol_types::SolCall,
 };
 use anyhow::{ensure, Context};
 use boundless_zkc::{contracts::IRewards, deployments::Deployment};
@@ -28,6 +29,9 @@ use crate::config::GlobalConfig;
 pub struct ZkcDelegateRewards {
     /// Address to delegate rewards to.
     pub to: Address,
+    /// Whether to only print the calldata without sending the transaction.
+    #[clap(long)]
+    pub calldata: bool,
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
@@ -48,6 +52,11 @@ impl ZkcDelegateRewards {
         let chain_id = provider.get_chain_id().await?;
         let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
             .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+
+        if self.calldata {
+            print_calldata(&deployment, self.to);
+            return Ok(());
+        }
 
         let rewards = IRewards::new(deployment.vezkc_address, provider.clone());
 
@@ -77,4 +86,11 @@ impl ZkcDelegateRewards {
         tracing::info!("Delegating rewards completed");
         Ok(())
     }
+}
+
+fn print_calldata(deployment: &Deployment, delegatee: Address) {
+    let delegate_call = IRewards::delegateRewardsCall { delegatee };
+    println!("========= DelegateRewards Call =========");
+    println!("target address: {}", deployment.vezkc_address);
+    println!("calldata: 0x{}", hex::encode(delegate_call.abi_encode()));
 }

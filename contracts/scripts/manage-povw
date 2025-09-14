@@ -54,8 +54,6 @@ done
 
 set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
 
-DEPLOY_KEY=${CHAIN_KEY:?}
-
 # HINT: deployment_secrets.toml contains API keys. You can write it yourself, or ask a friend.
 load_env_var() {
     local var_name="$1"
@@ -238,8 +236,7 @@ Commands:
   UpgradePoVWMint             Upgrade the PovwMint contract
   RollbackPoVWAccounting      Rollback the PovwAccounting contract to previous version
   RollbackPoVWMint            Rollback the PovwMint contract to previous version
-  TransferPoVWOwnership       Transfer ownership of PovwAccounting contract
-  TransferPoVWMintOwnership   Transfer ownership of PovwMint contract
+  TransferPoVWOwnership       Transfer ownership of both PovwAccounting and PovwMint contracts
 
 Options:
   -f, --fireblocks       Use Fireblocks for transaction signing
@@ -269,14 +266,14 @@ Development Mode:
 Examples:
   # Deploy to anvil in dev mode
   RISC0_DEV_MODE=1 CHAIN_KEY=anvil DEPLOYER_PRIVATE_KEY=0xac... $0 DeployPoVW --broadcast
-  
+
   # Upgrade PovwAccounting
   CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... $0 UpgradePoVWAccounting --broadcast
-  
+
   # Upgrade PovwAccounting skipping safety checks (DANGEROUS)
   CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... SKIP_SAFETY_CHECKS=true $0 UpgradePoVWAccounting --broadcast
-  
-  # Transfer ownership
+
+  # Transfer ownership of both PoVW contracts
   CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... NEW_ADMIN=0x... $0 TransferPoVWOwnership --broadcast
 
 Notes:
@@ -294,6 +291,7 @@ EOF
     fi
 
     # Load environment variables only when running actual commands
+    DEPLOY_KEY=${CHAIN_KEY:?}
     echo "Loading environment variables from deployment TOML files"
     load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
     load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
