@@ -2,14 +2,9 @@ import biomePlugin from "vite-plugin-biome";
 import VitePluginSitemap from "vite-plugin-sitemap";
 import { defineConfig } from "vocs";
 
-// const SHARED_LINKS = [
-//   { text: "For Developers", link: "/developers/why" },
-//   { text: "For Provers", link: "/provers/quick-start" },
-// ];
-
-const DEVELOPERS_ITEMS = [
+const SIDEBAR_ITEMS = [
   {
-    text: " ",
+    text: "Introduction",
     items: [
       {
         text: "What is Boundless?",
@@ -233,11 +228,11 @@ const DEVELOPERS_ITEMS = [
     items: [
       {
         text: "Staking",
-        collapsed: true,
+        link: "/zkc/staking"
       },
       {
         text: "Governance",
-        collapsed: true,
+        link: "zkv/governance"
       },
       {
         text: "Proof of Verifiable Work",
@@ -245,7 +240,7 @@ const DEVELOPERS_ITEMS = [
         items: [
           {
             text: "Claiming Rewards",
-            link: "/provers/povw-claiming-rewards",
+            link: "/zkc/povw-claiming-rewards",
           }
         ],
       },
@@ -253,86 +248,8 @@ const DEVELOPERS_ITEMS = [
   },
 ];
 
-// const PROVERS_ITEMS = [
-//   {
-//     text: "Introduction",
-//     items: [
-//       {
-//         text: "What is Boundless?",
-//         link: "/provers/what",
-//       },
-//       {
-//         text: "Why use Boundless?",
-//         link: "/provers/why",
-//       },
-//       {
-//         text: "Proof Lifecycle",
-//         link: "/provers/proof-lifecycle",
-//       },
-//       {
-//         text: "Terminology",
-//         link: "/provers/terminology",
-//       },
-//     ],
-//   },
-//   {
-//     text: "Getting Started",
-//     items: [
-//       {
-//         text: "Who should run a prover?",
-//         link: "/provers/becoming-a-prover",
-//       },
-//       {
-//         text: "Requirements",
-//         link: "/provers/requirements",
-//       },
-//       {
-//         text: "Quick Start",
-//         link: "/provers/quick-start",
-//       },
-//     ],
-//   },
-//   {
-//     text: "Running a Boundless Prover",
-//     items: [
-//       {
-//         text: "The Boundless Proving Stack",
-//         link: "/provers/proving-stack",
-//       },
-//       {
-//         text: "Broker Configuration & Operation",
-//         link: "/provers/broker",
-//       },
-//       {
-//         text: "Monitoring",
-//         link: "/provers/monitoring",
-//       },
-//       {
-//         text: "Performance Optimization",
-//         link: "/provers/performance-optimization",
-//       },
-//       {
-//         text: "Bento Technical Design",
-//         link: "/provers/bento",
-//       },
-//     ],
-//   },
-//   {
-//     text: "Proof Of Verifiable Work",
-//     items: [
-//       {
-//         text: "Claiming Rewards",
-//         link: "/provers/povw-claiming-rewards",
-//       },
-//     ],
-//   },
-// ];
-
-const DEVELOPERS_SIDEBAR = [DEVELOPERS_ITEMS];
-// const PROVERS_SIDEBAR = [...SHARED_LINKS, ...PROVERS_ITEMS];
-
 export function generateSitemap() {
-  const allSidebarItems = DEVELOPERS_SIDEBAR;
+  const allSidebarItems = [SIDEBAR_ITEMS];
   function extractRoutes(items): string[] {
     return items.flatMap((item) => {
       const routes: string[] = [];
@@ -371,11 +288,7 @@ export default defineConfig({
   vite: {
     plugins: [generateSitemap(), biomePlugin()],
   },
-  // sidebar: {
-  //   "/developers/": DEVELOPERS_ITEMS,
-  //   // "/provers/": PROVERS_SIDEBAR,
-  // },
-  sidebar: DEVELOPERS_ITEMS,
+  sidebar: SIDEBAR_ITEMS,
   socials: [
     {
       icon: "github",
