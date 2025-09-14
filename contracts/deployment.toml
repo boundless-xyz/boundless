@@ -29,12 +29,12 @@ deprecated-assessor-duration = 0  # 5 days
 povw-accounting = "0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF8"
 povw-accounting-impl = "0xfb2187436fD8e266E4F18cBCe9aAFbDbB796e67C"
 povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
-povw-accounting-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-accounting-admin = "0x3886eeaf95aa2bdddf0c924925e290291f70447f"
 povw-accounting-deployment-commit = "0556e6b61"
 povw-mint = "0xBFCE7c2d5e7EdDEab71B3eeED770713c8b755397"
 povw-mint-impl = "0x569D48052d59dC4aAC86098fE8db43D0E514f59B"
 povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
-povw-mint-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-mint-admin = "0x3886eeaf95aa2bdddf0c924925e290291f70447f"
 povw-mint-deployment-commit = "0556e6b61"
 
 # PoVW image IDs
