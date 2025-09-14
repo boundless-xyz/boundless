@@ -1,13 +1,11 @@
 import * as pulumi from '@pulumi/pulumi';
 import { getEnvVar, ChainId, getServiceNameV1, getChainId } from "../util";
 import { BentoEC2Broker } from "./components/bentoBroker";
-import { BonsaiECSBroker } from "./components/bonsaiBroker";
 require('dotenv').config();
 
 export = () => {
   // Read config
   const baseConfig = new pulumi.Config("base-prover");
-  const bonsaiConfig = new pulumi.Config("bonsai-prover");
   const bentoConfig = new pulumi.Config("bento-prover");
 
   const stackName = pulumi.getStack();
@@ -29,34 +27,37 @@ export = () => {
   const dockerTag = baseConfig.require('DOCKER_TAG');
   const setVerifierAddr = baseConfig.require('SET_VERIFIER_ADDR');
   const boundlessMarketAddr = baseConfig.require('BOUNDLESS_MARKET_ADDR');
+  const collateralTokenAddress = baseConfig.require('COLLATERAL_TOKEN_ADDRESS');
   const ciCacheSecret = baseConfig.getSecret('CI_CACHE_SECRET');
   const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
   const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
 
-  // Bonsai Prover Config
-  const bonsaiProverPrivateKey = isDev ? getEnvVar("BONSAI_PROVER_PRIVATE_KEY") : bonsaiConfig.requireSecret('PRIVATE_KEY');
-  const bonsaiApiUrl = bonsaiConfig.require('BONSAI_API_URL');
-  const bonsaiApiKey = isDev ? getEnvVar("BONSAI_API_KEY") : bonsaiConfig.getSecret('BONSAI_API_KEY');
-  const bonsaiBrokerTomlPath = bonsaiConfig.require('BROKER_TOML_PATH')
 
   // Bento Prover Config
+  const bentoProverBranch = bentoConfig.require('BRANCH');
   const bentoProverSshPublicKey = isDev ? process.env.BENTO_PROVER_SSH_PUBLIC_KEY : bentoConfig.getSecret('SSH_PUBLIC_KEY');
-  const bentoProverPrivateKey = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY") : bentoConfig.requireSecret('PRIVATE_KEY');
+  const bentoProverPrivateKey1 = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY_1") : bentoConfig.requireSecret('PRIVATE_KEY_1');
+  const bentoProverPrivateKey2 = isDev ? getEnvVar("BENTO_PROVER_PRIVATE_KEY_2") : bentoConfig.requireSecret('PRIVATE_KEY_2');
+  const prover1PovwLogId = bentoConfig.requireSecret('POVW_LOG_ID_1');
+  const prover2PovwLogId = bentoConfig.requireSecret('POVW_LOG_ID_2');
   const segmentSize = bentoConfig.requireNumber('SEGMENT_SIZE');
   const snarkTimeout = bentoConfig.requireNumber('SNARK_TIMEOUT');
   const logJson = bentoConfig.getBoolean('LOG_JSON');
   const bentoBrokerTomlPath = bentoConfig.require('BROKER_TOML_PATH')
 
-  const bentoBrokerServiceName = getServiceNameV1(stackName, "bento-prover", chainId);
-  let bentoBroker: BentoEC2Broker | undefined;
+  const bentoBroker1ServiceName = getServiceNameV1(stackName, "bento-prover-1", chainId);
+  const bentoBroker2ServiceName = getServiceNameV1(stackName, "bento-prover-2", chainId);
+  let bentoBroker1: BentoEC2Broker | undefined;
+  let bentoBroker2: BentoEC2Broker | undefined;
   if (process.env.SKIP_BENTO !== "true") {
-    bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
+    bentoBroker1 = new BentoEC2Broker(bentoBroker1ServiceName, {
       chainId: getChainId(chainId),
+      collateralTokenAddress,
       ethRpcUrl,
-      gitBranch: "main",
-      privateKey: bentoProverPrivateKey,
+      gitBranch: bentoProverBranch,
+      privateKey: bentoProverPrivateKey1,
       baseStackName,
       orderStreamUrl,
       brokerTomlPath: bentoBrokerTomlPath,
@@ -73,38 +74,45 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       sshPublicKey: bentoProverSshPublicKey,
       logJson,
+      povwLogId: prover1PovwLogId,
     });
-  }
 
-  if (process.env.SKIP_BONSAI !== "true") {
-    const bonsaiBrokerServiceName = getServiceNameV1(stackName, "bonsai-prover", chainId);
-    const bonsaiBroker = new BonsaiECSBroker(bonsaiBrokerServiceName, {
+    bentoBroker2 = new BentoEC2Broker(bentoBroker2ServiceName, {
       chainId: getChainId(chainId),
+      collateralTokenAddress,
       ethRpcUrl,
-      privateKey: bonsaiProverPrivateKey,
+      gitBranch: bentoProverBranch,
+      privateKey: bentoProverPrivateKey2,
       baseStackName,
-      bonsaiApiUrl,
-      bonsaiApiKey,
       orderStreamUrl,
-      brokerTomlPath: bonsaiBrokerTomlPath,
-      boundlessMarketAddr,
-      setVerifierAddr,
+      brokerTomlPath: bentoBrokerTomlPath,
+      boundlessMarketAddress: boundlessMarketAddr,
+      setVerifierAddress: setVerifierAddr,
+      segmentSize,
+      snarkTimeout,
       vpcId,
-      privSubNetIds,
+      pubSubNetIds,
       dockerDir,
       dockerTag,
       ciCacheSecret,
       githubTokenSecret,
       boundlessAlertsTopicArns: alertsTopicArns,
-      dockerRemoteBuilder,
+      sshPublicKey: bentoProverSshPublicKey,
+      logJson,
+      povwLogId: prover2PovwLogId,
     });
   }
 
   return {
-    bentoBrokerPublicIp: bentoBroker?.instance.publicIp ?? undefined,
-    bentoBrokerPublicDns: bentoBroker?.instance.publicDns ?? undefined,
-    bentoBrokerInstanceId: bentoBroker?.instance.id ?? undefined,
-    bentoBrokerUpdateCommandArn: bentoBroker?.updateCommandArn ?? undefined,
-    bentoBrokerUpdateCommandId: bentoBroker?.updateCommandId ?? undefined,
+    bentoBroker1PublicIp: bentoBroker1?.instance.publicIp ?? undefined,
+    bentoBroker1PublicDns: bentoBroker1?.instance.publicDns ?? undefined,
+    bentoBroker1InstanceId: bentoBroker1?.instance.id ?? undefined,
+    bentoBroker1UpdateCommandArn: bentoBroker1?.updateCommandArn ?? undefined,
+    bentoBroker1UpdateCommandId: bentoBroker1?.updateCommandId ?? undefined,
+    bentoBroker2PublicIp: bentoBroker2?.instance.publicIp ?? undefined,
+    bentoBroker2PublicDns: bentoBroker2?.instance.publicDns ?? undefined,
+    bentoBroker2InstanceId: bentoBroker2?.instance.id ?? undefined,
+    bentoBroker2UpdateCommandArn: bentoBroker2?.updateCommandArn ?? undefined,
+    bentoBroker2UpdateCommandId: bentoBroker2?.updateCommandId ?? undefined,
   }
 };

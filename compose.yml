@@ -10,7 +10,7 @@ x-base-environment: &base-environment
   RUST_LOG: ${RUST_LOG:-info}
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
-
+  POVW_LOG_ID: ${POVW_LOG_ID:-}
 x-agent-common: &agent-common
   build:
     context: .

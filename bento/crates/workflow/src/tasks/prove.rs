@@ -35,6 +35,10 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         .prove_segment(&agent.verifier_ctx, &segment)
         .context("Failed to prove segment")?;
 
+    segment_receipt
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify segment receipt integrity")?;
+
     tracing::debug!("Completed proof: {job_id} - {index}");
 
     tracing::debug!("lifting {job_id} - {index}");
@@ -48,6 +52,10 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
             .context("Missing prover from resolve task")?
             .lift_povw(&segment_receipt)
             .with_context(|| format!("Failed to POVW lift segment {index}"))?;
+
+        lift_receipt
+            .verify_integrity_with_context(&agent.verifier_ctx)
+            .context("Failed to verify lift receipt integrity")?;
 
         tracing::debug!("lifting complete {job_id} - {index}");
 
@@ -63,6 +71,10 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
             .context("Missing prover from resolve task")?
             .lift(&segment_receipt)
             .with_context(|| format!("Failed to lift segment {index}"))?;
+
+        lift_receipt
+            .verify_integrity_with_context(&agent.verifier_ctx)
+            .context("Failed to verify lift receipt integrity")?;
 
         tracing::debug!("lifting complete {job_id} - {index}");
 

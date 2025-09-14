@@ -199,7 +199,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
         ctx.prover_market
-            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
             .await
             .unwrap();
         let (smart_contract_requestor_address, smart_contract_requestor_owner) =

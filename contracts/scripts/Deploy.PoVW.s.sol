@@ -19,9 +19,9 @@ import {IRewards as IZKCRewards} from "zkc/interfaces/IRewards.sol";
 import {MockZKC, MockZKCRewards} from "../test/MockZKC.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {PoVWScript, PoVWLib} from "./PoVWLib.s.sol";
+import {BoundlessScriptBase, BoundlessScript} from "./BoundlessScript.s.sol";
 
-contract DeployPoVW is PoVWScript, RiscZeroCheats {
+contract DeployPoVW is BoundlessScriptBase, RiscZeroCheats {
     struct DeployedContracts {
         address verifier;
         address zkc;
@@ -93,14 +93,15 @@ contract DeployPoVW is PoVWScript, RiscZeroCheats {
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
         // Validate admin addresses are set (use deployment config instead of env var)
-        address povwAccountingAdmin = PoVWLib.requireLib(deploymentConfig.povwAccountingAdmin, "PovwAccounting admin");
-        address povwMintAdmin = PoVWLib.requireLib(deploymentConfig.povwMintAdmin, "PovwMint admin");
+        address povwAccountingAdmin =
+            BoundlessScript.requireLib(deploymentConfig.povwAccountingAdmin, "PovwAccounting admin");
+        address povwMintAdmin = BoundlessScript.requireLib(deploymentConfig.povwMintAdmin, "PovwMint admin");
 
         IRiscZeroVerifier verifier;
         bool devMode = bytes(vm.envOr("RISC0_DEV_MODE", string(""))).length > 0;
 
         if (!devMode) {
-            verifier = IRiscZeroVerifier(PoVWLib.requireLib(deploymentConfig.verifier, "Verifier"));
+            verifier = IRiscZeroVerifier(BoundlessScript.requireLib(deploymentConfig.verifier, "Verifier"));
             console2.log("Using IRiscZeroVerifier at", address(verifier));
         }
 
@@ -156,8 +157,8 @@ contract DeployPoVW is PoVWScript, RiscZeroCheats {
             console2.log("Deployed MockZKCRewards to", vezkcAddress);
         } else {
             // Use existing ZKC contracts
-            zkcAddress = PoVWLib.requireLib(deploymentConfig.zkc, "ZKC");
-            vezkcAddress = PoVWLib.requireLib(deploymentConfig.vezkc, "veZKC");
+            zkcAddress = BoundlessScript.requireLib(deploymentConfig.zkc, "ZKC");
+            vezkcAddress = BoundlessScript.requireLib(deploymentConfig.vezkc, "veZKC");
             console2.log("Using existing ZKC at", zkcAddress);
             console2.log("Using existing veZKC at", vezkcAddress);
         }
@@ -189,8 +190,8 @@ contract DeployPoVW is PoVWScript, RiscZeroCheats {
             }
 
             // Require that we have valid image IDs
-            logUpdaterId = PoVWLib.requireLib(logUpdaterId, "Log Updater ID");
-            mintCalculatorId = PoVWLib.requireLib(mintCalculatorId, "Mint Calculator ID");
+            logUpdaterId = BoundlessScript.requireLib(logUpdaterId, "Log Updater ID");
+            mintCalculatorId = BoundlessScript.requireLib(mintCalculatorId, "Mint Calculator ID");
         }
 
         console2.log("Log Updater ID: %s", vm.toString(logUpdaterId));

@@ -15,6 +15,7 @@ import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
+import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
 
 library RequireLib {
     function required(address value, string memory label) internal pure returns (address) {
@@ -52,32 +53,12 @@ using RequireLib for bytes32;
 // This is the EIP-1967 implementation slot:
 bytes32 constant IMPLEMENTATION_SLOT = 0x360894A13BA1A3210667C828492DB98DCA3E2076CC3735A920A3CA505D382BBC;
 
-/// @notice Base contract for the scripts below, providing common context and functions.
-contract BoundlessScript is Script {
-    // Path to deployment config file, relative to the project root.
-    string constant CONFIG = "contracts/deployment.toml";
-
-    /// @notice Returns the address of the deployer, set in the DEPLOYER_ADDRESS env var.
-    function deployerAddress() internal returns (address deployer) {
-        uint256 deployerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
-        if (deployerKey != 0) {
-            deployer = vm.envOr("DEPLOYER_ADDRESS", vm.addr(deployerKey));
-            require(vm.addr(deployerKey) == deployer, "DEPLOYER_ADDRESS and DEPLOYER_PRIVATE_KEY are inconsistent");
-            vm.rememberKey(deployerKey);
-        } else {
-            deployer = vm.envOr("DEPLOYER_ADDRESS", address(0));
-            require(deployer != address(0), "env var DEPLOYER_ADDRESS or DEPLOYER_PRIVATE_KEY required");
-        }
-        return deployer;
-    }
-}
-
 /// @notice Deployment script for the market deployment.
 /// @dev Set values in deployment.toml to configure the deployment.
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract DeployBoundlessMarket is BoundlessScript {
+contract DeployBoundlessMarket is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -89,7 +70,7 @@ contract DeployBoundlessMarket is BoundlessScript {
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl.required("assessor-guest-url");
         address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
 
-        vm.startBroadcast(deployerAddress());
+        vm.startBroadcast(getDeployer());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
         address newImplementation = address(
@@ -132,7 +113,10 @@ contract DeployBoundlessMarket is BoundlessScript {
             "Deployed BoundlessMarket proxy contract at %s with impl at %s", marketAddress, boundlessMarketImpl
         );
 
-        string[] memory args = new string[](8);
+        // Get current git commit hash
+        string memory currentCommit = getCurrentCommit();
+
+        string[] memory args = new string[](10);
         args[0] = "python3";
         args[1] = "contracts/update_deployment_toml.py";
         args[2] = "--boundless-market";
@@ -141,8 +125,14 @@ contract DeployBoundlessMarket is BoundlessScript {
         args[5] = Strings.toHexString(boundlessMarketImpl);
         args[6] = "--boundless-market-old-impl";
         args[7] = Strings.toHexString(address(0)); // Old impl is not set at deployment time
+        args[8] = "--boundless-market-deployment-commit";
+        args[9] = currentCommit;
 
         vm.ffi(args);
+        console2.log("Updated BoundlessMarket deployment commit: %s", currentCommit);
+
+        // Check for uncommitted changes warning
+        checkUncommittedChangesWarning("Deployment");
     }
 }
 
@@ -151,7 +141,7 @@ contract DeployBoundlessMarket is BoundlessScript {
 ///
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract UpgradeBoundlessMarket is BoundlessScript {
+contract UpgradeBoundlessMarket is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -238,7 +228,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
         console2.log("Upgraded BoundlessMarket impl contract at %s", boundlessMarketImpl);
-        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
+        console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
         console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
@@ -257,7 +247,7 @@ contract UpgradeBoundlessMarket is BoundlessScript {
 
 /// @notice Deployment script for the market contract rollback.
 /// @dev Set values in deployment.toml to configure the deployment.
-contract RollbackBoundlessMarket is BoundlessScript {
+contract RollbackBoundlessMarket is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
@@ -308,7 +298,7 @@ contract RollbackBoundlessMarket is BoundlessScript {
 
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
-        console2.log("Upgraded BoundlessMarket stake token contract at %s", deploymentConfig.collateralToken);
+        console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
         console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
         console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
         console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
@@ -330,30 +320,147 @@ contract RollbackBoundlessMarket is BoundlessScript {
     }
 }
 
-/// @notice Script for granting admin role to a new address on the BoundlessMarket contract.
-/// @dev Grants ADMIN_ROLE to the admin address set in deployment.toml
+/// @notice Script for adding admin role to a new address on the BoundlessMarket contract.
+/// @dev Grants ADMIN_ROLE to the address specified in ADMIN_TO_ADD environment variable
 ///
-/// See the Foundry documentation for more information about Solidity scripts.
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
-contract GrantAdminRole is BoundlessScript {
+/// Sample Usage:
+/// export CHAIN_KEY="anvil"
+/// export ADMIN_TO_ADD="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+/// forge script contracts/scripts/Manage.s.sol:AddBoundlessMarketAdmin \
+///     --private-key <PRIVATE_KEY> \
+///     --broadcast \
+///     --rpc-url <RPC_URL>
+contract AddBoundlessMarketAdmin is BoundlessScriptBase {
     function run() external {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address newAdmin = deploymentConfig.admin.required("admin");
+        address adminToAdd = vm.envAddress("ADMIN_TO_ADD");
+        require(adminToAdd != address(0), "ADMIN_TO_ADD environment variable not set");
+
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
         BoundlessMarket market = BoundlessMarket(marketAddress);
 
-        require(!market.hasRole(market.ADMIN_ROLE(), newAdmin), "address already has admin role");
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        bytes32 adminRole = market.ADMIN_ROLE();
 
-        // Get current admin with ADMIN_ROLE - use deployer as they should have admin role
-        address currentAdmin = deployerAddress();
-        require(market.hasRole(market.ADMIN_ROLE(), currentAdmin), "deployer does not have admin role");
+        if (gnosisExecute) {
+            console2.log("GNOSIS_EXECUTE=true: Preparing grantRole calldata for Safe execution");
+            console2.log("BoundlessMarket Contract: ", marketAddress);
+            console2.log("Admin to Add: ", adminToAdd);
+            console2.log("Role: ADMIN_ROLE");
 
-        vm.broadcast(currentAdmin);
-        market.grantRole(market.ADMIN_ROLE(), newAdmin);
+            // Print Gnosis Safe transaction info for grantRole
+            bytes memory grantRoleCallData =
+                abi.encodeWithSignature("grantRole(bytes32,address)", adminRole, adminToAdd);
+            console2.log("================================");
+            console2.log("=== GNOSIS SAFE GRANT ROLE INFO ===");
+            console2.log("Target Address (To): ", marketAddress);
+            console2.log("Function: grantRole(bytes32,address)");
+            console2.log("Role: ");
+            console2.logBytes32(adminRole);
+            console2.log("Account: ", adminToAdd);
+            console2.log("Calldata:");
+            console2.logBytes(grantRoleCallData);
+            console2.log("=====================================");
+            console2.log("BoundlessMarket Admin Grant Role Calldata Ready");
+            console2.log("Transaction NOT executed - use Gnosis Safe to execute");
+        } else {
+            // Get current admin with ADMIN_ROLE - use deployer as they should have admin role
+            address currentAdmin = getDeployer();
+            require(market.hasRole(market.ADMIN_ROLE(), currentAdmin), "deployer does not have admin role");
 
-        console2.log("Granted admin role on the BoundlessMarket contract to %s", newAdmin);
+            vm.broadcast(currentAdmin);
+            market.grantRole(adminRole, adminToAdd);
+
+            // Sanity checks
+            console2.log("BoundlessMarket Contract: ", marketAddress);
+            console2.log("New BoundlessMarket Admin: ", adminToAdd);
+            console2.log("ADMIN_ROLE granted: ", market.hasRole(adminRole, adminToAdd));
+            console2.log("Other admin: ", currentAdmin);
+            console2.log("Other admin still active: ", market.hasRole(adminRole, currentAdmin));
+            console2.log("================================================");
+            console2.log("BoundlessMarket Admin Role Updated Successfully");
+        }
+
+        _updateDeploymentConfig("admin-2", adminToAdd);
+    }
+}
+
+/// @notice Script for removing admin role from an address on the BoundlessMarket contract.
+/// @dev Revokes ADMIN_ROLE from the address specified in ADMIN_TO_REMOVE environment variable
+///
+/// Sample Usage:
+/// export CHAIN_KEY="anvil"
+/// export ADMIN_TO_REMOVE="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+/// forge script contracts/scripts/Manage.s.sol:RemoveBoundlessMarketAdmin \
+///     --private-key <PRIVATE_KEY> \
+///     --broadcast \
+///     --rpc-url <RPC_URL>
+contract RemoveBoundlessMarketAdmin is BoundlessScriptBase {
+    function run() external {
+        // Load the config
+        DeploymentConfig memory deploymentConfig =
+            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
+
+        address adminToRemove = vm.envAddress("ADMIN_TO_REMOVE");
+        require(adminToRemove != address(0), "ADMIN_TO_REMOVE environment variable not set");
+
+        address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
+        BoundlessMarket market = BoundlessMarket(marketAddress);
+
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        bytes32 adminRole = market.ADMIN_ROLE();
+
+        // Safety check: Ensure at least one other admin will remain
+        address otherAdmin =
+            (adminToRemove == deploymentConfig.admin) ? deploymentConfig.admin2 : deploymentConfig.admin;
+
+        require(
+            otherAdmin != address(0) && market.hasRole(adminRole, otherAdmin),
+            "Cannot remove admin: would leave BoundlessMarket without any admins"
+        );
+
+        if (gnosisExecute) {
+            console2.log("GNOSIS_EXECUTE=true: Preparing revokeRole calldata for Safe execution");
+            console2.log("BoundlessMarket Contract: ", marketAddress);
+            console2.log("Admin to Remove: ", adminToRemove);
+            console2.log("Role: ADMIN_ROLE");
+
+            // Print Gnosis Safe transaction info for revokeRole
+            bytes memory revokeRoleCallData =
+                abi.encodeWithSignature("revokeRole(bytes32,address)", adminRole, adminToRemove);
+            console2.log("================================");
+            console2.log("=== GNOSIS SAFE REVOKE ROLE INFO ===");
+            console2.log("Target Address (To): ", marketAddress);
+            console2.log("Function: revokeRole(bytes32,address)");
+            console2.log("Role: ");
+            console2.logBytes32(adminRole);
+            console2.log("Account: ", adminToRemove);
+            console2.log("Calldata:");
+            console2.logBytes(revokeRoleCallData);
+            console2.log("=====================================");
+            console2.log("BoundlessMarket Admin Revoke Role Calldata Ready");
+            console2.log("Transaction NOT executed - use Gnosis Safe to execute");
+        } else {
+            // Get current admin with ADMIN_ROLE - use deployer as they should have admin role
+            address currentAdmin = getDeployer();
+            require(market.hasRole(market.ADMIN_ROLE(), currentAdmin), "deployer does not have admin role");
+
+            vm.broadcast(currentAdmin);
+            market.revokeRole(adminRole, adminToRemove);
+
+            // Sanity checks
+            console2.log("BoundlessMarket Contract: ", marketAddress);
+            console2.log("Removed BoundlessMarket Admin: ", adminToRemove);
+            console2.log("Other admin: ", otherAdmin);
+            console2.log("Other Admin still active: ", market.hasRole(adminRole, otherAdmin));
+            console2.log("ADMIN_ROLE revoked: ", !market.hasRole(adminRole, adminToRemove));
+            console2.log("================================================");
+            console2.log("BoundlessMarket Admin Role Removed Successfully");
+        }
+
+        _removeAdminFromToml("admin", "admin-2", adminToRemove);
     }
 }

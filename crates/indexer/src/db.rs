@@ -126,7 +126,7 @@ pub trait IndexerDb {
         request_id: U256,
         burn_value: U256,
         transfer_value: U256,
-        stake_recipient: Address,
+        collateral_recipient: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
@@ -144,14 +144,14 @@ pub trait IndexerDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
-    async fn add_stake_deposit_event(
+    async fn add_collateral_deposit_event(
         &self,
         account: Address,
         value: U256,
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
-    async fn add_stake_withdrawal_event(
+    async fn add_collateral_withdrawal_event(
         &self,
         account: Address,
         value: U256,
@@ -320,7 +320,7 @@ impl IndexerDb for AnyDb {
                 input_data,
                 min_price,
                 max_price,
-                lock_stake,
+                lock_collateral,
                 bidding_start,
                 expires_at,
                 lock_end,
@@ -546,7 +546,7 @@ impl IndexerDb for AnyDb {
         request_id: U256,
         burn_value: U256,
         transfer_value: U256,
-        stake_recipient: Address,
+        collateral_recipient: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
@@ -572,7 +572,7 @@ impl IndexerDb for AnyDb {
                 prover_address,
                 burn_value,
                 transfer_value,
-                stake_recipient,
+                collateral_recipient,
                 tx_hash, 
                 block_number, 
                 block_timestamp
@@ -583,7 +583,7 @@ impl IndexerDb for AnyDb {
         .bind(prover_address)
         .bind(burn_value.to_string())
         .bind(transfer_value.to_string())
-        .bind(format!("{stake_recipient:x}"))
+        .bind(format!("{collateral_recipient:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -649,7 +649,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_stake_deposit_event(
+    async fn add_collateral_deposit_event(
         &self,
         account: Address,
         value: U256,
@@ -657,7 +657,7 @@ impl IndexerDb for AnyDb {
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
         sqlx::query(
-            "INSERT INTO stake_deposit_events (
+            "INSERT INTO collateral_deposit_events (
                 account,
                 value,
                 tx_hash, 
@@ -677,7 +677,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_stake_withdrawal_event(
+    async fn add_collateral_withdrawal_event(
         &self,
         account: Address,
         value: U256,
@@ -685,7 +685,7 @@ impl IndexerDb for AnyDb {
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
         sqlx::query(
-            "INSERT INTO stake_withdrawal_events (
+            "INSERT INTO collateral_withdrawal_events (
                 account,
                 value,
                 tx_hash, 
@@ -958,7 +958,7 @@ mod tests {
         let request_id = U256::from(1);
         let burn_value = U256::from(100);
         let transfer_value = U256::from(50);
-        let stake_recipient = Address::ZERO;
+        let collateral_recipient = Address::ZERO;
 
         // First add a request locked event (required for prover slashed event)
         let request_digest = B256::ZERO;
@@ -972,7 +972,7 @@ mod tests {
             request_id,
             burn_value,
             transfer_value,
-            stake_recipient,
+            collateral_recipient,
             &metadata,
         )
         .await
@@ -1013,18 +1013,18 @@ mod tests {
             .unwrap();
         assert_eq!(result.get::<String, _>("value"), value.to_string());
 
-        // Test stake deposit event
-        db.add_stake_deposit_event(account, value, &metadata).await.unwrap();
-        let result = sqlx::query("SELECT * FROM stake_deposit_events WHERE tx_hash = $1")
+        // Test collateral deposit event
+        db.add_collateral_deposit_event(account, value, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM collateral_deposit_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
         assert_eq!(result.get::<String, _>("value"), value.to_string());
 
-        // Test stake withdrawal event
-        db.add_stake_withdrawal_event(account, value, &metadata).await.unwrap();
-        let result = sqlx::query("SELECT * FROM stake_withdrawal_events WHERE tx_hash = $1")
+        // Test collateral withdrawal event
+        db.add_collateral_withdrawal_event(account, value, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM collateral_withdrawal_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
             .await

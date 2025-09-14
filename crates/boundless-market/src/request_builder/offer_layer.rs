@@ -64,7 +64,7 @@ pub struct OfferLayerConfig {
     /// Amount of the stake token that the prover must stake when locking a request.
     // TODO(BM-1233): Change this to be based on the Deployment configuration.
     #[builder(setter(into), default = "U256::from(5) * Unit::MWEI.wei_const()")] // 5 USDC
-    pub lock_stake: U256,
+    pub lock_collateral: U256,
 
     /// Estimated gas used when locking a request.
     #[builder(default = "200_000")]
@@ -162,7 +162,7 @@ pub struct OfferParams {
     /// Amount of the stake token that the prover must stake when locking a request.
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
-    pub lock_stake: Option<U256>,
+    pub lock_collateral: Option<U256>,
 }
 
 impl From<Offer> for OfferParams {
@@ -171,7 +171,7 @@ impl From<Offer> for OfferParams {
             timeout: Some(value.timeout),
             min_price: Some(value.minPrice),
             max_price: Some(value.maxPrice),
-            lock_stake: Some(value.lockCollateral),
+            lock_collateral: Some(value.lockCollateral),
             lock_timeout: Some(value.lockTimeout),
             bidding_start: Some(value.rampUpStart),
             ramp_up_period: Some(value.rampUpPeriod),
@@ -201,7 +201,9 @@ impl TryFrom<OfferParams> for Offer {
             timeout: value.timeout.ok_or(MissingFieldError::new("timeout"))?,
             minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?,
             maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?,
-            lockCollateral: value.lock_stake.ok_or(MissingFieldError::new("lock_stake"))?,
+            lockCollateral: value
+                .lock_collateral
+                .ok_or(MissingFieldError::new("lock_collateral"))?,
             lockTimeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
             rampUpStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
             rampUpPeriod: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
@@ -349,7 +351,7 @@ where
             rampUpPeriod: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
             lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
             timeout: params.timeout.unwrap_or(self.config.timeout),
-            lockCollateral: params.lock_stake.unwrap_or(self.config.lock_stake),
+            lockCollateral: params.lock_collateral.unwrap_or(self.config.lock_collateral),
         })
     }
 }

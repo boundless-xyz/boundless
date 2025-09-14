@@ -8,7 +8,7 @@ interface ProverPipelineArgs extends BasePipelineArgs { }
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "prover";
 // The branch that we should deploy from on push.
-const BRANCH_NAME = "main";
+const BRANCH_NAME = "release-0.14";
 // SSM Document Name for updating the EC2 Bento Prover
 const bentoBrokerInstanceIdStackOutputKey = "bentoBrokerInstanceId";
 const updateBentoBrokerPulumiOutputKey = "bentoBrokerUpdateCommandId";

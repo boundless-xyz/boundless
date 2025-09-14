@@ -18,7 +18,7 @@ use alloy::{
     network::{EthereumWallet, TransactionBuilder},
     primitives::{
         utils::{format_units, parse_ether, parse_units},
-        U256,
+        Address, U256,
     },
     providers::{Provider, ProviderBuilder},
     rpc::types::TransactionRequest,
@@ -58,25 +58,28 @@ struct MainArgs {
     /// List of order generator private keys
     #[clap(long, env, value_delimiter = ',')]
     order_generator_keys: Vec<PrivateKeySigner>,
+    /// List of offchain requestor addresses (these will have ETH deposited to market)
+    #[clap(long, env, value_delimiter = ',')]
+    offchain_requestor_addresses: Vec<Address>,
     /// Slasher private key
     #[clap(long, env)]
     slasher_key: PrivateKeySigner,
     /// If prover ETH balance is above this threshold, transfer 80% of the ETH to distributor
     #[clap(long, env, default_value = "1.0")]
     prover_eth_donate_threshold: String,
-    /// If prover stake balance is above this threshold, transfer 60% of the stake to distributor
+    /// If prover collateral balance is above this threshold, transfer 60% of the collateral to distributor
     #[clap(long, env, default_value = "100.0")]
     prover_stake_donate_threshold: String,
     /// If ETH balance is below this threshold, transfer ETH to address
     #[clap(long, env, default_value = "0.1")]
     eth_threshold: String,
-    /// If stake balance is below this threshold, transfer stake to address
+    /// If collateral balance is below this threshold, transfer collateral to address
     #[clap(long, env, default_value = "1.0")]
     stake_threshold: String,
     /// Amount of ETH to transfer from distributor to account during top up
     #[clap(long, env, default_value = "0.1")]
     eth_top_up_amount: String,
-    /// Amount of stake to transfer from distributor to prover during top up
+    /// Amount of collateral to transfer from distributor to prover during top up
     #[clap(long, env, default_value = "10")]
     stake_top_up_amount: String,
     /// Deployment to use
@@ -110,6 +113,7 @@ async fn run(args: &MainArgs) -> Result<()> {
     let distributor_provider =
         ProviderBuilder::new().wallet(distributor_wallet).connect_http(args.rpc_url.clone());
 
+    tracing::info!("Using deployment: {:?}", args.deployment);
     let distributor_client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
         .with_private_key(args.private_key.clone())
@@ -119,14 +123,16 @@ async fn run(args: &MainArgs) -> Result<()> {
 
     // Parse thresholds
     let prover_eth_donate_threshold = parse_ether(&args.prover_eth_donate_threshold)?;
-    let stake_token_decimals = distributor_client.boundless_market.stake_token_decimals().await?;
-    let prover_stake_donate_threshold: U256 =
-        parse_units(&args.prover_stake_donate_threshold, stake_token_decimals)?.into();
+    let collateral_token_decimals =
+        distributor_client.boundless_market.collateral_token_decimals().await?;
+    let prover_collateral_donate_threshold: U256 =
+        parse_units(&args.prover_stake_donate_threshold, collateral_token_decimals)?.into();
     let eth_threshold = parse_ether(&args.eth_threshold)?;
-    let stake_threshold: U256 = parse_units(&args.stake_threshold, stake_token_decimals)?.into();
+    let collateral_threshold: U256 =
+        parse_units(&args.stake_threshold, collateral_token_decimals)?.into();
     let eth_top_up_amount = parse_ether(&args.eth_top_up_amount)?;
-    let stake_top_up_amount: U256 =
-        parse_units(&args.stake_top_up_amount, stake_token_decimals)?.into();
+    let collateral_top_up_amount: U256 =
+        parse_units(&args.stake_top_up_amount, collateral_token_decimals)?.into();
 
     // check top up amounts are greater than thresholds
     if eth_top_up_amount < eth_threshold {
@@ -137,16 +143,19 @@ async fn run(args: &MainArgs) -> Result<()> {
             format_units(eth_threshold, "ether")?
         ));
     }
-    if stake_top_up_amount < stake_threshold {
-        tracing::error!("Stake top up amount is less than threshold");
+    if collateral_top_up_amount < collateral_threshold {
+        tracing::error!("Collateral top up amount is less than threshold");
         return Err(anyhow::anyhow!(
-            "Stake top up amount is less than threshold [top up amount: {}, threshold: {}]",
-            format_units(stake_top_up_amount, stake_token_decimals)?,
-            format_units(stake_threshold, stake_token_decimals)?
+            "Collateral top up amount is less than threshold [top up amount: {}, threshold: {}]",
+            format_units(collateral_top_up_amount, collateral_token_decimals)?,
+            format_units(collateral_threshold, collateral_token_decimals)?
         ));
     }
+    let collateral_token = distributor_client.boundless_market.collateral_token_address().await?;
 
     tracing::info!("Distributor address: {}", distributor_address);
+    tracing::info!("Collateral token address: {}", collateral_token);
+    tracing::info!("Collateral token decimals: {}", collateral_token_decimals);
 
     // Transfer ETH from provers to the distributor from provers if above threshold
     for prover_key in &args.prover_keys {
@@ -211,39 +220,42 @@ async fn run(args: &MainArgs) -> Result<()> {
             );
         }
 
-        let prover_stake_balance =
-            distributor_client.boundless_market.balance_of_stake(prover_address).await?;
+        let prover_collateral_balance =
+            distributor_client.boundless_market.balance_of_collateral(prover_address).await?;
 
         tracing::info!(
-            "Prover {} has {} stake balance on market. Threshold for donation to distributor is {}.",
+            "Prover {} has {} collateral balance on market. Threshold for donation to distributor is {}.",
             prover_address,
-            format_units(prover_stake_balance, stake_token_decimals)?,
-            format_units(prover_stake_donate_threshold, stake_token_decimals)?
+            format_units(prover_collateral_balance, collateral_token_decimals)?,
+            format_units(prover_collateral_donate_threshold, collateral_token_decimals)?
         );
 
-        if prover_stake_balance > prover_stake_donate_threshold {
-            // Withdraw 60% of the stake balance to the distributor (leave 40% for future lock stake)
+        if prover_collateral_balance > prover_collateral_donate_threshold {
+            // Withdraw 60% of the collateral balance to the distributor (leave 40% for future lock collateral)
             let withdraw_amount =
-                prover_stake_balance.saturating_mul(U256::from(6)).div_ceil(U256::from(10));
+                prover_collateral_balance.saturating_mul(U256::from(6)).div_ceil(U256::from(10));
 
             tracing::info!(
-                "Withdrawing {} stake from prover {} to distributor",
-                format_units(withdraw_amount, stake_token_decimals)?,
+                "Withdrawing {} collateral from prover {} to distributor",
+                format_units(withdraw_amount, collateral_token_decimals)?,
                 prover_address
             );
 
-            // Create prover client to withdraw stake
+            // Create prover client to withdraw collateral
             let prover_client = Client::builder()
                 .with_rpc_url(args.rpc_url.clone())
                 .with_private_key(prover_key.clone())
                 .with_timeout(Some(TX_TIMEOUT))
+                .with_deployment(args.deployment.clone())
                 .build()
                 .await?;
 
-            // Withdraw stake from market to prover
-            if let Err(e) = prover_client.boundless_market.withdraw_stake(withdraw_amount).await {
+            // Withdraw collateral from market to prover
+            if let Err(e) =
+                prover_client.boundless_market.withdraw_collateral(withdraw_amount).await
+            {
                 tracing::error!(
-                    "Failed to withdraw stake from boundless market for prover {}: {:?}. Skipping.",
+                    "Failed to withdraw collateral from boundless market for prover {}: {:?}. Skipping.",
                     prover_address,
                     e
                 );
@@ -251,16 +263,15 @@ async fn run(args: &MainArgs) -> Result<()> {
             }
 
             tracing::info!(
-                "Withdrawn {} stake from market for prover {}. Now transferring to distributor",
-                format_units(withdraw_amount, stake_token_decimals)?,
+                "Withdrawn {} collateral from market for prover {}. Now transferring to distributor",
+                format_units(withdraw_amount, collateral_token_decimals)?,
                 prover_address
             );
 
-            // Transfer the withdrawn stake to distributor
-            let stake_token = distributor_client.boundless_market.stake_token_address().await?;
-            let stake_token_contract = IERC20::new(stake_token, prover_provider.clone());
+            // Transfer the withdrawn collateral to distributor
+            let collateral_token_contract = IERC20::new(collateral_token, prover_provider.clone());
 
-            let pending_tx = match stake_token_contract
+            let pending_tx = match collateral_token_contract
                 .transfer(distributor_address, withdraw_amount)
                 .send()
                 .await
@@ -268,7 +279,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 Ok(tx) => tx,
                 Err(e) => {
                     tracing::error!(
-                        "Failed to send stake transfer transaction from prover {} to distributor: {:?}. Skipping.",
+                        "Failed to send collateral transfer transaction from prover {} to distributor: {:?}. Skipping.",
                         prover_address, e
                     );
                     continue;
@@ -277,64 +288,66 @@ async fn run(args: &MainArgs) -> Result<()> {
 
             if let Err(e) = pending_tx.with_timeout(Some(TX_TIMEOUT)).watch().await {
                 tracing::error!(
-                    "Failed to watch stake transfer transaction from prover {} to distributor: {:?}. Skipping.",
+                    "Failed to watch collateral transfer transaction from prover {} to distributor: {:?}. Skipping.",
                     prover_address, e
                 );
                 continue;
             }
 
             tracing::info!(
-                "Stake transfer completed from prover {} for {} stake to distributor",
+                "Collateral transfer completed from prover {} for {} collateral to distributor",
                 prover_address,
-                format_units(withdraw_amount, stake_token_decimals)?
+                format_units(withdraw_amount, collateral_token_decimals)?
             );
         }
     }
 
-    tracing::info!("Topping up stake for provers if below threshold");
+    tracing::info!("Topping up collateral for provers if below threshold");
 
-    // Top up stake for provers if below threshold
+    // Top up collateral for provers if below threshold
     for prover_key in &args.prover_keys {
         let prover_wallet = EthereumWallet::from(prover_key.clone());
         let prover_address = prover_wallet.default_signer().address();
 
-        let stake_token = distributor_client.boundless_market.stake_token_address().await?;
-        let stake_token_contract = IERC20::new(stake_token, distributor_provider.clone());
+        let collateral_token =
+            distributor_client.boundless_market.collateral_token_address().await?;
+        let collateral_token_contract = IERC20::new(collateral_token, distributor_provider.clone());
 
-        let distributor_stake_balance =
-            stake_token_contract.balanceOf(distributor_address).call().await?;
-        let prover_stake_balance_market =
-            distributor_client.boundless_market.balance_of_stake(prover_address).await?;
+        let distributor_collateral_balance =
+            collateral_token_contract.balanceOf(distributor_address).call().await?;
+        let prover_collateral_balance_market =
+            distributor_client.boundless_market.balance_of_collateral(prover_address).await?;
 
-        tracing::info!("Account {} has {} stake balance deposited to market. Threshold for top up is {}. Distributor has {} stake balance (Stake token: 0x{:x}). ", prover_address, format_units(prover_stake_balance_market, stake_token_decimals)?, format_units(stake_threshold, stake_token_decimals)?, format_units(distributor_stake_balance, stake_token_decimals)?, stake_token);
+        tracing::info!("Account {} has {} collateral balance deposited to market. Threshold for top up is {}. Distributor has {} collateral balance (Collateral token: 0x{:x}). ", prover_address, format_units(prover_collateral_balance_market, collateral_token_decimals)?, format_units(collateral_threshold, collateral_token_decimals)?, format_units(distributor_collateral_balance, collateral_token_decimals)?, collateral_token);
 
-        if prover_stake_balance_market < stake_threshold {
-            let mut prover_stake_balance_contract =
-                stake_token_contract.balanceOf(prover_address).call().await?;
+        if prover_collateral_balance_market < collateral_threshold {
+            let mut prover_collateral_balance_contract =
+                collateral_token_contract.balanceOf(prover_address).call().await?;
 
-            let transfer_amount = stake_top_up_amount.saturating_sub(prover_stake_balance_market);
+            let transfer_amount =
+                collateral_top_up_amount.saturating_sub(prover_collateral_balance_market);
 
-            if transfer_amount > distributor_stake_balance {
-                tracing::error!("[B-DIST-STK]: Distributor {} has insufficient stake balance to top up prover {} with {} stake", distributor_address, prover_address, format_units(transfer_amount, stake_token_decimals)?);
+            if transfer_amount > distributor_collateral_balance {
+                tracing::error!("[B-DIST-STK]: Distributor {} has insufficient collateral balance to top up prover {} with {} collateral", distributor_address, prover_address, format_units(transfer_amount, collateral_token_decimals)?);
                 continue;
             }
 
             if transfer_amount == U256::ZERO {
                 tracing::error!(
-                    "Misconfiguration: stake top up amount too low, or threshold too high"
+                    "Misconfiguration: collateral top up amount too low, or threshold too high"
                 );
                 continue;
             }
 
             tracing::info!(
-                "Transferring {} stake from distributor to prover {} [stake top up amount: {}, balance on market: {}, balance on contract: {}]",
-                format_units(transfer_amount, stake_token_decimals)?,
+                "Transferring {} collateral from distributor to prover {} [collateral top up amount: {}, balance on market: {}, balance on contract: {}]",
+                format_units(transfer_amount, collateral_token_decimals)?,
                 prover_address,
-                format_units(stake_top_up_amount, stake_token_decimals)?,
-                format_units(prover_stake_balance_market, stake_token_decimals)?,
-                format_units(prover_stake_balance_contract, stake_token_decimals)?
+                format_units(collateral_top_up_amount, collateral_token_decimals)?,
+                format_units(prover_collateral_balance_market, collateral_token_decimals)?,
+                format_units(prover_collateral_balance_contract, collateral_token_decimals)?
             );
-            let pending_tx = match stake_token_contract
+            let pending_tx = match collateral_token_contract
                 .transfer(prover_address, transfer_amount)
                 .send()
                 .await
@@ -342,7 +355,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 Ok(tx) => tx,
                 Err(e) => {
                     tracing::error!(
-                        "Failed to send stake transfer transaction from distributor to prover {}: {:?}. Skipping.",
+                        "Failed to send collateral transfer transaction from distributor to prover {}: {:?}. Skipping.",
                         prover_address, e
                     );
                     continue;
@@ -353,39 +366,50 @@ async fn run(args: &MainArgs) -> Result<()> {
                 Ok(receipt) => receipt,
                 Err(e) => {
                     tracing::error!(
-                        "Failed to watch stake transfer transaction from distributor to prover {}: {:?}. Skipping.",
+                        "Failed to watch collateral transfer transaction from distributor to prover {}: {:?}. Skipping.",
                         prover_address, e
                     );
                     continue;
                 }
             };
 
-            tracing::info!("Stake transfer completed: {:x} from distributor to prover {}. About to deposit stake", receipt, prover_address);
+            tracing::info!("Collateral transfer completed: Tx hash: 0x{:x}. Amount: {} from distributor to prover {}. About to deposit collateral", receipt, format_units(transfer_amount, collateral_token_decimals)?, prover_address);
 
-            // Then have the prover deposit the stake
+            // Then have the prover deposit the collateral
             let prover_client = Client::builder()
                 .with_rpc_url(args.rpc_url.clone())
                 .with_private_key(prover_key.clone())
                 .with_timeout(Some(TX_TIMEOUT))
+                .with_deployment(args.deployment.clone())
                 .build()
                 .await?;
 
-            prover_stake_balance_contract =
-                stake_token_contract.balanceOf(prover_address).call().await?;
+            prover_collateral_balance_contract =
+                collateral_token_contract.balanceOf(prover_address).call().await?;
 
+            prover_client.boundless_market.approve_deposit_collateral(U256::MAX).await?;
+            tracing::info!(
+                "Approved {} collateral to deposit for prover {}. About to deposit collateral",
+                format_units(prover_collateral_balance_contract, collateral_token_decimals)?,
+                prover_address
+            );
             if let Err(e) = prover_client
                 .boundless_market
-                .deposit_stake_with_permit(prover_stake_balance_contract, prover_key)
+                .deposit_collateral(prover_collateral_balance_contract)
                 .await
             {
                 tracing::error!(
-                    "Failed to deposit stake to boundless market for prover {}: {:?}. Skipping.",
+                    "Failed to deposit collateral to boundless market for prover {}: {:?}. Skipping.",
                     prover_address,
                     e
                 );
                 continue;
             }
-            tracing::info!("Stake deposit completed for prover {}", prover_address);
+            tracing::info!(
+                "Collateral deposit of {} completed for prover {}",
+                format_units(prover_collateral_balance_contract, collateral_token_decimals)?,
+                prover_address
+            );
         }
     }
 
@@ -397,15 +421,28 @@ async fn run(args: &MainArgs) -> Result<()> {
     ]
     .concat();
 
+    let offchain_requestor_addresses: std::collections::HashSet<_> =
+        args.offchain_requestor_addresses.iter().cloned().collect();
+
     for key in all_accounts {
         let wallet = EthereumWallet::from(key.clone());
         let address = wallet.default_signer().address();
 
-        let account_eth_balance = distributor_client.provider().get_balance(address).await?;
+        let is_offchain_requestor = offchain_requestor_addresses.contains(&address);
+
+        // For offchain requestors, check market balance; for others, check wallet balance
+        let (account_eth_balance, balance_location) = if is_offchain_requestor {
+            let market_balance = distributor_client.boundless_market.balance_of(address).await?;
+            (market_balance, "market")
+        } else {
+            let wallet_balance = distributor_client.provider().get_balance(address).await?;
+            (wallet_balance, "wallet")
+        };
+
         let distributor_eth_balance =
             distributor_client.provider().get_balance(distributor_address).await?;
 
-        tracing::info!("Account {} has {} ETH balance. Threshold for top up is {}. Distributor has {} ETH balance. ", address, format_units(account_eth_balance, "ether")?, format_units(eth_threshold, "ether")?, format_units(distributor_eth_balance, "ether")?);
+        tracing::info!("Account {} has {} ETH balance in {}. Threshold for top up is {}. Distributor has {} ETH balance. ", address, format_units(account_eth_balance, "ether")?, balance_location, format_units(eth_threshold, "ether")?, format_units(distributor_eth_balance, "ether")?);
 
         if account_eth_balance < eth_threshold {
             let transfer_amount = eth_top_up_amount.saturating_sub(account_eth_balance);
@@ -426,11 +463,20 @@ async fn run(args: &MainArgs) -> Result<()> {
                 address
             );
 
+            let eth_amount = if is_offchain_requestor
+                && distributor_client.provider().get_balance(address).await? < parse_ether("0.01")?
+            {
+                // If offchain requestor, add some ETH for gas
+                transfer_amount.saturating_add(parse_ether("0.01")?)
+            } else {
+                transfer_amount
+            };
+
             // Transfer ETH for gas
             let tx = TransactionRequest::default()
                 .with_from(distributor_address)
                 .with_to(address)
-                .with_value(transfer_amount);
+                .with_value(eth_amount);
 
             let pending_tx = match distributor_client.provider().send_transaction(tx).await {
                 Ok(tx) => tx,
@@ -460,6 +506,33 @@ async fn run(args: &MainArgs) -> Result<()> {
                 format_units(transfer_amount, "ether")?,
                 address
             );
+
+            // Only deposit to market for offchain requestors
+            if is_offchain_requestor {
+                tracing::info!("Depositing ETH to market for offchain requestor {}", address);
+
+                let account_client = Client::builder()
+                    .with_rpc_url(args.rpc_url.clone())
+                    .with_private_key(key.clone())
+                    .with_deployment(args.deployment.clone())
+                    .with_timeout(Some(TX_TIMEOUT))
+                    .build()
+                    .await?;
+
+                if let Err(e) = account_client.boundless_market.deposit(transfer_amount).await {
+                    tracing::error!(
+                            "Failed to deposit ETH to boundless market for offchain requestor {}: {:?}. Skipping.",
+                            address,
+                            e
+                        );
+                    continue;
+                }
+                tracing::info!(
+                    "ETH deposit completed for offchain requestor {} with {} ETH",
+                    address,
+                    format_units(transfer_amount, "ether")?
+                );
+            }
         }
     }
 
@@ -487,6 +560,7 @@ mod tests {
         let distributor_signer: PrivateKeySigner = PrivateKeySigner::random();
         let slasher_signer: PrivateKeySigner = PrivateKeySigner::random();
         let order_generator_signer: PrivateKeySigner = PrivateKeySigner::random();
+        let offchain_requestor_signer: PrivateKeySigner = order_generator_signer.clone(); // Use order generator as offchain requestor for testing
         let prover_signer_1: PrivateKeySigner = PrivateKeySigner::random();
         let prover_signer_2: PrivateKeySigner = PrivateKeySigner::random();
 
@@ -515,35 +589,49 @@ mod tests {
             eth_top_up_amount: "0.5".to_string(),
             stake_top_up_amount: "5".to_string(),
             order_generator_keys: vec![order_generator_signer.clone()],
+            offchain_requestor_addresses: vec![offchain_requestor_signer.address()],
             slasher_key: slasher_signer.clone(),
             deployment: Some(ctx.deployment.clone()),
         };
 
         run(&args).await.unwrap();
 
+        // Check wallet ETH balances after run (for non-offchain requestors)
         let prover_eth_balance =
             distributor_client.provider().get_balance(prover_signer_1.address()).await.unwrap();
-        let prover_stake_balance = distributor_client
-            .boundless_market
-            .balance_of_stake(prover_signer_1.address())
-            .await
-            .unwrap();
         let prover_eth_balance_2 =
             distributor_client.provider().get_balance(prover_signer_2.address()).await.unwrap();
-        let prover_stake_balance_2 = distributor_client
-            .boundless_market
-            .balance_of_stake(prover_signer_2.address())
-            .await
-            .unwrap();
         let slasher_eth_balance =
             distributor_client.provider().get_balance(slasher_signer.address()).await.unwrap();
 
+        // Check market ETH balance for offchain requestor (order generator in this test)
+        let offchain_requestor_eth_balance_market = distributor_client
+            .boundless_market
+            .balance_of(order_generator_signer.address())
+            .await
+            .unwrap();
+
+        // Check stake balances on the market
+        let prover_stake_balance = distributor_client
+            .boundless_market
+            .balance_of_collateral(prover_signer_1.address())
+            .await
+            .unwrap();
+        let prover_stake_balance_2 = distributor_client
+            .boundless_market
+            .balance_of_collateral(prover_signer_2.address())
+            .await
+            .unwrap();
+
         let eth_top_up_amount = parse_ether(&args.eth_top_up_amount).unwrap();
+
         assert_eq!(prover_eth_balance, eth_top_up_amount);
         assert_eq!(prover_eth_balance_2, eth_top_up_amount);
         assert_eq!(slasher_eth_balance, eth_top_up_amount);
 
-        // Distributor should not have any stake
+        assert!(offchain_requestor_eth_balance_market == eth_top_up_amount);
+
+        // Distributor should not have any collateral
         assert_eq!(prover_stake_balance, U256::ZERO);
         assert_eq!(prover_stake_balance_2, U256::ZERO);
         assert!(logs_contain("[B-DIST-STK]"));

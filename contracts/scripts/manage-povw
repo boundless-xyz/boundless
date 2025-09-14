@@ -54,8 +54,6 @@ done
 
 set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
 
-DEPLOY_KEY=${CHAIN_KEY:?}
-
 # HINT: deployment_secrets.toml contains API keys. You can write it yourself, or ask a friend.
 load_env_var() {
     local var_name="$1"
@@ -169,7 +167,7 @@ create_reference_build() {
         echo "Foundry config check:"
         forge config --basic || echo "Forge config failed"
         
-        if forge build 2>&1; then
+        if FOUNDRY_PROFILE=povw-deploy forge build 2>&1; then
             echo "✅ Forge build completed successfully"
             # Check if build info directory was created (using FOUNDRY_OUT path)
             if [ -d "contracts/out/build-info" ] && [ "$(ls -A contracts/out/build-info)" ]; then
@@ -238,8 +236,7 @@ Commands:
   UpgradePoVWMint             Upgrade the PovwMint contract
   RollbackPoVWAccounting      Rollback the PovwAccounting contract to previous version
   RollbackPoVWMint            Rollback the PovwMint contract to previous version
-  TransferPoVWOwnership       Transfer ownership of PovwAccounting contract
-  TransferPoVWMintOwnership   Transfer ownership of PovwMint contract
+  TransferPoVWOwnership       Transfer ownership of both PovwAccounting and PovwMint contracts
 
 Options:
   -f, --fireblocks       Use Fireblocks for transaction signing
@@ -252,6 +249,7 @@ Environment Variables:
   DEPLOYER_PRIVATE_KEY   Required. Private key for transaction signing (0x...)
   NEW_ADMIN              Required for ownership transfers. New admin address (0x...)
   SKIP_REFERENCE_BUILD   Optional. Skip creating reference build and current build if reference already exists
+  SKIP_SAFETY_CHECKS     Optional. Skip all upgrade safety checks and reference build creation (DANGEROUS - use with extreme caution)
 
 Production Deployment Requirements:
   - deployment.toml must have povw-accounting-admin and povw-mint-admin addresses set (not 0x0)
@@ -268,11 +266,14 @@ Development Mode:
 Examples:
   # Deploy to anvil in dev mode
   RISC0_DEV_MODE=1 CHAIN_KEY=anvil DEPLOYER_PRIVATE_KEY=0xac... $0 DeployPoVW --broadcast
-  
+
   # Upgrade PovwAccounting
   CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... $0 UpgradePoVWAccounting --broadcast
-  
-  # Transfer ownership
+
+  # Upgrade PovwAccounting skipping safety checks (DANGEROUS)
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... SKIP_SAFETY_CHECKS=true $0 UpgradePoVWAccounting --broadcast
+
+  # Transfer ownership of both PoVW contracts
   CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... NEW_ADMIN=0x... $0 TransferPoVWOwnership --broadcast
 
 Notes:
@@ -290,6 +291,7 @@ EOF
     fi
 
     # Load environment variables only when running actual commands
+    DEPLOY_KEY=${CHAIN_KEY:?}
     echo "Loading environment variables from deployment TOML files"
     load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
     load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
@@ -323,14 +325,14 @@ EOF
 
         # Run forge via fireblocks
         fireblocks-json-rpc --verbose --rpcUrl ${RPC_URL:?} --http --apiKey ${FIREBLOCKS_API_KEY:?} -- \
-            forge script ${FORGE_SCRIPT_FLAGS} \
+            FOUNDRY_PROFILE=povw-deploy forge script ${FORGE_SCRIPT_FLAGS} \
             --slow --unlocked \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
             --rpc-url {} \
             "$target" "$@"
     else
         # Run forge
-        forge script ${FORGE_SCRIPT_FLAGS} \
+        FOUNDRY_PROFILE=povw-deploy forge script ${FORGE_SCRIPT_FLAGS} \
             --private-key=${DEPLOYER_PRIVATE_KEY:?} \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
             --rpc-url ${RPC_URL:?} \
@@ -369,33 +371,43 @@ export CURRENT_COMMIT
 if [ $# -gt 0 ]; then
     case "$1" in
         UpgradePoVWAccounting)
-            create_reference_build "PoVWAccounting"
-            
-            # Only rebuild current contracts if reference build wasn't reused
-            if [ "${REFERENCE_BUILD_REUSED}" != "true" ]; then
-                echo "🔨 Ensuring current build is clean and complete..."
-                echo "Running cargo build to generate required files..."
-                cargo build
-                forge clean
-                forge build
-                echo "✅ Current build completed"
+            # Skip reference build if safety checks are disabled
+            if [ "${SKIP_SAFETY_CHECKS}" = "true" ]; then
+                echo "⏩ Skipping reference build creation (SKIP_SAFETY_CHECKS=true)"
             else
-                echo "⏩ Skipping current build (reference build was reused)"
+                create_reference_build "PoVWAccounting"
+                
+                # Only rebuild current contracts if reference build wasn't reused
+                if [ "${REFERENCE_BUILD_REUSED}" != "true" ]; then
+                    echo "🔨 Ensuring current build is clean and complete..."
+                    echo "Running cargo build to generate required files..."
+                    cargo build
+                    forge clean
+                    FOUNDRY_PROFILE=povw-deploy forge build
+                    echo "✅ Current build completed"
+                else
+                    echo "⏩ Skipping current build (reference build was reused)"
+                fi
             fi
             ;;
         UpgradePoVWMint)
-            create_reference_build "PoVWMint"
-            
-            # Only rebuild current contracts if reference build wasn't reused
-            if [ "${REFERENCE_BUILD_REUSED}" != "true" ]; then
-                echo "🔨 Ensuring current build is clean and complete..."
-                echo "Running cargo build to generate required files..."
-                cargo build
-                forge clean
-                forge build
-                echo "✅ Current build completed"
+            # Skip reference build if safety checks are disabled
+            if [ "${SKIP_SAFETY_CHECKS}" = "true" ]; then
+                echo "⏩ Skipping reference build creation (SKIP_SAFETY_CHECKS=true)"
             else
-                echo "⏩ Skipping current build (reference build was reused)"
+                create_reference_build "PoVWMint"
+                
+                # Only rebuild current contracts if reference build wasn't reused
+                if [ "${REFERENCE_BUILD_REUSED}" != "true" ]; then
+                    echo "🔨 Ensuring current build is clean and complete..."
+                    echo "Running cargo build to generate required files..."
+                    cargo build
+                    forge clean
+                    FOUNDRY_PROFILE=povw-deploy forge build
+                    echo "✅ Current build completed"
+                else
+                    echo "⏩ Skipping current build (reference build was reused)"
+                fi
             fi
             ;;
     esac

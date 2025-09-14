@@ -1,0 +1,33 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFKrf1QS07VRzI7g5fPQcolAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQML2jxX7lxBLeVD03dAgEQgDvsNWsmUhb9dwaywtyyApuIXa63AGxZ1vlaGGauTCfbyRYFfhPfATbsinHyylqQZYaalJv24Y4zhWwgNg==
+config:
+  aws:region: us-west-2
+  base-prover:BASE_STACK: organization/bootstrap/services-prod
+  base-prover:BOUNDLESS_MARKET_ADDR: 0xfd152dadc5183870710fe54f939eae3ab9f0fe82
+  base-prover:CHAIN_ID: "8453"
+  base-prover:DOCKER_DIR: ../../
+  base-prover:DOCKER_TAG: latest
+  base-prover:GH_TOKEN_SECRET:
+    secure: v1:6s1Bn7EWogMLO62b:mkijYAxp9hT+yICykkBvNK2J5rRkRhYfNRulGhhe6N1DGXm4eyRG91DACgl5V7p2GcvWVn9mJpAg5MWJJsWZ6UXGTYNw2XQCzcGqPZBQZhs9UwwWfLlFRbRIAO6IUwLA7Io/qLoN7NGoR79psw==
+  base-prover:ORDER_STREAM_URL: https://base-mainnet.boundless.network
+  base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  base-prover:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
+  base-prover:COLLATERAL_TOKEN_ADDRESS: 0xAA61bB7777bD01B684347961918f1E07fBbCe7CF
+  base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-8453.toml
+  bento-prover:LOG_JSON: "true"
+  bento-prover:PRIVATE_KEY:
+    secure: v1:23VwQa6roZRXFicr:dlFAbcSj2CuOrmDItXiFdOhZPcobFclBIZ/mzHkms1yNcoC2v1CwSaFHiVe9WUqTGxlI7/Hkjv/FfCvmgy6XR6e/S+0NooUheaGtlCB4He8=
+  bento-prover:SEGMENT_SIZE: "19"
+  bento-prover:SNARK_TIMEOUT: "240"
+  base-prover:ETH_RPC_URL:
+    secure: v1:ovrcruMnvKZjIICR:7qotyH8Ca5IVM7ECqD955weUhIbKIVg9hMYl4iRHePUtT/+YfRYCltw+FH41UOlyn7hzk2oLkrgWcVGnBj5j3j7mSCQGZJ8idFNS
+  bento-prover:PRIVATE_KEY_1:
+    secure: v1:Il8wwAnhl0UjgXNy:3JnJPNHs4LsfgbgLt2KmWVYjMVJWlrVXtDRYGOKjv3DPvIzBlFqsxXvFnrAoh99THuKhgi1Ji4bMc7KWqbgdR5VkDzvl7q/wCV6you8WKF8=
+  bento-prover:PRIVATE_KEY_2:
+    secure: v1:USxT79/20kyPnXPn:pVC6p71NL/TNJlld11okIOK0wDFJKnd/ttMeVgy5fibMpCfyIS468KX04qvde10h+4L+uXfXWz9XP0IDaRJpP/QmVjomFKwjgPHebuDsD8o=
+  bento-prover:BRANCH: launch-infra
+  bento-prover:POVW_LOG_ID_1:
+    secure: v1:LrkhUA9fqnWH+vIb:/ZkXI5U8DNiHAFSH14GWJGoHoTjxGFZmYGrmZW6cZo07QBwKxfQ4msHbSIesJ133UHDV9jvuCdGd3Q==
+  bento-prover:POVW_LOG_ID_2:
+    secure: v1:kkkCHVWKjU0xChi6:OyE0iiJDTjwxHNzxT4PRAVSxMrNLq+HK1zju9jkbCdGWlg5/LccXuITd4gnk85lreFXC90oAZXKL6g==

@@ -778,7 +778,10 @@ mod tests {
 
         // Deposit prover balances
         let deposit = default_allowance();
-        ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+        ctx.prover_market
+            .deposit_collateral_with_permit(deposit, &ctx.prover_signer)
+            .await
+            .unwrap();
 
         // Lock the request
         ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();

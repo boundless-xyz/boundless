@@ -99,43 +99,44 @@ async fn test_deposit_withdraw_stake() {
     let deposit = U256::from(10);
 
     // set stake balance alerts
-    ctx.prover_market =
-        ctx.prover_market.with_stake_balance_alert(&Some(U256::from(10)), &Some(U256::from(5)));
+    ctx.prover_market = ctx
+        .prover_market
+        .with_collateral_balance_alert(&Some(U256::from(10)), &Some(U256::from(5)));
 
     // Approve and deposit stake
-    ctx.prover_market.approve_deposit_stake(deposit).await.unwrap();
-    ctx.prover_market.deposit_stake(deposit).await.unwrap();
+    ctx.prover_market.approve_deposit_collateral(deposit).await.unwrap();
+    ctx.prover_market.deposit_collateral(deposit).await.unwrap();
 
     // Deposit stake with permit
-    ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+    ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     assert_eq!(
-        ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+        ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await.unwrap(),
         U256::from(20)
     );
 
     // Withdraw prover balances in chunks to observe alerts
 
-    ctx.prover_market.withdraw_stake(U256::from(11)).await.unwrap();
+    ctx.prover_market.withdraw_collateral(U256::from(11)).await.unwrap();
     assert_eq!(
-        ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+        ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await.unwrap(),
         U256::from(9)
     );
 
-    ctx.prover_market.withdraw_stake(U256::from(5)).await.unwrap();
+    ctx.prover_market.withdraw_collateral(U256::from(5)).await.unwrap();
     assert_eq!(
-        ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+        ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await.unwrap(),
         U256::from(4)
     );
 
-    ctx.prover_market.withdraw_stake(U256::from(4)).await.unwrap();
+    ctx.prover_market.withdraw_collateral(U256::from(4)).await.unwrap();
     assert_eq!(
-        ctx.prover_market.balance_of_stake(ctx.prover_signer.address()).await.unwrap(),
+        ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await.unwrap(),
         U256::ZERO
     );
 
     // Withdraw when balance is zero
-    assert!(ctx.prover_market.withdraw_stake(U256::from(20)).await.is_err());
+    assert!(ctx.prover_market.withdraw_collateral(U256::from(20)).await.is_err());
 }
 
 #[tokio::test]
@@ -187,7 +188,7 @@ async fn test_e2e() {
 
     // Deposit prover balances
     let deposit = default_allowance();
-    ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+    ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
     ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
@@ -261,7 +262,7 @@ async fn test_e2e_merged_submit_fulfill() {
 
     // Deposit prover balances
     let deposit = default_allowance();
-    ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+    ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
     ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
@@ -401,7 +402,7 @@ async fn test_e2e_no_payment() {
 
     // Deposit prover balances
     let deposit = default_allowance();
-    ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+    ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
     ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
@@ -528,7 +529,7 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
 
     // Deposit prover balances
     let deposit = default_allowance();
-    ctx.prover_market.deposit_stake_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+    ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
     ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();

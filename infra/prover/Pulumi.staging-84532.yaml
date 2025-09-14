@@ -28,3 +28,5 @@ config:
     secure: v1:eydlW6NUpvgUPd6L:YM+qVMA+XBeRg46NHgz7zjyTn1bnQ/PrFqzjAxHxr5Yy3JUEb5J9SMlpBF6tW0az+SRA3MRPuwI0FKb6CRAFBfLskN66yC4h8Aqf61fUqxI=
   base-prover:ETH_RPC_URL:
     secure: v1:x3Idh+3ZFFJ8oLCY:MLnUx5x8YQWsv2UPQ4SVIxvgkumPHXdnAF+p+lW5AG6Sv+sM+YYMfkDOxO5zCKi981W32P6y4emY2Nv3F58mr/RQk+wxXGUJj8L0NCUhy3zcKViOuhM=
+  bento-prover:POVW_LOG_ID:
+    secure: v1:y6Punj/h1VjQvtws:sfmfhygTHGCcKVMoL5JBFMEbDe+8O7zKQ9DpqVQCW7E1CKQFhSUq5Q99CImYV4kJYXJS3t6WoWWx3A==

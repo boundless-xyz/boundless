@@ -6,7 +6,7 @@ config:
   distributor:PROVER_KEYS:
     secure: v1:/TbbpUgZAUfk2p84:iWwDu0qpb3b4w0IEWT63kGO+No54O3xAoI9bwswvGdhZ9wpuHLpseALobPhZgIK4/U06kg43MxurVBPBk2zs7Hny3f6mcGt8q5DPT4I72krYFD+RJLVDzArZVQyUE7+xva83hgCfRvpoZXZxy9yRf+g0OSRSNvb0GQA1GALvbN7olMbD4E/0Yis9aNPWhDkAGw==
   distributor:SLASHER_KEY:
-    secure: v1:Vd9P2PmvmCic+8Ed:G7zQ94e8AUFtTZ7xGTKIcFGor8G87u5bpeng/cpimMYLH1eBJyAaqgp0i0l2iqwOGxr7ObM4XWGaRcJkH7sW4i+6zilJ/zxhid+qHoPxImA=
+    secure: v1:tnJiBP5WSPsvbJjH:4e9WnESX6GluGUm5sFCsDPAKb2Y1cVhHlx5iSRNnK4cQreXes/LujZjTDuCF3LOSnED4TTnasuuUEbMl9oitE4/2Bhd6uZOlaGaIQ8Oznr4=
   distributor:DISTRIBUTOR_PRIVATE_KEY:
     secure: v1:g4qV5frG/1O1ayAy:y/70Fq1I4nZQnHcLsekHYUcLqyATJgQxJ7xt44x9abdGUGYnUD4R9qB5C0lquZIaWO00yE2uK4m5LhFEwE2KzVm2kb1ziBxG7UouJwQhEiM=
   distributor:DISTRIBUTOR_ADDRESS: 0xFc1f6D609610a479F9c7453BF3aeC8cb3849F865

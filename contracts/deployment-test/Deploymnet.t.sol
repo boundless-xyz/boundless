@@ -117,12 +117,12 @@ contract DeploymentTest is Test {
         require(keccak256(address(boundlessMarket).code) != keccak256(bytes("")), "boundless market code is empty");
     }
 
-    function testStakeTokenIsDeployed() external view {
-        require(address(stakeToken) != address(0), "no stake token address is set");
-        require(keccak256(address(stakeToken).code) != keccak256(bytes("")), "stake token code is empty");
+    function testCollateralTokenIsDeployed() external view {
+        require(address(stakeToken) != address(0), "no collateral token address is set");
+        require(keccak256(address(stakeToken).code) != keccak256(bytes("")), "collateral token code is empty");
         require(
             address(stakeToken) == BoundlessMarket(address(boundlessMarket)).COLLATERAL_TOKEN_CONTRACT(),
-            "stake token address does not match boundless market"
+            "collateral token address does not match boundless market"
         );
     }
 

@@ -1,0 +1,51 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAG8+En5WRcnegfmXdKPmxM2AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMBhB0twYe9uOb6WQgAgEQgDuYPvLqO7SGhJXFhNltdNmk6blOB7tU2Uht3YQp0LASG73HV3CWrInUVl9D23sm0nxtM92r+cF0Man0Ag==
+config:
+  order-generator-base:ETH_RPC_URL:
+    secure: v1:ENeoZdNSYWsAQCwk:wXFfNsgKV0odRClidW019J6a7LdGQBz3yA7MuYLNOtpx9nRDev2b5OCP36tWe4cqeq5JdlLGDfyIAhi03xWKVLEDdi47dcUg6BI=
+  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  order-generator-onchain:PRIVATE_KEY:
+    secure: v1:b/fG9OcLTlPl5+Ah:pbB0G1AXGhZUq9tZOQVgxh2A5j65sgLJHo83GMAUfNqPxp0bJIM9ukiL9BwAjT5MS1lwE2mRiWQrRe5rqNWkIxAcBKDeJFxHZWdnD7I6n+Y=
+  order-generator-offchain:PRIVATE_KEY:
+    secure: v1:zLBqj2aNJPgmjk0j:Y7RqCWAb8D8az1hL5/zs6wof/q8hzTJZ6/5Nj1t4El45sHgCCsxPm75a/v/iEwCZJSd1tfZAnijrPxmKrrC0PjPKBA2Sqr8QsIQ8MXkDJEE=
+  aws:region: us-west-2
+  order-generator-base:BASE_STACK: organization/bootstrap/services-prod
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0xc211b581cb62e3a6d396a592bab34979e1bbba7d
+  order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0xb4FC69A452D09D2662BD8C3B5BB756902260aE28
+  order-generator-base:CHAIN_ID: "11155111"
+  order-generator-base:DOCKER_DIR: ../../
+  order-generator-base:DOCKER_TAG: latest
+  order-generator-base:GH_TOKEN_SECRET:
+    secure: v1:fWnMF1AKBHrHQgHJ:tdxPbCFyt7ueEHuCa8FQnj2VA5Al1riBIV2EpSN471welvdqGL//CW578rtaQtUWX508pI+DIi9yw6l1/FGsyR/rKpYqhmDPZayBh4Xo8ALqJVmrth6tfOOX1TJVbGW5I2mlCojftL4ZvdiFsQ==
+  order-generator-base:INTERVAL: "600"
+  order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
+  order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"
+  order-generator-base:LOG_LEVEL: info
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00002"
+  order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
+  order-generator-base:ORDER_STREAM_URL: https://eth-sepolia.boundless.network
+  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  order-generator-base:PINATA_JWT:
+    secure: v1:gZhTUWYhNP6NKfwa:b+NeBHD83JDT5FyYg4zUM6rHh5W9fNTreHNQqz+PJnMstR/oDW1nAe0dPGaFXL8JW+MA04YIGZxyDMLX36wvjcZtZbTM351kLMq4np+LZfKH3pk9KUHrnoDV6klbMFhON2btid5q/egAMbphn/RmJpZWncnbwLu7kkq+9oalfsQPmymkakeTBVMbzv+iyjHu6sdOMwTcBDvTvub5QTbeJAXRzqzW3YZ5SLtdiA/FYCV+j8CkH9JteaAJB682ateK6D7yjlhz8sS0zoEwhcck4biEUDE8H/gPhfbfegGMX222/W/PT247OtJVZwISk4/X295YbU56Aw/g9RF8EkhfFx1/wJfSe1WyZXY2y9Y5GabE5gxWk7bP0Cc29cQari+zOwahZVfgHWXWUyQOotHPi2HVachJDACUk6iU/gMmH6Jp5OdiqDbnHHy7YJMIvgqx6dkN9zFmnE4SouUMFln8A403FCPChoYZxl2MBfwRjH1lkspu7Y4LW7NXagoGYBFYUvosZcq/Rim62N7BuIwRjOO5XMnZpjEW4vpgG/CzHrr8q58rhqGaxvQg+TXeRHIm7trizxUT/LSW25ljNoFVqNlhD4a4r0sJWxn2BDsty52DPu3yWgHBx4N3ZzbezqhhM2uZxv9MmluV2wqqI6Wxsa3ZMyG7Nfp/g87c6C3mzTOore4aOmkPCegvCfNr3ov2b/p7GLK+KVmg37Wa5nmePrwHpOk8iRuZ2kckqtnHqpyGYOs9ztJjvLUsILY4sNfXg1CSebk15zILAS9aUwOsDiOfsns2ivbvKa91OhygQcDn2t/zphN842qNlnjTOj+8XnQlsZK1JKCUYJm2TOeeEMIDqb8vG0q7E+770RIdsxhHfBu9QvC+50kqGSopcMWiBymV6d9C94zZHUF20gzEUdL4UylKiJmp
+  order-generator-base:SET_VERIFIER_ADDR: 0xcb9D14347b1e816831ECeE46EC199144F360B55c
+  order-generator-base:TX_TIMEOUT: "120"
+  order-generator-offchain:AUTO_DEPOSIT: "15"
+  order-generator-offchain:ERROR_BALANCE_BELOW: "25"
+  order-generator-offchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-offchain:LOCK_TIMEOUT: "900"
+  order-generator-offchain:RAMP_UP: "300"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "0"
+  order-generator-offchain:TIMEOUT: "1500"
+  order-generator-offchain:INTERVAL: "1200"
+  order-generator-offchain:WARN_BALANCE_BELOW: "50"
+  order-generator-onchain:ERROR_BALANCE_BELOW: "25"
+  order-generator-onchain:LOCK_TIMEOUT: "900"
+  order-generator-onchain:RAMP_UP: "600"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "15"
+  order-generator-onchain:TIMEOUT: "1800"
+  order-generator-onchain:WARN_BALANCE_BELOW: "50"
+  order-generator-onchain:INPUT_MAX_MCYCLES: "15"
+  order-generator-base:LOCK_TIMEOUT: "900"
+  order-generator-offchain:EXEC_RATE_KHZ: "500"
+  order-generator-onchain:EXEC_RATE_KHZ: "500"
+  order-generator-onchain:INTERVAL: "600"
