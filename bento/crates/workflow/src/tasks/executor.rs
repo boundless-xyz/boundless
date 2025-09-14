@@ -11,8 +11,8 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use risc0_binfmt::PovwLogId;
 use risc0_zkvm::{
-    CoprocessorCallback, ExecutorEnv, ExecutorImpl, InnerReceipt, Journal, NullSegmentRef,
-    ProveKeccakRequest, Receipt, Segment, compute_image_id, sha::Digestible,
+    CoprocessorCallback, ExecutorEnv, ExecutorImpl, Journal, NullSegmentRef, ProveKeccakRequest,
+    Receipt, Segment, SuccinctReceipt, Unknown, compute_image_id, sha::Digestible,
 };
 use sqlx::postgres::PgPool;
 use std::str::FromStr;
@@ -321,20 +321,18 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .read_buf_from_s3(&receipt_key)
             .await
             .context("Failed to download receipt from obj store")?;
-        let receipt: Receipt =
+        let receipt: SuccinctReceipt<Unknown> =
+            bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?;
+
+        let receipt_struct: Receipt =
             bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?;
 
         assumption_receipts.push(receipt.clone());
 
-        let assumption_claim = receipt.inner.claim()?.digest().to_string();
+        let assumption_claim = receipt_struct.claim()?.digest().to_string();
 
-        let succinct_receipt = match receipt.inner {
-            InnerReceipt::Succinct(inner) => inner,
-            _ => bail!("Invalid assumption receipt, not succinct"),
-        };
-        let succinct_receipt = succinct_receipt.into_unknown();
-        let succinct_receipt_bytes = serialize_obj(&succinct_receipt)
-            .context("Failed to serialize succinct assumption receipt")?;
+        let succinct_receipt_bytes =
+            serialize_obj(&receipt).context("Failed to serialize succinct assumption receipt")?;
 
         let assumption_key = format!("{receipts_key}:{assumption_claim}");
         redis::set_key_with_expiry(
