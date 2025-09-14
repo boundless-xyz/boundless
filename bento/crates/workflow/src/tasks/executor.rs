@@ -27,7 +27,7 @@ use workflow_common::{
     JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SnarkReq, UnionReq,
     s3::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
-        RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
+        RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR, WORK_RECEIPTS_BUCKET_DIR,
     },
 };
 
@@ -328,21 +328,40 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             receipt_id
         );
 
-        let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
-        tracing::debug!("Downloading receipt from S3: {}", receipt_key);
+        // Try STARK receipts directory first, then work receipts directory
+        let stark_receipt_key =
+            format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
+        let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}.bincode");
 
-        let receipt_bytes = agent
-            .s3_client
-            .read_buf_from_s3(&receipt_key)
-            .await
-            .context("Failed to download receipt from obj store")?;
+        let receipt_bytes =
+            if agent.s3_client.object_exists(&stark_receipt_key).await.unwrap_or(false) {
+                tracing::debug!("Downloading STARK receipt from S3: {}", stark_receipt_key);
+                agent
+                    .s3_client
+                    .read_buf_from_s3(&stark_receipt_key)
+                    .await
+                    .context("Failed to download STARK receipt from obj store")?
+            } else if agent.s3_client.object_exists(&work_receipt_key).await.unwrap_or(false) {
+                tracing::debug!("Downloading work receipt from S3: {}", work_receipt_key);
+                agent
+                    .s3_client
+                    .read_buf_from_s3(&work_receipt_key)
+                    .await
+                    .context("Failed to download work receipt from obj store")?
+            } else {
+                bail!(
+                    "Receipt not found in either STARK receipts ({}) or work receipts ({})",
+                    stark_receipt_key,
+                    work_receipt_key
+                );
+            };
 
         tracing::debug!("Downloaded {} bytes for receipt {}", receipt_bytes.len(), receipt_id);
 
         // Validate file size and basic structure
         if receipt_bytes.is_empty() {
-            tracing::error!("Receipt file is empty: {}", receipt_key);
-            bail!("Receipt file is empty: {}", receipt_key);
+            tracing::error!("Receipt file is empty: {}", receipt_id);
+            bail!("Receipt file is empty: {}", receipt_id);
         }
 
         // Log first few bytes for debugging
@@ -358,7 +377,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             Err(e) => {
                 tracing::error!("Failed to deserialize receipt {}: {}", receipt_id, e);
                 tracing::error!("Receipt file size: {} bytes", receipt_bytes.len());
-                tracing::error!("Receipt file path: {}", receipt_key);
+                tracing::error!("Receipt ID: {}", receipt_id);
                 tracing::error!(
                     "First 64 bytes: {:02x?}",
                     &receipt_bytes[..std::cmp::min(64, receipt_bytes.len())]
