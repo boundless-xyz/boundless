@@ -333,57 +333,65 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
         let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}.bincode");
 
-        let receipt_bytes =
-            if agent.s3_client.object_exists(&stark_receipt_key).await.unwrap_or(false) {
-                tracing::debug!("Downloading STARK receipt from S3: {}", stark_receipt_key);
-                agent
-                    .s3_client
-                    .read_buf_from_s3(&stark_receipt_key)
-                    .await
-                    .context("Failed to download STARK receipt from obj store")?
-            } else if agent.s3_client.object_exists(&work_receipt_key).await.unwrap_or(false) {
-                tracing::debug!("Downloading work receipt from S3: {}", work_receipt_key);
-                agent
-                    .s3_client
-                    .read_buf_from_s3(&work_receipt_key)
-                    .await
-                    .context("Failed to download work receipt from obj store")?
-            } else {
-                bail!(
-                    "Receipt not found in either STARK receipts ({}) or work receipts ({})",
-                    stark_receipt_key,
-                    work_receipt_key
-                );
-            };
+        let receipt: SuccinctReceipt<Unknown> = if agent
+            .s3_client
+            .object_exists(&stark_receipt_key)
+            .await
+            .unwrap_or(false)
+        {
+            tracing::debug!("Downloading STARK receipt from S3: {}", stark_receipt_key);
+            let receipt_bytes = agent
+                .s3_client
+                .read_buf_from_s3(&stark_receipt_key)
+                .await
+                .context("Failed to download STARK receipt from obj store")?;
 
-        tracing::debug!("Downloaded {} bytes for receipt {}", receipt_bytes.len(), receipt_id);
-
-        // Validate file size and basic structure
-        if receipt_bytes.is_empty() {
-            tracing::error!("Receipt file is empty: {}", receipt_id);
-            bail!("Receipt file is empty: {}", receipt_id);
-        }
-
-        // Log first few bytes for debugging
-        let preview_len = std::cmp::min(32, receipt_bytes.len());
-        tracing::debug!("First {} bytes: {:02x?}", preview_len, &receipt_bytes[..preview_len]);
-
-        // Try to deserialize with better error context
-        let receipt: SuccinctReceipt<Unknown> = match bincode::deserialize(&receipt_bytes) {
-            Ok(receipt) => {
-                tracing::debug!("Successfully deserialized SuccinctReceipt for {}", receipt_id);
-                receipt
+            match bincode::deserialize::<SuccinctReceipt<Unknown>>(&receipt_bytes) {
+                Ok(receipt) => {
+                    tracing::debug!("Successfully deserialized SuccinctReceipt for {}", receipt_id);
+                    receipt
+                }
+                Err(e) => {
+                    tracing::error!("Failed to deserialize receipt {}: {}", receipt_id, e);
+                    tracing::error!("Receipt file size: {} bytes", receipt_bytes.len());
+                    tracing::error!("Receipt ID: {}", receipt_id);
+                    tracing::error!(
+                        "First 64 bytes: {:02x?}",
+                        &receipt_bytes[..std::cmp::min(64, receipt_bytes.len())]
+                    );
+                    return Err(e).context("Failed to decode assumption Receipt");
+                }
             }
-            Err(e) => {
-                tracing::error!("Failed to deserialize receipt {}: {}", receipt_id, e);
-                tracing::error!("Receipt file size: {} bytes", receipt_bytes.len());
-                tracing::error!("Receipt ID: {}", receipt_id);
-                tracing::error!(
-                    "First 64 bytes: {:02x?}",
-                    &receipt_bytes[..std::cmp::min(64, receipt_bytes.len())]
-                );
-                return Err(e).context("Failed to decode assumption Receipt");
+        } else if agent.s3_client.object_exists(&work_receipt_key).await.unwrap_or(false) {
+            tracing::debug!("Downloading work receipt from S3: {}", work_receipt_key);
+            let receipt_bytes = agent
+                .s3_client
+                .read_buf_from_s3(&work_receipt_key)
+                .await
+                .context("Failed to download work receipt from obj store")?;
+
+            match bincode::deserialize::<SuccinctReceipt<Unknown>>(&receipt_bytes) {
+                Ok(receipt) => {
+                    tracing::debug!("Successfully deserialized SuccinctReceipt for {}", receipt_id);
+                    receipt
+                }
+                Err(e) => {
+                    tracing::error!("Failed to deserialize work receipt {}: {}", receipt_id, e);
+                    tracing::error!("Receipt file size: {} bytes", receipt_bytes.len());
+                    tracing::error!("Receipt ID: {}", receipt_id);
+                    tracing::error!(
+                        "First 64 bytes: {:02x?}",
+                        &receipt_bytes[..std::cmp::min(64, receipt_bytes.len())]
+                    );
+                    return Err(e).context("Failed to decode work receipt as assumption Receipt");
+                }
             }
+        } else {
+            bail!(
+                "Receipt not found in either STARK receipts ({}) or work receipts ({})",
+                stark_receipt_key,
+                work_receipt_key
+            );
         };
 
         assumption_receipts.push(receipt.clone());
