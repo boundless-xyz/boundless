@@ -17,8 +17,11 @@ on:
 
 env:
   RISC0_TOOLCHAIN_VERSION: 1.88.0
-  RISC0_CRATE_VERSION: "2.3.1"
+  RISC0_CRATE_VERSION: "3.0.3"
   RUST_VERSION: "1.88.0"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FOUNDRY_VERSION: v1.2.3
 
 jobs:
   build-broker:
@@ -62,6 +65,15 @@ jobs:
         with:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: forge build
+        run: forge build
+        working-directory: contracts
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
@@ -203,13 +215,3 @@ jobs:
           asset_path: ./release-assets/broker-stress
           asset_name: broker-stress
           asset_content_type: application/octet-stream
-
-      - name: Upload SHA256 checksums
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/*.sha256
-          asset_name: checksums.txt
-          asset_content_type: text/plain

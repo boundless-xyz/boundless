@@ -12,9 +12,12 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${POVW_LOG_ID:-}
 x-agent-common: &agent-common
+  runtime: nvidia
   build:
     context: .
-    dockerfile: dockerfiles/agent.dockerfile
+    dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
+    args:
+      BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.0.0/bento-bundle-linux-amd64.tar.gz}
   restart: always
   depends_on:
     postgres:
@@ -71,7 +74,9 @@ x-broker-common: &broker-common
   profiles: [broker]
   build:
     context: .
-    dockerfile: dockerfiles/broker.dockerfile
+    dockerfile: ${BROKER_DOCKERFILE:-dockerfiles/broker.prebuilt.dockerfile}
+    args:
+      BINARY_URL: ${BROKER_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/broker-v1.0.0/broker}
   mem_limit: 2G
   cpus: 2
   stop_grace_period: 3h
@@ -181,7 +186,6 @@ services:
 
   gpu_prove_agent0:
     <<: *agent-common
-    runtime: nvidia
     mem_limit: 4G
     cpus: 4
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
@@ -199,7 +203,9 @@ services:
   rest_api:
     build:
       context: .
-      dockerfile: dockerfiles/rest_api.dockerfile
+      dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
+      args:
+        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.0.0/bento-bundle-linux-amd64.tar.gz}
     restart: always
     depends_on:
       postgres:

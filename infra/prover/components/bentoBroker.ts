@@ -558,6 +558,9 @@ SEGMENT_SIZE=$SEGMENT_SIZE
 SNARK_TIMEOUT=$SNARK_TIMEOUT
 LOG_JSON=$LOG_JSON
 POVW_LOG_ID=$POVW_LOG_ID
+AGENT_DOCKERFILE=dockerfiles/agent.dockerfile
+REST_API_DOCKERFILE=dockerfiles/rest_api.dockerfile
+BROKER_DOCKERFILE=dockerfiles/broker.dockerfile
 ENVEOF
 
 EOF
