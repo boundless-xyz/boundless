@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@risc0/ui": "0.0.429",
+    "caniuse-lite": "^1.0.30001741",
     "markdown-link-check": "3.13.7",
     "remark": "15.0.1",
     "remark-cli": "12.0.1",
@@ -36,7 +37,7 @@
     "tailwindcss": "^4.1.13",
     "vite-plugin-biome": "1.0.12",
     "vite-plugin-sitemap": "0.8.2",
-    "vocs": "file:/Users/sasha/Developer/vocs/src"
+    "vocs": "1.0.13"
   },
-  "packageManager": "bun@1.2.15"
+  "packageManager": "bun@1.2.15",
 }
