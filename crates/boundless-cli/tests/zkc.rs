@@ -23,7 +23,7 @@ use boundless_test_utils::zkc::test_ctx;
 use predicates::str::contains;
 
 #[tokio::test]
-async fn test_balance_of() -> anyhow::Result<()> {
+async fn test_balance() -> anyhow::Result<()> {
     // Set up a local Anvil node with the required contracts
     let ctx = test_ctx().await?;
 
@@ -34,9 +34,9 @@ async fn test_balance_of() -> anyhow::Result<()> {
     let amount = U256::from(1_000_000_000);
     ctx.zkc.initialMint(vec![user.address()], vec![amount]).send().await?.watch().await?;
 
-    // Run balance-of
+    // Run balance
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["zkc", "balance-of", &format!("{:#x}", user.address())])
+    cmd.args(["zkc", "balance", &format!("{:#x}", user.address())])
         .env("ZKC_ADDRESS", format!("{:#x}", ctx.deployment.zkc_address))
         .env("VEZKC_ADDRESS", format!("{:#x}", ctx.deployment.vezkc_address))
         .env("STAKING_REWARDS_ADDRESS", format!("{:#x}", ctx.deployment.staking_rewards_address))
