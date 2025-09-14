@@ -324,12 +324,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         let receipt: SuccinctReceipt<Unknown> =
             bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?;
 
-        let receipt_struct: Receipt =
-            bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?;
-
         assumption_receipts.push(receipt.clone());
 
-        let assumption_claim = receipt_struct.claim()?.digest().to_string();
+        let assumption_claim = receipt.claim.digest().to_string();
 
         let succinct_receipt_bytes =
             serialize_obj(&receipt).context("Failed to serialize succinct assumption receipt")?;
