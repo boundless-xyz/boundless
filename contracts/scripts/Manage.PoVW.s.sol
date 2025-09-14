@@ -267,9 +267,24 @@ contract TransferPoVWOwnership is BoundlessScriptBase {
         povwMint.transferOwnership(newAdmin);
         vm.stopBroadcast();
 
+        // check owners of each contract
+        require(povwAccounting.owner() == newAdmin, "PovwAccounting owner is not the new admin");
+        require(povwMint.owner() == newAdmin, "PovwMint owner is not the new admin");
+
         console2.log("Transferred ownership of PovwAccounting contract from %s to %s", currentAccountingAdmin, newAdmin);
         console2.log("Transferred ownership of PovwMint contract from %s to %s", currentMintAdmin, newAdmin);
-        console2.log("Ownership transfer is immediate with regular Ownable (no acceptance required)");
+
+        // Update deployment.toml with new admin addresses
+        string[] memory args = new string[](6);
+        args[0] = "python3";
+        args[1] = "contracts/update_deployment_toml.py";
+        args[2] = "--povw-accounting-admin";
+        args[3] = Strings.toHexString(newAdmin);
+        args[4] = "--povw-mint-admin";
+        args[5] = Strings.toHexString(newAdmin);
+        vm.ffi(args);
+
+        console2.log("Updated deployment.toml with new admin addresses");
     }
 }
 
@@ -369,28 +384,5 @@ contract RollbackPoVWMint is BoundlessScriptBase {
 
         vm.ffi(args);
         console2.log("Updated deployment.toml with rollback addresses");
-    }
-}
-
-/// @notice Script for transferring ownership of the PovwMint contract.
-/// @dev Transfer will be from the current owner to the NEW_ADMIN environment variable
-contract TransferPoVWMintOwnership is BoundlessScriptBase {
-    function run() external {
-        // Load the config
-        DeploymentConfig memory deploymentConfig =
-            ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
-
-        address newAdmin = BoundlessScript.requireLib(vm.envOr("NEW_ADMIN", address(0)), "NEW_ADMIN");
-        address povwMintAddress = BoundlessScript.requireLib(deploymentConfig.povwMint, "povw-mint");
-        PovwMint povwMint = PovwMint(povwMintAddress);
-
-        address currentAdmin = povwMint.owner();
-        require(newAdmin != currentAdmin, "current and new admin address are the same");
-
-        vm.broadcast(currentAdmin);
-        povwMint.transferOwnership(newAdmin);
-
-        console2.log("Transferred ownership of the PovwMint contract from %s to %s", currentAdmin, newAdmin);
-        console2.log("Ownership transfer is immediate with regular Ownable (no acceptance required)");
     }
 }

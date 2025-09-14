@@ -29,12 +29,12 @@ deprecated-assessor-duration = 0  # 5 days
 povw-accounting = "0xF4a9Dd1aE7904a6031C35348C921fcDb605d3d1b"
 povw-accounting-impl = "0x6366C0f7511239d353a7e3E5C94Cb4C7FB8C84eC"
 povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
-povw-accounting-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-accounting-admin = "0x3886eeaf95aa2bdddf0c924925e290291f70447f"
 povw-accounting-deployment-commit = "61ab81e65"
 povw-mint = "0x14D7E7a4f240FFEa740431AC3Ca16CCaEB7f41de"
 povw-mint-impl = "0xc504c7d9F6644083831fe53A56Cc031684800399"
 povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
-povw-mint-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-mint-admin = "0x3886eeaf95aa2bdddf0c924925e290291f70447f"
 povw-mint-deployment-commit = "61ab81e65"
 
 # PoVW image IDs
@@ -51,8 +51,9 @@ id = 8453
 etherscan-url = "https://basescan.org/"
 version = "v0.14.0" # 1353e11c main
 
-# Accounts
-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+# Boundless Market admins
+admin = "0x0000000000000000000000000000000000000000"
+admin-2 = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
@@ -76,8 +77,9 @@ id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
 version = "v0.14.0" # 1353e11c main
 
-# Accounts
-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+# Boundless Market admins
+admin = "0x0000000000000000000000000000000000000000"
+admin-2 = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
@@ -98,12 +100,12 @@ deprecated-assessor-duration = 432000  # 5 days
 povw-accounting = "0xC5E956732F4bA6B1973a859Cf382244db6e84D0b"
 povw-accounting-impl = "0x3BDFC7Dcef6e93AF23aEBC61C9f0Cda8D9aD7CBa"
 povw-accounting-old-impl = "0x0000000000000000000000000000000000000000"
-povw-accounting-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-accounting-admin = "0xB04D1a222789A76E74168a919b43b20F66e24f0b"
 povw-accounting-deployment-commit = "8affce9b4"
 povw-mint = "0xc98218AafE225035a34795Bf4f6777b7d541E326"
 povw-mint-impl = "0x86d54CbD084674FA86c57A98eD9b8A5BA4B16a17"
 povw-mint-old-impl = "0x0000000000000000000000000000000000000000"
-povw-mint-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+povw-mint-admin = "0xB04D1a222789A76E74168a919b43b20F66e24f0b"
 povw-mint-deployment-commit = "8affce9b4"
 
 # PoVW image IDs
@@ -121,8 +123,9 @@ id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
 version = "v0.14.0" # 1353e11c main
 
-# Accounts
-admin = "0xb13573C6CEB505A7BDD4Fa3AD7b473c5c5d36b19"
+# Boundless Market admins
+admin = "0x0000000000000000000000000000000000000000"
+admin-2 = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
@@ -150,7 +153,7 @@ id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
 version = "v0.14.0" # 1353e11c main
 
-# Accounts
+# Boundless Market admins
 admin = "0x0000000000000000000000000000000000000000"
 
 # Contracts
@@ -168,8 +171,8 @@ assessor-guest-url = "https://gateway.beboundless.cloud/ipfs/bafybeibf7u5cltvkqg
 deprecated-assessor-duration = 432000  # 5 days
 
 # PoVW contracts
-povw-accounting-admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
-povw-mint-admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
+povw-accounting-admin = "0xB04D1a222789A76E74168a919b43b20F66e24f0b"
+povw-mint-admin = "0xB04D1a222789A76E74168a919b43b20F66e24f0b"
 povw-accounting = "0x129aEAB812d77c102ff1AD9D76DfB55FaAE4b8D3"
 povw-accounting-impl = "0x12a4bf74f23343badabce899653c072cdccf1f75"
 povw-accounting-old-impl = "0x7959bc1a7a8dfe0b031964115e5e2eda98a95d91"
@@ -191,8 +194,9 @@ id = 84532
 etherscan-url = "https://sepolia.basescan.org/"
 version = "v0.14.0" # 1353e11c main
 
-# Accounts
+# Boundless Market admins
 admin = "0x210173cEfF92264c565229e0c9CE02DF4C1Ba5aD"
+admin-2 = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
@@ -220,7 +224,7 @@ id = 11155111
 etherscan-url = "https://sepolia.etherscan.io/"
 version = "v0.10.0" # 1ba84b6c1914fda4937392ccb54a82c8e91d4940
 
-# Accounts
+# Boundless Market admins
 admin = "0x08C35D3ADD5b4e914a1742f08bf00e72A85Cbe90"
 
 # Contracts
@@ -265,7 +269,7 @@ name = "Anvil"
 id = 31337
 etherscan-url = ""
 
-# Accounts
+# Boundless Market admins
 admin = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
 # Contracts

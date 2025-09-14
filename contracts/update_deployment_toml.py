@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser(description="Update deployment.<CHAIN_KEY> fiel
 
 # Deployment fields
 parser.add_argument("--admin", help="Admin address")
+parser.add_argument("--admin-2", help="Secondary admin address")
 parser.add_argument("--verifier", help="Verifier contract address")
 parser.add_argument("--set-verifier", help="SetVerifier contract address")
 parser.add_argument("--boundless-market", help="BoundlessMarket contract address")
@@ -25,9 +26,11 @@ parser.add_argument("--assessor-guest-url", help="URL to the assessor guest pack
 parser.add_argument("--povw-accounting", help="PovwAccounting contract address")
 parser.add_argument("--povw-accounting-impl", help="PovwAccounting impl contract address")
 parser.add_argument("--povw-accounting-old-impl", help="PovwAccounting old impl contract address")
+parser.add_argument("--povw-accounting-admin", help="PovwAccounting admin address")
 parser.add_argument("--povw-mint", help="PovwMint contract address")
 parser.add_argument("--povw-mint-impl", help="PovwMint impl contract address")
 parser.add_argument("--povw-mint-old-impl", help="PovwMint old impl contract address")
+parser.add_argument("--povw-mint-admin", help="PovwMint admin address")
 
 # PoVW image ID fields
 parser.add_argument("--povw-log-updater-id", help="PoVW log updater image ID (hex)")
@@ -47,6 +50,7 @@ args = parser.parse_args()
 # Map CLI args to TOML field keys
 field_mapping = {
     "admin": args.admin,
+    "admin-2": getattr(args, 'admin_2'),
     "verifier": args.verifier,
     "set-verifier": args.set_verifier,
     "boundless-market": args.boundless_market,
@@ -59,9 +63,11 @@ field_mapping = {
     "povw-accounting": args.povw_accounting,
     "povw-accounting-impl": args.povw_accounting_impl,
     "povw-accounting-old-impl": args.povw_accounting_old_impl,
+    "povw-accounting-admin": args.povw_accounting_admin,
     "povw-mint": args.povw_mint,
     "povw-mint-impl": args.povw_mint_impl,
     "povw-mint-old-impl": args.povw_mint_old_impl,
+    "povw-mint-admin": args.povw_mint_admin,
     # PoVW image ID fields
     "povw-log-updater-id": args.povw_log_updater_id,
     "povw-mint-calculator-id": args.povw_mint_calculator_id,
