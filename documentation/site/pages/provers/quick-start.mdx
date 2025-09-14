@@ -20,7 +20,6 @@ export RPC_URL="https://base-mainnet.g.alchemy.com/v2/{YOUR_ALCHEMY_APP_ID}"`
 This video was recorded early July 2025; there may be some further changes to the setup process. For the latest commands, make sure to check the tutorial below.
 :::
 
-
 ## Requirements
 
 A recommended minimum configuration for proving performance:
@@ -35,8 +34,8 @@ A recommended minimum configuration for proving performance:
 
 ## Clone the Boundless Repo
 
-:::tip[Use Ubuntu 22.04]
-We recommend using Ubuntu 22.04 LTS for your proving node.
+:::tip[Use Ubuntu]
+We recommend using Ubuntu 22.04/24.04 for your proving node.
 :::
 
 To get started, first clone the Boundless monorepo on your proving machine, and switch to the [latest release](https://github.com/boundless-xyz/boundless/releases):
@@ -44,7 +43,7 @@ To get started, first clone the Boundless monorepo on your proving machine, and 
 ```bash [Terminal]
 git clone https://github.com/boundless-xyz/boundless
 cd boundless
-git checkout release-0.14
+git checkout release-1.0
 ```
 
 ## Install Dependencies
@@ -88,7 +87,7 @@ Boundless is comprised of two major components:
 To get started with a test proof on a new proving machine, you'll need to install the `bento_cli`:
 
 ```bash [Terminal]
-cargo install --locked --git https://github.com/boundless-xyz/boundless bento-client --branch release-0.14 --bin bento_cli
+cargo install --locked --git https://github.com/boundless-xyz/boundless bento-client --branch release-1.0 --bin bento_cli
 ```
 Once installed, you can run bento with:
 
@@ -125,7 +124,7 @@ We have checked that bento successfully generated a test proof. We are now ready
 Before we start, we'll need to install the *Boundless CLI* (which is separate to the Bento CLI we installed earlier):
 
 ```bash [Terminal]
-cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-0.14 --bin boundless
+cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless
 ```
 
 ### Deposit Collateral

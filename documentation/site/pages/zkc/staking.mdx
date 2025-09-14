@@ -2,6 +2,10 @@
 
 Token holders can stake $ZKC to earn passive staking rewards, as well as participate in governance. 
 
+## Staking $ZKC using the Boundless CLI
+
+TODO
+
 ## Staking Rewards
 
 Staking rewards are earned by token holders who have staked $ZKC. These rewards are distributed every reward epoch. $ZKC staking rewards are emitted every reward epoch. Each epoch lasts 2 days, resulting in 182.5 epochs per year.
@@ -24,17 +28,17 @@ The initial supply is 1 billion ZKC. Emissions are divided equally across epochs
 
 Emissions occur at the end of each epoch. Every epoch's emissions are allocated to two external contracts for distribution:
 
-- *Passive Pool*:
-    - 25% of epoch emissions are divided proportionately to stakers. For example, if you stake 10% of the $ZKC in the passive staking pool, you will receive 2.5% of the total emissions i.e. 10% of 25%.
+#### Passive Pool
 
-- *Active Pool*:
-    - A maximum of 75% of epoch emissions are given to provers who have generated proofs during the epoch. Provers receive a reward for proving based on the percentage of proving (this is tracked via the number of cycles) they have carried out during the epoch. Provers must stake $ZKC to be eligible for these rewards. Each prover has a reward cap based on their staked $ZKC.
-    
-    as long as they have staked a multiple of 15 of that reward in the staking pool. If a prover would have received more $ZKC due to their cycle contribution but under-staked $ZKC, the delta remains unclaimed which can be distributed at a later date.
+25% of epoch emissions are divided proportionately to stakers. For example, if you stake 10% of the $ZKC in the passive staking pool, you will receive 2.5% of the total emissions i.e. 10% of 25%.
 
-    TODO
+#### Active Pool
 
-    Note: The scalar of 15 was chosen to keep provers aligned with the long term success of the protocol while keeping the barrier entry to proving low to keep the market as open as possible. Future work is to be done to make this scalar more dynamic that encompasses these values.
+- A maximum of 75% of epoch emissions are given to provers who have generated proofs during the epoch. 
+- Provers receive a reward for proving based on the percentage of proving (this is tracked via the number of cycles) they have carried out during the epoch. 
+- Provers must stake $ZKC to be eligible for these rewards. Each prover has a reward cap based on their staked $ZKC. This reward cap is set to `staked amount / 15`. 
+    - Therefore if a prover has staked 150 $ZKC, they are eligible to receive a maximum of 10 $ZKC every epoch. If a prover would have received more $ZKC due to their cycle contribution but under-staked $ZKC, the delta remains unclaimed which can be distributed at a later date.
+    - The scalar of 15 was chosen to keep provers aligned with the long term success of the protocol while keeping the barrier entry to proving low to keep the market as open as possible. Future work is to be done to make this scalar more dynamic that encompasses these values.
 
 ## Staking Mechanics
 
