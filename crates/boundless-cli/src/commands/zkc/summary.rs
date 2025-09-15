@@ -30,7 +30,7 @@ use tabled::{
     settings::Style,
 };
 
-// Block numbers for optimized event queries
+// Block numbers from before contract creation.
 const MAINNET_FROM_BLOCK: u64 = 23260070;
 const SEPOLIA_FROM_BLOCK: u64 = 9110040;
 const LOG_QUERY_CHUNK_SIZE: u64 = 5000;
@@ -43,7 +43,6 @@ sol! {
     }
 }
 
-// Helper function to format ether values with 2 decimal places
 fn format_zkc(value: U256) -> String {
     let formatted = format_ether(value);
     // Parse the string and format with 2 decimal places
@@ -54,7 +53,6 @@ fn format_zkc(value: U256) -> String {
     }
 }
 
-// Helper function to print a centered section header
 fn print_section_header(title: &str) {
     let width = 60;
     let padding = (width - title.len()) / 2;
@@ -69,7 +67,7 @@ fn print_section_header(title: &str) {
     println!("{}", "=".repeat(width));
 }
 
-// Helper function to query logs in chunks
+// Query logs in chunks
 async fn query_logs_chunked<P: Provider>(
     provider: &P,
     filter: Filter,
@@ -256,19 +254,10 @@ impl ZkcSummary {
             };
 
             for log in work_logs {
-                let data_bytes = &log.data().data;
-                if log.topics().len() >= 2 && data_bytes.len() >= 160 {
-                    let log_work_log_id = Address::from_slice(&log.topics()[1][12..]);
-                    if log_work_log_id == work_log_id {
-                        let mut epoch_bytes = [0u8; 32];
-                        epoch_bytes.copy_from_slice(&data_bytes[0..32]);
-                        let epoch_number = U256::from_be_bytes(epoch_bytes);
-
-                        if epoch_number == current_epoch {
-                            let mut value_bytes = [0u8; 32];
-                            value_bytes.copy_from_slice(&data_bytes[96..128]);
-                            let update_value = U256::from_be_bytes(value_bytes);
-                            my_work_current += update_value;
+                if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
+                    if decoded.inner.data.workLogId == work_log_id {
+                        if U256::from(decoded.inner.data.epochNumber) == current_epoch {
+                            my_work_current += U256::from(decoded.inner.data.updateValue);
                         }
                     }
                 }
@@ -285,26 +274,8 @@ impl ZkcSummary {
         let is_povw_capped = my_work_current > U256::ZERO && total_work_u256 > U256::ZERO &&
             (povw_emissions * my_work_current / total_work_u256) > reward_cap;
 
-        // TODO: Query unclaimed PoVW rewards - would need to track epochs where mint happened
-        let unclaimed_povw = U256::ZERO;
-
-        // Query market balances if we have a BoundlessMarket deployment
-        let market_balances = if let Some(market_deployment) = boundless_market::deployments::Deployment::from_chain_id(provider.get_chain_id().await?) {
-            let market = IBoundlessMarket::new(market_deployment.boundless_market_address, provider);
-            let eth_balance = market.balanceOf(work_log_id).call().await.unwrap_or(U256::ZERO);
-            let collateral_balance = market.balanceOfCollateral(work_log_id).call().await.unwrap_or(U256::ZERO);
-            Some((eth_balance, collateral_balance))
-        } else {
-            None
-        };
-
         // Display summary
         println!("Staked ZKC: {} ZKC", format_zkc(staked_amount));
-
-        if let Some((eth_balance, collateral_balance)) = market_balances {
-            println!("ETH deposited to market: {} ETH", format_zkc(eth_balance));
-            println!("ZKC deposited to market: {} ZKC", format_zkc(collateral_balance));
-        }
         println!("Projected Staking Rewards for epoch {}: {} ZKC", current_epoch, format_zkc(pending_staking_rewards));
 
         if is_povw_capped {
@@ -318,7 +289,9 @@ impl ZkcSummary {
         }
 
         println!("Unclaimed Staking Rewards: {} ZKC", format_zkc(unclaimed_staking));
-        println!("Unclaimed PoVW Rewards: {} ZKC", format_zkc(unclaimed_povw));
+
+        // TODO: Query unclaimed PoVW rewards - would need to track work log IDs, commits, and epochs where updates happened,
+        // and then reconcile to mint txs.
 
         Ok(())
     }
@@ -446,19 +419,10 @@ impl ZkcSummary {
             };
 
             for log in work_logs {
-                let data_bytes = &log.data().data;
-                if log.topics().len() >= 2 && data_bytes.len() >= 160 {
-                    let log_work_log_id = Address::from_slice(&log.topics()[1][12..]);
-                    if log_work_log_id == work_log_id {
-                        let mut epoch_bytes = [0u8; 32];
-                        epoch_bytes.copy_from_slice(&data_bytes[0..32]);
-                        let epoch_number = U256::from_be_bytes(epoch_bytes);
-
-                        if epoch_number == current_epoch {
-                            let mut value_bytes = [0u8; 32];
-                            value_bytes.copy_from_slice(&data_bytes[96..128]);
-                            let update_value = U256::from_be_bytes(value_bytes);
-                            my_work_current += update_value;
+                if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
+                    if decoded.inner.data.workLogId == work_log_id {
+                        if U256::from(decoded.inner.data.epochNumber) == current_epoch {
+                            my_work_current += U256::from(decoded.inner.data.updateValue);
                         }
                     }
                 }
@@ -542,6 +506,7 @@ impl ZkcSummary {
         let mut vote_powers: HashMap<Address, U256> = HashMap::new();
 
         for log in vote_logs {
+            // DelegateVotesChanged is part of veZKC/IStaking, use manual parsing for now
             if log.topics().len() >= 2 {
                 let delegate = Address::from_slice(&log.topics()[1][12..]);
                 let data_bytes = &log.data().data;
@@ -552,6 +517,8 @@ impl ZkcSummary {
                     vote_powers.insert(delegate, new_votes);
                 }
             }
+            /*if let Ok(decoded) = log.log_decode::<IStaking::DelegateVotesChanged>() {
+            }*/
         }
 
         // Display vote power table
@@ -602,15 +569,10 @@ impl ZkcSummary {
         let mut reward_powers: HashMap<Address, U256> = HashMap::new();
 
         for log in rewards_logs {
-            if log.topics().len() >= 2 {
-                let delegate = Address::from_slice(&log.topics()[1][12..]);
-                let data_bytes = &log.data().data;
-                if data_bytes.len() >= 64 {
-                    let mut bytes = [0u8; 32];
-                    bytes.copy_from_slice(&data_bytes[32..64]);
-                    let new_rewards = U256::from_be_bytes(bytes);
-                    reward_powers.insert(delegate, new_rewards);
-                }
+            if let Ok(decoded) = log.log_decode::<IRewards::DelegateRewardsChanged>() {
+                let delegate = decoded.inner.data.delegate;
+                let new_rewards = decoded.inner.data.newRewards;
+                reward_powers.insert(delegate, new_rewards);
             }
         }
 
@@ -683,15 +645,10 @@ impl ZkcSummary {
         let mut stakes: HashMap<Address, U256> = HashMap::new();
 
         for log in stake_logs {
-            if log.topics().len() >= 3 {
-                let owner = Address::from_slice(&log.topics()[2][12..]);
-                let data_bytes = &log.data().data;
-                if data_bytes.len() >= 64 {
-                    let mut bytes = [0u8; 32];
-                    bytes.copy_from_slice(&data_bytes[32..64]);
-                    let new_total = U256::from_be_bytes(bytes);
-                    stakes.insert(owner, new_total);
-                }
+            if let Ok(decoded) = log.log_decode::<IStaking::StakeAdded>() {
+                let owner = decoded.inner.data.owner;
+                let new_total = decoded.inner.data.newTotal;
+                stakes.insert(owner, new_total);
             }
         }
 
@@ -710,15 +667,10 @@ impl ZkcSummary {
             query_logs_chunked(provider, create_filter, from_block_num, current_block).await?
         };
         for log in create_logs {
-            if log.topics().len() >= 3 {
-                let owner = Address::from_slice(&log.topics()[2][12..]);
-                let data_bytes = &log.data().data;
-                if data_bytes.len() >= 32 {
-                    let mut bytes = [0u8; 32];
-                    bytes.copy_from_slice(&data_bytes[0..32]);
-                    let amount = U256::from_be_bytes(bytes);
-                    stakes.entry(owner).and_modify(|e| *e = amount).or_insert(amount);
-                }
+            if let Ok(decoded) = log.log_decode::<IStaking::StakeCreated>() {
+                let owner = decoded.inner.data.owner;
+                let amount = decoded.inner.data.amount;
+                stakes.entry(owner).and_modify(|e| *e = amount).or_insert(amount);
             }
         }
 
@@ -739,8 +691,8 @@ impl ZkcSummary {
         let mut withdrawing: HashMap<Address, bool> = HashMap::new();
 
         for log in unstake_logs {
-            if log.topics().len() >= 3 {
-                let owner = Address::from_slice(&log.topics()[2][12..]);
+            if let Ok(decoded) = log.log_decode::<IStaking::UnstakeInitiated>() {
+                let owner = decoded.inner.data.owner;
                 withdrawing.insert(owner, true);
             }
         }
@@ -813,16 +765,22 @@ impl ZkcSummary {
     ) -> anyhow::Result<()> {
         print_section_header("POVW WORK INFORMATION");
 
-        // Get current epoch
+        // Get current epoch and emissions
         let zkc = IZKC::new(deployment.zkc_address, provider);
         let current_epoch = zkc.getCurrentEpoch().call().await?;
+        let povw_emissions = zkc.getPoVWEmissionsForEpoch(current_epoch).call().await?;
 
         // Get pending epoch info
         let povw_accounting = IPovwAccounting::new(deployment.povw_accounting_address, provider);
         let pending_epoch = povw_accounting.pendingEpoch().call().await?;
+        let total_work_u256 = U256::from(pending_epoch.totalWork);
+
+        // Get rewards contract for cap queries
+        let rewards = IRewards::new(deployment.vezkc_address, provider);
 
         println!("Current epoch: {}", current_epoch);
-        println!("Pending epoch: {} (total work: {})", pending_epoch.number, U256::from(pending_epoch.totalWork));
+        println!("Pending epoch: {} (total work: {})", pending_epoch.number, total_work_u256);
+        println!("PoVW emissions for epoch {}: {} ZKC", current_epoch, format_zkc(povw_emissions));
 
         // Get the appropriate from_block based on chain ID
         let chain_id = provider.get_chain_id().await?;
@@ -855,21 +813,11 @@ impl ZkcSummary {
         let mut my_work_current = U256::ZERO;
 
         for log in work_logs {
-            let data_bytes = &log.data().data;
-            if log.topics().len() >= 2 && data_bytes.len() >= 160 {
-                // Extract work_log_id from the indexed topic
-                let log_work_log_id = Address::from_slice(&log.topics()[1][12..]);
-
-                // Parse event data
-                let mut epoch_bytes = [0u8; 32];
-                epoch_bytes.copy_from_slice(&data_bytes[0..32]);
-                let epoch_number = U256::from_be_bytes(epoch_bytes);
-
-                let mut value_bytes = [0u8; 32];
-                value_bytes.copy_from_slice(&data_bytes[96..128]);
-                let update_value = U256::from_be_bytes(value_bytes);
-
-                let value_recipient = Address::from_slice(&data_bytes[140..160]);
+            if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
+                let log_work_log_id = decoded.inner.data.workLogId;
+                let epoch_number = U256::from(decoded.inner.data.epochNumber);
+                let update_value = U256::from(decoded.inner.data.updateValue);
+                let value_recipient = decoded.inner.data.valueRecipient;
 
                 // Accumulate work by work_log_id across all epochs
                 *work_by_work_log_id_all.entry(log_work_log_id).or_insert(U256::ZERO) += update_value;
@@ -889,12 +837,13 @@ impl ZkcSummary {
         }
 
         // Display current epoch work by work_log_id
+        let mut total_dao_rewards = U256::ZERO;
         if !work_by_work_log_id_current.is_empty() {
             let total_current_work: U256 = work_by_work_log_id_current.values().sum();
 
             println!("\nWork by Work Log ID (Current Epoch {}, Total Work: {}):", current_epoch, total_current_work);
             let mut builder = Builder::default();
-            builder.push_record(["Work Log ID", "Work", "Percentage"]);
+            builder.push_record(["Work Log ID", "Work", "Percentage", "Projected Rewards", "Cap Status"]);
 
             let mut sorted_current: Vec<_> = work_by_work_log_id_current.iter().collect();
             sorted_current.sort_by(|a, b| b.1.cmp(a.1));
@@ -905,10 +854,28 @@ impl ZkcSummary {
                 } else {
                     0.0
                 };
+
+                // Calculate projected rewards and check cap
+                let projected_rewards = if total_current_work > U256::ZERO && total_work_u256 > U256::ZERO {
+                    povw_emissions * **work / total_work_u256
+                } else {
+                    U256::ZERO
+                };
+
+                let reward_cap = rewards.getPoVWRewardCap(**wid).call().await.unwrap_or(U256::ZERO);
+                let (actual_rewards, cap_status) = if projected_rewards > reward_cap && reward_cap > U256::ZERO {
+                    total_dao_rewards += projected_rewards - reward_cap;
+                    (reward_cap, "CAPPED")
+                } else {
+                    (projected_rewards, "OK")
+                };
+
                 builder.push_record([
                     format!("{:#x}", wid),
                     format!("{}", work),
-                    format!("{:.2}%", percentage)
+                    format!("{:.2}%", percentage),
+                    format!("{} ZKC", format_zkc(actual_rewards)),
+                    cap_status.to_string()
                 ]);
             }
 
@@ -924,7 +891,7 @@ impl ZkcSummary {
 
             println!("\nWork by Recipient (Current Epoch {}, Total Work: {}):", current_epoch, total_current_work);
             let mut builder = Builder::default();
-            builder.push_record(["Recipient", "Work", "Percentage"]);
+            builder.push_record(["Recipient", "Work", "Percentage", "Projected Rewards"]);
 
             let mut sorted_current: Vec<_> = work_by_recipient_current.iter().collect();
             sorted_current.sort_by(|a, b| b.1.cmp(a.1));
@@ -935,10 +902,19 @@ impl ZkcSummary {
                 } else {
                     0.0
                 };
+
+                // Calculate projected rewards (recipients receive the rewards, not work log IDs)
+                let projected_rewards = if total_current_work > U256::ZERO && total_work_u256 > U256::ZERO {
+                    povw_emissions * **work / total_work_u256
+                } else {
+                    U256::ZERO
+                };
+
                 builder.push_record([
                     format!("{:#x}", recipient),
                     format!("{}", work),
-                    format!("{:.2}%", percentage)
+                    format!("{:.2}%", percentage),
+                    format!("{} ZKC", format_zkc(projected_rewards))
                 ]);
             }
 
@@ -978,7 +954,14 @@ impl ZkcSummary {
             println!("{}", table);
         }
 
-        // Removed duplicate PoVW projections code - now handled in display_povw_projections()
+        // Display DAO rewards from capped amounts
+        if total_dao_rewards > U256::ZERO {
+            println!("\n============================================");
+            println!("DAO REWARDS FROM CAPPED POVW");
+            println!("============================================");
+            println!("Total rewards redirected to DAO: {} ZKC", format_zkc(total_dao_rewards));
+            println!("(These are rewards that exceeded individual caps and are now retained by the DAO)");
+        }
 
         Ok(())
     }
@@ -1018,15 +1001,10 @@ impl ZkcSummary {
 
         let mut povw_claims: HashMap<Address, U256> = HashMap::new();
         for log in povw_logs {
-            if log.topics().len() >= 2 {
-                let recipient = Address::from_slice(&log.topics()[1][12..]);
-                let data_bytes = &log.data().data;
-                if data_bytes.len() >= 32 {
-                    let mut bytes = [0u8; 32];
-                    bytes.copy_from_slice(&data_bytes[0..32]);
-                    let amount = U256::from_be_bytes(bytes);
-                    *povw_claims.entry(recipient).or_insert(U256::ZERO) += amount;
-                }
+            if let Ok(decoded) = log.log_decode::<IZKC::PoVWRewardsClaimed>() {
+                let recipient = decoded.inner.data.recipient;
+                let amount = decoded.inner.data.amount;
+                *povw_claims.entry(recipient).or_insert(U256::ZERO) += amount;
             }
         }
 
@@ -1047,15 +1025,10 @@ impl ZkcSummary {
 
         let mut staking_claims: HashMap<Address, U256> = HashMap::new();
         for log in staking_logs {
-            if log.topics().len() >= 2 {
-                let recipient = Address::from_slice(&log.topics()[1][12..]);
-                let data_bytes = &log.data().data;
-                if data_bytes.len() >= 32 {
-                    let mut bytes = [0u8; 32];
-                    bytes.copy_from_slice(&data_bytes[0..32]);
-                    let amount = U256::from_be_bytes(bytes);
-                    *staking_claims.entry(recipient).or_insert(U256::ZERO) += amount;
-                }
+            if let Ok(decoded) = log.log_decode::<IZKC::StakingRewardsClaimed>() {
+                let recipient = decoded.inner.data.recipient;
+                let amount = decoded.inner.data.amount;
+                *staking_claims.entry(recipient).or_insert(U256::ZERO) += amount;
             }
         }
 
