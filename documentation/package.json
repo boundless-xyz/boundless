@@ -37,7 +37,7 @@
     "tailwindcss": "^4.1.13",
     "vite-plugin-biome": "1.0.12",
     "vite-plugin-sitemap": "0.8.2",
-    "vocs": "1.0.13"
+    "vocs": "https://github.com/sashaaldrick/vocs/releases/download/v1.0.13-search-fix-release/vocs-1.0.13-search-fix.tgz"
   },
   "packageManager": "bun@1.2.22"
 }
