@@ -257,7 +257,7 @@ impl Agent {
             };
 
             if let Err(err) = self.process_work(&task).await {
-                let mut err_str = err.to_string();
+                let mut err_str = format!("{:#}", err);
                 if !err_str.contains("stopped intentionally due to session limit")
                     && !err_str.contains("Session limit exceeded")
                 {
