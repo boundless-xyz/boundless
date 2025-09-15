@@ -182,7 +182,8 @@ def main():
         mapping = {
             'zkc': 'zkc_address',
             'vezkc': 'vezkc_address',
-            'zkc-staking-rewards': 'staking_rewards_address',
+            # TODO: add back once we update the deployment.toml
+            # 'zkc-staking-rewards': 'staking_rewards_address',
         }
 
         for toml_field, addr_field in mapping.items():
