@@ -12,14 +12,33 @@ struct DeploymentConfig {
     string name;
     uint256 chainId;
     address admin;
+    address admin2;
     address verifier;
     address setVerifier;
     address boundlessMarket;
     address boundlessMarketImpl;
     address boundlessMarketOldImpl;
-    address stakeToken;
+    address collateralToken;
     bytes32 assessorImageId;
     string assessorGuestUrl;
+    uint32 deprecatedAssessorDuration;
+    // PoVW contract addresses
+    address povwAccounting;
+    address povwAccountingImpl;
+    address povwAccountingOldImpl;
+    address povwAccountingAdmin;
+    string povwAccountingDeploymentCommit;
+    address povwMint;
+    address povwMintImpl;
+    address povwMintOldImpl;
+    address povwMintAdmin;
+    string povwMintDeploymentCommit;
+    // PoVW image IDs
+    bytes32 povwLogUpdaterId;
+    bytes32 povwMintCalculatorId;
+    // ZKC contract addresses
+    address zkc;
+    address vezkc;
 }
 
 library ConfigLoader {
@@ -57,6 +76,8 @@ library ConfigLoader {
             }
         }
 
+        console2.log("Using chain deployment key: %s", deployKey);
+
         return (config, deployKey);
     }
 
@@ -79,6 +100,7 @@ library ConfigParser {
         deploymentConfig.name = stdToml.readString(config, string.concat(chain, ".name"));
         deploymentConfig.chainId = stdToml.readUint(config, string.concat(chain, ".id"));
         deploymentConfig.admin = stdToml.readAddressOr(config, string.concat(chain, ".admin"), address(0));
+        deploymentConfig.admin2 = stdToml.readAddressOr(config, string.concat(chain, ".admin-2"), address(0));
         deploymentConfig.verifier = stdToml.readAddressOr(config, string.concat(chain, ".verifier"), address(0));
         deploymentConfig.setVerifier = stdToml.readAddressOr(config, string.concat(chain, ".set-verifier"), address(0));
         deploymentConfig.boundlessMarket =
@@ -87,9 +109,43 @@ library ConfigParser {
             stdToml.readAddressOr(config, string.concat(chain, ".boundless-market-impl"), address(0));
         deploymentConfig.boundlessMarketOldImpl =
             stdToml.readAddressOr(config, string.concat(chain, ".boundless-market-old-impl"), address(0));
-        deploymentConfig.stakeToken = stdToml.readAddressOr(config, string.concat(chain, ".stake-token"), address(0));
+        deploymentConfig.collateralToken =
+            stdToml.readAddressOr(config, string.concat(chain, ".collateral-token"), address(0));
         deploymentConfig.assessorImageId = stdToml.readBytes32(config, string.concat(chain, ".assessor-image-id"));
         deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
+        deploymentConfig.deprecatedAssessorDuration =
+            uint32(stdToml.readUint(config, string.concat(chain, ".deprecated-assessor-duration")));
+
+        // PoVW contract addresses
+        deploymentConfig.povwAccounting =
+            stdToml.readAddressOr(config, string.concat(chain, ".povw-accounting"), address(0));
+        deploymentConfig.povwAccountingImpl =
+            stdToml.readAddressOr(config, string.concat(chain, ".povw-accounting-impl"), address(0));
+        deploymentConfig.povwAccountingOldImpl =
+            stdToml.readAddressOr(config, string.concat(chain, ".povw-accounting-old-impl"), address(0));
+        deploymentConfig.povwAccountingAdmin =
+            stdToml.readAddressOr(config, string.concat(chain, ".povw-accounting-admin"), address(0));
+        deploymentConfig.povwAccountingDeploymentCommit =
+            stdToml.readStringOr(config, string.concat(chain, ".povw-accounting-deployment-commit"), "");
+        deploymentConfig.povwMint = stdToml.readAddressOr(config, string.concat(chain, ".povw-mint"), address(0));
+        deploymentConfig.povwMintImpl =
+            stdToml.readAddressOr(config, string.concat(chain, ".povw-mint-impl"), address(0));
+        deploymentConfig.povwMintOldImpl =
+            stdToml.readAddressOr(config, string.concat(chain, ".povw-mint-old-impl"), address(0));
+        deploymentConfig.povwMintAdmin =
+            stdToml.readAddressOr(config, string.concat(chain, ".povw-mint-admin"), address(0));
+        deploymentConfig.povwMintDeploymentCommit =
+            stdToml.readStringOr(config, string.concat(chain, ".povw-mint-deployment-commit"), "");
+
+        // PoVW image IDs
+        deploymentConfig.povwLogUpdaterId =
+            stdToml.readBytes32Or(config, string.concat(chain, ".povw-log-updater-id"), bytes32(0));
+        deploymentConfig.povwMintCalculatorId =
+            stdToml.readBytes32Or(config, string.concat(chain, ".povw-mint-calculator-id"), bytes32(0));
+
+        // ZKC contract addresses
+        deploymentConfig.zkc = stdToml.readAddressOr(config, string.concat(chain, ".zkc"), address(0));
+        deploymentConfig.vezkc = stdToml.readAddressOr(config, string.concat(chain, ".vezkc"), address(0));
 
         return deploymentConfig;
     }

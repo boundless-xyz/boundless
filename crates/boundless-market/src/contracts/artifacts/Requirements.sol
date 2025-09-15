@@ -10,15 +10,13 @@ import {Callback, CallbackLibrary} from "./Callback.sol";
 using RequirementsLibrary for Requirements global;
 
 struct Requirements {
-    bytes32 imageId;
     Callback callback;
     Predicate predicate;
     bytes4 selector;
 }
 
 library RequirementsLibrary {
-    string constant REQUIREMENTS_TYPE =
-        "Requirements(bytes32 imageId,Callback callback,Predicate predicate,bytes4 selector)";
+    string constant REQUIREMENTS_TYPE = "Requirements(Callback callback,Predicate predicate,bytes4 selector)";
     bytes32 constant REQUIREMENTS_TYPEHASH =
         keccak256(abi.encodePacked(REQUIREMENTS_TYPE, CallbackLibrary.CALLBACK_TYPE, PredicateLibrary.PREDICATE_TYPE));
 
@@ -29,7 +27,6 @@ library RequirementsLibrary {
         return keccak256(
             abi.encode(
                 REQUIREMENTS_TYPEHASH,
-                requirements.imageId,
                 CallbackLibrary.eip712Digest(requirements.callback),
                 PredicateLibrary.eip712Digest(requirements.predicate),
                 requirements.selector

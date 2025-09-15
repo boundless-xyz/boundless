@@ -19,9 +19,9 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol_types::SolValue,
 };
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use boundless_market::{Client, Deployment, RequestId, StorageProviderConfig};
-use boundless_market_test_utils::ECHO_ELF;
+use boundless_test_utils::guests::ECHO_ELF;
 use clap::Parser;
 use risc0_zkvm::serde::from_slice;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
@@ -117,18 +117,20 @@ async fn run(args: Args) -> Result<()> {
         client.submit_request_onchain_with_signature(&request, signature).await?;
     tracing::info!("Request {:x} submitted", request_id);
 
-    // Wait for the request to be fulfilled by the market. The market will return the journal and seal.
+    // Wait for the request to be fulfilled by the market. The market will return the fulfillment data and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
-    let (journal, seal) = client
+    let fulfillment = client
         .wait_for_request_fulfillment(
             request_id,
             Duration::from_secs(5), // check every 5 seconds
             expires_at,
         )
         .await?;
+    let journal =
+        fulfillment.data()?.journal().ok_or_else(|| anyhow!("no fulfillment data"))?.to_vec();
 
     tracing::info!("Request {:x} fulfilled", request_id);
-    tracing::info!("Seal: {:?}", seal);
+    tracing::info!("Seal: {:?}", fulfillment.seal);
 
     // We encoded the input to the guest as big endian for compatibility with Solidity. We reverse
     // to get back to little endian.
@@ -156,7 +158,7 @@ mod tests {
         IBoundlessMarket::{self},
     };
     use boundless_market::storage::StorageProviderType;
-    use boundless_market_test_utils::{create_test_ctx, TestCtx};
+    use boundless_test_utils::market::{create_test_ctx, TestCtx};
     use broker::test_utils::BrokerBuilder;
     use test_log::test;
     use tokio::task::JoinSet;
@@ -197,7 +199,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
         ctx.prover_market
-            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
             .await
             .unwrap();
         let (smart_contract_requestor_address, smart_contract_requestor_owner) =

@@ -17,7 +17,8 @@ use std::{str::FromStr, sync::Arc};
 use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
-    AssessorReceipt, Fulfillment, PredicateType, ProofRequest, RequestInputType,
+    AssessorReceipt, Fulfillment, FulfillmentDataType, PredicateType, ProofRequest,
+    RequestInputType,
 };
 use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
@@ -125,7 +126,7 @@ pub trait IndexerDb {
         request_id: U256,
         burn_value: U256,
         transfer_value: U256,
-        stake_recipient: Address,
+        collateral_recipient: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
@@ -143,14 +144,14 @@ pub trait IndexerDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
-    async fn add_stake_deposit_event(
+    async fn add_collateral_deposit_event(
         &self,
         account: Address,
         value: U256,
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
-    async fn add_stake_withdrawal_event(
+    async fn add_collateral_withdrawal_event(
         &self,
         account: Address,
         value: U256,
@@ -296,6 +297,7 @@ impl IndexerDb for AnyDb {
         let predicate_type = match request.requirements.predicate.predicateType {
             PredicateType::DigestMatch => "DigestMatch",
             PredicateType::PrefixMatch => "PrefixMatch",
+            PredicateType::ClaimDigestMatch => "ClaimDigestMatch",
             _ => return Err(DbError::BadTransaction("Invalid predicate type".to_string())),
         };
         let input_type = match request.input.inputType {
@@ -309,7 +311,6 @@ impl IndexerDb for AnyDb {
                 request_digest,
                 request_id, 
                 client_address,
-                image_id,
                 predicate_type,
                 predicate_data,
                 callback_address,
@@ -319,7 +320,7 @@ impl IndexerDb for AnyDb {
                 input_data,
                 min_price,
                 max_price,
-                lock_stake,
+                lock_collateral,
                 bidding_start,
                 expires_at,
                 lock_end,
@@ -327,13 +328,12 @@ impl IndexerDb for AnyDb {
                 tx_hash,
                 block_number,
                 block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             ON CONFLICT (request_digest) DO NOTHING",
         )
         .bind(format!("{request_digest:x}"))
         .bind(format!("{:x}", request.id))
         .bind(format!("{:x}", request.client_address()))
-        .bind(format!("{:x}", request.requirements.imageId))
         .bind(predicate_type)
         .bind(format!("{:x}", request.requirements.predicate.data))
         .bind(format!("{:x}", request.requirements.callback.addr))
@@ -343,10 +343,10 @@ impl IndexerDb for AnyDb {
         .bind(format!("{:x}", request.input.data))
         .bind(request.offer.minPrice.to_string())
         .bind(request.offer.maxPrice.to_string())
-        .bind(request.offer.lockStake.to_string())
-        .bind(request.offer.biddingStart as i64)
-        .bind((request.offer.biddingStart + request.offer.timeout as u64)  as i64)
-        .bind((request.offer.biddingStart + request.offer.lockTimeout as u64)  as i64)
+        .bind(request.offer.lockCollateral.to_string())
+        .bind(request.offer.rampUpStart as i64)
+        .bind((request.offer.rampUpStart + request.offer.timeout as u64)  as i64)
+        .bind((request.offer.rampUpStart + request.offer.lockTimeout as u64)  as i64)
         .bind(request.offer.rampUpPeriod as i64)
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -389,26 +389,33 @@ impl IndexerDb for AnyDb {
         prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
+        let fulfillment_data_type: &'static str = match fill.fulfillmentDataType {
+            FulfillmentDataType::ImageIdAndJournal => "ImageIdAndJournal",
+            FulfillmentDataType::None => "None",
+            _ => return Err(DbError::BadTransaction("Invalid fulfillment data type".to_string())),
+        };
         self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO fulfillments (
                 request_digest,
                 request_id,
                 prover_address,
-                image_id,
-                journal,
+                claim_digest,
+                fulfillment_data_type,
+                fulfillment_data,
                 seal,
                 tx_hash,
                 block_number,
                 block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (request_digest, tx_hash) DO NOTHING",
         )
         .bind(format!("{:x}", fill.requestDigest))
         .bind(format!("{:x}", fill.id))
         .bind(format!("{prover_address:x}"))
-        .bind(format!("{:x}", fill.imageId))
-        .bind(format!("{:x}", fill.journal))
+        .bind(format!("{:x}", fill.claimDigest))
+        .bind(fulfillment_data_type)
+        .bind(format!("{:x}", fill.fulfillmentData))
         .bind(format!("{:x}", fill.seal))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
@@ -539,7 +546,7 @@ impl IndexerDb for AnyDb {
         request_id: U256,
         burn_value: U256,
         transfer_value: U256,
-        stake_recipient: Address,
+        collateral_recipient: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
@@ -565,7 +572,7 @@ impl IndexerDb for AnyDb {
                 prover_address,
                 burn_value,
                 transfer_value,
-                stake_recipient,
+                collateral_recipient,
                 tx_hash, 
                 block_number, 
                 block_timestamp
@@ -576,7 +583,7 @@ impl IndexerDb for AnyDb {
         .bind(prover_address)
         .bind(burn_value.to_string())
         .bind(transfer_value.to_string())
-        .bind(format!("{stake_recipient:x}"))
+        .bind(format!("{collateral_recipient:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -642,7 +649,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_stake_deposit_event(
+    async fn add_collateral_deposit_event(
         &self,
         account: Address,
         value: U256,
@@ -650,7 +657,7 @@ impl IndexerDb for AnyDb {
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
         sqlx::query(
-            "INSERT INTO stake_deposit_events (
+            "INSERT INTO collateral_deposit_events (
                 account,
                 value,
                 tx_hash, 
@@ -670,7 +677,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_stake_withdrawal_event(
+    async fn add_collateral_withdrawal_event(
         &self,
         account: Address,
         value: U256,
@@ -678,7 +685,7 @@ impl IndexerDb for AnyDb {
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
         sqlx::query(
-            "INSERT INTO stake_withdrawal_events (
+            "INSERT INTO collateral_withdrawal_events (
                 account,
                 value,
                 tx_hash, 
@@ -736,8 +743,8 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment, Offer, Predicate, PredicateType, ProofRequest, RequestId,
-        RequestInput, Requirements,
+        AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest,
+        RequestId, RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
 
@@ -745,20 +752,17 @@ mod tests {
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, id),
-            Requirements::new(
-                Digest::default(),
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
             "https://image_url.dev",
             RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: 0,
+                rampUpStart: 0,
                 timeout: 420,
                 lockTimeout: 420,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         )
     }
@@ -874,8 +878,9 @@ mod tests {
         let fill = Fulfillment {
             requestDigest: B256::ZERO,
             id: U256::from(1),
-            imageId: B256::ZERO,
-            journal: Bytes::default(),
+            claimDigest: B256::ZERO,
+            fulfillmentData: Bytes::default(),
+            fulfillmentDataType: FulfillmentDataType::None,
             seal: Bytes::default(),
         };
 
@@ -953,7 +958,7 @@ mod tests {
         let request_id = U256::from(1);
         let burn_value = U256::from(100);
         let transfer_value = U256::from(50);
-        let stake_recipient = Address::ZERO;
+        let collateral_recipient = Address::ZERO;
 
         // First add a request locked event (required for prover slashed event)
         let request_digest = B256::ZERO;
@@ -967,7 +972,7 @@ mod tests {
             request_id,
             burn_value,
             transfer_value,
-            stake_recipient,
+            collateral_recipient,
             &metadata,
         )
         .await
@@ -1008,18 +1013,18 @@ mod tests {
             .unwrap();
         assert_eq!(result.get::<String, _>("value"), value.to_string());
 
-        // Test stake deposit event
-        db.add_stake_deposit_event(account, value, &metadata).await.unwrap();
-        let result = sqlx::query("SELECT * FROM stake_deposit_events WHERE tx_hash = $1")
+        // Test collateral deposit event
+        db.add_collateral_deposit_event(account, value, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM collateral_deposit_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
         assert_eq!(result.get::<String, _>("value"), value.to_string());
 
-        // Test stake withdrawal event
-        db.add_stake_withdrawal_event(account, value, &metadata).await.unwrap();
-        let result = sqlx::query("SELECT * FROM stake_withdrawal_events WHERE tx_hash = $1")
+        // Test collateral withdrawal event
+        db.add_collateral_withdrawal_event(account, value, &metadata).await.unwrap();
+        let result = sqlx::query("SELECT * FROM collateral_withdrawal_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
             .await

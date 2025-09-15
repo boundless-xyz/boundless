@@ -10,24 +10,25 @@
 use crate::redis::RedisPool;
 use anyhow::{Context, Result};
 use clap::Parser;
-use risc0_zkvm::{get_prover_server, ProverOpts, ProverServer, VerifierContext};
+use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
     rc::Rc,
+    str::FromStr,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 use taskdb::ReadyTask;
 use tokio::time;
-use workflow_common::{TaskType, COPROC_WORK_TYPE};
+use workflow_common::{COPROC_WORK_TYPE, TaskType};
 
 mod redis;
 mod tasks;
 
 pub use workflow_common::{
-    s3::S3Client, AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
+    AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, s3::S3Client,
 };
 
 /// Workflow agent
@@ -162,10 +163,24 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// Check if POVW is enabled for this agent instance
+    pub fn is_povw_enabled(&self) -> bool {
+        std::env::var("POVW_LOG_ID").is_ok()
+    }
+
     /// Initialize the [Agent] from the [Args] config params
     ///
     /// Starts any connection pools and establishes the agents configs
     pub async fn new(args: Args) -> Result<Self> {
+        // Validate POVW environment variables at startup
+        if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
+            risc0_binfmt::PovwLogId::from_str(&log_id)
+                .map_err(|e| anyhow::anyhow!("Failed to parse POVW_LOG_ID: {}", e))?;
+            tracing::info!("POVW enabled with log_id: {}", log_id);
+        } else {
+            tracing::debug!("POVW disabled");
+        }
+
         let db_pool = PgPoolOptions::new()
             .max_connections(args.db_max_connections)
             .connect(&args.database_url)
@@ -228,9 +243,7 @@ impl Agent {
             let term_sig_copy = term_sig.clone();
             let db_pool_copy = self.db_pool.clone();
             tokio::spawn(async move {
-                Self::poll_for_requeue(term_sig_copy, db_pool_copy)
-                    .await
-                    .expect("Requeue failed")
+                Self::poll_for_requeue(term_sig_copy, db_pool_copy).await.expect("Requeue failed")
             });
         }
 
@@ -244,7 +257,12 @@ impl Agent {
             };
 
             if let Err(err) = self.process_work(&task).await {
-                tracing::error!("Failure during task processing: {err:?}");
+                let mut err_str = err.to_string();
+                if !err_str.contains("stopped intentionally due to session limit")
+                    && !err_str.contains("Session limit exceeded")
+                {
+                    tracing::error!("Failure during task processing: {err:?}");
+                }
 
                 if task.max_retries > 0 {
                     if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
@@ -255,7 +273,6 @@ impl Agent {
                     }
                 } else {
                     // Prevent massive errors from being reported to the DB
-                    let mut err_str = format!("{err:?}");
                     err_str.truncate(1024);
                     taskdb::update_task_failed(
                         &self.db_pool,
@@ -286,25 +303,47 @@ impl Agent {
                     .await
                     .context("Executor failed")?,
             )
-            .context("Failed to serialize prove response")?,
+            .context("Failed to serialize executor response")?,
             TaskType::Prove(req) => serde_json::to_value(
                 tasks::prove::prover(self, &task.job_id, &task.task_id, &req)
                     .await
                     .context("Prove failed")?,
             )
             .context("Failed to serialize prove response")?,
-            TaskType::Join(req) => serde_json::to_value(
-                tasks::join::join(self, &task.job_id, &req)
-                    .await
-                    .context("Join failed")?,
-            )
-            .context("Failed to serialize join response")?,
-            TaskType::Resolve(req) => serde_json::to_value(
-                tasks::resolve::resolver(self, &task.job_id, &req)
-                    .await
-                    .context("Resolve failed")?,
-            )
-            .context("Failed to serialize join response")?,
+            TaskType::Join(req) => {
+                // Route to POVW or regular join based on agent POVW setting
+                if self.is_povw_enabled() {
+                    serde_json::to_value(
+                        tasks::join_povw::join_povw(self, &task.job_id, &req)
+                            .await
+                            .context("POVW join failed")?,
+                    )
+                    .context("Failed to serialize POVW join response")?
+                } else {
+                    serde_json::to_value(
+                        tasks::join::join(self, &task.job_id, &req).await.context("Join failed")?,
+                    )
+                    .context("Failed to serialize join response")?
+                }
+            }
+            TaskType::Resolve(req) => {
+                // Route to POVW or regular resolve based on agent POVW setting
+                if self.is_povw_enabled() {
+                    serde_json::to_value(
+                        tasks::resolve_povw::resolve_povw(self, &task.job_id, &req)
+                            .await
+                            .context("POVW resolve failed")?,
+                    )
+                    .context("Failed to serialize POVW resolve response")?
+                } else {
+                    serde_json::to_value(
+                        tasks::resolve::resolver(self, &task.job_id, &req)
+                            .await
+                            .context("Resolve failed")?,
+                    )
+                    .context("Failed to serialize resolve response")?
+                }
+            }
             TaskType::Finalize(req) => serde_json::to_value(
                 tasks::finalize::finalize(self, &task.job_id, &req)
                     .await
@@ -324,9 +363,7 @@ impl Agent {
             )
             .context("failed to serialize keccak response")?,
             TaskType::Union(req) => serde_json::to_value(
-                tasks::union::union(self, &task.job_id, &req)
-                    .await
-                    .context("Union failed")?,
+                tasks::union::union(self, &task.job_id, &req).await.context("Union failed")?,
             )
             .context("failed to serialize union response")?,
         };

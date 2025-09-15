@@ -12,7 +12,7 @@ function sanitizeFileName(name: string) {
 
 function removeGitHubLinks(content: string) {
   // Matches lines containing Git Source links to GitHub
-  return content.replace(/\[Git Source\]\(https:\/\/github\.com[^\)]+\)\n?/g, "");
+  return content.replace(/\[Git Source\]\(https:\/\/github\.com[^)]+\)\n?/g, "");
 }
 
 function fixInternalLinks(content: string) {

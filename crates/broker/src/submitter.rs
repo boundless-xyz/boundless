@@ -28,9 +28,11 @@ use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
         encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
+        FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
     selector::is_groth16_selector,
 };
+use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
@@ -253,7 +255,7 @@ where
 
         struct OrderPrice {
             price: U256,
-            stake_reward: U256,
+            collateral_reward: U256,
         }
         let mut order_prices: HashMap<&str, OrderPrice> = HashMap::new();
         let mut fulfillment_to_order_id: HashMap<U256, &str> = HashMap::new();
@@ -274,14 +276,17 @@ where
                         "Failed to get order from DB for submission, order NOT finalized",
                     )?;
 
-                let mut stake_reward = U256::ZERO;
+                let order_img_id =
+                    Digest::from_hex(order_img_id).context("Failed to decode order image ID")?;
+                let mut collateral_reward = U256::ZERO;
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price
                         .push(UnlockedRequest::new(order_request.clone(), client_sig.clone()));
-                    stake_reward = order_request.offer.stake_reward_if_locked_and_not_fulfilled();
+                    collateral_reward =
+                        order_request.offer.collateral_reward_if_locked_and_not_fulfilled();
                 }
 
-                order_prices.insert(order_id, OrderPrice { price: lock_price, stake_reward });
+                order_prices.insert(order_id, OrderPrice { price: lock_price, collateral_reward });
 
                 let order_journal = self
                     .prover
@@ -290,6 +295,10 @@ where
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
 
+                // NOTE: We assume here that the order execution ended with exit code 0.
+                let order_claim =
+                    ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
+                let order_claim_digest = order_claim.digest();
                 let seal = if is_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
@@ -299,15 +308,10 @@ where
                         .await
                         .context("Failed to fetch and encode g16 proof")?
                 } else {
-                    // NOTE: We assume here that the order execution ended with exit code 0.
-                    let order_claim = ReceiptClaim::ok(
-                        order_img_id.0,
-                        MaybePruned::Pruned(order_journal.digest()),
-                    );
                     let order_claim_index = aggregation_state
                         .claim_digests
                         .iter()
-                        .position(|claim| *claim == order_claim.digest())
+                        .position(|claim| *claim == order_claim_digest)
                         .ok_or(anyhow!(
                             "Failed to find order claim {order_claim:x?} in aggregated claims"
                         ))?;
@@ -317,7 +321,7 @@ where
                     );
                     tracing::debug!(
                         "Merkle path for order {order_id} : {:x?} : {order_path:x?}",
-                        order_claim.digest()
+                        order_claim_digest
                     );
                     let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                         order_claim,
@@ -333,11 +337,35 @@ where
                     .eip712_signing_hash(&self.market.eip712_domain().await?.alloy_struct());
                 let request_id = order_request.id;
                 fulfillment_to_order_id.insert(request_id, order_id);
+                let predicate_type = order_request.requirements.predicate.predicateType;
+
+                // For now, we default to not providing journals with claim digest match, but you could if it is a R0 ZKVM commit digest.
+                let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
+                    PredicateType::ClaimDigestMatch => (
+                        order_request.requirements.predicate.data.0.as_ref().try_into().unwrap(),
+                        vec![],
+                        FulfillmentDataType::None,
+                    ),
+                    PredicateType::PrefixMatch | PredicateType::DigestMatch => (
+                        order_claim_digest,
+                        FulfillmentDataImageIdAndJournal {
+                            imageId: <[u8; 32]>::from(order_img_id).into(),
+                            journal: order_journal.into(),
+                        }
+                        .abi_encode(),
+                        FulfillmentDataType::ImageIdAndJournal,
+                    ),
+                    _ => {
+                        return Err(anyhow!("Invalid predicate type: {predicate_type:?}"));
+                    }
+                };
+
                 fulfillments.push(Fulfillment {
                     id: request_id,
                     requestDigest: request_digest,
-                    imageId: order_img_id,
-                    journal: order_journal.into(),
+                    fulfillmentData: fulfillment_data.into(),
+                    fulfillmentDataType: fulfillment_data_type,
+                    claimDigest: <[u8; 32]>::from(claim_digest).into(),
                     seal: seal.into(),
                 });
                 anyhow::Ok(())
@@ -455,20 +483,20 @@ where
             }
             let order_price = order_prices
                 .get(order_id)
-                .unwrap_or(&OrderPrice { price: U256::ZERO, stake_reward: U256::ZERO });
+                .unwrap_or(&OrderPrice { price: U256::ZERO, collateral_reward: U256::ZERO });
 
             let eth_reward_log = format!("eth_reward: {}", format_ether(order_price.price));
-            let stake_token_decimals = self.market.stake_token_decimals().await?;
-            let stake_reward =
-                format_units(order_price.stake_reward, stake_token_decimals).unwrap();
-            let mut stake_reward_log = format!("stake_reward: {stake_reward}");
+            let collateral_token_decimals = self.market.collateral_token_decimals().await?;
+            let collateral_reward =
+                format_units(order_price.collateral_reward, collateral_token_decimals).unwrap();
+            let mut collateral_reward_log = format!("collateral_reward: {collateral_reward}");
 
             // If we expect a stake reward, check if we won the proof race to be the first secondary prover.
-            if order_price.stake_reward > U256::ZERO {
+            if order_price.collateral_reward > U256::ZERO {
                 let prover = self.market.get_request_fulfillment_prover(fulfillment.id).await;
                 if let Ok(prover) = prover {
                     if prover != self.prover_address {
-                        stake_reward_log = format!("stake_reward: 0 (lost secondary prover race to {prover} for {stake_reward})");
+                        collateral_reward_log = format!("collateral_reward: 0 (lost secondary prover race to {prover} for {collateral_reward})");
                     }
                 } else {
                     tracing::warn!("Failed to confirm if we were the first secondary prover for fulfillment {:x}", fulfillment.id);
@@ -479,7 +507,7 @@ where
                 "✨ Completed order: 0x{:x} {} {} ✨",
                 fulfillment.id,
                 eth_reward_log,
-                stake_reward_log
+                collateral_reward_log
             );
         }
 
@@ -637,22 +665,25 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::U256,
+        primitives::{Bytes, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::{
         contracts::{
-            hit_points::default_allowance, Offer, Predicate, PredicateType, ProofRequest,
+            hit_points::default_allowance, FulfillmentData, Offer, Predicate, ProofRequest,
             RequestId, RequestInput, RequestInputType, Requirements,
         },
         input::GuestEnv,
     };
-    use boundless_market_test_utils::{
-        deploy_boundless_market, deploy_hit_points, deploy_mock_verifier, deploy_set_verifier,
-        ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID,
-        SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH,
+    use boundless_test_utils::{
+        guests::{
+            ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID,
+            SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH,
+        },
+        market::{deploy_boundless_market, deploy_hit_points},
+        verifier::{deploy_mock_verifier, deploy_set_verifier},
     };
     use chrono::Utc;
     use risc0_aggregation::GuestState;
@@ -690,7 +721,7 @@ mod tests {
         let set_verifier = deploy_set_verifier(
             provider.clone(),
             verifier,
-            Digest::from(SET_BUILDER_ID),
+            bytemuck::cast::<_, [u8; 32]>(SET_BUILDER_ID).into(),
             format!("file://{SET_BUILDER_PATH}"),
         )
         .await
@@ -709,7 +740,7 @@ mod tests {
         .unwrap();
 
         let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
-        market.deposit_stake_with_permit(default_allowance(), &signer).await.unwrap();
+        market.deposit_collateral_with_permit(default_allowance(), &signer).await.unwrap();
 
         let market_customer =
             BoundlessMarketService::new(market_address, customer_provider.clone(), customer_addr);
@@ -740,20 +771,17 @@ mod tests {
 
         let order_request = ProofRequest::new(
             RequestId::new(customer_addr, market_customer.index_from_nonce().await.unwrap()),
-            Requirements::new(
-                echo_id,
-                Predicate { predicateType: PredicateType::PrefixMatch, data: Default::default() },
-            ),
+            Requirements::new(Predicate::prefix_match(echo_id, Bytes::default())),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
                 minPrice: U256::from(2),
                 maxPrice: U256::from(4),
-                biddingStart: now_timestamp(),
+                rampUpStart: now_timestamp(),
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         );
 
@@ -769,7 +797,10 @@ mod tests {
             fills: vec![Fulfillment {
                 request: order_request.clone(),
                 signature: client_sig.into(),
-                journal: echo_receipt.journal.bytes.clone(),
+                fulfillment_data: FulfillmentData::from_image_id_and_journal(
+                    echo_id,
+                    echo_receipt.journal.bytes.clone(),
+                ),
             }],
             prover_address: prover_addr,
         };
@@ -853,7 +884,7 @@ mod tests {
             orders: vec![order_id],
             fees: U256::ZERO,
             start_time: Utc::now(),
-            deadline: Some(order.request.offer.biddingStart + order.request.offer.timeout as u64),
+            deadline: Some(order.request.offer.rampUpStart + order.request.offer.timeout as u64),
             error_msg: None,
             aggregation_state: Some(AggregationState {
                 guest_state: batch_guest_state,

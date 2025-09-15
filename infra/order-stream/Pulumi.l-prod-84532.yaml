@@ -1,0 +1,22 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAG5SvvpHIdofbUQ9x/+Sg/NAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM/8QrPtXrOev7UhEuAgEQgDtkSwa10WOMbSAnyvCB6zuV9HWY/kigxAxzYRIThBZz9xuy7+E1pY8DtT+Qq+pmCjPu4q8MTxBCyacq0g==
+config:
+  aws:region: us-west-2
+  order-stream:ALB_DOMAIN: base-sepolia.boundless.network
+  order-stream:DISABLE_CERT: false
+  order-stream:BASE_STACK: organization/bootstrap/services-prod
+  order-stream:BOUNDLESS_ADDRESS: 0x56da3786061c82214d18e634d2817e86ad42d7ce
+  order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
+  order-stream:CHAIN_ID: "84532"
+  order-stream:DOCKER_DIR: ../../
+  order-stream:DOCKER_TAG: latest
+  order-stream:GH_TOKEN_SECRET:
+    secure: v1:d2HkTpeq+p5FQTOu:pB5QORUeun4dJEdACjvYMIKkP68mEbGG3hVq4U9zI1tKiaono+uU8yZhV86Rsh7IN//B4At7J3nZrJJsrNxHnzxQGNzhJQkhgHH9t+ArTQFMHCQdKnITGGODw0hmySnAuGtpfQlrylO7zdBNnA==
+  order-stream:MIN_BALANCE_RAW: "5000000000000000000"
+  order-stream:ORDER_STREAM_PING_TIME: "100"
+  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  order-stream:RDS_PASSWORD:
+    secure: v1:RinkL3NTuYRn4tKD:xgSTeofDyCiFeXBnsZmu13WXALWiudVsprxDzXP+D5qOOw==
+  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  order-stream:ETH_RPC_URL:
+    secure: v1:pvxBaroZKoWQpmsy:cfGgmkSyQ2eca/LVaLoJHxOv6CT7BmxKcMrZ21EaR3WrgL2UDkNdEWHdMsB+H7lx9p8m3l1J6DUbuL+6MIn2pSJ0T6kbecsicljg

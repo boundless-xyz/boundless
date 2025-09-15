@@ -1,0 +1,423 @@
+#!/bin/bash
+
+set -eo pipefail
+
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+SCRIPT_FILE="${SCRIPT_DIR}/Manage.PoVW.s.sol"
+REPO_ROOT_DIR="${SCRIPT_DIR:?}/../.."
+FIREBLOCKS=0
+export FOUNDRY_OUT=${FOUNDRY_OUT:-"contracts/out"}
+
+# Check for python3, required for updating the deployment toml
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "❌ python3 is not installed"
+    exit 1
+fi
+
+# Check for tomlkit (Python package), required for updating the deployment toml
+if ! python3 -c "import tomlkit" >/dev/null 2>&1; then
+    echo "❌ tomlkit is not installed for python3"
+    echo "To install: python3 -m pip install tomlkit"
+    exit 1
+fi
+
+# Check for yq
+if ! command -v yq >/dev/null 2>&1; then
+    echo "❌ yq is not installed"
+    echo "Install yq v4+ from: https://github.com/mikefarah/yq"
+    exit 1
+fi
+
+POSITIONAL_ARGS=()
+FORGE_SCRIPT_FLAGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+    -f|--fireblocks)
+        FIREBLOCKS=1
+        shift # past argument
+        ;;
+    --broadcast|--verify)
+        FORGE_SCRIPT_FLAGS+=("$1") 
+        shift
+        ;;
+    -*|--*)
+        echo "Unknown option $1"
+        exit 1
+        ;;
+    *)
+        POSITIONAL_ARGS+=("$1") # save positional arg
+        shift # past argument
+        ;;
+    esac
+done
+
+set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
+
+# HINT: deployment_secrets.toml contains API keys. You can write it yourself, or ask a friend.
+load_env_var() {
+    local var_name="$1"
+    local config_key="$2"
+    local config_file="$3"
+    
+    # Get current value of the variable
+    local current_value=$(eval echo \$$var_name)
+    
+    if [ -z "$current_value" ]; then
+        local new_value=$(yq eval -e "$config_key" "$REPO_ROOT_DIR/contracts/$config_file")
+        [ -n "$new_value" ] && [[ "$new_value" != "null" ]] || exit 1
+        export $var_name="$new_value"
+        echo "$var_name from $config_file: $new_value" > /dev/stderr
+    else
+        echo "$var_name from env: $current_value" > /dev/stderr
+    fi
+}
+
+# Create reference build for upgrades
+create_reference_build() {
+    local contract_type="$1"
+    
+    # Check if we should skip reference build creation
+    if [ -n "${SKIP_REFERENCE_BUILD}" ]; then
+        echo "🔄 SKIP_REFERENCE_BUILD is set - checking for existing reference build..."
+        if [ -d "contracts/build-info-reference" ] && [ -n "$(ls -A contracts/build-info-reference 2>/dev/null)" ]; then
+            echo "✅ Reusing existing reference build in contracts/build-info-reference/"
+            echo "📁 Build info files: $(ls -1 contracts/build-info-reference | wc -l) files"
+            # Set flag to indicate reference build was reused
+            export REFERENCE_BUILD_REUSED="true"
+            return 0
+        else
+            echo "⚠️  No existing reference build found, creating new one..."
+        fi
+    fi
+    
+    echo "Creating reference build for $contract_type upgrade safety checks..."
+    
+    # Get the deployment commit for the specific contract being upgraded
+    local deployed_commit=""
+    case "$contract_type" in
+        "PoVWAccounting")
+            deployed_commit=$(yq eval -e ".deployment.${DEPLOY_KEY}.povw-accounting-deployment-commit" "${REPO_ROOT_DIR}/contracts/deployment.toml" 2>/dev/null || echo "")
+            ;;
+        "PoVWMint")
+            deployed_commit=$(yq eval -e ".deployment.${DEPLOY_KEY}.povw-mint-deployment-commit" "${REPO_ROOT_DIR}/contracts/deployment.toml" 2>/dev/null || echo "")
+            ;;
+        *)
+            echo "❌ Unknown contract type: $contract_type"
+            exit 1
+            ;;
+    esac
+    
+    if [ -z "$deployed_commit" ]; then
+        echo "❌ No deployment commit found for $contract_type in ${DEPLOY_KEY}"
+        echo "Cannot create reference build for upgrade"
+        exit 1
+    fi
+    
+    echo "📦 Creating reference build from commit: $deployed_commit"
+    
+    # Create worktree for reference build
+    local worktree_path="../povw-reference-${deployed_commit}"
+    
+    # Clean up existing worktree if it exists
+    if [ -d "$worktree_path" ]; then
+        echo "🧹 Cleaning up existing reference worktree..."
+        git worktree remove "$worktree_path" --force 2>/dev/null || true
+    fi
+    
+    # Clean up existing reference build info
+    if [ -d "contracts/build-info-reference" ]; then
+        echo "🧹 Cleaning up existing reference build info..."
+        rm -rf "contracts/build-info-reference"
+    fi
+    
+    # Create new worktree
+    git worktree add "$worktree_path" "$deployed_commit"
+    
+    # Build reference and copy build info
+    echo "🔨 Building reference contracts..."
+    (
+        cd "$worktree_path"
+        # First run cargo build to generate PovwImageId.sol and other generated files
+        echo "Running cargo build to generate required files..."
+        if cargo build; then
+            echo "✅ Cargo build completed successfully"
+        else
+            echo "❌ Cargo build failed in reference worktree"
+            echo "This may prevent forge build from succeeding"
+        fi
+        
+        # Check if generated files exist
+        if [ -f "contracts/src/libraries/PovwImageId.sol" ]; then
+            echo "✅ PovwImageId.sol generated successfully"
+        else
+            echo "❌ PovwImageId.sol not found after cargo build"
+        fi
+        
+        # Then clean and do a full forge build to ensure complete build info
+        echo "Running forge clean..."
+        if forge clean; then
+            echo "✅ Forge clean completed"
+        else
+            echo "❌ Forge clean failed"
+        fi
+        
+        echo "Running forge build..."
+        echo "Current directory: $(pwd)"
+        echo "Foundry config check:"
+        forge config --basic || echo "Forge config failed"
+        
+        if FOUNDRY_PROFILE=povw-deploy forge build 2>&1; then
+            echo "✅ Forge build completed successfully"
+            # Check if build info directory was created (using FOUNDRY_OUT path)
+            if [ -d "contracts/out/build-info" ] && [ "$(ls -A contracts/out/build-info)" ]; then
+                echo "✅ Build info directory created with $(ls contracts/out/build-info | wc -l) files"
+            else
+                echo "❌ Build info directory is empty or missing"
+                echo "Checking contracts/out directory structure:"
+                ls -la contracts/out/ 2>/dev/null || echo "contracts/out directory does not exist"
+                echo "Checking if build-info subdirectory exists:"
+                ls -la contracts/out/build-info/ 2>/dev/null || echo "contracts/out/build-info directory does not exist"
+            fi
+        else
+            echo "❌ Forge build failed in reference worktree"
+            echo "Build output should be shown above"
+        fi
+        
+        # Copy build info from contracts/out/build-info (matches FOUNDRY_OUT setting)
+        if [ -d "contracts/out/build-info" ] && [ "$(ls -A contracts/out/build-info)" ]; then
+            mkdir -p "$OLDPWD/contracts/build-info-reference"
+            cp -R contracts/out/build-info/* "$OLDPWD/contracts/build-info-reference/"
+            echo "✅ Copied build info files from contracts/out/build-info to build-info-reference"
+        else
+            echo "❌ No build info created in reference build"
+            echo "Expected location: contracts/out/build-info"
+            echo "Possible causes:"
+            echo "  - Cargo build failed to generate required files"
+            echo "  - Forge compilation errors (check build output above)"
+            echo "  - Missing dependencies in worktree"
+            echo "  - FOUNDRY_OUT path mismatch"
+            if [ -d "out/build-info" ]; then
+                echo "  - Found build-info in out/ instead of contracts/out/ (path mismatch)"
+            fi
+        fi
+    )
+    
+    # Clean up worktree
+    git worktree remove "$worktree_path" --force
+    
+    # Verify build info was copied
+    if [ -d "contracts/build-info-reference" ] && [ -n "$(ls -A contracts/build-info-reference 2>/dev/null)" ]; then
+        echo "✅ Reference build created in contracts/build-info-reference/"
+        echo "📁 Build info files: $(ls -1 contracts/build-info-reference | wc -l) files"
+    else
+        echo "❌ Failed to create reference build info"
+        echo "This may cause upgrade validation to fail"
+    fi
+}
+
+# Run a Forge script with support for Fireblocks with options set automatically
+forge_script() {
+    # Set our function. If the function is "help", or if the function is
+    # unspecified, then print some help.
+    local script_function="${1:-help}"
+    shift
+
+    if [ "${script_function:?}" == "help" ]; then
+        cat << EOF
+🔧 PoVW Contract Management Script
+================================
+
+Usage: $0 <command> [options]
+
+Commands:
+  DeployPoVW                  Deploy both PovwAccounting and PovwMint contracts
+  UpgradePoVWAccounting       Upgrade the PovwAccounting contract
+  UpgradePoVWMint             Upgrade the PovwMint contract
+  RollbackPoVWAccounting      Rollback the PovwAccounting contract to previous version
+  RollbackPoVWMint            Rollback the PovwMint contract to previous version
+  TransferPoVWOwnership       Transfer ownership of both PovwAccounting and PovwMint contracts
+
+Options:
+  -f, --fireblocks       Use Fireblocks for transaction signing
+  --broadcast            Broadcast transactions to network
+  --verify               Verify contracts on Etherscan
+  -h, --help             Show this help message
+
+Environment Variables:
+  CHAIN_KEY              Required. Deployment environment key (anvil, ethereum-mainnet, ethereum-sepolia, ethereum-sepolia-staging)
+  DEPLOYER_PRIVATE_KEY   Required. Private key for transaction signing (0x...)
+  NEW_ADMIN              Required for ownership transfers. New admin address (0x...)
+  SKIP_REFERENCE_BUILD   Optional. Skip creating reference build and current build if reference already exists
+  SKIP_SAFETY_CHECKS     Optional. Skip all upgrade safety checks and reference build creation (DANGEROUS - use with extreme caution)
+
+Production Deployment Requirements:
+  - deployment.toml must have povw-accounting-admin and povw-mint-admin addresses set (not 0x0)
+  - deployment.toml must have zkc and vezkc addresses set
+  - Image IDs are loaded from PovwImageId.sol library (can override with env vars)
+  - POVW_LOG_UPDATER_ID and POVW_MINT_CALCULATOR_ID env vars (optional overrides)
+
+Development Mode:
+  RISC0_DEV_MODE=1       Enables mock contract deployment
+  - Deploys mock verifier and ZKC contracts automatically
+  - Uses mock image IDs for testing
+  - Skips deployment.toml updates
+
+Examples:
+  # Deploy to anvil in dev mode
+  RISC0_DEV_MODE=1 CHAIN_KEY=anvil DEPLOYER_PRIVATE_KEY=0xac... $0 DeployPoVW --broadcast
+
+  # Upgrade PovwAccounting
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... $0 UpgradePoVWAccounting --broadcast
+
+  # Upgrade PovwAccounting skipping safety checks (DANGEROUS)
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... SKIP_SAFETY_CHECKS=true $0 UpgradePoVWAccounting --broadcast
+
+  # Transfer ownership of both PoVW contracts
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... NEW_ADMIN=0x... $0 TransferPoVWOwnership --broadcast
+
+Notes:
+  - Network configuration is loaded from deployment.toml and deployment_secrets.toml
+  - Private keys must be provided via DEPLOYER_PRIVATE_KEY environment variable
+  - Ownership transfers require NEW_ADMIN environment variable with new admin address
+  - Upgrades and rollbacks use the current owner from the deployed contracts
+  - Upgrades require reference builds for safety checks (use SKIP_REFERENCE_BUILD=1 to skip builds and reuse existing)
+  - Fireblocks requires fireblocks-json-rpc to be installed
+  - All deployments automatically update deployment.toml
+  - Image IDs are loaded from PovwImageId.sol unless overridden by environment variables
+  - Ownership transfers are immediate with regular Ownable (no acceptance required)
+EOF
+        exit 0
+    fi
+
+    # Load environment variables only when running actual commands
+    DEPLOY_KEY=${CHAIN_KEY:?}
+    echo "Loading environment variables from deployment TOML files"
+    load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
+    load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
+    load_env_var "CHAIN_ID" ".deployment[\"${DEPLOY_KEY:?}\"].id" "deployment.toml"
+
+    # Check if we're on the correct network
+    CONNECTED_CHAIN_ID=$(cast chain-id --rpc-url ${RPC_URL:?})
+    if [[ "${CONNECTED_CHAIN_ID:?}" != "${CHAIN_ID:?}" ]]; then
+        echo -e "${RED}Error: connected chain id and configured chain id do not match: ${CONNECTED_CHAIN_ID:?} != ${CHAIN_ID:?} ${NC}"
+        exit 1
+    fi
+
+    # Use standalone Deploy.PoVW.s.sol for deployments, Manage.PoVW.s.sol for everything else
+    local target
+    if [ "${script_function:?}" == "DeployPoVW" ]; then
+        target="${SCRIPT_DIR}/Deploy.PoVW.s.sol:DeployPoVW"
+        echo "Running standalone deployment script $target"
+    else
+        target="${SCRIPT_FILE:?}:${script_function:?}"
+        echo "Running management script $target"
+    fi
+
+    if [ $FIREBLOCKS -gt 0 ]; then
+        # Check for fireblocks
+        if ! command -v fireblocks-json-rpc &> /dev/null
+        then
+            echo "fireblocks-json-rpc not found"
+            echo "can be installed with npm install -g @fireblocks/fireblocks-json-rpc"
+            exit 1
+        fi
+
+        # Run forge via fireblocks
+        fireblocks-json-rpc --verbose --rpcUrl ${RPC_URL:?} --http --apiKey ${FIREBLOCKS_API_KEY:?} -- \
+            FOUNDRY_PROFILE=povw-deploy forge script ${FORGE_SCRIPT_FLAGS} \
+            --slow --unlocked \
+            --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
+            --rpc-url {} \
+            "$target" "$@"
+    else
+        # Run forge
+        FOUNDRY_PROFILE=povw-deploy forge script ${FORGE_SCRIPT_FLAGS} \
+            --private-key=${DEPLOYER_PRIVATE_KEY:?} \
+            --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
+            --rpc-url ${RPC_URL:?} \
+            "$target" "$@"
+    fi
+}
+
+# Run from the repo root for consistency.
+cd ${REPO_ROOT_DIR:?}
+
+# Check for clean working directory for deployments and upgrades
+check_clean_working_directory() {
+    local command="$1"
+    
+    # Only check for deployment and upgrade commands
+    case "$command" in
+        DeployPoVW|UpgradePoVWAccounting|UpgradePoVWMint)
+            if ! git diff --quiet --exit-code; then
+                export HAS_UNSTAGED_CHANGES="true"
+                export UNSTAGED_FILES="$(git diff --name-only | tr '\n' ' ')"
+            fi
+            
+            if ! git diff --quiet --cached --exit-code; then
+                export HAS_STAGED_CHANGES="true" 
+                export STAGED_FILES="$(git diff --cached --name-only | tr '\n' ' ')"
+            fi
+            ;;
+    esac
+}
+
+# Get current git commit hash for deployment tracking
+CURRENT_COMMIT=$(git rev-parse --short HEAD)
+export CURRENT_COMMIT
+
+# Create reference build for upgrade commands
+if [ $# -gt 0 ]; then
+    case "$1" in
+        UpgradePoVWAccounting)
+            # Skip reference build if safety checks are disabled
+            if [ "${SKIP_SAFETY_CHECKS}" = "true" ]; then
+                echo "⏩ Skipping reference build creation (SKIP_SAFETY_CHECKS=true)"
+            else
+                create_reference_build "PoVWAccounting"
+                
+                # Only rebuild current contracts if reference build wasn't reused
+                if [ "${REFERENCE_BUILD_REUSED}" != "true" ]; then
+                    echo "🔨 Ensuring current build is clean and complete..."
+                    echo "Running cargo build to generate required files..."
+                    cargo build
+                    forge clean
+                    FOUNDRY_PROFILE=povw-deploy forge build
+                    echo "✅ Current build completed"
+                else
+                    echo "⏩ Skipping current build (reference build was reused)"
+                fi
+            fi
+            ;;
+        UpgradePoVWMint)
+            # Skip reference build if safety checks are disabled
+            if [ "${SKIP_SAFETY_CHECKS}" = "true" ]; then
+                echo "⏩ Skipping reference build creation (SKIP_SAFETY_CHECKS=true)"
+            else
+                create_reference_build "PoVWMint"
+                
+                # Only rebuild current contracts if reference build wasn't reused
+                if [ "${REFERENCE_BUILD_REUSED}" != "true" ]; then
+                    echo "🔨 Ensuring current build is clean and complete..."
+                    echo "Running cargo build to generate required files..."
+                    cargo build
+                    forge clean
+                    FOUNDRY_PROFILE=povw-deploy forge build
+                    echo "✅ Current build completed"
+                else
+                    echo "⏩ Skipping current build (reference build was reused)"
+                fi
+            fi
+            ;;
+    esac
+fi
+
+# Default to help if no arguments provided
+if [ $# -eq 0 ]; then
+    forge_script "help"
+else
+    # Check for clean working directory before deployment/upgrade commands
+    check_clean_working_directory "$1"
+    forge_script "$@"
+fi

@@ -537,7 +537,7 @@ mod tests {
         input::GuestEnv,
         order_stream_client::{order_stream, OrderStreamClient},
     };
-    use boundless_market_test_utils::{create_test_ctx, TestCtx};
+    use boundless_test_utils::market::{create_test_ctx, TestCtx};
 
     use futures_util::StreamExt;
     use reqwest::Url;
@@ -559,7 +559,7 @@ mod tests {
         let ctx = create_test_ctx(&anvil).await.unwrap();
 
         ctx.prover_market
-            .deposit_stake_with_permit(default_allowance(), &ctx.prover_signer)
+            .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
             .await
             .unwrap();
 
@@ -592,17 +592,17 @@ mod tests {
     fn new_request(idx: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, idx),
-            Requirements::new(Digest::from_bytes([1; 32]), Predicate::prefix_match([])),
+            Requirements::new(Predicate::prefix_match(Digest::from_bytes([1; 32]), [])),
             "http://image_uri.null",
             GuestEnv::builder().build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
-                biddingStart: 1,
+                rampUpStart: 1,
                 timeout: 100,
                 lockTimeout: 100,
                 rampUpPeriod: 1,
-                lockStake: U256::from(10),
+                lockCollateral: U256::from(10),
             },
         )
     }

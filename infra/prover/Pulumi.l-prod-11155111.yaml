@@ -1,0 +1,37 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEpLSmVp2hAdyXcfYlwN83mAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMVuh0YTwi1306uAA+AgEQgDvU2xm8E4sbMLurysRDBLtq0K6UY0Jrx9Z+f0kO27M4BDvrgIQfFNyVIOxS92AlJxoWNEONMa1aBQjueg==
+config:
+  aws:region: us-west-2
+  base-prover:BASE_STACK: organization/bootstrap/services-prod
+  base-prover:BOUNDLESS_MARKET_ADDR: 0xc211b581cb62e3a6d396a592bab34979e1bbba7d
+  base-prover:CHAIN_ID: "11155111"
+  base-prover:DOCKER_DIR: ../../
+  base-prover:DOCKER_TAG: latest
+  base-prover:GH_TOKEN_SECRET:
+    secure: v1:SgHWu457nOvSICvi:qulKAUONxdDJFmhc0FuBEtMaGhOUs7Dl9KFNrgTxkiQiihQg90HRnvfBjzU+DuDp4KXpZB8JSatUxQbPzSSOYsqi/b0DiRqqsEYWEVcXprAqK0BT/ER8127IuitL0vdr4AByj/kn9W2352YTzQ==
+  base-prover:ORDER_STREAM_URL: https://eth-sepolia.boundless.network
+  base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  base-prover:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64
+  base-prover:COLLATERAL_TOKEN_ADDRESS: 0xb4FC69A452D09D2662BD8C3B5BB756902260aE28
+  base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-11155111.toml
+  bento-prover:LOG_JSON: "true"
+  bento-prover:PRIVATE_KEY:
+    secure: v1:miLOqfqRCUR98JeB:tYPl3RVCnHgwWX8i40EaFm/o9VfrYHCHzf2kUV7qjkyMcQFrdtqlQsO39lLB62KC2xlU5f0ml8xyxh6n0aMpML5W3Sbvy3ok2UAiAkTW788=
+  bento-prover:SEGMENT_SIZE: "19"
+  bento-prover:SNARK_TIMEOUT: "240"
+  base-prover:ETH_RPC_URL:
+    secure: v1:PTVNyudLHCXJMDPy:+J4tSsiKNmR07HsUV29m6CYmbIUiB2tH0Qy71cyIKl6WCKZhz3SLdqT6xwBupYr/QMFgNsoIA0wKUwtJNvh6n7AYkhdLyfV0Dvw=
+  prover:PRIVATE_KEY_1:
+    secure: v1:ziBvXOig2ijVRumU:HhuqEKpKfv39d3xu1ZuxRSICnA5NZnzLl/pZW7ptm8rXuQupO1JC6chNOP9Jy9fVXpwZv0CEhjHZqhIbzDh+yJAX6N85Wd6HwsFKP6LoIlI=
+  bento-prover:PRIVATE_KEY_1:
+    secure: v1:RcYMrSGCUZARWNhr:ud3C78r18jfO/sxfPYBO2p9B75M/4DwF5JyN8WD776OdTMObka91V4Xv7Lc9c3YAlVIL3Ok98ugCnqjbv8SklSlFXV2PhBpyn5oheV4aZQ8=
+  bento-prover:PRIVATE_KEY_2:
+    secure: v1:tTOI+8D7WGpR5g0U:L0Pv9adcoV4fWA+00PSJRQzXkQUgLek3U+r2oeMByU/+w9doxBkeK1vddW69bWSD3ZDJWFhvdzmNFb3ORXlGIot4feZGBldY3NeHaxzPN6c=
+  bento-prover:BRANCH: launch-infra
+  bento-prover:POVW_LOG_ID:
+    secure: v1:gjKw3ZFMYszS7DwS:h1PCEavoaPDGjRWVsVPLDL4/Rt33YRYaIBEcaGHRZVzUGSVbewHv9CPsxxCtEmjm4w491FV6J4LEsQ==
+  bento-prover:POVW_LOG_ID_1:
+    secure: v1:IWpfAGS+CBV8VliS:AU9aSMLv2UcoRa0i/Y30Pyc62I45FkiJsf7RjOOQ0Mxe4czkNHtI8jBXO9wS6rQkyhiNDP718cOg+w==
+  bento-prover:POVW_LOG_ID_2:
+    secure: v1:u3KGhXqINg/L5M3T:+TZ7D1ex3C1BkZbSUP45yl0LPZZOFRDeKeH2SsBp7p8qVl+U9KzBc8GHRyoFSPiVdS+cFFX2LxAXTQ==

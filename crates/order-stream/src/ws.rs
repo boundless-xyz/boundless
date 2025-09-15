@@ -138,7 +138,7 @@ pub(crate) async fn websocket_handler(
     if !state.config.bypass_addrs.contains(&client_addr) {
         let boundless_market =
             IBoundlessMarket::new(state.config.market_address, state.rpc_provider.clone());
-        let balance = match boundless_market.balanceOfStake(client_addr).call().await {
+        let balance = match boundless_market.balanceOfCollateral(client_addr).call().await {
             Ok(balance) => balance,
             Err(err) => {
                 tracing::warn!("Failed to get stake balance for {client_addr}: {err}");

@@ -172,7 +172,7 @@ where
         prover_addr: Address,
         market_addr: Address,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
-        stake_token_decimals: u8,
+        collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
     ) -> Result<Self> {
         let txn_timeout_opt = {
@@ -191,17 +191,17 @@ where
         {
             let config = config.lock_all()?;
 
-            market = market.with_stake_balance_alert(
+            market = market.with_collateral_balance_alert(
                 &config
                     .market
-                    .stake_balance_warn_threshold
+                    .collateral_balance_warn_threshold
                     .as_ref()
-                    .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
+                    .map(|s| parse_units(s, collateral_token_decimals).unwrap().into()),
                 &config
                     .market
-                    .stake_balance_error_threshold
+                    .collateral_balance_error_threshold
                     .as_ref()
-                    .map(|s| parse_units(s, stake_token_decimals).unwrap().into()),
+                    .map(|s| parse_units(s, collateral_token_decimals).unwrap().into()),
             );
         }
         let monitor = Self {
@@ -255,7 +255,7 @@ where
         tracing::info!(
             "Locking request: 0x{:x} for stake: {}",
             request_id,
-            order.request.offer.lockStake
+            order.request.offer.lockCollateral
         );
         let lock_block = self
             .market
@@ -963,6 +963,7 @@ pub(crate) mod tests {
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
     use alloy::node_bindings::AnvilInstance;
+    use alloy::primitives::Bytes;
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -977,11 +978,11 @@ pub(crate) mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput, RequestInputType,
-        Requirements,
+        Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
-    use boundless_market_test_utils::{
-        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH},
+        market::{deploy_boundless_market, deploy_hit_points},
     };
 
     use risc0_zkvm::Digest;
@@ -1027,23 +1028,17 @@ pub(crate) mod tests {
 
             let request = ProofRequest::new(
                 RequestId::new(self.signer.address(), request_id),
-                Requirements::new(
-                    Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
                 "http://risczero.com/image",
                 RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
-                    biddingStart: bidding_start,
+                    rampUpStart: bidding_start,
                     rampUpPeriod: 1,
                     timeout: timeout as u32,
                     lockTimeout: lock_timeout as u32,
-                    lockStake: U256::from(0),
+                    lockCollateral: U256::from(0),
                 },
             );
 
@@ -1105,9 +1100,9 @@ pub(crate) mod tests {
 
         // Deposit ETH into the contract for the prover to use when locking orders
         // Using 10 ETH to ensure plenty of funds for tests
-        let stake_token_decimals = market_service.stake_token_decimals().await.unwrap();
+        let collateral_token_decimals = market_service.collateral_token_decimals().await.unwrap();
         market_service
-            .deposit(parse_units("10.0", stake_token_decimals).unwrap().into())
+            .deposit(parse_units("10.0", collateral_token_decimals).unwrap().into())
             .await
             .unwrap();
 
@@ -1136,7 +1131,7 @@ pub(crate) mod tests {
             signer.address(),
             market_address,
             priced_order_rx,
-            stake_token_decimals,
+            collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
         )
         .unwrap();

@@ -33,20 +33,23 @@ use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
 
-use crate::contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20};
+use crate::{
+    contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20},
+    deployments::collateral_token_supports_permit,
+};
 
 use super::{
     eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
-    IBoundlessMarket::{self, IBoundlessMarketInstance},
+    IBoundlessMarket::{self, IBoundlessMarketInstance, ProofDelivered},
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
-/// Fraction of stake the protocol gives to the prover who fills an order that was locked by another prover but expired
+/// Fraction of collateral the protocol gives to the prover who fills an order that was locked by another prover but expired
 /// This is determined by the constant SLASHING_BURN_BPS defined in the BoundlessMarket contract.
-/// The value is 4 because the slashing burn is 75% of the stake, and we give the remaining 1/4 of that to the prover.
+/// The value is 4 because the slashing burn is 75% of the collateral, and we give the remaining 1/4 of that to the prover.
 /// TODO(https://github.com/boundless-xyz/boundless/issues/517): Retrieve this from the contract in the future
-const FRACTION_STAKE_NUMERATOR: u64 = 4;
-const FRACTION_STAKE_DENOMINATOR: u64 = 5;
+const FRACTION_STAKE_NUMERATOR: u64 = 1;
+const FRACTION_STAKE_DENOMINATOR: u64 = 2;
 
 /// Boundless market errors.
 #[derive(Error, Debug)]
@@ -123,6 +126,7 @@ impl From<alloy::contract::Error> for MarketError {
 pub struct BoundlessMarketService<P> {
     instance: IBoundlessMarketInstance<P, Ethereum>,
     // Chain ID with caching to ensure we fetch it at most once.
+    // Note: always access via get_chain_id()
     chain_id: AtomicU64,
     caller: Address,
     timeout: Duration,
@@ -231,8 +235,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         Self { event_query_config: config, ..self }
     }
 
-    /// Set stake balance thresholds to warn or error alert on
-    pub fn with_stake_balance_alert(
+    /// Set collateral balance thresholds to warn or error alert on
+    pub fn with_collateral_balance_alert(
         self,
         warn_threshold: &Option<U256>,
         error_threshold: &Option<U256>,
@@ -275,7 +279,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(eip712_domain(*self.instance.address(), self.get_chain_id().await?))
     }
 
-    /// Deposit Ether into the market to pay for proof and/or lockin stake.
+    /// Deposit Ether into the market to pay for proof and/or lockin collateral.
     pub async fn deposit(&self, value: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling deposit() value: {value}");
         let call = self.instance.deposit().value(value);
@@ -459,7 +463,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             receipt.transaction_hash
         );
 
-        self.check_stake_balance().await?;
+        self.check_collateral_balance().await?;
 
         Ok(receipt.block_number.context("TXN Receipt missing block number")?)
     }
@@ -569,7 +573,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// When a prover fails to fulfill a request by the deadline, this function can be used to burn
-    /// the associated prover stake.
+    /// the associated prover collateral.
     pub async fn slash(
         &self,
         request_id: U256,
@@ -1006,7 +1010,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
-    ) -> Result<(Bytes, Bytes, Address), MarketError> {
+    ) -> Result<ProofDelivered, MarketError> {
         let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
             self.event_query_config.block_range * self.event_query_config.max_iterations,
@@ -1034,11 +1038,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             let logs = event_filter.query().await?;
 
             if let Some((event, _)) = logs.first() {
-                return Ok((
-                    event.fulfillment.journal.clone(),
-                    event.fulfillment.seal.clone(),
-                    event.prover,
-                ));
+                return Ok(event.clone());
             }
 
             // Move the upper_block down for the next iteration
@@ -1101,16 +1101,16 @@ impl<P: Provider> BoundlessMarketService<P> {
         Err(MarketError::RequestNotFound(request_id))
     }
 
-    /// Returns journal and seal if the request is fulfilled.
+    /// Returns fulfillment data and seal if the request is fulfilled.
     pub async fn get_request_fulfillment(
         &self,
         request_id: U256,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<Fulfillment, MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (journal, seal, _) = self.query_fulfilled_event(request_id, None, None).await?;
-                Ok((journal, seal))
+                let event = self.query_fulfilled_event(request_id, None, None).await?;
+                Ok(event.fulfillment)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
@@ -1124,8 +1124,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let (_, _, prover) = self.query_fulfilled_event(request_id, None, None).await?;
-                Ok(prover)
+                let event = self.query_fulfilled_event(request_id, None, None).await?;
+                Ok(event.prover)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
         }
@@ -1154,7 +1154,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         self.query_request_submitted_event(request_id, None, None).await
     }
 
-    /// Returns journal and seal if the request is fulfilled.
+    /// Returns the fulfillment data and seal if the request is fulfilled.
     ///
     /// This method will poll the status of the request until it is Fulfilled or Expired.
     /// Polling is done at intervals of `retry_interval` until the request is Fulfilled, Expired or
@@ -1164,15 +1164,14 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         retry_interval: Duration,
         expires_at: u64,
-    ) -> Result<(Bytes, Bytes), MarketError> {
+    ) -> Result<Fulfillment, MarketError> {
         loop {
             let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
                 RequestStatus::Expired => return Err(MarketError::RequestHasExpired(request_id)),
                 RequestStatus::Fulfilled => {
-                    let (journal, seal, _) =
-                        self.query_fulfilled_event(request_id, None, None).await?;
-                    return Ok((journal, seal));
+                    let event = self.query_fulfilled_event(request_id, None, None).await?;
+                    return Ok(event.fulfillment);
                 }
                 _ => {
                     tracing::info!(
@@ -1263,16 +1262,16 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(id)
     }
 
-    /// Approve a spender to spend `value` amount of HitPoints on behalf of the caller.
-    pub async fn approve_deposit_stake(&self, value: U256) -> Result<()> {
+    /// Approves Boundless Market contract to deposit `value` amount of collateral on behalf of the caller.
+    pub async fn approve_deposit_collateral(&self, value: U256) -> Result<()> {
         let spender = *self.instance.address();
         tracing::trace!("Calling approve({:?}, {})", spender, value);
         let token_address = self
             .instance
-            .STAKE_TOKEN_CONTRACT()
+            .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
-            .context("STAKE_TOKEN_CONTRACT call failed")?
+            .context("COLLATERAL_TOKEN_CONTRACT call failed")?
             .0;
         let contract = IERC20::new(token_address.into(), self.instance.provider());
         let call = contract.approve(spender, value).from(self.caller);
@@ -1284,43 +1283,64 @@ impl<P: Provider> BoundlessMarketService<P> {
             .await
             .context("failed to confirm tx")?;
 
-        tracing::info!("Approved {} to spend {}: {}", spender, value, tx_hash);
+        tracing::debug!(
+            "Approved {} to spend {} of token 0x{:x}. Tx hash: {}",
+            spender,
+            value,
+            token_address,
+            tx_hash
+        );
 
         Ok(())
     }
 
-    /// Deposit stake into the market to pay for lockin stake.
+    /// Deposit collateral into the market to pay for lock operations.
     ///
     /// Before calling this method, the account owner must first approve
-    /// the Boundless market contract as an allowed spender by calling `approve_deposit_stake`.    
-    pub async fn deposit_stake(&self, value: U256) -> Result<(), MarketError> {
-        tracing::trace!("Calling depositStake({})", value);
-        let call = self.instance.depositStake(value);
+    /// the Boundless market contract as an allowed spender by calling `approve_deposit_collateral`.    
+    pub async fn deposit_collateral(&self, value: U256) -> Result<(), MarketError> {
+        tracing::trace!("Calling depositCollateral({})", value);
+        let call = self.instance.depositCollateral(value);
+        tracing::debug!("Sending tx {}", format!("{:?}", call));
+        tracing::debug!("Market address: {:?}", self.instance.address());
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
+        tracing::debug!(
+            "Broadcasting {} collateral deposit to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            pending_tx.tx_hash()
+        );
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted stake deposit {}", tx_hash);
+        tracing::debug!(
+            "Submitted {} collateral deposit to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            tx_hash
+        );
         Ok(())
     }
 
-    /// Permit and deposit stake into the market to pay for lockin stake.
+    /// Permit and deposit collateral into the market to pay for lockin collateral.
     ///
-    /// This method will send a single transaction.
-    pub async fn deposit_stake_with_permit(
+    /// WARNING: The collateral tokens on some networks do not support permit. To ensure successful deposits regardless of the network, use `approve_deposit_collateral` and `deposit_collateral` instead.
+    pub async fn deposit_collateral_with_permit(
         &self,
         value: U256,
         signer: &impl Signer,
     ) -> Result<(), MarketError> {
+        if !collateral_token_supports_permit(self.get_chain_id().await?) {
+            return Err(MarketError::Error(anyhow!("Collateral token does not support permit. Use approve_deposit_collateral and deposit_collateral instead.")));
+        }
         let token_address = self
             .instance
-            .STAKE_TOKEN_CONTRACT()
+            .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
-            .context("STAKE_TOKEN_CONTRACT call failed")?
+            .context("COLLATERAL_TOKEN_CONTRACT call failed")?
             .0;
         let contract = IERC20Permit::new(token_address.into(), self.instance.provider());
         let call = contract.nonces(self.caller());
@@ -1347,88 +1367,114 @@ impl<P: Provider> BoundlessMarketService<P> {
         let s = B256::from_slice(&sig[32..64]);
         let v: u8 = sig[64];
         tracing::trace!("Calling depositStakeWithPermit({})", value);
-        let call = self.instance.depositStakeWithPermit(value, deadline, v, r, s);
+        let call = self.instance.depositCollateralWithPermit(value, deadline, v, r, s);
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
+        tracing::debug!(
+            "Broadcasting {} collateral deposit to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            pending_tx.tx_hash()
+        );
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted stake deposit {}", tx_hash);
+        tracing::debug!(
+            "Submitted {} collateral deposit to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            tx_hash
+        );
         Ok(())
     }
 
-    /// Withdraw stake from the market.
-    pub async fn withdraw_stake(&self, value: U256) -> Result<(), MarketError> {
+    /// Withdraw collateral from the market.
+    pub async fn withdraw_collateral(&self, value: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling withdrawStake({})", value);
-        let call = self.instance.withdrawStake(value);
+        let call = self.instance.withdrawCollateral(value);
         let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting stake withdraw tx {}", pending_tx.tx_hash());
+        tracing::debug!(
+            "Broadcasting {} collateral withdraw to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            pending_tx.tx_hash()
+        );
         let tx_hash = pending_tx
             .with_timeout(Some(self.timeout))
             .watch()
             .await
             .context("failed to confirm tx")?;
-        tracing::debug!("Submitted stake withdraw {}", tx_hash);
-        self.check_stake_balance().await?;
+        tracing::debug!(
+            "Submitted {} collateral withdraw to market {:?}. Tx hash: {}",
+            value,
+            self.instance.address(),
+            tx_hash
+        );
+        self.check_collateral_balance().await?;
         Ok(())
     }
 
     /// Returns the deposited balance, in HP, of the given account.
-    pub async fn balance_of_stake(&self, account: impl Into<Address>) -> Result<U256, MarketError> {
+    pub async fn balance_of_collateral(
+        &self,
+        account: impl Into<Address>,
+    ) -> Result<U256, MarketError> {
         let account = account.into();
-        tracing::trace!("Calling balanceOfStake({})", account);
-        let balance = self.instance.balanceOfStake(account).call().await.context("call failed")?;
+        tracing::trace!("Calling balanceOfCollateral({})", account);
+        let balance =
+            self.instance.balanceOfCollateral(account).call().await.context("call failed")?;
         Ok(balance)
     }
 
-    /// Check the current stake balance against the alert config
+    /// Check the current collateral balance against the alert config
     /// and log a warning or error or below the thresholds.
-    async fn check_stake_balance(&self) -> Result<(), MarketError> {
-        let stake_balance = self.balance_of_stake(self.caller()).await?;
-        if stake_balance < self.balance_alert_config.error_threshold.unwrap_or(U256::ZERO) {
+    async fn check_collateral_balance(&self) -> Result<(), MarketError> {
+        let collateral_balance = self.balance_of_collateral(self.caller()).await?;
+        if collateral_balance < self.balance_alert_config.error_threshold.unwrap_or(U256::ZERO) {
             tracing::error!(
-                "[B-BAL-STK] stake balance {} for {} < error threshold",
-                stake_balance,
+                "[B-BAL-STK] collateral balance {} for {} < error threshold",
+                collateral_balance,
                 self.caller(),
             );
-        } else if stake_balance < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO) {
+        } else if collateral_balance
+            < self.balance_alert_config.warn_threshold.unwrap_or(U256::ZERO)
+        {
             tracing::warn!(
-                "[B-BAL-STK] stake balance {} for {} < warning threshold",
-                stake_balance,
+                "[B-BAL-STK] collateral balance {} for {} < warning threshold",
+                collateral_balance,
                 self.caller(),
             );
         } else {
-            tracing::trace!("stake balance for {} is: {}", self.caller(), stake_balance);
+            tracing::trace!("collateral balance for {} is: {}", self.caller(), collateral_balance);
         }
         Ok(())
     }
 
-    /// Returns the stake token address used by the market.
-    pub async fn stake_token_address(&self) -> Result<Address, MarketError> {
-        tracing::trace!("Calling STAKE_TOKEN_CONTRACT()");
+    /// Returns the collateral token address used by the market.
+    pub async fn collateral_token_address(&self) -> Result<Address, MarketError> {
+        tracing::trace!("Calling COLLATERAL_TOKEN_CONTRACT()");
         let address = self
             .instance
-            .STAKE_TOKEN_CONTRACT()
+            .COLLATERAL_TOKEN_CONTRACT()
             .call()
             .await
-            .context("STAKE_TOKEN_CONTRACT call failed")?
+            .context("COLLATERAL_TOKEN_CONTRACT call failed")?
             .0;
         Ok(address.into())
     }
 
-    /// Returns the stake token's symbol.
-    pub async fn stake_token_symbol(&self) -> Result<String, MarketError> {
-        let address = self.stake_token_address().await?;
+    /// Returns the collateral token's symbol.
+    pub async fn collateral_token_symbol(&self) -> Result<String, MarketError> {
+        let address = self.collateral_token_address().await?;
         let contract = IERC20::new(address, self.instance.provider());
         let symbol = contract.symbol().call().await.context("Failed to get token symbol")?;
         Ok(symbol)
     }
 
-    /// Returns the stake token's decimals.
-    pub async fn stake_token_decimals(&self) -> Result<u8, MarketError> {
-        let address = self.stake_token_address().await?;
+    /// Returns the collateral token's decimals.
+    pub async fn collateral_token_decimals(&self) -> Result<u8, MarketError> {
+        let address = self.collateral_token_address().await?;
         let contract = IERC20::new(address, self.instance.provider());
         let decimals = contract.decimals().call().await.context("Failed to get token decimals")?;
         Ok(decimals)
@@ -1454,7 +1500,7 @@ impl Offer {
         let delta = ((price - min_price) * run).div_ceil(rise);
         let delta: u64 = delta.try_into().context("Failed to convert block delta to u64")?;
 
-        Ok(self.biddingStart + delta)
+        Ok(self.rampUpStart + delta)
     }
 
     /// Calculates the price at the given time, in seconds since the UNIX epoch.
@@ -1462,7 +1508,7 @@ impl Offer {
         let max_price = U256::from(self.maxPrice);
         let min_price = U256::from(self.minPrice);
 
-        if timestamp < self.biddingStart {
+        if timestamp < self.rampUpStart {
             return Ok(self.minPrice);
         }
 
@@ -1470,10 +1516,10 @@ impl Offer {
             return Ok(U256::ZERO);
         }
 
-        if timestamp < self.biddingStart + self.rampUpPeriod as u64 {
+        if timestamp < self.rampUpStart + self.rampUpPeriod as u64 {
             let rise = max_price - min_price;
             let run = U256::from(self.rampUpPeriod);
-            let delta = U256::from(timestamp) - U256::from(self.biddingStart);
+            let delta = U256::from(timestamp) - U256::from(self.rampUpStart);
 
             Ok(min_price + (delta * rise) / run)
         } else {
@@ -1483,24 +1529,24 @@ impl Offer {
 
     /// UNIX timestamp after which the request is considered completely expired.
     pub fn deadline(&self) -> u64 {
-        self.biddingStart + (self.timeout as u64)
+        self.rampUpStart + (self.timeout as u64)
     }
 
     /// UNIX timestamp after which any lock on the request expires, and the client fee is zero.
     ///
     /// Once locked, if a valid proof is not submitted before this deadline, the prover can be
-    /// "slashed", which refunds the price to the requester and takes the prover stake.
+    /// "slashed", which refunds the price to the requester and takes the prover collateral.
     /// Additionally, the fee paid by the client is zero for proofs delivered after this time. Note
     /// that after this time, and before `timeout` a proof can still be delivered to fulfill the
     /// request.
     pub fn lock_deadline(&self) -> u64 {
-        self.biddingStart + (self.lockTimeout as u64)
+        self.rampUpStart + (self.lockTimeout as u64)
     }
 
-    /// Returns the amount of stake that the protocol awards to the prover who fills an order that
+    /// Returns the amount of collateral that the protocol awards to the prover who fills an order that
     /// was locked by another prover but not fulfilled by lock expiry.
-    pub fn stake_reward_if_locked_and_not_fulfilled(&self) -> U256 {
-        self.lockStake
+    pub fn collateral_reward_if_locked_and_not_fulfilled(&self) -> U256 {
+        self.lockCollateral
             .checked_mul(U256::from(FRACTION_STAKE_NUMERATOR))
             .unwrap()
             .checked_div(U256::from(FRACTION_STAKE_DENOMINATOR))
@@ -1612,11 +1658,11 @@ mod tests {
         Offer {
             minPrice: ether("1"),
             maxPrice: ether("2"),
-            biddingStart: bidding_start,
+            rampUpStart: bidding_start,
             rampUpPeriod: 100,
             timeout: 500,
             lockTimeout: 500,
-            lockStake: ether("1"),
+            lockCollateral: ether("1"),
         }
     }
 
@@ -1659,8 +1705,8 @@ mod tests {
     }
 
     #[test]
-    fn test_stake_reward_if_locked_and_not_fulfilled() {
+    fn test_collateral_reward_if_locked_and_not_fulfilled() {
         let offer = &test_offer(100);
-        assert_eq!(offer.stake_reward_if_locked_and_not_fulfilled(), ether("0.8"));
+        assert_eq!(offer.collateral_reward_if_locked_and_not_fulfilled(), ether("0.5"));
     }
 }

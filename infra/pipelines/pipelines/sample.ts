@@ -11,7 +11,7 @@ interface SamplePipelineArgs {
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "sample";
 // The branch that we should deploy from on push.
-const BRANCH_NAME = "main";
+const BRANCH_NAME = "release-0.14";
 // The buildspec for the CodeBuild project that deploys our Pulumi stacks to the staging and prod accounts.
 // Note in pre-build we assume the deployment role for the given account before running pulumi commands, so
 // that we deploy to the target account.
@@ -69,17 +69,17 @@ export class SamplePipeline extends pulumi.ComponentResource {
         {
           name: "Github",
           actions: [{
-              name: "Github",
-              category: "Source",
-              owner: "AWS",
-              provider: "CodeStarSourceConnection",
-              version: "1",
-              outputArtifacts: ["source_output"],
-              configuration: {
-                  ConnectionArn: connection.arn,
-                  FullRepositoryId: "boundless-xyz/boundless",
-                  BranchName: BRANCH_NAME,
-              },
+            name: "Github",
+            category: "Source",
+            owner: "AWS",
+            provider: "CodeStarSourceConnection",
+            version: "1",
+            outputArtifacts: ["source_output"],
+            configuration: {
+              ConnectionArn: connection.arn,
+              FullRepositoryId: "boundless-xyz/boundless",
+              BranchName: BRANCH_NAME,
+            },
           }],
         },
         {
@@ -103,11 +103,12 @@ export class SamplePipeline extends pulumi.ComponentResource {
         {
           name: "DeployProduction",
           actions: [
-            { name: "ApproveDeployToProduction", 
-              category: "Approval", 
-              owner: "AWS", 
-              provider: "Manual", 
-              version: "1", 
+            {
+              name: "ApproveDeployToProduction",
+              category: "Approval",
+              owner: "AWS",
+              provider: "Manual",
+              version: "1",
               runOrder: 1,
               configuration: {}
             },

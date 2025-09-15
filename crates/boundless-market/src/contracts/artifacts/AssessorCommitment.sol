@@ -19,12 +19,14 @@ struct AssessorCommitment {
     bytes32 requestDigest;
     /// @notice The claim digest.
     bytes32 claimDigest;
+    /// @notice The fulfillment data digest.
+    bytes32 fulfillmentDataDigest;
 }
 
 library AssessorCommitmentLibrary {
     /// @dev Id is uint256 as for user defined types, the eip712 type hash uses the underlying type.
     string constant ASSESSOR_COMMITMENT_TYPE =
-        "AssessorCommitment(uint256 index,uint256 id,bytes32 requestDigest,bytes32 claimDigest)";
+        "AssessorCommitment(uint256 index,uint256 id,bytes32 requestDigest,bytes32 claimDigest,bytes32 fulfillmentDataDigest)";
     bytes32 constant ASSESSOR_COMMITMENT_TYPEHASH = keccak256(bytes(ASSESSOR_COMMITMENT_TYPE));
 
     /// @notice Computes the EIP-712 digest for the given commitment.
@@ -37,7 +39,8 @@ library AssessorCommitmentLibrary {
                 commitment.index,
                 commitment.id,
                 commitment.requestDigest,
-                commitment.claimDigest
+                commitment.claimDigest,
+                commitment.fulfillmentDataDigest
             )
         );
     }

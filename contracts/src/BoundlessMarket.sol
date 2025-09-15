@@ -9,13 +9,16 @@ pragma solidity ^0.8.24;
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {
+    IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib, VerificationFailed
+} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket} from "./IBoundlessMarket.sol";
@@ -25,6 +28,7 @@ import {AssessorJournal} from "./types/AssessorJournal.sol";
 import {AssessorCallback} from "./types/AssessorCallback.sol";
 import {AssessorCommitment} from "./types/AssessorCommitment.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
+import {FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
@@ -39,7 +43,7 @@ contract BoundlessMarket is
     IBoundlessMarket,
     Initializable,
     EIP712Upgradeable,
-    Ownable2StepUpgradeable,
+    AccessControlUpgradeable,
     UUPSUpgradeable
 {
     using ReceiptClaimLib for ReceiptClaim;
@@ -49,6 +53,9 @@ contract BoundlessMarket is
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
+
+    /// @notice Admin role identifier
+    bytes32 public constant ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
 
     /// Mapping of request ID to lock-in state. Non-zero for requests that are locked in.
     mapping(RequestId => RequestLock) public requestLocks;
@@ -64,7 +71,7 @@ contract BoundlessMarket is
     bytes32 public immutable ASSESSOR_ID;
     string private imageUrl;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable STAKE_TOKEN_CONTRACT;
+    address public immutable COLLATERAL_TOKEN_CONTRACT;
 
     /// @notice Max gas allowed for verification of an application proof, when selector is default.
     /// @dev If no selector is specified as part of the request's requirements, the prover must
@@ -78,12 +85,12 @@ contract BoundlessMarket is
     /// requests in order to make gas costs bounded.
     uint256 public constant ERC1271_MAX_GAS_FOR_CHECK = 100000;
 
-    /// @notice When a prover is slashed for failing to fulfill a request, a portion of the stake
+    /// @notice When a prover is slashed for failing to fulfill a request, a portion of the collateral
     /// is burned, and the remaining portion is either send to the prover that ultimately fulfilled
     /// the order, or to the market treasury. This fraction controls that ratio.
-    /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
+    /// @dev The value is configured as a constant to avoid accessing storage and thus paying for the
     /// gas of an SLOAD. Can only be changed via contract upgrade.
-    uint256 public constant SLASHING_BURN_BPS = 2000;
+    uint256 public constant SLASHING_BURN_BPS = 5000;
 
     /// @notice When an order is fulfilled, the market takes a fee based on the price of the order.
     /// This fraction is multiplied by the price to decide the fee.
@@ -91,27 +98,50 @@ contract BoundlessMarket is
     /// gas of an SLOAD. Can only be changed via contract upgrade.
     uint96 public constant MARKET_FEE_BPS = 0;
 
+    /// @notice The ID of the deprecated assessor image.
+    /// @dev After a contract upgrade, the ASSESSOR_ID might change, so this value is used to
+    /// keep active the previous version of the assessor until its expiration. In this way,
+    /// contract upgrades can be performed without disrupting ongoing fulfillments.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 public immutable DEPRECATED_ASSESSOR_ID;
+
+    /// @notice The expiration timestamp of the deprecated assessor.
+    /// @dev This value is used to determine when the previous version of the assessor is no longer
+    /// active. Any assessor seals that were created with the deprecated image ID must be fulfilled
+    /// before this timestamp.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint64 public immutable DEPRECATED_ASSESSOR_EXPIRES_AT;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(IRiscZeroVerifier verifier, bytes32 assessorId, address stakeTokenContract) {
+    constructor(
+        IRiscZeroVerifier verifier,
+        bytes32 assessorId,
+        bytes32 deprecatedAssessorId,
+        uint32 deprecatedAssessorDuration,
+        address collateralTokenContract
+    ) {
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
-        STAKE_TOKEN_CONTRACT = stakeTokenContract;
+        COLLATERAL_TOKEN_CONTRACT = collateralTokenContract;
+        DEPRECATED_ASSESSOR_ID = deprecatedAssessorId;
+        DEPRECATED_ASSESSOR_EXPIRES_AT = uint64(block.timestamp) + deprecatedAssessorDuration;
 
         _disableInitializers();
     }
 
     function initialize(address initialOwner, string calldata _imageUrl) external initializer {
-        __Ownable_init(initialOwner);
+        __AccessControl_init();
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
+        _grantRole(ADMIN_ROLE, initialOwner);
         imageUrl = _imageUrl;
     }
 
-    function setImageUrl(string calldata _imageUrl) external onlyOwner {
+    function setImageUrl(string calldata _imageUrl) external onlyRole(ADMIN_ROLE) {
         imageUrl = _imageUrl;
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
 
     // NOTE: We could verify the client signature here, but this adds about 18k gas (with a naive
     // implementation), doubling the cost of calling this method. It is not required for protocol
@@ -147,7 +177,7 @@ contract BoundlessMarket is
     }
 
     /// @notice Locks the request to the prover. Deducts funds from the client for payment
-    /// and funding from the prover for locking stake.
+    /// and funding from the prover for locking collateral.
     function _lockRequest(
         ProofRequest calldata request,
         bytes calldata clientSignature,
@@ -172,19 +202,19 @@ contract BoundlessMarket is
         // Compute the current price offered by the reverse Dutch auction.
         uint96 price = request.offer.priceAt(uint64(block.timestamp)).toUint96();
 
-        // Deduct payment from the client account and stake from the prover account.
+        // Deduct payment from the client account and collateral from the prover account.
         Account storage clientAccount = accounts[client];
         if (clientAccount.balance < price) {
             revert InsufficientBalance(client);
         }
         Account storage proverAccount = accounts[prover];
-        if (proverAccount.stakeBalance < request.offer.lockStake) {
+        if (proverAccount.collateralBalance < request.offer.lockCollateral) {
             revert InsufficientBalance(prover);
         }
 
         unchecked {
             clientAccount.balance -= price;
-            proverAccount.stakeBalance -= request.offer.lockStake.toUint96();
+            proverAccount.collateralBalance -= request.offer.lockCollateral.toUint96();
         }
 
         // Record the lock for the request and emit an event.
@@ -194,7 +224,7 @@ contract BoundlessMarket is
             requestLockFlags: 0,
             lockDeadline: lockDeadline,
             deadlineDelta: uint256(deadline - lockDeadline).toUint24(),
-            stake: request.offer.lockStake.toUint96(),
+            collateral: request.offer.lockCollateral.toUint96(),
             requestDigest: requestDigest
         });
 
@@ -206,17 +236,9 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
-        (address client, bool smartContractSigned) = request.id.clientAndIsSmartContractSigned();
+        address client = request.id.client();
 
-        bytes32 requestHash;
-        // We only need to validate the signature if it is a smart contract signature. This is because
-        // EOA signatures are validated in the assessor during fulfillment, so the assessor guarantees
-        // that the digest that is priced is one that was signed by the client.
-        if (smartContractSigned) {
-            requestHash = _verifyClientSignature(request, client, clientSignature);
-        } else {
-            requestHash = _hashTypedDataV4(request.eip712Digest());
-        }
+        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
 
         (, uint64 deadline) = request.validate();
         bool expired = deadline < block.timestamp;
@@ -255,16 +277,17 @@ contract BoundlessMarket is
         // Verify the application receipts.
         for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
+            bytes32 fulfillmentDataDigest = fill.fulfillmentDataDigest();
 
-            bytes32 claimDigest = ReceiptClaimLib.ok(fill.imageId, sha256(fill.journal)).digest();
-            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, claimDigest).eip712Digest();
+            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, fill.claimDigest, fulfillmentDataDigest)
+                .eip712Digest();
 
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
             if (!hasSelector[i]) {
-                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, claimDigest));
+                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, fill.claimDigest));
             } else {
-                VERIFIER.verifyIntegrity(Receipt(fill.seal, claimDigest));
+                VERIFIER.verifyIntegrity(Receipt(fill.seal, fill.claimDigest));
             }
         }
 
@@ -283,7 +306,13 @@ contract BoundlessMarket is
             )
         );
         // Verification of the assessor seal does not need to comply with DEFAULT_MAX_GAS_FOR_VERIFY.
-        VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest);
+        try VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest) {}
+        catch {
+            if (block.timestamp > DEPRECATED_ASSESSOR_EXPIRES_AT) {
+                revert VerificationFailed();
+            }
+            VERIFIER.verify(assessorReceipt.seal, DEPRECATED_ASSESSOR_ID, assessorJournalDigest);
+        }
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -334,8 +363,15 @@ contract BoundlessMarket is
 
             uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
             if (callbackIndexPlusOne > 0) {
-                AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
-                _executeCallback(fill.id, callback.addr, callback.gasLimit, fill.imageId, fill.journal, fill.seal);
+                if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
+                    (bytes32 imageId, bytes calldata journal) =
+                        FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
+                    AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
+                    _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
+                } else {
+                    // A callback was requested, but it cannot be fulfilled, so revert.
+                    revert UnfulfillableCallback();
+                }
             }
         }
     }
@@ -456,7 +492,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
@@ -472,7 +508,7 @@ contract BoundlessMarket is
             price = _applyMarketFee(price);
         }
         accounts[assessorProver].balance += price;
-        accounts[assessorProver].stakeBalance += lock.stake;
+        accounts[assessorProver].collateralBalance += lock.collateral;
     }
 
     /// @notice For a request that was locked, and now the lock has expired. Marks the request as fulfilled,
@@ -497,7 +533,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
         }
 
         // Deduct any additionally owned funds from client account. The client was already charged
@@ -556,7 +592,7 @@ contract BoundlessMarket is
 
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id, assessorProver, fill);
+        emit RequestFulfilled(id, assessorProver, fill.requestDigest);
 
         // Deduct the funds from client account.
         // NOTE: In the case of InsufficientBalance, the payment can never be transferred in the
@@ -676,7 +712,7 @@ contract BoundlessMarket is
         }
 
         // You can only slash a request after the request fully expires, so that if the request
-        // does get fulfilled, we know which prover should receive a portion of the stake.
+        // does get fulfilled, we know which prover should receive a portion of the collateral.
         if (block.timestamp <= lock.deadline()) {
             revert RequestIsNotExpired({requestId: requestId, deadline: lock.deadline()});
         }
@@ -685,28 +721,27 @@ contract BoundlessMarket is
         // In both cases the locker should be slashed.
         requestLocks[requestId].setSlashed();
 
-        // Calculate the portion of stake that should be burned vs sent to the prover.
-        uint256 burnValue = uint256(lock.stake) * SLASHING_BURN_BPS / 10000;
+        // Calculate the portion of collateral that should be burned vs sent to the prover.
+        uint256 burnValue = uint256(lock.collateral) * SLASHING_BURN_BPS / 10000;
 
         // If a prover fulfilled the request after the lock deadline, that prover
-        // receives the unburned portion of the stake as a reward.
-        // Otherwise the request expired unfulfilled, unburnt stake accrues to the market treasury,
+        // receives the unburned portion of the collateral as a reward.
+        // Otherwise the request expired unfulfilled, unburnt collateral accrues to the market treasury,
         // and we refund the client the price they paid for the request at lock time.
-        uint96 transferValue = (uint256(lock.stake) - burnValue).toUint96();
-        address stakeRecipient = lock.prover;
+        uint96 transferValue = (uint256(lock.collateral) - burnValue).toUint96();
+        address collateralRecipient = lock.prover;
         if (lock.isProverPaidAfterLockDeadline()) {
             // At this point lock.prover is the prover that ultimately fulfilled the request, not
-            // the prover that locked the request. Transfer them the unburnt stake.
-            accounts[stakeRecipient].stakeBalance += transferValue;
+            // the prover that locked the request. Transfer them the unburnt collateral.
+            accounts[collateralRecipient].collateralBalance += transferValue;
         } else {
-            stakeRecipient = address(this);
-            accounts[stakeRecipient].stakeBalance += transferValue;
+            collateralRecipient = address(this);
+            accounts[collateralRecipient].collateralBalance += transferValue;
             accounts[client].balance += lock.price;
         }
 
-        ERC20(STAKE_TOKEN_CONTRACT).transfer(address(0xdEaD), burnValue);
-        (burnValue);
-        emit ProverSlashed(requestId, burnValue, transferValue, stakeRecipient);
+        ERC20Burnable(COLLATERAL_TOKEN_CONTRACT).burn(burnValue);
+        emit ProverSlashed(requestId, burnValue, transferValue, collateralRecipient);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -746,7 +781,7 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     /// @dev We withdraw from address(this) but send to msg.sender, so _withdraw is not used.
-    function withdrawFromTreasury(uint256 value) public onlyOwner {
+    function withdrawFromTreasury(uint256 value) public onlyRole(ADMIN_ROLE) {
         if (accounts[address(this)].balance < value.toUint96()) {
             revert InsufficientBalance(address(this));
         }
@@ -761,56 +796,56 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function depositStake(uint256 value) external {
+    function depositCollateral(uint256 value) external {
         // Transfer tokens from user to market
-        _depositStake(msg.sender, value);
+        _depositCollateral(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function depositStakeWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+    function depositCollateralWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         // Transfer tokens from user to market
-        try ERC20(STAKE_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
-        _depositStake(msg.sender, value);
+        try ERC20(COLLATERAL_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
+        _depositCollateral(msg.sender, value);
     }
 
-    function _depositStake(address from, uint256 value) internal {
-        ERC20(STAKE_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
-        accounts[from].stakeBalance += value.toUint96();
-        emit StakeDeposit(from, value);
+    function _depositCollateral(address from, uint256 value) internal {
+        ERC20(COLLATERAL_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
+        accounts[from].collateralBalance += value.toUint96();
+        emit CollateralDeposit(from, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function withdrawStake(uint256 value) public {
-        if (accounts[msg.sender].stakeBalance < value.toUint96()) {
+    function withdrawCollateral(uint256 value) public {
+        if (accounts[msg.sender].collateralBalance < value.toUint96()) {
             revert InsufficientBalance(msg.sender);
         }
         unchecked {
-            accounts[msg.sender].stakeBalance -= value.toUint96();
+            accounts[msg.sender].collateralBalance -= value.toUint96();
         }
         // Transfer tokens from market to user
-        bool success = ERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        bool success = ERC20(COLLATERAL_TOKEN_CONTRACT).transfer(msg.sender, value);
         if (!success) revert TransferFailed();
 
-        emit StakeWithdrawal(msg.sender, value);
+        emit CollateralWithdrawal(msg.sender, value);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function balanceOfStake(address addr) public view returns (uint256) {
-        return uint256(accounts[addr].stakeBalance);
+    function balanceOfCollateral(address addr) public view returns (uint256) {
+        return uint256(accounts[addr].collateralBalance);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function withdrawFromStakeTreasury(uint256 value) public onlyOwner {
-        if (accounts[address(this)].stakeBalance < value.toUint96()) {
+    function withdrawFromCollateralTreasury(uint256 value) public onlyRole(ADMIN_ROLE) {
+        if (accounts[address(this)].collateralBalance < value.toUint96()) {
             revert InsufficientBalance(address(this));
         }
         unchecked {
-            accounts[address(this)].stakeBalance -= value.toUint96();
+            accounts[address(this)].collateralBalance -= value.toUint96();
         }
-        bool success = ERC20(STAKE_TOKEN_CONTRACT).transfer(msg.sender, value);
+        bool success = ERC20(COLLATERAL_TOKEN_CONTRACT).transfer(msg.sender, value);
         if (!success) revert TransferFailed();
 
-        emit StakeWithdrawal(address(this), value);
+        emit CollateralWithdrawal(address(this), value);
     }
 
     /// @inheritdoc IBoundlessMarket

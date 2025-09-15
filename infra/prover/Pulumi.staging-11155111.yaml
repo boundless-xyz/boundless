@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGwxtZQaXmuKc6n1f
 config:
   aws:region: us-west-2
   base-prover:DOCKER_DIR: "../../"
-  base-prover:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64
+  base-prover:SET_VERIFIER_ADDR: 0xcb9D14347b1e816831ECeE46EC199144F360B55c
   base-prover:BOUNDLESS_MARKET_ADDR: 0x7b36Ed56ec6045679C178205a81AE878d85B773d
   base-prover:ORDER_STREAM_URL:
     secure: v1:oQ8oamf0p1U35C+r:/N9gplcGVbjZ35rDdI1+F2SAXFg6u8HPjPos1hc1citamlHoVIZ4VMCc1AWYrwUCclgMcwJ9GTAQ+/tX6hYxw738CBNKIaUTQOLs3TV+iXSIIJzgU5TtwLJZKHfQtg==
@@ -28,3 +28,5 @@ config:
   bento-prover:PRIVATE_KEY:
     secure: v1:AahxbrDObsEuAjpx:YDw8lqLxNq1CDhvIn4DEDvNn2JVoH79A0nFbTXbPeJb24omW13zK0u13GeCEH7XYEqdKfeRnv1rVkEVB7anoeUzXvhdSp3z5frKi14D1YJo=
   bento-prover:LOG_JSON: "true"
+  bento-prover:POVW_LOG_ID:
+    secure: v1:mLlQKjLxd1R44DC1:D1UvHNo4LlRxjS7RRAJoWlZVkJNDwsFEomjETa3GDua8wF72c/zpCqgTa2we8htZtxF+A3R2eVjEug==

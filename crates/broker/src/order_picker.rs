@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use hex::FromHex;
 use risc0_zkvm::sha::Digest;
 use sha2::{Digest as Sha2Digest, Sha256};
 use std::collections::BTreeMap;
@@ -43,7 +44,10 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, RequestError, RequestInputType},
+    contracts::{
+        boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestError,
+        RequestInputType,
+    },
     selector::SupportedSelectors,
 };
 use moka::future::Cache;
@@ -74,19 +78,19 @@ type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum OrderPickerErr {
-    #[error("{code} failed to fetch / push input: {0}", code = self.code())]
+    #[error("{code} failed to fetch / push input: {0:#}", code = self.code())]
     FetchInputErr(#[source] Arc<anyhow::Error>),
 
-    #[error("{code} failed to fetch / push image: {0}", code = self.code())]
+    #[error("{code} failed to fetch / push image: {0:#}", code = self.code())]
     FetchImageErr(#[source] Arc<anyhow::Error>),
 
     #[error("{code} invalid request: {0}", code = self.code())]
     RequestError(Arc<RequestError>),
 
-    #[error("{code} RPC error: {0:?}", code = self.code())]
+    #[error("{code} RPC error: {0:#}", code = self.code())]
     RpcErr(Arc<anyhow::Error>),
 
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedErr(Arc<anyhow::Error>),
 }
 
@@ -126,7 +130,7 @@ pub struct OrderPicker<P> {
     // TODO ideal not to wrap in mutex, but otherwise would require supervisor refactor, try to find alternative
     new_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
     priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
-    stake_token_decimals: u8,
+    collateral_token_decimals: u8,
     order_cache: OrderCache,
     preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
@@ -166,7 +170,7 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
-        stake_token_decimals: u8,
+        collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
     ) -> Self {
         let market = BoundlessMarketService::new(
@@ -185,7 +189,7 @@ where
             supported_selectors: SupportedSelectors::default(),
             new_order_rx: Arc::new(Mutex::new(new_order_rx)),
             priced_orders_tx: order_result_tx,
-            stake_token_decimals,
+            collateral_token_decimals,
             order_cache: Arc::new(
                 Cache::builder()
                     .max_capacity(ORDER_DEDUP_CACHE_SIZE)
@@ -304,7 +308,7 @@ where
 
         let expiration = order.expiry();
         let lockin_stake =
-            if lock_expired { U256::ZERO } else { U256::from(order.request.offer.lockStake) };
+            if lock_expired { U256::ZERO } else { U256::from(order.request.offer.lockCollateral) };
 
         if expiration <= now {
             tracing::info!("Removing order {order_id} because it has expired");
@@ -362,15 +366,15 @@ where
 
         // Check if the stake is sane and if we can afford it
         // For lock expired orders, we don't check the max stake because we can't lock those orders.
-        let max_stake = {
+        let max_collateral: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            parse_units(&config.market.max_stake, self.stake_token_decimals)
-                .context("Failed to parse max_stake")?
+            parse_units(&config.market.max_collateral, self.collateral_token_decimals)
+                .context("Failed to parse max_collateral")?
                 .into()
         };
 
-        if !lock_expired && lockin_stake > max_stake {
-            tracing::info!("Removing high stake order {order_id}, lock stake: {lockin_stake}, max stake: {max_stake}");
+        if !lock_expired && lockin_stake > max_collateral {
+            tracing::info!("Removing high stake order {order_id}, lock stake: {lockin_stake}, max stake: {max_collateral}");
             return Ok(Skip);
         }
 
@@ -476,21 +480,21 @@ where
         );
 
         // Create cache key based on input type
-        let image_id = Digest::from(order.request.requirements.imageId.0);
+        let predicate_data = order.request.requirements.predicate.data.to_vec();
         let cache_key = match order.request.input.inputType {
             RequestInputType::Url => {
                 let input_url = std::str::from_utf8(&order.request.input.data)
                     .context("input url is not utf8")
                     .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?
                     .to_string();
-                PreflightCacheKey { image_id, input: InputCacheKey::Url(input_url) }
+                PreflightCacheKey { predicate_data, input: InputCacheKey::Url(input_url) }
             }
             RequestInputType::Inline => {
                 // For inline inputs, use SHA256 hash of the data
                 let mut hasher = Sha256::new();
                 Sha2Digest::update(&mut hasher, &order.request.input.data);
                 let input_hash: [u8; 32] = hasher.finalize().into();
-                PreflightCacheKey { image_id, input: InputCacheKey::Hash(input_hash) }
+                PreflightCacheKey { predicate_data, input: InputCacheKey::Hash(input_hash) }
             }
             RequestInputType::__Invalid => {
                 return Err(OrderPickerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
@@ -506,7 +510,7 @@ where
             let config = self.config.clone();
             let request = order.request.clone();
             let order_id_clone = order_id.clone();
-            let cache_key_clone = cache_key.clone();
+            let cache_key_clone: PreflightCacheKey = cache_key.clone();
 
             let cache_cloned = self.preflight_cache.clone();
             let result = tokio::task::spawn(async move {
@@ -556,10 +560,10 @@ where
                             }
                             Err(err) => match err {
                                 ProverError::ProvingFailed(ref err_msg) => {
-                                    if err_msg.contains("Session limit exceeded") {
+                                    if err_msg.contains("Session limit exceeded") 
+                                        || err_msg.contains("Execution stopped intentionally due to session limit") {
                                         tracing::debug!(
-                                            "Skipping order {order_id_clone} due to session limit exceeded: {}",
-                                            err_msg
+                                            "Skipping order {order_id_clone} due to intentional execution limit of {exec_limit_cycles}",
                                         );
                                         Ok(PreflightCacheValue::Skip {
                                             cached_limit: exec_limit_cycles,
@@ -605,7 +609,7 @@ where
         };
 
         // Handle the preflight result
-        let (exec_session_id, cycle_count) = match preflight_result? {
+        let (exec_session_id, cycle_count, image_id) = match preflight_result? {
             PreflightCacheValue::Success { exec_session_id, cycle_count, image_id, input_id } => {
                 tracing::debug!(
                     "Using preflight result for {order_id}: session id {} with {} mcycles",
@@ -617,7 +621,7 @@ where
                 order.image_id = Some(image_id.clone());
                 order.input_id = Some(input_id.clone());
 
-                (exec_session_id, cycle_count)
+                (exec_session_id, cycle_count, image_id)
             }
             PreflightCacheValue::Skip { .. } => {
                 return Ok(Skip);
@@ -657,7 +661,13 @@ where
         }
 
         // Validate the predicates:
-        if !order.request.requirements.predicate.eval(journal.clone()) {
+        let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
+            .map_err(|e| OrderPickerErr::RequestError(Arc::new(e.into())))?;
+        let eval_data = FulfillmentData::from_image_id_and_journal(
+            Digest::from_hex(image_id).unwrap(),
+            journal,
+        );
+        if predicate.eval(&eval_data).is_none() {
             tracing::info!("Order {order_id} predicate check failed, skipping");
             return Ok(Skip);
         }
@@ -709,7 +719,7 @@ where
             format_ether(U256::from(order.request.offer.maxPrice)),
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            format_units(U256::from(order.request.offer.lockStake), self.stake_token_decimals).unwrap_or_default(),
+            format_units(U256::from(order.request.offer.lockCollateral), self.collateral_token_decimals).unwrap_or_default(),
             format_ether(order_gas_cost),
         );
 
@@ -742,7 +752,7 @@ where
                 .context("Failed to get target price timestamp")?
         };
 
-        let expiry_secs = order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
+        let expiry_secs = order.request.offer.rampUpStart + order.request.offer.lockTimeout as u64;
 
         Ok(Lock { total_cycles: proof_res.stats.total_cycles, target_timestamp_secs, expiry_secs })
     }
@@ -754,43 +764,46 @@ where
         order: &OrderRequest,
         proof_res: &ProofResult,
     ) -> Result<OrderPricingOutcome, OrderPickerErr> {
-        let config_min_mcycle_price_stake_tokens: U256 = {
+        let config_min_mcycle_price_collateral_tokens: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
-            parse_units(&config.market.mcycle_price_stake_token, self.stake_token_decimals)
-                .context("Failed to parse mcycle_price")?
-                .into()
+            parse_units(
+                &config.market.mcycle_price_collateral_token,
+                self.collateral_token_decimals,
+            )
+            .context("Failed to parse mcycle_price")?
+            .into()
         };
 
         let total_cycles = U256::from(proof_res.stats.total_cycles);
 
         // Reward for the order is a fraction of the stake once the lock has expired
-        let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
+        let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
         let mcycle_price_in_stake_tokens = price.saturating_mul(ONE_MILLION) / total_cycles;
 
         tracing::info!(
-            "Order price: {} (stake tokens) - cycles: {} - mcycle price: {} (stake tokens), config_min_mcycle_price_stake_tokens: {} (stake tokens)",
+            "Order price: {} (stake tokens) - cycles: {} - mcycle price: {} (stake tokens), config_min_mcycle_price_collateral_tokens: {} (stake tokens)",
             format_ether(price),
             proof_res.stats.total_cycles,
             format_ether(mcycle_price_in_stake_tokens),
-            format_ether(config_min_mcycle_price_stake_tokens),
+            format_ether(config_min_mcycle_price_collateral_tokens),
         );
 
         // Skip the order if it will never be worth it
-        if mcycle_price_in_stake_tokens < config_min_mcycle_price_stake_tokens {
+        if mcycle_price_in_stake_tokens < config_min_mcycle_price_collateral_tokens {
             tracing::info!(
                 "Removing under priced order (slashed stake reward too low) {} (stake price {} < config min stake price {})",
                 order.id(),
                 format_ether(mcycle_price_in_stake_tokens),
-                format_ether(config_min_mcycle_price_stake_tokens)
+                format_ether(config_min_mcycle_price_collateral_tokens)
             );
             return Ok(Skip);
         }
 
         Ok(ProveAfterLockExpire {
             total_cycles: proof_res.stats.total_cycles,
-            lock_expire_timestamp_secs: order.request.offer.biddingStart
+            lock_expire_timestamp_secs: order.request.offer.rampUpStart
                 + order.request.offer.lockTimeout as u64,
-            expiry_secs: order.request.offer.biddingStart + order.request.offer.timeout as u64,
+            expiry_secs: order.request.offer.rampUpStart + order.request.offer.timeout as u64,
         })
     }
 
@@ -845,7 +858,8 @@ where
     ///
     /// This is defined as the balance in staking tokens of the signer account minus any pending locked stake.
     async fn available_stake_balance(&self) -> Result<U256> {
-        let balance = self.market.balance_of_stake(self.provider.default_signer_address()).await?;
+        let balance =
+            self.market.balance_of_collateral(self.provider.default_signer_address()).await?;
         Ok(balance)
     }
 
@@ -874,7 +888,7 @@ where
             max_mcycle_limit,
             peak_prove_khz,
             min_mcycle_price,
-            min_mcycle_price_stake_token,
+            min_mcycle_price_collateral_token,
             priority_requestor_addresses,
         ) = {
             let config = self.config.lock_all().context("Failed to read config")?;
@@ -882,22 +896,25 @@ where
                 config.market.max_mcycle_limit,
                 config.market.peak_prove_khz,
                 parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?,
-                parse_units(&config.market.mcycle_price_stake_token, self.stake_token_decimals)
-                    .context("Failed to parse mcycle_price")?
-                    .into(),
+                parse_units(
+                    &config.market.mcycle_price_collateral_token,
+                    self.collateral_token_decimals,
+                )
+                .context("Failed to parse mcycle_price")?
+                .into(),
                 config.market.priority_requestor_addresses.clone(),
             )
         };
 
         // Pricing based cycle limits: Calculate the cycle limit based on stake price
-        let stake_based_limit = if min_mcycle_price_stake_token == U256::ZERO {
-            tracing::warn!("min_mcycle_price_stake_token is 0, setting unlimited exec limit");
+        let stake_based_limit = if min_mcycle_price_collateral_token == U256::ZERO {
+            tracing::warn!("min_mcycle_price_collateral_token is 0, setting unlimited exec limit");
             u64::MAX
         } else {
-            let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
+            let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
 
             let initial_stake_based_limit =
-                (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
+                (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_collateral_token))
                     .try_into()
                     .unwrap_or(u64::MAX);
 
@@ -927,10 +944,12 @@ where
 
             if eth_based_limit > stake_based_limit {
                 // Eth based limit is higher, use that for both preflight and prove
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) > stake based limit ({stake_based_limit}), using eth based limit for both preflight and prove");
                 preflight_limit = eth_based_limit;
                 prove_limit = eth_based_limit;
             } else {
                 // Otherwise lower the prove cycle limit for this order variant
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) < stake based limit ({stake_based_limit}), using eth based limit for prove");
                 prove_limit = eth_based_limit;
             }
             tracing::debug!(
@@ -1020,7 +1039,7 @@ enum InputCacheKey {
 /// Key type for the preflight cache
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 struct PreflightCacheKey {
-    image_id: Digest,
+    predicate_data: Vec<u8>,
     input: InputCacheKey,
 }
 
@@ -1333,19 +1352,18 @@ pub(crate) mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{address, aliases::U96, utils::parse_units, Address, Bytes, FixedBytes, B256},
+        primitives::{address, aliases::U96, utils::parse_units, Address, Bytes, FixedBytes},
         providers::{ext::AnvilApi, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
     use async_trait::async_trait;
     use boundless_market::contracts::{
-        Callback, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
-        Requirements,
+        Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
     };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
-    use boundless_market_test_utils::{
-        deploy_boundless_market, deploy_hit_points, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH,
-        ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID,
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
+        market::{deploy_boundless_market, deploy_hit_points},
     };
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::sha::Digest;
@@ -1409,13 +1427,7 @@ pub(crate) mod tests {
             Box::new(OrderRequest {
                 request: ProofRequest::new(
                     RequestId::new(self.provider.default_signer_address(), params.order_index),
-                    Requirements::new(
-                        image_id,
-                        Predicate {
-                            predicateType: PredicateType::PrefixMatch,
-                            data: Default::default(),
-                        },
-                    ),
+                    Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
                     image_url,
                     RequestInput::builder()
                         .write_slice(&[0x41, 0x41, 0x41, 0x41])
@@ -1424,11 +1436,11 @@ pub(crate) mod tests {
                     Offer {
                         minPrice: params.min_price,
                         maxPrice: params.max_price,
-                        biddingStart: params.bidding_start,
+                        rampUpStart: params.bidding_start,
                         timeout: params.timeout,
                         lockTimeout: params.lock_timeout,
                         rampUpPeriod: 1,
-                        lockStake: params.lock_stake,
+                        lockCollateral: params.lock_stake,
                     },
                 ),
                 target_timestamp: None,
@@ -1458,13 +1470,7 @@ pub(crate) mod tests {
             Box::new(OrderRequest {
                 request: ProofRequest::new(
                     RequestId::new(self.provider.default_signer_address(), params.order_index),
-                    Requirements::new(
-                        image_id,
-                        Predicate {
-                            predicateType: PredicateType::PrefixMatch,
-                            data: Default::default(),
-                        },
-                    ),
+                    Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
                     image_url,
                     RequestInput::builder()
                         .write(&cycles)
@@ -1476,11 +1482,11 @@ pub(crate) mod tests {
                     Offer {
                         minPrice: params.min_price,
                         maxPrice: params.max_price,
-                        biddingStart: params.bidding_start,
+                        rampUpStart: params.bidding_start,
                         timeout: params.timeout,
                         lockTimeout: params.lock_timeout,
                         rampUpPeriod: 1,
-                        lockStake: params.lock_stake,
+                        lockCollateral: params.lock_stake,
                     },
                 ),
                 target_timestamp: None,
@@ -1502,7 +1508,7 @@ pub(crate) mod tests {
         initial_signer_eth: Option<i32>,
         initial_hp: Option<U256>,
         config: Option<ConfigLock>,
-        stake_token_decimals: Option<u8>,
+        collateral_token_decimals: Option<u8>,
         prover: Option<ProverObj>,
     }
 
@@ -1520,8 +1526,8 @@ pub(crate) mod tests {
         pub(crate) fn with_prover(self, prover: ProverObj) -> Self {
             Self { prover: Some(prover), ..self }
         }
-        pub(crate) fn with_stake_token_decimals(self, decimals: u8) -> Self {
-            Self { stake_token_decimals: Some(decimals), ..self }
+        pub(crate) fn with_collateral_token_decimals(self, decimals: u8) -> Self {
+            Self { collateral_token_decimals: Some(decimals), ..self }
         }
         pub(crate) async fn build(
             self,
@@ -1561,10 +1567,10 @@ pub(crate) mod tests {
 
             if let Some(initial_hp) = self.initial_hp {
                 tracing::debug!("Setting initial locked hitpoints to {}", initial_hp);
-                boundless_market.deposit_stake_with_permit(initial_hp, &signer).await.unwrap();
+                boundless_market.deposit_collateral_with_permit(initial_hp, &signer).await.unwrap();
                 assert_eq!(
                     boundless_market
-                        .balance_of_stake(provider.default_signer_address())
+                        .balance_of_collateral(provider.default_signer_address())
                         .await
                         .unwrap(),
                     initial_hp
@@ -1593,7 +1599,7 @@ pub(crate) mod tests {
                 chain_monitor,
                 new_order_rx,
                 priced_orders_tx,
-                self.stake_token_decimals.unwrap_or(6),
+                self.collateral_token_decimals.unwrap_or(6),
                 order_state_tx,
             );
 
@@ -1643,7 +1649,7 @@ pub(crate) mod tests {
         let mut order = ctx.generate_next_order(Default::default()).await;
         // set a bad predicate
         order.request.requirements.predicate =
-            Predicate { predicateType: PredicateType::DigestMatch, data: B256::ZERO.into() };
+            Predicate::digest_match(Digest::from(ECHO_ID), Digest::ZERO).into();
 
         let order_id = order.id();
         let _request_id =
@@ -1757,7 +1763,7 @@ pub(crate) mod tests {
             .await;
 
         // set a Groth16 selector
-        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V2_2 as u32);
+        order.request.requirements.selector = FixedBytes::from(Selector::groth16_latest() as u32);
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -1842,8 +1848,8 @@ pub(crate) mod tests {
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        let min_price = parse_ether("0.00125").unwrap();
+        let max_price = parse_ether("0.00125").unwrap();
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1996,7 +2002,7 @@ pub(crate) mod tests {
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
-            config.load_write().unwrap().market.max_stake = "10".into();
+            config.load_write().unwrap().market.max_collateral = "10".into();
         }
 
         let mut ctx = PickerTestCtxBuilder::default()
@@ -2029,7 +2035,7 @@ pub(crate) mod tests {
 
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: parse_units("11", ctx.picker.stake_token_decimals).unwrap().into(),
+                lock_stake: parse_units("11", ctx.picker.collateral_token_decimals).unwrap().into(),
                 ..Default::default()
             })
             .await;
@@ -2112,7 +2118,7 @@ pub(crate) mod tests {
     async fn price_locked_by_other() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.mcycle_price_stake_token = "0.0000001".into();
+            config.load_write().unwrap().market.mcycle_price_collateral_token = "0.0000001".into();
         }
         let mut ctx = PickerTestCtxBuilder::default()
             .with_config(config)
@@ -2133,9 +2139,9 @@ pub(crate) mod tests {
 
         let order_id = order.id();
         let expected_target_timestamp =
-            order.request.offer.biddingStart + order.request.offer.lockTimeout as u64;
+            order.request.offer.rampUpStart + order.request.offer.lockTimeout as u64;
         let expected_expire_timestamp =
-            order.request.offer.biddingStart + order.request.offer.timeout as u64;
+            order.request.offer.rampUpStart + order.request.offer.timeout as u64;
 
         let expected_log = format!(
             "Setting order {order_id} to prove after lock expiry at {expected_target_timestamp}"
@@ -2154,10 +2160,10 @@ pub(crate) mod tests {
     async fn price_locked_by_other_unprofitable() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.mcycle_price_stake_token = "0.1".into();
+            config.load_write().unwrap().market.mcycle_price_collateral_token = "0.1".into();
         }
         let ctx = PickerTestCtxBuilder::default()
-            .with_stake_token_decimals(6)
+            .with_collateral_token_decimals(6)
             .with_config(config)
             .build()
             .await;
@@ -2181,7 +2187,9 @@ pub(crate) mod tests {
         // Since we know the stake reward is constant, and we know our min_mycle_price_stake_token
         // the execution limit check tells us if the order is profitable or not, since it computes the max number
         // of cycles that can be proven while keeping the order profitable.
-        assert!(logs_contain(&format!("Skipping order {order_id} due to session limit exceeded")));
+        assert!(logs_contain(&format!(
+            "Skipping order {order_id} due to intentional execution limit of"
+        )));
 
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
@@ -2322,11 +2330,11 @@ pub(crate) mod tests {
     async fn test_lock_expired_exec_limit_precision_loss() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.mcycle_price_stake_token = "1".into();
+            config.load_write().unwrap().market.mcycle_price_collateral_token = "1".into();
         }
         let ctx = PickerTestCtxBuilder::default()
             .with_config(config.clone())
-            .with_stake_token_decimals(6)
+            .with_collateral_token_decimals(6)
             .build()
             .await;
 
@@ -2342,7 +2350,7 @@ pub(crate) mod tests {
             .await;
 
         let order_id = order.id();
-        let stake_reward = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
+        let stake_reward = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
         assert_eq!(stake_reward, U256::from(0));
 
         let locked = ctx.picker.price_order(&mut order).await;
@@ -2365,17 +2373,19 @@ pub(crate) mod tests {
             .await;
 
         let order2_id = order2.id();
-        let stake_reward2 = order2.request.offer.stake_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward2, U256::from(32));
+        let stake_reward2 = order2.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+        assert_eq!(stake_reward2, U256::from(20));
 
         let locked = ctx.picker.price_order(&mut order2).await;
         assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
 
         // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
         assert!(logs_contain(&format!(
-            "Starting preflight execution of {order2_id} with limit of 32 cycles"
+            "Starting preflight execution of {order2_id} with limit of 20 cycles"
         )));
-        assert!(logs_contain(&format!("Skipping order {order2_id} due to session limit exceeded")));
+        assert!(logs_contain(&format!(
+            "Skipping order {order2_id} due to intentional execution limit of"
+        )));
     }
 
     #[tokio::test]
@@ -2499,8 +2509,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // Check that we logged the task being added
-        assert!(logs_contain("Current pricing tasks: ["));
+        // Check that we logged the task being added (or that it was completed before the interval)
+        assert!(logs_contain("Current pricing tasks: [") || logs_contain("Priced task for order"));
         assert!(logs_contain(&order1_id));
 
         // Send another order to see the task being removed and a new one added
@@ -2958,8 +2968,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_eth_higher_than_stake() {
         let market_config = crate::config::MarketConf {
-            mcycle_price: "0.001".to_string(),          // 0.01 ETH per mcycle
-            mcycle_price_stake_token: "10".to_string(), // 10 stake tokens per mcycle
+            mcycle_price: "0.001".to_string(), // 0.01 ETH per mcycle
+            mcycle_price_collateral_token: "10".to_string(), // 10 stake tokens per mcycle
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3005,7 +3015,7 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_stake_higher_than_eth_exposes_bug() {
         let market_config = crate::config::MarketConf {
             mcycle_price: "0.1".to_string(), // 0.1 ETH per mcycle (expensive)
-            mcycle_price_stake_token: "1".to_string(), // 1 stake token per mcycle (cheaper)
+            mcycle_price_collateral_token: "1".to_string(), // 1 stake token per mcycle (cheaper)
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3044,7 +3054,7 @@ pub(crate) mod tests {
         let stake_reward_tokens = order
             .request
             .offer
-            .stake_reward_if_locked_and_not_fulfilled()
+            .collateral_reward_if_locked_and_not_fulfilled()
             .div_ceil(U256::from(1_000_000));
         let stake_based_limit: u64 = stake_reward_tokens
             .saturating_mul(U256::from(1_000_000))
@@ -3060,7 +3070,7 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_fulfill_after_expire_stake_only() {
         let market_config = crate::config::MarketConf {
             mcycle_price: "0.0134".to_string(), // Won't be used for FulfillAfterLockExpire
-            mcycle_price_stake_token: "0.1".to_string(), // 0.1 stake per mcycle
+            mcycle_price_collateral_token: "0.1".to_string(), // 0.1 stake per mcycle
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3094,7 +3104,8 @@ pub(crate) mod tests {
 
         // Should only use stake-based pricing for FulfillAfterLockExpire
         // Stake based: (100 stake tokens - 20% burn) / 0.1 stake tokens per mcycle = 80M cycles
-        let stake_reward_tokens = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
+        let stake_reward_tokens =
+            order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
         tracing::info!("Stake reward tokens: {stake_reward_tokens}");
         let stake_based_limit: u64 = stake_reward_tokens
             .saturating_mul(U256::from(1_000_000))
@@ -3110,7 +3121,7 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_max_mcycle_cap() {
         let market_config = crate::config::MarketConf {
             mcycle_price: "0.01".to_string(),
-            mcycle_price_stake_token: "0.1".to_string(),
+            mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: Some(20), // 20 mcycle limit
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3154,7 +3165,7 @@ pub(crate) mod tests {
         let priority_address = address!("1234567890123456789012345678901234567890");
         let market_config = crate::config::MarketConf {
             mcycle_price: "0.01".to_string(),
-            mcycle_price_stake_token: "0.1".to_string(),
+            mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: Some(5), // Low limit normally
             peak_prove_khz: None,
             priority_requestor_addresses: Some(vec![priority_address]),
@@ -3191,7 +3202,7 @@ pub(crate) mod tests {
 
         // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
         // For LockAndFulfill orders: preflight uses higher limit (stake), prove uses ETH-based
-        assert_eq!(preflight_limit, 800_000_000u64); // Stake-based calculation
+        assert_eq!(preflight_limit, 500_000_000u64); // Stake-based calculation
         assert_eq!(prove_limit, 99_900_000u64); // ETH-based calculation
     }
 
@@ -3199,7 +3210,7 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_timing_constraints() {
         let market_config = crate::config::MarketConf {
             mcycle_price: "0.01".to_string(),
-            mcycle_price_stake_token: "0.1".to_string(),
+            mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: None,
             peak_prove_khz: Some(1000), // 1M cycles per second
             priority_requestor_addresses: None,
@@ -3244,7 +3255,7 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_zero_stake_price_unlimited() {
         let market_config = crate::config::MarketConf {
             mcycle_price: "0.01".to_string(),
-            mcycle_price_stake_token: "0".to_string(), // Zero stake price
+            mcycle_price_collateral_token: "0".to_string(), // Zero stake price
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3285,7 +3296,7 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_very_short_deadline() {
         let market_config = crate::config::MarketConf {
             mcycle_price: "0.01".to_string(),
-            mcycle_price_stake_token: "0.1".to_string(),
+            mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: None,
             peak_prove_khz: Some(1000), // 1M cycles per second
             priority_requestor_addresses: None,
@@ -3328,7 +3339,7 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_zero_mcycle_price_unlimited() {
         let market_config = crate::config::MarketConf {
             mcycle_price: "0".to_string(), // Zero ETH price
-            mcycle_price_stake_token: "0.1".to_string(),
+            mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3391,7 +3402,7 @@ pub(crate) mod tests {
     async fn test_zero_stake_price_order_processing() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.mcycle_price_stake_token = "0".into();
+            config.load_write().unwrap().market.mcycle_price_collateral_token = "0".into();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 

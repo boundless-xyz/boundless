@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS prover_slashed_events (
   prover_address    TEXT        NOT NULL,
   burn_value        TEXT        NOT NULL,
   transfer_value    TEXT        NOT NULL,
-  stake_recipient   TEXT        NOT NULL,
+  collateral_recipient   TEXT        NOT NULL,
   tx_hash           TEXT        NOT NULL REFERENCES transactions(tx_hash),
   block_number      BIGINT      NOT NULL,
   block_timestamp   BIGINT      NOT NULL
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS withdrawal_events (
   PRIMARY KEY (account, tx_hash)
 );
 
-CREATE TABLE IF NOT EXISTS stake_deposit_events (
+CREATE TABLE IF NOT EXISTS collateral_deposit_events (
   account           TEXT        NOT NULL,
   value             TEXT        NOT NULL,
   tx_hash           TEXT        NOT NULL REFERENCES transactions(tx_hash),
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS stake_deposit_events (
   PRIMARY KEY (account, tx_hash)
 );
 
-CREATE TABLE IF NOT EXISTS stake_withdrawal_events (
+CREATE TABLE IF NOT EXISTS collateral_withdrawal_events (
   account           TEXT        NOT NULL,
   value             TEXT        NOT NULL,
   tx_hash           TEXT        NOT NULL REFERENCES transactions(tx_hash),

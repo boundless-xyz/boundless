@@ -18,6 +18,7 @@ export = () => {
   const slasherKey = isDev ? getEnvVar("SLASHER_KEY") : config.requireSecret('SLASHER_KEY');
   const proverKeys = isDev ? getEnvVar("PROVER_KEYS") : config.requireSecret('PROVER_KEYS');
   const orderGeneratorKeys = isDev ? getEnvVar("ORDER_GENERATOR_KEYS") : config.requireSecret('ORDER_GENERATOR_KEYS');
+  const offchainRequestorAddresses = isDev ? getEnvVar("OFFCHAIN_REQUESTOR_ADDRESSES") : config.get('OFFCHAIN_REQUESTOR_ADDRESSES');
 
   const ethThreshold = isDev ? getEnvVar("ETH_THRESHOLD") : config.require('ETH_THRESHOLD');
   const stakeThreshold = isDev ? getEnvVar("STAKE_THRESHOLD") : config.require('STAKE_THRESHOLD');
@@ -37,6 +38,7 @@ export = () => {
 
   const boundlessMarketAddr = config.get('BOUNDLESS_MARKET_ADDR');
   const setVerifierAddr = config.get('SET_VERIFIER_ADDR');
+  const collateralTokenAddr = config.get('COLLATERAL_TOKEN_ADDR');
 
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
 
@@ -88,7 +90,8 @@ export = () => {
       return hash.digest("hex");
     });
 
-  const repo = new awsx.ecr.Repository(`${serviceName}-repo`, {
+  const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
+    name: `${serviceName}-ecr-repo`,
     forceDelete: true,
     lifecyclePolicy: {
       rules: [
@@ -203,16 +206,18 @@ export = () => {
     stakeTopUpAmount ? `--stake-top-up-amount ${stakeTopUpAmount}` : '',
     proverEthDonateThreshold ? `--prover-eth-donate-threshold ${proverEthDonateThreshold}` : '',
     proverStakeDonateThreshold ? `--prover-stake-donate-threshold ${proverStakeDonateThreshold}` : '',
+    offchainRequestorAddresses ? `--offchain-requestor-addresses ${offchainRequestorAddresses}` : '',
   ]
 
-  if (boundlessMarketAddr && setVerifierAddr) {
+  if (boundlessMarketAddr && setVerifierAddr && collateralTokenAddr) {
     distributorArgs.push(
       `--boundless-market-address ${boundlessMarketAddr}`,
       `--set-verifier-address ${setVerifierAddr}`,
       `--chain-id ${chainId}`,
+      `--collateral-token-address ${collateralTokenAddr}`,
     );
-  } else if (boundlessMarketAddr || setVerifierAddr) {
-    throw new Error('Must provide all of boundlessMarketAddr, setVerifierAddr, and chainId. Or none of them.');
+  } else if (boundlessMarketAddr || setVerifierAddr || collateralTokenAddr) {
+    throw new Error('Must provide all of boundlessMarketAddr, setVerifierAddr, and collateralTokenAddr. Or none of them.');
   }
 
   const distributorSecrets = [
@@ -367,7 +372,7 @@ export = () => {
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
     // >=2 error periods per hour
     evaluationPeriods: 60,
-    datapointsToAlarm: 2,
+    datapointsToAlarm: chainId === '11155111' ? 10 : 2, // Sepolia is flakey and has issues with tx timeouts
     treatMissingData: 'notBreaching',
     alarmDescription: 'Distributor log ERROR level 2 times in one hour',
     actionsEnabled: true,
