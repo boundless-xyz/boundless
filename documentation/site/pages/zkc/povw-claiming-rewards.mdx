@@ -18,7 +18,7 @@ Provers will require NVIDIA GPUs and Ubuntu 24.04. For a full list of requiremen
 
 #### Install the latest release
 
-PoVW was added to RISC Zero’s zkVM ([R0VM](https://github.com/risc0/risc0)) in version 3.0.1. To enable PoVW within Bento, requires release [v0.14.0](https://github.com/boundless-xyz/boundless/releases/tag/v0.14.0) and above. 
+PoVW was added to RISC Zero’s zkVM ([R0VM](https://github.com/risc0/risc0)) in version 3.0.1. To enable PoVW within Bento, requires release [v0.14.0](https://github.com/boundless-xyz/boundless/releases/tag/v0.14.0) and above.
 
 To install the latest release, and use the helpful setup script, provers can follow the instructions on the [Quick Start](/provers/quick-start) before continuing with the next step.
 
@@ -32,9 +32,9 @@ cargo install --locked --git https://github.com/boundless-xyz/boundless boundles
 
 #### Install the latest version of Foundry
 
-Some commands in this tutorial use [cast](https://getfoundry.sh/cast/overview) from the [Foundry toolkit](https://getfoundry.sh/). This is not necessary, but it will make some CLI commands more straightforward. 
+Some commands in this tutorial use [cast](https://getfoundry.sh/cast/overview) from the [Foundry toolkit](https://getfoundry.sh/). This is not necessary, but it will make some CLI commands more straightforward.
 
-#### Install the latest version of Rust 
+#### Install the latest version of Rust
 
 Follow the instructions [here](https://www.rust-lang.org/tools/install).
 
@@ -50,7 +50,7 @@ Run the following:
 rzup install risc0-groth16
 ```
 
-#### Install all the necessary NVIDIA drivers 
+#### Install all the necessary NVIDIA drivers
 
 ```bash
 apt install nvidia-cuda-toolkit build-essential libssl-dev cuda-toolkit-13-0 nvidia-open
@@ -66,7 +66,7 @@ export NVCC_APPEND_FLAGS="--generate-code arch=compute_75,code=sm_75 --generate-
 
 #### Stop Bento Safely
 
-To enable PoVW in Bento, first make sure to stop Bento safely. This ensures that any in-progress proving jobs are completed before terminating the proving process. If Bento is backing the Broker, please carry out *Step 1* from [Safe Upgrade Steps](/provers/broker#safe-upgrade-steps) and then return to this page. 
+To enable PoVW in Bento, first make sure to stop Bento safely. This ensures that any in-progress proving jobs are completed before terminating the proving process. If Bento is backing the Broker, please carry out *Step 1* from [Safe Upgrade Steps](/provers/broker#safe-upgrade-steps) and then return to this page.
 
 If Bento is running without the Broker, Bento can be safely stopped with:
 
@@ -125,7 +125,7 @@ Or if running the broker as well:
 just broker
 ```
 
-will start both the broker and Bento. 
+will start both the broker and Bento.
 
 ::::
 
@@ -144,7 +144,7 @@ For all relevant commands below: `stake`, `delegate-rewards` and `submit`, the C
 
 Before provers can begin contributing work to claim PoVW rewards, they *must stake* $ZKC. The amount of PoVW rewards that provers claim every epoch is determined by the amount of $ZKC they have staked. This is currently set to `staked amount / 15`. Therefore if a prover has staked 150 $ZKC, they are eligible to receive a maximum of 10 $ZKC every epoch. For further details, please see [Staking $ZKC](#/zkc/staking#active-pool).
 
-Once staked, provers are eligible for $ZKC rewards effective immediately i.e. starting from the reward epoch they staked in; reward epochs are approximately 2 days long. 
+Once staked, provers are eligible for $ZKC rewards effective immediately i.e. starting from the reward epoch they staked in; reward epochs are approximately 2 days long.
 
 First, make sure to set a valid RPC URL environment variable for Ethereum mainnet:
 
@@ -166,7 +166,7 @@ boundless zkc stake --amount $(cast parse-units 100 18)
 
 ### Start Proving
 
-Provers are now ready to run proving workloads with PoVW enabled; this can be done by [running a prover](/provers/quick-start) on the Boundless marketplace or elsewhere. 
+Provers are now ready to run proving workloads with PoVW enabled; this can be done by [running a prover](/provers/quick-start) on the Boundless marketplace or elsewhere.
 
 For each proving job, R0VM will automatically generate [work receipts](/zkc/povw-claiming-rewards#terminology). These work receipts track the amount of proving work done. Each epoch, provers will need to submit their accumulated work to the PoVW accounting smart contract. To do this, provers must use the PoVW CLI and run the following three commands, `prepare`, `submit` and `claim`.
 
@@ -180,7 +180,7 @@ boundless povw prepare --new ${POVW_LOG_ID} --state ${STATE_FILE_LOCATION} --fro
 
 where `${STATE_FILE_LOCATION}` is something like: `~/folder/state.bin`. Please note that this state file is very important and it should be kept in a durable location. Please see [Keeping the State File Safe](/zkc/povw-claiming-rewards#keeping-the-state-file-safe).
 
-`prepare` compresses all work receipts and stores the work log update to the state file. This process is entirely local (i.e. it does not send any transaction). For this work to be eligible for $ZKC rewards from the PoVW contract, this work log update must now be sent onchain. 
+`prepare` compresses all work receipts and stores the work log update to the state file. This process is entirely local (i.e. it does not send any transaction). For this work to be eligible for $ZKC rewards from the PoVW contract, this work log update must now be sent onchain.
 
 Provers only specify the `--new ${POVW_LOG_ID}` flag once, this is necessary to create the state file for that specific Log ID. Once the state file is created, for any further updates to the work log, run the following:
 
@@ -204,7 +204,7 @@ After the reward epoch has finalized, rewards can be claimed with:
 boundless povw claim --log-id ${POVW_LOG_ID} --beacon-api-url${BEACON_CHAIN_RPC_ENDPOINT} --rpc-url ${RPC_URL}
 ```
 
-### Checking Details of Current Reward Epoch 
+### Checking Details of Current Reward Epoch
 
 If the reward epoch has not been finalized yet, provers can check details of the the current epoch:
 
@@ -230,42 +230,42 @@ boundless zkc get-epoch-end-time <EPOCH_NUMBER>
 | **Reward Epoch** | The PoVW reward epoch is approximately 2 days. Verifiable work submitted within a given epoch is eligible for that epoch’s reward emissions. To be eligible for these rewards, a prover must stake an amount of $ZKC that scales with the size of their rewards for a given epoch. For more information, please see this [blog post](https://boundless.network/blog/introducing-zk-coin). |
 
 
-## Reward Claiming Workflow 
+## Reward Claiming Workflow
 
 ### Staking Requirements
 
-* Provers must stake $ZKC to be eligible for PoVW rewards. 
-* Before staking, any proving work done *is not* eligible for rewards. 
-* Once provers have staked, any work done immediately after staking is eligible for rewards in the current reward epoch.   
+* Provers must stake $ZKC to be eligible for PoVW rewards.
+* Before staking, any proving work done *is not* eligible for rewards.
+* Once provers have staked, any work done immediately after staking is eligible for rewards in the current reward epoch.
 
 ### Overview
 
 ::::steps
 
-#### Provers generate ZK proofs 
+#### Provers generate ZK proofs
 
-Generating any ZK proofs, with the POVW feature enabled in Bento, will generate work receipts. 
+Generating any ZK proofs, with the POVW feature enabled in Bento, will generate work receipts.
 
 #### Provers compress work receipts with `prepare`
 
-The `prepare` command compresses all local work receipts to reflect work done during any given epoch - this update is stored in a local “state” file.  
+The `prepare` command compresses all local work receipts to reflect work done during any given epoch - this update is stored in a local “state” file.
 
 #### Provers submit a work log update with `submit`
 
-Towards the end of an epoch, the prover must verify their work done to the PoVW contracts using the `submit` command. This will sign the work log update using the Log ID’s private key and post the update to the PoVW contracts.   
+Towards the end of an epoch, the prover must verify their work done to the PoVW contracts using the `submit` command. This will sign the work log update using the Log ID’s private key and post the update to the PoVW contracts.
 
 #### Provers wait for current epoch to finalize
 
-The prover waits for the current reward epoch to finalize. This allows all work log updates to be tallied, and all the respective rewards for each log ID to be calculated. 
+The prover waits for the current reward epoch to finalize. This allows all work log updates to be tallied, and all the respective rewards for each log ID to be calculated.
 
 To check details of the current epoch, please see [Checking Details of Current Reward Epoch](/zkc/povw-claiming-rewards#checking-details-of-current-reward-epoch),
 
 #### Provers claim rewards with `claim-rewards`
 
-Once the epoch has been finalized, the `claim` command can be used to claim any unclaimed rewards; `claim` uses Steel to query all work log updates and verify reward calculations. 
+Once the epoch has been finalized, the `claim` command can be used to claim any unclaimed rewards; `claim` uses Steel to query all work log updates and verify reward calculations.
 
 `claim` requires *both* a valid archive node RPC endpoint and a Beacon Chain RPC endpoint ([Quicknode](https://www.quicknode.com/) offers both types of nodes with their paid plan).
- 
+
 Claiming rewards does not have to be done every epoch; all unclaimed rewards from past epochs will be claimed automatically on the next valid `claim` call.
 
 ::::
@@ -304,20 +304,20 @@ Once the rewards are delegated, the prover can continue with the normal reward c
 
 #### Separating the Staking Wallet from the Value Recipient
 
-Additionally, the prover can specify a separate Ethereum address to receive the $ZKC reward. By default this is the log ID, but you can override it with `--value-recipient <address>` when running `send‑update`. 
+Additionally, the prover can specify a separate Ethereum address to receive the $ZKC reward. By default this is the log ID, but you can override it with `--value-recipient <address>` when running `send‑update`.
 
-#### Separating Keys when runnning a Boundless Prover
+#### Separating Keys when running a Boundless Prover
 
-Since many Boundless provers run clusters on hosted cloud providers, and because the private key must be in plaintext when starting the broker, the security of this wallet depends on your trust in the cloud provider. Therefore, for provers running large proving/ZK-mining clusters with large expected $ZKC reward amounts, it is not recommended to use your Boundless proving address as the value recipient. If the key is compromised, this can lead to a loss of rewards and require new wallet setup to resume proving. 
+Since many Boundless provers run clusters on hosted cloud providers, and because the private key must be in plaintext when starting the broker, the security of this wallet depends on your trust in the cloud provider. Therefore, for provers running large proving/ZK-mining clusters with large expected $ZKC reward amounts, it is not recommended to use your Boundless proving address as the value recipient. If the key is compromised, this can lead to a loss of rewards and require new wallet setup to resume proving.
 
 At the minimum, we recommend most provers separate their value recipient address, such that:
 
-* Boundless Prover Address + Log ID Address can be the same  
+* Boundless Prover Address + Log ID Address can be the same
 * Value Recipient is a separate address
 
-This setup allows the proving cluster to prove orders on the Boundless market and generate and post work log updates onchain to be eligible for rewards. It also means that after running `claim`, the reward $ZKC is transferred to a separate address. Claiming rewards is a permissionless process and does not require access to the private key for the Log ID. 
+This setup allows the proving cluster to prove orders on the Boundless market and generate and post work log updates onchain to be eligible for rewards. It also means that after running `claim`, the reward $ZKC is transferred to a separate address. Claiming rewards is a permissionless process and does not require access to the private key for the Log ID.
 
 ### Keeping the State File Safe
 
-`prepare` uses a state file to track compressed work receipts. Loss of this state file **will result in the loss of all work that is not submitted**for the respective Log ID, meaning rewards for any work done since the last work log update (via `submit`) **will be lost**. In this scenario, a new work log ID must be specified for Bento, and Bento should be restarted to allow further work to be recorded properly against the new Log ID. *To avoid this scenario, it is recommended to store the state file in a durable location.*
+`prepare` uses a state file to track compressed work receipts. Loss of this state file **will result in the loss of all work that is not submitted** for the respective Log ID, meaning rewards for any work done since the last work log update (via `submit`) **will be lost**. In this scenario, a new work log ID must be specified for Bento, and Bento should be restarted to allow further work to be recorded properly against the new Log ID. *To avoid this scenario, it is recommended to store the state file in a durable location.*
 
