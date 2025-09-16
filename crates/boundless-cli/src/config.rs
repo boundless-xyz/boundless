@@ -24,7 +24,7 @@ use tracing::level_filters::LevelFilter;
 use url::Url;
 
 use boundless_market::{
-    client::ClientBuilder, request_builder::StandardRequestBuilder, Client, Deployment, NotProvided,
+    client::ClientBuilder, request_builder::StandardRequestBuilder, Client, NotProvided,
 };
 
 /// Common configuration options for all commands
@@ -46,9 +46,13 @@ pub struct GlobalConfig {
     #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
     pub log_level: LevelFilter,
 
-    /// Configuration for the Boundless deployment to use.
-    #[clap(flatten, next_help_heading = "Boundless Deployment")]
-    pub deployment: Option<Deployment>,
+    // NOTE: Deployment is commented out because flattening it requires
+    // boundless_market_address and set_verifier_address to be provided,
+    // even for commands that don't need them (like zkc summary).
+    // TODO: Refactor to only require these fields when needed.
+    // /// Configuration for the Boundless deployment to use.
+    // #[clap(flatten, next_help_heading = "Boundless Deployment")]
+    // pub deployment: Option<Deployment>,
 }
 
 impl GlobalConfig {
@@ -76,7 +80,7 @@ impl GlobalConfig {
     pub fn client_builder(&self) -> Result<ClientBuilder> {
         Ok(Client::builder()
             .with_rpc_url(self.require_rpc_url()?)
-            .with_deployment(self.deployment.clone())
+            // .with_deployment(self.deployment.clone())
             .with_timeout(self.tx_timeout))
     }
 
