@@ -48,7 +48,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestError,
         RequestInputType,
     },
-    selector::SupportedSelectors,
+    selector::{is_shrink_bitvm2_selector, SupportedSelectors},
 };
 use moka::future::Cache;
 use thiserror::Error;
@@ -656,6 +656,14 @@ where
                 "Order {order_id} journal larger than set limit ({} > {}), skipping",
                 journal.len(),
                 max_journal_bytes
+            );
+            return Ok(Skip);
+        }
+
+        // If the selector is a shrink bitvm2 selector, ensure the journal is exactly 32 bytes
+        if is_shrink_bitvm2_selector(order.request.requirements.selector) && journal.len() != 32 {
+            tracing::info!(
+                "Order {order_id} journal is not 32 bytes for shrink bitvm2 selector, skipping",
             );
             return Ok(Skip);
         }
@@ -1340,7 +1348,7 @@ fn calculate_max_cycles_for_time(prove_khz: u64, time_seconds: u64) -> u64 {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::time::Duration;
+    use std::{path::PathBuf, time::Duration};
 
     use super::*;
     use crate::{
@@ -2722,6 +2730,19 @@ pub(crate) mod tests {
             proof_id: &str,
         ) -> Result<Option<Vec<u8>>, ProverError> {
             self.default_prover.get_compressed_receipt(proof_id).await
+        }
+        async fn shrink_bitvm2(
+            &self,
+            _proof_id: &str,
+            _work_dir: Option<PathBuf>,
+        ) -> Result<String, ProverError> {
+            todo!("Shrink BitVM is not implemented yet");
+        }
+        async fn get_shrink_bitvm2_receipt(
+            &self,
+            _proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            todo!("Shrink BitVM is not implemented yet");
         }
     }
 

@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Borrow, collections::HashMap, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, path::PathBuf, sync::Arc};
 
 use crate::config::ProverConf;
 use crate::provers::{ExecutorResp, ProofResult, Prover, ProverError};
-use anyhow::{Context, Result as AnyhowResult};
+use anyhow::{anyhow, Context, Result as AnyhowResult};
 use async_trait::async_trait;
 use risc0_zkvm::{
     default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
     VERSION,
 };
+use tempfile::tempdir;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -395,14 +396,89 @@ impl Prover for DefaultProver {
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
+
+    async fn shrink_bitvm2(
+        &self,
+        proof_id: &str,
+        work_dir: Option<PathBuf>,
+    ) -> Result<String, ProverError> {
+        let temp_dir = tempdir().context("Failed to crate tmpdir")?;
+        tracing::info!("Compressing proof Shrink bitvm2 {proof_id}");
+        let receipt = self
+            .get_receipt(proof_id)
+            .await?
+            .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {proof_id}")))?;
+        if receipt.journal.bytes.len() != 32 {
+            return Err(ProverError::UnexpectedError(anyhow!(
+                "Shrink BitVM2 requires a journal of 32 bytes, got {}",
+                receipt.journal.bytes.len()
+            )));
+        }
+        let proof_id = format!("snark_{}", Uuid::new_v4());
+        self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
+
+        tracing::debug!("shrink bitvm2 identity_p254 for proof {proof_id}");
+        let succinct_receipt = receipt.inner.succinct().unwrap();
+        let p254_receipt = risc0_zkvm::recursion::identity_p254(succinct_receipt)
+            .context("identity predicate failed")?;
+
+        tracing::info!("Completing identity predicate, {proof_id}");
+
+        let work_dir =
+            if let Some(work_dir) = work_dir { work_dir } else { temp_dir.path().to_path_buf() };
+
+        let compress_result =
+            shrink_bitvm2::prove_and_verify(&proof_id, &work_dir, p254_receipt, receipt.journal)
+                .await
+                .map_err(ProverError::from);
+
+        let compressed_bytes = compress_result
+            .as_ref()
+            .map(|receipt| bincode::serialize(receipt).unwrap())
+            .unwrap_or_default();
+
+        let mut proofs = self.state.proofs.write().await;
+        let proof = proofs.get_mut(&proof_id).unwrap();
+        match compress_result {
+            Ok(_) => {
+                proof.status = Status::Succeeded;
+                proof.compressed_receipt = Some(compressed_bytes);
+
+                Ok(proof_id)
+            }
+            Err(err) => {
+                proof.status = Status::Failed;
+                proof.error_msg = err.to_string();
+
+                Err(err)
+            }
+        }
+    }
+    async fn get_shrink_bitvm2_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
+        let proofs = self.state.proofs.read().await;
+        let proof_data = proofs
+            .get(proof_id)
+            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
+        Ok(proof_data.compressed_receipt.as_ref().cloned())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID};
-    use risc0_zkvm::sha::Digest;
     use tokio::test;
+
+    use ark_ff::PrimeField;
+    use risc0_zkvm::{
+        sha::{Digest, Digestible},
+        Groth16Seal,
+    };
+    use shrink_bitvm2::ShrinkBitvm2ReceiptClaim;
+    use tempfile::tempdir;
 
     #[test]
     async fn test_upload_input_and_image() {
@@ -515,5 +591,52 @@ mod tests {
 
         let journal_err = prover.get_journal(nonexistent_id).await;
         assert!(matches!(journal_err, Err(ProverError::NotFound(_))));
+    }
+
+    #[test]
+    async fn test_shrink_bitvm2() {
+        let work_dir = tempdir().expect("Failed to create temp dir");
+        let prover = DefaultProver::new();
+
+        // Upload test data
+        let input_data = [255u8; 32].to_vec(); // Example input data
+        let input_id = prover.upload_input(input_data.clone()).await.unwrap();
+        let image_id = Digest::from(ECHO_ID);
+        prover.upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await.unwrap();
+
+        // Run SNARK proving
+        let ProofResult { id: stark_id, .. } =
+            prover.prove_and_monitor_stark(&image_id.to_string(), &input_id, vec![]).await.unwrap();
+
+        let snark_id =
+            prover.shrink_bitvm2(&stark_id, Some(work_dir.path().to_path_buf())).await.unwrap();
+
+        // Fetch the compressed receipt
+        let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
+        let shrink_receipt: Receipt = bincode::deserialize(&compressed_receipt).unwrap();
+
+        let stark_receipt = prover.get_receipt(&stark_id).await.unwrap().unwrap();
+
+        let groth16_receipt = shrink_receipt.inner.groth16().unwrap();
+        let groth16_seal = Groth16Seal::decode(&groth16_receipt.seal)
+            .expect("Failed to create Groth16 seal from receipt");
+
+        let final_output_bytes =
+            ShrinkBitvm2ReceiptClaim::ok(image_id, stark_receipt.journal.bytes).digest().into();
+        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&final_output_bytes);
+
+        let public_input_scalar_str = public_input_scalar.to_string();
+        let public_input_scalar =
+            risc0_groth16::PublicInputsJson { values: vec![public_input_scalar_str] }
+                .to_scalar()
+                .unwrap();
+        println!("R0 Verify Start");
+
+        let verifying_key = shrink_bitvm2::get_r0_verifying_key();
+
+        let v = risc0_groth16::Verifier::new(&groth16_seal, &public_input_scalar, &verifying_key)
+            .unwrap();
+        println!("R0 Verify result: {:?}", v.verify().is_ok());
+        assert!(v.verify().is_ok(), "R0 verification failed");
     }
 }

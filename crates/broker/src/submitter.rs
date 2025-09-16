@@ -30,7 +30,7 @@ use boundless_market::{
         encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
         FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
-    selector::is_groth16_selector,
+    selector::{is_groth16_selector, is_shrink_bitvm2_selector},
 };
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -299,7 +299,9 @@ where
                 let order_claim =
                     ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
                 let order_claim_digest = order_claim.digest();
-                let seal = if is_groth16_selector(order_request.requirements.selector) {
+                let seal = if is_groth16_selector(order_request.requirements.selector)
+                    || is_shrink_bitvm2_selector(order_request.requirements.selector)
+                {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",

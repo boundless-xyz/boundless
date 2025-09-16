@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::future::Future;
+use std::{future::Future, path::PathBuf};
 
 use async_trait::async_trait;
 use bonsai_sdk::{
-    non_blocking::{Client as BonsaiClient, SessionId, SnarkId},
+    non_blocking::{Client as BonsaiClient, SessionId, ShrinkBitvm2Id, SnarkId},
     SdkErr,
 };
 use risc0_zkvm::Receipt;
@@ -238,6 +238,46 @@ impl StatusPoller {
     async fn poll_with_retries_snark_id(
         &self,
         proof_id: &SnarkId,
+        client: &BonsaiClient,
+    ) -> Result<String, ProverError> {
+        loop {
+            let status = retry::<_, SdkErr, _, _>(
+                self.retry_counts,
+                self.poll_sleep_ms,
+                || async { proof_id.status(client).await },
+                "get snark status",
+            )
+            .await;
+
+            if let Err(_err) = status {
+                return Err(ProverError::StatusFailure);
+            }
+
+            let status = status.unwrap();
+
+            match status.status.as_ref() {
+                "RUNNING" => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
+                        .await;
+                    continue;
+                }
+                "SUCCEEDED" => return Ok(proof_id.uuid.clone()),
+                status_code => {
+                    let err_msg = status.error_msg.unwrap_or_default();
+                    if err_msg.contains("INTERNAL_ERROR") {
+                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+                    }
+                    return Err(ProverError::ProvingFailed(format!(
+                        "snark proving failed with status {status_code}: {err_msg}"
+                    )));
+                }
+            }
+        }
+    }
+
+    async fn poll_with_retries_shrink_bitvm2_id(
+        &self,
+        proof_id: &ShrinkBitvm2Id,
         client: &BonsaiClient,
     ) -> Result<String, ProverError> {
         loop {
@@ -519,6 +559,51 @@ impl Prover for Bonsai {
         let Some(output) = status.output else { return Ok(None) };
         let receipt_buf = self
             .retry(|| async { Ok(self.client.download(&output).await?) }, "download snark output")
+            .await?;
+
+        Ok(Some(receipt_buf))
+    }
+
+    async fn shrink_bitvm2(
+        &self,
+        proof_id: &str,
+        _work_dir: Option<PathBuf>,
+    ) -> Result<String, ProverError> {
+        let proof_id = self
+            .retry(
+                || async { Ok(self.client.shrink_bitvm2(proof_id.into()).await?) },
+                "create snark",
+            )
+            .await?;
+
+        let poller = StatusPoller {
+            poll_sleep_ms: self.status_poll_ms,
+            retry_counts: self.status_poll_retry_count,
+        };
+
+        poller.poll_with_retries_shrink_bitvm2_id(&proof_id, &self.client).await?;
+
+        Ok(proof_id.uuid)
+    }
+
+    async fn get_shrink_bitvm2_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
+        let snark_id = ShrinkBitvm2Id { uuid: proof_id.into() };
+        let status = self
+            .retry(
+                || async { Ok(snark_id.status(&self.client).await?) },
+                "get status of bitvm2 snark",
+            )
+            .await?;
+
+        let Some(output) = status.output else { return Ok(None) };
+        let receipt_buf = self
+            .retry(
+                || async { Ok(self.client.download(&output).await?) },
+                "download bitvm2 snark output",
+            )
             .await?;
 
         Ok(Some(receipt_buf))
