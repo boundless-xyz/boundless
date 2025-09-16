@@ -15,6 +15,7 @@ members = [
     "crates/order-generator",
     "crates/order-stream",
     "crates/povw",
+    "crates/shrink_bitvm2",
     "crates/slasher",
     "crates/test-utils",
     "crates/zkc",
@@ -38,6 +39,7 @@ distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
+shrink_bitvm2 = { path = "crates/shrink_bitvm2" }
 
 async-stream = "0.3"
 alloy = { version = "1.0", default-features = false }
@@ -51,7 +53,7 @@ aws-sdk-s3 = "1.34" # used for minio for max compatibility
 axum = "0.8"
 axum-extra = { version = "0.10" }
 bincode = "1.3"
-bonsai-sdk = { version = "1.4", features = ["non_blocking"] }
+bonsai-sdk = { git = "https://github.com/risc0/risc0", branch = "flaub/shrink-bitvm2", features = ["non_blocking", "shrink_bitvm2"] }
 bs58 = "0.5"
 bytemuck = "1.16"
 clap = { version = "4.5", features = ["derive", "env"] }
@@ -101,3 +103,7 @@ lto = true
 # [profile.release]
 # lto = "fat"
 # codegen-units = 1
+
+[patch.crates-io]
+risc0-ethereum-contracts = { path = "/home/homepup/repos/risc0-ethereum/contracts" }
+risc0-aggregation = { path = "/home/homepup/repos/risc0-ethereum/crates/aggregation" }
