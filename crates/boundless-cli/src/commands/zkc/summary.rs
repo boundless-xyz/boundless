@@ -20,7 +20,6 @@ use alloy::{
     sol_types::SolEvent,
 };
 use anyhow::Context;
-use boundless_market::contracts::IBoundlessMarket;
 use boundless_povw::{deployments::Deployment, log_updater::IPovwAccounting};
 use boundless_zkc::contracts::{IRewards, IStaking, IStakingRewards, IZKC};
 use clap::Args;
@@ -168,10 +167,10 @@ impl ZkcSummary {
         self.query_staking_rewards(&provider, &deployment, work_log_id).await?;
 
         // Query vote and reward delegation information
-        self.query_delegation_info(&provider, &deployment).await?;
+        let delegated_powers = self.query_delegation_info(&provider, &deployment).await?;
 
         // Query stake positions
-        self.query_stake_positions(&provider, &deployment).await?;
+        self.query_stake_positions(&provider, &deployment, &delegated_powers).await?;
 
         // Query PoVW work information
         self.query_povw_work(&provider, &deployment, work_log_id).await?;
@@ -475,8 +474,8 @@ impl ZkcSummary {
         &self,
         provider: &P,
         deployment: &Deployment,
-    ) -> anyhow::Result<()> {
-        print_section_header("POWER TABLES");
+    ) -> anyhow::Result<HashMap<Address, U256>> {
+        print_section_header("DELEGATION TABLES");
 
         // Get the appropriate from_block based on chain ID
         let chain_id = provider.get_chain_id().await?;
@@ -521,36 +520,6 @@ impl ZkcSummary {
             }*/
         }
 
-        // Display vote power table
-        if !vote_powers.is_empty() {
-            // Calculate total vote power
-            let total_vote_power: U256 = vote_powers.values().sum();
-
-            println!("\nVote Powers (Total: {} ZKC):", format_zkc(total_vote_power));
-            let mut builder = Builder::default();
-            builder.push_record(["Address", "Vote Power", "Percentage"]);
-
-            let mut sorted_votes: Vec<_> = vote_powers.iter().collect();
-            sorted_votes.sort_by(|a, b| b.1.cmp(a.1));
-
-            for (address, power) in sorted_votes.iter() {
-                let percentage = if total_vote_power > U256::ZERO {
-                    (**power * U256::from(10000) / total_vote_power).to::<u64>() as f64 / 100.0
-                } else {
-                    0.0
-                };
-                builder.push_record([
-                    format!("{:#x}", address),
-                    format!("{} ZKC", format_zkc(**power)),
-                    format!("{:.2}%", percentage)
-                ]);
-            }
-
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
-        }
 
         // Query DelegateRewardsChanged events
         // Event signature: DelegateRewardsChanged(address indexed delegate, uint256 previousRewards, uint256 newRewards)
@@ -576,21 +545,32 @@ impl ZkcSummary {
             }
         }
 
-        // Display reward power table
-        if !reward_powers.is_empty() {
-            // Calculate total reward power
-            let total_reward_power: U256 = reward_powers.values().sum();
+        // Combine vote and reward powers (they're the same currently)
+        let mut combined_powers: HashMap<Address, U256> = HashMap::new();
+        for (addr, power) in vote_powers.iter() {
+            combined_powers.insert(*addr, *power);
+        }
+        // Merge reward powers (should be the same but just in case)
+        for (addr, power) in reward_powers.iter() {
+            combined_powers.entry(*addr).and_modify(|e| *e = (*e).max(*power)).or_insert(*power);
+        }
 
-            println!("\nReward Powers (Total: {} ZKC):", format_zkc(total_reward_power));
+        // Display combined delegation power table
+        if !combined_powers.is_empty() {
+            let total_power: U256 = combined_powers.values().sum();
+
+            println!("\nVote/Reward Power (Total: {} ZKC):", format_zkc(total_power));
+            println!("Shows delegated voting and reward claiming power (currently unified)");
+
             let mut builder = Builder::default();
-            builder.push_record(["Address", "Reward Power", "Percentage"]);
+            builder.push_record(["Address", "Delegated Power", "Percentage"]);
 
-            let mut sorted_rewards: Vec<_> = reward_powers.iter().collect();
-            sorted_rewards.sort_by(|a, b| b.1.cmp(a.1));
+            let mut sorted_powers: Vec<_> = combined_powers.iter().collect();
+            sorted_powers.sort_by(|a, b| b.1.cmp(a.1));
 
-            for (address, power) in sorted_rewards.iter() {
-                let percentage = if total_reward_power > U256::ZERO {
-                    (**power * U256::from(10000) / total_reward_power).to::<u64>() as f64 / 100.0
+            for (address, power) in sorted_powers.iter() {
+                let percentage = if total_power > U256::ZERO {
+                    (**power * U256::from(10000) / total_power).to::<u64>() as f64 / 100.0
                 } else {
                     0.0
                 };
@@ -607,13 +587,14 @@ impl ZkcSummary {
             println!("{}", table);
         }
 
-        Ok(())
+        Ok(combined_powers)
     }
 
     async fn query_stake_positions<P: Provider>(
         &self,
         provider: &P,
         deployment: &Deployment,
+        delegated_powers: &HashMap<Address, U256>,
     ) -> anyhow::Result<()> {
         print_section_header("STAKE POSITIONS");
 
@@ -627,32 +608,9 @@ impl ZkcSummary {
 
         // Get current block number
         let current_block = provider.get_block_number().await?;
-
-        // Query StakeAdded events for total stakes
-        // Event signature: StakeAdded(uint256 indexed tokenId, address indexed owner, uint256 addedAmount, uint256 newTotal)
-        let stake_event_sig = B256::from(alloy::primitives::keccak256(
-            "StakeAdded(uint256,address,uint256,uint256)"
-        ));
-        let stake_filter = Filter::new()
-            .address(deployment.vezkc_address)
-            .event_signature(stake_event_sig);
-
-        let stake_logs = if from_block_num == 0 {
-            provider.get_logs(&stake_filter.from_block(BlockNumberOrTag::Earliest)).await?
-        } else {
-            query_logs_chunked(provider, stake_filter, from_block_num, current_block).await?
-        };
         let mut stakes: HashMap<Address, U256> = HashMap::new();
 
-        for log in stake_logs {
-            if let Ok(decoded) = log.log_decode::<IStaking::StakeAdded>() {
-                let owner = decoded.inner.data.owner;
-                let new_total = decoded.inner.data.newTotal;
-                stakes.insert(owner, new_total);
-            }
-        }
-
-        // Also check StakeCreated events
+        // FIRST: Query StakeCreated events (initial stakes)
         // Event signature: StakeCreated(uint256 indexed tokenId, address indexed owner, uint256 amount)
         let create_event_sig = B256::from(alloy::primitives::keccak256(
             "StakeCreated(uint256,address,uint256)"
@@ -666,11 +624,36 @@ impl ZkcSummary {
         } else {
             query_logs_chunked(provider, create_filter, from_block_num, current_block).await?
         };
+
         for log in create_logs {
             if let Ok(decoded) = log.log_decode::<IStaking::StakeCreated>() {
                 let owner = decoded.inner.data.owner;
                 let amount = decoded.inner.data.amount;
-                stakes.entry(owner).and_modify(|e| *e = amount).or_insert(amount);
+                stakes.entry(owner).or_insert(amount);
+            }
+        }
+
+        // SECOND: Query StakeAdded events (updates to stakes)
+        // Event signature: StakeAdded(uint256 indexed tokenId, address indexed owner, uint256 addedAmount, uint256 newTotal)
+        let stake_event_sig = B256::from(alloy::primitives::keccak256(
+            "StakeAdded(uint256,address,uint256,uint256)"
+        ));
+        let stake_filter = Filter::new()
+            .address(deployment.vezkc_address)
+            .event_signature(stake_event_sig);
+
+        let stake_logs = if from_block_num == 0 {
+            provider.get_logs(&stake_filter.from_block(BlockNumberOrTag::Earliest)).await?
+        } else {
+            query_logs_chunked(provider, stake_filter, from_block_num, current_block).await?
+        };
+
+        for log in stake_logs {
+            if let Ok(decoded) = log.log_decode::<IStaking::StakeAdded>() {
+                let owner = decoded.inner.data.owner;
+                let new_total = decoded.inner.data.newTotal;
+                // StakeAdded always overwrites with the new total
+                stakes.insert(owner, new_total);
             }
         }
 
@@ -709,8 +692,9 @@ impl ZkcSummary {
             let staking_emissions = zkc.getStakingEmissionsForEpoch(current_epoch).call().await?;
 
             println!("\nStaked Positions ({} positions, Total: {} ZKC):", num_positions, format_zkc(total_staked));
+            println!("Shows actual token ownership");
             let mut builder = Builder::default();
-            builder.push_record(["Address", "Total Staked", "Percentage", "Projected Rewards", "Status"]);
+            builder.push_record(["Address", "Total Staked", "%", "Projected Rewards", "Status"]);
 
             let mut sorted_stakes: Vec<_> = stakes.iter().collect();
             sorted_stakes.sort_by(|a, b| b.1.cmp(a.1));
@@ -752,6 +736,16 @@ impl ZkcSummary {
             if withdrawing.values().any(|&v| v) {
                 println!("* Withdrawal initiated but not yet completed");
             }
+
+            // Show totals comparison
+            let total_delegated_power: U256 = delegated_powers.values().sum();
+            let match_symbol = if total_staked == total_delegated_power { "✓" } else { "✗" };
+            println!("\nTotals Check:");
+            println!("Total Staked: {} ZKC | Total Delegated Power: {} ZKC | Match: {}",
+                format_zkc(total_staked),
+                format_zkc(total_delegated_power),
+                match_symbol
+            );
         }
 
         Ok(())
