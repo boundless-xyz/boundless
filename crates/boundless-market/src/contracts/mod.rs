@@ -565,6 +565,21 @@ impl Requirements {
             false => Self { selector: FixedBytes::from(Selector::groth16_latest() as u32), ..self },
         }
     }
+
+    /// Set the selector for a shrink bitvm2 proof.
+    ///
+    /// This will set the selector to the appropriate value based on the current environment.
+    /// In dev mode, the selector will be set to `FakeReceipt`, otherwise it will be set
+    /// to the latest ShrinkBitvm2 selector.
+    #[cfg(not(target_os = "zkvm"))]
+    pub fn with_shrink_bitvm2_proof(self) -> Self {
+        match crate::util::is_dev_mode() {
+            true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
+            false => {
+                Self { selector: FixedBytes::from(Selector::shrink_bitvm2_latest() as u32), ..self }
+            }
+        }
+    }
 }
 
 /// The data that is used to construct the claim for a fulfillment.
