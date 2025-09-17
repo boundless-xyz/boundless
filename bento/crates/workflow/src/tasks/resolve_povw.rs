@@ -40,8 +40,12 @@ pub async fn resolve_povw(
             .context("Failed to deserialize as POVW receipt")?;
 
     // Unwrap the POVW receipt to get the ReceiptClaim for processing
-    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
-        agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
+    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = agent
+        .prover
+        .as_ref()
+        .unwrap()
+        .unwrap_povw(&povw_receipt)
+        .with_context(|| format!("POVW unwrap failed for job_id: {}", job_id))?;
 
     let mut assumptions_len: Option<u64> = None;
     if conditional_receipt.claim.clone().as_value()?.output.is_some() {
@@ -154,42 +158,49 @@ pub async fn resolve_povw(
     .await
     .context("Failed to set root receipt key with expiry")?;
 
-    // Save the resolved receipt to work receipts bucket for later consumption
+    // Save only the PoVW receipt (WorkClaim format) to primary location
+    // This optimizes storage by eliminating dual storage while maintaining full functionality
     let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
-    tracing::debug!("Saving resolved POVW receipt to work receipts bucket: {work_receipt_key}");
+    tracing::debug!(
+        "Saving PoVW receipt (WorkClaim format) to primary location: {work_receipt_key}"
+    );
 
-    // Save the resolved receipt to work receipts bucket for later consumption
-    // Wrap the POVW receipt as GenericReceipt::Succinct for RISC Zero VM integration
-    let wrapped_povw_receipt = GenericReceipt::Succinct(povw_receipt.clone());
+    // Wrap the original PoVW receipt as GenericReceipt for RISC0 compatibility
+    let wrapped_povw_receipt = GenericReceipt::Succinct(povw_receipt.clone().into_unknown());
 
     agent
         .s3_client
         .write_to_s3(&work_receipt_key, &wrapped_povw_receipt)
         .await
-        .context("Failed to save resolved POVW receipt to work receipts bucket")?;
+        .context("Failed to save PoVW receipt to work receipts bucket")?;
 
     // Store POVW metadata alongside the receipt
     let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}_metadata.json");
 
-    // Only include POVW fields if they are actually set and non-empty
+    // Extract metadata from the PoVW receipt
     let mut metadata_fields = serde_json::Map::new();
     metadata_fields.insert("job_id".to_string(), serde_json::Value::String(job_id.to_string()));
+
+    // Add POVW log ID from environment if available
     if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
         metadata_fields.insert("povw_log_id".to_string(), serde_json::Value::String(log_id));
     }
 
-    let povw_job_number = povw_receipt
-        .clone()
-        .claim
-        .value()
-        .and_then(|x| x.work.value())
-        .ok()
-        .map(|work| format!("{}", work.nonce_min.job))
-        .context("Failed to get POVW job number")
-        .unwrap();
-
-    metadata_fields
-        .insert("povw_job_number".to_string(), serde_json::Value::String(povw_job_number));
+    // Extract POVW job number from the WorkClaim if available
+    if let Ok(work_claim) = povw_receipt.claim.value() {
+        if let Ok(work) = work_claim.work.value() {
+            let povw_job_number = work.nonce_min.job.to_string();
+            metadata_fields
+                .insert("povw_job_number".to_string(), serde_json::Value::String(povw_job_number));
+        } else {
+            tracing::warn!(
+                "Work claim is pruned, cannot extract job number for job_id: {}",
+                job_id
+            );
+        }
+    } else {
+        tracing::warn!("WorkClaim is pruned, cannot extract metadata for job_id: {}", job_id);
+    }
 
     let povw_metadata = serde_json::Value::Object(metadata_fields);
 
