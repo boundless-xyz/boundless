@@ -27,7 +27,7 @@ use workflow_common::{
     JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SnarkReq, UnionReq,
     s3::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
-        RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
+        RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR, WORK_RECEIPTS_BUCKET_DIR,
     },
 };
 
@@ -315,14 +315,56 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
 
     for receipt_id in request.assumptions.iter() {
-        let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
-        let receipt_bytes = agent
-            .s3_client
-            .read_buf_from_s3(&receipt_key)
-            .await
-            .context("Failed to download receipt from obj store")?;
-        let receipt: Receipt =
-            bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?;
+        // Check if PoVW mode is enabled
+        let is_povw_enabled = std::env::var("POVW_LOG_ID").is_ok();
+        
+        let receipt = if is_povw_enabled {
+            // In PoVW mode, load from work receipts bucket and unwrap
+            let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}.bincode");
+            tracing::debug!("Loading PoVW assumption receipt from: {}", work_receipt_key);
+            
+            match agent.s3_client.read_from_s3::<risc0_zkvm::GenericReceipt<
+                risc0_zkvm::WorkClaim<risc0_zkvm::ReceiptClaim>
+            >>(&work_receipt_key).await {
+                Ok(work_receipt) => {
+                    tracing::debug!("Successfully loaded PoVW work receipt for assumption: {}", receipt_id);
+                    // Unwrap the WorkClaim to get the ReceiptClaim
+                    let prover = agent.prover.as_ref().context("Missing prover for PoVW unwrapping")?;
+                    let succinct_receipt = match work_receipt {
+                        risc0_zkvm::GenericReceipt::Succinct(succinct) => succinct,
+                        _ => bail!("Expected succinct receipt for PoVW assumption"),
+                    };
+                    let unwrapped_receipt = prover.unwrap_povw(&succinct_receipt)
+                        .with_context(|| format!("Failed to unwrap PoVW assumption receipt: {}", receipt_id))?;
+                    
+                    // Create a Receipt from the unwrapped ReceiptClaim
+                    // For PoVW assumptions, we use an empty journal since the actual journal
+                    // is not needed for assumption resolution
+                    Receipt::new(InnerReceipt::Succinct(unwrapped_receipt), vec![])
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to load PoVW assumption receipt {}, falling back to STARK bucket: {}", receipt_id, err);
+                    // Fallback to regular STARK bucket
+                    let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
+                    let receipt_bytes = agent
+                        .s3_client
+                        .read_buf_from_s3(&receipt_key)
+                        .await
+                        .context("Failed to download receipt from obj store")?;
+                    bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?
+                }
+            }
+        } else {
+            // Regular mode - load from STARK bucket
+            let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
+            tracing::debug!("Loading regular assumption receipt from: {}", receipt_key);
+            let receipt_bytes = agent
+                .s3_client
+                .read_buf_from_s3(&receipt_key)
+                .await
+                .context("Failed to download receipt from obj store")?;
+            bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?
+        };
 
         assumption_receipts.push(receipt.clone());
 
