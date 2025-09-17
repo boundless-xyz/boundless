@@ -2,11 +2,13 @@ use std::path::Path;
 
 use hex::FromHex;
 use risc0_zkvm::{
-    digest, sha::Digestible, Digest, Groth16Receipt, Groth16Seal, Journal, MaybePruned, Receipt,
-    ReceiptClaim, SuccinctReceipt, SystemState,
+    digest, sha::Digestible, Digest, Groth16Receipt, Journal, MaybePruned, Receipt, ReceiptClaim,
+    SuccinctReceipt, SystemState,
 };
 
-use risc0_groth16::ProofJson as Groth16ProofJson;
+use risc0_groth16::{
+    prove::to_json as seal_to_json, ProofJson as Groth16ProofJson, Seal as Groth16Seal,
+};
 
 use anyhow::{ensure, Context, Result};
 use num_bigint::BigUint;
@@ -160,10 +162,8 @@ async fn write_seal(
     tracing::info!("Writing seal");
 
     let seal_bytes = p254_receipt.get_seal_bytes();
-    let mut seal_json = Vec::new();
-    // seal_to_json(seal_bytes.as_slice(), &mut seal_json)?; // TODO: use the latest which has this...
-    let mut seal_json: serde_json::Value =
-        serde_json::from_str(std::str::from_utf8(seal_json.as_slice())?)?;
+    let seal_json = seal_to_json(seal_bytes.as_slice())?; // TODO(ec2): This is currently using a local version of risc0 which exposes this method
+    let mut seal_json: serde_json::Value = serde_json::from_str(&seal_json)?;
 
     let mut journal_bits = Vec::new();
     for byte in journal_bytes {
