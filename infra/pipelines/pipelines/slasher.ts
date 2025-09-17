@@ -17,7 +17,7 @@ const BUILD_SPEC = `
 
     env:
       git-credential-helper: yes
-    
+
     phases:
       pre_build:
         commands:
@@ -39,8 +39,7 @@ const BUILD_SPEC = `
           - pulumi install
           - echo "DEPLOYING stack $STACK_NAME"
           - pulumi stack select $STACK_NAME
-          - pulumi cancel --yes
-          - pulumi up --yes
+          - pulumi down --yes --skip-preview
     `;
 
 export class SlasherPipeline extends pulumi.ComponentResource {

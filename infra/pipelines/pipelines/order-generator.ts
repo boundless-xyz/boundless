@@ -17,7 +17,7 @@ const BUILD_SPEC = `
 
     env:
       git-credential-helper: yes
-    
+
     phases:
       pre_build:
         commands:
@@ -38,9 +38,7 @@ const BUILD_SPEC = `
           - cd infra/$APP_NAME
           - pulumi install
           - echo "DEPLOYING stack $STACK_NAME"
-          - pulumi stack select $STACK_NAME
-          - pulumi cancel --yes
-          - pulumi up --yes
+          - pulumi down --yes --skip-preview
     `;
 
 // A sample deployment pipeline that deploys to the staging account, then requires a manual approval before
