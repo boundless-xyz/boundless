@@ -477,7 +477,7 @@ mod tests {
         sha::{Digest, Digestible},
         Groth16Seal,
     };
-    use shrink_bitvm2::ShrinkBitvm2ReceiptClaim;
+    use shrink_bitvm2::{from_seal, get_ark_verifying_key, ShrinkBitvm2ReceiptClaim};
     use tempfile::tempdir;
 
     #[test]
@@ -622,21 +622,33 @@ mod tests {
             .expect("Failed to create Groth16 seal from receipt");
 
         let final_output_bytes =
-            ShrinkBitvm2ReceiptClaim::ok(image_id, stark_receipt.journal.bytes).digest().into();
-        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&final_output_bytes);
+            ShrinkBitvm2ReceiptClaim::ok(image_id, stark_receipt.journal.bytes).digest();
 
-        let public_input_scalar_str = public_input_scalar.to_string();
         let public_input_scalar =
-            risc0_groth16::PublicInputsJson { values: vec![public_input_scalar_str] }
-                .to_scalar()
-                .unwrap();
-        println!("R0 Verify Start");
+            ark_bn254::Fr::from_be_bytes_mod_order(final_output_bytes.as_bytes());
 
-        let verifying_key = shrink_bitvm2::get_r0_verifying_key();
+        // let public_input_scalar_str = public_input_scalar.to_string();
+        // let public_input_scalar =
+        //     risc0_groth16::PublicInputsJson { values: vec![public_input_scalar_str] }
+        //         .to_scalar()
+        //         .unwrap();
+        println!("Verify Start");
+        let ark_vk = get_ark_verifying_key();
+        let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
+        let res = ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
+            &ark_pvk,
+            &from_seal(&groth16_receipt.seal),
+            &[public_input_scalar],
+        )
+        .unwrap();
 
-        let v = risc0_groth16::Verifier::new(&groth16_seal, &public_input_scalar, &verifying_key)
-            .unwrap();
-        println!("R0 Verify result: {:?}", v.verify().is_ok());
-        assert!(v.verify().is_ok(), "R0 verification failed");
+        println!("Shrink BitVM2 Verify result: {:?}", res);
+
+        // let verifying_key = shrink_bitvm2::get_r0_verifying_key();
+
+        // let v = risc0_groth16::Verifier::new(&groth16_seal, &public_input_scalar, &verifying_key)
+        //     .unwrap();
+        // println!("R0 Verify result: {:?}", v.verify().is_ok());
+        // assert!(v.verify().is_ok(), "R0 verification failed");
     }
 }

@@ -16,8 +16,6 @@ use num_traits::Num;
 
 use serde::Serialize;
 use tokio::process::Command;
-pub const ALLOWED_CONTROL_ROOT: Digest =
-    digest!("ce52bf56033842021af3cf6db8a50d1b7535c125a34f1a22c6fdcf002c5a1529");
 
 pub const BN254_IDENTITY_CONTROL_ID: Digest =
     digest!("c07a65145c3cb48b6101962ea607a4dd93c753bb26975cb47feb00d3666e4404");
@@ -194,6 +192,7 @@ async fn write_seal(
         .iter()
         .flat_map(|&byte| (0..8).rev().map(move |i| ((byte >> i) & 1).to_string()))
         .collect();
+    // remove 248th and 249th bits
     id_bn254_fr_bits.remove(248);
     id_bn254_fr_bits.remove(248);
 
