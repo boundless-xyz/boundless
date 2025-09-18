@@ -1,4 +1,4 @@
-// inspiration for this home page taken from: https://github.com/ensdomains/docs
+// Code for this homepage is modified from: https://github.com/ensdomains/docs, available under CC0.
 
 const navigation = [
   {
@@ -62,6 +62,19 @@ const navigation = [
   },
 ];
 
+const videos = [
+  {
+    title: 'Boundless Mainnet Launch',
+    href: 'https://x.com/boundless_xyz/status/1968004476758863925/video/1',
+    thumbnail: '/launch-video-thumbnail.jpg',
+  },
+  {
+    title: 'Boundless Prover Quickstart (July 2025)',
+    href: 'https://www.youtube.com/watch?v=MZqU-J-fW2M',
+    thumbnail: '/prover-quick-start-thumbnail.jpg',
+  }
+]
+
 export default function HomePage() {
   return (
     <>
@@ -104,6 +117,23 @@ export default function HomePage() {
             ))}
           </div>
         ))}
+      </div>
+
+      <div className="mx-auto flex max-w-4xl flex-col px-4">
+        <h2 className="vocs_H2 vocs_Heading">Videos</h2>
+        <div className="grid grid-cols-2 gap-6 lg:gap-y-10">
+          {videos.map((video) => (
+            <a
+              key={video.title}
+              href={video.href}
+              target="_blank"
+              className="overflow-hidden rounded-lg border-1 border-gray-500/50"
+            >
+              <img src={video.thumbnail} alt={video.title} className="w-full" />
+              <span className="block p-2 font-medium leading-6">{video.title}</span>
+            </a>
+          ))}
+        </div>
       </div>
     </>
   );
