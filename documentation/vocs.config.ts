@@ -218,12 +218,12 @@ const SIDEBAR_ITEMS = [
         link: "/zkc/quick-start"
       },
       {
-        text: "Introduction",
-        link: "/zkc/introduction"
+        text: "FAQ",
+        link: "/zkc/faq"
       },
       {
-        text: "Staking $ZKC",
-        link: "/zkc/staking"
+        text: "Token Documentation",
+        link: "/zkc/token-docs"
       },
       {
         text: "Bridging $ZKC",
