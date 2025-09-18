@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::io::{self, Write};
+
 use alloy::{
     eips::BlockId,
     network::Ethereum,
-    primitives::{utils::format_ether, B256, U256},
+    primitives::{
+        utils::{format_ether, parse_units},
+        B256, U256,
+    },
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
     sol_types::SolCall,
 };
-use anyhow::{ensure, Context};
+use anyhow::{anyhow, bail, ensure, Context};
 use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
     contracts::{extract_tx_log, DecodeRevert, IStaking},
@@ -34,10 +39,11 @@ use crate::{commands::zkc::get_active_token_id, config::GlobalConfig};
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct ZkcStake {
-    // TODO(zkc): what units should we use here?
-    /// Amount of ZKC to stake, in wei.
+    /// Amount of ZKC to stake.
+    ///
+    /// This is specified in ZKC, e.g., to stake 1 ZKC, use `--amount 1`.
     #[clap(long)]
-    pub amount: U256,
+    amount: String,
     /// Do not use ERC20 permit to authorize the staking. You will need to send a separate
     /// transaction to set an ERC20 allowance instead.
     #[clap(long)]
@@ -74,8 +80,31 @@ impl ZkcStake {
                 .await?;
         let add = !token_id.is_zero();
 
+        let parsed_amount = parse_units(&self.amount, 18)
+            .map_err(|e| anyhow!("Failed to parse ZKC amount: {}", e))?
+            .into();
+        if parsed_amount == U256::from(0) {
+            bail!("Amount is below the denomination minimum: {}", self.amount);
+        }
+
         if self.calldata {
-            return self.approve_then_stake(deployment, self.amount, add).await;
+            return self.approve_then_stake(deployment, parsed_amount, add).await;
+        }
+
+        if !add {
+            println!(
+                "You're creating a new ZKC stake position. This will lock {} ZKC for 30 days.",
+                format_ether(parsed_amount)
+            );
+            print!("Type 'yes' to confirm and continue: ");
+            io::stdout().flush().ok();
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .map_err(|e| anyhow!("failed to read confirmation: {}", e))?;
+            if input.trim().to_lowercase() != "yes" {
+                bail!("Stake cancelled by user");
+            }
         }
 
         let pending_tx = match self.no_permit {
@@ -83,7 +112,7 @@ impl ZkcStake {
                 self.stake_with_permit(
                     provider,
                     deployment,
-                    self.amount,
+                    parsed_amount,
                     &tx_signer,
                     self.permit_deadline,
                     add,
@@ -91,7 +120,7 @@ impl ZkcStake {
                 .await?
             }
             true => self
-                .stake(provider, deployment, self.amount, add)
+                .stake(provider, deployment, parsed_amount, add)
                 .await
                 .context("Sending stake transaction failed")?,
         };

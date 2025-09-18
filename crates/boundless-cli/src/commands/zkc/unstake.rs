@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::io::{self, Write};
+
 use alloy::{
     consensus::BlockHeader,
     eips::BlockNumberOrTag,
     network::Ethereum,
+    primitives::utils::format_ether,
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
 };
 use anyhow::{ensure, Context};
@@ -72,6 +75,24 @@ impl ZkcUnstake {
         }
 
         let send_result = if withdrawable_at.is_zero() {
+            // Explain what initiating an unstake does and get explicit confirmation.
+            println!(
+                "You're about to initiate unstaking of your active ZKC position ({} ZKC).",
+                format_ether(amount)
+            );
+            println!(
+                "- This starts a 30-day cooldown. After it ends, you can complete the unstake process and withdraw your tokens."
+            );
+            println!("- Your staking position will close immediately: you'll lose rewards and voting power and stop earning rewards until you open a new position.");
+            print!("Type 'yes' to confirm and continue: ");
+            io::stdout().flush().ok();
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .map_err(|e| anyhow::anyhow!("failed to read confirmation: {}", e))?;
+            if input.trim().to_lowercase() != "yes" {
+                anyhow::bail!("Unstake cancelled by user");
+            }
             self.initiate_unstake(provider.clone(), deployment).await
         } else {
             let block_timestamp = get_block_timestamp(provider.clone()).await?;
