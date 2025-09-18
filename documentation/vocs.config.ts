@@ -5,6 +5,7 @@ import { defineConfig } from "vocs";
 const SIDEBAR_ITEMS = [
   {
     text: "Introduction",
+    collapsed: true,
     items: [
       {
         text: "What is Boundless?",
@@ -19,6 +20,7 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "Build",
+    collapsed: true,
     items: [
       {
         text: "Quick Start",
@@ -26,7 +28,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Core Concepts",
-        collapsed: true,
         items: [
           {
             text: "Build a Program",
@@ -60,7 +61,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Tutorials",
-        collapsed: true,
         items: [
           {
             text: "Callbacks",
@@ -90,7 +90,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Dev Tooling",
-        collapsed: true,
         items: [
           {
             text: "Boundless SDK",
@@ -104,7 +103,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Smart Contracts",
-        collapsed: true,
         items: [
           {
             text: "Boundless Contracts",
@@ -122,7 +120,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Steel",
-        collapsed: true,
+        link: "/developers/steel/quick-start",
         items: [
           {
             text: "Quick Start",
@@ -156,11 +154,11 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Kailua",
-        collapsed: true,
+        link: "/developers/kailua/intro",
         items: [
           {
             text: "Introducing Kailua",
-            link: "/developers/kailua/how",
+            link: "/developers/kailua/intro",
           },
           {
             text: "The Kailua Book",
@@ -172,6 +170,7 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "Prove",
+    collapsed: true,
     items: [
       {
         text: "Quick Start",
@@ -179,7 +178,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Core Concepts",
-        collapsed: true,
         items: [
           {
             text: "The Boundless Proving Stack",
@@ -201,7 +199,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Technical Reference",
-        collapsed: true,
         items: [
           {
             text: "Bento Technical Design",
@@ -213,14 +210,20 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "$ZKC",
+    collapsed: true,
+    link: "/zkc/quick-start",
     items: [
       {
-        text: "Introduction",
-        link: "/zkc/introduction"
+        text: "Quick Start",
+        link: "/zkc/quick-start"
       },
       {
-        text: "Staking $ZKC",
-        link: "/zkc/staking"
+        text: "FAQ",
+        link: "/zkc/faq"
+      },
+      {
+        text: "Token Documentation",
+        link: "/zkc/token-docs"
       },
       {
         text: "Bridging $ZKC",
@@ -232,11 +235,10 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Proof of Verifiable Work",
-        collapsed: false,
         items: [
           {
             text: "Claiming Rewards",
-            link: "/zkc/povw-claiming-rewards",
+            link: "/zkc/povw/claiming-rewards",
           }
         ],
       },

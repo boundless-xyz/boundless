@@ -109,15 +109,10 @@ html {
   @apply text-center font-bold pb-1;
 }
 
-/* basically, this means that if the canonical link is for the developers page, then the first item in the sidebar should have a border */
-head:has(link[rel="canonical"][href*="/developers/"]) + body .vocs_Sidebar_section:first-child .vocs_Sidebar_items:first-child .vocs_Sidebar_item:nth-child(1) {
-  @apply text-[var(--vocs-color_textAccent)] border-b-2 border-[var(--vocs-color_textAccent)];
+.vocs_Sidebar_navigation > .vocs_Sidebar_group > .vocs_Sidebar_section + .vocs_Sidebar_section {
+  @apply border-t border-gray-500/25;
 }
 
-/* basically, this means that if the canonical link is for the provers page, then the second item in the sidebar should have a border */
-head:has(link[rel="canonical"][href*="/provers/"]) + body .vocs_Sidebar_section:first-child .vocs_Sidebar_items:first-child .vocs_Sidebar_item:nth-child(2) {
-  @apply text-[var(--vocs-color_textAccent)] border-b-2 border-[var(--vocs-color_textAccent)];
-}
 
 .vocs_Content img {
   @apply rounded-md;
