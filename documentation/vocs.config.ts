@@ -154,11 +154,11 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Kailua",
-        link: "/developers/kailua/how",
+        link: "/developers/kailua/intro",
         items: [
           {
             text: "Introducing Kailua",
-            link: "/developers/kailua/how",
+            link: "/developers/kailua/intro",
           },
           {
             text: "The Kailua Book",
@@ -211,7 +211,12 @@ const SIDEBAR_ITEMS = [
   {
     text: "$ZKC",
     collapsed: true,
+    link: "/zkc/quick-start",
     items: [
+      {
+        text: "Quick Start",
+        link: "/zkc/quick-start"
+      },
       {
         text: "Introduction",
         link: "/zkc/introduction"
@@ -233,7 +238,7 @@ const SIDEBAR_ITEMS = [
         items: [
           {
             text: "Claiming Rewards",
-            link: "/zkc/povw-claiming-rewards",
+            link: "/zkc/povw/claiming-rewards",
           }
         ],
       },

@@ -17,7 +17,6 @@ const navigation = [
       ["The Boundless Proving Stack", "/provers/proving-stack"],
       ["Broker Config", "/provers/broker"],
       ["Monitoring", "/provers/monitoring"],
-      ["Tracking a Request", "developers/tutorials/tracking"],
       ["Performance Optimization", "/provers/performance-optimization"],
     ],
   },
@@ -78,28 +77,33 @@ const videos = [
 export default function HomePage() {
   return (
     <>
-      <div className="bg-[var(--vocs-color_backgroundDark)] py-16">
+      <div className="bg-[var(--vocs-color_backgroundDark)] py-10">
         <div className="mx-auto flex max-w-4xl flex-col gap-4">
-          <h1 className="font-semibold text-3xl sm:text-4xl">Boundless Docs</h1>
-          <p>Making blockchains internet-scale</p>
+          <h1 className="font-semibold text-2xl sm:text-2xl">Get Started</h1>
           <div className="flex flex-col gap-3 sm:flex-row">
             <a
               href="/developers/quick-start"
-              className="rounded-lg border border-neutral-400 px-4 py-1 font-bold text-[16px] hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              className="rounded-lg border border-neutral-400 px-4 py-1 font-bold text-[20px] hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
             >
-              Developer Quick Start
+              Developers
             </a>
             <a
               href="/provers/quick-start"
-              className="rounded-lg border border-neutral-400 px-4 py-1 font-bold text-[16px] hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              className="rounded-lg border border-neutral-400 px-4 py-1 font-bold text-[20px] hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
             >
-              Prover Quick Start
+              Provers
             </a>
             <a
               href="/zkc/quick-start"
-              className="rounded-lg border border-neutral-400 px-4 py-1 font-bold text-[16px] hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              className="rounded-lg border border-neutral-400 px-4 py-1 font-bold text-[20px] hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
             >
-              $ZKC Quick Start
+              $ZKC
+            </a>
+            <a
+              href="/zkc/povw/quick-start"
+              className="rounded-lg border border-neutral-400 px-4 py-1 font-bold text-[20px] hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            >
+              PoVW
             </a>
           </div>
         </div>
