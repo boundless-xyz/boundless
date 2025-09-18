@@ -321,30 +321,56 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .read_buf_from_s3(&receipt_key)
             .await
             .context("Failed to download receipt from obj store")?;
-        let receipt: Receipt =
-            bincode::deserialize(&receipt_bytes).context("Failed to decode assumption Receipt")?;
+        
+        let (receipt, claim) = match bincode::deserialize::<Receipt>(&receipt_bytes) {
+            Ok(receipt) => {
+                let assumption_claim = receipt.claim()?.digest().to_string();
+
+                let succinct_receipt = match receipt.inner {
+                    InnerReceipt::Succinct(inner) => inner.into_unknown(),
+                    _ => bail!("Invalid assumption receipt, not succinct"),
+                };
+                // (receipt.inner, assumption_claim)
+                todo!()
+            }
+            Err(err) => {
+                tracing::debug!("Failed to deserialize assumption receipt {} as Receipt, trying InnerAssumptionReceipt: {err}", receipt_id);
+                // Try deserializing as InnerAssumptionReceipt
+                let inner_receipt: risc0_zkvm::InnerAssumptionReceipt = 
+                    bincode::deserialize(&receipt_bytes)
+                        .context("Failed to decode assumption Receipt as both Receipt and InnerAssumptionReceipt")?;
+                tracing::debug!("Deserialized assumption receipt {} as InnerAssumptionReceipt", receipt_id);
+                if let risc0_zkvm::InnerAssumptionReceipt::Succinct(inner_receipt) = inner_receipt {
+                    let claim = inner_receipt.claim.digest().to_string();
+                    (inner_receipt.into_unknown(), claim)
+                } else {
+                    bail!("Failed to extract receipt from InnerAssumptionReceipt, not succinct");
+                }
+            }
+        };
+
+        panic!("ensure the above works first");
 
         assumption_receipts.push(receipt.clone());
 
-        let assumption_claim = receipt.inner.claim()?.digest().to_string();
+    //     let assumption_claim = receipt.claim()?.digest().to_string();
 
-        let succinct_receipt = match receipt.inner {
-            InnerReceipt::Succinct(inner) => inner,
-            _ => bail!("Invalid assumption receipt, not succinct"),
-        };
-        let succinct_receipt = succinct_receipt.into_unknown();
-        let succinct_receipt_bytes = serialize_obj(&succinct_receipt)
-            .context("Failed to serialize succinct assumption receipt")?;
+    //     let succinct_receipt = match receipt {
+    //         InnerReceipt::Succinct(inner) => inner.into_unknown(),
+    //         _ => bail!("Invalid assumption receipt, not succinct"),
+    //     };
+    //     let succinct_receipt_bytes = serialize_obj(&succinct_receipt)
+    //         .context("Failed to serialize succinct assumption receipt")?;
 
-        let assumption_key = format!("{receipts_key}:{assumption_claim}");
-        redis::set_key_with_expiry(
-            &mut conn,
-            &assumption_key,
-            succinct_receipt_bytes,
-            Some(agent.args.redis_ttl),
-        )
-        .await
-        .context("Failed to put assumption claim in redis")?;
+    //     let assumption_key = format!("{receipts_key}:{assumption_claim}");
+    //     redis::set_key_with_expiry(
+    //         &mut conn,
+    //         &assumption_key,
+    //         succinct_receipt_bytes,
+    //         Some(agent.args.redis_ttl),
+    //     )
+    //     .await
+    //     .context("Failed to put assumption claim in redis")?;
     }
 
     // Set the exec limit in 1 million cycle increments
