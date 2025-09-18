@@ -109,6 +109,11 @@ html {
   @apply text-center font-bold pb-1;
 }
 
+.vocs_Sidebar_navigation > .vocs_Sidebar_group > .vocs_Sidebar_section + .vocs_Sidebar_section {
+  @apply border-t border-gray-500/25;
+}
+
+
 .vocs_Content img {
   @apply rounded-md;
 }

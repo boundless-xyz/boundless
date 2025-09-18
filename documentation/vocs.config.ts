@@ -28,7 +28,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Core Concepts",
-        collapsed: false,
         items: [
           {
             text: "Build a Program",
@@ -62,7 +61,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Tutorials",
-        collapsed: false,
         items: [
           {
             text: "Callbacks",
@@ -92,7 +90,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Dev Tooling",
-        collapsed: false,
         items: [
           {
             text: "Boundless SDK",
@@ -106,7 +103,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Smart Contracts",
-        collapsed: false,
         items: [
           {
             text: "Boundless Contracts",
@@ -124,7 +120,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Steel",
-        collapsed: true,
+        link: "/developers/steel/quick-start",
         items: [
           {
             text: "Quick Start",
@@ -158,7 +154,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Kailua",
-        collapsed: true,
+        link: "/developers/kailua/how",
         items: [
           {
             text: "Introducing Kailua",
@@ -182,7 +178,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Core Concepts",
-        collapsed: false,
         items: [
           {
             text: "The Boundless Proving Stack",
@@ -204,7 +199,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Technical Reference",
-        collapsed: false,
         items: [
           {
             text: "Bento Technical Design",
@@ -236,7 +230,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Proof of Verifiable Work",
-        collapsed: false,
         items: [
           {
             text: "Claiming Rewards",
