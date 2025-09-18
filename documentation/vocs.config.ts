@@ -5,6 +5,7 @@ import { defineConfig } from "vocs";
 const SIDEBAR_ITEMS = [
   {
     text: "Introduction",
+    collapsed: true,
     items: [
       {
         text: "What is Boundless?",
@@ -19,6 +20,7 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "Build",
+    collapsed: true,
     items: [
       {
         text: "Quick Start",
@@ -26,7 +28,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Core Concepts",
-        collapsed: true,
+        collapsed: false,
         items: [
           {
             text: "Build a Program",
@@ -60,7 +62,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Tutorials",
-        collapsed: true,
+        collapsed: false,
         items: [
           {
             text: "Callbacks",
@@ -90,7 +92,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Dev Tooling",
-        collapsed: true,
+        collapsed: false,
         items: [
           {
             text: "Boundless SDK",
@@ -104,7 +106,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Smart Contracts",
-        collapsed: true,
+        collapsed: false,
         items: [
           {
             text: "Boundless Contracts",
@@ -172,6 +174,7 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "Prove",
+    collapsed: true,
     items: [
       {
         text: "Quick Start",
@@ -179,7 +182,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Core Concepts",
-        collapsed: true,
+        collapsed: false,
         items: [
           {
             text: "The Boundless Proving Stack",
@@ -201,7 +204,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Technical Reference",
-        collapsed: true,
+        collapsed: false,
         items: [
           {
             text: "Bento Technical Design",
@@ -213,6 +216,7 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "$ZKC",
+    collapsed: true,
     items: [
       {
         text: "Introduction",
