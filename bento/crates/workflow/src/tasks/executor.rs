@@ -322,7 +322,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .await
             .context("Failed to download receipt from obj store")?;
         
-        let (receipt, claim) = match bincode::deserialize::<Receipt>(&receipt_bytes) {
+        let (succinct_receipt, assumption_claim) = match bincode::deserialize::<Receipt>(&receipt_bytes) {
             Ok(receipt) => {
                 let assumption_claim = receipt.claim()?.digest().to_string();
 
@@ -330,8 +330,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     InnerReceipt::Succinct(inner) => inner.into_unknown(),
                     _ => bail!("Invalid assumption receipt, not succinct"),
                 };
-                // (receipt.inner, assumption_claim)
-                todo!()
+                (succinct_receipt, assumption_claim)
             }
             Err(err) => {
                 tracing::debug!("Failed to deserialize assumption receipt {} as Receipt, trying InnerAssumptionReceipt: {err}", receipt_id);
@@ -349,28 +348,21 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             }
         };
 
-        panic!("ensure the above works first");
 
-        assumption_receipts.push(receipt.clone());
+        assumption_receipts.push(succinct_receipt.clone());
 
-    //     let assumption_claim = receipt.claim()?.digest().to_string();
+        let succinct_receipt_bytes = serialize_obj(&succinct_receipt)
+            .context("Failed to serialize succinct assumption receipt")?;
 
-    //     let succinct_receipt = match receipt {
-    //         InnerReceipt::Succinct(inner) => inner.into_unknown(),
-    //         _ => bail!("Invalid assumption receipt, not succinct"),
-    //     };
-    //     let succinct_receipt_bytes = serialize_obj(&succinct_receipt)
-    //         .context("Failed to serialize succinct assumption receipt")?;
-
-    //     let assumption_key = format!("{receipts_key}:{assumption_claim}");
-    //     redis::set_key_with_expiry(
-    //         &mut conn,
-    //         &assumption_key,
-    //         succinct_receipt_bytes,
-    //         Some(agent.args.redis_ttl),
-    //     )
-    //     .await
-    //     .context("Failed to put assumption claim in redis")?;
+        let assumption_key = format!("{receipts_key}:{assumption_claim}");
+        redis::set_key_with_expiry(
+            &mut conn,
+            &assumption_key,
+            succinct_receipt_bytes,
+            Some(agent.args.redis_ttl),
+        )
+        .await
+        .context("Failed to put assumption claim in redis")?;
     }
 
     // Set the exec limit in 1 million cycle increments
