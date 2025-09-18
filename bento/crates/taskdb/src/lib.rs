@@ -153,6 +153,30 @@ pub async fn create_job(
 }
 
 // TODO: fix this clippy allow
+pub async fn reset_failed_tasks(pool: &PgPool, job_id: &Uuid) -> Result<u64, TaskDbErr> {
+    let updated = sqlx::query(
+        r#"
+        UPDATE tasks
+        SET state = 'ready', waiting_on = 0, updated_at = now()
+        WHERE job_id = $1
+          AND state IN ('failed','pending')
+          AND job_id IN (SELECT id FROM jobs WHERE state != 'done')
+          AND NOT EXISTS (
+            SELECT 1
+            FROM tasks p
+            WHERE p.task_id = ANY(SELECT jsonb_array_elements_text(tasks.prerequisites))
+              AND p.job_id = tasks.job_id
+              AND p.state NOT IN ('done')
+          )
+        "#
+    )
+    .bind(job_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(updated)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn create_task(
     pool: &PgPool,
