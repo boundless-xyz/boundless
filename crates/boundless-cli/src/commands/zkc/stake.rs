@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::io::{self, Write};
+
 use alloy::{
     eips::BlockId,
     network::Ethereum,
-    primitives::{utils::format_ether, B256, U256},
+    primitives::{
+        utils::{format_ether, parse_units},
+        Address, B256, U256,
+    },
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
     sol_types::SolCall,
 };
-use anyhow::{ensure, Context};
+use anyhow::{anyhow, bail, ensure, Context};
 use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
     contracts::{extract_tx_log, DecodeRevert, IStaking},
@@ -34,10 +39,11 @@ use crate::{commands::zkc::get_active_token_id, config::GlobalConfig};
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct ZkcStake {
-    // TODO(zkc): what units should we use here?
-    /// Amount of ZKC to stake, in wei.
+    /// Amount of ZKC to stake.
+    ///
+    /// This is specified in ZKC, e.g., to stake 1 ZKC, use `--amount 1`.
     #[clap(long)]
-    pub amount: U256,
+    amount: String,
     /// Do not use ERC20 permit to authorize the staking. You will need to send a separate
     /// transaction to set an ERC20 allowance instead.
     #[clap(long)]
@@ -48,6 +54,11 @@ pub struct ZkcStake {
     /// Whether to only print the calldata without sending the transaction.
     #[clap(long)]
     pub calldata: bool,
+    /// The account address to stake from.
+    ///
+    /// Only valid when used with `--calldata`.
+    #[clap(long, requires = "calldata")]
+    pub from: Option<Address>,
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
@@ -56,12 +67,10 @@ pub struct ZkcStake {
 impl ZkcStake {
     /// Run the [ZKCStake] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
@@ -69,13 +78,47 @@ impl ZkcStake {
         let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
             .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
 
+        let account = match &self.from {
+            Some(addr) => *addr,
+            None => global_config.require_private_key()?.address(),
+        };
+
         let token_id =
-            get_active_token_id(provider.clone(), deployment.vezkc_address, tx_signer.address())
-                .await?;
+            get_active_token_id(provider.clone(), deployment.vezkc_address, account).await?;
         let add = !token_id.is_zero();
 
+        let parsed_amount = parse_units(&self.amount, 18)
+            .map_err(|e| anyhow!("Failed to parse ZKC amount: {}", e))?
+            .into();
+        if parsed_amount == U256::from(0) {
+            bail!("Amount is below the denomination minimum: {}", self.amount);
+        }
+
         if self.calldata {
-            return self.approve_then_stake(deployment, self.amount, add).await;
+            return self.approve_then_stake(deployment, parsed_amount, add).await;
+        }
+
+        let tx_signer = global_config.require_private_key()?;
+        let provider = ProviderBuilder::new()
+            .wallet(tx_signer.clone())
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+
+        if !add {
+            println!(
+                "You're creating a new ZKC stake position. This will lock {} ZKC for 30 days.",
+                format_ether(parsed_amount)
+            );
+            print!("Type 'yes' to confirm and continue: ");
+            io::stdout().flush().ok();
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .map_err(|e| anyhow!("failed to read confirmation: {}", e))?;
+            if input.trim().to_lowercase() != "yes" {
+                bail!("Stake cancelled by user");
+            }
         }
 
         let pending_tx = match self.no_permit {
@@ -83,7 +126,7 @@ impl ZkcStake {
                 self.stake_with_permit(
                     provider,
                     deployment,
-                    self.amount,
+                    parsed_amount,
                     &tx_signer,
                     self.permit_deadline,
                     add,
@@ -91,7 +134,7 @@ impl ZkcStake {
                 .await?
             }
             true => self
-                .stake(provider, deployment, self.amount, add)
+                .stake(provider, deployment, parsed_amount, add)
                 .await
                 .context("Sending stake transaction failed")?,
         };
