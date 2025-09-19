@@ -772,20 +772,6 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0xc197eBE12C7Bcf1d9F3b415342bDbC795425335C",
           submissionRate: [
             {
-              description: "no submitted orders in 2 hours from og_offchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 7200
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            },
-            {
               description: "no submitted orders in 60 minutes from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
@@ -815,19 +801,6 @@ export const alarmConfig: ChainStageAlarms = {
                 datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
-            },
-            {
-              description: "less than 90% success rate for three 30 minute periods within 3 hours from og_offchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 1800
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 5,
-                datapointsToAlarm: 3,
-                comparisonOperator: "LessThanThreshold"
-              }
             }
           ]
         },
@@ -836,24 +809,10 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0xE198C6944Cae382902A375b0B8673084270A7f8e",
           submissionRate: [
             {
-              description: "no submitted orders in 60 minutes from og_onchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            },
-            {
-              description: "no submitted orders in 30 minutes from og_onchain",
+              description: "no submitted orders in 2 hours from og_onchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 1800
+                period: 7200
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -869,15 +828,15 @@ export const alarmConfig: ChainStageAlarms = {
             // so we set a more lenient success rate threshold, since there may be periods where
             // fewer proofs get fulfilled due to variant proof lengths.
             {
-              description: "less than 90% success rate for two consecutive hours from og_onchain",
-              severity: Severity.SEV1,
+              description: "less than 75% success rate for four consecutive hours from og_onchain",
+              severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 2,
-                datapointsToAlarm: 2,
+                threshold: 0.75,
+                evaluationPeriods: 4,
+                datapointsToAlarm: 4,
                 comparisonOperator: "LessThanThreshold"
               }
             }
@@ -900,22 +859,8 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 3 fulfilled orders in 60 minutes",
+          description: "less than 2 fulfilled orders in 60 minutes",
           severity: Severity.SEV2,
-          metricConfig: {
-            period: 3600
-          },
-          alarmConfig: {
-            threshold: 3,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "LessThanThreshold",
-            treatMissingData: "breaching"
-          }
-        },
-        {
-          description: "less than 1 fulfilled orders in 60 minutes",
-          severity: Severity.SEV1,
           metricConfig: {
             period: 3600
           },
@@ -928,27 +873,13 @@ export const alarmConfig: ChainStageAlarms = {
           }
         }],
         submittedRequests: [{
-          description: "less than 2 submitted orders in 30 minutes",
+          description: "less than 2 submitted orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 2,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "LessThanThreshold",
-            treatMissingData: "breaching"
-          }
-        },
-        {
-          description: "less than 1 submitted orders in 30 minutes",
-          severity: Severity.SEV1,
-          metricConfig: {
-            period: 1800,
-          },
-          alarmConfig: {
-            threshold: 1,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "LessThanThreshold",
@@ -958,26 +889,26 @@ export const alarmConfig: ChainStageAlarms = {
         // Expired and slashed requests are not necessarily problems with the market. We keep these at low threshold
         // just during the initial launch for monitoring purposes.
         expiredRequests: [{
-          description: "greater than 15 expired orders in 60 minutes",
+          description: "greater than 20 expired orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
             period: 3600,
           },
           alarmConfig: {
-            threshold: 15,
+            threshold: 20,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",
           }
         }],
         slashedRequests: [{
-          description: "greater than 15 slashed orders in 60 minutes",
+          description: "greater than 20 slashed orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
             period: 3600,
           },
           alarmConfig: {
-            threshold: 15,
+            threshold: 20,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",

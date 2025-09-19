@@ -359,7 +359,8 @@ export class OrderGenerator extends pulumi.ComponentResource {
     });
 
     // 7 errors within 1 hour in the order generator triggers a SEV1 alarm.
-    if (!isStaging) {
+    // Eth Sepolia is unreliable, so don't SEV1 on it.
+    if (!isStaging && args.chainId !== '11155111') {
       new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV1}`, {
         name: `${serviceName}-log-err-${Severity.SEV1}`,
         metricQueries: [
@@ -413,7 +414,8 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
     // A single error in the order generator causes the process to exit.
     // SEV1 alarm if we see 4 errors in 30 mins.
-    if (!isStaging) {
+    // Eth Sepolia is unreliable, so don't SEV1 on it.
+    if (!isStaging && args.chainId !== '11155111') {
       new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV1}`, {
         name: `${serviceName}-log-fatal-${Severity.SEV1}`,
         metricQueries: [
