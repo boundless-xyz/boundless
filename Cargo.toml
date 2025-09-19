@@ -31,7 +31,7 @@ repository = "https://github.com/boundless-xyz/boundless/"
 boundless-assessor = { version = "1.0.0", path = "crates/assessor" }
 boundless-cli = { version = "1.0.0", path = "crates/boundless-cli" }
 boundless-market = { version = "1.0.0", path = "crates/boundless-market" }
-boundless-test-utils = { path = "crates/test-utils" }
+boundless-test-utils = { path = "crates/test-utils", default-features = false }
 boundless-zkc = { version = "1.0.0", path = "crates/zkc" }
 boundless-povw = { path = "crates/povw" }
 distributor = { path = "crates/distributor" }
