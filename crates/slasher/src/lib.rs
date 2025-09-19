@@ -474,7 +474,10 @@ where
                         // Return as this is irrecoverable
                         return Err(ServiceError::InsufficientFunds(err_msg));
                     } else if err_msg.contains("RequestIsNotLocked") {
-                        tracing::error!("Request 0x{:x} was marked for slashing but was not locked. Removing.", request_id);
+                        tracing::error!(
+                            "Request 0x{:x} was marked for slashing but was not locked. Removing.",
+                            request_id
+                        );
                         self.remove_order(request_id).await?;
                     } else {
                         // Any other error should be RPC related so we can retry
