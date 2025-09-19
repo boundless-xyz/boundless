@@ -41,4 +41,6 @@ wiremock = { version = "0.6", optional = true }
 reqwest = { workspace = true, features = ["json"] }
 
 [features]
+default = ["povw", "zkc"]
 povw = ["dep:boundless-povw", "dep:bytemuck", "dep:derive_builder", "dep:postcard", "dep:rand", "dep:risc0-povw", "dep:risc0-steel", "dep:wiremock", "dep:serde", "dep:serde_json", "dep:uuid", "dep:bincode", "dep:tracing"]
+zkc = []

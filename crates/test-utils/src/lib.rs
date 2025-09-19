@@ -22,6 +22,7 @@ pub mod market;
 #[cfg(feature = "povw")]
 pub mod povw;
 pub mod verifier;
+#[cfg(feature = "zkc")]
 pub mod zkc;
 
 pub mod guests {
