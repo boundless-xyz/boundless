@@ -45,7 +45,6 @@ pub struct GlobalConfig {
     /// Log level (error, warn, info, debug, trace)
     #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
     pub log_level: LevelFilter,
-
     // NOTE: Deployment is commented out because flattening it requires
     // boundless_market_address and set_verifier_address to be provided,
     // even for commands that don't need them (like zkc summary).

@@ -23,14 +23,11 @@ use anyhow::Context;
 use boundless_povw::{deployments::Deployment, log_updater::IPovwAccounting};
 use boundless_zkc::contracts::{IRewards, IStaking, IStakingRewards, IZKC};
 use clap::Args;
-use std::collections::HashMap;
-use tabled::{
-    builder::Builder,
-    settings::Style,
-};
+use std::collections::{HashMap, HashSet};
+use tabled::{builder::Builder, settings::Style};
 
 // Block numbers from before contract creation.
-const MAINNET_FROM_BLOCK: u64 = 23260070;
+const MAINNET_FROM_BLOCK: u64 = 23250070;
 const SEPOLIA_FROM_BLOCK: u64 = 9110040;
 const LOG_QUERY_CHUNK_SIZE: u64 = 5000;
 
@@ -52,18 +49,36 @@ fn format_zkc(value: U256) -> String {
     }
 }
 
+// Structs for PoVW rewards calculation
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct WorkLogRewardInfo {
+    work_log_id: Address,
+    work_submitted: U256,
+    percentage: f64,
+    uncapped_rewards: U256,
+    reward_cap: U256,
+    actual_rewards: U256,
+    is_capped: bool,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct EpochPoVWRewards {
+    epoch: U256,
+    total_work: U256,
+    povw_emissions: U256,
+    rewards_by_work_log_id: HashMap<Address, WorkLogRewardInfo>,
+}
+
 fn print_section_header(title: &str) {
     let width = 60;
     let padding = (width - title.len()) / 2;
     let extra = if (width - title.len()) % 2 != 0 { 1 } else { 0 };
-
-    println!("\n{}", "=".repeat(width));
-    println!("{}{}{}",
-        " ".repeat(padding),
-        title,
-        " ".repeat(padding + extra)
-    );
-    println!("{}", "=".repeat(width));
+    tracing::info!("");
+    tracing::info!("{}", "=".repeat(width));
+    tracing::info!("{}{}{}", " ".repeat(padding), title, " ".repeat(padding + extra));
+    tracing::info!("{}", "=".repeat(width));
 }
 
 // Query logs in chunks
@@ -79,7 +94,8 @@ async fn query_logs_chunked<P: Provider>(
     while current_from <= to_block {
         let current_to = (current_from + LOG_QUERY_CHUNK_SIZE - 1).min(to_block);
 
-        let chunk_filter = filter.clone()
+        let chunk_filter = filter
+            .clone()
             .from_block(BlockNumberOrTag::Number(current_from))
             .to_block(BlockNumberOrTag::Number(current_to));
 
@@ -94,9 +110,139 @@ async fn query_logs_chunked<P: Provider>(
 
 use crate::config::GlobalConfig;
 
+// Compute PoVW rewards for a specific epoch
+async fn compute_povw_rewards_by_work_log_id<P: Provider>(
+    provider: &P,
+    deployment: &Deployment,
+    zkc_address: Address,
+    epoch: U256,
+    current_epoch: U256,
+    all_work_logs: &[Log],
+    all_epoch_finalized_logs: &[Log],
+) -> anyhow::Result<EpochPoVWRewards> {
+    let zkc = IZKC::new(zkc_address, provider);
+    // Get emissions for the epoch
+    let povw_emissions = zkc.getPoVWEmissionsForEpoch(epoch).call().await?;
+
+    // Determine if this is the current epoch
+    let is_current_epoch = epoch == current_epoch;
+
+    // Get total work for the epoch
+    let total_work = if is_current_epoch {
+        // For current epoch, use pending epoch from PoVW accounting
+        let povw_accounting = IPovwAccounting::new(deployment.povw_accounting_address, provider);
+        let pending_epoch = povw_accounting.pendingEpoch().call().await?;
+        U256::from(pending_epoch.totalWork)
+    } else {
+        // For past epochs, get from EpochFinalized events
+        let mut epoch_total_work = U256::ZERO;
+        for log in all_epoch_finalized_logs {
+            if let Ok(decoded) = log.log_decode::<IPovwAccounting::EpochFinalized>() {
+                if U256::from(decoded.inner.data.epoch) == epoch {
+                    epoch_total_work = U256::from(decoded.inner.data.totalWork);
+                    break;
+                }
+            }
+        }
+
+        // If EpochFinalized had totalWork = 0, calculate from work logs
+        if epoch_total_work == U256::ZERO {
+            let mut work_sum = U256::ZERO;
+            for log in all_work_logs {
+                if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
+                    if U256::from(decoded.inner.data.epochNumber) == epoch {
+                        work_sum += U256::from(decoded.inner.data.updateValue);
+                    }
+                }
+            }
+            epoch_total_work = work_sum;
+        }
+
+        epoch_total_work
+    };
+
+    // Aggregate work by work_log_id for this epoch
+    let mut work_by_work_log_id: HashMap<Address, U256> = HashMap::new();
+    for log in all_work_logs {
+        if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
+            if U256::from(decoded.inner.data.epochNumber) == epoch {
+                let work_log_id = decoded.inner.data.workLogId;
+                let update_value = U256::from(decoded.inner.data.updateValue);
+                *work_by_work_log_id.entry(work_log_id).or_insert(U256::ZERO) += update_value;
+            }
+        }
+    }
+
+    // Calculate rewards for each work_log_id
+    let rewards_contract = IRewards::new(deployment.vezkc_address, provider);
+    let mut rewards_by_work_log_id = HashMap::new();
+
+    // Get epoch end time for past epochs (needed for getPastPoVWRewardCap)
+    let epoch_end_time = if !is_current_epoch {
+        zkc.getEpochEndTime(epoch).call().await?
+    } else {
+        U256::ZERO // Not used for current epoch
+    };
+
+    for (work_log_id, work_submitted) in work_by_work_log_id {
+        // Calculate uncapped rewards
+        let uncapped_rewards = if total_work > U256::ZERO {
+            povw_emissions * work_submitted / total_work
+        } else {
+            U256::ZERO
+        };
+
+        // Get reward cap based on whether it's current or past epoch
+        let reward_cap = if is_current_epoch {
+            rewards_contract.getPoVWRewardCap(work_log_id).call().await.unwrap_or(U256::ZERO)
+        } else {
+            rewards_contract
+                .getPastPoVWRewardCap(work_log_id, epoch_end_time)
+                .call()
+                .await
+                .unwrap_or(U256::ZERO)
+        };
+
+        // Determine actual rewards and if they're capped
+        let is_capped = uncapped_rewards > reward_cap && reward_cap > U256::ZERO;
+        let actual_rewards = if is_capped {
+            reward_cap
+        } else {
+            uncapped_rewards
+        };
+
+        let percentage = if total_work > U256::ZERO {
+            (work_submitted * U256::from(10000) / total_work).to::<u64>() as f64 / 100.0
+        } else {
+            0.0
+        };
+
+        rewards_by_work_log_id.insert(
+            work_log_id,
+            WorkLogRewardInfo {
+                work_log_id,
+                work_submitted,
+                percentage,
+                uncapped_rewards,
+                reward_cap,
+                actual_rewards,
+                is_capped,
+            },
+        );
+    }
+
+    Ok(EpochPoVWRewards {
+        epoch,
+        total_work,
+        povw_emissions,
+        rewards_by_work_log_id,
+    })
+}
+
 /// Struct to hold all fetched event logs for processing
 struct AllEventLogs {
     work_logs: Vec<Log>,
+    epoch_finalized_logs: Vec<Log>,
     stake_created_logs: Vec<Log>,
     stake_added_logs: Vec<Log>,
     unstake_initiated_logs: Vec<Log>,
@@ -115,154 +261,162 @@ async fn fetch_all_event_logs<P: Provider>(
     from_block_num: u64,
     current_block: u64,
 ) -> anyhow::Result<AllEventLogs> {
-    println!("Fetching blockchain event data ({} blocks)...", current_block - from_block_num);
+    tracing::info!("Fetching blockchain event data ({} blocks)...", current_block - from_block_num);
 
-    // Batch 1: Core stake and work data (4 parallel queries)
-    println!("[1/3] Querying stake and work events...");
+    // Batch 1: Core stake and work data (5 parallel queries)
+    tracing::info!("[1/3] Querying stake and work events...");
 
     let work_filter = Filter::new()
         .address(deployment.povw_accounting_address)
         .event_signature(IPovwAccounting::WorkLogUpdated::SIGNATURE_HASH);
 
-    let stake_created_filter = Filter::new()
-        .address(deployment.vezkc_address)
-        .event_signature(B256::from(alloy::primitives::keccak256(
-            "StakeCreated(uint256,address,uint256)"
-        )));
+    let epoch_finalized_filter = Filter::new()
+        .address(deployment.povw_accounting_address)
+        .event_signature(IPovwAccounting::EpochFinalized::SIGNATURE_HASH);
 
-    let stake_added_filter = Filter::new()
-        .address(deployment.vezkc_address)
-        .event_signature(B256::from(alloy::primitives::keccak256(
-            "StakeAdded(uint256,address,uint256,uint256)"
-        )));
+    let stake_created_filter = Filter::new().address(deployment.vezkc_address).event_signature(
+        B256::from(alloy::primitives::keccak256("StakeCreated(uint256,address,uint256)")),
+    );
 
-    let unstake_initiated_filter = Filter::new()
-        .address(deployment.vezkc_address)
-        .event_signature(B256::from(alloy::primitives::keccak256(
-            "UnstakeInitiated(uint256,address,uint256)"
-        )));
+    let stake_added_filter = Filter::new().address(deployment.vezkc_address).event_signature(
+        B256::from(alloy::primitives::keccak256("StakeAdded(uint256,address,uint256,uint256)")),
+    );
 
-    let (work_logs, stake_created_logs, stake_added_logs, unstake_initiated_logs) = tokio::join!(
+    let unstake_initiated_filter = Filter::new().address(deployment.vezkc_address).event_signature(
+        B256::from(alloy::primitives::keccak256("UnstakeInitiated(uint256,address,uint256)")),
+    );
+
+    let (
+        work_logs,
+        epoch_finalized_logs,
+        stake_created_logs,
+        stake_added_logs,
+        unstake_initiated_logs,
+    ) = tokio::join!(
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&work_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get work logs: {}", e))
-            } else {
-                query_logs_chunked(provider, work_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(provider, work_filter.clone(), from_block_num, current_block)
+                .await
+                .context("Failed to get work logs")
         },
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&stake_created_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get stake created logs: {}", e))
-            } else {
-                query_logs_chunked(provider, stake_created_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(
+                provider,
+                epoch_finalized_filter.clone(),
+                from_block_num,
+                current_block,
+            )
+            .await
+            .context("Failed to get epoch finalized logs")
         },
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&stake_added_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get stake added logs: {}", e))
-            } else {
-                query_logs_chunked(provider, stake_added_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(
+                provider,
+                stake_created_filter.clone(),
+                from_block_num,
+                current_block,
+            )
+            .await
+            .context("Failed to get stake created logs")
         },
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&unstake_initiated_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get unstake initiated logs: {}", e))
-            } else {
-                query_logs_chunked(provider, unstake_initiated_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(provider, stake_added_filter.clone(), from_block_num, current_block)
+                .await
+                .context("Failed to get stake added logs")
+        },
+        async {
+            query_logs_chunked(
+                provider,
+                unstake_initiated_filter.clone(),
+                from_block_num,
+                current_block,
+            )
+            .await
+            .context("Failed to get unstake initiated logs")
         }
     );
 
     // Batch 2: Delegation and completion (3 parallel queries)
-    println!("[2/3] Querying delegation and unstake completion events...");
+    tracing::info!("[2/3] Querying delegation and unstake completion events...");
 
-    let unstake_completed_filter = Filter::new()
-        .address(deployment.vezkc_address)
-        .event_signature(B256::from(alloy::primitives::keccak256(
-            "UnstakeCompleted(uint256,address,uint256)"
-        )));
+    let unstake_completed_filter = Filter::new().address(deployment.vezkc_address).event_signature(
+        B256::from(alloy::primitives::keccak256("UnstakeCompleted(uint256,address,uint256)")),
+    );
 
-    let vote_delegation_filter = Filter::new()
-        .address(deployment.vezkc_address)
-        .event_signature(B256::from(alloy::primitives::keccak256(
-            "DelegateVotesChanged(address,uint256,uint256)"
-        )));
+    let vote_delegation_filter = Filter::new().address(deployment.vezkc_address).event_signature(
+        B256::from(alloy::primitives::keccak256("DelegateVotesChanged(address,uint256,uint256)")),
+    );
 
-    let reward_delegation_filter = Filter::new()
-        .address(deployment.vezkc_address)
-        .event_signature(B256::from(alloy::primitives::keccak256(
-            "DelegateRewardsChanged(address,uint256,uint256)"
-        )));
+    let reward_delegation_filter = Filter::new().address(deployment.vezkc_address).event_signature(
+        B256::from(alloy::primitives::keccak256("DelegateRewardsChanged(address,uint256,uint256)")),
+    );
 
     let (unstake_completed_logs, vote_delegation_logs, reward_delegation_logs) = tokio::join!(
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&unstake_completed_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get unstake completed logs: {}", e))
-            } else {
-                query_logs_chunked(provider, unstake_completed_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(
+                provider,
+                unstake_completed_filter.clone(),
+                from_block_num,
+                current_block,
+            )
+            .await
+            .context("Failed to get unstake completed logs")
         },
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&vote_delegation_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get vote delegation logs: {}", e))
-            } else {
-                query_logs_chunked(provider, vote_delegation_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(
+                provider,
+                vote_delegation_filter.clone(),
+                from_block_num,
+                current_block,
+            )
+            .await
+            .context("Failed to get vote delegation logs")
         },
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&reward_delegation_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get reward delegation logs: {}", e))
-            } else {
-                query_logs_chunked(provider, reward_delegation_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(
+                provider,
+                reward_delegation_filter.clone(),
+                from_block_num,
+                current_block,
+            )
+            .await
+            .context("Failed to get reward delegation logs")
         }
     );
 
     // Batch 3: Reward claims (2 parallel queries)
-    println!("[3/3] Querying reward claim events...");
+    tracing::info!("[3/3] Querying reward claim events...");
 
-    let povw_claims_filter = Filter::new()
-        .address(zkc_deployment.zkc_address)
-        .event_signature(B256::from(alloy::primitives::keccak256(
-            "POVWRewardsClaimed(address,uint256)"
-        )));
+    let povw_claims_filter = Filter::new().address(zkc_deployment.zkc_address).event_signature(
+        B256::from(alloy::primitives::keccak256("PoVWRewardsClaimed(address,uint256)")),
+    );
 
-    let staking_claims_filter = Filter::new()
-        .address(zkc_deployment.zkc_address)
-        .event_signature(B256::from(alloy::primitives::keccak256(
-            "StakingRewardsClaimed(address,uint256)"
-        )));
+    let staking_claims_filter = Filter::new().address(zkc_deployment.zkc_address).event_signature(
+        B256::from(alloy::primitives::keccak256("StakingRewardsClaimed(address,uint256)")),
+    );
 
     let (povw_claims_logs, staking_claims_logs) = tokio::join!(
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&povw_claims_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get povw claims logs: {}", e))
-            } else {
-                query_logs_chunked(provider, povw_claims_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(provider, povw_claims_filter.clone(), from_block_num, current_block)
+                .await
+                .context("Failed to get povw claims logs")
         },
         async {
-            if from_block_num == 0 {
-                provider.get_logs(&staking_claims_filter.from_block(BlockNumberOrTag::Earliest)).await
-                    .map_err(|e| anyhow::anyhow!("Failed to get staking claims logs: {}", e))
-            } else {
-                query_logs_chunked(provider, staking_claims_filter, from_block_num, current_block).await
-            }
+            query_logs_chunked(
+                provider,
+                staking_claims_filter.clone(),
+                from_block_num,
+                current_block,
+            )
+            .await
+            .context("Failed to get staking claims logs")
         }
     );
 
-    println!("✓ Event data fetched successfully");
+    tracing::info!("✓ Event data fetched successfully");
 
     Ok(AllEventLogs {
         work_logs: work_logs?,
+        epoch_finalized_logs: epoch_finalized_logs?,
         stake_created_logs: stake_created_logs?,
         stake_added_logs: stake_added_logs?,
         unstake_initiated_logs: unstake_initiated_logs?,
@@ -325,7 +479,10 @@ impl ZkcSummary {
 
         // Ensure we're on mainnet or Sepolia
         if chain_id != 1 && chain_id != 11155111 {
-            anyhow::bail!("ZKC summary is only supported on Ethereum Mainnet (chain ID 1) or Sepolia (chain ID 11155111). Current chain ID: {}", chain_id);
+            tracing::warn!(
+                "ZKC summary is optimized for Ethereum Mainnet (chain ID 1) or Sepolia (chain ID 11155111). Current chain ID: {}. If this is unexpected, verify the RPC URL you are using.",
+                chain_id
+            );
         }
 
         // Get deployment configuration
@@ -338,8 +495,8 @@ impl ZkcSummary {
 
         // Get the appropriate from_block based on chain ID
         let from_block_num = match chain_id {
-            1 => MAINNET_FROM_BLOCK,  // Mainnet
-            11155111 => SEPOLIA_FROM_BLOCK,  // Sepolia
+            1 => MAINNET_FROM_BLOCK,        // Mainnet
+            11155111 => SEPOLIA_FROM_BLOCK, // Sepolia
             _ => 0,
         };
 
@@ -353,11 +510,12 @@ impl ZkcSummary {
             &zkc_deployment,
             from_block_num,
             current_block,
-        ).await?;
+        )
+        .await?;
 
         print_section_header("ZKC SUMMARY");
-        println!("Work Log ID: {:#x}", work_log_id);
-        println!("Chain ID: {}", chain_id);
+        tracing::info!("Work Log ID: {:#x}", work_log_id);
+        tracing::info!("Chain ID: {}", chain_id);
 
         // Get and display epoch end time
         let zkc = IZKC::new(zkc_deployment.zkc_address, &provider);
@@ -366,16 +524,10 @@ impl ZkcSummary {
 
         // Convert timestamp to human readable format
         let epoch_end_secs = epoch_end_timestamp.to::<u64>();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
-        let time_remaining_secs = if epoch_end_secs > now {
-            epoch_end_secs - now
-        } else {
-            0
-        };
+        let time_remaining_secs = epoch_end_secs.saturating_sub(now);
 
         // Format time remaining
         let time_remaining_str = if time_remaining_secs == 0 {
@@ -394,14 +546,18 @@ impl ZkcSummary {
             };
 
             if days > 0 {
-                format!("{}, {}, {} from now",
+                format!(
+                    "{}, {}, {} from now",
                     format_unit(days, "day"),
                     format_unit(hours, "hour"),
-                    format_unit(minutes, "minute"))
+                    format_unit(minutes, "minute")
+                )
             } else if hours > 0 {
-                format!("{}, {} from now",
+                format!(
+                    "{}, {} from now",
                     format_unit(hours, "hour"),
-                    format_unit(minutes, "minute"))
+                    format_unit(minutes, "minute")
+                )
             } else if minutes > 0 {
                 format!("{} from now", format_unit(minutes, "minute"))
             } else {
@@ -415,8 +571,8 @@ impl ZkcSummary {
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
             .unwrap_or_else(|| "Invalid timestamp".to_string());
 
-        println!("Current Epoch: {}", current_epoch);
-        println!("Epoch Ends: {} ({})", epoch_end_datetime, time_remaining_str);
+        tracing::info!("Current Epoch: {}", current_epoch);
+        tracing::info!("Epoch Ends: {} ({})", epoch_end_datetime, time_remaining_str);
 
         // Process and display Personal Summary
         self.process_personal_summary(&provider, &deployment, work_log_id, &all_logs).await?;
@@ -424,22 +580,28 @@ impl ZkcSummary {
         // Process staking rewards details
         self.process_staking_rewards(&provider, &deployment, work_log_id, &all_logs).await?;
 
+        // Display PoVW projections
+        self.display_povw_projections(&provider, &deployment, work_log_id, &all_logs).await?;
+
         // Process vote and reward delegation information
-        let reward_powers = self.process_delegation_info(&all_logs.vote_delegation_logs, &all_logs.reward_delegation_logs)?;
+        let reward_powers = self.process_delegation_info(
+            &all_logs.vote_delegation_logs,
+            &all_logs.reward_delegation_logs,
+        )?;
 
         // Process stake positions
-        self.process_stake_positions(
-            &provider,
-            &deployment,
-            &reward_powers,
-            &all_logs.stake_created_logs,
-            &all_logs.stake_added_logs,
-            &all_logs.unstake_initiated_logs,
-            &all_logs.unstake_completed_logs,
-        ).await?;
+        self.process_stake_positions(&provider, &deployment, &reward_powers, &all_logs)
+            .await?;
 
         // Process PoVW work information
-        self.process_povw_work(&provider, &deployment, work_log_id, &all_logs.work_logs).await?;
+        self.process_povw_work(
+            &provider,
+            &deployment,
+            work_log_id,
+            &all_logs.work_logs,
+            &all_logs.epoch_finalized_logs,
+        )
+        .await?;
 
         // Process rewards claimed information
         self.process_rewards_claimed(&all_logs.povw_claims_logs, &all_logs.staking_claims_logs)?;
@@ -458,84 +620,119 @@ impl ZkcSummary {
 
         // Get staked amount
         let staking = IStaking::new(deployment.vezkc_address, provider);
-        let result = staking
-            .getStakedAmountAndWithdrawalTime(work_log_id)
-            .call()
-            .await?;
+        let result = staking.getStakedAmountAndWithdrawalTime(work_log_id).call().await?;
         let staked_amount = result.amount;
 
         // Get ZKC deployment for staking rewards
-        let zkc_deployment = boundless_zkc::deployments::Deployment::from_chain_id(
-            provider.get_chain_id().await?
-        ).context("Could not determine ZKC deployment")?;
+        let zkc_deployment =
+            boundless_zkc::deployments::Deployment::from_chain_id(provider.get_chain_id().await?)
+                .context("Could not determine ZKC deployment")?;
 
         // Get current epoch
         let zkc = IZKC::new(deployment.zkc_address, provider);
         let current_epoch = zkc.getCurrentEpoch().call().await?;
+        let previous_epoch =
+            if current_epoch > U256::from(1) { current_epoch - U256::from(1) } else { U256::ZERO };
 
         // Get pending staking rewards for current epoch
-        let staking_rewards_ext = IStakingRewardsExt::new(zkc_deployment.staking_rewards_address, provider);
-        let pending_staking_rewards = staking_rewards_ext.getPendingRewards(work_log_id).call().await?;
+        let staking_rewards_ext =
+            IStakingRewardsExt::new(zkc_deployment.staking_rewards_address, provider);
+        let pending_staking_rewards =
+            staking_rewards_ext.getPendingRewards(work_log_id).call().await?;
 
         // Calculate unclaimed staking rewards
-        let staking_rewards = IStakingRewards::new(zkc_deployment.staking_rewards_address, provider);
+        let staking_rewards =
+            IStakingRewards::new(zkc_deployment.staking_rewards_address, provider);
         let epochs: Vec<U256> = (0..current_epoch.to::<u32>()).map(U256::from).collect();
         let unclaimed_staking = if !epochs.is_empty() {
-            let unclaimed_rewards = staking_rewards.calculateUnclaimedRewards(work_log_id, epochs).call().await?;
+            let unclaimed_rewards =
+                staking_rewards.calculateUnclaimedRewards(work_log_id, epochs).call().await?;
             unclaimed_rewards.iter().sum()
         } else {
             U256::ZERO
         };
 
-        // Get PoVW reward cap and calculate projected rewards
-        let rewards = IRewards::new(deployment.vezkc_address, provider);
-        let reward_cap = rewards.getPoVWRewardCap(work_log_id).call().await?;
+        // Calculate PoVW rewards for current epoch using the new function
+        let current_epoch_rewards = compute_povw_rewards_by_work_log_id(
+            provider,
+            deployment,
+            *zkc.address(),
+            current_epoch,
+            current_epoch,
+            &logs.work_logs,
+            &logs.epoch_finalized_logs,
+        )
+        .await?;
 
-        // Calculate projected PoVW rewards for the work_log_id
-        let povw_accounting = IPovwAccounting::new(deployment.povw_accounting_address, provider);
-        let pending_epoch = povw_accounting.pendingEpoch().call().await?;
-        let total_work_u256 = U256::from(pending_epoch.totalWork);
-        let povw_emissions = zkc.getPoVWEmissionsForEpoch(current_epoch).call().await?;
+        // Get rewards for this specific work_log_id
+        let my_current_epoch_info = current_epoch_rewards.rewards_by_work_log_id.get(&work_log_id);
+        let _my_work_current = my_current_epoch_info.map_or(U256::ZERO, |info| info.work_submitted);
+        let projected_povw_rewards = my_current_epoch_info.map_or(U256::ZERO, |info| info.actual_rewards);
+        let raw_povw_rewards_value = my_current_epoch_info.map_or(U256::ZERO, |info| info.uncapped_rewards);
+        let is_povw_capped = my_current_epoch_info.is_some_and(|info| info.is_capped);
+        let _reward_cap = my_current_epoch_info.map_or(U256::ZERO, |info| info.reward_cap);
 
-        // Get work_log_id's work for current epoch from pre-fetched logs
-        let mut my_work_current = U256::ZERO;
-        if total_work_u256 > U256::ZERO {
-            for log in &logs.work_logs {
-                if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
-                    if decoded.inner.data.workLogId == work_log_id {
-                        if U256::from(decoded.inner.data.epochNumber) == current_epoch {
-                            my_work_current += U256::from(decoded.inner.data.updateValue);
-                        }
-                    }
-                }
+        // Calculate previous epoch PoVW rewards if available
+        let mut my_work_previous = U256::ZERO;
+        let mut previous_epoch_povw_rewards = U256::ZERO;
+
+        if previous_epoch > U256::ZERO {
+            let previous_epoch_rewards = compute_povw_rewards_by_work_log_id(
+                provider,
+                deployment,
+                *zkc.address(),
+                previous_epoch,
+                current_epoch,
+                &logs.work_logs,
+                &logs.epoch_finalized_logs,
+            )
+            .await?;
+
+            // Get rewards for this specific work_log_id
+            if let Some(my_prev_epoch_info) = previous_epoch_rewards.rewards_by_work_log_id.get(&work_log_id) {
+                my_work_previous = my_prev_epoch_info.work_submitted;
+                previous_epoch_povw_rewards = my_prev_epoch_info.actual_rewards;
             }
         }
 
-        let projected_povw_rewards = if my_work_current > U256::ZERO && total_work_u256 > U256::ZERO {
-            let raw_rewards = povw_emissions * my_work_current / total_work_u256;
-            if raw_rewards > reward_cap { reward_cap } else { raw_rewards }
-        } else {
-            U256::ZERO
-        };
-
-        let is_povw_capped = my_work_current > U256::ZERO && total_work_u256 > U256::ZERO &&
-            (povw_emissions * my_work_current / total_work_u256) > reward_cap;
-
         // Display summary
-        println!("Staked ZKC: {} ZKC", format_zkc(staked_amount));
-        println!("Projected Staking Rewards for epoch {}: {} ZKC", current_epoch, format_zkc(pending_staking_rewards));
+        tracing::info!("Staked ZKC: {} ZKC", format_zkc(staked_amount));
+        tracing::info!(
+            "Projected Staking Rewards for epoch {}: {} ZKC",
+            current_epoch,
+            format_zkc(pending_staking_rewards)
+        );
 
         if is_povw_capped {
-            println!("Projected PoVW Rewards for epoch {}: {} ZKC ⚠️ CAPPED (uncapped: {} ZKC)",
+            tracing::warn!(
+                "Projected PoVW Rewards for epoch {}: {} ZKC ⚠️ CAPPED (uncapped: {} ZKC)",
                 current_epoch,
                 format_zkc(projected_povw_rewards),
-                format_zkc(povw_emissions * my_work_current / total_work_u256));
-            println!("                                      → Stake more ZKC to raise your reward cap");
+                format_zkc(raw_povw_rewards_value)
+            );
+            tracing::info!(
+                "                                      → Stake more ZKC to raise your reward cap"
+            );
         } else {
-            println!("Projected PoVW Rewards for epoch {}: {} ZKC", current_epoch, format_zkc(projected_povw_rewards));
+            tracing::info!(
+                "Projected PoVW Rewards for epoch {}: {} ZKC",
+                current_epoch,
+                format_zkc(projected_povw_rewards)
+            );
         }
 
-        println!("Unclaimed Staking Rewards: {} ZKC", format_zkc(unclaimed_staking));
+        // Display previous epoch PoVW rewards if available
+        if previous_epoch > U256::ZERO && my_work_previous > U256::ZERO {
+            tracing::info!(
+                "Previous Epoch {} PoVW Rewards (claimable): {} ZKC",
+                previous_epoch,
+                format_zkc(previous_epoch_povw_rewards)
+            );
+        } else if previous_epoch > U256::ZERO {
+            tracing::info!("Previous Epoch {} PoVW Rewards: No work submitted", previous_epoch);
+        }
+
+        tracing::info!("Unclaimed Staking Rewards: {} ZKC", format_zkc(unclaimed_staking));
 
         // TODO: Query unclaimed PoVW rewards - would need to track work log IDs, commits, and epochs where updates happened,
         // and then reconcile to mint txs.
@@ -553,52 +750,57 @@ impl ZkcSummary {
         print_section_header("STAKING REWARDS");
 
         // Get staking rewards address from ZKC deployment
-        let zkc_deployment = boundless_zkc::deployments::Deployment::from_chain_id(
-            provider.get_chain_id().await?
-        ).context("Could not determine ZKC deployment")?;
+        let zkc_deployment =
+            boundless_zkc::deployments::Deployment::from_chain_id(provider.get_chain_id().await?)
+                .context("Could not determine ZKC deployment")?;
 
-        let staking_rewards = IStakingRewards::new(zkc_deployment.staking_rewards_address, provider);
+        let staking_rewards =
+            IStakingRewards::new(zkc_deployment.staking_rewards_address, provider);
 
         // Get current epoch
         let current_epoch: u32 = staking_rewards.getCurrentEpoch().call().await?.try_into()?;
 
         // Calculate unclaimed rewards for all epochs
         let epochs: Vec<U256> = (0..current_epoch).map(U256::from).collect();
-        let unclaimed_rewards = staking_rewards.calculateUnclaimedRewards(account, epochs.clone()).call().await?;
+        let unclaimed_rewards =
+            staking_rewards.calculateUnclaimedRewards(account, epochs.clone()).call().await?;
 
         // Sum up the unclaimed rewards
         let total_unclaimed: U256 = unclaimed_rewards.iter().sum();
 
         if total_unclaimed > U256::ZERO {
-            println!("Total unclaimed staking rewards: {} ZKC", format_zkc(total_unclaimed));
+            tracing::info!("Total unclaimed staking rewards: {} ZKC", format_zkc(total_unclaimed));
 
             // Display table of unclaimed rewards by epoch
-            println!("\nUnclaimed Staking Rewards by Epoch:");
+            tracing::info!("Unclaimed Staking Rewards by Epoch:");
             let mut builder = Builder::default();
             builder.push_record(["Epoch", "Unclaimed Amount"]);
 
             for (epoch_idx, amount) in unclaimed_rewards.iter().enumerate() {
                 if *amount > U256::ZERO {
-                    builder.push_record([epoch_idx.to_string(), format!("{} ZKC", format_zkc(*amount))]);
+                    builder.push_record([
+                        epoch_idx.to_string(),
+                        format!("{} ZKC", format_zkc(*amount)),
+                    ]);
                 }
             }
 
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
+            let table = builder.build().with(Style::modern()).to_string();
+            tracing::info!("\n{}", table);
         } else {
-            println!("No unclaimed staking rewards");
+            tracing::info!("No unclaimed staking rewards");
         }
 
         // Get expected staking rewards using getPendingRewards
         // This returns the actual pending rewards for the user in the current epoch
-        let staking_rewards_ext = IStakingRewardsExt::new(zkc_deployment.staking_rewards_address, provider);
+        let staking_rewards_ext =
+            IStakingRewardsExt::new(zkc_deployment.staking_rewards_address, provider);
         let pending_rewards = staking_rewards_ext.getPendingRewards(account).call().await?;
 
         // Get total staking emissions for context
         let zkc = IZKC::new(deployment.zkc_address, provider);
-        let total_staking_emissions = zkc.getStakingEmissionsForEpoch(U256::from(current_epoch)).call().await?;
+        let total_staking_emissions =
+            zkc.getStakingEmissionsForEpoch(U256::from(current_epoch)).call().await?;
 
         // Get total staking rewards to calculate percentage
         let rewards = IRewards::new(deployment.vezkc_address, provider);
@@ -611,16 +813,21 @@ impl ZkcSummary {
             0.0
         };
 
-        println!("\nExpected staking rewards for epoch {}:", current_epoch);
-        println!("  Total epoch emissions: {} ZKC", format_zkc(total_staking_emissions));
-        println!("  Your reward power: {} / {} ({:.2}%)",
-            format_zkc(user_reward_power), format_zkc(total_reward_power), user_percentage);
-        println!("  Your pending rewards: {} ZKC", format_zkc(pending_rewards));
-        println!("  Calculation: {} × {:.2}% = {} ZKC",
-            format_zkc(total_staking_emissions), user_percentage, format_zkc(pending_rewards));
-
-        // Add PoVW Projections section
-        self.display_povw_projections(provider, deployment, account).await?;
+        tracing::info!("\nExpected staking rewards for epoch {}:", current_epoch);
+        tracing::info!("  Total epoch emissions: {} ZKC", format_zkc(total_staking_emissions));
+        tracing::info!(
+            "  Your reward power: {} / {} ({:.8}%)",
+            format_zkc(user_reward_power),
+            format_zkc(total_reward_power),
+            user_percentage
+        );
+        tracing::info!("  Your pending rewards: {} ZKC", format_zkc(pending_rewards));
+        tracing::info!(
+            "  Calculation: {} × {:.8}% = {} ZKC",
+            format_zkc(total_staking_emissions),
+            user_percentage,
+            format_zkc(pending_rewards)
+        );
 
         Ok(())
     }
@@ -630,89 +837,81 @@ impl ZkcSummary {
         provider: &P,
         deployment: &Deployment,
         work_log_id: Address,
+        all_logs: &AllEventLogs,
     ) -> anyhow::Result<()> {
-        // Get PoVW reward cap for the work_log_id
-        let rewards = IRewards::new(deployment.vezkc_address, provider);
-        let reward_cap = rewards.getPoVWRewardCap(work_log_id).call().await?;
-
-        // Get current epoch and emissions
+        // Get current epoch
         let zkc = IZKC::new(deployment.zkc_address, provider);
         let current_epoch = zkc.getCurrentEpoch().call().await?;
-        let povw_emissions = zkc.getPoVWEmissionsForEpoch(current_epoch).call().await?;
 
-        // Get pending epoch info
-        let povw_accounting = IPovwAccounting::new(deployment.povw_accounting_address, provider);
-        let pending_epoch = povw_accounting.pendingEpoch().call().await?;
-        let total_work_u256 = U256::from(pending_epoch.totalWork);
-
-        // Get work_log_id's work for current epoch
-        let mut my_work_current = U256::ZERO;
-        if total_work_u256 > U256::ZERO {
-            let chain_id = provider.get_chain_id().await?;
-            let from_block_num = match chain_id {
-                1 => MAINNET_FROM_BLOCK,
-                11155111 => SEPOLIA_FROM_BLOCK,
-                _ => 0,
-            };
-            let current_block = provider.get_block_number().await?;
-
-            let work_filter = Filter::new()
-                .address(deployment.povw_accounting_address)
-                .event_signature(IPovwAccounting::WorkLogUpdated::SIGNATURE_HASH);
-
-            let work_logs = if from_block_num == 0 {
-                provider.get_logs(&work_filter.from_block(BlockNumberOrTag::Earliest)).await?
-            } else {
-                query_logs_chunked(provider, work_filter, from_block_num, current_block).await?
-            };
-
-            for log in work_logs {
-                if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
-                    if decoded.inner.data.workLogId == work_log_id {
-                        if U256::from(decoded.inner.data.epochNumber) == current_epoch {
-                            my_work_current += U256::from(decoded.inner.data.updateValue);
-                        }
-                    }
-                }
-            }
-        }
+        // Calculate rewards for current epoch using the new function
+        let current_epoch_rewards = compute_povw_rewards_by_work_log_id(
+            provider,
+            deployment,
+            *zkc.address(),
+            current_epoch,
+            current_epoch,
+            &all_logs.work_logs,
+            &all_logs.epoch_finalized_logs,
+        )
+        .await?;
 
         print_section_header("YOUR POVW PROJECTIONS");
 
-        if my_work_current > U256::ZERO && total_work_u256 > U256::ZERO {
-            let work_percentage = (my_work_current * U256::from(10000) / total_work_u256).to::<u64>() as f64 / 100.0;
-            let projected_rewards = povw_emissions * my_work_current / total_work_u256;
-
-            // Check if rewards will be capped
-            let is_capped = projected_rewards > reward_cap;
-            let actual_rewards = if is_capped { reward_cap } else { projected_rewards };
-
-            println!("Your work in current epoch: {} / {} ({:.2}%)",
-                my_work_current, total_work_u256, work_percentage);
-            println!("Total PoVW emissions for epoch {}: {} ZKC", current_epoch, format_zkc(povw_emissions));
-            println!("Your PoVW reward cap: {} ZKC", format_zkc(reward_cap));
-
-            if is_capped {
-                println!("\n⚠️  REWARDS WILL BE CAPPED!");
-                println!("Uncapped rewards: {} ZKC", format_zkc(projected_rewards));
-                println!("Reward cap:       {} ZKC", format_zkc(reward_cap));
-                println!("Actual rewards:   {} ZKC", format_zkc(actual_rewards));
-                println!("→ Stake more ZKC to raise your reward cap");
+        // Get info for this specific work_log_id
+        if let Some(my_info) = current_epoch_rewards.rewards_by_work_log_id.get(&work_log_id) {
+            let work_percentage = if current_epoch_rewards.total_work > U256::ZERO {
+                (my_info.work_submitted * U256::from(10000) / current_epoch_rewards.total_work).to::<u64>() as f64 / 100.0
             } else {
-                println!("Projected PoVW rewards: {} ZKC", format_zkc(projected_rewards));
-                println!("Calculation: {} × {:.2}% = {} ZKC",
-                    format_zkc(povw_emissions), work_percentage, format_zkc(projected_rewards));
-                println!("Status: ✅ Below reward cap ({} ZKC)", format_zkc(reward_cap));
+                0.0
+            };
+
+            tracing::info!(
+                "Your work in current epoch: {} / {} ({:.2}%)",
+                my_info.work_submitted,
+                current_epoch_rewards.total_work,
+                work_percentage
+            );
+            tracing::info!(
+                "Total PoVW emissions for epoch {}: {} ZKC",
+                current_epoch,
+                format_zkc(current_epoch_rewards.povw_emissions)
+            );
+            tracing::info!("Your PoVW reward cap: {} ZKC", format_zkc(my_info.reward_cap));
+
+            if my_info.is_capped {
+                tracing::warn!("\n⚠️  REWARDS WILL BE CAPPED!");
+                tracing::info!("Uncapped rewards: {} ZKC", format_zkc(my_info.uncapped_rewards));
+                tracing::info!("Reward cap:       {} ZKC", format_zkc(my_info.reward_cap));
+                tracing::info!("Actual rewards:   {} ZKC", format_zkc(my_info.actual_rewards));
+                tracing::info!("→ Stake more ZKC to raise your reward cap");
+            } else {
+                tracing::info!("Projected PoVW rewards: {} ZKC", format_zkc(my_info.actual_rewards));
+                tracing::info!(
+                    "Calculation: {} × {:.2}% = {} ZKC",
+                    format_zkc(current_epoch_rewards.povw_emissions),
+                    work_percentage,
+                    format_zkc(my_info.actual_rewards)
+                );
+                tracing::info!("Status: ✅ Below reward cap ({} ZKC)", format_zkc(my_info.reward_cap));
             }
         } else {
-            println!("Your work in current epoch: 0 / {} (0.00%)", total_work_u256);
-            println!("Total PoVW emissions for epoch {}: {} ZKC", current_epoch, format_zkc(povw_emissions));
-            println!("Your PoVW reward cap: {} ZKC", format_zkc(reward_cap));
+            // No work submitted for this work_log_id
+            // Still need to get the reward cap for display
+            let rewards = IRewards::new(deployment.vezkc_address, provider);
+            let reward_cap = rewards.getPoVWRewardCap(work_log_id).call().await?;
 
-            if total_work_u256 == U256::ZERO {
-                println!("\nNo work submitted in current epoch yet");
+            tracing::info!("Your work in current epoch: 0 / {} (0.00%)", current_epoch_rewards.total_work);
+            tracing::info!(
+                "Total PoVW emissions for epoch {}: {} ZKC",
+                current_epoch,
+                format_zkc(current_epoch_rewards.povw_emissions)
+            );
+            tracing::info!("Your PoVW reward cap: {} ZKC", format_zkc(reward_cap));
+
+            if current_epoch_rewards.total_work == U256::ZERO {
+                tracing::info!("\nNo work submitted in current epoch yet");
             } else {
-                println!("\nYou have not submitted any work in the current epoch");
+                tracing::info!("\nYou have not submitted any work in the current epoch");
             }
         }
 
@@ -745,8 +944,6 @@ impl ZkcSummary {
                     }
                 }
             }
-            /*if let Ok(decoded) = log.log_decode::<IStaking::DelegateVotesChanged>() {
-            }*/
         }
 
         let mut reward_powers: HashMap<Address, U256> = HashMap::new();
@@ -764,88 +961,69 @@ impl ZkcSummary {
             }
         }
 
+        // Helper function to display delegation power tables
+        fn display_delegation_table(
+            powers: &HashMap<Address, U256>,
+            title: &str,
+            column_name: &str,
+            description: &str,
+        ) {
+            if powers.is_empty() {
+                return;
+            }
+
+            let total_power: U256 = powers.values().sum();
+
+            tracing::info!("{} (Total: {} ZKC):", title, format_zkc(total_power));
+            tracing::info!("{}", description);
+
+            let mut builder = Builder::default();
+            builder.push_record(["Address", column_name, "Percentage"]);
+
+            let mut sorted_powers: Vec<_> = powers.iter().collect();
+            sorted_powers.sort_by(|a, b| b.1.cmp(a.1));
+
+            // Show top 20 for brevity
+            for (address, power) in sorted_powers.iter().take(20) {
+                let percentage = if total_power > U256::ZERO {
+                    (**power * U256::from(10000) / total_power).to::<u64>() as f64 / 100.0
+                } else {
+                    0.0
+                };
+                builder.push_record([
+                    format!("{:#x}", address),
+                    format!("{} ZKC", format_zkc(**power)),
+                    format!("{:.2}%", percentage),
+                ]);
+            }
+
+            if sorted_powers.len() > 20 {
+                builder.push_record([
+                    format!("... and {} more", sorted_powers.len() - 20),
+                    "".to_string(),
+                    "".to_string(),
+                ]);
+            }
+
+            let table = builder.build().with(Style::modern()).to_string();
+            tracing::info!("\n{}", table);
+        }
 
         // Display vote power table
-        if !vote_powers.is_empty() {
-            let total_vote_power: U256 = vote_powers.values().sum();
-
-            println!("\nDelegated Vote Power (Total: {} ZKC):", format_zkc(total_vote_power));
-            println!("Shows who can vote on governance proposals");
-
-            let mut builder = Builder::default();
-            builder.push_record(["Address", "Vote Power", "Percentage"]);
-
-            let mut sorted_votes: Vec<_> = vote_powers.iter().collect();
-            sorted_votes.sort_by(|a, b| b.1.cmp(a.1));
-
-            // Show top 20 for brevity
-            for (address, power) in sorted_votes.iter().take(20) {
-                let percentage = if total_vote_power > U256::ZERO {
-                    (**power * U256::from(10000) / total_vote_power).to::<u64>() as f64 / 100.0
-                } else {
-                    0.0
-                };
-                builder.push_record([
-                    format!("{:#x}", address),
-                    format!("{} ZKC", format_zkc(**power)),
-                    format!("{:.2}%", percentage)
-                ]);
-            }
-
-            if sorted_votes.len() > 20 {
-                builder.push_record([
-                    format!("... and {} more", sorted_votes.len() - 20),
-                    "".to_string(),
-                    "".to_string()
-                ]);
-            }
-
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
-        }
+        display_delegation_table(
+            &vote_powers,
+            "Delegated Vote Power",
+            "Vote Power",
+            "Shows who can vote on governance proposals",
+        );
 
         // Display reward power table
-        if !reward_powers.is_empty() {
-            let total_reward_power: U256 = reward_powers.values().sum();
-
-            println!("\nDelegated Reward Power (Total: {} ZKC):", format_zkc(total_reward_power));
-            println!("Shows who can claim staking rewards");
-
-            let mut builder = Builder::default();
-            builder.push_record(["Address", "Reward Power", "Percentage"]);
-
-            let mut sorted_rewards: Vec<_> = reward_powers.iter().collect();
-            sorted_rewards.sort_by(|a, b| b.1.cmp(a.1));
-
-            // Show top 20 for brevity
-            for (address, power) in sorted_rewards.iter().take(20) {
-                let percentage = if total_reward_power > U256::ZERO {
-                    (**power * U256::from(10000) / total_reward_power).to::<u64>() as f64 / 100.0
-                } else {
-                    0.0
-                };
-                builder.push_record([
-                    format!("{:#x}", address),
-                    format!("{} ZKC", format_zkc(**power)),
-                    format!("{:.2}%", percentage)
-                ]);
-            }
-
-            if sorted_rewards.len() > 20 {
-                builder.push_record([
-                    format!("... and {} more", sorted_rewards.len() - 20),
-                    "".to_string(),
-                    "".to_string()
-                ]);
-            }
-
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
-        }
+        display_delegation_table(
+            &reward_powers,
+            "Delegated Reward Power",
+            "Reward Power",
+            "Shows who can claim staking rewards",
+        );
 
         // Return reward powers for use in stake positions calculation
         Ok(reward_powers)
@@ -856,51 +1034,124 @@ impl ZkcSummary {
         provider: &P,
         deployment: &Deployment,
         reward_powers: &HashMap<Address, U256>,
-        stake_created_logs: &[Log],
-        stake_added_logs: &[Log],
-        unstake_initiated_logs: &[Log],
-        unstake_completed_logs: &[Log],
+        all_logs: &AllEventLogs,
     ) -> anyhow::Result<()> {
         print_section_header("STAKE POSITIONS");
 
-        let mut stakes: HashMap<Address, U256> = HashMap::new();
+        // Define stake event types for chronological processing
+        #[derive(Debug)]
+        enum StakeEvent {
+            Created { owner: Address, amount: U256 },
+            Added { owner: Address, new_total: U256 },
+            UnstakeInitiated { owner: Address },
+            UnstakeCompleted { owner: Address },
+        }
 
-        // FIRST: Process StakeCreated events (initial stakes)
-        for log in stake_created_logs {
+        #[derive(Debug)]
+        struct TimestampedStakeEvent {
+            block_number: u64,
+            transaction_index: u64,
+            log_index: u64,
+            event: StakeEvent,
+        }
+
+        let mut timestamped_events = Vec::new();
+
+        // Collect all StakeCreated events
+        for log in &all_logs.stake_created_logs {
             if let Ok(decoded) = log.log_decode::<IStaking::StakeCreated>() {
-                let owner = decoded.inner.data.owner;
-                let amount = decoded.inner.data.amount;
-                stakes.entry(owner).or_insert(amount);
+                if let (Some(block_num), Some(tx_idx), Some(log_idx)) =
+                    (log.block_number, log.transaction_index, log.log_index) {
+                    timestamped_events.push(TimestampedStakeEvent {
+                        block_number: block_num,
+                        transaction_index: tx_idx,
+                        log_index: log_idx,
+                        event: StakeEvent::Created {
+                            owner: decoded.inner.data.owner,
+                            amount: decoded.inner.data.amount,
+                        },
+                    });
+                }
             }
         }
 
-        // SECOND: Process StakeAdded events (updates to stakes)
-        for log in stake_added_logs {
+        // Collect all StakeAdded events
+        for log in &all_logs.stake_added_logs {
             if let Ok(decoded) = log.log_decode::<IStaking::StakeAdded>() {
-                let owner = decoded.inner.data.owner;
-                let new_total = decoded.inner.data.newTotal;
-                // StakeAdded always overwrites with the new total
-                stakes.insert(owner, new_total);
+                if let (Some(block_num), Some(tx_idx), Some(log_idx)) =
+                    (log.block_number, log.transaction_index, log.log_index) {
+                    timestamped_events.push(TimestampedStakeEvent {
+                        block_number: block_num,
+                        transaction_index: tx_idx,
+                        log_index: log_idx,
+                        event: StakeEvent::Added {
+                            owner: decoded.inner.data.owner,
+                            new_total: decoded.inner.data.newTotal,
+                        },
+                    });
+                }
             }
         }
 
-        // Process UnstakeInitiated events to mark withdrawing positions
-        let mut withdrawing: HashMap<Address, bool> = HashMap::new();
-        for log in unstake_initiated_logs {
+        // Collect all UnstakeInitiated events
+        for log in &all_logs.unstake_initiated_logs {
             if let Ok(decoded) = log.log_decode::<IStaking::UnstakeInitiated>() {
-                let owner = decoded.inner.data.owner;
-                withdrawing.insert(owner, true);
+                if let (Some(block_num), Some(tx_idx), Some(log_idx)) =
+                    (log.block_number, log.transaction_index, log.log_index) {
+                    timestamped_events.push(TimestampedStakeEvent {
+                        block_number: block_num,
+                        transaction_index: tx_idx,
+                        log_index: log_idx,
+                        event: StakeEvent::UnstakeInitiated {
+                            owner: decoded.inner.data.owner,
+                        },
+                    });
+                }
             }
         }
 
-        // Process UnstakeCompleted events to remove completed unstakes from total
-        for log in unstake_completed_logs {
+        // Collect all UnstakeCompleted events
+        for log in &all_logs.unstake_completed_logs {
             if let Ok(decoded) = log.log_decode::<IStaking::UnstakeCompleted>() {
-                let owner = decoded.inner.data.owner;
-                // Remove from stakes map when unstake is completed
-                stakes.remove(&owner);
-                // Also remove from withdrawing status
-                withdrawing.remove(&owner);
+                if let (Some(block_num), Some(tx_idx), Some(log_idx)) =
+                    (log.block_number, log.transaction_index, log.log_index) {
+                    timestamped_events.push(TimestampedStakeEvent {
+                        block_number: block_num,
+                        transaction_index: tx_idx,
+                        log_index: log_idx,
+                        event: StakeEvent::UnstakeCompleted {
+                            owner: decoded.inner.data.owner,
+                        },
+                    });
+                }
+            }
+        }
+
+        // Sort events by block number, then transaction index, then log index
+        timestamped_events.sort_by_key(|e| (e.block_number, e.transaction_index, e.log_index));
+
+        // Process events in chronological order to build final state
+        let mut stakes: HashMap<Address, U256> = HashMap::new();
+        let mut withdrawing: HashMap<Address, bool> = HashMap::new();
+
+        for event in timestamped_events {
+            match event.event {
+                StakeEvent::Created { owner, amount } => {
+                    // Only insert if not already present (first stake wins)
+                    stakes.entry(owner).or_insert(amount);
+                }
+                StakeEvent::Added { owner, new_total } => {
+                    // StakeAdded always overwrites with the new total
+                    stakes.insert(owner, new_total);
+                }
+                StakeEvent::UnstakeInitiated { owner } => {
+                    withdrawing.insert(owner, true);
+                }
+                StakeEvent::UnstakeCompleted { owner } => {
+                    // Remove from both maps when unstake is completed
+                    stakes.remove(&owner);
+                    withdrawing.remove(&owner);
+                }
             }
         }
 
@@ -915,10 +1166,11 @@ impl ZkcSummary {
             let contract_total = rewards_contract.getTotalStakingRewards().call().await?;
 
             if contract_total != total_staked {
-                println!("⚠️  WARNING: Stake total mismatch!");
-                println!("  Contract reports: {} ZKC", format_zkc(contract_total));
-                println!("  Events sum to: {} ZKC", format_zkc(total_staked));
-                println!("  Difference: {} ZKC",
+                tracing::warn!("⚠️  WARNING: Stake total mismatch!");
+                tracing::info!("  Contract reports: {} ZKC", format_zkc(contract_total));
+                tracing::info!("  Events sum to: {} ZKC", format_zkc(total_staked));
+                tracing::info!(
+                    "  Difference: {} ZKC",
                     if contract_total > total_staked {
                         format!("+{}", format_zkc(contract_total - total_staked))
                     } else {
@@ -932,8 +1184,12 @@ impl ZkcSummary {
             let current_epoch = zkc.getCurrentEpoch().call().await?;
             let staking_emissions = zkc.getStakingEmissionsForEpoch(current_epoch).call().await?;
 
-            println!("\nStaked Positions ({} positions, Total: {} ZKC):", num_positions, format_zkc(total_staked));
-            println!("Shows actual token ownership");
+            tracing::info!(
+                "\nStaked Positions ({} positions, Total: {} ZKC):",
+                num_positions,
+                format_zkc(total_staked)
+            );
+            tracing::info!("Shows actual token ownership");
             let mut builder = Builder::default();
             builder.push_record(["Address", "Total Staked", "%", "Projected Rewards", "Status"]);
 
@@ -965,17 +1221,15 @@ impl ZkcSummary {
                     format!("{} ZKC", format_zkc(**amount)),
                     format!("{:.2}%", percentage),
                     format!("{} ZKC", format_zkc(projected_rewards)),
-                    status.to_string()
+                    status.to_string(),
                 ]);
             }
 
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
+            let table = builder.build().with(Style::modern()).to_string();
+            tracing::info!("\n{}", table);
 
             if withdrawing.values().any(|&v| v) {
-                println!("* Withdrawal initiated but not yet completed");
+                tracing::info!("* Withdrawal initiated but not yet completed");
             }
 
             // Show totals comparison
@@ -985,19 +1239,21 @@ impl ZkcSummary {
             let rewards_contract = IRewards::new(deployment.vezkc_address, provider);
             let contract_total = rewards_contract.getTotalStakingRewards().call().await?;
 
-            println!("\nTotals Summary:");
-            println!("Contract Total (getTotalStakingRewards): {} ZKC", format_zkc(contract_total));
-            println!("Total from Stake Events: {} ZKC", format_zkc(total_staked));
-            println!("Total Reward Power: {} ZKC", format_zkc(total_reward_power));
+            tracing::info!("Totals Summary:");
+            tracing::info!(
+                "Contract Total (getTotalStakingRewards): {} ZKC",
+                format_zkc(contract_total)
+            );
+            tracing::info!("Total from Stake Events: {} ZKC", format_zkc(total_staked));
+            tracing::info!("Total Reward Power: {} ZKC", format_zkc(total_reward_power));
 
             // The contract total is the source of truth
             if total_reward_power != contract_total {
                 let excess = total_reward_power.saturating_sub(contract_total);
-                println!("\n⚠️  WARNING: Reward delegation events show {} ZKC MORE power than exists!", format_zkc(excess));
-                println!("  This indicates that delegation events aren't properly zeroed when unstaking.");
-                println!("  The contract's getTotalStakingRewards() is the accurate total.");
-            } else if total_reward_power == contract_total {
-                println!("\n✓ Reward delegation events match contract total perfectly!");
+                tracing::warn!(
+                    "⚠️  WARNING: Reward delegation events show {} ZKC MORE power than exists!",
+                    format_zkc(excess)
+                );
             }
 
             if total_staked != contract_total {
@@ -1006,7 +1262,7 @@ impl ZkcSummary {
                 } else {
                     format!("{} ZKC too low", format_zkc(contract_total - total_staked))
                 };
-                println!("\n📊 Stake events total is {} compared to contract", diff);
+                tracing::info!("📊 Stake events total is {} compared to contract", diff);
             }
         }
 
@@ -1017,8 +1273,9 @@ impl ZkcSummary {
         &self,
         provider: &P,
         deployment: &Deployment,
-        work_log_id: Address,
+        _work_log_id: Address,
         work_logs: &[Log],
+        epoch_finalized_logs: &[Log],
     ) -> anyhow::Result<()> {
         print_section_header("POVW WORK INFORMATION");
 
@@ -1027,209 +1284,202 @@ impl ZkcSummary {
         let current_epoch = zkc.getCurrentEpoch().call().await?;
         let povw_emissions = zkc.getPoVWEmissionsForEpoch(current_epoch).call().await?;
 
-        // Get pending epoch info
-        let povw_accounting = IPovwAccounting::new(deployment.povw_accounting_address, provider);
-        let pending_epoch = povw_accounting.pendingEpoch().call().await?;
-        let total_work_u256 = U256::from(pending_epoch.totalWork);
+        // Get previous epoch emissions if we have a previous epoch
+        let previous_epoch =
+            if current_epoch > U256::from(1) { current_epoch - U256::from(1) } else { U256::ZERO };
+        let previous_epoch_emissions = if previous_epoch > U256::ZERO {
+            zkc.getPoVWEmissionsForEpoch(previous_epoch).call().await?
+        } else {
+            U256::ZERO
+        };
 
-        // Get rewards contract for cap queries
-        let rewards = IRewards::new(deployment.vezkc_address, provider);
-
-        println!("Current epoch: {}", current_epoch);
-        println!("Pending epoch: {} (total work: {})", pending_epoch.number, total_work_u256);
-        println!("PoVW emissions for epoch {}: {} ZKC", current_epoch, format_zkc(povw_emissions));
-
-        // Process work by both work_log_id and recipient
-        let mut work_by_work_log_id_current: HashMap<Address, U256> = HashMap::new();
-        let mut work_by_work_log_id_all: HashMap<Address, U256> = HashMap::new();
-        let mut work_by_recipient_current: HashMap<Address, U256> = HashMap::new();
-        let mut work_by_recipient_all: HashMap<Address, U256> = HashMap::new();
-        let mut work_log_id_to_recipient: HashMap<Address, Address> = HashMap::new();
-        let mut my_work_current = U256::ZERO;
-
+        // First, collect all unique epochs from work logs
+        let mut epochs_with_work: HashSet<U256> = HashSet::new();
         for log in work_logs {
             if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
-                let log_work_log_id = decoded.inner.data.workLogId;
                 let epoch_number = U256::from(decoded.inner.data.epochNumber);
-                let update_value = U256::from(decoded.inner.data.updateValue);
-                let value_recipient = decoded.inner.data.valueRecipient;
+                epochs_with_work.insert(epoch_number);
+            }
+        }
 
-                // Track the mapping from work log ID to recipient
-                work_log_id_to_recipient.insert(log_work_log_id, value_recipient);
+        // Compute rewards for each epoch that has work
+        let mut all_epoch_rewards: HashMap<U256, EpochPoVWRewards> = HashMap::new();
+        for epoch in epochs_with_work {
+            let epoch_rewards = compute_povw_rewards_by_work_log_id(
+                provider,
+                deployment,
+                *zkc.address(),
+                epoch,
+                current_epoch,
+                work_logs,
+                epoch_finalized_logs,
+            )
+            .await?;
+            all_epoch_rewards.insert(epoch, epoch_rewards);
+        }
 
-                // Accumulate work by work_log_id across all epochs
-                *work_by_work_log_id_all.entry(log_work_log_id).or_insert(U256::ZERO) += update_value;
+        // Get current and previous epoch rewards from our computed results
+        let current_epoch_rewards = all_epoch_rewards.get(&current_epoch).cloned().unwrap_or(
+            EpochPoVWRewards {
+                epoch: current_epoch,
+                total_work: U256::ZERO,
+                povw_emissions,
+                rewards_by_work_log_id: HashMap::new(),
+            }
+        );
 
-                // Accumulate work by recipient across all epochs
-                *work_by_recipient_all.entry(value_recipient).or_insert(U256::ZERO) += update_value;
+        let previous_epoch_rewards = if previous_epoch > U256::ZERO {
+            all_epoch_rewards.get(&previous_epoch).cloned()
+        } else {
+            None
+        };
 
-                // Accumulate work for current epoch
-                if epoch_number == current_epoch {
-                    *work_by_work_log_id_current.entry(log_work_log_id).or_insert(U256::ZERO) += update_value;
-                    *work_by_recipient_current.entry(value_recipient).or_insert(U256::ZERO) += update_value;
-                    if log_work_log_id == work_log_id {
-                        my_work_current += update_value;
-                    }
-                }
+        // Get pending epoch info for display
+        let povw_accounting = IPovwAccounting::new(deployment.povw_accounting_address, provider);
+        let pending_epoch = povw_accounting.pendingEpoch().call().await?;
+
+        tracing::info!("Current epoch: {}", current_epoch);
+        tracing::info!("Pending epoch: {} (total work: {})", pending_epoch.number, current_epoch_rewards.total_work);
+        tracing::info!(
+            "PoVW emissions for epoch {}: {} ZKC",
+            current_epoch,
+            format_zkc(povw_emissions)
+        );
+        if let Some(ref _prev_rewards) = previous_epoch_rewards {
+            tracing::info!(
+                "PoVW emissions for epoch {}: {} ZKC",
+                previous_epoch,
+                format_zkc(previous_epoch_emissions)
+            );
+        }
+
+        // Build aggregate work data across all epochs
+        let mut work_by_work_log_id_all: HashMap<Address, U256> = HashMap::new();
+        for epoch_rewards in all_epoch_rewards.values() {
+            for (wid, info) in &epoch_rewards.rewards_by_work_log_id {
+                *work_by_work_log_id_all.entry(*wid).or_insert(U256::ZERO) += info.work_submitted;
             }
         }
 
         // Display current epoch work by work_log_id
-        let mut total_dao_rewards = U256::ZERO;
-        if !work_by_work_log_id_current.is_empty() {
-            let total_current_work: U256 = work_by_work_log_id_current.values().sum();
-
-            println!("\nWork by Work Log ID (Current Epoch {}, Total Work: {}):", current_epoch, total_current_work);
+        if !current_epoch_rewards.rewards_by_work_log_id.is_empty() {
+            tracing::info!(
+                "Work by Work Log ID (Num work logs {}, Current Epoch {}, Total Work: {}):",
+                current_epoch_rewards.rewards_by_work_log_id.len(),
+                current_epoch,
+                current_epoch_rewards.total_work
+            );
             let mut builder = Builder::default();
-            builder.push_record(["Work Log ID", "Work", "Percentage", "Projected Max Rewards", "Actual Rewards", "Cap Status"]);
+            builder.push_record([
+                "Work Log ID",
+                "Work",
+                "Percentage",
+                "Projected Max Rewards",
+                "Actual Rewards",
+                "Cap Status",
+            ]);
 
-            let mut sorted_current: Vec<_> = work_by_work_log_id_current.iter().collect();
-            sorted_current.sort_by(|a, b| b.1.cmp(a.1));
+            let mut sorted_current: Vec<_> = current_epoch_rewards.rewards_by_work_log_id.iter().collect();
+            sorted_current.sort_by(|a, b| b.1.work_submitted.cmp(&a.1.work_submitted));
 
-            for (wid, work) in sorted_current.iter() {
-                let percentage = if total_current_work > U256::ZERO {
-                    (**work * U256::from(10000) / total_current_work).to::<u64>() as f64 / 100.0
-                } else {
-                    0.0
-                };
-
-                // Calculate projected rewards and check cap
-                let projected_rewards = if total_current_work > U256::ZERO && total_work_u256 > U256::ZERO {
-                    povw_emissions * **work / total_work_u256
-                } else {
-                    U256::ZERO
-                };
-
-                let reward_cap = rewards.getPoVWRewardCap(**wid).call().await.unwrap_or(U256::ZERO);
-                let (actual_rewards, cap_status) = if projected_rewards > reward_cap && reward_cap > U256::ZERO {
-                    total_dao_rewards += projected_rewards - reward_cap;
-                    (reward_cap, "CAPPED")
-                } else {
-                    (projected_rewards, "OK")
-                };
+            for (wid, info) in sorted_current.iter() {
+                let cap_status = if info.is_capped { "CAPPED" } else { "OK" };
 
                 builder.push_record([
                     format!("{:#x}", wid),
-                    format!("{}", work),
-                    format!("{:.2}%", percentage),
-                    format!("{} ZKC", format_zkc(projected_rewards)),
-                    format!("{} ZKC", format_zkc(actual_rewards)),
-                    cap_status.to_string()
+                    format!("{}", info.work_submitted),
+                    format!("{:.2}%", info.percentage),
+                    format!("{} ZKC", format_zkc(info.uncapped_rewards)),
+                    format!("{} ZKC", format_zkc(info.actual_rewards)),
+                    cap_status.to_string(),
                 ]);
             }
 
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
+            let table = builder.build().with(Style::modern()).to_string();
+            tracing::info!("\n{}", table);
         }
 
-        // Display current epoch work by recipient
-        if !work_by_recipient_current.is_empty() {
-            let total_current_work: U256 = work_by_recipient_current.values().sum();
+        // Display previous epoch work by work_log_id if available
+        if let Some(ref prev_rewards) = previous_epoch_rewards {
+            if !prev_rewards.rewards_by_work_log_id.is_empty() {
+                tracing::info!(
+                    "🕐 Previous Epoch Work by Work Log ID (Num work logs {}, Epoch {}, Total Work: {}):",
+                    prev_rewards.rewards_by_work_log_id.len(),
+                    previous_epoch,
+                    prev_rewards.total_work
+                );
+                tracing::info!("These rewards are finalized and can be claimed");
+                let mut builder = Builder::default();
+                builder.push_record([
+                    "Work Log ID",
+                    "Work",
+                    "Percentage",
+                    "Rewards Earned",
+                    "Cap Status",
+                ]);
 
-            println!("\nWork by Recipient (Current Epoch {}, Total Work: {}):", current_epoch, total_current_work);
-            let mut builder = Builder::default();
-            builder.push_record(["Recipient", "Work", "Percentage", "Projected Max Rewards", "Actual Rewards", "Cap Status"]);
+                let mut sorted_previous: Vec<_> = prev_rewards.rewards_by_work_log_id.iter().collect();
+                sorted_previous.sort_by(|a, b| b.1.work_submitted.cmp(&a.1.work_submitted));
 
-            let mut sorted_current: Vec<_> = work_by_recipient_current.iter().collect();
-            sorted_current.sort_by(|a, b| b.1.cmp(a.1));
+                for (wid, info) in sorted_previous.iter() {
+                    let cap_status = if info.is_capped { "CAPPED" } else { "OK" };
 
-            for (recipient, work) in sorted_current.iter() {
-                let percentage = if total_current_work > U256::ZERO {
-                    (**work * U256::from(10000) / total_current_work).to::<u64>() as f64 / 100.0
-                } else {
-                    0.0
-                };
-
-                // Calculate projected rewards (recipients receive the rewards, not work log IDs)
-                let projected_rewards = if total_current_work > U256::ZERO && total_work_u256 > U256::ZERO {
-                    povw_emissions * **work / total_work_u256
-                } else {
-                    U256::ZERO
-                };
-
-                // For recipients, we need to sum up the capped rewards from all their work log IDs
-                let mut actual_rewards = U256::ZERO;
-                let mut is_any_capped = false;
-                for (wid, wid_work) in work_by_work_log_id_current.iter() {
-                    if work_log_id_to_recipient.get(wid) == Some(recipient) {
-                        let wid_projected = if total_current_work > U256::ZERO && total_work_u256 > U256::ZERO {
-                            povw_emissions * *wid_work / total_work_u256
-                        } else {
-                            U256::ZERO
-                        };
-                        let reward_cap = rewards.getPoVWRewardCap(*wid).call().await.unwrap_or(U256::ZERO);
-                        if wid_projected > reward_cap && reward_cap > U256::ZERO {
-                            actual_rewards += reward_cap;
-                            is_any_capped = true;
-                        } else {
-                            actual_rewards += wid_projected;
-                        }
-                    }
+                    builder.push_record([
+                        format!("{:#x}", wid),
+                        format!("{}", info.work_submitted),
+                        format!("{:.2}%", info.percentage),
+                        format!("{} ZKC", format_zkc(info.actual_rewards)),
+                        cap_status.to_string(),
+                    ]);
                 }
 
-                let cap_status = if is_any_capped {
-                    "CAPPED"
-                } else if projected_rewards == actual_rewards {
-                    "OK"
-                } else {
-                    "MIXED"
-                };
-
-                builder.push_record([
-                    format!("{:#x}", recipient),
-                    format!("{}", work),
-                    format!("{:.2}%", percentage),
-                    format!("{} ZKC", format_zkc(projected_rewards)),
-                    format!("{} ZKC", format_zkc(actual_rewards)),
-                    cap_status.to_string()
-                ]);
+                let table = builder.build().with(Style::modern()).to_string();
+                tracing::info!("\n{}", table);
             }
-
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
         }
 
-        // Display all epochs work table
-        if !work_by_recipient_all.is_empty() {
-            let total_all_work: U256 = work_by_recipient_all.values().sum();
+        // Calculate DAO rewards from all epochs
+        let mut total_dao_rewards = U256::ZERO;
+        let mut dao_rewards_by_epoch: Vec<(U256, U256)> = Vec::new();
 
-            println!("\nWork Contributors (All Epochs, Total Work: {}):", total_all_work);
-            let mut builder = Builder::default();
-            builder.push_record(["Recipient", "Total Work", "Percentage"]);
-
-            let mut sorted_all: Vec<_> = work_by_recipient_all.iter().collect();
-            sorted_all.sort_by(|a, b| b.1.cmp(a.1));
-
-            for (recipient, work) in sorted_all.iter() {
-                let percentage = if total_all_work > U256::ZERO {
-                    (**work * U256::from(10000) / total_all_work).to::<u64>() as f64 / 100.0
-                } else {
-                    0.0
-                };
-                builder.push_record([
-                    format!("{:#x}", recipient),
-                    format!("{}", work),
-                    format!("{:.2}%", percentage)
-                ]);
+        // Process each epoch we already computed rewards for
+        for (epoch, epoch_rewards) in &all_epoch_rewards {
+            // Calculate DAO rewards (sum of all capped amounts)
+            let mut epoch_dao_rewards = U256::ZERO;
+            for info in epoch_rewards.rewards_by_work_log_id.values() {
+                if info.is_capped {
+                    let dao_amount = info.uncapped_rewards - info.actual_rewards;
+                    epoch_dao_rewards += dao_amount;
+                }
             }
 
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
+            if epoch_dao_rewards > U256::ZERO {
+                dao_rewards_by_epoch.push((*epoch, epoch_dao_rewards));
+                total_dao_rewards += epoch_dao_rewards;
+            }
         }
+
+        // Sort by epoch for display
+        dao_rewards_by_epoch.sort_by_key(|(epoch, _)| *epoch);
 
         // Display DAO rewards from capped amounts
         if total_dao_rewards > U256::ZERO {
-            println!("\n============================================");
-            println!("DAO REWARDS FROM CAPPED POVW");
-            println!("============================================");
-            println!("Total rewards redirected to DAO: {} ZKC", format_zkc(total_dao_rewards));
-            println!("(These are rewards that exceeded individual caps and are now retained by the DAO)");
+            tracing::info!("============================================");
+            tracing::info!("DAO REWARDS FROM CAPPED POVW (ALL EPOCHS)");
+            tracing::info!("============================================");
+            tracing::info!(
+                "Total rewards redirected to DAO: {} ZKC",
+                format_zkc(total_dao_rewards)
+            );
+            tracing::info!("Breakdown by epoch:");
+
+            for (epoch, amount) in dao_rewards_by_epoch.iter() {
+                tracing::info!("  Epoch {}: {} ZKC", epoch, format_zkc(*amount));
+            }
+
+            tracing::info!(
+                "(These are rewards that exceeded individual caps and are retained by the DAO)"
+            );
         }
 
         Ok(())
@@ -1266,7 +1516,7 @@ impl ZkcSummary {
             let mut sorted_povw: Vec<_> = povw_claims.iter().collect();
             sorted_povw.sort_by(|a, b| b.1.cmp(a.1));
 
-            println!("\nPoVW Rewards Claimed (Total: {} ZKC):", format_zkc(total_povw));
+            tracing::info!("PoVW Rewards Claimed (Total: {} ZKC):", format_zkc(total_povw));
             let mut builder = Builder::default();
             builder.push_record(["Address", "Total Claimed", "Percentage"]);
 
@@ -1279,16 +1529,14 @@ impl ZkcSummary {
                 builder.push_record([
                     format!("{:#x}", address),
                     format!("{} ZKC", format_zkc(*amount)),
-                    format!("{:.2}%", percentage)
+                    format!("{:.2}%", percentage),
                 ]);
             }
 
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
+            let table = builder.build().with(Style::modern()).to_string();
+            tracing::info!("\n{}", table);
         } else {
-            println!("\nNo PoVW rewards have been claimed yet");
+            tracing::info!("\nNo PoVW rewards have been claimed yet");
         }
 
         // Display Staking rewards claimed table
@@ -1297,7 +1545,7 @@ impl ZkcSummary {
             let mut sorted_staking: Vec<_> = staking_claims.iter().collect();
             sorted_staking.sort_by(|a, b| b.1.cmp(a.1));
 
-            println!("\nStaking Rewards Claimed (Total: {} ZKC):", format_zkc(total_staking));
+            tracing::info!("Staking Rewards Claimed (Total: {} ZKC):", format_zkc(total_staking));
             let mut builder = Builder::default();
             builder.push_record(["Address", "Total Claimed", "Percentage"]);
 
@@ -1310,16 +1558,14 @@ impl ZkcSummary {
                 builder.push_record([
                     format!("{:#x}", address),
                     format!("{} ZKC", format_zkc(*amount)),
-                    format!("{:.2}%", percentage)
+                    format!("{:.2}%", percentage),
                 ]);
             }
 
-            let table = builder.build()
-                .with(Style::modern())
-                .to_string();
-            println!("{}", table);
+            let table = builder.build().with(Style::modern()).to_string();
+            tracing::info!("\n{}", table);
         } else {
-            println!("\nNo Staking rewards have been claimed yet");
+            tracing::info!("\nNo Staking rewards have been claimed yet");
         }
 
         Ok(())

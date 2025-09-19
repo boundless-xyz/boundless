@@ -37,7 +37,9 @@ target/
 .aider*
 .claude
 CLAUDE.md
+AGENTS.md
 .cursor
+.codex
 
 
 # Ignore generated files
