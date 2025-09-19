@@ -19,7 +19,7 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, parse_units},
-        B256, U256,
+        Address, B256, U256,
     },
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
@@ -54,6 +54,11 @@ pub struct ZkcStake {
     /// Whether to only print the calldata without sending the transaction.
     #[clap(long)]
     pub calldata: bool,
+    /// The account address to stake from.
+    ///
+    /// Only valid when used with `--calldata`.
+    #[clap(long, requires = "calldata")]
+    pub from: Option<Address>,
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
@@ -62,12 +67,10 @@ pub struct ZkcStake {
 impl ZkcStake {
     /// Run the [ZKCStake] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
@@ -75,9 +78,13 @@ impl ZkcStake {
         let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
             .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
 
+        let account = match &self.from {
+            Some(addr) => *addr,
+            None => global_config.require_private_key()?.address(),
+        };
+
         let token_id =
-            get_active_token_id(provider.clone(), deployment.vezkc_address, tx_signer.address())
-                .await?;
+            get_active_token_id(provider.clone(), deployment.vezkc_address, account).await?;
         let add = !token_id.is_zero();
 
         let parsed_amount = parse_units(&self.amount, 18)
@@ -90,6 +97,13 @@ impl ZkcStake {
         if self.calldata {
             return self.approve_then_stake(deployment, parsed_amount, add).await;
         }
+
+        let tx_signer = global_config.require_private_key()?;
+        let provider = ProviderBuilder::new()
+            .wallet(tx_signer.clone())
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
         if !add {
             println!(
