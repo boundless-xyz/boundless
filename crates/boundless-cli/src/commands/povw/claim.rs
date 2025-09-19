@@ -30,6 +30,7 @@ use boundless_povw::{
     log_updater::IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
     mint_calculator::{prover::MintCalculatorProver, IPovwMint, CHAIN_SPECS},
 };
+use boundless_zkc::deployments::NamedChain;
 use clap::Args;
 use risc0_povw::PovwLogId;
 use risc0_zkvm::{default_prover, Digest, ProverOpts};
@@ -87,6 +88,10 @@ pub struct PovwClaim {
 
     #[clap(flatten, next_help_heading = "Prover")]
     prover_config: ProverConfig,
+
+    /// The RPC URL to use to submit the reward claim transaction.
+    #[clap(long, env = "ETH_RPC_URL")]
+    pub eth_rpc_url: Url,
 }
 
 impl PovwClaim {
@@ -97,14 +102,14 @@ impl PovwClaim {
             tracing::warn!("You can provide it using the --beacon-api-url flag.");
         }
         let tx_signer = global_config.require_private_key()?;
-        let rpc_url = global_config.require_rpc_url()?;
+        let eth_rpc_url = self.eth_rpc_url.clone();
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
             .wallet(tx_signer.clone())
-            .connect(rpc_url.as_str())
+            .connect(eth_rpc_url.as_str())
             .await
-            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+            .with_context(|| format!("failed to connect provider to {eth_rpc_url}"))?;
 
         let chain_id = provider.get_chain_id().await.context("Failed to query the chain ID")?;
         let chain_spec = CHAIN_SPECS.get(&chain_id).with_context(|| {
@@ -114,9 +119,10 @@ impl PovwClaim {
             .deployment
             .clone()
             .or_else(|| Deployment::from_chain_id(chain_id))
-            .context(
-            "could not determine deployment from chain ID; please specify deployment explicitly",
-        )?;
+            .context(format!(
+                "could not determine deployment from chain ID {chain_id} ({:?}); please check the RPC matches the chain of the PoVW accounting contract or specify deployment explicitly",
+                NamedChain::try_from(chain_id)
+            ))?;
 
         // Determine the limits on the blocks that will be searched for events.
         let latest_block_number =
