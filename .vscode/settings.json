@@ -40,5 +40,6 @@
   },
   "[json]": {
     "editor.defaultFormatter": "vscode.json-language-features"
-  }
+  },
+  "chatgpt.openOnStartup": true
 }

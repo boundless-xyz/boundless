@@ -1303,14 +1303,14 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
         println!("Transaction Timeout: <not set>");
     }
     println!("Log Level: {:?}", config.log_level);
-    if let Some(ref deployment) = config.deployment {
-        println!("Using custom Boundless deployment");
-        println!("Chain ID: {:?}", deployment.chain_id);
-        println!("Boundless Market Address: {}", deployment.boundless_market_address);
-        println!("Verifier Address: {:?}", deployment.verifier_router_address);
-        println!("Set Verifier Address: {}", deployment.set_verifier_address);
-        println!("Order Stream URL: {:?}", deployment.order_stream_url);
-    }
+    // if let Some(ref deployment) = config.deployment {
+    //     println!("Using custom Boundless deployment");
+    //     println!("Chain ID: {:?}", deployment.chain_id);
+    //     println!("Boundless Market Address: {}", deployment.boundless_market_address);
+    //     println!("Verifier Address: {:?}", deployment.verifier_router_address);
+    //     println!("Set Verifier Address: {}", deployment.set_verifier_address);
+    //     println!("Order Stream URL: {:?}", deployment.order_stream_url);
+    // }
 
     // Validate RPC connection
     println!("\n=== Environment Validation ===\n");
@@ -1329,10 +1329,8 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
         }
     };
 
-    let Some(deployment) =
-        config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-    else {
-        println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
+    let Some(deployment) = Deployment::from_chain_id(chain_id) else {
+        println!("❌ No Boundless deployment config for chain ID: {chain_id}");
         return Ok(());
     };
 
@@ -1533,7 +1531,7 @@ mod tests {
 
         // Add the order_stream_url to the deployment config.
         ctx.deployment.order_stream_url = Some(order_stream_url.to_string().into());
-        global_config.deployment = Some(ctx.deployment.clone());
+        // global_config.deployment = Some(ctx.deployment.clone());
 
         (ctx, anvil, global_config, order_stream_handle)
     }
