@@ -24,9 +24,11 @@ use boundless_povw::{
     deployments::Deployment,
     log_updater::{prover::LogUpdaterProver, IPovwAccounting},
 };
+use boundless_zkc::deployments::NamedChain;
 use clap::Args;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 use risc0_zkvm::{default_prover, ProverOpts};
+use url::Url;
 
 use super::State;
 use crate::config::{GlobalConfig, ProverConfig};
@@ -58,6 +60,10 @@ pub struct PovwSubmit {
 
     #[clap(flatten, next_help_heading = "Prover")]
     prover_config: ProverConfig,
+
+    /// The RPC URL to use to submit the work update transaction to the staking contract.
+    #[clap(long, env = "ETH_RPC_URL")]
+    pub eth_rpc_url: Url,
 }
 
 impl PovwSubmit {
@@ -65,7 +71,7 @@ impl PovwSubmit {
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
         let work_log_signer = self.povw_private_key.as_ref().unwrap_or(&tx_signer);
-        let rpc_url = global_config.require_rpc_url()?;
+        let eth_rpc_url = self.eth_rpc_url.clone();
 
         // Load the state and check to make sure the private key matches.
         let mut state = State::load(&self.state)
@@ -83,21 +89,23 @@ impl PovwSubmit {
         // Connect to the chain.
         let provider = ProviderBuilder::new()
             .wallet(tx_signer.clone())
-            .connect(rpc_url.as_str())
+            .connect(eth_rpc_url.as_str())
             .await
-            .with_context(|| format!("Failed to connect provider to {rpc_url}"))?;
+            .with_context(|| format!("Failed to connect provider to {eth_rpc_url}"))?;
 
         let chain_id = provider
             .get_chain_id()
             .await
-            .with_context(|| format!("Failed to get chain ID from {rpc_url}"))?;
+            .with_context(|| format!("Failed to get chain ID from {eth_rpc_url}"))?;
+
         let deployment = self
             .deployment
             .clone()
             .or_else(|| Deployment::from_chain_id(chain_id))
-            .context(
-            "could not determine deployment from chain ID; please specify deployment explicitly",
-        )?;
+            .context(format!(
+                "could not determine deployment from chain ID {chain_id} ({:?}); please check the RPC matches the chain of the PoVW accounting contract or specify deployment explicitly",
+                NamedChain::try_from(chain_id)
+            ))?;
         let povw_accounting =
             IPovwAccounting::new(deployment.povw_accounting_address, provider.clone());
 
