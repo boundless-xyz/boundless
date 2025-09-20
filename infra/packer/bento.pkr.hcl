@@ -1,0 +1,91 @@
+packer {
+  required_plugins {
+    amazon = {
+      version = ">= 1.0.0"
+      source  = "github.com/hashicorp/amazon"
+    }
+  }
+}
+
+variable "aws_region" {
+  type    = string
+  default = "us-west-2"
+}
+
+variable "instance_type" {
+  type    = string
+  default = "c7a.4xlarge"
+}
+
+variable "boundless_version" {
+  type    = string
+  default = "latest"
+}
+
+variable "docker_tag" {
+  type    = string
+  default = "latest"
+}
+
+locals {
+  timestamp = regex_replace(timestamp(), "[- TZ:]", "")
+}
+
+source "amazon-ebs" "boundless" {
+  ami_name      = "boundless-v1.0.0-ubuntu-24.04-nvidia-${local.timestamp}"
+  instance_type = var.instance_type
+  region        = var.aws_region
+  source_ami_filter {
+    filters = {
+      name                = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
+      root-device-type    = "ebs"
+      virtualization-type = "hvm"
+    }
+    most_recent = true
+    owners      = ["099720109477"] # Canonical
+  }
+  ssh_username = "ubuntu"
+
+  # Increase root volume size to 100GB
+  launch_block_device_mappings {
+    device_name = "/dev/sda1"
+    volume_size = 100
+    volume_type = "gp3"
+    delete_on_termination = true
+  }
+
+  tags = {
+    Name        = "boundless-v1.0.0-ubuntu-24.04-nvidia-13.0"
+    Environment = "production"
+    ManagedBy   = "packer"
+  }
+}
+
+build {
+  sources = ["source.amazon-ebs.boundless"]
+
+  # Copy service files first
+  provisioner "file" {
+    source = "./service_files/bento-api.service"
+    destination = "/tmp/bento-api.service"
+  }
+
+  provisioner "file" {
+    source = "./service_files/bento-broker.service"
+    destination = "/tmp/bento-broker.service"
+  }
+  provisioner "file" {
+    source = "./service_files/broker.toml"
+    destination = "/tmp/broker.toml"
+  }
+
+  provisioner "file" {
+    source = "./service_files/bento.service"
+    destination = "/tmp/bento.service"
+  }
+
+  # Run the complete installation script
+  provisioner "shell" {
+    script = "scripts/setup.sh"
+  }
+}
