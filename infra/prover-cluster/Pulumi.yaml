@@ -1,4 +1,4 @@
-name: prover
+name: prover-cluster
 description: A minimal AWS TypeScript Pulumi program
 runtime:
   name: nodejs
