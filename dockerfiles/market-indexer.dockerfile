@@ -60,10 +60,10 @@ COPY foundry.toml .
 
 SHELL ["/bin/bash", "-c"]
 
-RUN cargo build --release --bin boundless-indexer
+RUN cargo build --release --bin market-indexer
 
 FROM init AS runtime
 
-COPY --from=builder /src/target/release/boundless-indexer /app/boundless-indexer
+COPY --from=builder /src/target/release/market-indexer /app/market-indexer
 
-ENTRYPOINT ["/app/boundless-indexer"]
+ENTRYPOINT ["/app/market-indexer"]

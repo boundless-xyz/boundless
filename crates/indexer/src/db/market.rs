@@ -24,7 +24,7 @@ use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
     AnyPool, Row,
 };
-use thiserror::Error;
+use super::DbError;
 
 const SQL_BLOCK_KEY: i64 = 0;
 
@@ -40,24 +40,6 @@ impl TxMetadata {
     pub fn new(tx_hash: B256, from: Address, block_number: u64, block_timestamp: u64) -> Self {
         Self { tx_hash, from, block_number, block_timestamp }
     }
-}
-
-#[derive(Error, Debug)]
-pub enum DbError {
-    #[error("SQL error {0:?}")]
-    SqlErr(#[from] sqlx::Error),
-
-    #[error("SQL Migration error {0:?}")]
-    MigrateErr(#[from] sqlx::migrate::MigrateError),
-
-    #[error("Invalid block number: {0}")]
-    BadBlockNumb(String),
-
-    #[error("Failed to set last block")]
-    SetBlockFail,
-
-    #[error("Invalid transaction: {0}")]
-    BadTransaction(String),
 }
 
 #[async_trait]

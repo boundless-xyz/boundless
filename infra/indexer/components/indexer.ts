@@ -84,15 +84,16 @@ export class IndexerInstance extends pulumi.ComponentResource {
       }
     }
 
-    const image = new docker_build.Image(`${serviceName}-img`, {
-      tags: [pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:${dockerTag}`],
+    // Build market indexer image
+    const marketImage = new docker_build.Image(`${serviceName}-market-img`, {
+      tags: [pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:market-${dockerTag}`],
       context: {
         location: dockerDir,
       },
       platforms: ['linux/amd64'],
       push: true,
       dockerfile: {
-        location: `${dockerDir}/dockerfiles/indexer.dockerfile`,
+        location: `${dockerDir}/dockerfiles/market-indexer.dockerfile`,
       },
       builder: args.dockerRemoteBuilder ? {
         name: args.dockerRemoteBuilder,
@@ -115,6 +116,50 @@ export class IndexerInstance extends pulumi.ComponentResource {
             imageManifest: true,
             ociMediaTypes: true,
             ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+          },
+        },
+      ],
+      registries: [
+        {
+          address: ecrRepository.repository.repositoryUrl,
+          password: authToken.apply((authToken) => authToken.password),
+          username: authToken.apply((authToken) => authToken.userName),
+        },
+      ],
+    });
+
+    // Build rewards indexer image
+    const rewardsImage = new docker_build.Image(`${serviceName}-rewards-img`, {
+      tags: [pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:rewards-${dockerTag}`],
+      context: {
+        location: dockerDir,
+      },
+      platforms: ['linux/amd64'],
+      push: true,
+      dockerfile: {
+        location: `${dockerDir}/dockerfiles/rewards-indexer.dockerfile`,
+      },
+      builder: args.dockerRemoteBuilder ? {
+        name: args.dockerRemoteBuilder,
+      } : undefined,
+      buildArgs: {
+        S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
+      },
+      secrets: buildSecrets,
+      cacheFrom: [
+        {
+          registry: {
+            ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:rewards-cache`,
+          },
+        },
+      ],
+      cacheTo: [
+        {
+          registry: {
+            mode: docker_build.CacheMode.Max,
+            imageManifest: true,
+            ociMediaTypes: true,
+            ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:rewards-cache`,
           },
         },
       ],
@@ -286,8 +331,9 @@ export class IndexerInstance extends pulumi.ComponentResource {
       policyArn: dbSecretAccessPolicy.arn,
     });
 
-    const service = new awsx.ecs.FargateService(`${serviceName}-service`, {
-      name: `${serviceName}-service`,
+    // Market indexer service
+    const marketService = new awsx.ecs.FargateService(`${serviceName}-market-service`, {
+      name: `${serviceName}-market-service`,
       cluster: cluster.arn,
       networkConfiguration: {
         securityGroups: [indexerSecGroup.id],
@@ -313,8 +359,8 @@ export class IndexerInstance extends pulumi.ComponentResource {
         executionRole: { roleArn: executionRole.arn },
         taskRole: { roleArn: taskRole.arn },
         container: {
-          name: `${serviceName}`,
-          image: image.ref,
+          name: `${serviceName}-market`,
+          image: marketImage.ref,
           cpu: 1024,
           memory: 512,
           essential: true,
@@ -362,30 +408,104 @@ export class IndexerInstance extends pulumi.ComponentResource {
       },
     }, { dependsOn: [taskRole, taskRolePolicy] });
 
+    // Rewards indexer service
+    const rewardsServiceLogGroup = `${serviceName}-rewards-service`;
+    const rewardsService = new awsx.ecs.FargateService(`${serviceName}-rewards-service`, {
+      name: `${serviceName}-rewards-service`,
+      cluster: cluster.arn,
+      networkConfiguration: {
+        securityGroups: [indexerSecGroup.id],
+        assignPublicIp: false,
+        subnets: privSubNetIds,
+      },
+      desiredCount: 1,
+      deploymentCircuitBreaker: {
+        enable: false,
+        rollback: false,
+      },
+      forceNewDeployment: true,
+      enableExecuteCommand: true,
+      taskDefinitionArgs: {
+        logGroup: {
+          args: {
+            name: rewardsServiceLogGroup,
+            retentionInDays: 0,
+            skipDestroy: true,
+          },
+        },
+        executionRole: { roleArn: executionRole.arn },
+        taskRole: { roleArn: taskRole.arn },
+        container: {
+          name: `${serviceName}-rewards`,
+          image: rewardsImage.ref,
+          cpu: 512,
+          memory: 256,
+          essential: true,
+          linuxParameters: {
+            initProcessEnabled: true,
+          },
+          command: [
+            '--rpc-url',
+            ethRpcUrl,
+            '--log-json'
+          ],
+          secrets: [
+            {
+              name: 'DATABASE_URL',
+              valueFrom: dbUrlSecret.arn,
+            },
+          ],
+          environment: [
+            {
+              name: 'RUST_LOG',
+              value: 'boundless_indexer=debug,info',
+            },
+            {
+              name: 'NO_COLOR',
+              value: '1',
+            },
+            {
+              name: 'RUST_BACKTRACE',
+              value: '1',
+            },
+            {
+              name: 'DB_POOL_SIZE',
+              value: '3',
+            },
+            {
+              name: 'SECRET_HASH',
+              value: secretHash,
+            }
+          ]
+        },
+      },
+    }, { dependsOn: [taskRole, taskRolePolicy] });
+
     const alarmActions = args.boundlessAlertsTopicArns ?? [];
 
-    new aws.cloudwatch.LogMetricFilter(`${serviceName}-log-err-filter`, {
-      name: `${serviceName}-log-err-filter`,
+    // Market indexer monitoring
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-err-filter`, {
+      name: `${serviceName}-market-log-err-filter`,
       logGroupName: serviceLogGroup,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
-        name: `${serviceName}-log-err`,
+        name: `${serviceName}-market-log-err`,
         value: '1',
         defaultValue: '0',
       },
       // Whitespace prevents us from alerting on SQL injection probes.
       pattern: `"ERROR "`,
-    }, { dependsOn: [service] });
+    }, { dependsOn: [marketService] });
 
     // Two errors within an hour triggers alarm.
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm`, {
-      name: `${serviceName}-log-err`,
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-market-error-alarm`, {
+      name: `${serviceName}-market-log-err`,
       metricQueries: [
         {
           id: 'm1',
           metric: {
             namespace: serviceMetricsNamespace,
-            metricName: `${serviceName}-log-err`,
+            metricName: `${serviceName}-market-log-err`,
             period: 60,
             stat: 'Sum',
           },
@@ -398,31 +518,83 @@ export class IndexerInstance extends pulumi.ComponentResource {
       evaluationPeriods: 60,
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
-      alarmDescription: 'Indexer log ERROR level',
+      alarmDescription: 'Market indexer log ERROR level',
       actionsEnabled: true,
       alarmActions,
     });
 
-    new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
-      name: `${serviceName}-log-fatal-filter`,
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-fatal-filter`, {
+      name: `${serviceName}-market-log-fatal-filter`,
       logGroupName: serviceLogGroup,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
-        name: `${serviceName}-log-fatal`,
+        name: `${serviceName}-market-log-fatal`,
         value: '1',
         defaultValue: '0',
       },
       pattern: 'FATAL',
-    }, { dependsOn: [service] });
+    }, { dependsOn: [marketService] });
 
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm`, {
-      name: `${serviceName}-log-fatal`,
+    // Rewards indexer monitoring
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-rewards-log-err-filter`, {
+      name: `${serviceName}-rewards-log-err-filter`,
+      logGroupName: rewardsServiceLogGroup,
+      metricTransformation: {
+        namespace: serviceMetricsNamespace,
+        name: `${serviceName}-rewards-log-err`,
+        value: '1',
+        defaultValue: '0',
+      },
+      // Whitespace prevents us from alerting on SQL injection probes.
+      pattern: `"ERROR "`,
+    }, { dependsOn: [rewardsService] });
+
+    // Two errors within an hour triggers alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-error-alarm`, {
+      name: `${serviceName}-rewards-log-err`,
       metricQueries: [
         {
           id: 'm1',
           metric: {
             namespace: serviceMetricsNamespace,
-            metricName: `${serviceName}-log-fatal`,
+            metricName: `${serviceName}-rewards-log-err`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      // Two errors within an hour triggers alarm.
+      evaluationPeriods: 60,
+      datapointsToAlarm: 2,
+      treatMissingData: 'notBreaching',
+      alarmDescription: 'Rewards indexer log ERROR level',
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-rewards-fatal-filter`, {
+      name: `${serviceName}-rewards-log-fatal-filter`,
+      logGroupName: rewardsServiceLogGroup,
+      metricTransformation: {
+        namespace: serviceMetricsNamespace,
+        name: `${serviceName}-rewards-log-fatal`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: 'FATAL',
+    }, { dependsOn: [rewardsService] });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-market-fatal-alarm`, {
+      name: `${serviceName}-market-log-fatal`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: serviceMetricsNamespace,
+            metricName: `${serviceName}-market-log-fatal`,
             period: 60,
             stat: 'Sum',
           },
@@ -434,7 +606,31 @@ export class IndexerInstance extends pulumi.ComponentResource {
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
-      alarmDescription: `Indexer ${name} FATAL (task exited)`,
+      alarmDescription: `Market indexer ${name} FATAL (task exited)`,
+      actionsEnabled: true,
+      alarmActions,
+    });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-fatal-alarm`, {
+      name: `${serviceName}-rewards-log-fatal`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: serviceMetricsNamespace,
+            metricName: `${serviceName}-rewards-log-fatal`,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Rewards indexer ${name} FATAL (task exited)`,
       actionsEnabled: true,
       alarmActions,
     });

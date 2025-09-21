@@ -10,11 +10,22 @@ publish = false
 [package.metadata.release]
 release = false
 
+[[bin]]
+name = "market-indexer"
+path = "src/bin/market-indexer.rs"
+
+[[bin]]
+name = "rewards-indexer"
+path = "src/bin/rewards-indexer.rs"
+
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 boundless-market = { workspace = true }
+boundless-povw = { workspace = true }
+boundless-rewards = { workspace = true }
+boundless-zkc = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
 sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
@@ -30,7 +41,7 @@ boundless-cli = { workspace = true }
 boundless-market = { workspace = true }
 boundless-test-utils = { workspace = true }
 futures-util = { workspace = true }
-indexer-monitor = { path = "../ops-lambdas/indexer-monitor" }
+indexer-monitor = { path = "../lambdas/indexer-monitor" }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 tracing-test = { workspace = true }
 

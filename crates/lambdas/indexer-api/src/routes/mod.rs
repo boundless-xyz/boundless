@@ -12,10 +12,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod db;
-pub mod market;
-pub mod rewards;
-pub mod test_utils;
-
-// Re-export for backwards compatibility
-pub use market::{IndexerService, IndexerServiceConfig, ServiceError};
+pub mod povw;

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
-use boundless_indexer::{IndexerService, IndexerServiceConfig};
+use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
 use url::Url;
 

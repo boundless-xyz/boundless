@@ -1,6 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 import { IndexerInstance } from './components/indexer';
 import { MonitorLambda } from './components/monitor-lambda';
+import { IndexerApi } from './components/indexer-api';
 import { getEnvVar, getServiceNameV1 } from '../util';
 
 require('dotenv').config();
@@ -34,6 +35,7 @@ export = () => {
 
   const indexerServiceName = getServiceNameV1(stackName, "indexer", chainId);
   const monitorServiceName = getServiceNameV1(stackName, "monitor", chainId);
+  const apiServiceName = getServiceNameV1(stackName, "api", chainId);
 
   // Metric namespace for service metrics, e.g. operation health of the monitor/indexer infra
   const serviceMetricsNamespace = `Boundless/Services/${indexerServiceName}`;
@@ -71,5 +73,19 @@ export = () => {
     serviceMetricsNamespace,
     marketMetricsNamespace,
   }, { parent: indexer, dependsOn: [indexer, indexer.dbUrlSecret, indexer.dbUrlSecretVersion] });
+
+  const api = new IndexerApi(apiServiceName, {
+    vpcId: vpcId,
+    privSubNetIds: privSubNetIds,
+    dbUrlSecret: indexer.dbUrlSecret,
+    rdsSgId: indexer.rdsSecurityGroupId,
+    rustLogLevel: rustLogLevel,
+  }, { parent: indexer, dependsOn: [indexer, indexer.dbUrlSecret, indexer.dbUrlSecretVersion] });
+
+  return {
+    apiEndpoint: api.cloudFrontDomain,
+    apiGatewayEndpoint: api.apiEndpoint,
+    distributionId: api.distributionId,
+  };
 
 };

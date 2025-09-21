@@ -12,10 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod db;
 pub mod market;
 pub mod rewards;
-pub mod test_utils;
 
-// Re-export for backwards compatibility
-pub use market::{IndexerService, IndexerServiceConfig, ServiceError};
+use std::sync::Arc;
+use alloy::primitives::{Address, B256};
+use thiserror::Error;
+
+// Re-export common types from market module for backwards compatibility
+pub use market::{AnyDb, DbObj, IndexerDb, TxMetadata};
+
+#[derive(Error, Debug)]
+pub enum DbError {
+    #[error("SQL error {0:?}")]
+    SqlErr(#[from] sqlx::Error),
+
+    #[error("SQL Migration error {0:?}")]
+    MigrateErr(#[from] sqlx::migrate::MigrateError),
+
+    #[error("Invalid block number: {0}")]
+    BadBlockNumb(String),
+
+    #[error("Failed to set last block")]
+    SetBlockFail,
+
+    #[error("Invalid transaction: {0}")]
+    BadTransaction(String),
+}
