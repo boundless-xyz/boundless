@@ -132,3 +132,190 @@ impl<T> LeaderboardResponse<T> {
         }
     }
 }
+
+/// Response for aggregate staking leaderboard
+#[derive(Debug, Serialize)]
+pub struct AggregateStakingEntry {
+    /// Rank in the leaderboard (1-based)
+    pub rank: u64,
+
+    /// Staker address
+    pub staker_address: String,
+
+    /// Total staked amount
+    pub total_staked: String,
+
+    /// Whether the stake is in withdrawal
+    pub is_withdrawing: bool,
+
+    /// Address this staker has delegated rewards to
+    pub rewards_delegated_to: Option<String>,
+
+    /// Address this staker has delegated votes to
+    pub votes_delegated_to: Option<String>,
+
+    /// Number of epochs participated in
+    pub epochs_participated: u64,
+}
+
+/// Response for epoch-specific staking leaderboard
+#[derive(Debug, Serialize)]
+pub struct EpochStakingEntry {
+    /// Rank in the leaderboard (1-based)
+    pub rank: u64,
+
+    /// Staker address
+    pub staker_address: String,
+
+    /// Epoch number
+    pub epoch: u64,
+
+    /// Staked amount in this epoch
+    pub staked_amount: String,
+
+    /// Whether the stake was in withdrawal during this epoch
+    pub is_withdrawing: bool,
+
+    /// Address this staker had delegated rewards to during this epoch
+    pub rewards_delegated_to: Option<String>,
+
+    /// Address this staker had delegated votes to during this epoch
+    pub votes_delegated_to: Option<String>,
+}
+
+/// Query parameters for address history endpoint
+#[derive(Debug, Deserialize)]
+pub struct AddressHistoryParams {
+    /// Starting epoch (inclusive)
+    pub start_epoch: Option<u64>,
+
+    /// Ending epoch (inclusive)
+    pub end_epoch: Option<u64>,
+
+    /// Maximum number of epochs to return (default: 100, max: 1000)
+    #[serde(default = "default_history_limit")]
+    pub limit: u64,
+}
+
+fn default_history_limit() -> u64 {
+    100
+}
+
+impl AddressHistoryParams {
+    /// Validate and normalize parameters
+    pub fn validate(self) -> Self {
+        Self {
+            start_epoch: self.start_epoch,
+            end_epoch: self.end_epoch,
+            limit: self.limit.min(1000), // Cap at 1000 epochs
+        }
+    }
+}
+
+/// Complete history for an address across epochs
+#[derive(Debug, Serialize)]
+pub struct AddressHistoryResponse {
+    /// The address being queried
+    pub address: String,
+
+    /// History entries by epoch (sorted by epoch descending)
+    pub epochs: Vec<AddressEpochHistory>,
+
+    /// Total number of epochs returned
+    pub epoch_count: usize,
+}
+
+/// History for a single epoch for an address
+#[derive(Debug, Serialize)]
+pub struct AddressEpochHistory {
+    /// Epoch number
+    pub epoch: u64,
+
+    /// Staking position in this epoch
+    pub staking: Option<StakingPositionData>,
+
+    /// PoVW rewards earned in this epoch
+    pub povw_rewards: Option<PovwRewardsData>,
+
+    /// Vote delegations received in this epoch
+    pub vote_delegations_received: Option<DelegationPowerData>,
+
+    /// Reward delegations received in this epoch
+    pub reward_delegations_received: Option<DelegationPowerData>,
+}
+
+/// Staking position data for an epoch
+#[derive(Debug, Serialize)]
+pub struct StakingPositionData {
+    /// Amount staked
+    pub staked_amount: String,
+
+    /// Whether the stake is in withdrawal
+    pub is_withdrawing: bool,
+
+    /// Address rewards are delegated to
+    pub rewards_delegated_to: Option<String>,
+
+    /// Address votes are delegated to
+    pub votes_delegated_to: Option<String>,
+}
+
+/// PoVW rewards data for an epoch
+#[derive(Debug, Serialize)]
+pub struct PovwRewardsData {
+    /// Work submitted
+    pub work_submitted: String,
+
+    /// Percentage of total work
+    pub percentage: f64,
+
+    /// Rewards before cap
+    pub uncapped_rewards: String,
+
+    /// Reward cap based on stake
+    pub reward_cap: String,
+
+    /// Actual rewards after cap
+    pub actual_rewards: String,
+
+    /// Whether rewards were capped
+    pub is_capped: bool,
+
+    /// Staked amount used for cap calculation
+    pub staked_amount: String,
+}
+
+/// Delegation power data for an epoch
+#[derive(Debug, Serialize)]
+pub struct DelegationPowerData {
+    /// Total power delegated
+    pub power: String,
+
+    /// Number of delegators
+    pub delegator_count: u64,
+
+    /// List of delegator addresses
+    pub delegators: Vec<String>,
+}
+
+/// Response for delegation power entries
+#[derive(Debug, Serialize)]
+pub struct DelegationPowerEntry {
+    /// Rank in the leaderboard (1-based)
+    pub rank: u64,
+
+    /// Delegate address receiving the delegation
+    pub delegate_address: String,
+
+    /// Total power delegated
+    pub power: String,
+
+    /// Number of delegators
+    pub delegator_count: u64,
+
+    /// List of delegator addresses
+    pub delegators: Vec<String>,
+
+    /// Number of epochs participated (for aggregates) or epoch number (for history)
+    pub epochs_participated: Option<u64>,
+}

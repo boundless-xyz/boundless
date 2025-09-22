@@ -26,31 +26,31 @@ use crate::{
     db::AppState,
     handler::handle_error,
     models::{
-        AggregateLeaderboardEntry, EpochLeaderboardEntry, LeaderboardResponse, PaginationParams,
+        AggregateStakingEntry, EpochStakingEntry, LeaderboardResponse, PaginationParams,
     },
 };
 
-/// Create PoVW routes
+/// Create staking routes
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         // Aggregate endpoints
-        .route("/", get(get_aggregate_povw))
+        .route("/", get(get_aggregate_staking))
         // Epoch-specific endpoints
-        .route("/epochs/:epoch", get(get_povw_by_epoch))
+        .route("/epochs/:epoch", get(get_staking_by_epoch))
         // Address-specific endpoints
-        .route("/addresses/:address", get(get_povw_history_by_address))
-        .route("/addresses/:address/epochs/:epoch", get(get_povw_by_address_and_epoch))
+        .route("/addresses/:address", get(get_staking_history_by_address))
+        .route("/addresses/:address/epochs/:epoch", get(get_staking_by_address_and_epoch))
 }
 
-/// GET /v1/povw
-/// Returns the aggregate PoVW rewards leaderboard
-async fn get_aggregate_povw(
+/// GET /v1/staking
+/// Returns the aggregate staking leaderboard
+async fn get_aggregate_staking(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
 ) -> Response {
     let params = params.validate();
 
-    match get_aggregate_povw_impl(state, params).await {
+    match get_aggregate_staking_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             // Cache for 60 seconds (current leaderboard updates frequently)
@@ -64,12 +64,12 @@ async fn get_aggregate_povw(
     }
 }
 
-async fn get_aggregate_povw_impl(
+async fn get_aggregate_staking_impl(
     state: Arc<AppState>,
     params: PaginationParams,
-) -> anyhow::Result<LeaderboardResponse<AggregateLeaderboardEntry>> {
+) -> anyhow::Result<LeaderboardResponse<AggregateStakingEntry>> {
     tracing::debug!(
-        "Fetching aggregate leaderboard with offset={}, limit={}",
+        "Fetching aggregate staking leaderboard with offset={}, limit={}",
         params.offset,
         params.limit
     );
@@ -77,19 +77,20 @@ async fn get_aggregate_povw_impl(
     // Fetch data from database
     let aggregates = state
         .rewards_db
-        .get_povw_rewards_aggregate(params.offset, params.limit)
+        .get_staking_positions_aggregate(params.offset, params.limit)
         .await?;
 
     // Convert to response format with ranks
-    let entries: Vec<AggregateLeaderboardEntry> = aggregates
+    let entries: Vec<AggregateStakingEntry> = aggregates
         .into_iter()
         .enumerate()
-        .map(|(index, agg)| AggregateLeaderboardEntry {
+        .map(|(index, agg)| AggregateStakingEntry {
             rank: params.offset + (index as u64) + 1,
-            work_log_id: format!("{:#x}", agg.work_log_id),
-            total_work_submitted: agg.total_work_submitted.to_string(),
-            total_actual_rewards: agg.total_actual_rewards.to_string(),
-            total_uncapped_rewards: agg.total_uncapped_rewards.to_string(),
+            staker_address: format!("{:#x}", agg.staker_address),
+            total_staked: agg.total_staked.to_string(),
+            is_withdrawing: agg.is_withdrawing,
+            rewards_delegated_to: agg.rewards_delegated_to.map(|a| format!("{:#x}", a)),
+            votes_delegated_to: agg.votes_delegated_to.map(|a| format!("{:#x}", a)),
             epochs_participated: agg.epochs_participated,
         })
         .collect();
@@ -97,16 +98,16 @@ async fn get_aggregate_povw_impl(
     Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
 }
 
-/// GET /v1/povw/epochs/:epoch
-/// Returns the PoVW rewards for a specific epoch
-async fn get_povw_by_epoch(
+/// GET /v1/staking/epochs/:epoch
+/// Returns the staking positions for a specific epoch
+async fn get_staking_by_epoch(
     State(state): State<Arc<AppState>>,
     Path(epoch): Path<u64>,
     Query(params): Query<PaginationParams>,
 ) -> Response {
     let params = params.validate();
 
-    match get_povw_by_epoch_impl(state, epoch, params).await {
+    match get_staking_by_epoch_impl(state, epoch, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             // Cache for 5 minutes (historical epochs don't change)
@@ -120,47 +121,44 @@ async fn get_povw_by_epoch(
     }
 }
 
-async fn get_povw_by_epoch_impl(
+async fn get_staking_by_epoch_impl(
     state: Arc<AppState>,
     epoch: u64,
     params: PaginationParams,
-) -> anyhow::Result<LeaderboardResponse<EpochLeaderboardEntry>> {
+) -> anyhow::Result<LeaderboardResponse<EpochStakingEntry>> {
     tracing::debug!(
-        "Fetching epoch {} leaderboard with offset={}, limit={}",
+        "Fetching epoch {} staking leaderboard with offset={}, limit={}",
         epoch,
         params.offset,
         params.limit
     );
 
     // Fetch data from database
-    let rewards = state
+    let positions = state
         .rewards_db
-        .get_povw_rewards_by_epoch(epoch, params.offset, params.limit)
+        .get_staking_positions_by_epoch(epoch, params.offset, params.limit)
         .await?;
 
     // Convert to response format with ranks
-    let entries: Vec<EpochLeaderboardEntry> = rewards
+    let entries: Vec<EpochStakingEntry> = positions
         .into_iter()
         .enumerate()
-        .map(|(index, reward)| EpochLeaderboardEntry {
+        .map(|(index, position)| EpochStakingEntry {
             rank: params.offset + (index as u64) + 1,
-            work_log_id: format!("{:#x}", reward.work_log_id),
-            epoch: reward.epoch,
-            work_submitted: reward.work_submitted.to_string(),
-            percentage: reward.percentage,
-            uncapped_rewards: reward.uncapped_rewards.to_string(),
-            reward_cap: reward.reward_cap.to_string(),
-            actual_rewards: reward.actual_rewards.to_string(),
-            is_capped: reward.is_capped,
-            staked_amount: reward.staked_amount.to_string(),
+            staker_address: format!("{:#x}", position.staker_address),
+            epoch: position.epoch,
+            staked_amount: position.staked_amount.to_string(),
+            is_withdrawing: position.is_withdrawing,
+            rewards_delegated_to: position.rewards_delegated_to.map(|a| format!("{:#x}", a)),
+            votes_delegated_to: position.votes_delegated_to.map(|a| format!("{:#x}", a)),
         })
         .collect();
 
     Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
 }
-/// GET /v1/povw/addresses/:address
-/// Returns the PoVW rewards history for a specific address
-async fn get_povw_history_by_address(
+/// GET /v1/staking/addresses/:address
+/// Returns the staking history for a specific address
+async fn get_staking_history_by_address(
     State(state): State<Arc<AppState>>,
     Path(address_str): Path<String>,
     Query(params): Query<PaginationParams>,
@@ -175,7 +173,7 @@ async fn get_povw_history_by_address(
 
     let params = params.validate();
 
-    match get_povw_history_by_address_impl(state, address, params).await {
+    match get_staking_history_by_address_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(
@@ -188,57 +186,54 @@ async fn get_povw_history_by_address(
     }
 }
 
-async fn get_povw_history_by_address_impl(
+async fn get_staking_history_by_address_impl(
     state: Arc<AppState>,
     address: Address,
     params: PaginationParams,
-) -> anyhow::Result<LeaderboardResponse<EpochLeaderboardEntry>> {
+) -> anyhow::Result<LeaderboardResponse<EpochStakingEntry>> {
     tracing::debug!(
-        "Fetching PoVW history for address {} with offset={}, limit={}",
+        "Fetching staking history for address {} with offset={}, limit={}",
         address,
         params.offset,
         params.limit
     );
 
-    // Fetch PoVW history for the address
-    let rewards = state
+    // Fetch staking history for the address
+    let positions = state
         .rewards_db
-        .get_povw_rewards_history_by_address(address, None, None)
+        .get_staking_history_by_address(address, None, None)
         .await?;
 
     // Apply pagination
     let start = params.offset as usize;
-    let end = (start + params.limit as usize).min(rewards.len());
-    let paginated = if start < rewards.len() {
-        rewards[start..end].to_vec()
+    let end = (start + params.limit as usize).min(positions.len());
+    let paginated = if start < positions.len() {
+        positions[start..end].to_vec()
     } else {
         vec![]
     };
 
     // Convert to response format
-    let entries: Vec<EpochLeaderboardEntry> = paginated
+    let entries: Vec<EpochStakingEntry> = paginated
         .into_iter()
         .enumerate()
-        .map(|(index, reward)| EpochLeaderboardEntry {
+        .map(|(index, position)| EpochStakingEntry {
             rank: params.offset + (index as u64) + 1,
-            work_log_id: format!("{:#x}", reward.work_log_id),
-            epoch: reward.epoch,
-            work_submitted: reward.work_submitted.to_string(),
-            percentage: reward.percentage,
-            uncapped_rewards: reward.uncapped_rewards.to_string(),
-            reward_cap: reward.reward_cap.to_string(),
-            actual_rewards: reward.actual_rewards.to_string(),
-            is_capped: reward.is_capped,
-            staked_amount: reward.staked_amount.to_string(),
+            staker_address: format!("{:#x}", position.staker_address),
+            epoch: position.epoch,
+            staked_amount: position.staked_amount.to_string(),
+            is_withdrawing: position.is_withdrawing,
+            rewards_delegated_to: position.rewards_delegated_to.map(|a| format!("{:#x}", a)),
+            votes_delegated_to: position.votes_delegated_to.map(|a| format!("{:#x}", a)),
         })
         .collect();
 
     Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
 }
 
-/// GET /v1/povw/addresses/:address/epochs/:epoch
-/// Returns the PoVW rewards for a specific address at a specific epoch
-async fn get_povw_by_address_and_epoch(
+/// GET /v1/staking/addresses/:address/epochs/:epoch
+/// Returns the staking position for a specific address at a specific epoch
+async fn get_staking_by_address_and_epoch(
     State(state): State<Arc<AppState>>,
     Path((address_str, epoch)): Path<(String, u64)>,
 ) -> Response {
@@ -250,7 +245,7 @@ async fn get_povw_by_address_and_epoch(
         }
     };
 
-    match get_povw_by_address_and_epoch_impl(state, address, epoch).await {
+    match get_staking_by_address_and_epoch_impl(state, address, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(
@@ -263,38 +258,35 @@ async fn get_povw_by_address_and_epoch(
     }
 }
 
-async fn get_povw_by_address_and_epoch_impl(
+async fn get_staking_by_address_and_epoch_impl(
     state: Arc<AppState>,
     address: Address,
     epoch: u64,
-) -> anyhow::Result<Option<EpochLeaderboardEntry>> {
+) -> anyhow::Result<Option<EpochStakingEntry>> {
     tracing::debug!(
-        "Fetching PoVW rewards for address {} at epoch {}",
+        "Fetching staking position for address {} at epoch {}",
         address,
         epoch
     );
 
-    // Fetch PoVW history for the address at specific epoch
-    let rewards = state
+    // Fetch staking history for the address at specific epoch
+    let positions = state
         .rewards_db
-        .get_povw_rewards_history_by_address(address, Some(epoch), Some(epoch))
+        .get_staking_history_by_address(address, Some(epoch), Some(epoch))
         .await?;
 
-    if rewards.is_empty() {
+    if positions.is_empty() {
         return Ok(None);
     }
 
-    let reward = &rewards[0];
-    Ok(Some(EpochLeaderboardEntry {
+    let position = &positions[0];
+    Ok(Some(EpochStakingEntry {
         rank: 0, // No rank for individual queries
-        work_log_id: format!("{:#x}", reward.work_log_id),
-        epoch: reward.epoch,
-        work_submitted: reward.work_submitted.to_string(),
-        percentage: reward.percentage,
-        uncapped_rewards: reward.uncapped_rewards.to_string(),
-        reward_cap: reward.reward_cap.to_string(),
-        actual_rewards: reward.actual_rewards.to_string(),
-        is_capped: reward.is_capped,
-        staked_amount: reward.staked_amount.to_string(),
+        staker_address: format!("{:#x}", position.staker_address),
+        epoch: position.epoch,
+        staked_amount: position.staked_amount.to_string(),
+        is_withdrawing: position.is_withdrawing,
+        rewards_delegated_to: position.rewards_delegated_to.map(|a| format!("{:#x}", a)),
+        votes_delegated_to: position.votes_delegated_to.map(|a| format!("{:#x}", a)),
     }))
 }

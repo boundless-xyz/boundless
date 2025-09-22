@@ -25,7 +25,7 @@ use std::{env, sync::Arc};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::db::AppState;
-use crate::routes::povw;
+use crate::routes::{address, delegations, povw, staking};
 
 /// Creates the Lambda handler with axum router
 pub async fn create_handler() -> Result<Router, Error> {
@@ -63,7 +63,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 /// API v1 routes
 fn api_v1_routes(state: Arc<AppState>) -> Router {
     Router::new()
-        .nest("/rewards/povw", povw::routes())
+        // New RESTful structure
+        .nest("/staking", staking::routes())
+        .nest("/povw", povw::routes())
+        .nest("/delegations", delegations::routes())
+        // Legacy address endpoint (to be removed later)
+        .nest("/rewards/address", address::routes())
         .with_state(state)
 }
 

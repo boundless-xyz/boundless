@@ -20,8 +20,11 @@ use alloy::{
 };
 use anyhow::Context;
 use boundless_rewards::{
-    compute_povw_rewards_by_work_log_id, compute_rewards_and_votes_powers,
-    compute_staking_positions_by_address, fetch_all_event_logs, AllEventLogs, EpochPoVWRewards,
+    build_epoch_start_end_time_cache, build_block_timestamp_cache, build_povw_rewards_cache,
+    compute_povw_rewards_by_work_log_id, compute_delegation_powers_by_address,
+    compute_staking_positions_by_address, create_epoch_lookup, create_block_lookup,
+    create_emissions_lookup, create_reward_cap_lookup, create_staking_amount_lookup,
+    fetch_all_event_logs, get_current_staking_aggregate, AllEventLogs, EpochPoVWRewards,
     MAINNET_FROM_BLOCK, SEPOLIA_FROM_BLOCK,
 };
 use boundless_povw::{deployments::Deployment, log_updater::IPovwAccounting};
@@ -219,12 +222,17 @@ impl ZkcSummary {
 
         // Process vote and reward delegation information
         let reward_powers = self.process_delegation_info(
-            &all_logs.vote_delegation_logs,
-            &all_logs.reward_delegation_logs,
-        )?;
+            &provider,
+            &deployment,
+            &zkc_deployment,
+            &all_logs.vote_delegation_change_logs,
+            &all_logs.reward_delegation_change_logs,
+            &all_logs.vote_power_logs,
+            &all_logs.reward_power_logs,
+        ).await?;
 
         // Process stake positions
-        self.process_stake_positions(&provider, &deployment, &reward_powers, &all_logs)
+        self.process_stake_positions(&provider, &deployment, &zkc_deployment, &reward_powers, &all_logs)
             .await?;
 
         // Process PoVW work information
@@ -286,23 +294,43 @@ impl ZkcSummary {
             U256::ZERO
         };
 
-        // Calculate PoVW rewards for current epoch using the new function
-        let current_epoch_rewards = compute_povw_rewards_by_work_log_id(
+        // Build cache for PoVW rewards computation
+        let epochs_to_process = vec![current_epoch.to::<u64>()];
+        let work_log_ids = vec![work_log_id];
+        let povw_cache = build_povw_rewards_cache(
             provider,
             deployment,
             *zkc.address(),
+            &epochs_to_process,
+            &work_log_ids,
+            current_epoch.to::<u64>(),
+        )
+        .await?;
+
+        // Create lookup closures from cache
+        let get_emissions = create_emissions_lookup(&povw_cache);
+        let get_reward_cap = create_reward_cap_lookup(&povw_cache);
+        let get_staking_amount = create_staking_amount_lookup(&povw_cache);
+
+        // Calculate PoVW rewards for current epoch using the cached function
+        let current_epoch_rewards = compute_povw_rewards_by_work_log_id(
+            provider,
+            deployment,
             current_epoch,
             current_epoch,
             &logs.work_logs,
             &logs.epoch_finalized_logs,
+            get_emissions,
+            get_reward_cap,
+            get_staking_amount,
         )
         .await?;
 
         // Get rewards for this specific work_log_id
         let my_current_epoch_info = current_epoch_rewards.rewards_by_work_log_id.get(&work_log_id);
-        let _my_work_current = my_current_epoch_info.map_or(U256::ZERO, |info| info.work_submitted);
-        let projected_povw_rewards = my_current_epoch_info.map_or(U256::ZERO, |info| info.actual_rewards);
-        let raw_povw_rewards_value = my_current_epoch_info.map_or(U256::ZERO, |info| info.uncapped_rewards);
+        let _my_work_current = my_current_epoch_info.map_or(U256::ZERO, |info| info.work);
+        let projected_povw_rewards = my_current_epoch_info.map_or(U256::ZERO, |info| info.capped_rewards);
+        let raw_povw_rewards_value = my_current_epoch_info.map_or(U256::ZERO, |info| info.proportional_rewards);
         let is_povw_capped = my_current_epoch_info.is_some_and(|info| info.is_capped);
         let _reward_cap = my_current_epoch_info.map_or(U256::ZERO, |info| info.reward_cap);
 
@@ -311,21 +339,40 @@ impl ZkcSummary {
         let mut previous_epoch_povw_rewards = U256::ZERO;
 
         if previous_epoch > U256::ZERO {
-            let previous_epoch_rewards = compute_povw_rewards_by_work_log_id(
+            // Build cache for previous epoch
+            let prev_epochs_to_process = vec![previous_epoch.to::<u64>()];
+            let prev_povw_cache = build_povw_rewards_cache(
                 provider,
                 deployment,
                 *zkc.address(),
+                &prev_epochs_to_process,
+                &work_log_ids,
+                current_epoch.to::<u64>(),
+            )
+            .await?;
+
+            // Create lookup closures from cache
+            let prev_get_emissions = create_emissions_lookup(&prev_povw_cache);
+            let prev_get_reward_cap = create_reward_cap_lookup(&prev_povw_cache);
+            let prev_get_staking_amount = create_staking_amount_lookup(&prev_povw_cache);
+
+            let previous_epoch_rewards = compute_povw_rewards_by_work_log_id(
+                provider,
+                deployment,
                 previous_epoch,
                 current_epoch,
                 &logs.work_logs,
                 &logs.epoch_finalized_logs,
+                prev_get_emissions,
+                prev_get_reward_cap,
+                prev_get_staking_amount,
             )
             .await?;
 
             // Get rewards for this specific work_log_id
             if let Some(my_prev_epoch_info) = previous_epoch_rewards.rewards_by_work_log_id.get(&work_log_id) {
-                my_work_previous = my_prev_epoch_info.work_submitted;
-                previous_epoch_povw_rewards = my_prev_epoch_info.actual_rewards;
+                my_work_previous = my_prev_epoch_info.work;
+                previous_epoch_povw_rewards = my_prev_epoch_info.capped_rewards;
             }
         }
 
@@ -477,15 +524,35 @@ impl ZkcSummary {
         let zkc = IZKC::new(deployment.zkc_address, provider);
         let current_epoch = zkc.getCurrentEpoch().call().await?;
 
-        // Calculate rewards for current epoch using the new function
-        let current_epoch_rewards = compute_povw_rewards_by_work_log_id(
+        // Build cache for PoVW rewards computation
+        let epochs_to_process = vec![current_epoch.to::<u64>()];
+        let work_log_ids = vec![work_log_id];
+        let povw_cache = build_povw_rewards_cache(
             provider,
             deployment,
             *zkc.address(),
+            &epochs_to_process,
+            &work_log_ids,
+            current_epoch.to::<u64>(),
+        )
+        .await?;
+
+        // Create lookup closures from cache
+        let get_emissions = create_emissions_lookup(&povw_cache);
+        let get_reward_cap = create_reward_cap_lookup(&povw_cache);
+        let get_staking_amount = create_staking_amount_lookup(&povw_cache);
+
+        // Calculate rewards for current epoch using the cached function
+        let current_epoch_rewards = compute_povw_rewards_by_work_log_id(
+            provider,
+            deployment,
             current_epoch,
             current_epoch,
             &all_logs.work_logs,
             &all_logs.epoch_finalized_logs,
+            get_emissions,
+            get_reward_cap,
+            get_staking_amount,
         )
         .await?;
 
@@ -494,37 +561,37 @@ impl ZkcSummary {
         // Get info for this specific work_log_id
         if let Some(my_info) = current_epoch_rewards.rewards_by_work_log_id.get(&work_log_id) {
             let work_percentage = if current_epoch_rewards.total_work > U256::ZERO {
-                (my_info.work_submitted * U256::from(10000) / current_epoch_rewards.total_work).to::<u64>() as f64 / 100.0
+                (my_info.work * U256::from(10000) / current_epoch_rewards.total_work).to::<u64>() as f64 / 100.0
             } else {
                 0.0
             };
 
             tracing::info!(
                 "Your work in current epoch: {} / {} ({:.2}%)",
-                my_info.work_submitted,
+                my_info.work,
                 current_epoch_rewards.total_work,
                 work_percentage
             );
             tracing::info!(
                 "Total PoVW emissions for epoch {}: {} ZKC",
                 current_epoch,
-                format_zkc(current_epoch_rewards.povw_emissions)
+                format_zkc(current_epoch_rewards.total_emissions)
             );
             tracing::info!("Your PoVW reward cap: {} ZKC", format_zkc(my_info.reward_cap));
 
             if my_info.is_capped {
                 tracing::warn!("\n⚠️  REWARDS WILL BE CAPPED!");
-                tracing::info!("Uncapped rewards: {} ZKC", format_zkc(my_info.uncapped_rewards));
+                tracing::info!("Uncapped rewards: {} ZKC", format_zkc(my_info.proportional_rewards));
                 tracing::info!("Reward cap:       {} ZKC", format_zkc(my_info.reward_cap));
-                tracing::info!("Actual rewards:   {} ZKC", format_zkc(my_info.actual_rewards));
+                tracing::info!("Actual rewards:   {} ZKC", format_zkc(my_info.capped_rewards));
                 tracing::info!("→ Stake more ZKC to raise your reward cap");
             } else {
-                tracing::info!("Projected PoVW rewards: {} ZKC", format_zkc(my_info.actual_rewards));
+                tracing::info!("Projected PoVW rewards: {} ZKC", format_zkc(my_info.capped_rewards));
                 tracing::info!(
                     "Calculation: {} × {:.2}% = {} ZKC",
-                    format_zkc(current_epoch_rewards.povw_emissions),
+                    format_zkc(current_epoch_rewards.total_emissions),
                     work_percentage,
-                    format_zkc(my_info.actual_rewards)
+                    format_zkc(my_info.capped_rewards)
                 );
                 tracing::info!("Status: ✅ Below reward cap ({} ZKC)", format_zkc(my_info.reward_cap));
             }
@@ -538,7 +605,7 @@ impl ZkcSummary {
             tracing::info!(
                 "Total PoVW emissions for epoch {}: {} ZKC",
                 current_epoch,
-                format_zkc(current_epoch_rewards.povw_emissions)
+                format_zkc(current_epoch_rewards.total_emissions)
             );
             tracing::info!("Your PoVW reward cap: {} ZKC", format_zkc(reward_cap));
 
@@ -552,15 +619,74 @@ impl ZkcSummary {
         Ok(())
     }
 
-    fn process_delegation_info(
+    async fn process_delegation_info<P: Provider>(
         &self,
-        vote_logs: &[Log],
-        rewards_logs: &[Log],
+        provider: &P,
+        _deployment: &Deployment,
+        zkc_deployment: &boundless_zkc::deployments::Deployment,
+        vote_delegation_change_logs: &[Log],
+        reward_delegation_change_logs: &[Log],
+        vote_power_logs: &[Log],
+        reward_power_logs: &[Log],
     ) -> anyhow::Result<HashMap<Address, U256>> {
         print_section_header("DELEGATION TABLES");
 
-        // Use the refactored function to compute vote and reward powers
-        let (vote_powers, reward_powers) = compute_rewards_and_votes_powers(vote_logs, rewards_logs)?;
+        // Get current epoch
+        let zkc = IZKC::new(zkc_deployment.zkc_address, provider);
+        let current_epoch = zkc.getCurrentEpoch().call().await?.to::<u64>();
+
+        // Build caches for epoch and block timestamps
+        // Collect all unique epochs from the logs first
+        let mut epochs_to_process = HashSet::new();
+        epochs_to_process.insert(current_epoch);
+        if current_epoch > 0 {
+            epochs_to_process.insert(current_epoch - 1);
+        }
+        let epochs_vec: Vec<u64> = epochs_to_process.into_iter().collect();
+        let epoch_cache = build_epoch_start_end_time_cache(provider, zkc_deployment.zkc_address, &epochs_vec, current_epoch).await?;
+
+        let all_delegation_logs: Vec<&Log> = vote_delegation_change_logs.iter()
+            .chain(reward_delegation_change_logs.iter())
+            .chain(vote_power_logs.iter())
+            .chain(reward_power_logs.iter())
+            .collect();
+
+        let mut block_cache = HashMap::new();
+        build_block_timestamp_cache(provider, &all_delegation_logs, &mut block_cache).await?;
+
+        // Create lookup closures
+        let get_epoch = create_epoch_lookup(&epoch_cache);
+        let get_timestamp = create_block_lookup(&block_cache);
+
+        // Use the refactored function to compute delegation powers by epoch
+        let epoch_delegation_powers = compute_delegation_powers_by_address(
+            vote_delegation_change_logs,
+            reward_delegation_change_logs,
+            vote_power_logs,
+            reward_power_logs,
+            get_epoch,
+            get_timestamp,
+            current_epoch,
+        )?;
+
+        // Get current state from latest epoch for display
+        let (vote_powers, reward_powers) = if let Some(latest) = epoch_delegation_powers.last() {
+            let mut vote_powers = HashMap::new();
+            let mut reward_powers = HashMap::new();
+
+            for (address, powers) in &latest.powers {
+                if powers.vote_power > U256::ZERO {
+                    vote_powers.insert(*address, powers.vote_power);
+                }
+                if powers.reward_power > U256::ZERO {
+                    reward_powers.insert(*address, powers.reward_power);
+                }
+            }
+
+            (vote_powers, reward_powers)
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
 
         // Helper function to display delegation power tables
         fn display_delegation_table(
@@ -634,18 +760,55 @@ impl ZkcSummary {
         &self,
         provider: &P,
         deployment: &Deployment,
+        zkc_deployment: &boundless_zkc::deployments::Deployment,
         reward_powers: &HashMap<Address, U256>,
         all_logs: &AllEventLogs,
     ) -> anyhow::Result<()> {
         print_section_header("STAKE POSITIONS");
 
-        // Use the refactored function to compute staking positions
-        let (stakes, withdrawing) = compute_staking_positions_by_address(
+        // Get current epoch
+        let zkc = IZKC::new(zkc_deployment.zkc_address, provider);
+        let current_epoch = zkc.getCurrentEpoch().call().await?.to::<u64>();
+
+        // Build caches for epoch and block timestamps
+        // Collect all unique epochs from the logs first
+        let mut epochs_to_process = HashSet::new();
+        epochs_to_process.insert(current_epoch);
+        if current_epoch > 0 {
+            epochs_to_process.insert(current_epoch - 1);
+        }
+        let epochs_vec: Vec<u64> = epochs_to_process.into_iter().collect();
+        let epoch_cache = build_epoch_start_end_time_cache(provider, zkc_deployment.zkc_address, &epochs_vec, current_epoch).await?;
+
+        let all_staking_logs: Vec<&Log> = all_logs.stake_created_logs.iter()
+            .chain(all_logs.stake_added_logs.iter())
+            .chain(all_logs.unstake_initiated_logs.iter())
+            .chain(all_logs.unstake_completed_logs.iter())
+            .chain(all_logs.reward_delegation_change_logs.iter())
+            .collect();
+
+        let mut block_cache = HashMap::new();
+        build_block_timestamp_cache(provider, &all_staking_logs, &mut block_cache).await?;
+
+        // Create lookup closures
+        let get_epoch = create_epoch_lookup(&epoch_cache);
+        let get_timestamp = create_block_lookup(&block_cache);
+
+        // Compute staking positions synchronously
+        let epoch_positions = compute_staking_positions_by_address(
             &all_logs.stake_created_logs,
             &all_logs.stake_added_logs,
             &all_logs.unstake_initiated_logs,
             &all_logs.unstake_completed_logs,
+            &all_logs.vote_delegation_change_logs,
+            &all_logs.reward_delegation_change_logs,
+            get_epoch,
+            get_timestamp,
+            current_epoch,
         )?;
+
+        // Get current aggregate state for display
+        let (stakes, withdrawing) = get_current_staking_aggregate(&epoch_positions);
 
         // Display stakes table
         if !stakes.is_empty() {
@@ -785,14 +948,36 @@ impl ZkcSummary {
             U256::ZERO
         };
 
-        // First, collect all unique epochs from work logs
+        // First, collect all unique epochs and work log IDs from work logs
         let mut epochs_with_work: HashSet<U256> = HashSet::new();
+        let mut all_work_log_ids: HashSet<Address> = HashSet::new();
         for log in work_logs {
             if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
                 let epoch_number = U256::from(decoded.inner.data.epochNumber);
                 epochs_with_work.insert(epoch_number);
+                all_work_log_ids.insert(decoded.inner.data.workLogId);
             }
         }
+
+        // Convert to vectors for cache building
+        let epochs_to_process: Vec<u64> = epochs_with_work.iter().map(|e| e.to::<u64>()).collect();
+        let work_log_ids: Vec<Address> = all_work_log_ids.into_iter().collect();
+
+        // Build cache for all epochs and work log IDs at once
+        let povw_cache = build_povw_rewards_cache(
+            provider,
+            deployment,
+            *zkc.address(),
+            &epochs_to_process,
+            &work_log_ids,
+            current_epoch.to::<u64>(),
+        )
+        .await?;
+
+        // Create lookup closures from cache
+        let get_emissions = create_emissions_lookup(&povw_cache);
+        let get_reward_cap = create_reward_cap_lookup(&povw_cache);
+        let get_staking_amount = create_staking_amount_lookup(&povw_cache);
 
         // Compute rewards for each epoch that has work
         let mut all_epoch_rewards: HashMap<U256, EpochPoVWRewards> = HashMap::new();
@@ -800,11 +985,13 @@ impl ZkcSummary {
             let epoch_rewards = compute_povw_rewards_by_work_log_id(
                 provider,
                 deployment,
-                *zkc.address(),
                 epoch,
                 current_epoch,
                 work_logs,
                 epoch_finalized_logs,
+                &get_emissions,
+                &get_reward_cap,
+                &get_staking_amount,
             )
             .await?;
             all_epoch_rewards.insert(epoch, epoch_rewards);
@@ -815,7 +1002,7 @@ impl ZkcSummary {
             EpochPoVWRewards {
                 epoch: current_epoch,
                 total_work: U256::ZERO,
-                povw_emissions,
+                total_emissions: povw_emissions,
                 rewards_by_work_log_id: HashMap::new(),
             }
         );
@@ -849,7 +1036,7 @@ impl ZkcSummary {
         let mut work_by_work_log_id_all: HashMap<Address, U256> = HashMap::new();
         for epoch_rewards in all_epoch_rewards.values() {
             for (wid, info) in &epoch_rewards.rewards_by_work_log_id {
-                *work_by_work_log_id_all.entry(*wid).or_insert(U256::ZERO) += info.work_submitted;
+                *work_by_work_log_id_all.entry(*wid).or_insert(U256::ZERO) += info.work;
             }
         }
 
@@ -872,17 +1059,22 @@ impl ZkcSummary {
             ]);
 
             let mut sorted_current: Vec<_> = current_epoch_rewards.rewards_by_work_log_id.iter().collect();
-            sorted_current.sort_by(|a, b| b.1.work_submitted.cmp(&a.1.work_submitted));
+            sorted_current.sort_by(|a, b| b.1.work.cmp(&a.1.work));
 
             for (wid, info) in sorted_current.iter() {
                 let cap_status = if info.is_capped { "CAPPED" } else { "OK" };
+                let percentage = if current_epoch_rewards.total_work > U256::ZERO {
+                    (info.work * U256::from(10000) / current_epoch_rewards.total_work).to::<u64>() as f64 / 100.0
+                } else {
+                    0.0
+                };
 
                 builder.push_record([
                     format!("{:#x}", wid),
-                    format!("{}", info.work_submitted),
-                    format!("{:.2}%", info.percentage),
-                    format!("{} ZKC", format_zkc(info.uncapped_rewards)),
-                    format!("{} ZKC", format_zkc(info.actual_rewards)),
+                    format!("{}", info.work),
+                    format!("{:.2}%", percentage),
+                    format!("{} ZKC", format_zkc(info.proportional_rewards)),
+                    format!("{} ZKC", format_zkc(info.capped_rewards)),
                     cap_status.to_string(),
                 ]);
             }
@@ -911,16 +1103,21 @@ impl ZkcSummary {
                 ]);
 
                 let mut sorted_previous: Vec<_> = prev_rewards.rewards_by_work_log_id.iter().collect();
-                sorted_previous.sort_by(|a, b| b.1.work_submitted.cmp(&a.1.work_submitted));
+                sorted_previous.sort_by(|a, b| b.1.work.cmp(&a.1.work));
 
                 for (wid, info) in sorted_previous.iter() {
                     let cap_status = if info.is_capped { "CAPPED" } else { "OK" };
+                    let percentage = if prev_rewards.total_work > U256::ZERO {
+                        (info.work * U256::from(10000) / prev_rewards.total_work).to::<u64>() as f64 / 100.0
+                    } else {
+                        0.0
+                    };
 
                     builder.push_record([
                         format!("{:#x}", wid),
-                        format!("{}", info.work_submitted),
-                        format!("{:.2}%", info.percentage),
-                        format!("{} ZKC", format_zkc(info.actual_rewards)),
+                        format!("{}", info.work),
+                        format!("{:.2}%", percentage),
+                        format!("{} ZKC", format_zkc(info.capped_rewards)),
                         cap_status.to_string(),
                     ]);
                 }
@@ -940,7 +1137,7 @@ impl ZkcSummary {
             let mut epoch_dao_rewards = U256::ZERO;
             for info in epoch_rewards.rewards_by_work_log_id.values() {
                 if info.is_capped {
-                    let dao_amount = info.uncapped_rewards - info.actual_rewards;
+                    let dao_amount = info.proportional_rewards - info.capped_rewards;
                     epoch_dao_rewards += dao_amount;
                 }
             }

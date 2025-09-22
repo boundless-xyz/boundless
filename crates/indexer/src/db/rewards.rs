@@ -16,7 +16,8 @@ use std::{str::FromStr, sync::Arc};
 
 use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
-use boundless_rewards::WorkLogRewardInfo;
+use boundless_rewards::{StakingPosition, WorkLogRewardInfo};
+use serde_json;
 use sqlx::{any::AnyPoolOptions, AnyPool, Row};
 
 use super::DbError;
@@ -57,16 +58,17 @@ pub struct PovwRewardByEpoch {
 
 impl From<WorkLogRewardInfo> for PovwRewardByEpoch {
     fn from(info: WorkLogRewardInfo) -> Self {
+        // Note: percentage needs to be calculated by the caller since we don't have total_work here
         Self {
             work_log_id: info.work_log_id,
             epoch: 0, // Will be set by caller
-            work_submitted: info.work_submitted,
-            percentage: info.percentage,
-            uncapped_rewards: info.uncapped_rewards,
+            work_submitted: info.work,
+            percentage: 0.0, // Will be set by caller
+            uncapped_rewards: info.proportional_rewards,
             reward_cap: info.reward_cap,
-            actual_rewards: info.actual_rewards,
+            actual_rewards: info.capped_rewards,
             is_capped: info.is_capped,
-            staked_amount: info.staked_amount,
+            staked_amount: info.staking_amount,
         }
     }
 }
@@ -77,6 +79,75 @@ pub struct PovwRewardAggregate {
     pub total_work_submitted: U256,
     pub total_actual_rewards: U256,
     pub total_uncapped_rewards: U256,
+    pub epochs_participated: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct StakingPositionByEpoch {
+    pub staker_address: Address,
+    pub epoch: u64,
+    pub staked_amount: U256,
+    pub is_withdrawing: bool,
+    pub rewards_delegated_to: Option<Address>,
+    pub votes_delegated_to: Option<Address>,
+}
+
+impl From<(Address, u64, &StakingPosition)> for StakingPositionByEpoch {
+    fn from(value: (Address, u64, &StakingPosition)) -> Self {
+        Self {
+            staker_address: value.0,
+            epoch: value.1,
+            staked_amount: value.2.staked_amount,
+            is_withdrawing: value.2.is_withdrawing,
+            rewards_delegated_to: value.2.rewards_delegated_to,
+            votes_delegated_to: value.2.votes_delegated_to,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StakingPositionAggregate {
+    pub staker_address: Address,
+    pub total_staked: U256,
+    pub is_withdrawing: bool,
+    pub rewards_delegated_to: Option<Address>,
+    pub votes_delegated_to: Option<Address>,
+    pub epochs_participated: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct VoteDelegationPowerByEpoch {
+    pub delegate_address: Address,
+    pub epoch: u64,
+    pub vote_power: U256,
+    pub delegator_count: u64,
+    pub delegators: Vec<Address>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RewardDelegationPowerByEpoch {
+    pub delegate_address: Address,
+    pub epoch: u64,
+    pub reward_power: U256,
+    pub delegator_count: u64,
+    pub delegators: Vec<Address>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VoteDelegationPowerAggregate {
+    pub delegate_address: Address,
+    pub total_vote_power: U256,
+    pub delegator_count: u64,
+    pub delegators: Vec<Address>,
+    pub epochs_participated: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RewardDelegationPowerAggregate {
+    pub delegate_address: Address,
+    pub total_reward_power: U256,
+    pub delegator_count: u64,
+    pub delegators: Vec<Address>,
     pub epochs_participated: u64,
 }
 
@@ -127,6 +198,122 @@ pub trait RewardsIndexerDb {
 
     /// Set the last processed block for rewards indexer
     async fn set_last_rewards_block(&self, block: u64) -> Result<(), DbError>;
+
+    /// Upsert staking positions for a specific epoch
+    async fn upsert_staking_positions_by_epoch(
+        &self,
+        epoch: u64,
+        positions: Vec<StakingPositionByEpoch>,
+    ) -> Result<(), DbError>;
+
+    /// Get staking positions for a specific epoch with pagination
+    async fn get_staking_positions_by_epoch(
+        &self,
+        epoch: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<StakingPositionByEpoch>, DbError>;
+
+    /// Upsert aggregate staking positions
+    async fn upsert_staking_positions_aggregate(
+        &self,
+        aggregates: Vec<StakingPositionAggregate>,
+    ) -> Result<(), DbError>;
+
+    /// Get aggregate staking positions with pagination, sorted by total staked
+    async fn get_staking_positions_aggregate(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<StakingPositionAggregate>, DbError>;
+
+    /// Upsert vote delegation powers for a specific epoch
+    async fn upsert_vote_delegation_powers_by_epoch(
+        &self,
+        epoch: u64,
+        powers: Vec<VoteDelegationPowerByEpoch>,
+    ) -> Result<(), DbError>;
+
+    /// Get vote delegation powers for a specific epoch with pagination
+    async fn get_vote_delegation_powers_by_epoch(
+        &self,
+        epoch: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<VoteDelegationPowerByEpoch>, DbError>;
+
+    /// Upsert aggregate vote delegation powers
+    async fn upsert_vote_delegation_powers_aggregate(
+        &self,
+        aggregates: Vec<VoteDelegationPowerAggregate>,
+    ) -> Result<(), DbError>;
+
+    /// Get aggregate vote delegation powers with pagination, sorted by total power
+    async fn get_vote_delegation_powers_aggregate(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<VoteDelegationPowerAggregate>, DbError>;
+
+    /// Upsert reward delegation powers for a specific epoch
+    async fn upsert_reward_delegation_powers_by_epoch(
+        &self,
+        epoch: u64,
+        powers: Vec<RewardDelegationPowerByEpoch>,
+    ) -> Result<(), DbError>;
+
+    /// Get reward delegation powers for a specific epoch with pagination
+    async fn get_reward_delegation_powers_by_epoch(
+        &self,
+        epoch: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<RewardDelegationPowerByEpoch>, DbError>;
+
+    /// Upsert aggregate reward delegation powers
+    async fn upsert_reward_delegation_powers_aggregate(
+        &self,
+        aggregates: Vec<RewardDelegationPowerAggregate>,
+    ) -> Result<(), DbError>;
+
+    /// Get aggregate reward delegation powers with pagination, sorted by total power
+    async fn get_reward_delegation_powers_aggregate(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<RewardDelegationPowerAggregate>, DbError>;
+
+    /// Get staking history for a specific address across epochs
+    async fn get_staking_history_by_address(
+        &self,
+        address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<StakingPositionByEpoch>, DbError>;
+
+    /// Get PoVW rewards history for a specific address across epochs
+    async fn get_povw_rewards_history_by_address(
+        &self,
+        address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<PovwRewardByEpoch>, DbError>;
+
+    /// Get vote delegations received history for a specific address across epochs
+    async fn get_vote_delegations_received_history(
+        &self,
+        delegate_address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<VoteDelegationPowerByEpoch>, DbError>;
+
+    /// Get reward delegations received history for a specific address across epochs
+    async fn get_reward_delegations_received_history(
+        &self,
+        delegate_address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<RewardDelegationPowerByEpoch>, DbError>;
 }
 
 pub struct RewardsDb {
@@ -389,5 +576,676 @@ impl RewardsIndexerDb for RewardsDb {
             .await?;
 
         Ok(())
+    }
+
+    async fn upsert_staking_positions_by_epoch(
+        &self,
+        epoch: u64,
+        positions: Vec<StakingPositionByEpoch>,
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+
+        for position in positions {
+            let query = r#"
+                INSERT INTO staking_positions_by_epoch
+                (staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                ON CONFLICT (staker_address, epoch)
+                DO UPDATE SET
+                    staked_amount = $3,
+                    is_withdrawing = $4,
+                    rewards_delegated_to = $5,
+                    votes_delegated_to = $6,
+                    updated_at = CURRENT_TIMESTAMP
+            "#;
+
+            sqlx::query(query)
+                .bind(format!("{:#x}", position.staker_address))
+                .bind(epoch as i64)
+                .bind(pad_u256(position.staked_amount))
+                .bind(if position.is_withdrawing { 1i32 } else { 0i32 })
+                .bind(position.rewards_delegated_to.map(|a| format!("{:#x}", a)))
+                .bind(position.votes_delegated_to.map(|a| format!("{:#x}", a)))
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn get_staking_positions_by_epoch(
+        &self,
+        epoch: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<StakingPositionByEpoch>, DbError> {
+        let query = r#"
+            SELECT staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to
+            FROM staking_positions_by_epoch
+            WHERE epoch = $1
+            ORDER BY staked_amount DESC
+            LIMIT $2 OFFSET $3
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(epoch as i64)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let rewards_delegated_to: Option<String> = row.get("rewards_delegated_to");
+            let votes_delegated_to: Option<String> = row.get("votes_delegated_to");
+
+            results.push(StakingPositionByEpoch {
+                staker_address: Address::from_str(&row.get::<String, _>("staker_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                staked_amount: unpad_u256(&row.get::<String, _>("staked_amount"))?,
+                is_withdrawing: row.get::<i32, _>("is_withdrawing") != 0,
+                rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+                votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn upsert_staking_positions_aggregate(
+        &self,
+        aggregates: Vec<StakingPositionAggregate>,
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+
+        for aggregate in aggregates {
+            let query = r#"
+                INSERT INTO staking_positions_aggregate
+                (staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                ON CONFLICT (staker_address)
+                DO UPDATE SET
+                    total_staked = $2,
+                    is_withdrawing = $3,
+                    rewards_delegated_to = $4,
+                    votes_delegated_to = $5,
+                    epochs_participated = $6,
+                    updated_at = CURRENT_TIMESTAMP
+            "#;
+
+            sqlx::query(query)
+                .bind(format!("{:#x}", aggregate.staker_address))
+                .bind(pad_u256(aggregate.total_staked))
+                .bind(if aggregate.is_withdrawing { 1i32 } else { 0i32 })
+                .bind(aggregate.rewards_delegated_to.map(|a| format!("{:#x}", a)))
+                .bind(aggregate.votes_delegated_to.map(|a| format!("{:#x}", a)))
+                .bind(aggregate.epochs_participated as i64)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn get_staking_positions_aggregate(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<StakingPositionAggregate>, DbError> {
+        let query = r#"
+            SELECT staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated
+            FROM staking_positions_aggregate
+            ORDER BY total_staked DESC
+            LIMIT $1 OFFSET $2
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let rewards_delegated_to: Option<String> = row.get("rewards_delegated_to");
+            let votes_delegated_to: Option<String> = row.get("votes_delegated_to");
+
+            results.push(StakingPositionAggregate {
+                staker_address: Address::from_str(&row.get::<String, _>("staker_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                total_staked: unpad_u256(&row.get::<String, _>("total_staked"))?,
+                is_withdrawing: row.get::<i32, _>("is_withdrawing") != 0,
+                rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+                votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+                epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn upsert_vote_delegation_powers_by_epoch(
+        &self,
+        epoch: u64,
+        powers: Vec<VoteDelegationPowerByEpoch>,
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+
+        for power in powers {
+            let delegators_json = serde_json::to_string(
+                &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
+            ).unwrap_or_else(|_| "[]".to_string());
+
+            let query = r#"
+                INSERT INTO vote_delegation_powers_by_epoch
+                (delegate_address, epoch, vote_power, delegator_count, delegators, updated_at)
+                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (delegate_address, epoch)
+                DO UPDATE SET
+                    vote_power = $3,
+                    delegator_count = $4,
+                    delegators = $5,
+                    updated_at = CURRENT_TIMESTAMP
+            "#;
+
+            sqlx::query(query)
+                .bind(format!("{:#x}", power.delegate_address))
+                .bind(epoch as i64)
+                .bind(pad_u256(power.vote_power))
+                .bind(power.delegator_count as i32)
+                .bind(delegators_json)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn get_vote_delegation_powers_by_epoch(
+        &self,
+        epoch: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<VoteDelegationPowerByEpoch>, DbError> {
+        let query = r#"
+            SELECT delegate_address, epoch, vote_power, delegator_count, delegators
+            FROM vote_delegation_powers_by_epoch
+            WHERE epoch = $1
+            ORDER BY vote_power DESC
+            LIMIT $2 OFFSET $3
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(epoch as i64)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let delegators_json: String = row.get("delegators");
+            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> = delegator_addrs.iter()
+                .filter_map(|s| Address::from_str(s).ok())
+                .collect();
+
+            results.push(VoteDelegationPowerByEpoch {
+                delegate_address: Address::from_str(&row.get::<String, _>("delegate_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                vote_power: unpad_u256(&row.get::<String, _>("vote_power"))?,
+                delegator_count: row.get::<i32, _>("delegator_count") as u64,
+                delegators,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn upsert_vote_delegation_powers_aggregate(
+        &self,
+        aggregates: Vec<VoteDelegationPowerAggregate>,
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+
+        for aggregate in aggregates {
+            let delegators_json = serde_json::to_string(
+                &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
+            ).unwrap_or_else(|_| "[]".to_string());
+
+            let query = r#"
+                INSERT INTO vote_delegation_powers_aggregate
+                (delegate_address, total_vote_power, delegator_count, delegators, epochs_participated, updated_at)
+                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (delegate_address)
+                DO UPDATE SET
+                    total_vote_power = $2,
+                    delegator_count = $3,
+                    delegators = $4,
+                    epochs_participated = $5,
+                    updated_at = CURRENT_TIMESTAMP
+            "#;
+
+            sqlx::query(query)
+                .bind(format!("{:#x}", aggregate.delegate_address))
+                .bind(pad_u256(aggregate.total_vote_power))
+                .bind(aggregate.delegator_count as i32)
+                .bind(delegators_json)
+                .bind(aggregate.epochs_participated as i64)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn get_vote_delegation_powers_aggregate(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<VoteDelegationPowerAggregate>, DbError> {
+        let query = r#"
+            SELECT delegate_address, total_vote_power, delegator_count, delegators, epochs_participated
+            FROM vote_delegation_powers_aggregate
+            ORDER BY total_vote_power DESC
+            LIMIT $1 OFFSET $2
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let delegators_json: String = row.get("delegators");
+            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> = delegator_addrs.iter()
+                .filter_map(|s| Address::from_str(s).ok())
+                .collect();
+
+            results.push(VoteDelegationPowerAggregate {
+                delegate_address: Address::from_str(&row.get::<String, _>("delegate_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                total_vote_power: unpad_u256(&row.get::<String, _>("total_vote_power"))?,
+                delegator_count: row.get::<i32, _>("delegator_count") as u64,
+                delegators,
+                epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn upsert_reward_delegation_powers_by_epoch(
+        &self,
+        epoch: u64,
+        powers: Vec<RewardDelegationPowerByEpoch>,
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+
+        for power in powers {
+            let delegators_json = serde_json::to_string(
+                &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
+            ).unwrap_or_else(|_| "[]".to_string());
+
+            let query = r#"
+                INSERT INTO reward_delegation_powers_by_epoch
+                (delegate_address, epoch, reward_power, delegator_count, delegators, updated_at)
+                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (delegate_address, epoch)
+                DO UPDATE SET
+                    reward_power = $3,
+                    delegator_count = $4,
+                    delegators = $5,
+                    updated_at = CURRENT_TIMESTAMP
+            "#;
+
+            sqlx::query(query)
+                .bind(format!("{:#x}", power.delegate_address))
+                .bind(epoch as i64)
+                .bind(pad_u256(power.reward_power))
+                .bind(power.delegator_count as i32)
+                .bind(delegators_json)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn get_reward_delegation_powers_by_epoch(
+        &self,
+        epoch: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<RewardDelegationPowerByEpoch>, DbError> {
+        let query = r#"
+            SELECT delegate_address, epoch, reward_power, delegator_count, delegators
+            FROM reward_delegation_powers_by_epoch
+            WHERE epoch = $1
+            ORDER BY reward_power DESC
+            LIMIT $2 OFFSET $3
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(epoch as i64)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let delegators_json: String = row.get("delegators");
+            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> = delegator_addrs.iter()
+                .filter_map(|s| Address::from_str(s).ok())
+                .collect();
+
+            results.push(RewardDelegationPowerByEpoch {
+                delegate_address: Address::from_str(&row.get::<String, _>("delegate_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                reward_power: unpad_u256(&row.get::<String, _>("reward_power"))?,
+                delegator_count: row.get::<i32, _>("delegator_count") as u64,
+                delegators,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn upsert_reward_delegation_powers_aggregate(
+        &self,
+        aggregates: Vec<RewardDelegationPowerAggregate>,
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+
+        for aggregate in aggregates {
+            let delegators_json = serde_json::to_string(
+                &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
+            ).unwrap_or_else(|_| "[]".to_string());
+
+            let query = r#"
+                INSERT INTO reward_delegation_powers_aggregate
+                (delegate_address, total_reward_power, delegator_count, delegators, epochs_participated, updated_at)
+                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (delegate_address)
+                DO UPDATE SET
+                    total_reward_power = $2,
+                    delegator_count = $3,
+                    delegators = $4,
+                    epochs_participated = $5,
+                    updated_at = CURRENT_TIMESTAMP
+            "#;
+
+            sqlx::query(query)
+                .bind(format!("{:#x}", aggregate.delegate_address))
+                .bind(pad_u256(aggregate.total_reward_power))
+                .bind(aggregate.delegator_count as i32)
+                .bind(delegators_json)
+                .bind(aggregate.epochs_participated as i64)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn get_reward_delegation_powers_aggregate(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<RewardDelegationPowerAggregate>, DbError> {
+        let query = r#"
+            SELECT delegate_address, total_reward_power, delegator_count, delegators, epochs_participated
+            FROM reward_delegation_powers_aggregate
+            ORDER BY total_reward_power DESC
+            LIMIT $1 OFFSET $2
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let delegators_json: String = row.get("delegators");
+            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> = delegator_addrs.iter()
+                .filter_map(|s| Address::from_str(s).ok())
+                .collect();
+
+            results.push(RewardDelegationPowerAggregate {
+                delegate_address: Address::from_str(&row.get::<String, _>("delegate_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                total_reward_power: unpad_u256(&row.get::<String, _>("total_reward_power"))?,
+                delegator_count: row.get::<i32, _>("delegator_count") as u64,
+                delegators,
+                epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn get_staking_history_by_address(
+        &self,
+        address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<StakingPositionByEpoch>, DbError> {
+        let mut query = String::from(
+            "SELECT staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to
+             FROM staking_positions_by_epoch
+             WHERE staker_address = $1"
+        );
+
+        let mut bind_count = 1;
+        if start_epoch.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND epoch >= ${}", bind_count));
+        }
+        if end_epoch.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND epoch <= ${}", bind_count));
+        }
+        query.push_str(" ORDER BY epoch DESC");
+
+        let mut q = sqlx::query(&query).bind(format!("{:#x}", address));
+        if let Some(start) = start_epoch {
+            q = q.bind(start as i64);
+        }
+        if let Some(end) = end_epoch {
+            q = q.bind(end as i64);
+        }
+
+        let rows = q.fetch_all(&self.pool).await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let rewards_delegated_to: Option<String> = row.get("rewards_delegated_to");
+            let votes_delegated_to: Option<String> = row.get("votes_delegated_to");
+
+            results.push(StakingPositionByEpoch {
+                staker_address: address,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                staked_amount: unpad_u256(&row.get::<String, _>("staked_amount"))?,
+                is_withdrawing: row.get::<i32, _>("is_withdrawing") != 0,
+                rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+                votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn get_povw_rewards_history_by_address(
+        &self,
+        address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<PovwRewardByEpoch>, DbError> {
+        let mut query = String::from(
+            "SELECT work_log_id, epoch, work_submitted, percentage, uncapped_rewards, reward_cap, actual_rewards, is_capped, staked_amount
+             FROM povw_rewards_by_epoch
+             WHERE work_log_id = $1"
+        );
+
+        let mut bind_count = 1;
+        if start_epoch.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND epoch >= ${}", bind_count));
+        }
+        if end_epoch.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND epoch <= ${}", bind_count));
+        }
+        query.push_str(" ORDER BY epoch DESC");
+
+        let mut q = sqlx::query(&query).bind(format!("{:#x}", address));
+        if let Some(start) = start_epoch {
+            q = q.bind(start as i64);
+        }
+        if let Some(end) = end_epoch {
+            q = q.bind(end as i64);
+        }
+
+        let rows = q.fetch_all(&self.pool).await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(PovwRewardByEpoch {
+                work_log_id: address,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                work_submitted: unpad_u256(&row.get::<String, _>("work_submitted"))?,
+                percentage: row.get("percentage"),
+                uncapped_rewards: unpad_u256(&row.get::<String, _>("uncapped_rewards"))?,
+                reward_cap: unpad_u256(&row.get::<String, _>("reward_cap"))?,
+                actual_rewards: unpad_u256(&row.get::<String, _>("actual_rewards"))?,
+                is_capped: row.get::<i32, _>("is_capped") != 0,
+                staked_amount: unpad_u256(&row.get::<String, _>("staked_amount"))?,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn get_vote_delegations_received_history(
+        &self,
+        delegate_address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<VoteDelegationPowerByEpoch>, DbError> {
+        let mut query = String::from(
+            "SELECT delegate_address, epoch, vote_power, delegator_count, delegators
+             FROM vote_delegation_powers_by_epoch
+             WHERE delegate_address = $1"
+        );
+
+        let mut bind_count = 1;
+        if start_epoch.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND epoch >= ${}", bind_count));
+        }
+        if end_epoch.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND epoch <= ${}", bind_count));
+        }
+        query.push_str(" ORDER BY epoch DESC");
+
+        let mut q = sqlx::query(&query).bind(format!("{:#x}", delegate_address));
+        if let Some(start) = start_epoch {
+            q = q.bind(start as i64);
+        }
+        if let Some(end) = end_epoch {
+            q = q.bind(end as i64);
+        }
+
+        let rows = q.fetch_all(&self.pool).await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let delegators_json: String = row.get("delegators");
+            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> = delegator_addrs.iter()
+                .filter_map(|s| Address::from_str(s).ok())
+                .collect();
+
+            results.push(VoteDelegationPowerByEpoch {
+                delegate_address,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                vote_power: unpad_u256(&row.get::<String, _>("vote_power"))?,
+                delegator_count: row.get::<i32, _>("delegator_count") as u64,
+                delegators,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn get_reward_delegations_received_history(
+        &self,
+        delegate_address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<RewardDelegationPowerByEpoch>, DbError> {
+        let mut query = String::from(
+            "SELECT delegate_address, epoch, reward_power, delegator_count, delegators
+             FROM reward_delegation_powers_by_epoch
+             WHERE delegate_address = $1"
+        );
+
+        let mut bind_count = 1;
+        if start_epoch.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND epoch >= ${}", bind_count));
+        }
+        if end_epoch.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND epoch <= ${}", bind_count));
+        }
+        query.push_str(" ORDER BY epoch DESC");
+
+        let mut q = sqlx::query(&query).bind(format!("{:#x}", delegate_address));
+        if let Some(start) = start_epoch {
+            q = q.bind(start as i64);
+        }
+        if let Some(end) = end_epoch {
+            q = q.bind(end as i64);
+        }
+
+        let rows = q.fetch_all(&self.pool).await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let delegators_json: String = row.get("delegators");
+            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> = delegator_addrs.iter()
+                .filter_map(|s| Address::from_str(s).ok())
+                .collect();
+
+            results.push(RewardDelegationPowerByEpoch {
+                delegate_address,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                reward_power: unpad_u256(&row.get::<String, _>("reward_power"))?,
+                delegator_count: row.get::<i32, _>("delegator_count") as u64,
+                delegators,
+            });
+        }
+
+        Ok(results)
     }
 }

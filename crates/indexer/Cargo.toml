@@ -28,6 +28,8 @@ boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }

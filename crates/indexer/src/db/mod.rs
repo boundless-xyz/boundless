@@ -15,8 +15,6 @@
 pub mod market;
 pub mod rewards;
 
-use std::sync::Arc;
-use alloy::primitives::{Address, B256};
 use thiserror::Error;
 
 // Re-export common types from market module for backwards compatibility
