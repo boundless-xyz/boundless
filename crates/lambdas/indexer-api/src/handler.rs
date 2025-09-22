@@ -14,8 +14,8 @@
 
 use anyhow::{Context, Result};
 use axum::{
-    http::{StatusCode},
-    response::{IntoResponse, Json},
+    http::{header, StatusCode},
+    response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
@@ -52,6 +52,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     Router::new()
         // Health check endpoint
         .route("/health", get(health_check))
+        // OpenAPI spec endpoint
+        .route("/openapi.yaml", get(openapi_spec))
+        .route("/openapi.json", get(openapi_json))
         // API v1 routes
         .nest("/v1", api_v1_routes(state))
         // Add CORS layer
@@ -78,6 +81,33 @@ async fn health_check() -> impl IntoResponse {
         "status": "healthy",
         "service": "indexer-api"
     }))
+}
+
+/// OpenAPI specification endpoint (YAML)
+async fn openapi_spec() -> impl IntoResponse {
+    const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-yaml")
+        .body(OPENAPI_YAML.to_string())
+        .unwrap()
+}
+
+/// OpenAPI specification endpoint (JSON)
+async fn openapi_json() -> impl IntoResponse {
+    const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
+
+    // Parse YAML and convert to JSON
+    match serde_yaml::from_str::<serde_json::Value>(OPENAPI_YAML) {
+        Ok(spec) => Json(spec).into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "error": "Failed to parse OpenAPI spec",
+                "message": err.to_string()
+            }))
+        ).into_response()
+    }
 }
 
 /// 404 handler
