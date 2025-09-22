@@ -130,6 +130,7 @@ export = () => {
       privSubNetIds: privSubNetIds,
       dbUrlSecret: infra.dbUrlSecret,
       rdsSgId: infra.rdsSecurityGroupId,
+      indexerSgId: infra.indexerSecurityGroup.id,
       rustLogLevel: rustLogLevel,
     }, { parent: infra, dependsOn: sharedDependencies });
   }

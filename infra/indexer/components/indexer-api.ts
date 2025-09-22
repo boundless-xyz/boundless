@@ -12,6 +12,8 @@ export interface IndexerApiArgs {
   dbUrlSecret: aws.secretsmanager.Secret;
   /** RDS sg ID */
   rdsSgId: pulumi.Input<string>;
+  /** Indexer Security Group ID (that has access to RDS) */
+  indexerSgId: pulumi.Input<string>;
   /** RUST_LOG level */
   rustLogLevel: string;
   /** Optional custom domain for CloudFront */
@@ -93,37 +95,8 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Create security group for Lambda
-    const lambdaSg = new aws.ec2.SecurityGroup(
-      `${serviceName}-sg`,
-      {
-        vpcId: args.vpcId,
-        description: 'Lambda SG for DB access',
-        egress: [
-          {
-            protocol: '-1',
-            fromPort: 0,
-            toPort: 0,
-            cidrBlocks: ['0.0.0.0/0'],
-          },
-        ],
-      },
-      { parent: this },
-    );
-
-    // Allow Lambda to connect to RDS
-    new aws.ec2.SecurityGroupRule(
-      `${serviceName}-sg-ingress-rds`,
-      {
-        type: 'ingress',
-        fromPort: 5432,
-        toPort: 5432,
-        protocol: 'tcp',
-        securityGroupId: args.rdsSgId,
-        sourceSecurityGroupId: lambdaSg.id,
-      },
-      { parent: this },
-    );
+    // Use the existing indexer security group that already has access to RDS
+    // This is the same security group used by the ECS tasks
 
     // Get database URL from secret
     const dbUrl = aws.secretsmanager.getSecretVersionOutput({
@@ -144,7 +117,7 @@ export class IndexerApi extends pulumi.ComponentResource {
       timeout: 30,
       vpcConfig: {
         subnetIds: args.privSubNetIds,
-        securityGroupIds: [lambdaSg.id],
+        securityGroupIds: [args.indexerSgId],
       },
     });
 
