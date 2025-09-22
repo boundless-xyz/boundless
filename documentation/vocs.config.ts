@@ -89,19 +89,6 @@ const SIDEBAR_ITEMS = [
         ],
       },
       {
-        text: "Dev Tooling",
-        items: [
-          {
-            text: "Boundless SDK",
-            link: "/developers/tooling/sdk",
-          },
-          {
-            text: "Boundless CLI",
-            link: "/developers/tooling/cli",
-          },
-        ],
-      },
-      {
         text: "Smart Contracts",
         items: [
           {
@@ -119,7 +106,22 @@ const SIDEBAR_ITEMS = [
         ],
       },
       {
+        text: "Dev Tooling",
+        collapsed: true,
+        items: [
+          {
+            text: "Boundless SDK",
+            link: "/developers/tooling/sdk",
+          },
+          {
+            text: "Boundless CLI",
+            link: "/developers/tooling/cli",
+          },
+        ],
+      },
+      {
         text: "Steel",
+        collapsed: true,
         link: "/developers/steel/quick-start",
         items: [
           {
@@ -154,6 +156,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Kailua",
+        collapsed: true,
         link: "/developers/kailua/intro",
         items: [
           {
@@ -218,29 +221,30 @@ const SIDEBAR_ITEMS = [
         link: "/zkc/quick-start"
       },
       {
-        text: "FAQ",
-        link: "/zkc/faq"
-      },
-      {
-        text: "Token Documentation",
-        link: "/zkc/token-docs"
-      },
-      {
-        text: "Bridging $ZKC",
-        link: "/zkc/bridging"
-      },
-      {
-        text: "Governance",
-        link: "/zkc/governance"
+        text: "$ZKC as Proving Collateral",
+        link: "/zkc/proving-collateral"
       },
       {
         text: "Proof of Verifiable Work",
+        link: "/zkc/povw/quick-start",
         items: [
+          {
+            text: "Quick Start",
+            link: "/zkc/povw/quick-start",
+          },
+          {
+            text: "How does PoVW work?",
+            link: "/zkc/povw/povw-101",
+          },
           {
             text: "Claiming Rewards",
             link: "/zkc/povw/claiming-rewards",
           }
         ],
+      },
+      {
+        text: "Token Source Code & Docs",
+        link: "https://github.com/boundless-xyz/zkc?tab=readme-ov-file#zkc"
       },
     ],
   },
