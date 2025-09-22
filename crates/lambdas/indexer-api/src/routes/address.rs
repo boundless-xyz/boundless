@@ -57,10 +57,7 @@ async fn get_address_history(
         Ok(response) => {
             let mut res = Json(response).into_response();
             // Cache for 5 minutes (historical data doesn't change frequently)
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -162,11 +159,7 @@ async fn get_address_history_impl(
             .vote_delegations_received = Some(DelegationPowerData {
             power: delegation.vote_power.to_string(),
             delegator_count: delegation.delegator_count,
-            delegators: delegation
-                .delegators
-                .iter()
-                .map(|a| format!("{:#x}", a))
-                .collect(),
+            delegators: delegation.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
         });
     }
 
@@ -184,11 +177,7 @@ async fn get_address_history_impl(
             .reward_delegations_received = Some(DelegationPowerData {
             power: delegation.reward_power.to_string(),
             delegator_count: delegation.delegator_count,
-            delegators: delegation
-                .delegators
-                .iter()
-                .map(|a| format!("{:#x}", a))
-                .collect(),
+            delegators: delegation.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
         });
     }
 
@@ -199,9 +188,5 @@ async fn get_address_history_impl(
 
     let epoch_count = epochs.len();
 
-    Ok(AddressHistoryResponse {
-        address: format!("{:#x}", address),
-        epochs,
-        epoch_count,
-    })
+    Ok(AddressHistoryResponse { address: format!("{:#x}", address), epochs, epoch_count })
 }

@@ -14,6 +14,7 @@
 
 use std::{str::FromStr, sync::Arc};
 
+use super::DbError;
 use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
@@ -24,7 +25,6 @@ use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
     AnyPool, Row,
 };
-use super::DbError;
 
 const SQL_BLOCK_KEY: i64 = 0;
 

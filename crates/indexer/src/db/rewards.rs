@@ -32,15 +32,14 @@ fn pad_u256(value: U256) -> String {
 
 /// Convert a zero-padded string back to U256
 fn unpad_u256(s: &str) -> Result<U256, DbError> {
-    U256::from_str(s.trim_start_matches('0'))
-        .or_else(|_| {
-            // If trimming all zeros, the value is 0
-            if s.chars().all(|c| c == '0') {
-                Ok(U256::ZERO)
-            } else {
-                Err(DbError::BadTransaction(format!("Invalid U256 string: {}", s)))
-            }
-        })
+    U256::from_str(s.trim_start_matches('0')).or_else(|_| {
+        // If trimming all zeros, the value is 0
+        if s.chars().all(|c| c == '0') {
+            Ok(U256::ZERO)
+        } else {
+            Err(DbError::BadTransaction(format!("Invalid U256 string: {}", s)))
+        }
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -323,10 +322,7 @@ pub struct RewardsDb {
 impl RewardsDb {
     pub async fn new(database_url: &str) -> Result<Self, DbError> {
         sqlx::any::install_default_drivers();
-        let pool = AnyPoolOptions::new()
-            .max_connections(5)
-            .connect(database_url)
-            .await?;
+        let pool = AnyPoolOptions::new().max_connections(5).connect(database_url).await?;
 
         // Run migrations
         sqlx::migrate!("./migrations").run(&pool).await?;
@@ -430,10 +426,8 @@ impl RewardsIndexerDb for RewardsDb {
             ORDER BY epoch DESC
         "#;
 
-        let rows = sqlx::query(query)
-            .bind(format!("{:#x}", work_log_id))
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query(query).bind(format!("{:#x}", work_log_id)).fetch_all(&self.pool).await?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -499,11 +493,8 @@ impl RewardsIndexerDb for RewardsDb {
             LIMIT $1 OFFSET $2
         "#;
 
-        let rows = sqlx::query(query)
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query(query).bind(limit as i64).bind(offset as i64).fetch_all(&self.pool).await?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -512,7 +503,9 @@ impl RewardsIndexerDb for RewardsDb {
                     .map_err(|e| DbError::BadTransaction(e.to_string()))?,
                 total_work_submitted: unpad_u256(&row.get::<String, _>("total_work_submitted"))?,
                 total_actual_rewards: unpad_u256(&row.get::<String, _>("total_actual_rewards"))?,
-                total_uncapped_rewards: unpad_u256(&row.get::<String, _>("total_uncapped_rewards"))?,
+                total_uncapped_rewards: unpad_u256(
+                    &row.get::<String, _>("total_uncapped_rewards"),
+                )?,
                 epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
             });
         }
@@ -528,7 +521,7 @@ impl RewardsIndexerDb for RewardsDb {
             Some(row) => {
                 let value: String = row.get("value");
                 Ok(Some(value.parse().map_err(|_| DbError::BadBlockNumb(value))?))
-            },
+            }
             None => Ok(None),
         }
     }
@@ -541,10 +534,7 @@ impl RewardsIndexerDb for RewardsDb {
             DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP
         "#;
 
-        sqlx::query(query)
-            .bind(epoch.to_string())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(query).bind(epoch.to_string()).execute(&self.pool).await?;
 
         Ok(())
     }
@@ -557,7 +547,7 @@ impl RewardsIndexerDb for RewardsDb {
             Some(row) => {
                 let value: String = row.get("value");
                 Ok(Some(value.parse().map_err(|_| DbError::BadBlockNumb(value))?))
-            },
+            }
             None => Ok(None),
         }
     }
@@ -570,10 +560,7 @@ impl RewardsIndexerDb for RewardsDb {
             DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP
         "#;
 
-        sqlx::query(query)
-            .bind(block.to_string())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(query).bind(block.to_string()).execute(&self.pool).await?;
 
         Ok(())
     }
@@ -702,11 +689,8 @@ impl RewardsIndexerDb for RewardsDb {
             LIMIT $1 OFFSET $2
         "#;
 
-        let rows = sqlx::query(query)
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query(query).bind(limit as i64).bind(offset as i64).fetch_all(&self.pool).await?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -736,8 +720,9 @@ impl RewardsIndexerDb for RewardsDb {
 
         for power in powers {
             let delegators_json = serde_json::to_string(
-                &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
-            ).unwrap_or_else(|_| "[]".to_string());
+                &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
+            )
+            .unwrap_or_else(|_| "[]".to_string());
 
             let query = r#"
                 INSERT INTO vote_delegation_powers_by_epoch
@@ -789,10 +774,10 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
-            let delegators: Vec<Address> = delegator_addrs.iter()
-                .filter_map(|s| Address::from_str(s).ok())
-                .collect();
+            let delegator_addrs: Vec<String> =
+                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> =
+                delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
             results.push(VoteDelegationPowerByEpoch {
                 delegate_address: Address::from_str(&row.get::<String, _>("delegate_address"))
@@ -815,8 +800,9 @@ impl RewardsIndexerDb for RewardsDb {
 
         for aggregate in aggregates {
             let delegators_json = serde_json::to_string(
-                &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
-            ).unwrap_or_else(|_| "[]".to_string());
+                &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
+            )
+            .unwrap_or_else(|_| "[]".to_string());
 
             let query = r#"
                 INSERT INTO vote_delegation_powers_aggregate
@@ -857,19 +843,16 @@ impl RewardsIndexerDb for RewardsDb {
             LIMIT $1 OFFSET $2
         "#;
 
-        let rows = sqlx::query(query)
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query(query).bind(limit as i64).bind(offset as i64).fetch_all(&self.pool).await?;
 
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
-            let delegators: Vec<Address> = delegator_addrs.iter()
-                .filter_map(|s| Address::from_str(s).ok())
-                .collect();
+            let delegator_addrs: Vec<String> =
+                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> =
+                delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
             results.push(VoteDelegationPowerAggregate {
                 delegate_address: Address::from_str(&row.get::<String, _>("delegate_address"))
@@ -893,8 +876,9 @@ impl RewardsIndexerDb for RewardsDb {
 
         for power in powers {
             let delegators_json = serde_json::to_string(
-                &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
-            ).unwrap_or_else(|_| "[]".to_string());
+                &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
+            )
+            .unwrap_or_else(|_| "[]".to_string());
 
             let query = r#"
                 INSERT INTO reward_delegation_powers_by_epoch
@@ -946,10 +930,10 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
-            let delegators: Vec<Address> = delegator_addrs.iter()
-                .filter_map(|s| Address::from_str(s).ok())
-                .collect();
+            let delegator_addrs: Vec<String> =
+                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> =
+                delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
             results.push(RewardDelegationPowerByEpoch {
                 delegate_address: Address::from_str(&row.get::<String, _>("delegate_address"))
@@ -972,8 +956,9 @@ impl RewardsIndexerDb for RewardsDb {
 
         for aggregate in aggregates {
             let delegators_json = serde_json::to_string(
-                &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
-            ).unwrap_or_else(|_| "[]".to_string());
+                &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
+            )
+            .unwrap_or_else(|_| "[]".to_string());
 
             let query = r#"
                 INSERT INTO reward_delegation_powers_aggregate
@@ -1014,19 +999,16 @@ impl RewardsIndexerDb for RewardsDb {
             LIMIT $1 OFFSET $2
         "#;
 
-        let rows = sqlx::query(query)
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query(query).bind(limit as i64).bind(offset as i64).fetch_all(&self.pool).await?;
 
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
-            let delegators: Vec<Address> = delegator_addrs.iter()
-                .filter_map(|s| Address::from_str(s).ok())
-                .collect();
+            let delegator_addrs: Vec<String> =
+                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> =
+                delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
             results.push(RewardDelegationPowerAggregate {
                 delegate_address: Address::from_str(&row.get::<String, _>("delegate_address"))
@@ -1152,7 +1134,7 @@ impl RewardsIndexerDb for RewardsDb {
         let mut query = String::from(
             "SELECT delegate_address, epoch, vote_power, delegator_count, delegators
              FROM vote_delegation_powers_by_epoch
-             WHERE delegate_address = $1"
+             WHERE delegate_address = $1",
         );
 
         let mut bind_count = 1;
@@ -1179,10 +1161,10 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
-            let delegators: Vec<Address> = delegator_addrs.iter()
-                .filter_map(|s| Address::from_str(s).ok())
-                .collect();
+            let delegator_addrs: Vec<String> =
+                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> =
+                delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
             results.push(VoteDelegationPowerByEpoch {
                 delegate_address,
@@ -1205,7 +1187,7 @@ impl RewardsIndexerDb for RewardsDb {
         let mut query = String::from(
             "SELECT delegate_address, epoch, reward_power, delegator_count, delegators
              FROM reward_delegation_powers_by_epoch
-             WHERE delegate_address = $1"
+             WHERE delegate_address = $1",
         );
 
         let mut bind_count = 1;
@@ -1232,10 +1214,10 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> = serde_json::from_str(&delegators_json).unwrap_or_default();
-            let delegators: Vec<Address> = delegator_addrs.iter()
-                .filter_map(|s| Address::from_str(s).ok())
-                .collect();
+            let delegator_addrs: Vec<String> =
+                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegators: Vec<Address> =
+                delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
             results.push(RewardDelegationPowerByEpoch {
                 delegate_address,

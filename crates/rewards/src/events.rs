@@ -54,7 +54,8 @@ pub async fn query_logs_chunked<P: Provider>(
     while current_from <= to_block {
         let current_to = (current_from + BLOCK_CHUNK_SIZE - 1).min(to_block);
 
-        let chunk_filter = filter.clone()
+        let chunk_filter = filter
+            .clone()
             .from_block(BlockNumberOrTag::Number(current_from))
             .to_block(BlockNumberOrTag::Number(current_to));
 
@@ -156,13 +157,15 @@ pub async fn fetch_all_event_logs<P: Provider>(
         B256::from(alloy::primitives::keccak256("UnstakeCompleted(uint256,address,uint256)")),
     );
 
-    let vote_delegation_change_filter = Filter::new().address(deployment.vezkc_address).event_signature(
-        B256::from(alloy::primitives::keccak256("DelegateChanged(address,address,address)")),
-    );
+    let vote_delegation_change_filter =
+        Filter::new().address(deployment.vezkc_address).event_signature(B256::from(
+            alloy::primitives::keccak256("DelegateChanged(address,address,address)"),
+        ));
 
-    let reward_delegation_change_filter = Filter::new().address(deployment.vezkc_address).event_signature(
-        B256::from(alloy::primitives::keccak256("RewardDelegateChanged(address,address,address)")),
-    );
+    let reward_delegation_change_filter =
+        Filter::new().address(deployment.vezkc_address).event_signature(B256::from(
+            alloy::primitives::keccak256("RewardDelegateChanged(address,address,address)"),
+        ));
 
     let vote_power_filter = Filter::new().address(deployment.vezkc_address).event_signature(
         B256::from(alloy::primitives::keccak256("DelegateVotesChanged(address,uint256,uint256)")),
@@ -180,7 +183,15 @@ pub async fn fetch_all_event_logs<P: Provider>(
         B256::from(alloy::primitives::keccak256("StakingRewardsClaimed(address,uint256)")),
     );
 
-    let (unstake_completed_logs, vote_delegation_change_logs, reward_delegation_change_logs, vote_power_logs, reward_power_logs, povw_claims_logs, staking_claims_logs) = tokio::join!(
+    let (
+        unstake_completed_logs,
+        vote_delegation_change_logs,
+        reward_delegation_change_logs,
+        vote_power_logs,
+        reward_power_logs,
+        povw_claims_logs,
+        staking_claims_logs,
+    ) = tokio::join!(
         async {
             query_logs_chunked(
                 provider,
@@ -212,24 +223,14 @@ pub async fn fetch_all_event_logs<P: Provider>(
             .context("Failed to get reward delegation change logs")
         },
         async {
-            query_logs_chunked(
-                provider,
-                vote_power_filter.clone(),
-                from_block_num,
-                current_block,
-            )
-            .await
-            .context("Failed to get vote power logs")
+            query_logs_chunked(provider, vote_power_filter.clone(), from_block_num, current_block)
+                .await
+                .context("Failed to get vote power logs")
         },
         async {
-            query_logs_chunked(
-                provider,
-                reward_power_filter.clone(),
-                from_block_num,
-                current_block,
-            )
-            .await
-            .context("Failed to get reward power logs")
+            query_logs_chunked(provider, reward_power_filter.clone(), from_block_num, current_block)
+                .await
+                .context("Failed to get reward power logs")
         },
         async {
             query_logs_chunked(provider, povw_claims_filter.clone(), from_block_num, current_block)

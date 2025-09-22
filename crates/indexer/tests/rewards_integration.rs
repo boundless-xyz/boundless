@@ -28,9 +28,9 @@ use url::Url;
 // Snapshot data structures for testing
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct RewardSnapshot {
-    work_log_id: String,  // Hex string representation
-    work_submitted: String,  // String representation of U256
-    actual_rewards_zkc: String,  // Formatted ZKC with 2 decimal places
+    work_log_id: String,        // Hex string representation
+    work_submitted: String,     // String representation of U256
+    actual_rewards_zkc: String, // Formatted ZKC with 2 decimal places
     percentage: f64,
     is_capped: bool,
 }
@@ -62,7 +62,10 @@ fn format_zkc(value: U256) -> String {
 ///
 /// # Returns
 /// An EpochSnapshot containing the formatted reward data
-async fn generate_epoch_snapshot(db: &dyn RewardsIndexerDb, epoch: u64) -> anyhow::Result<EpochSnapshot> {
+async fn generate_epoch_snapshot(
+    db: &dyn RewardsIndexerDb,
+    epoch: u64,
+) -> anyhow::Result<EpochSnapshot> {
     let rewards = db.get_povw_rewards_by_epoch(epoch, 0, 10).await?;
 
     let reward_snapshots: Vec<RewardSnapshot> = rewards
@@ -71,15 +74,12 @@ async fn generate_epoch_snapshot(db: &dyn RewardsIndexerDb, epoch: u64) -> anyho
             work_log_id: format!("{:#x}", r.work_log_id),
             work_submitted: r.work_submitted.to_string(),
             actual_rewards_zkc: format_zkc(r.actual_rewards),
-            percentage: (r.percentage * 100.0).round() / 100.0,  // Round to 2 decimal places
+            percentage: (r.percentage * 100.0).round() / 100.0, // Round to 2 decimal places
             is_capped: r.is_capped,
         })
         .collect();
 
-    Ok(EpochSnapshot {
-        epoch,
-        rewards: reward_snapshots,
-    })
+    Ok(EpochSnapshot { epoch, rewards: reward_snapshots })
 }
 
 /// Verify that an actual snapshot matches the expected snapshot
@@ -108,7 +108,9 @@ fn verify_snapshot(actual: &EpochSnapshot, expected: &EpochSnapshot) -> Result<(
         ));
     }
 
-    for (i, (actual_reward, expected_reward)) in actual.rewards.iter().zip(expected.rewards.iter()).enumerate() {
+    for (i, (actual_reward, expected_reward)) in
+        actual.rewards.iter().zip(expected.rewards.iter()).enumerate()
+    {
         if actual_reward != expected_reward {
             return Err(format!(
                 "Epoch {} reward #{}: Mismatch\n  Expected: {:?}\n  Actual:   {:?}",
@@ -118,7 +120,7 @@ fn verify_snapshot(actual: &EpochSnapshot, expected: &EpochSnapshot) -> Result<(
                 actual_reward
             ));
         }
-    } 
+    }
 
     tracing::info!("Epoch {} snapshot verified successfully", actual.epoch);
 
@@ -161,15 +163,13 @@ fn get_expected_snapshots() -> Vec<EpochSnapshot> {
     vec![
         EpochSnapshot {
             epoch: 1,
-            rewards: vec![
-                RewardSnapshot {
-                    work_log_id: "0xade5c4b00ab283608928c29e55917899da8ac608".to_string(),
-                    work_submitted: "791052288".to_string(),
-                    actual_rewards_zkc: "6197.67".to_string(),
-                    percentage: 100.0,
-                    is_capped: true,
-                },
-            ],
+            rewards: vec![RewardSnapshot {
+                work_log_id: "0xade5c4b00ab283608928c29e55917899da8ac608".to_string(),
+                work_submitted: "791052288".to_string(),
+                actual_rewards_zkc: "6197.67".to_string(),
+                percentage: 100.0,
+                is_capped: true,
+            }],
         },
         EpochSnapshot {
             epoch: 2,
@@ -405,22 +405,21 @@ fn get_expected_snapshots() -> Vec<EpochSnapshot> {
 async fn test_rewards_indexer_integration() {
     // Setup tracing subscriber for real-time log output
     tracing_subscriber::registry()
-        .with(fmt::layer()
-            .with_target(true)
-            .with_thread_ids(true)
-            .with_level(true)
-            .with_file(false)
-            .with_line_number(false)
-        )
         .with(
-            EnvFilter::try_from_env("RUST_LOG")
-                .unwrap_or_else(|_| EnvFilter::new("info,boundless_indexer=debug,boundless_rewards=debug"))
+            fmt::layer()
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_level(true)
+                .with_file(false)
+                .with_line_number(false),
         )
+        .with(EnvFilter::try_from_env("RUST_LOG").unwrap_or_else(|_| {
+            EnvFilter::new("info,boundless_indexer=debug,boundless_rewards=debug")
+        }))
         .try_init()
         .ok(); // Ignore error if already initialized
-    // Get RPC URL from environment
-    let rpc_url = std::env::var("ETH_RPC_URL")
-        .expect("ETH_RPC_URL must be set to run this test");
+               // Get RPC URL from environment
+    let rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set to run this test");
     let rpc_url = Url::parse(&rpc_url).expect("Invalid RPC URL");
 
     // Use mainnet deployment addresses
@@ -461,11 +460,15 @@ async fn test_rewards_indexer_integration() {
     println!("🚀 Running rewards indexer...");
     let test_start = std::time::Instant::now();
     service.run().await.expect("Failed to run rewards indexer");
-    println!("✅ Indexer run completed successfully in {:.2}s!", test_start.elapsed().as_secs_f64());
+    println!(
+        "✅ Indexer run completed successfully in {:.2}s!",
+        test_start.elapsed().as_secs_f64()
+    );
 
     // Get current epoch from database
     println!("📊 Displaying results...");
-    let current_epoch = db.get_current_epoch()
+    let current_epoch = db
+        .get_current_epoch()
         .await
         .expect("Failed to get current epoch")
         .expect("Current epoch not set");
@@ -485,7 +488,11 @@ async fn test_rewards_indexer_integration() {
         println!("Processing snapshot for epoch {}...", expected.epoch);
         match generate_epoch_snapshot(&*db, expected.epoch).await {
             Ok(actual) => {
-                println!("Epoch {} snapshot generated with {} rewards", actual.epoch, actual.rewards.len());
+                println!(
+                    "Epoch {} snapshot generated with {} rewards",
+                    actual.epoch,
+                    actual.rewards.len()
+                );
 
                 // If we're in capture mode (empty expected rewards), print the JSON
                 // This allows developers to easily capture the initial baseline data
@@ -493,7 +500,8 @@ async fn test_rewards_indexer_integration() {
                     if !actual.rewards.is_empty() {
                         println!("\n🎯 === Captured Snapshot for Epoch {} ===", actual.epoch);
                         println!("Copy the JSON below to update the expected snapshot:");
-                        let json = serde_json::to_string_pretty(&actual).expect("Failed to serialize snapshot");
+                        let json = serde_json::to_string_pretty(&actual)
+                            .expect("Failed to serialize snapshot");
                         println!("{}", json);
                         println!("=== End of Epoch {} Snapshot ===\n", actual.epoch);
                     } else {
@@ -501,7 +509,11 @@ async fn test_rewards_indexer_integration() {
                     }
                 } else {
                     // Otherwise, verify the snapshot against expected data
-                    println!("Verifying epoch {} snapshot (expected {} rewards)...", actual.epoch, expected.rewards.len());
+                    println!(
+                        "Verifying epoch {} snapshot (expected {} rewards)...",
+                        actual.epoch,
+                        expected.rewards.len()
+                    );
                     if let Err(e) = verify_snapshot(&actual, expected) {
                         snapshot_failures.push(e);
                         println!("❌ Epoch {} snapshot verification failed", expected.epoch);
@@ -511,7 +523,8 @@ async fn test_rewards_indexer_integration() {
                 }
             }
             Err(e) => {
-                let msg = format!("Failed to generate snapshot for epoch {}: {}", expected.epoch, e);
+                let msg =
+                    format!("Failed to generate snapshot for epoch {}: {}", expected.epoch, e);
                 println!("{}", msg);
                 if !expected.rewards.is_empty() {
                     // Only fail if we expected rewards
@@ -577,17 +590,18 @@ async fn test_rewards_indexer_integration() {
 }
 
 async fn print_epoch_leaderboard(db: &dyn RewardsIndexerDb, epoch: u64) {
-    let rewards = db.get_povw_rewards_by_epoch(epoch, 0, 10)
-        .await
-        .expect("Failed to get epoch rewards");
+    let rewards =
+        db.get_povw_rewards_by_epoch(epoch, 0, 10).await.expect("Failed to get epoch rewards");
 
     if rewards.is_empty() {
         println!("No rewards data for epoch {}", epoch);
         return;
     }
 
-    println!("{:<44} {:>20} {:>4} {:>8} {:>8}",
-        "Work Log ID", "Work Submitted", "Rewards (ZKC)", "% Share", "Capped");
+    println!(
+        "{:<44} {:>20} {:>4} {:>8} {:>8}",
+        "Work Log ID", "Work Submitted", "Rewards (ZKC)", "% Share", "Capped"
+    );
     println!("{}", "-".repeat(104));
 
     for reward in rewards {
@@ -596,7 +610,8 @@ async fn print_epoch_leaderboard(db: &dyn RewardsIndexerDb, epoch: u64) {
         let percentage = format!("{:.2}%", reward.percentage);
         let capped = if reward.is_capped { "Yes" } else { "No" };
 
-        println!("{:<44} {:>20} {:>4} {:>8} {:>8}",
+        println!(
+            "{:<44} {:>20} {:>4} {:>8} {:>8}",
             format!("{:#x}", reward.work_log_id),
             work_submitted,
             actual_rewards,
@@ -607,17 +622,18 @@ async fn print_epoch_leaderboard(db: &dyn RewardsIndexerDb, epoch: u64) {
 }
 
 async fn print_aggregate_leaderboard(db: &dyn RewardsIndexerDb) {
-    let aggregates = db.get_povw_rewards_aggregate(0, 20)
-        .await
-        .expect("Failed to get aggregate rewards");
+    let aggregates =
+        db.get_povw_rewards_aggregate(0, 20).await.expect("Failed to get aggregate rewards");
 
     if aggregates.is_empty() {
         println!("No aggregate rewards data");
         return;
     }
 
-    println!("{:<44} {:<4} {:>4} {:>4} {:>8}",
-        "Work Log ID", "Total Work", "Actual Rewards (ZKC)", "Uncapped Rewards", "Epochs");
+    println!(
+        "{:<44} {:<4} {:>4} {:>4} {:>8}",
+        "Work Log ID", "Total Work", "Actual Rewards (ZKC)", "Uncapped Rewards", "Epochs"
+    );
     println!("{}", "-".repeat(116));
 
     for (rank, aggregate) in aggregates.iter().enumerate() {
@@ -625,7 +641,8 @@ async fn print_aggregate_leaderboard(db: &dyn RewardsIndexerDb) {
         let total_actual = format_zkc(aggregate.total_actual_rewards);
         let total_uncapped = format_zkc(aggregate.total_uncapped_rewards);
 
-        println!("#{:<3} {:<40} {:<4} {:>4} {:>4} {:>8}",
+        println!(
+            "#{:<3} {:<40} {:<4} {:>4} {:>4} {:>8}",
             rank + 1,
             format!("{:#x}", aggregate.work_log_id),
             total_work,
@@ -635,7 +652,6 @@ async fn print_aggregate_leaderboard(db: &dyn RewardsIndexerDb) {
         );
     }
 }
-
 
 // Format U256 in a shorter readable format
 fn format_u256_short(value: U256) -> String {
@@ -654,7 +670,8 @@ fn format_u256_short(value: U256) -> String {
 }
 
 async fn print_epoch_staking(db: &dyn RewardsIndexerDb, epoch: u64) {
-    let positions = db.get_staking_positions_by_epoch(epoch, 0, 10)
+    let positions = db
+        .get_staking_positions_by_epoch(epoch, 0, 10)
         .await
         .expect("Failed to get epoch staking positions");
 
@@ -663,21 +680,26 @@ async fn print_epoch_staking(db: &dyn RewardsIndexerDb, epoch: u64) {
         return;
     }
 
-    println!("{:<44} {:<4} {:>12} {:>44} {:>44}",
-        "Staker Address", "Staked Amount (ZKC)", "Withdrawing", "Reward Delegate", "Vote Delegate");
+    println!(
+        "{:<44} {:<4} {:>12} {:>44} {:>44}",
+        "Staker Address", "Staked Amount (ZKC)", "Withdrawing", "Reward Delegate", "Vote Delegate"
+    );
     println!("{}", "-".repeat(166));
 
     for (rank, position) in positions.iter().enumerate() {
         let staked_amount = format_zkc(position.staked_amount);
         let withdrawing = if position.is_withdrawing { "Yes" } else { "No" };
-        let reward_delegated = position.rewards_delegated_to
+        let reward_delegated = position
+            .rewards_delegated_to
             .map(|addr| format!("{:#x}", addr))
             .unwrap_or_else(|| "None".to_string());
-        let vote_delegated = position.votes_delegated_to
+        let vote_delegated = position
+            .votes_delegated_to
             .map(|addr| format!("{:#x}", addr))
             .unwrap_or_else(|| "None".to_string());
 
-        println!("#{:<3} {:<40} {:<4} {:>12} {:>44} {:>44}",
+        println!(
+            "#{:<3} {:<40} {:<4} {:>12} {:>44} {:>44}",
             rank + 1,
             format!("{:#x}", position.staker_address),
             staked_amount,
@@ -689,7 +711,8 @@ async fn print_epoch_staking(db: &dyn RewardsIndexerDb, epoch: u64) {
 }
 
 async fn print_aggregate_staking(db: &dyn RewardsIndexerDb) {
-    let aggregates = db.get_staking_positions_aggregate(0, 20)
+    let aggregates = db
+        .get_staking_positions_aggregate(0, 20)
         .await
         .expect("Failed to get aggregate staking positions");
 
@@ -698,21 +721,31 @@ async fn print_aggregate_staking(db: &dyn RewardsIndexerDb) {
         return;
     }
 
-    println!("{:<44} {:<4} {:>12} {:>44} {:>44} {:>8}",
-        "Staker Address", "Total Staked (ZKC)", "Withdrawing", "Reward Delegate", "Vote Delegate", "Epochs");
+    println!(
+        "{:<44} {:<4} {:>12} {:>44} {:>44} {:>8}",
+        "Staker Address",
+        "Total Staked (ZKC)",
+        "Withdrawing",
+        "Reward Delegate",
+        "Vote Delegate",
+        "Epochs"
+    );
     println!("{}", "-".repeat(174));
 
     for (rank, aggregate) in aggregates.iter().enumerate() {
         let total_staked = format_zkc(aggregate.total_staked);
         let withdrawing = if aggregate.is_withdrawing { "Yes" } else { "No" };
-        let reward_delegated = aggregate.rewards_delegated_to
+        let reward_delegated = aggregate
+            .rewards_delegated_to
             .map(|addr| format!("{:#x}", addr))
             .unwrap_or_else(|| "None".to_string());
-        let vote_delegated = aggregate.votes_delegated_to
+        let vote_delegated = aggregate
+            .votes_delegated_to
             .map(|addr| format!("{:#x}", addr))
             .unwrap_or_else(|| "None".to_string());
 
-        println!("#{:<3} {:<40} {:<4} {:>12} {:>44} {:>44} {:>8}",
+        println!(
+            "#{:<3} {:<40} {:<4} {:>12} {:>44} {:>44} {:>8}",
             rank + 1,
             format!("{:#x}", aggregate.staker_address),
             total_staked,
@@ -725,11 +758,11 @@ async fn print_aggregate_staking(db: &dyn RewardsIndexerDb) {
 }
 
 async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
-
     println!("=== Delegation Powers from Database ===");
 
     // Get current epoch to display
-    let current_epoch = db.get_current_epoch()
+    let current_epoch = db
+        .get_current_epoch()
         .await
         .expect("Failed to get current epoch")
         .expect("Current epoch not set");
@@ -737,30 +770,40 @@ async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
     println!("=== Current Epoch {} Delegation Powers ===", current_epoch);
 
     // Get vote delegation powers for current epoch
-    let vote_powers = db.get_vote_delegation_powers_by_epoch(current_epoch, 0, 10)
+    let vote_powers = db
+        .get_vote_delegation_powers_by_epoch(current_epoch, 0, 10)
         .await
         .expect("Failed to get vote delegation powers");
 
     if !vote_powers.is_empty() {
         println!("\nVote Power Delegates (Top 10):");
-        println!("{:<44} {:<4} {:>12} {}", "Delegate Address", "Vote Power (ZKC)", "Delegators", "Sample Delegators");
+        println!(
+            "{:<44} {:<4} {:>12} {}",
+            "Delegate Address", "Vote Power (ZKC)", "Delegators", "Sample Delegators"
+        );
         println!("{}", "-".repeat(100));
 
         for power in vote_powers {
             let vote_power_zkc = format_zkc(power.vote_power);
             let sample_delegators = if power.delegator_count <= 3 {
-                power.delegators.iter()
+                power
+                    .delegators
+                    .iter()
                     .map(|addr| format!("{:#x}", addr)[..10].to_string())
                     .collect::<Vec<_>>()
                     .join(", ")
             } else {
-                let sample = power.delegators.iter().take(2)
+                let sample = power
+                    .delegators
+                    .iter()
+                    .take(2)
                     .map(|addr| format!("{:#x}", addr)[..10].to_string())
                     .collect::<Vec<_>>();
                 format!("{}, +{} more", sample.join(", "), power.delegator_count - 2)
             };
 
-            println!("{:<44} {:<4} {:>12} {}",
+            println!(
+                "{:<44} {:<4} {:>12} {}",
                 format!("{:#x}", power.delegate_address),
                 vote_power_zkc,
                 power.delegator_count,
@@ -772,30 +815,40 @@ async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
     }
 
     // Get reward delegation powers for current epoch
-    let reward_powers = db.get_reward_delegation_powers_by_epoch(current_epoch, 0, 10)
+    let reward_powers = db
+        .get_reward_delegation_powers_by_epoch(current_epoch, 0, 10)
         .await
         .expect("Failed to get reward delegation powers");
 
     if !reward_powers.is_empty() {
         println!("\nReward Power Delegates (Top 10):");
-        println!("{:<44} {:<4} {:>12} {}", "Delegate Address", "Reward Power (ZKC)", "Delegators", "Sample Delegators");
+        println!(
+            "{:<44} {:<4} {:>12} {}",
+            "Delegate Address", "Reward Power (ZKC)", "Delegators", "Sample Delegators"
+        );
         println!("{}", "-".repeat(100));
 
         for power in reward_powers {
             let reward_power_zkc = format_zkc(power.reward_power);
             let sample_delegators = if power.delegator_count <= 3 {
-                power.delegators.iter()
+                power
+                    .delegators
+                    .iter()
                     .map(|addr| format!("{:#x}", addr)[..10].to_string())
                     .collect::<Vec<_>>()
                     .join(", ")
             } else {
-                let sample = power.delegators.iter().take(2)
+                let sample = power
+                    .delegators
+                    .iter()
+                    .take(2)
                     .map(|addr| format!("{:#x}", addr)[..10].to_string())
                     .collect::<Vec<_>>();
                 format!("{}, +{} more", sample.join(", "), power.delegator_count - 2)
             };
 
-            println!("{:<44} {:<4} {:>12} {}",
+            println!(
+                "{:<44} {:<4} {:>12} {}",
                 format!("{:#x}", power.delegate_address),
                 reward_power_zkc,
                 power.delegator_count,
@@ -808,29 +861,39 @@ async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
 
     // Print aggregate delegation powers
     println!("\n=== Aggregate Vote Delegation Powers (All Time Top 10) ===");
-    let vote_aggregates = db.get_vote_delegation_powers_aggregate(0, 10)
+    let vote_aggregates = db
+        .get_vote_delegation_powers_aggregate(0, 10)
         .await
         .expect("Failed to get vote delegation aggregates");
 
     if !vote_aggregates.is_empty() {
-        println!("{:<44} {:<4} {:>12} {:>8} {}", "Delegate Address", "Total Vote Power", "Delegators", "Epochs", "Sample Delegators");
+        println!(
+            "{:<44} {:<4} {:>12} {:>8} {}",
+            "Delegate Address", "Total Vote Power", "Delegators", "Epochs", "Sample Delegators"
+        );
         println!("{}", "-".repeat(110));
 
         for (rank, aggregate) in vote_aggregates.iter().enumerate() {
             let vote_power_zkc = format_zkc(aggregate.total_vote_power);
             let sample_delegators = if aggregate.delegator_count <= 3 {
-                aggregate.delegators.iter()
+                aggregate
+                    .delegators
+                    .iter()
                     .map(|addr| format!("{:#x}", addr)[..10].to_string())
                     .collect::<Vec<_>>()
                     .join(", ")
             } else {
-                let sample = aggregate.delegators.iter().take(2)
+                let sample = aggregate
+                    .delegators
+                    .iter()
+                    .take(2)
                     .map(|addr| format!("{:#x}", addr)[..10].to_string())
                     .collect::<Vec<_>>();
                 format!("{}, +{} more", sample.join(", "), aggregate.delegator_count - 2)
             };
 
-            println!("#{:<3} {:<40} {:<4} {:>12} {:>8} {}",
+            println!(
+                "#{:<3} {:<40} {:<4} {:>12} {:>8} {}",
                 rank + 1,
                 format!("{:#x}", aggregate.delegate_address),
                 vote_power_zkc,
@@ -844,29 +907,39 @@ async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
     }
 
     println!("\n=== Aggregate Reward Delegation Powers (All Time Top 10) ===");
-    let reward_aggregates = db.get_reward_delegation_powers_aggregate(0, 10)
+    let reward_aggregates = db
+        .get_reward_delegation_powers_aggregate(0, 10)
         .await
         .expect("Failed to get reward delegation aggregates");
 
     if !reward_aggregates.is_empty() {
-        println!("{:<44} {:<4} {:>12} {:>8} {}", "Delegate Address", "Total Reward Power", "Delegators", "Epochs", "Sample Delegators");
+        println!(
+            "{:<44} {:<4} {:>12} {:>8} {}",
+            "Delegate Address", "Total Reward Power", "Delegators", "Epochs", "Sample Delegators"
+        );
         println!("{}", "-".repeat(110));
 
         for (rank, aggregate) in reward_aggregates.iter().enumerate() {
             let reward_power_zkc = format_zkc(aggregate.total_reward_power);
             let sample_delegators = if aggregate.delegator_count <= 3 {
-                aggregate.delegators.iter()
+                aggregate
+                    .delegators
+                    .iter()
                     .map(|addr| format!("{:#x}", addr)[..10].to_string())
                     .collect::<Vec<_>>()
                     .join(", ")
             } else {
-                let sample = aggregate.delegators.iter().take(2)
+                let sample = aggregate
+                    .delegators
+                    .iter()
+                    .take(2)
                     .map(|addr| format!("{:#x}", addr)[..10].to_string())
                     .collect::<Vec<_>>();
                 format!("{}, +{} more", sample.join(", "), aggregate.delegator_count - 2)
             };
 
-            println!("#{:<3} {:<40} {:<4} {:>12} {:>8} {}",
+            println!(
+                "#{:<3} {:<40} {:<4} {:>12} {:>8} {}",
                 rank + 1,
                 format!("{:#x}", aggregate.delegate_address),
                 reward_power_zkc,
@@ -884,9 +957,8 @@ async fn test_address_history_methods(db: &dyn RewardsIndexerDb) {
     use alloy::primitives::U256;
 
     // First, get the top staker from the aggregate staking positions
-    let top_stakers = db.get_staking_positions_aggregate(0, 1)
-        .await
-        .expect("Failed to get top stakers");
+    let top_stakers =
+        db.get_staking_positions_aggregate(0, 1).await.expect("Failed to get top stakers");
 
     if top_stakers.is_empty() {
         println!("No staking data available to test address history methods");
@@ -900,19 +972,21 @@ async fn test_address_history_methods(db: &dyn RewardsIndexerDb) {
 
     // Test get_staking_history_by_address
     println!("\n1️⃣ Testing get_staking_history_by_address...");
-    let staking_history = db.get_staking_history_by_address(
-        top_staker.staker_address,
-        None, // No start epoch limit
-        None, // No end epoch limit
-    )
-    .await
-    .expect("Failed to get staking history");
+    let staking_history = db
+        .get_staking_history_by_address(
+            top_staker.staker_address,
+            None, // No start epoch limit
+            None, // No end epoch limit
+        )
+        .await
+        .expect("Failed to get staking history");
 
     println!("   Found {} epochs of staking history", staking_history.len());
     if !staking_history.is_empty() {
         // Show first 3 epochs
         for position in staking_history.iter().take(3) {
-            println!("   Epoch {}: {} ZKC, withdrawing: {}",
+            println!(
+                "   Epoch {}: {} ZKC, withdrawing: {}",
                 position.epoch,
                 format_zkc(position.staked_amount),
                 position.is_withdrawing
@@ -931,24 +1005,21 @@ async fn test_address_history_methods(db: &dyn RewardsIndexerDb) {
 
     // Test get_povw_rewards_history_by_address
     println!("\n2️⃣ Testing get_povw_rewards_history_by_address...");
-    let povw_history = db.get_povw_rewards_history_by_address(
-        top_staker.staker_address,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to get PoVW rewards history");
+    let povw_history = db
+        .get_povw_rewards_history_by_address(top_staker.staker_address, None, None)
+        .await
+        .expect("Failed to get PoVW rewards history");
 
     println!("   Found {} epochs of PoVW rewards", povw_history.len());
     if !povw_history.is_empty() {
-        let total_rewards: U256 = povw_history.iter()
-            .map(|r| r.actual_rewards)
-            .fold(U256::ZERO, |acc, r| acc + r);
+        let total_rewards: U256 =
+            povw_history.iter().map(|r| r.actual_rewards).fold(U256::ZERO, |acc, r| acc + r);
         println!("   Total rewards earned: {} ZKC", format_zkc(total_rewards));
 
         // Show first 3 epochs
         for reward in povw_history.iter().take(3) {
-            println!("   Epoch {}: {} ZKC rewards ({}% of epoch, capped: {})",
+            println!(
+                "   Epoch {}: {} ZKC rewards ({}% of epoch, capped: {})",
                 reward.epoch,
                 format_zkc(reward.actual_rewards),
                 format!("{:.2}", reward.percentage),
@@ -962,18 +1033,16 @@ async fn test_address_history_methods(db: &dyn RewardsIndexerDb) {
 
     // Test delegation history methods
     println!("\n3️⃣ Testing get_vote_delegations_received_history...");
-    let vote_delegations = db.get_vote_delegations_received_history(
-        top_staker.staker_address,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to get vote delegations history");
+    let vote_delegations = db
+        .get_vote_delegations_received_history(top_staker.staker_address, None, None)
+        .await
+        .expect("Failed to get vote delegations history");
 
     if !vote_delegations.is_empty() {
         println!("   Address received vote delegations in {} epochs", vote_delegations.len());
         for delegation in vote_delegations.iter().take(2) {
-            println!("   Epoch {}: {} ZKC vote power from {} delegators",
+            println!(
+                "   Epoch {}: {} ZKC vote power from {} delegators",
                 delegation.epoch,
                 format_zkc(delegation.vote_power),
                 delegation.delegator_count
@@ -984,18 +1053,16 @@ async fn test_address_history_methods(db: &dyn RewardsIndexerDb) {
     }
 
     println!("\n4️⃣ Testing get_reward_delegations_received_history...");
-    let reward_delegations = db.get_reward_delegations_received_history(
-        top_staker.staker_address,
-        None,
-        None,
-    )
-    .await
-    .expect("Failed to get reward delegations history");
+    let reward_delegations = db
+        .get_reward_delegations_received_history(top_staker.staker_address, None, None)
+        .await
+        .expect("Failed to get reward delegations history");
 
     if !reward_delegations.is_empty() {
         println!("   Address received reward delegations in {} epochs", reward_delegations.len());
         for delegation in reward_delegations.iter().take(2) {
-            println!("   Epoch {}: {} ZKC reward power from {} delegators",
+            println!(
+                "   Epoch {}: {} ZKC reward power from {} delegators",
                 delegation.epoch,
                 format_zkc(delegation.reward_power),
                 delegation.delegator_count
@@ -1007,21 +1074,21 @@ async fn test_address_history_methods(db: &dyn RewardsIndexerDb) {
 
     // Test with epoch range limits
     println!("\n5️⃣ Testing with epoch range limits...");
-    let current_epoch = db.get_current_epoch()
-        .await
-        .expect("Failed to get current epoch")
-        .unwrap_or(0);
+    let current_epoch =
+        db.get_current_epoch().await.expect("Failed to get current epoch").unwrap_or(0);
 
     if current_epoch > 2 {
-        let limited_history = db.get_staking_history_by_address(
-            top_staker.staker_address,
-            Some(current_epoch - 2), // Start 2 epochs ago
-            Some(current_epoch),     // End at current epoch
-        )
-        .await
-        .expect("Failed to get limited staking history");
+        let limited_history = db
+            .get_staking_history_by_address(
+                top_staker.staker_address,
+                Some(current_epoch - 2), // Start 2 epochs ago
+                Some(current_epoch),     // End at current epoch
+            )
+            .await
+            .expect("Failed to get limited staking history");
 
-        println!("   Limited query (epochs {}-{}): found {} epochs",
+        println!(
+            "   Limited query (epochs {}-{}): found {} epochs",
             current_epoch - 2,
             current_epoch,
             limited_history.len()

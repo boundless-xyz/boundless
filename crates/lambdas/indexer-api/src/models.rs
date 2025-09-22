@@ -122,14 +122,7 @@ pub struct PaginationMetadata {
 impl<T> LeaderboardResponse<T> {
     pub fn new(entries: Vec<T>, offset: u64, limit: u64) -> Self {
         let count = entries.len();
-        Self {
-            entries,
-            pagination: PaginationMetadata {
-                count,
-                offset,
-                limit,
-            },
-        }
+        Self { entries, pagination: PaginationMetadata { count, offset, limit } }
     }
 }
 

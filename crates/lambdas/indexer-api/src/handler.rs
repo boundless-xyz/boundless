@@ -43,10 +43,7 @@ pub async fn create_handler() -> Result<Router, Error> {
 /// Creates the axum application with all routes
 pub fn create_app(state: Arc<AppState>) -> Router {
     // Configure CORS
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
 
     // Build the router
     Router::new()
@@ -105,8 +102,9 @@ async fn openapi_json() -> impl IntoResponse {
             Json(json!({
                 "error": "Failed to parse OpenAPI spec",
                 "message": err.to_string()
-            }))
-        ).into_response()
+            })),
+        )
+            .into_response(),
     }
 }
 

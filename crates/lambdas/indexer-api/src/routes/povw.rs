@@ -54,10 +54,7 @@ async fn get_aggregate_povw(
         Ok(response) => {
             let mut res = Json(response).into_response();
             // Cache for 60 seconds (current leaderboard updates frequently)
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=60".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=60".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -75,10 +72,8 @@ async fn get_aggregate_povw_impl(
     );
 
     // Fetch data from database
-    let aggregates = state
-        .rewards_db
-        .get_povw_rewards_aggregate(params.offset, params.limit)
-        .await?;
+    let aggregates =
+        state.rewards_db.get_povw_rewards_aggregate(params.offset, params.limit).await?;
 
     // Convert to response format with ranks
     let entries: Vec<AggregateLeaderboardEntry> = aggregates
@@ -110,10 +105,7 @@ async fn get_povw_by_epoch(
         Ok(response) => {
             let mut res = Json(response).into_response();
             // Cache for 5 minutes (historical epochs don't change)
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -133,10 +125,8 @@ async fn get_povw_by_epoch_impl(
     );
 
     // Fetch data from database
-    let rewards = state
-        .rewards_db
-        .get_povw_rewards_by_epoch(epoch, params.offset, params.limit)
-        .await?;
+    let rewards =
+        state.rewards_db.get_povw_rewards_by_epoch(epoch, params.offset, params.limit).await?;
 
     // Convert to response format with ranks
     let entries: Vec<EpochLeaderboardEntry> = rewards
@@ -178,10 +168,7 @@ async fn get_povw_history_by_address(
     match get_povw_history_by_address_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -201,19 +188,12 @@ async fn get_povw_history_by_address_impl(
     );
 
     // Fetch PoVW history for the address
-    let rewards = state
-        .rewards_db
-        .get_povw_rewards_history_by_address(address, None, None)
-        .await?;
+    let rewards = state.rewards_db.get_povw_rewards_history_by_address(address, None, None).await?;
 
     // Apply pagination
     let start = params.offset as usize;
     let end = (start + params.limit as usize).min(rewards.len());
-    let paginated = if start < rewards.len() {
-        rewards[start..end].to_vec()
-    } else {
-        vec![]
-    };
+    let paginated = if start < rewards.len() { rewards[start..end].to_vec() } else { vec![] };
 
     // Convert to response format
     let entries: Vec<EpochLeaderboardEntry> = paginated
@@ -253,10 +233,7 @@ async fn get_povw_by_address_and_epoch(
     match get_povw_by_address_and_epoch_impl(state, address, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -268,11 +245,7 @@ async fn get_povw_by_address_and_epoch_impl(
     address: Address,
     epoch: u64,
 ) -> anyhow::Result<Option<EpochLeaderboardEntry>> {
-    tracing::debug!(
-        "Fetching PoVW rewards for address {} at epoch {}",
-        address,
-        epoch
-    );
+    tracing::debug!("Fetching PoVW rewards for address {} at epoch {}", address, epoch);
 
     // Fetch PoVW history for the address at specific epoch
     let rewards = state

@@ -66,6 +66,7 @@ struct TimestampedStakeEvent {
 }
 
 /// Compute staking positions by address with epoch awareness
+#[allow(clippy::too_many_arguments)]
 pub fn compute_staking_positions_by_address(
     stake_created_logs: &[Log],
     stake_added_logs: &[Log],
@@ -116,11 +117,9 @@ pub fn compute_staking_positions_by_address(
     process_event_log(
         stake_created_logs,
         |log| {
-            log.log_decode::<IStaking::StakeCreated>().ok().map(|decoded| {
-                StakeEvent::Created {
-                    owner: decoded.inner.data.owner,
-                    amount: decoded.inner.data.amount,
-                }
+            log.log_decode::<IStaking::StakeCreated>().ok().map(|decoded| StakeEvent::Created {
+                owner: decoded.inner.data.owner,
+                amount: decoded.inner.data.amount,
             })
         },
         &get_timestamp_for_block,
@@ -132,11 +131,9 @@ pub fn compute_staking_positions_by_address(
     process_event_log(
         stake_added_logs,
         |log| {
-            log.log_decode::<IStaking::StakeAdded>().ok().map(|decoded| {
-                StakeEvent::Added {
-                    owner: decoded.inner.data.owner,
-                    new_total: decoded.inner.data.newTotal,
-                }
+            log.log_decode::<IStaking::StakeAdded>().ok().map(|decoded| StakeEvent::Added {
+                owner: decoded.inner.data.owner,
+                new_total: decoded.inner.data.newTotal,
             })
         },
         &get_timestamp_for_block,
@@ -148,11 +145,9 @@ pub fn compute_staking_positions_by_address(
     process_event_log(
         unstake_initiated_logs,
         |log| {
-            log.log_decode::<IStaking::UnstakeInitiated>().ok().map(|decoded| {
-                StakeEvent::UnstakeInitiated {
-                    owner: decoded.inner.data.owner,
-                }
-            })
+            log.log_decode::<IStaking::UnstakeInitiated>()
+                .ok()
+                .map(|decoded| StakeEvent::UnstakeInitiated { owner: decoded.inner.data.owner })
         },
         &get_timestamp_for_block,
         &get_epoch_for_timestamp,
@@ -163,11 +158,9 @@ pub fn compute_staking_positions_by_address(
     process_event_log(
         unstake_completed_logs,
         |log| {
-            log.log_decode::<IStaking::UnstakeCompleted>().ok().map(|decoded| {
-                StakeEvent::UnstakeCompleted {
-                    owner: decoded.inner.data.owner,
-                }
-            })
+            log.log_decode::<IStaking::UnstakeCompleted>()
+                .ok()
+                .map(|decoded| StakeEvent::UnstakeCompleted { owner: decoded.inner.data.owner })
         },
         &get_timestamp_for_block,
         &get_epoch_for_timestamp,
@@ -233,12 +226,18 @@ pub fn compute_staking_positions_by_address(
                 let mut epoch_positions = HashMap::new();
 
                 for (address, amount) in &current_stakes {
-                    epoch_positions.insert(*address, StakingPosition {
-                        staked_amount: *amount,
-                        is_withdrawing: current_withdrawing.get(address).copied().unwrap_or(false),
-                        rewards_delegated_to: current_reward_delegations.get(address).copied(),
-                        votes_delegated_to: current_vote_delegations.get(address).copied(),
-                    });
+                    epoch_positions.insert(
+                        *address,
+                        StakingPosition {
+                            staked_amount: *amount,
+                            is_withdrawing: current_withdrawing
+                                .get(address)
+                                .copied()
+                                .unwrap_or(false),
+                            rewards_delegated_to: current_reward_delegations.get(address).copied(),
+                            votes_delegated_to: current_vote_delegations.get(address).copied(),
+                        },
+                    );
                 }
 
                 epoch_states.insert(epoch, epoch_positions);
@@ -287,12 +286,15 @@ pub fn compute_staking_positions_by_address(
         let mut epoch_positions = HashMap::new();
 
         for (address, amount) in &current_stakes {
-            epoch_positions.insert(*address, StakingPosition {
-                staked_amount: *amount,
-                is_withdrawing: current_withdrawing.get(address).copied().unwrap_or(false),
-                rewards_delegated_to: current_reward_delegations.get(address).copied(),
-                votes_delegated_to: current_vote_delegations.get(address).copied(),
-            });
+            epoch_positions.insert(
+                *address,
+                StakingPosition {
+                    staked_amount: *amount,
+                    is_withdrawing: current_withdrawing.get(address).copied().unwrap_or(false),
+                    rewards_delegated_to: current_reward_delegations.get(address).copied(),
+                    votes_delegated_to: current_vote_delegations.get(address).copied(),
+                },
+            );
         }
 
         epoch_states.insert(epoch, epoch_positions);

@@ -35,12 +35,18 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/votes", get(get_aggregate_vote_delegations))
         .route("/votes/epochs/:epoch", get(get_vote_delegations_by_epoch))
         .route("/votes/addresses/:address", get(get_vote_delegation_history_by_address))
-        .route("/votes/addresses/:address/epochs/:epoch", get(get_vote_delegation_by_address_and_epoch))
+        .route(
+            "/votes/addresses/:address/epochs/:epoch",
+            get(get_vote_delegation_by_address_and_epoch),
+        )
         // Reward delegation endpoints
         .route("/rewards", get(get_aggregate_reward_delegations))
         .route("/rewards/epochs/:epoch", get(get_reward_delegations_by_epoch))
         .route("/rewards/addresses/:address", get(get_reward_delegation_history_by_address))
-        .route("/rewards/addresses/:address/epochs/:epoch", get(get_reward_delegation_by_address_and_epoch))
+        .route(
+            "/rewards/addresses/:address/epochs/:epoch",
+            get(get_reward_delegation_by_address_and_epoch),
+        )
 }
 
 // ===== VOTE DELEGATION ENDPOINTS =====
@@ -56,10 +62,7 @@ async fn get_aggregate_vote_delegations(
     match get_aggregate_vote_delegations_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=60".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=60".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -76,10 +79,8 @@ async fn get_aggregate_vote_delegations_impl(
         params.limit
     );
 
-    let aggregates = state
-        .rewards_db
-        .get_vote_delegation_powers_aggregate(params.offset, params.limit)
-        .await?;
+    let aggregates =
+        state.rewards_db.get_vote_delegation_powers_aggregate(params.offset, params.limit).await?;
 
     let entries: Vec<DelegationPowerEntry> = aggregates
         .into_iter()
@@ -109,10 +110,7 @@ async fn get_vote_delegations_by_epoch(
     match get_vote_delegations_by_epoch_impl(state, epoch, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -171,10 +169,7 @@ async fn get_vote_delegation_history_by_address(
     match get_vote_delegation_history_by_address_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -193,19 +188,13 @@ async fn get_vote_delegation_history_by_address_impl(
         params.limit
     );
 
-    let history = state
-        .rewards_db
-        .get_vote_delegations_received_history(address, None, None)
-        .await?;
+    let history =
+        state.rewards_db.get_vote_delegations_received_history(address, None, None).await?;
 
     // Apply pagination
     let start = params.offset as usize;
     let end = (start + params.limit as usize).min(history.len());
-    let paginated = if start < history.len() {
-        history[start..end].to_vec()
-    } else {
-        vec![]
-    };
+    let paginated = if start < history.len() { history[start..end].to_vec() } else { vec![] };
 
     let entries: Vec<DelegationPowerEntry> = paginated
         .into_iter()
@@ -239,10 +228,7 @@ async fn get_vote_delegation_by_address_and_epoch(
     match get_vote_delegation_by_address_and_epoch_impl(state, address, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -254,11 +240,7 @@ async fn get_vote_delegation_by_address_and_epoch_impl(
     address: Address,
     epoch: u64,
 ) -> anyhow::Result<Option<DelegationPowerEntry>> {
-    tracing::debug!(
-        "Fetching vote delegation for address {} at epoch {}",
-        address,
-        epoch
-    );
+    tracing::debug!("Fetching vote delegation for address {} at epoch {}", address, epoch);
 
     let history = state
         .rewards_db
@@ -293,10 +275,7 @@ async fn get_aggregate_reward_delegations(
     match get_aggregate_reward_delegations_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=60".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=60".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -346,10 +325,7 @@ async fn get_reward_delegations_by_epoch(
     match get_reward_delegations_by_epoch_impl(state, epoch, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -408,10 +384,7 @@ async fn get_reward_delegation_history_by_address(
     match get_reward_delegation_history_by_address_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -430,19 +403,13 @@ async fn get_reward_delegation_history_by_address_impl(
         params.limit
     );
 
-    let history = state
-        .rewards_db
-        .get_reward_delegations_received_history(address, None, None)
-        .await?;
+    let history =
+        state.rewards_db.get_reward_delegations_received_history(address, None, None).await?;
 
     // Apply pagination
     let start = params.offset as usize;
     let end = (start + params.limit as usize).min(history.len());
-    let paginated = if start < history.len() {
-        history[start..end].to_vec()
-    } else {
-        vec![]
-    };
+    let paginated = if start < history.len() { history[start..end].to_vec() } else { vec![] };
 
     let entries: Vec<DelegationPowerEntry> = paginated
         .into_iter()
@@ -476,10 +443,7 @@ async fn get_reward_delegation_by_address_and_epoch(
     match get_reward_delegation_by_address_and_epoch_impl(state, address, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                "public, max-age=300".parse().unwrap(),
-            );
+            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -491,11 +455,7 @@ async fn get_reward_delegation_by_address_and_epoch_impl(
     address: Address,
     epoch: u64,
 ) -> anyhow::Result<Option<DelegationPowerEntry>> {
-    tracing::debug!(
-        "Fetching reward delegation for address {} at epoch {}",
-        address,
-        epoch
-    );
+    tracing::debug!("Fetching reward delegation for address {} at epoch {}", address, epoch);
 
     let history = state
         .rewards_db

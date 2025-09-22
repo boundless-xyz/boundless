@@ -148,14 +148,13 @@ pub fn compute_delegation_powers_by_address(
 
     // Sort events chronologically
     timestamped_events.sort_by(|a, b| {
-        a.timestamp.cmp(&b.timestamp)
-            .then_with(|| a.block_number.cmp(&b.block_number))
+        a.timestamp.cmp(&b.timestamp).then_with(|| a.block_number.cmp(&b.block_number))
     });
 
     // Track current state
     let mut current_vote_powers: HashMap<Address, U256> = HashMap::new();
     let mut current_reward_powers: HashMap<Address, U256> = HashMap::new();
-    let mut current_vote_delegations: HashMap<Address, Address> = HashMap::new();  // delegator -> delegate
+    let mut current_vote_delegations: HashMap<Address, Address> = HashMap::new(); // delegator -> delegate
     let mut current_reward_delegations: HashMap<Address, Address> = HashMap::new(); // delegator -> delegate
     let mut epoch_states: HashMap<u64, HashMap<Address, DelegationPowers>> = HashMap::new();
     let mut last_epoch: Option<u64> = None;
@@ -244,10 +243,8 @@ fn build_epoch_delegation_powers(
     let mut epoch_powers = HashMap::new();
 
     // Get all delegates that have either vote or reward power
-    let all_delegates: HashSet<Address> = vote_powers.keys()
-        .chain(reward_powers.keys())
-        .copied()
-        .collect();
+    let all_delegates: HashSet<Address> =
+        vote_powers.keys().chain(reward_powers.keys()).copied().collect();
 
     for delegate in all_delegates {
         let vote_power = vote_powers.get(&delegate).copied().unwrap_or(U256::ZERO);
@@ -266,12 +263,10 @@ fn build_epoch_delegation_powers(
             .map(|(delegator, _)| *delegator)
             .collect();
 
-        epoch_powers.insert(delegate, DelegationPowers {
-            vote_power,
-            reward_power,
-            vote_delegators,
-            reward_delegators,
-        });
+        epoch_powers.insert(
+            delegate,
+            DelegationPowers { vote_power, reward_power, vote_delegators, reward_delegators },
+        );
     }
 
     epoch_powers

@@ -67,7 +67,7 @@ pub async fn compute_povw_rewards_by_work_log_id<P: Provider>(
     epoch_finalized_logs: &[Log],
     get_emissions: impl Fn(u64) -> anyhow::Result<U256>,
     get_reward_cap: impl Fn(Address, u64, bool) -> anyhow::Result<U256>,
-    get_staking_amount: impl Fn(Address) -> anyhow::Result<U256>,
+    get_staking_amount: impl Fn(Address, u64) -> anyhow::Result<U256>,
 ) -> anyhow::Result<EpochPoVWRewards> {
     let epoch_u64 = epoch.to::<u64>();
 
@@ -113,11 +113,8 @@ pub async fn compute_povw_rewards_by_work_log_id<P: Provider>(
     let mut rewards_by_work_log_id = HashMap::new();
 
     for (work_log_id, work) in work_by_work_log_id {
-        let proportional_rewards = if total_work > U256::ZERO {
-            work * povw_emissions / total_work
-        } else {
-            U256::ZERO
-        };
+        let proportional_rewards =
+            if total_work > U256::ZERO { work * povw_emissions / total_work } else { U256::ZERO };
 
         // Get reward cap from cache
         let reward_cap = get_reward_cap(work_log_id, epoch_u64, is_current_epoch)?;
@@ -126,30 +123,35 @@ pub async fn compute_povw_rewards_by_work_log_id<P: Provider>(
         let capped_rewards = proportional_rewards.min(reward_cap);
         let is_capped = capped_rewards < proportional_rewards;
 
-        // Get staking amount from cache
-        let staking_amount = get_staking_amount(work_log_id)?;
+        // Get staking amount from cache for this epoch
+        let staking_amount = get_staking_amount(work_log_id, epoch_u64)?;
 
         // Get the actual recipient (from WorkLogUpdated event)
         let mut recipient_address = work_log_id;
         for log in work_log_updated_logs {
             if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
-                if decoded.inner.data.workLogId == work_log_id && decoded.inner.data.epochNumber == epoch {
+                if decoded.inner.data.workLogId == work_log_id
+                    && decoded.inner.data.epochNumber == epoch
+                {
                     recipient_address = decoded.inner.data.valueRecipient;
                     break;
                 }
             }
         }
 
-        rewards_by_work_log_id.insert(work_log_id, WorkLogRewardInfo {
+        rewards_by_work_log_id.insert(
             work_log_id,
-            work,
-            proportional_rewards,
-            capped_rewards,
-            reward_cap,
-            is_capped,
-            recipient_address,
-            staking_amount,
-        });
+            WorkLogRewardInfo {
+                work_log_id,
+                work,
+                proportional_rewards,
+                capped_rewards,
+                reward_cap,
+                is_capped,
+                recipient_address,
+                staking_amount,
+            },
+        );
     }
 
     Ok(EpochPoVWRewards {

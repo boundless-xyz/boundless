@@ -14,6 +14,7 @@
 
 use std::{cmp::min, collections::HashMap, sync::Arc};
 
+use crate::db::{AnyDb, DbError, DbObj, TxMetadata};
 use ::boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
     EIP712DomainSaltless,
@@ -31,7 +32,6 @@ use alloy::{
     transports::{RpcError, TransportErrorKind},
 };
 use anyhow::{anyhow, Context};
-use crate::db::{AnyDb, DbError, DbObj, TxMetadata};
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;

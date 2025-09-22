@@ -23,41 +23,21 @@ pub mod staking;
 
 // Re-export commonly used types
 pub use cache::{
-    PoVWRewardsCache,
-    build_povw_rewards_cache,
-    build_epoch_start_end_time_cache,
-    build_block_timestamp_cache,
-    create_emissions_lookup,
-    create_reward_cap_lookup,
-    create_staking_amount_lookup,
-    create_epoch_lookup,
-    create_block_lookup,
+    build_block_timestamp_cache, build_epoch_start_end_time_cache, build_rewards_cache,
+    create_block_lookup, create_emissions_lookup, create_epoch_lookup,
+    create_staking_amount_lookup, create_reward_cap_lookup, RewardsCache,
 };
 
-pub use events::{
-    AllEventLogs,
-    fetch_all_event_logs,
-    query_logs_chunked,
-};
+pub use events::{fetch_all_event_logs, query_logs_chunked, AllEventLogs};
 
-pub use povw::{
-    WorkLogRewardInfo,
-    EpochPoVWRewards,
-    compute_povw_rewards_by_work_log_id,
-};
+pub use povw::{compute_povw_rewards_by_work_log_id, EpochPoVWRewards, WorkLogRewardInfo};
 
 pub use staking::{
+    compute_staking_positions_by_address, get_current_staking_aggregate, EpochStakingPositions,
     StakingPosition,
-    EpochStakingPositions,
-    compute_staking_positions_by_address,
-    get_current_staking_aggregate,
 };
 
-pub use powers::{
-    DelegationPowers,
-    EpochDelegationPowers,
-    compute_delegation_powers_by_address,
-};
+pub use powers::{compute_delegation_powers_by_address, DelegationPowers, EpochDelegationPowers};
 
 /// Time range for an epoch
 #[derive(Debug, Clone, Copy)]
