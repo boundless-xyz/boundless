@@ -184,7 +184,9 @@ impl ProvingService {
         let mut order_state_rx = {
             let rx = self.order_state_tx.subscribe();
 
-            if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire) {
+            if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire)
+                || order.expire_timestamp.unwrap() < crate::now_timestamp()
+            {
                 // Check if the order has already been fulfilled before starting proof
                 match self.db.is_request_fulfilled(request_id).await {
                     Ok(true) => {
