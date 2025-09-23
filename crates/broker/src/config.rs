@@ -274,9 +274,8 @@ pub struct MarketConf {
     #[serde(default, alias = "expired_order_fulfillment_priority")]
     pub order_commitment_priority: OrderCommitmentPriority,
     /// Whether to cancel Bento proving sessions when the order is no longer actionable
-    /// If false (default), Bento proving continues even if the order cannot be fulfilled
-    /// This setting applies on order expiry handling; lock expiry or external fulfillment will not
-    /// trigger cancellation.
+    /// If false (default), Bento proving continues even if the order cannot be fulfilled in the
+    /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
 }
