@@ -397,6 +397,7 @@ mod tests {
             timeout: 1000,
             lock_timeout: 1000,
             seconds_per_mcycle: 60,
+            ramp_up_seconds_per_mcycle: 60,
             exec_rate_khz: 5000,
             program: Some(LOOP_PATH.parse().unwrap()),
             input: None,
