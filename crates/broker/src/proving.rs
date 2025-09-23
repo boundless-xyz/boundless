@@ -24,7 +24,7 @@ use crate::{
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     utils::cancel_proof_and_fail_order,
-    Order, OrderStateChange, OrderStatus,
+    FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use anyhow::{Context, Result};
 use thiserror::Error;
@@ -74,18 +74,6 @@ impl ProvingService {
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     ) -> Result<Self> {
         Ok(Self { db, prover, config, order_state_tx })
-    }
-
-    async fn cancel_stark_session(&self, proof_id: &str, order_id: &str, reason: &str) {
-        if let Err(err) = self.prover.cancel_stark(proof_id).await {
-            tracing::warn!(
-                "Failed to cancel proof {} for {} order {}: {}",
-                proof_id,
-                reason,
-                order_id,
-                err
-            );
-        }
     }
 
     async fn monitor_proof_internal(
@@ -188,40 +176,37 @@ impl ProvingService {
         let proof_id = order.proof_id.as_ref().context("Order should have proof ID")?;
 
         let timeout_duration = {
-            let expiry_timestamp_secs =
-                order.expire_timestamp.expect("Order should have expiry set");
+            let expiry_timestamp_secs = order.request.expires_at();
             let now = crate::now_timestamp();
             Duration::from_secs(expiry_timestamp_secs.saturating_sub(now))
         };
         // Only subscribe to order state events for FulfillAfterLockExpire orders
-        let mut order_state_rx = if matches!(
-            order.fulfillment_type,
-            crate::FulfillmentType::FulfillAfterLockExpire
-        ) {
+        let mut order_state_rx = {
             let rx = self.order_state_tx.subscribe();
 
-            // Check if the order has already been fulfilled before starting proof
-            match self.db.is_request_fulfilled(request_id).await {
-                Ok(true) => {
-                    tracing::debug!(
-                        "Order {} (request {}) was already fulfilled, skipping proof",
-                        order_id,
-                        request_id
-                    );
-                    self.cancel_stark_session(proof_id, &order_id, "externally fulfilled").await;
-                    return Err(ProvingErr::ExternallyFulfilled);
+            if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire) {
+                // Check if the order has already been fulfilled before starting proof
+                match self.db.is_request_fulfilled(request_id).await {
+                    Ok(true) => {
+                        tracing::debug!(
+                            "Order {} (request {}) was already fulfilled, skipping proof",
+                            order_id,
+                            request_id
+                        );
+                        return Err(ProvingErr::ExternallyFulfilled);
+                    }
+                    Ok(false) => Some(rx),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to check fulfillment status for order {}, will continue proving: {e:?}",
+                            order_id,
+                        );
+                        Some(rx)
+                    }
                 }
-                Ok(false) => Some(rx),
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to check fulfillment status for order {}, will continue proving: {e:?}",
-                        order_id,
-                    );
-                    Some(rx)
-                }
+            } else {
+                Some(rx)
             }
-        } else {
-            None
         };
 
         let monitor_task = self.monitor_proof_internal(
@@ -249,12 +234,7 @@ impl ProvingService {
                 }
                 // Timeout occurred
                 _ = &mut timeout_future => {
-                    tracing::debug!(
-                        "Proving timed out for order {}, cancelling proof {}",
-                        order_id,
-                        proof_id
-                    );
-                    self.cancel_stark_session(proof_id, &order_id, "timed out").await;
+                    tracing::debug!("Proving timed out for order {order_id}, with proof id: {proof_id}");
                     return Err(ProvingErr::ProvingTimedOut);
                 }
                 // External fulfillment notification (only active for FulfillAfterLockExpire orders)
@@ -266,14 +246,39 @@ impl ProvingService {
                 } => {
                     match recv_res {
                         Ok(OrderStateChange::Fulfilled { request_id: fulfilled_request_id }) if fulfilled_request_id == request_id => {
-                            tracing::debug!(
-                                "Order {} (request {}) was fulfilled by another prover, cancelling proof {}",
-                                order_id,
-                                request_id,
-                                proof_id
-                            );
-                            self.cancel_stark_session(proof_id, &order_id, "externally fulfilled").await;
-                            return Err(ProvingErr::ExternallyFulfilled);
+                            match order.fulfillment_type {
+                                FulfillmentType::FulfillAfterLockExpire => {
+                                    tracing::debug!(
+                                        "Order {} (request {}) was fulfilled by another prover, cancelling proof {}",
+                                        order_id,
+                                        request_id,
+                                        proof_id
+                                    );
+                                    return Err(ProvingErr::ExternallyFulfilled);
+                                }
+                                FulfillmentType::LockAndFulfill => {
+                                    if crate::now_timestamp() >= order.request.lock_expires_at() {
+                                        tracing::debug!(
+                                            "Order {} (request {}) was fulfilled after lock expiry, cancelling proof {}",
+                                            order_id,
+                                            request_id,
+                                            proof_id
+                                        );
+                                        return Err(ProvingErr::ExternallyFulfilled);
+                                    } else {
+                                        tracing::trace!("Fulfillment observed before lock expiry; continuing proof monitoring");
+                                    }
+                                }
+                                FulfillmentType::FulfillWithoutLocking => {
+                                    tracing::debug!(
+                                        "Order {} (request {}) was fulfilled by another prover, cancelling proof {}",
+                                        order_id,
+                                        request_id,
+                                        proof_id
+                                    );
+                                    return Err(ProvingErr::ExternallyFulfilled);
+                                }
+                            }
                         }
                         Ok(_) => {
                             // Fulfillment for a different request, continue monitoring
@@ -337,7 +342,25 @@ impl ProvingService {
             }
             Err(ProvingErr::ExternallyFulfilled) => {
                 tracing::info!("Order {order_id} was fulfilled by another prover, cancelled proof");
-                handle_order_failure(&self.db, &order_id, "Externally fulfilled").await;
+                cancel_proof_and_fail_order(
+                    &self.prover,
+                    &self.db,
+                    &self.config,
+                    &order,
+                    "Externally fulfilled",
+                )
+                .await;
+            }
+            Err(ProvingErr::ProvingTimedOut) => {
+                tracing::info!("Order {order_id} expired during proving");
+                cancel_proof_and_fail_order(
+                    &self.prover,
+                    &self.db,
+                    &self.config,
+                    &order,
+                    "Order expired during proving",
+                )
+                .await;
             }
             Err(err) => {
                 tracing::error!(
@@ -360,11 +383,12 @@ impl ProvingService {
         let now = crate::now_timestamp();
         for order in current_proofs {
             let order_id = order.id();
-            if order.expire_timestamp.unwrap() < now {
+            if order.request.expires_at() < now {
                 tracing::warn!("Order {} had expired on proving task start", order_id);
                 cancel_proof_and_fail_order(
                     &self.prover,
                     &self.db,
+                    &self.config,
                     &order,
                     "Order expired on startup",
                 )

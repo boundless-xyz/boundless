@@ -35,9 +35,6 @@ pub enum ReaperError {
 
     #[error("{code} Config error {0}", code = self.code())]
     ConfigReadErr(#[from] ConfigErr),
-
-    #[error("{code} Failed to update expired order status: {0}", code = self.code())]
-    UpdateFailed(anyhow::Error),
 }
 
 impl CodedError for ReaperError {
@@ -45,7 +42,6 @@ impl CodedError for ReaperError {
         match self {
             ReaperError::DbError(_) => "[B-REAP-001]",
             ReaperError::ConfigReadErr(_) => "[B-REAP-002]",
-            ReaperError::UpdateFailed(_) => "[B-REAP-003]",
         }
     }
 }
@@ -80,19 +76,11 @@ impl ReaperTask {
                 cancel_proof_and_fail_order(
                     &self.prover,
                     &self.db,
+                    &self.config,
                     &order,
                     "Order expired in reaper",
                 )
                 .await;
-                match self.db.set_order_failure(&order_id, "Order expired").await {
-                    Ok(()) => {
-                        warn!("Order {} has expired, marked as failed", order_id);
-                    }
-                    Err(err) => {
-                        error!("Failed to update status for expired order {}: {}", order_id, err);
-                        return Err(ReaperError::UpdateFailed(err.into()));
-                    }
-                }
             }
         }
 
