@@ -43,7 +43,7 @@ lookback_blocks = 300 # 300 blocks ~ 1 hour @ 12s block times
 # Max collateral amount, denominated in the Boundless collateral token.
 #
 # Requests that require a higher collateral amount than this will not be considered.
-max_collateral = "25" # USDC
+max_collateral = "25" # ZKC
 # Max input / image file size allowed for downloading from request URLs.
 max_file_size = 50_000_000
 # Max retries for fetching input / image contents from URLs
