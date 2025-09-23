@@ -169,8 +169,8 @@ contract BoundlessMarket is
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        (bytes32 requestHash, address prover) =
-            _verifyClientSignatureAndExtractProverAddress(request, client, clientSignature, proverSignature);
+        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
+        address prover = _extractProverAddress(request, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, clientSignature, requestHash, client, idx, prover, lockDeadline, deadline);
@@ -904,19 +904,17 @@ contract BoundlessMarket is
         return requestHash;
     }
 
-    function _verifyClientSignatureAndExtractProverAddress(
-        ProofRequest calldata request,
-        address clientAddr,
-        bytes calldata clientSignature,
-        bytes calldata proverSignature
-    ) internal view returns (bytes32 requestHash, address proverAddress) {
-        requestHash = _verifyClientSignature(request, clientAddr, clientSignature);
+    function _extractProverAddress(ProofRequest calldata request, bytes calldata proverSignature)
+        internal
+        view
+        returns (address proverAddress)
+    {
         bytes32 proofRequestEip712Digest = request.eip712Digest();
         bytes32 lockRequestHash =
             _hashTypedDataV4(LockRequestLibrary.eip712DigestFromPrecomputedDigest(proofRequestEip712Digest));
         proverAddress = ECDSA.recover(lockRequestHash, proverSignature);
 
-        return (requestHash, proverAddress);
+        return proverAddress;
     }
 
     /// @inheritdoc IBoundlessMarket
