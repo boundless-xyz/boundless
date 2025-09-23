@@ -77,7 +77,7 @@ just bento down
 #### Specify the Log ID Address
 
 :::note[PoVW Specific Terminology]
-It is recommended to read the [Terminology](/zkc/povw-claiming-rewards#terminology) section before running the commands listed below.
+It is recommended to read the [Terminology](/zkc/povw/claiming-rewards#terminology) section before running the commands listed below.
 :::
 
 :::tip[Tip]
@@ -100,7 +100,7 @@ x-base-environment: &base-environment
   POVW_LOG_ID: "0x1234...5678" // [!code hl] [!code focus]
 ```
 
-Provers will need the private key for this address when using the PoVW CLI to prepare and submit valid work to the PoVW contracts.  Please see [Provers submit a Work Log Update](/zkc/povw-claiming-rewards#provers-submit-a-work-log-update-with-submit) for more information.
+Provers will need the private key for this address when using the PoVW CLI to prepare and submit valid work to the PoVW contracts.  Please see [Provers submit a Work Log Update](/zkc/povw/claiming-rewards#provers-submit-a-work-log-update-with-submit) for more information.
 
 #### Export the PRIVATE_KEY and RPC_URL environment variables
 
@@ -129,7 +129,7 @@ will start both the broker and Bento.
 
 ::::
 
-Before continuing with the tutorial, it is recommended to read both the [Terminology](/zkc/povw-claiming-rewards#terminology) and [Reward Claiming Workflow](/zkc/povw-claiming-rewards#reward-claiming-workflow) sections before running the commands listed below.
+Before continuing with the tutorial, it is recommended to read both the [Terminology](/zkc/povw/claiming-rewards#terminology) and [Reward Claiming Workflow](/zkc/povw/claiming-rewards#reward-claiming-workflow) sections before running the commands listed below.
 
 ## Claiming PoVW rewards
 
@@ -168,7 +168,7 @@ boundless zkc stake --amount $(cast parse-units 100 18)
 
 Provers are now ready to run proving workloads with PoVW enabled; this can be done by [running a prover](/provers/quick-start) on the Boundless marketplace or elsewhere.
 
-For each proving job, R0VM will automatically generate [work receipts](/zkc/povw-claiming-rewards#terminology). These work receipts track the amount of proving work done. Each epoch, provers will need to submit their accumulated work to the PoVW accounting smart contract. To do this, provers must use the PoVW CLI and run the following three commands, `prepare`, `submit` and `claim`.
+For each proving job, R0VM will automatically generate [work receipts](/zkc/povw/claiming-rewards#terminology). These work receipts track the amount of proving work done. Each epoch, provers will need to submit their accumulated work to the PoVW accounting smart contract. To do this, provers must use the PoVW CLI and run the following three commands, `prepare`, `submit` and `claim`.
 
 ### Create and Update the Work Log
 
@@ -178,7 +178,7 @@ Once provers have run some jobs, they can create a new work log (i.e. state file
 boundless povw prepare --new ${POVW_LOG_ID} --state ${STATE_FILE_LOCATION} --from-bento
 ```
 
-where `${STATE_FILE_LOCATION}` is something like: `~/folder/state.bin`. Please note that this state file is very important and it should be kept in a durable location. Please see [Keeping the State File Safe](/zkc/povw-claiming-rewards#keeping-the-state-file-safe).
+where `${STATE_FILE_LOCATION}` is something like: `~/folder/state.bin`. Please note that this state file is very important and it should be kept in a durable location. Please see [Keeping the State File Safe](/zkc/povw/claiming-rewards#keeping-the-state-file-safe).
 
 `prepare` compresses all work receipts and stores the work log update to the state file. This process is entirely local (i.e. it does not send any transaction). For this work to be eligible for $ZKC rewards from the PoVW contract, this work log update must now be sent onchain.
 
@@ -224,7 +224,7 @@ boundless zkc get-epoch-end-time <EPOCH_NUMBER>
 
 | Term | Description |
 |------|-------------|
-| **Log ID** | This is the Ethereum address set with the `POVW_LOG_ID` environment variable. This address can be the same as the one used for a prover on the Boundless Market, but it doesn't have to be. See [Recommended Practices](/zkc/povw-claiming-rewards#recommended-practices) for more information. |
+| **Log ID** | This is the Ethereum address set with the `POVW_LOG_ID` environment variable. This address can be the same as the one used for a prover on the Boundless Market, but it doesn't have to be. See [Recommended Practices](/zkc/povw/claiming-rewards#recommended-practices) for more information. |
 | **Work Receipts** | For each proving workload, PoVW generates work receipts alongside the expected ZK proof. These work receipts are compressed into a “work log” update to post onchain. This work log update represents the combined work of all compressed work receipts. Work receipts are compressed using the `prepare` CLI command, and this process is entirely local. |
 | **Work Log** | The work log is a record of work tracked against a specific log ID i.e. it represents a tally of all work done by that address. A work log commitment prevents “double-spending” of verifiable work when claiming PoVW rewards. The work log is updated using the `submit` CLI command, which takes a work log update (generated by `prepare`) and updates the commitment onchain to reflect all the work done by the log ID since the last update. |
 | **Reward Epoch** | The PoVW reward epoch is approximately 2 days. Verifiable work submitted within a given epoch is eligible for that epoch’s reward emissions. To be eligible for these rewards, a prover must stake an amount of $ZKC that scales with the size of their rewards for a given epoch. For more information, please see this [blog post](https://boundless.network/blog/introducing-zk-coin). |
@@ -258,7 +258,7 @@ Towards the end of an epoch, the prover must verify their work done to the PoVW 
 
 The prover waits for the current reward epoch to finalize. This allows all work log updates to be tallied, and all the respective rewards for each log ID to be calculated.
 
-To check details of the current epoch, please see [Checking Details of Current Reward Epoch](/zkc/povw-claiming-rewards#checking-details-of-current-reward-epoch),
+To check details of the current epoch, please see [Checking Details of Current Reward Epoch](/zkc/povw/claiming-rewards#checking-details-of-current-reward-epoch),
 
 #### Provers claim rewards with `claim-rewards`
 
@@ -278,7 +278,7 @@ In PoVW, the prover specifies the Log ID which must be a valid Ethereum address.
 
 #### Separating the Staking Wallet from the Log ID
 
-When [enabling PoVW in Bento](/zkc/povw-claiming-rewards#specify-the-log-id-address), provers specify the following environment variables:
+When [enabling PoVW in Bento](/zkc/povw/claiming-rewards#specify-the-log-id-address), provers specify the following environment variables:
 
 ```bash
 export POVW_LOG_ID="0x0000...0000"
@@ -292,7 +292,7 @@ export ZKC_WALLET_ADDRESS="0x0000...0000"
 export PRIVATE_KEY="..."
 ```
 
-Provers can now follow the [staking instructions](/zkc/povw-claiming-rewards#staking-zkc) to stake $ZKC from the `ZKC_WALLET_ADDRESS`. Once staked, provers must delegate rewards i.e. associate the `POVW_LOG_ID` with `ZKC_WALLET_ADDRESS`. This is done with the following command:
+Provers can now follow the [staking instructions](/zkc/povw/claiming-rewards#staking-zkc) to stake $ZKC from the `ZKC_WALLET_ADDRESS`. Once staked, provers must delegate rewards i.e. associate the `POVW_LOG_ID` with `ZKC_WALLET_ADDRESS`. This is done with the following command:
 
 ```bash
 boundless zkc delegate-rewards ${POVW_LOG_ID}
@@ -300,7 +300,7 @@ boundless zkc delegate-rewards ${POVW_LOG_ID}
 
 This command uses the `PRIVATE_KEY` environment variable to send a transaction onchain, therefore funds are required on `ZKC_WALLET_ADDRESS`.
 
-Once the rewards are delegated, the prover can continue with the normal reward claiming workflow and they can [start proving](/zkc/povw-claiming-rewards#start-proving).
+Once the rewards are delegated, the prover can continue with the normal reward claiming workflow and they can [start proving](/zkc/povw/claiming-rewards#start-proving).
 
 #### Separating the Staking Wallet from the Value Recipient
 
