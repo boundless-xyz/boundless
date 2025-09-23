@@ -910,21 +910,8 @@ contract BoundlessMarket is
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) internal view returns (bytes32 requestHash, address proverAddress) {
+        requestHash = _verifyClientSignature(request, clientAddr, clientSignature);
         bytes32 proofRequestEip712Digest = request.eip712Digest();
-        requestHash = _hashTypedDataV4(proofRequestEip712Digest);
-        if (request.id.isSmartContractSigned()) {
-            if (
-                IERC1271(clientAddr).isValidSignature(requestHash, clientSignature)
-                    != IERC1271.isValidSignature.selector
-            ) {
-                revert IBoundlessMarket.InvalidSignature();
-            }
-        } else {
-            if (ECDSA.recover(requestHash, clientSignature) != clientAddr) {
-                revert IBoundlessMarket.InvalidSignature();
-            }
-        }
-
         bytes32 lockRequestHash =
             _hashTypedDataV4(LockRequestLibrary.eip712DigestFromPrecomputedDigest(proofRequestEip712Digest));
         proverAddress = ECDSA.recover(lockRequestHash, proverSignature);
