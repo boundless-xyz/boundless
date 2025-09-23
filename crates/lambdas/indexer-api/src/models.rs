@@ -52,11 +52,20 @@ pub struct AggregateLeaderboardEntry {
     /// Total work submitted across all epochs
     pub total_work_submitted: String,
 
+    /// Total work submitted (human-readable)
+    pub total_work_submitted_formatted: String,
+
     /// Total rewards earned across all epochs
     pub total_actual_rewards: String,
 
+    /// Total rewards earned (human-readable)
+    pub total_actual_rewards_formatted: String,
+
     /// Total uncapped rewards earned across all epochs
     pub total_uncapped_rewards: String,
+
+    /// Total uncapped rewards (human-readable)
+    pub total_uncapped_rewards_formatted: String,
 
     /// Number of epochs participated in
     pub epochs_participated: u64,
@@ -77,23 +86,38 @@ pub struct EpochLeaderboardEntry {
     /// Work submitted in this epoch
     pub work_submitted: String,
 
+    /// Work submitted (human-readable)
+    pub work_submitted_formatted: String,
+
     /// Percentage of total work in epoch
     pub percentage: f64,
 
     /// Rewards before applying cap
     pub uncapped_rewards: String,
 
+    /// Uncapped rewards (human-readable)
+    pub uncapped_rewards_formatted: String,
+
     /// Maximum rewards allowed based on stake
     pub reward_cap: String,
 
+    /// Reward cap (human-readable)
+    pub reward_cap_formatted: String,
+
     /// Actual rewards after applying cap
     pub actual_rewards: String,
+
+    /// Actual rewards (human-readable)
+    pub actual_rewards_formatted: String,
 
     /// Whether rewards were capped
     pub is_capped: bool,
 
     /// Staked amount for this work log
     pub staked_amount: String,
+
+    /// Staked amount (human-readable)
+    pub staked_amount_formatted: String,
 }
 
 /// Response wrapper for leaderboard endpoints
@@ -104,6 +128,10 @@ pub struct LeaderboardResponse<T> {
 
     /// Pagination metadata
     pub pagination: PaginationMetadata,
+
+    /// Optional summary statistics
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<serde_json::Value>,
 }
 
 /// Pagination metadata
@@ -122,7 +150,12 @@ pub struct PaginationMetadata {
 impl<T> LeaderboardResponse<T> {
     pub fn new(entries: Vec<T>, offset: u64, limit: u64) -> Self {
         let count = entries.len();
-        Self { entries, pagination: PaginationMetadata { count, offset, limit } }
+        Self { entries, pagination: PaginationMetadata { count, offset, limit }, summary: None }
+    }
+
+    pub fn with_summary(entries: Vec<T>, offset: u64, limit: u64, summary: serde_json::Value) -> Self {
+        let count = entries.len();
+        Self { entries, pagination: PaginationMetadata { count, offset, limit }, summary: Some(summary) }
     }
 }
 
@@ -137,6 +170,9 @@ pub struct AggregateStakingEntry {
 
     /// Total staked amount
     pub total_staked: String,
+
+    /// Total staked (human-readable)
+    pub total_staked_formatted: String,
 
     /// Whether the stake is in withdrawal
     pub is_withdrawing: bool,
@@ -165,6 +201,9 @@ pub struct EpochStakingEntry {
 
     /// Staked amount in this epoch
     pub staked_amount: String,
+
+    /// Staked amount (human-readable)
+    pub staked_amount_formatted: String,
 
     /// Whether the stake was in withdrawal during this epoch
     pub is_withdrawing: bool,
@@ -291,6 +330,83 @@ pub struct DelegationPowerData {
     pub delegators: Vec<String>,
 }
 
+/// Global PoVW summary statistics
+#[derive(Debug, Serialize, Clone)]
+pub struct PoVWSummaryStats {
+    pub total_epochs_with_work: u64,
+    pub total_unique_work_log_ids: u64,
+    pub total_work_all_time: String,
+    pub total_work_all_time_formatted: String,
+    pub total_emissions_all_time: String,
+    pub total_emissions_all_time_formatted: String,
+    pub total_capped_rewards_all_time: String,
+    pub total_capped_rewards_all_time_formatted: String,
+    pub total_uncapped_rewards_all_time: String,
+    pub total_uncapped_rewards_all_time_formatted: String,
+}
+
+/// Per-epoch PoVW summary
+#[derive(Debug, Serialize, Clone)]
+pub struct EpochPoVWSummary {
+    pub epoch: u64,
+    pub total_work: String,
+    pub total_work_formatted: String,
+    pub total_emissions: String,
+    pub total_emissions_formatted: String,
+    pub total_capped_rewards: String,
+    pub total_capped_rewards_formatted: String,
+    pub total_uncapped_rewards: String,
+    pub total_uncapped_rewards_formatted: String,
+    pub epoch_start_time: u64,
+    pub epoch_end_time: u64,
+    pub num_participants: u64,
+}
+
+/// Global staking summary statistics
+#[derive(Debug, Serialize, Clone)]
+pub struct StakingSummaryStats {
+    pub current_total_staked: String,
+    pub current_total_staked_formatted: String,
+    pub total_unique_stakers: u64,
+    pub current_active_stakers: u64,
+    pub current_withdrawing: u64,
+}
+
+/// Per-epoch staking summary
+#[derive(Debug, Serialize, Clone)]
+pub struct EpochStakingSummary {
+    pub epoch: u64,
+    pub total_staked: String,
+    pub total_staked_formatted: String,
+    pub num_stakers: u64,
+    pub num_withdrawing: u64,
+}
+
+/// Address-specific staking aggregate summary
+#[derive(Debug, Serialize, Clone)]
+pub struct StakingAddressSummary {
+    pub staker_address: String,
+    pub total_staked: String,
+    pub total_staked_formatted: String,
+    pub is_withdrawing: bool,
+    pub rewards_delegated_to: Option<String>,
+    pub votes_delegated_to: Option<String>,
+    pub epochs_participated: u64,
+}
+
+/// Address-specific PoVW aggregate summary
+#[derive(Debug, Serialize, Clone)]
+pub struct PoVWAddressSummary {
+    pub work_log_id: String,
+    pub total_work_submitted: String,
+    pub total_work_submitted_formatted: String,
+    pub total_actual_rewards: String,
+    pub total_actual_rewards_formatted: String,
+    pub total_uncapped_rewards: String,
+    pub total_uncapped_rewards_formatted: String,
+    pub epochs_participated: u64,
+}
+
 /// Response for delegation power entries
 #[derive(Debug, Serialize)]
 pub struct DelegationPowerEntry {
@@ -309,6 +425,9 @@ pub struct DelegationPowerEntry {
     /// List of delegator addresses
     pub delegators: Vec<String>,
 
-    /// Number of epochs participated (for aggregates) or epoch number (for history)
+    /// Number of epochs participated (for aggregates)
     pub epochs_participated: Option<u64>,
+
+    /// Epoch number (for specific epoch data)
+    pub epoch: Option<u64>,
 }

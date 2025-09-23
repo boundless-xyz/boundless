@@ -48,3 +48,9 @@ tracing-subscriber = { workspace = true, features = [
 
 # Internal dependencies
 boundless-indexer = { path = "../../indexer" }
+
+[dev-dependencies]
+# HTTP client for integration tests
+reqwest = { version = "0.12", features = ["json"] }
+# Async runtime for tests
+tokio = { workspace = true, features = ["test-util"] }

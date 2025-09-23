@@ -36,8 +36,8 @@ target/
 .idea
 .aider*
 .claude
-CLAUDE.md
-AGENTS.md
+**/CLAUDE.md
+**/AGENTS.md
 .cursor
 .codex
 

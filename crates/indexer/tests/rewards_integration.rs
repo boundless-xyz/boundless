@@ -598,23 +598,36 @@ async fn print_epoch_leaderboard(db: &dyn RewardsIndexerDb, epoch: u64) {
         return;
     }
 
+    // Get epoch statistics from database
+    let epoch_summary = db.get_epoch_povw_summary(epoch).await
+        .expect("Failed to get epoch summary")
+        .expect("Epoch summary not found");
+
+    println!("Epoch {} Statistics:", epoch);
+    println!("  Total Work: {}", format_u256_short(epoch_summary.total_work));
+    println!("  Total Actual Rewards: {} ZKC", format_zkc(epoch_summary.total_capped_rewards));
+    println!("  Total Uncapped Rewards: {} ZKC", format_zkc(epoch_summary.total_uncapped_rewards));
+    println!();
+
     println!(
-        "{:<44} {:>20} {:>4} {:>8} {:>8}",
-        "Work Log ID", "Work Submitted", "Rewards (ZKC)", "% Share", "Capped"
+        "{:<44} {:>20} {:>20} {:>20} {:>8} {:>8}",
+        "Work Log ID", "Work Submitted", "Actual Rewards (ZKC)", "Uncapped Rewards (ZKC)", "% Share", "Capped"
     );
-    println!("{}", "-".repeat(104));
+    println!("{}", "-".repeat(140));
 
     for reward in rewards {
         let work_submitted = format_u256_short(reward.work_submitted);
         let actual_rewards = format_zkc(reward.actual_rewards);
+        let uncapped_rewards = format_zkc(reward.uncapped_rewards);
         let percentage = format!("{:.2}%", reward.percentage);
         let capped = if reward.is_capped { "Yes" } else { "No" };
 
         println!(
-            "{:<44} {:>20} {:>4} {:>8} {:>8}",
+            "{:<44} {:>20} {:>20} {:>20} {:>8} {:>8}",
             format!("{:#x}", reward.work_log_id),
             work_submitted,
             actual_rewards,
+            uncapped_rewards,
             percentage,
             capped
         );
@@ -630,11 +643,30 @@ async fn print_aggregate_leaderboard(db: &dyn RewardsIndexerDb) {
         return;
     }
 
+    // Get global summary statistics from database
+    let global_summary = db.get_povw_summary_stats().await
+        .expect("Failed to get PoVW summary stats")
+        .expect("PoVW summary stats not found");
+
+    println!("Overall PoVW Summary Statistics:");
+    println!("  Total Unique Work Log IDs: {}", global_summary.total_unique_work_log_ids);
+    println!("  Total Work (All Time): {}", format_u256_short(global_summary.total_work_all_time));
+    println!("  Total Actual Rewards (All Time): {} ZKC", format_zkc(global_summary.total_capped_rewards_all_time));
+    println!("  Total Uncapped Rewards (All Time): {} ZKC", format_zkc(global_summary.total_uncapped_rewards_all_time));
+    let capping_percentage = if global_summary.total_uncapped_rewards_all_time > U256::ZERO {
+        let capped_amount = global_summary.total_uncapped_rewards_all_time - global_summary.total_capped_rewards_all_time;
+        (capped_amount * U256::from(10000) / global_summary.total_uncapped_rewards_all_time).to::<u64>() as f64 / 100.0
+    } else {
+        0.0
+    };
+    println!("  Rewards Capped: {:.2}%", capping_percentage);
+    println!();
+
     println!(
-        "{:<44} {:<4} {:>4} {:>4} {:>8}",
-        "Work Log ID", "Total Work", "Actual Rewards (ZKC)", "Uncapped Rewards", "Epochs"
+        "{:<5} {:<44} {:>20} {:>20} {:>20} {:>8}",
+        "Rank", "Work Log ID", "Total Work", "Actual Rewards (ZKC)", "Uncapped Rewards (ZKC)", "Epochs"
     );
-    println!("{}", "-".repeat(116));
+    println!("{}", "-".repeat(140));
 
     for (rank, aggregate) in aggregates.iter().enumerate() {
         let total_work = format_u256_short(aggregate.total_work_submitted);
@@ -642,7 +674,7 @@ async fn print_aggregate_leaderboard(db: &dyn RewardsIndexerDb) {
         let total_uncapped = format_zkc(aggregate.total_uncapped_rewards);
 
         println!(
-            "#{:<3} {:<40} {:<4} {:>4} {:>4} {:>8}",
+            "#{:<4} {:<44} {:>20} {:>20} {:>20} {:>8}",
             rank + 1,
             format!("{:#x}", aggregate.work_log_id),
             total_work,

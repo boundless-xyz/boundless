@@ -24,7 +24,6 @@ mod get_epoch_end_time;
 mod get_rewards_delegates;
 mod get_staked_amount;
 mod stake;
-mod summary;
 mod unstake;
 
 pub use balance_of::{balance_of, ZkcBalance};
@@ -37,7 +36,6 @@ pub use get_epoch_end_time::{get_epoch_end_time, ZkcGetEpochEndTime};
 pub use get_rewards_delegates::{get_rewards_delegates, ZkcGetRewardsDelegates};
 pub use get_staked_amount::{get_staked_amount, ZkcGetStakedAmount};
 pub use stake::ZkcStake;
-pub use summary::ZkcSummary;
 pub use unstake::ZkcUnstake;
 
 use clap::Subcommand;
@@ -69,10 +67,6 @@ pub enum ZKCCommands {
     ClaimRewards(ZkcClaimRewards),
     /// Get rewards delegates for a specified address.
     GetRewardsDelegates(ZkcGetRewardsDelegates),
-    /// [UNSTABLE] Display comprehensive summary of ZKC staking, delegation, and PoVW information.
-    ///
-    /// Note: This command is unstable and its output format may change in future versions.
-    Summary(ZkcSummary),
 }
 
 impl ZKCCommands {
@@ -90,7 +84,6 @@ impl ZKCCommands {
             Self::CalculateRewards(cmd) => cmd.run(global_config).await,
             Self::ClaimRewards(cmd) => cmd.run(global_config).await,
             Self::GetRewardsDelegates(cmd) => cmd.run(global_config).await,
-            Self::Summary(cmd) => cmd.run(global_config).await,
         }
     }
 }

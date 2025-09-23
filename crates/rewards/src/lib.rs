@@ -30,14 +30,17 @@ pub use cache::{
 
 pub use events::{fetch_all_event_logs, query_logs_chunked, AllEventLogs};
 
-pub use povw::{compute_povw_rewards_by_work_log_id, EpochPoVWRewards, WorkLogRewardInfo};
-
-pub use staking::{
-    compute_staking_positions_by_address, get_current_staking_aggregate, EpochStakingPositions,
-    StakingPosition,
+pub use povw::{
+    compute_povw_rewards, compute_povw_rewards_for_epoch, EpochPoVWRewards,
+    PoVWWorkLogIdSummary, PoVWRewardsResult, PoVWSummary, WorkLogRewardInfo,
 };
 
-pub use powers::{compute_delegation_powers_by_address, DelegationPowers, EpochDelegationPowers};
+pub use staking::{
+    compute_staking_positions, EpochStakingPositions, StakingPosition, StakeEvent,
+    StakingPositionsResult, StakingSummary, TimestampedStakeEvent,
+};
+
+pub use powers::{compute_delegation_powers, DelegationPowers, DelegationEvent, EpochDelegationPowers, TimestampedDelegationEvent};
 
 /// Time range for an epoch
 #[derive(Debug, Clone, Copy)]

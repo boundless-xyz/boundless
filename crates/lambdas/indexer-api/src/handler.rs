@@ -49,9 +49,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     Router::new()
         // Health check endpoint
         .route("/health", get(health_check))
-        // OpenAPI spec endpoint
+        // OpenAPI spec endpoints
         .route("/openapi.yaml", get(openapi_spec))
         .route("/openapi.json", get(openapi_json))
+        // Swagger UI documentation
+        .route("/docs", get(swagger_docs))
         // API v1 routes
         .nest("/v1", api_v1_routes(state))
         // Add CORS layer
@@ -106,6 +108,70 @@ async fn openapi_json() -> impl IntoResponse {
         )
             .into_response(),
     }
+}
+
+/// Swagger UI documentation endpoint
+async fn swagger_docs() -> impl IntoResponse {
+    const HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boundless Indexer API Documentation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.10.3/swagger-ui.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        #swagger-ui {
+            max-width: 1460px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .topbar {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"></div>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.10.3/swagger-ui-bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.10.3/swagger-ui-standalone-preset.js"></script>
+    <script>
+        window.onload = function() {
+            // Get current origin to construct the OpenAPI spec URL
+            const baseUrl = window.location.origin;
+            const specUrl = baseUrl + '/openapi.json';
+
+            const ui = SwaggerUIBundle({
+                url: specUrl,
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                ],
+                plugins: [
+                    SwaggerUIBundle.plugins.DownloadUrl
+                ],
+                layout: "StandaloneLayout",
+                validatorUrl: null,
+                tryItOutEnabled: true,
+                supportedSubmitMethods: ['get']
+            });
+            window.ui = ui;
+        }
+    </script>
+</body>
+</html>"#;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(HTML.to_string())
+        .unwrap()
 }
 
 /// 404 handler

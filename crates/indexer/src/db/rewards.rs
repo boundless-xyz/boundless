@@ -150,6 +150,48 @@ pub struct RewardDelegationPowerAggregate {
     pub epochs_participated: u64,
 }
 
+/// Global PoVW summary statistics across all epochs
+#[derive(Debug, Clone)]
+pub struct PoVWSummaryStats {
+    pub total_epochs_with_work: u64,
+    pub total_unique_work_log_ids: u64,
+    pub total_work_all_time: U256,
+    pub total_emissions_all_time: U256,
+    pub total_capped_rewards_all_time: U256,
+    pub total_uncapped_rewards_all_time: U256,
+}
+
+/// Per-epoch PoVW summary
+#[derive(Debug, Clone)]
+pub struct EpochPoVWSummary {
+    pub epoch: u64,
+    pub total_work: U256,
+    pub total_emissions: U256,
+    pub total_capped_rewards: U256,
+    pub total_uncapped_rewards: U256,
+    pub epoch_start_time: u64,
+    pub epoch_end_time: u64,
+    pub num_participants: u64,
+}
+
+/// Global staking summary statistics
+#[derive(Debug, Clone)]
+pub struct StakingSummaryStats {
+    pub current_total_staked: U256,
+    pub total_unique_stakers: u64,
+    pub current_active_stakers: u64,
+    pub current_withdrawing: u64,
+}
+
+/// Per-epoch staking summary
+#[derive(Debug, Clone)]
+pub struct EpochStakingSummary {
+    pub epoch: u64,
+    pub total_staked: U256,
+    pub num_stakers: u64,
+    pub num_withdrawing: u64,
+}
+
 #[async_trait]
 pub trait RewardsIndexerDb {
     /// Upsert rewards data for a specific epoch
@@ -185,6 +227,12 @@ pub trait RewardsIndexerDb {
         offset: u64,
         limit: u64,
     ) -> Result<Vec<PovwRewardAggregate>, DbError>;
+
+    /// Get PoVW rewards aggregate for a specific address
+    async fn get_povw_rewards_aggregate_by_address(
+        &self,
+        address: Address,
+    ) -> Result<Option<PovwRewardAggregate>, DbError>;
 
     /// Get the current epoch from indexer state
     async fn get_current_epoch(&self) -> Result<Option<u64>, DbError>;
@@ -225,6 +273,12 @@ pub trait RewardsIndexerDb {
         offset: u64,
         limit: u64,
     ) -> Result<Vec<StakingPositionAggregate>, DbError>;
+
+    /// Get staking position aggregate for a specific address
+    async fn get_staking_position_aggregate_by_address(
+        &self,
+        address: Address,
+    ) -> Result<Option<StakingPositionAggregate>, DbError>;
 
     /// Upsert vote delegation powers for a specific epoch
     async fn upsert_vote_delegation_powers_by_epoch(
@@ -313,6 +367,50 @@ pub trait RewardsIndexerDb {
         start_epoch: Option<u64>,
         end_epoch: Option<u64>,
     ) -> Result<Vec<RewardDelegationPowerByEpoch>, DbError>;
+
+    /// Upsert global PoVW summary statistics
+    async fn upsert_povw_summary_stats(
+        &self,
+        stats: PoVWSummaryStats,
+    ) -> Result<(), DbError>;
+
+    /// Get global PoVW summary statistics
+    async fn get_povw_summary_stats(&self) -> Result<Option<PoVWSummaryStats>, DbError>;
+
+    /// Upsert per-epoch PoVW summary
+    async fn upsert_epoch_povw_summary(
+        &self,
+        epoch: u64,
+        summary: EpochPoVWSummary,
+    ) -> Result<(), DbError>;
+
+    /// Get per-epoch PoVW summary
+    async fn get_epoch_povw_summary(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<EpochPoVWSummary>, DbError>;
+
+    /// Upsert global staking summary statistics
+    async fn upsert_staking_summary_stats(
+        &self,
+        stats: StakingSummaryStats,
+    ) -> Result<(), DbError>;
+
+    /// Get global staking summary statistics
+    async fn get_staking_summary_stats(&self) -> Result<Option<StakingSummaryStats>, DbError>;
+
+    /// Upsert per-epoch staking summary
+    async fn upsert_epoch_staking_summary(
+        &self,
+        epoch: u64,
+        summary: EpochStakingSummary,
+    ) -> Result<(), DbError>;
+
+    /// Get per-epoch staking summary
+    async fn get_epoch_staking_summary(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<EpochStakingSummary>, DbError>;
 }
 
 pub struct RewardsDb {
@@ -513,6 +611,37 @@ impl RewardsIndexerDb for RewardsDb {
         Ok(results)
     }
 
+    async fn get_povw_rewards_aggregate_by_address(
+        &self,
+        address: Address,
+    ) -> Result<Option<PovwRewardAggregate>, DbError> {
+        let query = r#"
+            SELECT work_log_id, total_work_submitted, total_actual_rewards, total_uncapped_rewards, epochs_participated
+            FROM povw_rewards_aggregate
+            WHERE work_log_id = $1
+        "#;
+
+        let row = sqlx::query(query)
+            .bind(format!("{:#x}", address))
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = row {
+            Ok(Some(PovwRewardAggregate {
+                work_log_id: Address::from_str(&row.get::<String, _>("work_log_id"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                total_work_submitted: unpad_u256(&row.get::<String, _>("total_work_submitted"))?,
+                total_actual_rewards: unpad_u256(&row.get::<String, _>("total_actual_rewards"))?,
+                total_uncapped_rewards: unpad_u256(
+                    &row.get::<String, _>("total_uncapped_rewards"),
+                )?,
+                epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn get_current_epoch(&self) -> Result<Option<u64>, DbError> {
         let query = "SELECT value FROM indexer_state WHERE key = 'current_epoch'";
         let result = sqlx::query(query).fetch_optional(&self.pool).await?;
@@ -709,6 +838,39 @@ impl RewardsIndexerDb for RewardsDb {
         }
 
         Ok(results)
+    }
+
+    async fn get_staking_position_aggregate_by_address(
+        &self,
+        address: Address,
+    ) -> Result<Option<StakingPositionAggregate>, DbError> {
+        let query = r#"
+            SELECT staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated
+            FROM staking_positions_aggregate
+            WHERE staker_address = $1
+        "#;
+
+        let row = sqlx::query(query)
+            .bind(format!("{:#x}", address))
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = row {
+            let rewards_delegated_to: Option<String> = row.get("rewards_delegated_to");
+            let votes_delegated_to: Option<String> = row.get("votes_delegated_to");
+
+            Ok(Some(StakingPositionAggregate {
+                staker_address: Address::from_str(&row.get::<String, _>("staker_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                total_staked: unpad_u256(&row.get::<String, _>("total_staked"))?,
+                is_withdrawing: row.get::<i32, _>("is_withdrawing") != 0,
+                rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+                votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+                epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn upsert_vote_delegation_powers_by_epoch(
@@ -1229,5 +1391,223 @@ impl RewardsIndexerDb for RewardsDb {
         }
 
         Ok(results)
+    }
+
+    async fn upsert_povw_summary_stats(
+        &self,
+        stats: PoVWSummaryStats,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO povw_summary_stats
+             (id, total_epochs_with_work, total_unique_work_log_ids,
+              total_work_all_time, total_emissions_all_time,
+              total_capped_rewards_all_time, total_uncapped_rewards_all_time)
+             VALUES (1, $1, $2, $3, $4, $5, $6)
+             ON CONFLICT (id) DO UPDATE SET
+                total_epochs_with_work = $1,
+                total_unique_work_log_ids = $2,
+                total_work_all_time = $3,
+                total_emissions_all_time = $4,
+                total_capped_rewards_all_time = $5,
+                total_uncapped_rewards_all_time = $6",
+        )
+        .bind(stats.total_epochs_with_work as i64)
+        .bind(stats.total_unique_work_log_ids as i64)
+        .bind(pad_u256(stats.total_work_all_time))
+        .bind(pad_u256(stats.total_emissions_all_time))
+        .bind(pad_u256(stats.total_capped_rewards_all_time))
+        .bind(pad_u256(stats.total_uncapped_rewards_all_time))
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+        Ok(())
+    }
+
+    async fn get_povw_summary_stats(&self) -> Result<Option<PoVWSummaryStats>, DbError> {
+        let row = sqlx::query(
+            "SELECT total_epochs_with_work, total_unique_work_log_ids,
+                    total_work_all_time, total_emissions_all_time,
+                    total_capped_rewards_all_time, total_uncapped_rewards_all_time
+             FROM povw_summary_stats
+             WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+
+        if let Some(row) = row {
+            Ok(Some(PoVWSummaryStats {
+                total_epochs_with_work: row.get::<i64, _>("total_epochs_with_work") as u64,
+                total_unique_work_log_ids: row.get::<i64, _>("total_unique_work_log_ids") as u64,
+                total_work_all_time: unpad_u256(&row.get::<String, _>("total_work_all_time"))?,
+                total_emissions_all_time: unpad_u256(&row.get::<String, _>("total_emissions_all_time"))?,
+                total_capped_rewards_all_time: unpad_u256(&row.get::<String, _>("total_capped_rewards_all_time"))?,
+                total_uncapped_rewards_all_time: unpad_u256(&row.get::<String, _>("total_uncapped_rewards_all_time"))?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn upsert_epoch_povw_summary(
+        &self,
+        epoch: u64,
+        summary: EpochPoVWSummary,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO epoch_povw_summary
+             (epoch, total_work, total_emissions, total_capped_rewards,
+              total_uncapped_rewards, epoch_start_time, epoch_end_time, num_participants)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (epoch) DO UPDATE SET
+                total_work = $2,
+                total_emissions = $3,
+                total_capped_rewards = $4,
+                total_uncapped_rewards = $5,
+                epoch_start_time = $6,
+                epoch_end_time = $7,
+                num_participants = $8",
+        )
+        .bind(epoch as i64)
+        .bind(pad_u256(summary.total_work))
+        .bind(pad_u256(summary.total_emissions))
+        .bind(pad_u256(summary.total_capped_rewards))
+        .bind(pad_u256(summary.total_uncapped_rewards))
+        .bind(summary.epoch_start_time as i64)
+        .bind(summary.epoch_end_time as i64)
+        .bind(summary.num_participants as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+        Ok(())
+    }
+
+    async fn get_epoch_povw_summary(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<EpochPoVWSummary>, DbError> {
+        let row = sqlx::query(
+            "SELECT epoch, total_work, total_emissions, total_capped_rewards,
+                    total_uncapped_rewards, epoch_start_time, epoch_end_time, num_participants
+             FROM epoch_povw_summary
+             WHERE epoch = $1",
+        )
+        .bind(epoch as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+
+        if let Some(row) = row {
+            Ok(Some(EpochPoVWSummary {
+                epoch: row.get::<i64, _>("epoch") as u64,
+                total_work: unpad_u256(&row.get::<String, _>("total_work"))?,
+                total_emissions: unpad_u256(&row.get::<String, _>("total_emissions"))?,
+                total_capped_rewards: unpad_u256(&row.get::<String, _>("total_capped_rewards"))?,
+                total_uncapped_rewards: unpad_u256(&row.get::<String, _>("total_uncapped_rewards"))?,
+                epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
+                epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
+                num_participants: row.get::<i64, _>("num_participants") as u64,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn upsert_staking_summary_stats(
+        &self,
+        stats: StakingSummaryStats,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO staking_summary_stats
+             (id, current_total_staked, total_unique_stakers,
+              current_active_stakers, current_withdrawing)
+             VALUES (1, $1, $2, $3, $4)
+             ON CONFLICT (id) DO UPDATE SET
+                current_total_staked = $1,
+                total_unique_stakers = $2,
+                current_active_stakers = $3,
+                current_withdrawing = $4",
+        )
+        .bind(pad_u256(stats.current_total_staked))
+        .bind(stats.total_unique_stakers as i64)
+        .bind(stats.current_active_stakers as i64)
+        .bind(stats.current_withdrawing as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+        Ok(())
+    }
+
+    async fn get_staking_summary_stats(&self) -> Result<Option<StakingSummaryStats>, DbError> {
+        let row = sqlx::query(
+            "SELECT current_total_staked, total_unique_stakers,
+                    current_active_stakers, current_withdrawing
+             FROM staking_summary_stats
+             WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+
+        if let Some(row) = row {
+            Ok(Some(StakingSummaryStats {
+                current_total_staked: unpad_u256(&row.get::<String, _>("current_total_staked"))?,
+                total_unique_stakers: row.get::<i64, _>("total_unique_stakers") as u64,
+                current_active_stakers: row.get::<i64, _>("current_active_stakers") as u64,
+                current_withdrawing: row.get::<i64, _>("current_withdrawing") as u64,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn upsert_epoch_staking_summary(
+        &self,
+        epoch: u64,
+        summary: EpochStakingSummary,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO epoch_staking_summary
+             (epoch, total_staked, num_stakers, num_withdrawing)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (epoch) DO UPDATE SET
+                total_staked = $2,
+                num_stakers = $3,
+                num_withdrawing = $4",
+        )
+        .bind(epoch as i64)
+        .bind(pad_u256(summary.total_staked))
+        .bind(summary.num_stakers as i64)
+        .bind(summary.num_withdrawing as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+        Ok(())
+    }
+
+    async fn get_epoch_staking_summary(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<EpochStakingSummary>, DbError> {
+        let row = sqlx::query(
+            "SELECT epoch, total_staked, num_stakers, num_withdrawing
+             FROM epoch_staking_summary
+             WHERE epoch = $1",
+        )
+        .bind(epoch as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+
+        if let Some(row) = row {
+            Ok(Some(EpochStakingSummary {
+                epoch: row.get::<i64, _>("epoch") as u64,
+                total_staked: unpad_u256(&row.get::<String, _>("total_staked"))?,
+                num_stakers: row.get::<i64, _>("num_stakers") as u64,
+                num_withdrawing: row.get::<i64, _>("num_withdrawing") as u64,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }

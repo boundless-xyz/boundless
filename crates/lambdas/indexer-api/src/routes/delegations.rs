@@ -92,6 +92,7 @@ async fn get_aggregate_vote_delegations_impl(
             delegator_count: agg.delegator_count,
             delegators: agg.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
             epochs_participated: Some(agg.epochs_participated),
+            epoch: None,
         })
         .collect();
 
@@ -144,6 +145,7 @@ async fn get_vote_delegations_by_epoch_impl(
             delegator_count: power.delegator_count,
             delegators: power.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
             epochs_participated: None,
+            epoch: Some(epoch),
         })
         .collect();
 
@@ -205,7 +207,8 @@ async fn get_vote_delegation_history_by_address_impl(
             power: power.vote_power.to_string(),
             delegator_count: power.delegator_count,
             delegators: power.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
-            epochs_participated: Some(power.epoch),
+            epochs_participated: None,
+            epoch: Some(power.epoch),
         })
         .collect();
 
@@ -258,7 +261,8 @@ async fn get_vote_delegation_by_address_and_epoch_impl(
         power: power.vote_power.to_string(),
         delegator_count: power.delegator_count,
         delegators: power.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
-        epochs_participated: Some(power.epoch),
+        epochs_participated: None,
+        epoch: Some(power.epoch),
     }))
 }
 
@@ -307,6 +311,7 @@ async fn get_aggregate_reward_delegations_impl(
             delegator_count: agg.delegator_count,
             delegators: agg.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
             epochs_participated: Some(agg.epochs_participated),
+            epoch: None,
         })
         .collect();
 
@@ -359,6 +364,7 @@ async fn get_reward_delegations_by_epoch_impl(
             delegator_count: power.delegator_count,
             delegators: power.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
             epochs_participated: None,
+            epoch: Some(epoch),
         })
         .collect();
 
@@ -420,7 +426,8 @@ async fn get_reward_delegation_history_by_address_impl(
             power: power.reward_power.to_string(),
             delegator_count: power.delegator_count,
             delegators: power.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
-            epochs_participated: Some(power.epoch),
+            epochs_participated: None,
+            epoch: Some(power.epoch),
         })
         .collect();
 
@@ -473,6 +480,7 @@ async fn get_reward_delegation_by_address_and_epoch_impl(
         power: power.reward_power.to_string(),
         delegator_count: power.delegator_count,
         delegators: power.delegators.iter().map(|a| format!("{:#x}", a)).collect(),
-        epochs_participated: Some(power.epoch),
+        epochs_participated: None,
+        epoch: Some(power.epoch),
     }))
 }

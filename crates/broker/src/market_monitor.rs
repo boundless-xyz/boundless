@@ -489,7 +489,7 @@ where
                     return Ok(());
                 }
             }
-        }
+        }w
     }
 
     async fn process_event(

@@ -26,8 +26,10 @@ use crate::{
     db::AppState,
     handler::handle_error,
     models::{
-        AggregateLeaderboardEntry, EpochLeaderboardEntry, LeaderboardResponse, PaginationParams,
+        AggregateLeaderboardEntry, EpochLeaderboardEntry, EpochPoVWSummary, LeaderboardResponse,
+        PaginationParams, PoVWAddressSummary, PoVWSummaryStats,
     },
+    utils::{format_cycles, format_zkc},
 };
 
 /// Create PoVW routes
@@ -75,21 +77,58 @@ async fn get_aggregate_povw_impl(
     let aggregates =
         state.rewards_db.get_povw_rewards_aggregate(params.offset, params.limit).await?;
 
+    // Fetch summary stats
+    let summary_stats = state.rewards_db.get_povw_summary_stats().await?;
+
     // Convert to response format with ranks
     let entries: Vec<AggregateLeaderboardEntry> = aggregates
         .into_iter()
         .enumerate()
-        .map(|(index, agg)| AggregateLeaderboardEntry {
-            rank: params.offset + (index as u64) + 1,
-            work_log_id: format!("{:#x}", agg.work_log_id),
-            total_work_submitted: agg.total_work_submitted.to_string(),
-            total_actual_rewards: agg.total_actual_rewards.to_string(),
-            total_uncapped_rewards: agg.total_uncapped_rewards.to_string(),
-            epochs_participated: agg.epochs_participated,
+        .map(|(index, agg)| {
+            let work_str = agg.total_work_submitted.to_string();
+            let actual_str = agg.total_actual_rewards.to_string();
+            let uncapped_str = agg.total_uncapped_rewards.to_string();
+            AggregateLeaderboardEntry {
+                rank: params.offset + (index as u64) + 1,
+                work_log_id: format!("{:#x}", agg.work_log_id),
+                total_work_submitted: work_str.clone(),
+                total_work_submitted_formatted: format_cycles(&work_str),
+                total_actual_rewards: actual_str.clone(),
+                total_actual_rewards_formatted: format_zkc(&actual_str),
+                total_uncapped_rewards: uncapped_str.clone(),
+                total_uncapped_rewards_formatted: format_zkc(&uncapped_str),
+                epochs_participated: agg.epochs_participated,
+            }
         })
         .collect();
 
-    Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
+    // Create response with summary if available
+    if let Some(stats) = summary_stats {
+        let work_str = stats.total_work_all_time.to_string();
+        let emissions_str = stats.total_emissions_all_time.to_string();
+        let capped_str = stats.total_capped_rewards_all_time.to_string();
+        let uncapped_str = stats.total_uncapped_rewards_all_time.to_string();
+        let summary = PoVWSummaryStats {
+            total_epochs_with_work: stats.total_epochs_with_work,
+            total_unique_work_log_ids: stats.total_unique_work_log_ids,
+            total_work_all_time: work_str.clone(),
+            total_work_all_time_formatted: format_cycles(&work_str),
+            total_emissions_all_time: emissions_str.clone(),
+            total_emissions_all_time_formatted: format_zkc(&emissions_str),
+            total_capped_rewards_all_time: capped_str.clone(),
+            total_capped_rewards_all_time_formatted: format_zkc(&capped_str),
+            total_uncapped_rewards_all_time: uncapped_str.clone(),
+            total_uncapped_rewards_all_time_formatted: format_zkc(&uncapped_str),
+        };
+        Ok(LeaderboardResponse::with_summary(
+            entries,
+            params.offset,
+            params.limit,
+            serde_json::to_value(summary)?,
+        ))
+    } else {
+        Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
+    }
 }
 
 /// GET /v1/povw/epochs/:epoch
@@ -128,25 +167,68 @@ async fn get_povw_by_epoch_impl(
     let rewards =
         state.rewards_db.get_povw_rewards_by_epoch(epoch, params.offset, params.limit).await?;
 
+    // Fetch epoch summary
+    let epoch_summary = state.rewards_db.get_epoch_povw_summary(epoch).await?;
+
     // Convert to response format with ranks
     let entries: Vec<EpochLeaderboardEntry> = rewards
         .into_iter()
         .enumerate()
-        .map(|(index, reward)| EpochLeaderboardEntry {
-            rank: params.offset + (index as u64) + 1,
-            work_log_id: format!("{:#x}", reward.work_log_id),
-            epoch: reward.epoch,
-            work_submitted: reward.work_submitted.to_string(),
-            percentage: reward.percentage,
-            uncapped_rewards: reward.uncapped_rewards.to_string(),
-            reward_cap: reward.reward_cap.to_string(),
-            actual_rewards: reward.actual_rewards.to_string(),
-            is_capped: reward.is_capped,
-            staked_amount: reward.staked_amount.to_string(),
+        .map(|(index, reward)| {
+            let work_str = reward.work_submitted.to_string();
+            let uncapped_str = reward.uncapped_rewards.to_string();
+            let cap_str = reward.reward_cap.to_string();
+            let actual_str = reward.actual_rewards.to_string();
+            let staked_str = reward.staked_amount.to_string();
+            EpochLeaderboardEntry {
+                rank: params.offset + (index as u64) + 1,
+                work_log_id: format!("{:#x}", reward.work_log_id),
+                epoch: reward.epoch,
+                work_submitted: work_str.clone(),
+                work_submitted_formatted: format_cycles(&work_str),
+                percentage: reward.percentage,
+                uncapped_rewards: uncapped_str.clone(),
+                uncapped_rewards_formatted: format_zkc(&uncapped_str),
+                reward_cap: cap_str.clone(),
+                reward_cap_formatted: format_zkc(&cap_str),
+                actual_rewards: actual_str.clone(),
+                actual_rewards_formatted: format_zkc(&actual_str),
+                is_capped: reward.is_capped,
+                staked_amount: staked_str.clone(),
+                staked_amount_formatted: format_zkc(&staked_str),
+            }
         })
         .collect();
 
-    Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
+    // Create response with summary if available
+    if let Some(summary) = epoch_summary {
+        let work_str = summary.total_work.to_string();
+        let emissions_str = summary.total_emissions.to_string();
+        let capped_str = summary.total_capped_rewards.to_string();
+        let uncapped_str = summary.total_uncapped_rewards.to_string();
+        let summary_data = EpochPoVWSummary {
+            epoch: summary.epoch,
+            total_work: work_str.clone(),
+            total_work_formatted: format_cycles(&work_str),
+            total_emissions: emissions_str.clone(),
+            total_emissions_formatted: format_zkc(&emissions_str),
+            total_capped_rewards: capped_str.clone(),
+            total_capped_rewards_formatted: format_zkc(&capped_str),
+            total_uncapped_rewards: uncapped_str.clone(),
+            total_uncapped_rewards_formatted: format_zkc(&uncapped_str),
+            epoch_start_time: summary.epoch_start_time,
+            epoch_end_time: summary.epoch_end_time,
+            num_participants: summary.num_participants,
+        };
+        Ok(LeaderboardResponse::with_summary(
+            entries,
+            params.offset,
+            params.limit,
+            serde_json::to_value(summary_data)?,
+        ))
+    } else {
+        Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
+    }
 }
 /// GET /v1/povw/addresses/:address
 /// Returns the PoVW rewards history for a specific address
@@ -190,6 +272,9 @@ async fn get_povw_history_by_address_impl(
     // Fetch PoVW history for the address
     let rewards = state.rewards_db.get_povw_rewards_history_by_address(address, None, None).await?;
 
+    // Fetch aggregate summary for this address
+    let address_aggregate = state.rewards_db.get_povw_rewards_aggregate_by_address(address).await?;
+
     // Apply pagination
     let start = params.offset as usize;
     let end = (start + params.limit as usize).min(rewards.len());
@@ -199,21 +284,56 @@ async fn get_povw_history_by_address_impl(
     let entries: Vec<EpochLeaderboardEntry> = paginated
         .into_iter()
         .enumerate()
-        .map(|(index, reward)| EpochLeaderboardEntry {
-            rank: params.offset + (index as u64) + 1,
-            work_log_id: format!("{:#x}", reward.work_log_id),
-            epoch: reward.epoch,
-            work_submitted: reward.work_submitted.to_string(),
-            percentage: reward.percentage,
-            uncapped_rewards: reward.uncapped_rewards.to_string(),
-            reward_cap: reward.reward_cap.to_string(),
-            actual_rewards: reward.actual_rewards.to_string(),
-            is_capped: reward.is_capped,
-            staked_amount: reward.staked_amount.to_string(),
+        .map(|(index, reward)| {
+            let work_str = reward.work_submitted.to_string();
+            let uncapped_str = reward.uncapped_rewards.to_string();
+            let cap_str = reward.reward_cap.to_string();
+            let actual_str = reward.actual_rewards.to_string();
+            let staked_str = reward.staked_amount.to_string();
+            EpochLeaderboardEntry {
+                rank: params.offset + (index as u64) + 1,
+                work_log_id: format!("{:#x}", reward.work_log_id),
+                epoch: reward.epoch,
+                work_submitted: work_str.clone(),
+                work_submitted_formatted: format_cycles(&work_str),
+                percentage: reward.percentage,
+                uncapped_rewards: uncapped_str.clone(),
+                uncapped_rewards_formatted: format_zkc(&uncapped_str),
+                reward_cap: cap_str.clone(),
+                reward_cap_formatted: format_zkc(&cap_str),
+                actual_rewards: actual_str.clone(),
+                actual_rewards_formatted: format_zkc(&actual_str),
+                is_capped: reward.is_capped,
+                staked_amount: staked_str.clone(),
+                staked_amount_formatted: format_zkc(&staked_str),
+            }
         })
         .collect();
 
-    Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
+    // Create response with summary if available
+    if let Some(aggregate) = address_aggregate {
+        let work_str = aggregate.total_work_submitted.to_string();
+        let actual_str = aggregate.total_actual_rewards.to_string();
+        let uncapped_str = aggregate.total_uncapped_rewards.to_string();
+        let summary = PoVWAddressSummary {
+            work_log_id: format!("{:#x}", aggregate.work_log_id),
+            total_work_submitted: work_str.clone(),
+            total_work_submitted_formatted: format_cycles(&work_str),
+            total_actual_rewards: actual_str.clone(),
+            total_actual_rewards_formatted: format_zkc(&actual_str),
+            total_uncapped_rewards: uncapped_str.clone(),
+            total_uncapped_rewards_formatted: format_zkc(&uncapped_str),
+            epochs_participated: aggregate.epochs_participated,
+        };
+        Ok(LeaderboardResponse::with_summary(
+            entries,
+            params.offset,
+            params.limit,
+            serde_json::to_value(summary)?,
+        ))
+    } else {
+        Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
+    }
 }
 
 /// GET /v1/povw/addresses/:address/epochs/:epoch
@@ -258,16 +378,26 @@ async fn get_povw_by_address_and_epoch_impl(
     }
 
     let reward = &rewards[0];
+    let work_str = reward.work_submitted.to_string();
+    let uncapped_str = reward.uncapped_rewards.to_string();
+    let cap_str = reward.reward_cap.to_string();
+    let actual_str = reward.actual_rewards.to_string();
+    let staked_str = reward.staked_amount.to_string();
     Ok(Some(EpochLeaderboardEntry {
         rank: 0, // No rank for individual queries
         work_log_id: format!("{:#x}", reward.work_log_id),
         epoch: reward.epoch,
-        work_submitted: reward.work_submitted.to_string(),
+        work_submitted: work_str.clone(),
+        work_submitted_formatted: format_cycles(&work_str),
         percentage: reward.percentage,
-        uncapped_rewards: reward.uncapped_rewards.to_string(),
-        reward_cap: reward.reward_cap.to_string(),
-        actual_rewards: reward.actual_rewards.to_string(),
+        uncapped_rewards: uncapped_str.clone(),
+        uncapped_rewards_formatted: format_zkc(&uncapped_str),
+        reward_cap: cap_str.clone(),
+        reward_cap_formatted: format_zkc(&cap_str),
+        actual_rewards: actual_str.clone(),
+        actual_rewards_formatted: format_zkc(&actual_str),
         is_capped: reward.is_capped,
-        staked_amount: reward.staked_amount.to_string(),
+        staked_amount: staked_str.clone(),
+        staked_amount_formatted: format_zkc(&staked_str),
     }))
 }

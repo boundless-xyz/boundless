@@ -14,11 +14,7 @@
 
 //! Voting and reward delegation power tracking.
 
-use alloy::{
-    primitives::{Address, U256},
-    rpc::types::Log,
-};
-use boundless_zkc::contracts::IRewards;
+use alloy::primitives::{Address, U256};
 use std::collections::{HashMap, HashSet};
 
 /// Delegation powers for voting and rewards
@@ -43,9 +39,9 @@ pub struct EpochDelegationPowers {
     pub powers: HashMap<Address, DelegationPowers>,
 }
 
-// Combined event type for processing
+// Event types for delegation processing
 #[derive(Debug, Clone)]
-enum CombinedDelegationEvent {
+pub enum DelegationEvent {
     VoteDelegationChange { delegator: Address, new_delegate: Address },
     RewardDelegationChange { delegator: Address, new_delegate: Address },
     VotePowerChange { delegate: Address, new_votes: U256 },
@@ -53,103 +49,20 @@ enum CombinedDelegationEvent {
 }
 
 #[derive(Debug, Clone)]
-struct TimestampedCombinedEvent {
-    event: CombinedDelegationEvent,
-    timestamp: u64,
-    block_number: u64,
-    epoch: u64,
+pub struct TimestampedDelegationEvent {
+    pub event: DelegationEvent,
+    pub timestamp: u64,
+    pub block_number: u64,
+    pub transaction_index: u64,
+    pub log_index: u64,
+    pub epoch: u64,
 }
 
-/// Compute delegation powers from event logs with epoch awareness
-#[allow(clippy::too_many_arguments)]
-pub fn compute_delegation_powers_by_address(
-    vote_delegation_change_logs: &[Log],
-    reward_delegation_change_logs: &[Log],
-    vote_power_logs: &[Log],
-    reward_power_logs: &[Log],
-    get_epoch_for_timestamp: impl Fn(u64) -> anyhow::Result<u64>,
-    get_timestamp_for_block: impl Fn(u64) -> anyhow::Result<u64>,
+/// Compute delegation powers from pre-processed timestamped events
+pub fn compute_delegation_powers(
+    timestamped_events: &[TimestampedDelegationEvent],
     current_epoch: u64,
 ) -> anyhow::Result<Vec<EpochDelegationPowers>> {
-    let mut timestamped_events = Vec::new();
-
-    // Process vote delegation change events (DelegateChanged)
-    for log in vote_delegation_change_logs {
-        if log.topics().len() >= 4 {
-            let delegator = Address::from_slice(&log.topics()[1][12..]);
-            let new_delegate = Address::from_slice(&log.topics()[3][12..]);
-            let timestamp = get_timestamp_for_block(log.block_number.unwrap_or_default())?;
-            let epoch = get_epoch_for_timestamp(timestamp)?;
-
-            timestamped_events.push(TimestampedCombinedEvent {
-                event: CombinedDelegationEvent::VoteDelegationChange { delegator, new_delegate },
-                timestamp,
-                block_number: log.block_number.unwrap_or_default(),
-                epoch,
-            });
-        }
-    }
-
-    // Process reward delegation change events (RewardDelegateChanged)
-    for log in reward_delegation_change_logs {
-        if let Ok(decoded) = log.log_decode::<IRewards::RewardDelegateChanged>() {
-            let delegator = decoded.inner.data.delegator;
-            let new_delegate = decoded.inner.data.toDelegate;
-            let timestamp = get_timestamp_for_block(log.block_number.unwrap_or_default())?;
-            let epoch = get_epoch_for_timestamp(timestamp)?;
-
-            timestamped_events.push(TimestampedCombinedEvent {
-                event: CombinedDelegationEvent::RewardDelegationChange { delegator, new_delegate },
-                timestamp,
-                block_number: log.block_number.unwrap_or_default(),
-                epoch,
-            });
-        }
-    }
-
-    // Process vote power change events (DelegateVotesChanged)
-    for log in vote_power_logs {
-        if log.topics().len() >= 2 {
-            let delegate = Address::from_slice(&log.topics()[1][12..]);
-            let data_bytes = &log.data().data;
-            if data_bytes.len() >= 64 {
-                let mut bytes = [0u8; 32];
-                bytes.copy_from_slice(&data_bytes[32..64]);
-                let new_votes = U256::from_be_bytes(bytes);
-                let timestamp = get_timestamp_for_block(log.block_number.unwrap_or_default())?;
-                let epoch = get_epoch_for_timestamp(timestamp)?;
-
-                timestamped_events.push(TimestampedCombinedEvent {
-                    event: CombinedDelegationEvent::VotePowerChange { delegate, new_votes },
-                    timestamp,
-                    block_number: log.block_number.unwrap_or_default(),
-                    epoch,
-                });
-            }
-        }
-    }
-
-    // Process reward power change events (DelegateRewardsChanged)
-    for log in reward_power_logs {
-        if let Ok(decoded) = log.log_decode::<IRewards::DelegateRewardsChanged>() {
-            let delegate = decoded.inner.data.delegate;
-            let new_rewards = decoded.inner.data.newRewards;
-            let timestamp = get_timestamp_for_block(log.block_number.unwrap_or_default())?;
-            let epoch = get_epoch_for_timestamp(timestamp)?;
-
-            timestamped_events.push(TimestampedCombinedEvent {
-                event: CombinedDelegationEvent::RewardPowerChange { delegate, new_rewards },
-                timestamp,
-                block_number: log.block_number.unwrap_or_default(),
-                epoch,
-            });
-        }
-    }
-
-    // Sort events chronologically
-    timestamped_events.sort_by(|a, b| {
-        a.timestamp.cmp(&b.timestamp).then_with(|| a.block_number.cmp(&b.block_number))
-    });
 
     // Track current state
     let mut current_vote_powers: HashMap<Address, U256> = HashMap::new();
@@ -176,33 +89,33 @@ pub fn compute_delegation_powers_by_address(
         }
 
         // Apply the event
-        match event.event {
-            CombinedDelegationEvent::VoteDelegationChange { delegator, new_delegate } => {
-                if delegator == new_delegate {
-                    current_vote_delegations.remove(&delegator);
+        match &event.event {
+            DelegationEvent::VoteDelegationChange { delegator, new_delegate } => {
+                if *delegator == *new_delegate {
+                    current_vote_delegations.remove(delegator);
                 } else {
-                    current_vote_delegations.insert(delegator, new_delegate);
+                    current_vote_delegations.insert(*delegator, *new_delegate);
                 }
             }
-            CombinedDelegationEvent::RewardDelegationChange { delegator, new_delegate } => {
-                if delegator == new_delegate {
-                    current_reward_delegations.remove(&delegator);
+            DelegationEvent::RewardDelegationChange { delegator, new_delegate } => {
+                if *delegator == *new_delegate {
+                    current_reward_delegations.remove(delegator);
                 } else {
-                    current_reward_delegations.insert(delegator, new_delegate);
+                    current_reward_delegations.insert(*delegator, *new_delegate);
                 }
             }
-            CombinedDelegationEvent::VotePowerChange { delegate, new_votes } => {
-                if new_votes > U256::ZERO {
-                    current_vote_powers.insert(delegate, new_votes);
+            DelegationEvent::VotePowerChange { delegate, new_votes } => {
+                if *new_votes > U256::ZERO {
+                    current_vote_powers.insert(*delegate, *new_votes);
                 } else {
-                    current_vote_powers.remove(&delegate);
+                    current_vote_powers.remove(delegate);
                 }
             }
-            CombinedDelegationEvent::RewardPowerChange { delegate, new_rewards } => {
-                if new_rewards > U256::ZERO {
-                    current_reward_powers.insert(delegate, new_rewards);
+            DelegationEvent::RewardPowerChange { delegate, new_rewards } => {
+                if *new_rewards > U256::ZERO {
+                    current_reward_powers.insert(*delegate, *new_rewards);
                 } else {
-                    current_reward_powers.remove(&delegate);
+                    current_reward_powers.remove(delegate);
                 }
             }
         }
