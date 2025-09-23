@@ -224,6 +224,10 @@ impl ProvingService {
         let timeout_future = tokio::time::sleep(timeout_duration);
         tokio::pin!(timeout_future);
 
+        // If a fulfillment is observed before lock expiry for LockAndFulfill,
+        // arm this deadline to cancel at lock expiry.
+        let mut lock_expiry_deadline: Option<tokio::time::Instant> = None;
+
         let order_status = loop {
             tokio::select! {
                 // Proof monitoring completed
@@ -236,6 +240,19 @@ impl ProvingService {
                 _ = &mut timeout_future => {
                     tracing::debug!("Proving timed out for order {order_id}, with proof id: {proof_id}");
                     return Err(ProvingErr::ProvingTimedOut);
+                }
+                // Lock expiry reached after prior fulfillment observation (LockAndFulfill)
+                _ = async {
+                    match lock_expiry_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => pending::<()>().await,
+                    }
+                } => {
+                    tracing::debug!(
+                        "Order {} (request {}) lock expired after fulfillment, cancelling proof {}",
+                        order_id, request_id, proof_id
+                    );
+                    return Err(ProvingErr::ExternallyFulfilled);
                 }
                 // External fulfillment notification (only active for FulfillAfterLockExpire orders)
                 Some(recv_res) = async {
@@ -266,7 +283,12 @@ impl ProvingService {
                                         );
                                         return Err(ProvingErr::ExternallyFulfilled);
                                     } else {
-                                        tracing::trace!("Fulfillment observed before lock expiry; continuing proof monitoring");
+                                        let now = crate::now_timestamp();
+                                        let remaining = Duration::from_secs(
+                                            order.request.lock_expires_at().saturating_sub(now)
+                                        );
+                                        lock_expiry_deadline = Some(tokio::time::Instant::now() + remaining);
+                                        tracing::trace!("Fulfillment observed before lock expiry; will cancel at lock expiry");
                                     }
                                 }
                                 FulfillmentType::FulfillWithoutLocking => {
