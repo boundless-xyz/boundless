@@ -173,7 +173,7 @@ interface IBoundlessMarket {
     error UnfulfillableCallback();
 
     /// @notice Error when there is not enough gas to fulfill a callback.
-    /// @dev selector 0x8f8c8c8c
+    /// @dev selector 0x1c26714c
     error InsufficientGas();
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
