@@ -18,7 +18,8 @@ const IGNORED_URL_PREFIXES = new Set([
   "https://crates.io",
   "https://ethereum.org",
   "https://staking.boundless.network",
-  "https://app.aragon.org"
+  "https://app.aragon.org",
+  "https://etherscan.io"
 ]);
 
 async function checkRemoteUrl(url: string): Promise<boolean> {
