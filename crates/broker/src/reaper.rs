@@ -251,9 +251,9 @@ mod tests {
         let stored_expired2 = db.get_order(&expired_order2.id()).await.unwrap().unwrap();
 
         assert_eq!(stored_expired1.status, OrderStatus::Failed);
-        assert_eq!(stored_expired1.error_msg, Some("Order expired".to_string()));
+        assert_eq!(stored_expired1.error_msg, Some("Order expired in reaper".to_string()));
         assert_eq!(stored_expired2.status, OrderStatus::Failed);
-        assert_eq!(stored_expired2.error_msg, Some("Order expired".to_string()));
+        assert_eq!(stored_expired2.error_msg, Some("Order expired in reaper".to_string()));
 
         // Check non-expired orders remain unchanged
         let stored_active = db.get_order(&active_order.id()).await.unwrap().unwrap();
@@ -299,7 +299,7 @@ mod tests {
         for order in orders {
             let stored_order = db.get_order(&order.id()).await.unwrap().unwrap();
             assert_eq!(stored_order.status, OrderStatus::Failed);
-            assert_eq!(stored_order.error_msg, Some("Order expired".to_string()));
+            assert_eq!(stored_order.error_msg, Some("Order expired in reaper".to_string()));
         }
     }
 }
