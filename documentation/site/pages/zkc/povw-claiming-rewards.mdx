@@ -22,21 +22,21 @@ PoVW was added to RISC Zero’s zkVM ([R0VM](https://github.com/risc0/risc0)) in
 
 To install the latest release, and use the helpful setup script, provers can follow the instructions on the [Quick Start](/provers/quick-start) before continuing with the next step.
 
+#### Install the latest version of Rust
+
+Follow the instructions [here](https://www.rust-lang.org/tools/install).
+
 #### Make sure to have the Boundless CLI installed
 
 Provers use the Boundless CLI to stake $ZKC, prepare work log updates, and submit them onchain. To install the Boundless CLI (and build with CUDA support), run:
 
 ```bash
-cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless -F cuda
+cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless
 ```
 
 #### Install the latest version of Foundry
 
 Some commands in this tutorial use [cast](https://getfoundry.sh/cast/overview) from the [Foundry toolkit](https://getfoundry.sh/). This is not necessary, but it will make some CLI commands more straightforward.
-
-#### Install the latest version of Rust
-
-Follow the instructions [here](https://www.rust-lang.org/tools/install).
 
 #### Install the latest version of rzup
 
@@ -50,28 +50,14 @@ Run the following:
 rzup install risc0-groth16
 ```
 
-#### Install all the necessary NVIDIA drivers
-
-```bash
-apt install nvidia-cuda-toolkit build-essential libssl-dev cuda-toolkit-13-0 nvidia-open
-```
-
-#### Update $PATH and export the necessary CUDA flags
-
-```bash
-export PATH=/usr/local/cuda/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-export NVCC_APPEND_FLAGS="--generate-code arch=compute_75,code=sm_75 --generate-code arch=compute_86,code=sm_86 --generate-code arch=compute_89,code=sm_89 --generate-code arch=compute_90,code=sm_90 --generate-code arch=compute_120,code=sm_120"
-```
-
 #### Stop Bento Safely
 
 To enable PoVW in Bento, first make sure to stop Bento safely. This ensures that any in-progress proving jobs are completed before terminating the proving process. If Bento is backing the Broker, please carry out *Step 1* from [Safe Upgrade Steps](/provers/broker#safe-upgrade-steps) and then return to this page.
 
-If Bento is running without the Broker, Bento can be safely stopped with:
+Bento and/or broker can be safely stopped with:
 
 ```bash
-just bento down
+just broker down
 ```
 
 #### Specify the Log ID Address
@@ -187,6 +173,10 @@ Provers only specify the `--new ${POVW_LOG_ID}` flag once, this is necessary to 
 ```bash
 boundless povw prepare --state ${STATE_FILE_LOCATION} --from-bento
 ```
+
+:::note[Note]
+Ensure that you have the latest boundless and boundless-cli version before running this command to ensure bento compatibility.
+::: 
 
 ### Send the Work Log Update Onchain
 
