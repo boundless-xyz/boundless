@@ -186,6 +186,8 @@ impl ProverConfig {
     /// This method is intended to give a slightly nicer error message if Bento is not running,
     /// expecially if they did not actually mean to use Bento.
     pub async fn configure_proving_backend_with_health_check(&self) -> anyhow::Result<()> {
+        self.configure_proving_backend();
+
         // No health check is implemented for default prover. If dev mode is set, then we are going
         // to use the dev mode prover anyway, so don't run the health check.
         if self.use_default_prover || self.skip_health_check || ProverOpts::default().dev_mode() {
