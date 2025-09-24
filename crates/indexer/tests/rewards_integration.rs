@@ -833,8 +833,8 @@ async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
     if !vote_powers.is_empty() {
         println!("\nVote Power Delegates (Top 10):");
         println!(
-            "{:<44} {:<4} {:>12} {}",
-            "Delegate Address", "Vote Power (ZKC)", "Delegators", "Sample Delegators"
+            "{:<44} {:<4} {:>12} Sample Delegators",
+            "Delegate Address", "Vote Power (ZKC)", "Delegators"
         );
         println!("{}", "-".repeat(100));
 
@@ -878,8 +878,8 @@ async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
     if !reward_powers.is_empty() {
         println!("\nReward Power Delegates (Top 10):");
         println!(
-            "{:<44} {:<4} {:>12} {}",
-            "Delegate Address", "Reward Power (ZKC)", "Delegators", "Sample Delegators"
+            "{:<44} {:<4} {:>12} Sample Delegators",
+            "Delegate Address", "Reward Power (ZKC)", "Delegators"
         );
         println!("{}", "-".repeat(100));
 
@@ -923,8 +923,8 @@ async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
 
     if !vote_aggregates.is_empty() {
         println!(
-            "{:<44} {:<4} {:>12} {:>8} {}",
-            "Delegate Address", "Total Vote Power", "Delegators", "Epochs", "Sample Delegators"
+            "{:<44} {:<4} {:>12} {:>8} Sample Delegators",
+            "Delegate Address", "Total Vote Power", "Delegators", "Epochs"
         );
         println!("{}", "-".repeat(110));
 
@@ -969,8 +969,8 @@ async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
 
     if !reward_aggregates.is_empty() {
         println!(
-            "{:<44} {:<4} {:>12} {:>8} {}",
-            "Delegate Address", "Total Reward Power", "Delegators", "Epochs", "Sample Delegators"
+            "{:<44} {:<4} {:>12} {:>8} Sample Delegators",
+            "Delegate Address", "Total Reward Power", "Delegators", "Epochs"
         );
         println!("{}", "-".repeat(110));
 
@@ -1074,10 +1074,10 @@ async fn test_address_history_methods(db: &dyn RewardsIndexerDb) {
         // Show first 3 epochs
         for reward in povw_history.iter().take(3) {
             println!(
-                "   Epoch {}: {} ZKC rewards ({}% of epoch, capped: {})",
+                "   Epoch {}: {} ZKC rewards ({:.2}% of epoch, capped: {})",
                 reward.epoch,
                 format_zkc(reward.actual_rewards),
-                format!("{:.2}", reward.percentage),
+                reward.percentage,
                 reward.is_capped
             );
         }

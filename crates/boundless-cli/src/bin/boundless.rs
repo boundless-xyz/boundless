@@ -1488,7 +1488,6 @@ mod tests {
         let config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(private_key),
-            deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
@@ -1505,7 +1504,7 @@ mod tests {
         GlobalConfig,
         JoinHandle<()>,
     ) {
-        let (mut ctx, anvil, mut global_config) = setup_test_env(owner).await;
+        let (mut ctx, anvil, global_config) = setup_test_env(owner).await;
 
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
@@ -1956,7 +1955,6 @@ mod tests {
         let prover_config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(ctx.prover_signer.clone()),
-            deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
@@ -2291,7 +2289,6 @@ mod tests {
         let prover_config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(ctx.prover_signer.clone()),
-            deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };

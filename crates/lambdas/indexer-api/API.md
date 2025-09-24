@@ -45,6 +45,7 @@ Interactive Swagger UI documentation with try-it-out functionality. Open this en
 Check API health status.
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -63,10 +64,12 @@ Check API health status.
 Get the current aggregate staking leaderboard across all epochs with global staking statistics.
 
 **Query Parameters:**
+
 - `limit` (optional, number): Maximum number of results (default: 50, max: 100)
 - `offset` (optional, number): Pagination offset (default: 0)
 
 **Response Structure:**
+
 ```typescript
 {
   "entries": Array<{
@@ -93,6 +96,7 @@ Get the current aggregate staking leaderboard across all epochs with global stak
 ```
 
 **Response Example:**
+
 ```json
 {
   "entries": [
@@ -127,13 +131,16 @@ Get the current aggregate staking leaderboard across all epochs with global stak
 Get staking positions for a specific epoch with epoch-level summary statistics.
 
 **Path Parameters:**
+
 - `epoch` (required, number): The epoch number
 
 **Query Parameters:**
+
 - `limit` (optional, number): Maximum number of results (default: 50, max: 100)
 - `offset` (optional, number): Pagination offset (default: 0)
 
 **Response Structure:**
+
 ```typescript
 {
   "entries": Array<{
@@ -160,6 +167,7 @@ Get staking positions for a specific epoch with epoch-level summary statistics.
 ```
 
 **Response Example:**
+
 ```json
 {
   "entries": [
@@ -194,15 +202,18 @@ Get staking positions for a specific epoch with epoch-level summary statistics.
 Get complete staking history for a specific address across all epochs with lifetime summary statistics.
 
 **Path Parameters:**
+
 - `address` (required, string): Ethereum address (0x-prefixed, checksummed)
 
 **Query Parameters:**
+
 - `limit` (optional, number): Maximum number of results (default: 50, max: 100)
 - `offset` (optional, number): Pagination offset (default: 0)
 - `start_epoch` (optional, number): Filter results from this epoch onwards
 - `end_epoch` (optional, number): Filter results up to this epoch
 
 **Response Structure:**
+
 ```typescript
 {
   "entries": Array<{
@@ -231,6 +242,7 @@ Get complete staking history for a specific address across all epochs with lifet
 ```
 
 **Response Example:**
+
 ```json
 {
   "entries": [
@@ -276,10 +288,12 @@ Get complete staking history for a specific address across all epochs with lifet
 Get staking position for a specific address at a specific epoch.
 
 **Path Parameters:**
+
 - `address` (required, string): Ethereum address (0x-prefixed, checksummed)
 - `epoch` (required, number): The epoch number
 
 **Response Example:**
+
 ```json
 {
   "staker_address": "0x2408e37489c231f883126c87e8aadbad782a040a",
@@ -314,10 +328,12 @@ The PoVW system allocates emissions for each epoch, but rewards are only distrib
 Get the current aggregate PoVW rewards leaderboard across all epochs with global PoVW statistics.
 
 **Query Parameters:**
+
 - `limit` (optional, number): Maximum number of results (default: 50, max: 100)
 - `offset` (optional, number): Pagination offset (default: 0)
 
 **Response Structure:**
+
 ```typescript
 {
   "entries": Array<{
@@ -348,6 +364,7 @@ Get the current aggregate PoVW rewards leaderboard across all epochs with global
 ```
 
 **Response Example:**
+
 ```json
 {
   "entries": [
@@ -383,13 +400,16 @@ Get the current aggregate PoVW rewards leaderboard across all epochs with global
 Get PoVW rewards for a specific epoch with epoch-level summary statistics.
 
 **Path Parameters:**
+
 - `epoch` (required, number): The epoch number
 
 **Query Parameters:**
+
 - `limit` (optional, number): Maximum number of results (default: 50, max: 100)
 - `offset` (optional, number): Pagination offset (default: 0)
 
 **Response Structure:**
+
 ```typescript
 {
   "entries": Array<{
@@ -425,6 +445,7 @@ Get PoVW rewards for a specific epoch with epoch-level summary statistics.
 ```
 
 **Response Example:**
+
 ```json
 {
   "entries": [
@@ -466,15 +487,18 @@ Get PoVW rewards for a specific epoch with epoch-level summary statistics.
 Get complete PoVW rewards history for a specific work log ID across all epochs with lifetime summary statistics.
 
 **Path Parameters:**
+
 - `address` (required, string): Work log ID (Ethereum address format)
 
 **Query Parameters:**
+
 - `limit` (optional, number): Maximum number of results (default: 50, max: 100)
 - `offset` (optional, number): Pagination offset (default: 0)
 - `start_epoch` (optional, number): Filter results from this epoch onwards
 - `end_epoch` (optional, number): Filter results up to this epoch
 
 **Response Structure:**
+
 ```typescript
 {
   "entries": Array<{
@@ -505,6 +529,7 @@ Get complete PoVW rewards history for a specific work log ID across all epochs w
 ```
 
 **Response Example:**
+
 ```json
 {
   "entries": [
@@ -543,10 +568,12 @@ Get complete PoVW rewards history for a specific work log ID across all epochs w
 Get PoVW rewards for a specific work log ID at a specific epoch.
 
 **Path Parameters:**
+
 - `address` (required, string): Work log ID (Ethereum address format)
 - `epoch` (required, number): The epoch number
 
 **Response Example:**
+
 ```json
 {
   "work_log_id": "0x94072d2282cb2c718d23d5779a5f8484e2530f2a",
@@ -572,10 +599,12 @@ Get PoVW rewards for a specific work log ID at a specific epoch.
 Get aggregate vote delegation powers across all epochs.
 
 **Query Parameters:**
+
 - `limit` (optional, number): Maximum number of results (default: 50, max: 100)
 - `offset` (optional, number): Pagination offset (default: 0)
 
 **Response Example:**
+
 ```json
 {
   "entries": [
@@ -607,6 +636,7 @@ Get aggregate vote delegation powers across all epochs.
 Get vote delegation powers for a specific epoch.
 
 **Path Parameters:**
+
 - `epoch` (required, number): The epoch number
 
 #### GET `/v1/delegations/votes/addresses/{address}`
@@ -614,6 +644,7 @@ Get vote delegation powers for a specific epoch.
 Get vote delegation history for a specific delegate address.
 
 **Path Parameters:**
+
 - `address` (required, string): Delegate address (0x-prefixed, checksummed)
 
 #### GET `/v1/delegations/votes/addresses/{address}/epochs/{epoch}`
@@ -627,10 +658,12 @@ Get vote delegation power for a specific delegate at a specific epoch.
 Get aggregate reward delegation powers across all epochs.
 
 **Query Parameters:**
+
 - `limit` (optional, number): Maximum number of results (default: 50, max: 100)
 - `offset` (optional, number): Pagination offset (default: 0)
 
 **Response Example:**
+
 ```json
 {
   "entries": [

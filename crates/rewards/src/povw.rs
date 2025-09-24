@@ -103,6 +103,7 @@ pub struct PoVWRewardsResult {
 }
 
 /// Compute PoVW rewards for a specific epoch from pre-processed cached data
+#[allow(clippy::too_many_arguments)]
 pub fn compute_povw_rewards_for_epoch(
     epoch: U256,
     current_epoch: U256,

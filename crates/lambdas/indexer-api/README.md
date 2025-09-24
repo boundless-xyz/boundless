@@ -22,18 +22,21 @@ AWS Lambda function providing REST API access to Boundless protocol staking, del
 ## Main API Endpoints
 
 ### Staking Endpoints (`/v1/staking`)
+
 - `GET /v1/staking` - Aggregate staking leaderboard
 - `GET /v1/staking/epochs/{epoch}` - Staking positions by epoch
 - `GET /v1/staking/addresses/{address}` - Staking history for address
 - `GET /v1/staking/addresses/{address}/epochs/{epoch}` - Specific position
 
 ### PoVW Endpoints (`/v1/povw`)
+
 - `GET /v1/povw` - Aggregate PoVW rewards leaderboard
 - `GET /v1/povw/epochs/{epoch}` - PoVW rewards by epoch
 - `GET /v1/povw/addresses/{address}` - PoVW history for address
 - `GET /v1/povw/addresses/{address}/epochs/{epoch}` - Specific rewards
 
 ### Delegation Endpoints (`/v1/delegations`)
+
 - `GET /v1/delegations/votes` - Vote delegation powers
 - `GET /v1/delegations/votes/epochs/{epoch}` - Vote delegations by epoch
 - `GET /v1/delegations/rewards` - Reward delegation powers
@@ -44,6 +47,7 @@ All endpoints support pagination with `limit` and `offset` query parameters.
 ## Response Format
 
 ### Aggregate Leaderboard Entry
+
 ```json
 {
   "rank": 1,
@@ -55,6 +59,7 @@ All endpoints support pagination with `limit` and `offset` query parameters.
 ```
 
 ### Epoch Leaderboard Entry
+
 ```json
 {
   "rank": 1,
@@ -70,7 +75,9 @@ All endpoints support pagination with `limit` and `offset` query parameters.
 ```
 
 ### Response Wrapper
+
 All leaderboard responses are wrapped with pagination metadata:
+
 ```json
 {
   "entries": [...],
