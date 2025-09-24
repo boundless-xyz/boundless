@@ -81,6 +81,11 @@ source "amazon-ebs" "boundless" {
 build {
   sources = ["source.amazon-ebs.boundless"]
 
+  provisioner "file" {
+    source = "./config_files/vector.toml"
+    destination = "/tmp/vector.toml"
+  }
+
   # Copy service files first
   provisioner "file" {
     source = "./service_files/bento-api.service"

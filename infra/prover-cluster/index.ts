@@ -1,6 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as fs from "fs";
+import * as crypto from "crypto";
 
 const stackName = pulumi.getStack();
 const baseConfig = new pulumi.Config("base");
@@ -49,11 +50,6 @@ new aws.iam.RolePolicyAttachment("attachSsmCore", {
 new aws.iam.RolePolicyAttachment("ec2-cloudwatch-policy", {
     role: ec2Role.name,
     policyArn: "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
-});
-
-new aws.iam.RolePolicyAttachment("ec2-s3-policy", {
-    role: ec2Role.name,
-    policyArn: "arn:aws:iam::aws:policy/AmazonS3FullAccess",
 });
 
 // Create instance profile
@@ -285,9 +281,10 @@ echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
+echo "REDIS_TTL=57600" >> /etc/environment
 
 # Copy and configure service file
-cp /opt/boundless/config/bento-prover.service /etc/systemd/system/bento.service
+cp /etc/systemd/system/bento-prover.service /etc/systemd/system/bento.service
 systemctl daemon-reload
 systemctl start bento.service
 systemctl enable bento.service`;
@@ -331,6 +328,11 @@ const proverAsg = new aws.autoscaling.Group("prover-asg", {
     terminationPolicies: ["OldestInstance"],
     tags: [
         {
+            key: "userDataHash",
+            value: proverLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(u || "").digest("hex")),
+            propagateAtLaunch: true,
+        },
+        {
             key: "Name",
             value: "boundless-bento-prover-asg",
             propagateAtLaunch: false,
@@ -351,6 +353,13 @@ const proverAsg = new aws.autoscaling.Group("prover-asg", {
             propagateAtLaunch: true,
         },
     ],
+    instanceRefresh: {
+        strategy: "Rolling",
+        preferences: {
+            minHealthyPercentage: 0,
+        },
+        triggers: ["tag"],
+    },
 });
 
 const executionLaunchTemplate = new aws.ec2.LaunchTemplate("execution-launch-template", {
@@ -376,9 +385,11 @@ echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "FINALIZE_RETRIES=3" >> /etc/environment
 echo "FINALIZE_TIMEOUT=60" >> /etc/environment
+echo "REDIS_TTL=57600" >> /etc/environment
+echo "SEGMENT_PO2=21" >> /etc/environment
 
 # Copy and configure service file
-cp /opt/boundless/config/bento-executor.service /etc/systemd/system/bento.service
+cp /etc/systemd/system/bento-executor.service /etc/systemd/system/bento.service
 systemctl daemon-reload
 systemctl start bento.service
 systemctl enable bento.service`;
@@ -422,6 +433,11 @@ const executionAsg = new aws.autoscaling.Group("execution-asg", {
     terminationPolicies: ["OldestInstance"],
     tags: [
         {
+            key: "userDataHash",
+            value: executionLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(u || "").digest("hex")),
+            propagateAtLaunch: true,
+        },
+        {
             key: "Name",
             value: "boundless-bento-execution-asg",
             propagateAtLaunch: false,
@@ -442,6 +458,13 @@ const executionAsg = new aws.autoscaling.Group("execution-asg", {
             propagateAtLaunch: true,
         },
     ],
+    instanceRefresh: {
+        strategy: "Rolling",
+        preferences: {
+            minHealthyPercentage: 0,
+        },
+        triggers: ["tag"],
+    },
 });
 
 // Launch template for aux agent instances
@@ -466,9 +489,10 @@ echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
+echo "REDIS_TTL=57600" >> /etc/environment
 
 # Copy and configure service file
-cp /opt/boundless/config/bento-aux.service /etc/systemd/system/bento.service
+cp /etc/systemd/system/bento-aux.service /etc/systemd/system/bento.service
 systemctl daemon-reload
 systemctl start bento.service
 systemctl enable bento.service`;
@@ -509,6 +533,11 @@ const auxAsg = new aws.autoscaling.Group("aux-asg", {
     terminationPolicies: ["OldestInstance"],
     tags: [
         {
+            key: "userDataHash",
+            value: auxLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(u || "").digest("hex")),
+            propagateAtLaunch: true,
+        },
+        {
             key: "Name",
             value: "boundless-bento-aux-asg",
             propagateAtLaunch: true,
@@ -524,6 +553,13 @@ const auxAsg = new aws.autoscaling.Group("aux-asg", {
             propagateAtLaunch: true,
         },
     ],
+    instanceRefresh: {
+        strategy: "Rolling",
+        preferences: {
+            minHealthyPercentage: 0,
+        },
+        triggers: ["tag"],
+    },
 });
 
 
