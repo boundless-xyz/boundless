@@ -42,13 +42,18 @@ pub struct PovwSubmit {
     #[arg(short, long, env = "POVW_STATE_PATH")]
     pub state: PathBuf,
 
-    /// Private key used to sign work log updates. Should have an address equal to the work log ID.
+    /// Private key used to sign work log updates. Should have an address equal to the rewards address.
     ///
     /// If this option is not set, the value of the private key from global config will be used.
-    #[clap(long, env = "POVW_PRIVATE_KEY", hide_env_values = true)]
-    pub povw_private_key: Option<PrivateKeySigner>,
+    #[clap(
+        long = "rewards-address-private-key",
+        alias = "povw-private-key",
+        env = "REWARDS_ADDRESS_PRIVATE_KEY",
+        hide_env_values = true
+    )]
+    pub rewards_private_key: Option<PrivateKeySigner>,
 
-    /// The address to assign any PoVW rewards to. If not provided, defaults to the work log ID.
+    /// The address to assign any PoVW rewards to. If not provided, defaults to the rewards address.
     #[clap(short, long, env = "POVW_VALUE_RECIPIENT")]
     pub value_recipient: Option<Address>,
 
@@ -64,18 +69,18 @@ impl PovwSubmit {
     /// Run the [PovwSubmit] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let tx_signer = global_config.require_private_key()?;
-        let work_log_signer = self.povw_private_key.as_ref().unwrap_or(&tx_signer);
+        let work_log_signer = self.rewards_private_key.as_ref().unwrap_or(&tx_signer);
         let rpc_url = global_config.require_rpc_url()?;
 
         // Load the state and check to make sure the private key matches.
         let mut state = State::load(&self.state)
             .await
             .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
-        tracing::info!("Submitting work log update for log ID: {:x}", state.log_id);
+        tracing::info!("Submitting work log update for rewards address: {:x}", state.log_id);
 
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
-            "Signer does not match the state log ID: signer: {}, state: {}",
+            "Signer does not match the rewards address: signer: {}, state: {}",
             work_log_signer.address(),
             state.log_id
         );

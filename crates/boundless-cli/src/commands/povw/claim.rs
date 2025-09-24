@@ -46,17 +46,13 @@ const HOUR: Duration = Duration::from_secs(60 * 60);
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct PovwClaim {
-    // TODO(povw): Support providing multiple log IDs.
-    /// Work log ID for the reward claim.
+    // TODO(povw): Support providing multiple rewards addresses.
+    /// Rewards address for the reward claim.
     ///
-    /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
-    /// the claim can be done for any log ID and does not require authorization.
-    /// Work log ID for the reward claim.
-    ///
-    /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
-    /// the claim can be done for any log ID and does not require authorization.
-    #[arg(short, long)]
-    pub log_id: PovwLogId,
+    /// State for submitted updates is retrieved from the chain using the address. Note that initiating
+    /// the claim can be done for any rewards address and does not require authorization.
+    #[arg(short, long = "rewards-address", alias = "log-id")]
+    pub rewards_address: PovwLogId,
 
     // TODO: Deprecate and/or remove this when history support works without the Beacon API.
     /// URL for an Ethereum Beacon chain (i.e. consensus chain) API.
@@ -141,20 +137,24 @@ impl PovwClaim {
         // Determine the commit range for which we can mint. This is the difference between the
         // recoreded work log commit on the accounting contract and on the mint contract.
         let initial_commit = Digest::from(
-            *povw_mint.workLogCommit(self.log_id.into()).call().await.with_context(|| {
-                format!(
-                    "Failed to call IPovwMint.workLogCommit on {}",
-                    deployment.povw_mint_address
-                )
-            })?,
+            *povw_mint.workLogCommit(self.rewards_address.into()).call().await.with_context(
+                || {
+                    format!(
+                        "Failed to call IPovwMint.workLogCommit on {}",
+                        deployment.povw_mint_address
+                    )
+                },
+            )?,
         );
         let final_commit = Digest::from(
-            *povw_accounting.workLogCommit(self.log_id.into()).call().await.with_context(|| {
-                format!(
-                    "Failed to call IPovwAccounting.workLogCommit on {}",
-                    deployment.povw_accounting_address
-                )
-            })?,
+            *povw_accounting.workLogCommit(self.rewards_address.into()).call().await.with_context(
+                || {
+                    format!(
+                        "Failed to call IPovwAccounting.workLogCommit on {}",
+                        deployment.povw_accounting_address
+                    )
+                },
+            )?,
         );
         tracing::debug!(%initial_commit, %final_commit, "Commit range for mint");
 
@@ -167,7 +167,7 @@ impl PovwClaim {
         tracing::info!("Searching for work log update events in the past {} days", self.days);
         let update_events = search_work_log_updated(
             &povw_accounting,
-            self.log_id,
+            self.rewards_address,
             initial_commit,
             final_commit,
             latest_block_number,
@@ -256,7 +256,7 @@ impl PovwClaim {
 
         tracing::info!("Building input data for Mint Calculator guest");
         let mint_input = mint_calculator_prover
-            .build_input(event_block_numbers, [self.log_id])
+            .build_input(event_block_numbers, [self.rewards_address])
             .await
             .context("Failed to build input for Mint Calculator Guest")?;
 
@@ -365,7 +365,7 @@ async fn block_number_near_timestamp(
 /// found [WorkLogUpdated] events along with the block number at which they were emitted.
 async fn search_work_log_updated(
     povw_accounting: &IPovwAccountingInstance<impl Provider>,
-    log_id: PovwLogId,
+    rewards_address: PovwLogId,
     initial_commit: Digest,
     final_commit: Digest,
     upper_limit_block_number: u64,
@@ -392,7 +392,7 @@ async fn search_work_log_updated(
     let filter = Filter::new()
         .address(*povw_accounting.address())
         .event_signature(WorkLogUpdated::SIGNATURE_HASH)
-        .topic1(Address::from(log_id));
+        .topic1(Address::from(rewards_address));
 
     tracing::debug!(%initial_commit, %final_commit, %upper_limit_block_number, %lower_limit_block_number, "Searching for WorkLogUpdated events");
     search_events(
