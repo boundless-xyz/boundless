@@ -120,6 +120,14 @@ contract BoundlessMarket is
         uint32 deprecatedAssessorDuration,
         address collateralTokenContract
     ) {
+        // Validate non-zero critical params
+        require(address(verifier) != address(0), "Invalid verifier");
+        require(assessorId != bytes32(0), "Invalid assessor image");
+        require(collateralTokenContract != address(0), "Invalid collateral token");
+        if (deprecatedAssessorDuration > 0) {
+            require(deprecatedAssessorId != bytes32(0), "Invalid deprecated assessor image");
+        }
+
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
         COLLATERAL_TOKEN_CONTRACT = collateralTokenContract;
@@ -130,6 +138,7 @@ contract BoundlessMarket is
     }
 
     function initialize(address initialOwner, string calldata _imageUrl) external initializer {
+    require(initialOwner != address(0), "Invalid initial owner");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
