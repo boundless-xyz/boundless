@@ -17,12 +17,12 @@ config:
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:W8jLVMFnXDFMfl+5:dejyGpk4g1zqvpGOdX1GMMS7ustfapAgSCdlhKIQkIlwQcZ1o7W7y3jUQ6jO8UoKvjWxgV2m2eMmRG0t2a5/uAeX/8/HUaaED1ngR1akFDpETJU5JrdQb2vpEX7lBS6x9RNz78wY+xgoSlYjww==
-  order-generator-base:INTERVAL: "29"
+  order-generator-base:INTERVAL: "32"
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
-  order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000" # $5 ZKC
+  order-generator-base:LOCK_COLLATERAL_RAW: "7500000000000000000" # $7.5 ZKC
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
-  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.000000008"
+  order-generator-base:MAX_PRICE_PER_MCYCLE: "0.00000002"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://base-mainnet.boundless.network
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
@@ -34,17 +34,19 @@ config:
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-offchain:EXEC_RATE_KHZ: "1000"
   order-generator-offchain:INPUT_MAX_MCYCLES: "2000"
-  order-generator-offchain:LOCK_TIMEOUT: "900"
-  order-generator-offchain:RAMP_UP: "750"
-  order-generator-offchain:INTERVAL: "19"
-  order-generator-offchain:SECONDS_PER_MCYCLE: "2"
+  order-generator-offchain:LOCK_TIMEOUT: "1500"
+  order-generator-offchain:RAMP_UP: "600"
+  order-generator-offchain:INTERVAL: "20"
+  order-generator-offchain:RAMP_UP_SECONDS_PER_MCYCLE: "2"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "7"
   order-generator-offchain:TIMEOUT: "1500"
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "1000"
   order-generator-onchain:INPUT_MAX_MCYCLES: "4000"
-  order-generator-onchain:LOCK_TIMEOUT: "1200"
-  order-generator-onchain:RAMP_UP: "1200"
-  order-generator-onchain:SECONDS_PER_MCYCLE: "5"
+  order-generator-onchain:LOCK_TIMEOUT: "2100"
+  order-generator-onchain:RAMP_UP: "900"
+  order-generator-onchain:RAMP_UP_SECONDS_PER_MCYCLE: "2"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "7"
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"

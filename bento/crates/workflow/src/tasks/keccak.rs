@@ -58,10 +58,6 @@ pub async fn keccak(
         .prove_keccak(&keccak_req)
         .context("Failed to prove_keccak")?;
 
-    keccak_receipt
-        .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify keccak receipt integrity")?;
-
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{task_id}");
     let keccak_receipt_bytes =
