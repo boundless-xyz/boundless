@@ -160,7 +160,7 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         .env("VEZKC_ADDRESS", format!("{:#x}", ctx.zkc_rewards.address()))
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
-        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+        .env("ETH_RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
         .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
         .assert()
         .success()
@@ -270,7 +270,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         .env("VEZKC_ADDRESS", format!("{:#x}", ctx.zkc_rewards.address()))
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
-        .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+        .env("ETH_RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
         .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
 
         let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
@@ -382,7 +382,7 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
     .env("VEZKC_ADDRESS", format!("{:#x}", ctx.zkc_rewards.address()))
     .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
     .env("RISC0_DEV_MODE", "1")
-    .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
+    .env("ETH_RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
     .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
 
     let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
