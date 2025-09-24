@@ -3923,7 +3923,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Withdraw some funds so we only have funds to cover for the first offer
         // and we have a deficit for the second offer to test the partial payment path
         vm.prank(client.addr());
-        boundlessMarket.withdraw(DEFAULT_BALANCE-2 ether);
+        boundlessMarket.withdraw(DEFAULT_BALANCE - 2 ether);
 
         // Lock request A
         vm.prank(testProverAddress);
@@ -3952,7 +3952,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes[] memory errors = boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         // Verify that the second request was partially payed
         assertEq(errors.length, 1, "Expected one error");
-        assertEq(errors[0], abi.encodeWithSelector(IBoundlessMarket.PartialPayment.selector, 3 ether, 2 ether), "Unexpected error");
+        assertEq(
+            errors[0],
+            abi.encodeWithSelector(IBoundlessMarket.PartialPayment.selector, 3 ether, 2 ether),
+            "Unexpected error"
+        );
 
         // Verify only the second request's callback was called
         assertEq(mockCallback.getCallCount(), 0, "First request's callback should not be called");
@@ -3960,7 +3964,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // Deposit back original funds so that the Market original balance is restored
         vm.prank(client.addr());
-        boundlessMarket.deposit{value: DEFAULT_BALANCE-2 ether}();
+        boundlessMarket.deposit{value: DEFAULT_BALANCE - 2 ether}();
 
         // Verify request state and balances
         expectRequestFulfilled(fill.id);
