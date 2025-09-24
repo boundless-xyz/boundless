@@ -138,7 +138,7 @@ contract BoundlessMarket is
     }
 
     function initialize(address initialOwner, string calldata _imageUrl) external initializer {
-    require(initialOwner != address(0), "Invalid initial owner");
+        require(initialOwner != address(0), "Invalid initial owner");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
