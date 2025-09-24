@@ -17,7 +17,7 @@ config:
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:W8jLVMFnXDFMfl+5:dejyGpk4g1zqvpGOdX1GMMS7ustfapAgSCdlhKIQkIlwQcZ1o7W7y3jUQ6jO8UoKvjWxgV2m2eMmRG0t2a5/uAeX/8/HUaaED1ngR1akFDpETJU5JrdQb2vpEX7lBS6x9RNz78wY+xgoSlYjww==
-  order-generator-base:INTERVAL: "40"
+  order-generator-base:INTERVAL: "32"
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
   order-generator-base:LOCK_COLLATERAL_RAW: "7500000000000000000" # $7.5 ZKC
   order-generator-base:LOCK_TIMEOUT: "900"
@@ -36,7 +36,7 @@ config:
   order-generator-offchain:INPUT_MAX_MCYCLES: "2000"
   order-generator-offchain:LOCK_TIMEOUT: "1500"
   order-generator-offchain:RAMP_UP: "600"
-  order-generator-offchain:INTERVAL: "25"
+  order-generator-offchain:INTERVAL: "20"
   order-generator-offchain:RAMP_UP_SECONDS_PER_MCYCLE: "2"
   order-generator-offchain:SECONDS_PER_MCYCLE: "7"
   order-generator-offchain:TIMEOUT: "1500"
