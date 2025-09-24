@@ -24,7 +24,7 @@ use std::{str::FromStr, sync::Arc};
 
 use crate::{
     db::AppState,
-    handler::handle_error,
+    handler::{cache_control, handle_error},
     models::{DelegationPowerEntry, LeaderboardResponse, PaginationParams},
 };
 
@@ -62,7 +62,7 @@ async fn get_aggregate_vote_delegations(
     match get_aggregate_vote_delegations_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=60".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -111,7 +111,7 @@ async fn get_vote_delegations_by_epoch(
     match get_vote_delegations_by_epoch_impl(state, epoch, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -171,7 +171,7 @@ async fn get_vote_delegation_history_by_address(
     match get_vote_delegation_history_by_address_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -231,7 +231,7 @@ async fn get_vote_delegation_by_address_and_epoch(
     match get_vote_delegation_by_address_and_epoch_impl(state, address, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -279,7 +279,7 @@ async fn get_aggregate_reward_delegations(
     match get_aggregate_reward_delegations_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=60".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -330,7 +330,7 @@ async fn get_reward_delegations_by_epoch(
     match get_reward_delegations_by_epoch_impl(state, epoch, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -390,7 +390,7 @@ async fn get_reward_delegation_history_by_address(
     match get_reward_delegation_history_by_address_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -450,7 +450,7 @@ async fn get_reward_delegation_by_address_and_epoch(
     match get_reward_delegation_by_address_and_epoch_impl(state, address, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),

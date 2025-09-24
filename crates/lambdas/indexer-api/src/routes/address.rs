@@ -24,7 +24,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use crate::{
     db::AppState,
-    handler::handle_error,
+    handler::{cache_control, handle_error},
     models::{
         AddressEpochHistory, AddressHistoryParams, AddressHistoryResponse, DelegationPowerData,
         PovwRewardsData, StakingPositionData,
@@ -57,7 +57,7 @@ async fn get_address_history(
         Ok(response) => {
             let mut res = Json(response).into_response();
             // Cache for 5 minutes (historical data doesn't change frequently)
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),

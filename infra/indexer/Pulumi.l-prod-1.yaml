@@ -10,4 +10,5 @@ config:
   indexer:VEZKC_ADDRESS: 0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4
   indexer:ZKC_ADDRESS: 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555
   indexer:RUST_LOG: "info"
+  indexer:CHAIN_ID: "1"
   

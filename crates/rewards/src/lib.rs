@@ -22,11 +22,7 @@ pub mod powers;
 pub mod staking;
 
 // Re-export commonly used types
-pub use cache::{
-    build_block_timestamp_cache, build_epoch_start_end_time_cache, build_rewards_cache,
-    create_block_lookup, create_emissions_lookup, create_epoch_lookup,
-    create_staking_amount_lookup, create_reward_cap_lookup, RewardsCache,
-};
+pub use cache::{build_rewards_cache, RewardsCache};
 
 pub use events::{fetch_all_event_logs, query_logs_chunked, AllEventLogs};
 

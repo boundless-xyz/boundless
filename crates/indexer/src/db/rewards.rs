@@ -936,8 +936,13 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> =
-                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegator_addrs: Vec<String> = match serde_json::from_str(&delegators_json) {
+                Ok(addrs) => addrs,
+                Err(e) => {
+                    tracing::warn!("Failed to parse delegators JSON: {}, using empty vec", e);
+                    Vec::new()
+                }
+            };
             let delegators: Vec<Address> =
                 delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
@@ -1011,8 +1016,13 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> =
-                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegator_addrs: Vec<String> = match serde_json::from_str(&delegators_json) {
+                Ok(addrs) => addrs,
+                Err(e) => {
+                    tracing::warn!("Failed to parse delegators JSON: {}, using empty vec", e);
+                    Vec::new()
+                }
+            };
             let delegators: Vec<Address> =
                 delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
@@ -1092,8 +1102,13 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> =
-                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegator_addrs: Vec<String> = match serde_json::from_str(&delegators_json) {
+                Ok(addrs) => addrs,
+                Err(e) => {
+                    tracing::warn!("Failed to parse delegators JSON: {}, using empty vec", e);
+                    Vec::new()
+                }
+            };
             let delegators: Vec<Address> =
                 delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
@@ -1167,8 +1182,13 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> =
-                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegator_addrs: Vec<String> = match serde_json::from_str(&delegators_json) {
+                Ok(addrs) => addrs,
+                Err(e) => {
+                    tracing::warn!("Failed to parse delegators JSON: {}, using empty vec", e);
+                    Vec::new()
+                }
+            };
             let delegators: Vec<Address> =
                 delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
@@ -1323,8 +1343,13 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> =
-                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegator_addrs: Vec<String> = match serde_json::from_str(&delegators_json) {
+                Ok(addrs) => addrs,
+                Err(e) => {
+                    tracing::warn!("Failed to parse delegators JSON: {}, using empty vec", e);
+                    Vec::new()
+                }
+            };
             let delegators: Vec<Address> =
                 delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 
@@ -1376,8 +1401,13 @@ impl RewardsIndexerDb for RewardsDb {
         let mut results = Vec::new();
         for row in rows {
             let delegators_json: String = row.get("delegators");
-            let delegator_addrs: Vec<String> =
-                serde_json::from_str(&delegators_json).unwrap_or_default();
+            let delegator_addrs: Vec<String> = match serde_json::from_str(&delegators_json) {
+                Ok(addrs) => addrs,
+                Err(e) => {
+                    tracing::warn!("Failed to parse delegators JSON: {}, using empty vec", e);
+                    Vec::new()
+                }
+            };
             let delegators: Vec<Address> =
                 delegator_addrs.iter().filter_map(|s| Address::from_str(s).ok()).collect();
 

@@ -24,7 +24,7 @@ use std::{str::FromStr, sync::Arc};
 
 use crate::{
     db::AppState,
-    handler::handle_error,
+    handler::{cache_control, handle_error},
     models::{
         AggregateStakingEntry, EpochStakingEntry, EpochStakingSummary, LeaderboardResponse,
         PaginationParams, StakingAddressSummary, StakingSummaryStats,
@@ -56,7 +56,7 @@ async fn get_aggregate_staking(
         Ok(response) => {
             let mut res = Json(response).into_response();
             // Cache for 60 seconds (current leaderboard updates frequently)
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=60".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -133,7 +133,7 @@ async fn get_staking_by_epoch(
         Ok(response) => {
             let mut res = Json(response).into_response();
             // Cache for 5 minutes (historical epochs don't change)
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -218,7 +218,7 @@ async fn get_staking_history_by_address(
     match get_staking_history_by_address_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -307,7 +307,7 @@ async fn get_staking_by_address_and_epoch(
     match get_staking_by_address_and_epoch_impl(state, address, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=300".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),

@@ -14,7 +14,7 @@
 
 use anyhow::{Context, Result};
 use axum::{
-    http::{header, StatusCode},
+    http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
@@ -196,4 +196,9 @@ pub fn handle_error(err: anyhow::Error) -> impl IntoResponse {
             "message": err.to_string()
         })),
     )
+}
+
+/// Create a cache control header value safely
+pub fn cache_control(value: &str) -> HeaderValue {
+    HeaderValue::from_str(value).unwrap_or_else(|_| HeaderValue::from_static("public, max-age=60"))
 }
