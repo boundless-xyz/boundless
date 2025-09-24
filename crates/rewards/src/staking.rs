@@ -124,7 +124,9 @@ pub fn compute_staking_positions(
                                     .get(address)
                                     .copied()
                                     .unwrap_or(false),
-                                rewards_delegated_to: current_reward_delegations.get(address).copied(),
+                                rewards_delegated_to: current_reward_delegations
+                                    .get(address)
+                                    .copied(),
                                 votes_delegated_to: current_vote_delegations.get(address).copied(),
                             },
                         );
@@ -146,10 +148,7 @@ pub fn compute_staking_positions(
                     *address,
                     StakingPosition {
                         staked_amount: *amount,
-                        is_withdrawing: current_withdrawing
-                            .get(address)
-                            .copied()
-                            .unwrap_or(false),
+                        is_withdrawing: current_withdrawing.get(address).copied().unwrap_or(false),
                         rewards_delegated_to: current_reward_delegations.get(address).copied(),
                         votes_delegated_to: current_vote_delegations.get(address).copied(),
                     },
@@ -219,17 +218,12 @@ pub fn compute_staking_positions(
     let mut epoch_positions_vec: Vec<EpochStakingPositions> = epoch_states
         .into_iter()
         .map(|(epoch, positions)| {
-            let total_staked = positions.values().map(|p| p.staked_amount).fold(U256::ZERO, |a, b| a + b);
+            let total_staked =
+                positions.values().map(|p| p.staked_amount).fold(U256::ZERO, |a, b| a + b);
             let num_stakers = positions.len();
             let num_withdrawing = positions.values().filter(|p| p.is_withdrawing).count();
 
-            EpochStakingPositions {
-                epoch,
-                positions,
-                total_staked,
-                num_stakers,
-                num_withdrawing,
-            }
+            EpochStakingPositions { epoch, positions, total_staked, num_stakers, num_withdrawing }
         })
         .collect();
     epoch_positions_vec.sort_by_key(|e| e.epoch);
@@ -253,9 +247,5 @@ pub fn compute_staking_positions(
         current_withdrawing,
     };
 
-    Ok(StakingPositionsResult {
-        epoch_positions: epoch_positions_vec,
-        summary,
-    })
+    Ok(StakingPositionsResult { epoch_positions: epoch_positions_vec, summary })
 }
-

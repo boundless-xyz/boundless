@@ -369,10 +369,7 @@ pub trait RewardsIndexerDb {
     ) -> Result<Vec<RewardDelegationPowerByEpoch>, DbError>;
 
     /// Upsert global PoVW summary statistics
-    async fn upsert_povw_summary_stats(
-        &self,
-        stats: PoVWSummaryStats,
-    ) -> Result<(), DbError>;
+    async fn upsert_povw_summary_stats(&self, stats: PoVWSummaryStats) -> Result<(), DbError>;
 
     /// Get global PoVW summary statistics
     async fn get_povw_summary_stats(&self) -> Result<Option<PoVWSummaryStats>, DbError>;
@@ -385,16 +382,12 @@ pub trait RewardsIndexerDb {
     ) -> Result<(), DbError>;
 
     /// Get per-epoch PoVW summary
-    async fn get_epoch_povw_summary(
-        &self,
-        epoch: u64,
-    ) -> Result<Option<EpochPoVWSummary>, DbError>;
+    async fn get_epoch_povw_summary(&self, epoch: u64)
+        -> Result<Option<EpochPoVWSummary>, DbError>;
 
     /// Upsert global staking summary statistics
-    async fn upsert_staking_summary_stats(
-        &self,
-        stats: StakingSummaryStats,
-    ) -> Result<(), DbError>;
+    async fn upsert_staking_summary_stats(&self, stats: StakingSummaryStats)
+        -> Result<(), DbError>;
 
     /// Get global staking summary statistics
     async fn get_staking_summary_stats(&self) -> Result<Option<StakingSummaryStats>, DbError>;
@@ -621,10 +614,8 @@ impl RewardsIndexerDb for RewardsDb {
             WHERE work_log_id = $1
         "#;
 
-        let row = sqlx::query(query)
-            .bind(format!("{:#x}", address))
-            .fetch_optional(&self.pool)
-            .await?;
+        let row =
+            sqlx::query(query).bind(format!("{:#x}", address)).fetch_optional(&self.pool).await?;
 
         if let Some(row) = row {
             Ok(Some(PovwRewardAggregate {
@@ -850,10 +841,8 @@ impl RewardsIndexerDb for RewardsDb {
             WHERE staker_address = $1
         "#;
 
-        let row = sqlx::query(query)
-            .bind(format!("{:#x}", address))
-            .fetch_optional(&self.pool)
-            .await?;
+        let row =
+            sqlx::query(query).bind(format!("{:#x}", address)).fetch_optional(&self.pool).await?;
 
         if let Some(row) = row {
             let rewards_delegated_to: Option<String> = row.get("rewards_delegated_to");
@@ -1423,10 +1412,7 @@ impl RewardsIndexerDb for RewardsDb {
         Ok(results)
     }
 
-    async fn upsert_povw_summary_stats(
-        &self,
-        stats: PoVWSummaryStats,
-    ) -> Result<(), DbError> {
+    async fn upsert_povw_summary_stats(&self, stats: PoVWSummaryStats) -> Result<(), DbError> {
         sqlx::query(
             "INSERT INTO povw_summary_stats
              (id, total_epochs_with_work, total_unique_work_log_ids,
@@ -1470,9 +1456,15 @@ impl RewardsIndexerDb for RewardsDb {
                 total_epochs_with_work: row.get::<i64, _>("total_epochs_with_work") as u64,
                 total_unique_work_log_ids: row.get::<i64, _>("total_unique_work_log_ids") as u64,
                 total_work_all_time: unpad_u256(&row.get::<String, _>("total_work_all_time"))?,
-                total_emissions_all_time: unpad_u256(&row.get::<String, _>("total_emissions_all_time"))?,
-                total_capped_rewards_all_time: unpad_u256(&row.get::<String, _>("total_capped_rewards_all_time"))?,
-                total_uncapped_rewards_all_time: unpad_u256(&row.get::<String, _>("total_uncapped_rewards_all_time"))?,
+                total_emissions_all_time: unpad_u256(
+                    &row.get::<String, _>("total_emissions_all_time"),
+                )?,
+                total_capped_rewards_all_time: unpad_u256(
+                    &row.get::<String, _>("total_capped_rewards_all_time"),
+                )?,
+                total_uncapped_rewards_all_time: unpad_u256(
+                    &row.get::<String, _>("total_uncapped_rewards_all_time"),
+                )?,
             }))
         } else {
             Ok(None)
@@ -1533,7 +1525,9 @@ impl RewardsIndexerDb for RewardsDb {
                 total_work: unpad_u256(&row.get::<String, _>("total_work"))?,
                 total_emissions: unpad_u256(&row.get::<String, _>("total_emissions"))?,
                 total_capped_rewards: unpad_u256(&row.get::<String, _>("total_capped_rewards"))?,
-                total_uncapped_rewards: unpad_u256(&row.get::<String, _>("total_uncapped_rewards"))?,
+                total_uncapped_rewards: unpad_u256(
+                    &row.get::<String, _>("total_uncapped_rewards"),
+                )?,
                 epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
                 epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
                 num_participants: row.get::<i64, _>("num_participants") as u64,

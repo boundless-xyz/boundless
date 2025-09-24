@@ -241,7 +241,8 @@ async fn get_staking_history_by_address_impl(
     let positions = state.rewards_db.get_staking_history_by_address(address, None, None).await?;
 
     // Fetch aggregate summary for this address
-    let address_aggregate = state.rewards_db.get_staking_position_aggregate_by_address(address).await?;
+    let address_aggregate =
+        state.rewards_db.get_staking_position_aggregate_by_address(address).await?;
 
     // Apply pagination
     let start = params.offset as usize;

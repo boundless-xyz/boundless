@@ -27,10 +27,9 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_povw::{deployments::Deployment as PovwDeployment, log_updater::IPovwAccounting};
 use boundless_rewards::{
-    build_rewards_cache, compute_delegation_powers,
-    compute_povw_rewards, compute_staking_positions,
-    fetch_all_event_logs,
-    EpochTimeRange, MAINNET_FROM_BLOCK, SEPOLIA_FROM_BLOCK,
+    build_rewards_cache, compute_delegation_powers, compute_povw_rewards,
+    compute_staking_positions, fetch_all_event_logs, EpochTimeRange, MAINNET_FROM_BLOCK,
+    SEPOLIA_FROM_BLOCK,
 };
 use boundless_zkc::{contracts::IZKC, deployments::Deployment as ZkcDeployment};
 use tokio::time::Duration;
@@ -38,9 +37,9 @@ use url::Url;
 
 use crate::db::rewards::{
     EpochPoVWSummary, EpochStakingSummary, PoVWSummaryStats, PovwRewardAggregate,
-    PovwRewardByEpoch, RewardDelegationPowerAggregate, RewardDelegationPowerByEpoch,
-    RewardsDb, RewardsDbObj, StakingPositionAggregate, StakingPositionByEpoch,
-    StakingSummaryStats, VoteDelegationPowerAggregate, VoteDelegationPowerByEpoch,
+    PovwRewardByEpoch, RewardDelegationPowerAggregate, RewardDelegationPowerByEpoch, RewardsDb,
+    RewardsDbObj, StakingPositionAggregate, StakingPositionByEpoch, StakingSummaryStats,
+    VoteDelegationPowerAggregate, VoteDelegationPowerByEpoch,
 };
 use std::collections::HashSet;
 
@@ -199,10 +198,8 @@ impl RewardsIndexerService {
         // Compute staking positions from cached timestamped events
         tracing::info!("🧮 Computing staking positions from events...");
         let staking_start = std::time::Instant::now();
-        let staking_result = compute_staking_positions(
-            &povw_cache.timestamped_stake_events,
-            current_epoch_u64,
-        )?;
+        let staking_result =
+            compute_staking_positions(&povw_cache.timestamped_stake_events, current_epoch_u64)?;
         tracing::info!(
             "✅ Staking positions computed in {:.2}s (current total: {} ZKC, {} stakers)",
             staking_start.elapsed().as_secs_f64(),
@@ -218,16 +215,15 @@ impl RewardsIndexerService {
         let mut staking_amounts_by_epoch: HashMap<(Address, u64), U256> = HashMap::new();
         for epoch_data in &staking_result.epoch_positions {
             for (address, position) in &epoch_data.positions {
-                staking_amounts_by_epoch.insert((*address, epoch_data.epoch), position.staked_amount);
+                staking_amounts_by_epoch
+                    .insert((*address, epoch_data.epoch), position.staked_amount);
             }
         }
 
         // Get pending epoch total work
         let pending_epoch_total_work = {
-            let povw_accounting = IPovwAccounting::new(
-                povw_deployment.povw_accounting_address,
-                &self.provider
-            );
+            let povw_accounting =
+                IPovwAccounting::new(povw_deployment.povw_accounting_address, &self.provider);
             let pending_epoch = povw_accounting.pendingEpoch().call().await?;
             U256::from(pending_epoch.totalWork)
         };
@@ -256,7 +252,8 @@ impl RewardsIndexerService {
 
         // Store rewards for epochs we're processing
         for &epoch in &epochs_to_process {
-            let epoch_rewards = povw_result.epoch_rewards
+            let epoch_rewards = povw_result
+                .epoch_rewards
                 .iter()
                 .find(|e| e.epoch == U256::from(epoch))
                 .cloned()
@@ -299,7 +296,8 @@ impl RewardsIndexerService {
         }
 
         // Convert aggregates to database format and upsert
-        let aggregates: Vec<PovwRewardAggregate> = povw_result.summary_by_work_log_id
+        let aggregates: Vec<PovwRewardAggregate> = povw_result
+            .summary_by_work_log_id
             .into_values()
             .map(|aggregate| PovwRewardAggregate {
                 work_log_id: aggregate.work_log_id,
@@ -327,7 +325,10 @@ impl RewardsIndexerService {
         tracing::info!("Updated PoVW global summary statistics");
 
         // Store per-epoch PoVW summaries
-        tracing::info!("Storing per-epoch PoVW summaries for {} epochs...", povw_result.epoch_rewards.len());
+        tracing::info!(
+            "Storing per-epoch PoVW summaries for {} epochs...",
+            povw_result.epoch_rewards.len()
+        );
         for epoch_data in &povw_result.epoch_rewards {
             let num_participants = epoch_data.rewards_by_work_log_id.len() as u64;
             let epoch_summary = EpochPoVWSummary {
@@ -366,7 +367,10 @@ impl RewardsIndexerService {
         // Staking positions already computed above and stored in epoch_positions
 
         // Store staking positions by epoch
-        tracing::info!("💾 Storing staking positions for {} epochs...", staking_result.epoch_positions.len());
+        tracing::info!(
+            "💾 Storing staking positions for {} epochs...",
+            staking_result.epoch_positions.len()
+        );
         let db_start = std::time::Instant::now();
         for (i, epoch_data) in staking_result.epoch_positions.iter().enumerate() {
             let positions: Vec<StakingPositionByEpoch> = epoch_data
@@ -440,7 +444,10 @@ impl RewardsIndexerService {
         tracing::info!("Updated staking global summary statistics");
 
         // Store per-epoch staking summaries
-        tracing::info!("Storing per-epoch staking summaries for {} epochs...", staking_result.epoch_positions.len());
+        tracing::info!(
+            "Storing per-epoch staking summaries for {} epochs...",
+            staking_result.epoch_positions.len()
+        );
         for epoch_data in &staking_result.epoch_positions {
             let epoch_summary = EpochStakingSummary {
                 epoch: epoch_data.epoch,

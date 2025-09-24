@@ -153,9 +153,18 @@ impl<T> LeaderboardResponse<T> {
         Self { entries, pagination: PaginationMetadata { count, offset, limit }, summary: None }
     }
 
-    pub fn with_summary(entries: Vec<T>, offset: u64, limit: u64, summary: serde_json::Value) -> Self {
+    pub fn with_summary(
+        entries: Vec<T>,
+        offset: u64,
+        limit: u64,
+        summary: serde_json::Value,
+    ) -> Self {
         let count = entries.len();
-        Self { entries, pagination: PaginationMetadata { count, offset, limit }, summary: Some(summary) }
+        Self {
+            entries,
+            pagination: PaginationMetadata { count, offset, limit },
+            summary: Some(summary),
+        }
     }
 }
 

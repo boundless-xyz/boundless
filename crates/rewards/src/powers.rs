@@ -63,7 +63,6 @@ pub fn compute_delegation_powers(
     timestamped_events: &[TimestampedDelegationEvent],
     current_epoch: u64,
 ) -> anyhow::Result<Vec<EpochDelegationPowers>> {
-
     // Track current state
     let mut current_vote_powers: HashMap<Address, U256> = HashMap::new();
     let mut current_reward_powers: HashMap<Address, U256> = HashMap::new();

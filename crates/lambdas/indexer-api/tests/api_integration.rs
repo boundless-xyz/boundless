@@ -27,7 +27,9 @@ fn get_api_url() -> String {
 }
 
 // Helper function to make GET requests and parse JSON
-async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, Box<dyn std::error::Error>> {
+async fn get_json<T: for<'de> Deserialize<'de>>(
+    path: &str,
+) -> Result<T, Box<dyn std::error::Error>> {
     let url = format!("{}{}", get_api_url(), path);
     let client = Client::new();
     let response = client.get(&url).send().await?;
@@ -99,17 +101,29 @@ struct PovwEntry {
 // Helper to validate formatted ZKC values
 fn assert_formatted_zkc(raw: &str, formatted: &str) {
     assert!(formatted.ends_with(" ZKC"), "Formatted ZKC should end with ' ZKC': {}", formatted);
-    assert!(formatted.contains(",") || formatted == "0 ZKC" || !raw.starts_with("1000"),
-           "Large ZKC values should have commas: {}", formatted);
+    assert!(
+        formatted.contains(",") || formatted == "0 ZKC" || !raw.starts_with("1000"),
+        "Large ZKC values should have commas: {}",
+        formatted
+    );
 }
 
 // Helper to validate formatted cycle values
 fn assert_formatted_cycles(raw: &str, formatted: &str) {
-    assert!(formatted.ends_with(" cycles"), "Formatted cycles should end with ' cycles': {}", formatted);
+    assert!(
+        formatted.ends_with(" cycles"),
+        "Formatted cycles should end with ' cycles': {}",
+        formatted
+    );
     // Cycles are raw counts, check commas for values >= 1000
     if let Ok(num) = raw.parse::<u64>() {
         if num >= 1000 {
-            assert!(formatted.contains(","), "Cycle values >= 1000 should have commas: {} -> {}", raw, formatted);
+            assert!(
+                formatted.contains(","),
+                "Cycle values >= 1000 should have commas: {} -> {}",
+                raw,
+                formatted
+            );
         }
     }
 }
@@ -117,9 +131,8 @@ fn assert_formatted_cycles(raw: &str, formatted: &str) {
 #[tokio::test]
 #[ignore]
 async fn test_health_endpoint() {
-    let response: HealthResponse = get_json("/health")
-        .await
-        .expect("Failed to get health endpoint");
+    let response: HealthResponse =
+        get_json("/health").await.expect("Failed to get health endpoint");
 
     assert_eq!(response.status, "healthy");
     assert_eq!(response.service, "indexer-api");
@@ -128,9 +141,8 @@ async fn test_health_endpoint() {
 #[tokio::test]
 #[ignore]
 async fn test_aggregate_staking_endpoint() {
-    let response: PaginatedResponse<StakingEntry> = get_json("/v1/staking?limit=10")
-        .await
-        .expect("Failed to get aggregate staking");
+    let response: PaginatedResponse<StakingEntry> =
+        get_json("/v1/staking?limit=10").await.expect("Failed to get aggregate staking");
 
     // Check pagination
     assert!(response.entries.len() <= 10, "Should respect limit");
@@ -154,9 +166,10 @@ async fn test_aggregate_staking_endpoint() {
         assert!(summary.get("total_unique_stakers").is_some());
 
         // Validate formatted field
-        if let (Some(raw), Some(formatted)) =
-            (summary.get("current_total_staked").and_then(|v| v.as_str()),
-             summary.get("current_total_staked_formatted").and_then(|v| v.as_str())) {
+        if let (Some(raw), Some(formatted)) = (
+            summary.get("current_total_staked").and_then(|v| v.as_str()),
+            summary.get("current_total_staked_formatted").and_then(|v| v.as_str()),
+        ) {
             assert_formatted_zkc(raw, formatted);
         }
     }
@@ -165,9 +178,8 @@ async fn test_aggregate_staking_endpoint() {
 #[tokio::test]
 #[ignore]
 async fn test_epoch_staking_endpoint() {
-    let response: PaginatedResponse<StakingEntry> = get_json("/v1/staking/epochs/5?limit=10")
-        .await
-        .expect("Failed to get epoch staking");
+    let response: PaginatedResponse<StakingEntry> =
+        get_json("/v1/staking/epochs/5?limit=10").await.expect("Failed to get epoch staking");
 
     // Check entries for epoch-specific fields
     for entry in &response.entries {
@@ -175,7 +187,8 @@ async fn test_epoch_staking_endpoint() {
         assert_eq!(entry.epoch, Some(5));
 
         // Check formatted fields
-        if let (Some(raw), Some(formatted)) = (&entry.staked_amount, &entry.staked_amount_formatted) {
+        if let (Some(raw), Some(formatted)) = (&entry.staked_amount, &entry.staked_amount_formatted)
+        {
             assert_formatted_zkc(raw, formatted);
         }
     }
@@ -186,9 +199,10 @@ async fn test_epoch_staking_endpoint() {
         assert!(summary.get("total_staked").is_some());
         assert!(summary.get("total_staked_formatted").is_some());
 
-        if let (Some(raw), Some(formatted)) =
-            (summary.get("total_staked").and_then(|v| v.as_str()),
-             summary.get("total_staked_formatted").and_then(|v| v.as_str())) {
+        if let (Some(raw), Some(formatted)) = (
+            summary.get("total_staked").and_then(|v| v.as_str()),
+            summary.get("total_staked_formatted").and_then(|v| v.as_str()),
+        ) {
             assert_formatted_zkc(raw, formatted);
         }
     }
@@ -197,20 +211,23 @@ async fn test_epoch_staking_endpoint() {
 #[tokio::test]
 #[ignore]
 async fn test_aggregate_povw_endpoint() {
-    let response: PaginatedResponse<PovwEntry> = get_json("/v1/povw?limit=10")
-        .await
-        .expect("Failed to get aggregate PoVW");
+    let response: PaginatedResponse<PovwEntry> =
+        get_json("/v1/povw?limit=10").await.expect("Failed to get aggregate PoVW");
 
     // Check entries
     for entry in &response.entries {
         assert!(!entry.work_log_id.is_empty());
 
         // Check formatted fields
-        if let (Some(raw), Some(formatted)) = (&entry.total_work_submitted, &entry.total_work_submitted_formatted) {
+        if let (Some(raw), Some(formatted)) =
+            (&entry.total_work_submitted, &entry.total_work_submitted_formatted)
+        {
             assert_formatted_cycles(raw, formatted);
         }
 
-        if let (Some(raw), Some(formatted)) = (&entry.total_actual_rewards, &entry.total_actual_rewards_formatted) {
+        if let (Some(raw), Some(formatted)) =
+            (&entry.total_actual_rewards, &entry.total_actual_rewards_formatted)
+        {
             assert_formatted_zkc(raw, formatted);
         }
     }
@@ -221,15 +238,17 @@ async fn test_aggregate_povw_endpoint() {
         assert!(summary.get("total_work_all_time").is_some());
         assert!(summary.get("total_work_all_time_formatted").is_some());
 
-        if let (Some(raw), Some(formatted)) =
-            (summary.get("total_work_all_time").and_then(|v| v.as_str()),
-             summary.get("total_work_all_time_formatted").and_then(|v| v.as_str())) {
+        if let (Some(raw), Some(formatted)) = (
+            summary.get("total_work_all_time").and_then(|v| v.as_str()),
+            summary.get("total_work_all_time_formatted").and_then(|v| v.as_str()),
+        ) {
             assert_formatted_cycles(raw, formatted);
         }
 
-        if let (Some(raw), Some(formatted)) =
-            (summary.get("total_capped_rewards_all_time").and_then(|v| v.as_str()),
-             summary.get("total_capped_rewards_all_time_formatted").and_then(|v| v.as_str())) {
+        if let (Some(raw), Some(formatted)) = (
+            summary.get("total_capped_rewards_all_time").and_then(|v| v.as_str()),
+            summary.get("total_capped_rewards_all_time_formatted").and_then(|v| v.as_str()),
+        ) {
             assert_formatted_zkc(raw, formatted);
         }
     }
@@ -238,9 +257,8 @@ async fn test_aggregate_povw_endpoint() {
 #[tokio::test]
 #[ignore]
 async fn test_epoch_povw_endpoint() {
-    let response: PaginatedResponse<PovwEntry> = get_json("/v1/povw/epochs/2?limit=10")
-        .await
-        .expect("Failed to get epoch PoVW");
+    let response: PaginatedResponse<PovwEntry> =
+        get_json("/v1/povw/epochs/2?limit=10").await.expect("Failed to get epoch PoVW");
 
     // Check entries for epoch-specific fields
     for entry in &response.entries {
@@ -248,11 +266,15 @@ async fn test_epoch_povw_endpoint() {
         assert_eq!(entry.epoch, Some(2));
 
         // Check formatted fields
-        if let (Some(raw), Some(formatted)) = (&entry.work_submitted, &entry.work_submitted_formatted) {
+        if let (Some(raw), Some(formatted)) =
+            (&entry.work_submitted, &entry.work_submitted_formatted)
+        {
             assert_formatted_cycles(raw, formatted);
         }
 
-        if let (Some(raw), Some(formatted)) = (&entry.actual_rewards, &entry.actual_rewards_formatted) {
+        if let (Some(raw), Some(formatted)) =
+            (&entry.actual_rewards, &entry.actual_rewards_formatted)
+        {
             assert_formatted_zkc(raw, formatted);
         }
     }
@@ -263,9 +285,10 @@ async fn test_epoch_povw_endpoint() {
         assert!(summary.get("total_work").is_some());
         assert!(summary.get("total_work_formatted").is_some());
 
-        if let (Some(raw), Some(formatted)) =
-            (summary.get("total_work").and_then(|v| v.as_str()),
-             summary.get("total_work_formatted").and_then(|v| v.as_str())) {
+        if let (Some(raw), Some(formatted)) = (
+            summary.get("total_work").and_then(|v| v.as_str()),
+            summary.get("total_work_formatted").and_then(|v| v.as_str()),
+        ) {
             assert_formatted_cycles(raw, formatted);
         }
     }
@@ -287,7 +310,9 @@ async fn test_staking_address_history() {
             for entry in &response.entries {
                 assert_eq!(entry.staker_address.to_lowercase(), test_address.to_lowercase());
 
-                if let (Some(raw), Some(formatted)) = (&entry.staked_amount, &entry.staked_amount_formatted) {
+                if let (Some(raw), Some(formatted)) =
+                    (&entry.staked_amount, &entry.staked_amount_formatted)
+                {
                     assert_formatted_zkc(raw, formatted);
                 }
             }
@@ -298,9 +323,10 @@ async fn test_staking_address_history() {
                     assert_eq!(addr.to_lowercase(), test_address.to_lowercase());
                 }
 
-                if let (Some(raw), Some(formatted)) =
-                    (summary.get("total_staked").and_then(|v| v.as_str()),
-                     summary.get("total_staked_formatted").and_then(|v| v.as_str())) {
+                if let (Some(raw), Some(formatted)) = (
+                    summary.get("total_staked").and_then(|v| v.as_str()),
+                    summary.get("total_staked_formatted").and_then(|v| v.as_str()),
+                ) {
                     assert_formatted_zkc(raw, formatted);
                 }
             }
@@ -308,8 +334,11 @@ async fn test_staking_address_history() {
         Err(e) => {
             // Check if it's a 404 (address not found) which is acceptable
             let error_str = e.to_string();
-            assert!(error_str.contains("404") || error_str.contains("not found"),
-                   "Unexpected error: {}", error_str);
+            assert!(
+                error_str.contains("404") || error_str.contains("not found"),
+                "Unexpected error: {}",
+                error_str
+            );
         }
     }
 }
@@ -329,11 +358,15 @@ async fn test_povw_address_history() {
             for entry in &response.entries {
                 assert_eq!(entry.work_log_id.to_lowercase(), test_address.to_lowercase());
 
-                if let (Some(raw), Some(formatted)) = (&entry.work_submitted, &entry.work_submitted_formatted) {
+                if let (Some(raw), Some(formatted)) =
+                    (&entry.work_submitted, &entry.work_submitted_formatted)
+                {
                     assert_formatted_cycles(raw, formatted);
                 }
 
-                if let (Some(raw), Some(formatted)) = (&entry.actual_rewards, &entry.actual_rewards_formatted) {
+                if let (Some(raw), Some(formatted)) =
+                    (&entry.actual_rewards, &entry.actual_rewards_formatted)
+                {
                     assert_formatted_zkc(raw, formatted);
                 }
             }
@@ -344,9 +377,10 @@ async fn test_povw_address_history() {
                     assert_eq!(addr.to_lowercase(), test_address.to_lowercase());
                 }
 
-                if let (Some(raw), Some(formatted)) =
-                    (summary.get("total_work_submitted").and_then(|v| v.as_str()),
-                     summary.get("total_work_submitted_formatted").and_then(|v| v.as_str())) {
+                if let (Some(raw), Some(formatted)) = (
+                    summary.get("total_work_submitted").and_then(|v| v.as_str()),
+                    summary.get("total_work_submitted_formatted").and_then(|v| v.as_str()),
+                ) {
                     assert_formatted_cycles(raw, formatted);
                 }
             }
@@ -354,8 +388,11 @@ async fn test_povw_address_history() {
         Err(e) => {
             // Check if it's a 404 (address not found) which is acceptable
             let error_str = e.to_string();
-            assert!(error_str.contains("404") || error_str.contains("not found"),
-                   "Unexpected error: {}", error_str);
+            assert!(
+                error_str.contains("404") || error_str.contains("not found"),
+                "Unexpected error: {}",
+                error_str
+            );
         }
     }
 }
@@ -364,13 +401,11 @@ async fn test_povw_address_history() {
 #[ignore]
 async fn test_pagination_parameters() {
     // Test with different pagination parameters
-    let response1: PaginatedResponse<StakingEntry> = get_json("/v1/staking?limit=5&offset=0")
-        .await
-        .expect("Failed to get page 1");
+    let response1: PaginatedResponse<StakingEntry> =
+        get_json("/v1/staking?limit=5&offset=0").await.expect("Failed to get page 1");
 
-    let response2: PaginatedResponse<StakingEntry> = get_json("/v1/staking?limit=5&offset=5")
-        .await
-        .expect("Failed to get page 2");
+    let response2: PaginatedResponse<StakingEntry> =
+        get_json("/v1/staking?limit=5&offset=5").await.expect("Failed to get page 2");
 
     // Check that pagination is working
     assert!(response1.entries.len() <= 5);
@@ -382,7 +417,11 @@ async fn test_pagination_parameters() {
     if !response1.entries.is_empty() && !response2.entries.is_empty() {
         let last_rank_page1 = response1.entries.last().unwrap().rank;
         let first_rank_page2 = response2.entries.first().unwrap().rank;
-        assert_eq!(first_rank_page2, last_rank_page1 + 1, "Ranks should be sequential across pages");
+        assert_eq!(
+            first_rank_page2,
+            last_rank_page1 + 1,
+            "Ranks should be sequential across pages"
+        );
     }
 }
 
@@ -403,7 +442,9 @@ async fn test_invalid_address_format() {
     assert!(result.is_err(), "Invalid address should return an error");
     if let Err(e) = result {
         let error_str = e.to_string();
-        assert!(error_str.contains("400") || error_str.contains("Invalid"),
-               "Should return appropriate error for invalid address");
+        assert!(
+            error_str.contains("400") || error_str.contains("Invalid"),
+            "Should return appropriate error for invalid address"
+        );
     }
 }

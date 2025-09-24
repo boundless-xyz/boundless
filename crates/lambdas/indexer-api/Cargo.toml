@@ -16,14 +16,18 @@ alloy = { workspace = true, default-features = false }
 anyhow = { workspace = true }
 aws-config = { version = "1.6", features = ["behavior-version-latest"] }
 
-# Lambda runtime
-lambda_runtime = "0.13.0"
-lambda_http = "0.13.0"
-
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["cors"] }
+
+# Internal dependencies
+boundless-indexer = { path = "../../indexer" }
+lambda_http = "0.13.0"
+
+# Lambda runtime
+lambda_runtime = "0.13.0"
+
+# Fix cross-compilation for Lambda
+openssl = { version = "0.10", features = ["vendored"] }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
@@ -33,11 +37,10 @@ serde_yaml = "0.9"
 # Database
 sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros", "runtime-tokio-rustls"] }
 
-# Fix cross-compilation for Lambda
-openssl = { version = "0.10", features = ["vendored"] }
-
 # Async runtime
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 
 # Logging
 tracing = { workspace = true }
@@ -45,9 +48,6 @@ tracing-subscriber = { workspace = true, features = [
     "fmt",
     "env-filter",
 ] }
-
-# Internal dependencies
-boundless-indexer = { path = "../../indexer" }
 
 [dev-dependencies]
 # HTTP client for integration tests

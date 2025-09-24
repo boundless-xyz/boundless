@@ -27,16 +27,19 @@ pub use cache::{build_rewards_cache, RewardsCache};
 pub use events::{fetch_all_event_logs, query_logs_chunked, AllEventLogs};
 
 pub use povw::{
-    compute_povw_rewards, compute_povw_rewards_for_epoch, EpochPoVWRewards,
-    PoVWWorkLogIdSummary, PoVWRewardsResult, PoVWSummary, WorkLogRewardInfo,
+    compute_povw_rewards, compute_povw_rewards_for_epoch, EpochPoVWRewards, PoVWRewardsResult,
+    PoVWSummary, PoVWWorkLogIdSummary, WorkLogRewardInfo,
 };
 
 pub use staking::{
-    compute_staking_positions, EpochStakingPositions, StakingPosition, StakeEvent,
+    compute_staking_positions, EpochStakingPositions, StakeEvent, StakingPosition,
     StakingPositionsResult, StakingSummary, TimestampedStakeEvent,
 };
 
-pub use powers::{compute_delegation_powers, DelegationPowers, DelegationEvent, EpochDelegationPowers, TimestampedDelegationEvent};
+pub use powers::{
+    compute_delegation_powers, DelegationEvent, DelegationPowers, EpochDelegationPowers,
+    TimestampedDelegationEvent,
+};
 
 /// Time range for an epoch
 #[derive(Debug, Clone, Copy)]

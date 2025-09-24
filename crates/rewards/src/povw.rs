@@ -160,26 +160,25 @@ pub fn compute_povw_rewards_for_epoch(
             if total_work > U256::ZERO { work * povw_emissions / total_work } else { U256::ZERO };
 
         // Get reward cap from cache
-        let reward_cap = reward_caps
-            .get(&(work_log_id, epoch_u64))
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("Reward cap not found for work log {:?} in epoch {}", work_log_id, epoch_u64))?;
+        let reward_cap = reward_caps.get(&(work_log_id, epoch_u64)).copied().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Reward cap not found for work log {:?} in epoch {}",
+                work_log_id,
+                epoch_u64
+            )
+        })?;
 
         // Apply cap
         let capped_rewards = proportional_rewards.min(reward_cap);
         let is_capped = capped_rewards < proportional_rewards;
 
         // Get staking amount from cache for this epoch
-        let staking_amount = staking_amounts_by_epoch
-            .get(&(work_log_id, epoch_u64))
-            .copied()
-            .unwrap_or(U256::ZERO);
+        let staking_amount =
+            staking_amounts_by_epoch.get(&(work_log_id, epoch_u64)).copied().unwrap_or(U256::ZERO);
 
         // Get the actual recipient from cache
-        let recipient_address = work_recipients_by_epoch
-            .get(&(work_log_id, epoch_u64))
-            .copied()
-            .unwrap_or(work_log_id);
+        let recipient_address =
+            work_recipients_by_epoch.get(&(work_log_id, epoch_u64)).copied().unwrap_or(work_log_id);
 
         // Track totals
         total_proportional_rewards += proportional_rewards;
@@ -261,15 +260,15 @@ pub fn compute_povw_rewards(
 
         // Update aggregates for each work log ID in this epoch
         for (work_log_id, info) in &epoch_result.rewards_by_work_log_id {
-            let entry = aggregates_by_work_log
-                .entry(*work_log_id)
-                .or_insert_with(|| PoVWWorkLogIdSummary {
+            let entry = aggregates_by_work_log.entry(*work_log_id).or_insert_with(|| {
+                PoVWWorkLogIdSummary {
                     work_log_id: *work_log_id,
                     total_work_submitted: U256::ZERO,
                     total_actual_rewards: U256::ZERO,
                     total_uncapped_rewards: U256::ZERO,
                     epochs_participated: 0,
-                });
+                }
+            });
 
             entry.total_work_submitted += info.work;
             entry.total_actual_rewards += info.capped_rewards;
@@ -291,9 +290,5 @@ pub fn compute_povw_rewards(
         total_uncapped_rewards_all_time,
     };
 
-    Ok(PoVWRewardsResult {
-        epoch_rewards,
-        summary_by_work_log_id: aggregates_by_work_log,
-        summary,
-    })
+    Ok(PoVWRewardsResult { epoch_rewards, summary_by_work_log_id: aggregates_by_work_log, summary })
 }

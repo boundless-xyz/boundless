@@ -112,10 +112,12 @@ pub async fn build_rewards_cache<P: Provider>(
             // Fetch start times
             let mut start_time_multicall = provider
                 .multicall()
-                .dynamic::<boundless_zkc::contracts::IZKC::getEpochStartTimeCall>();
+                .dynamic::<boundless_zkc::contracts::IZKC::getEpochStartTimeCall>(
+            );
 
             for &epoch_num in chunk {
-                start_time_multicall = start_time_multicall.add_dynamic(zkc.getEpochStartTime(U256::from(epoch_num)));
+                start_time_multicall =
+                    start_time_multicall.add_dynamic(zkc.getEpochStartTime(U256::from(epoch_num)));
             }
 
             let start_times: Vec<U256> = start_time_multicall.aggregate().await?;
@@ -123,10 +125,12 @@ pub async fn build_rewards_cache<P: Provider>(
             // Fetch end times
             let mut end_time_multicall = provider
                 .multicall()
-                .dynamic::<boundless_zkc::contracts::IZKC::getEpochEndTimeCall>();
+                .dynamic::<boundless_zkc::contracts::IZKC::getEpochEndTimeCall>(
+            );
 
             for &epoch_num in chunk {
-                end_time_multicall = end_time_multicall.add_dynamic(zkc.getEpochEndTime(U256::from(epoch_num)));
+                end_time_multicall =
+                    end_time_multicall.add_dynamic(zkc.getEpochEndTime(U256::from(epoch_num)));
             }
 
             let end_times: Vec<U256> = end_time_multicall.aggregate().await?;
@@ -193,7 +197,11 @@ pub async fn build_rewards_cache<P: Provider>(
             for &epoch_num in epochs_to_process {
                 if epoch_num < current_epoch {
                     if let Some(epoch_range) = cache.epoch_time_ranges.get(&epoch_num) {
-                        past_cap_requests.push((work_log_id, epoch_num, U256::from(epoch_range.end_time)));
+                        past_cap_requests.push((
+                            work_log_id,
+                            epoch_num,
+                            U256::from(epoch_range.end_time),
+                        ));
                     }
                 }
             }
@@ -205,11 +213,12 @@ pub async fn build_rewards_cache<P: Provider>(
             // Use dynamic multicall for same-type calls
             let mut multicall = provider
                 .multicall()
-                .dynamic::<boundless_zkc::contracts::IRewards::getPastPoVWRewardCapCall>();
+                .dynamic::<boundless_zkc::contracts::IRewards::getPastPoVWRewardCapCall>(
+            );
 
             for &(work_log_id, _, epoch_end_time) in chunk {
                 multicall = multicall.add_dynamic(
-                    rewards_contract.getPastPoVWRewardCap(work_log_id, epoch_end_time)
+                    rewards_contract.getPastPoVWRewardCap(work_log_id, epoch_end_time),
                 );
             }
 
@@ -423,7 +432,9 @@ pub async fn build_rewards_cache<P: Provider>(
     )?;
 
     // Sort events by block number, then transaction index, then log index
-    cache.timestamped_stake_events.sort_by_key(|e| (e.block_number, e.transaction_index, e.log_index));
+    cache
+        .timestamped_stake_events
+        .sort_by_key(|e| (e.block_number, e.transaction_index, e.log_index));
 
     // Batch 9: Process delegation events
     tracing::debug!("Processing delegation events");
@@ -526,7 +537,9 @@ pub async fn build_rewards_cache<P: Provider>(
     }
 
     // Sort delegation events chronologically
-    cache.timestamped_delegation_events.sort_by_key(|e| (e.block_number, e.transaction_index, e.log_index));
+    cache
+        .timestamped_delegation_events
+        .sort_by_key(|e| (e.block_number, e.transaction_index, e.log_index));
 
     // Batch 10: Process work events
     tracing::debug!("Processing work events");
@@ -540,7 +553,8 @@ pub async fn build_rewards_cache<P: Provider>(
             let recipient = decoded.inner.data.valueRecipient;
 
             // Aggregate work
-            *cache.work_by_work_log_by_epoch.entry((work_log_id, epoch)).or_insert(U256::ZERO) += update_value;
+            *cache.work_by_work_log_by_epoch.entry((work_log_id, epoch)).or_insert(U256::ZERO) +=
+                update_value;
 
             // Store recipient (last one wins if multiple updates)
             cache.work_recipients_by_epoch.insert((work_log_id, epoch), recipient);

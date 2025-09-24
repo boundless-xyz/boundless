@@ -599,7 +599,9 @@ async fn print_epoch_leaderboard(db: &dyn RewardsIndexerDb, epoch: u64) {
     }
 
     // Get epoch statistics from database
-    let epoch_summary = db.get_epoch_povw_summary(epoch).await
+    let epoch_summary = db
+        .get_epoch_povw_summary(epoch)
+        .await
         .expect("Failed to get epoch summary")
         .expect("Epoch summary not found");
 
@@ -611,7 +613,12 @@ async fn print_epoch_leaderboard(db: &dyn RewardsIndexerDb, epoch: u64) {
 
     println!(
         "{:<44} {:>20} {:>20} {:>20} {:>8} {:>8}",
-        "Work Log ID", "Work Submitted", "Actual Rewards (ZKC)", "Uncapped Rewards (ZKC)", "% Share", "Capped"
+        "Work Log ID",
+        "Work Submitted",
+        "Actual Rewards (ZKC)",
+        "Uncapped Rewards (ZKC)",
+        "% Share",
+        "Capped"
     );
     println!("{}", "-".repeat(140));
 
@@ -644,18 +651,29 @@ async fn print_aggregate_leaderboard(db: &dyn RewardsIndexerDb) {
     }
 
     // Get global summary statistics from database
-    let global_summary = db.get_povw_summary_stats().await
+    let global_summary = db
+        .get_povw_summary_stats()
+        .await
         .expect("Failed to get PoVW summary stats")
         .expect("PoVW summary stats not found");
 
     println!("Overall PoVW Summary Statistics:");
     println!("  Total Unique Work Log IDs: {}", global_summary.total_unique_work_log_ids);
     println!("  Total Work (All Time): {}", format_u256_short(global_summary.total_work_all_time));
-    println!("  Total Actual Rewards (All Time): {} ZKC", format_zkc(global_summary.total_capped_rewards_all_time));
-    println!("  Total Uncapped Rewards (All Time): {} ZKC", format_zkc(global_summary.total_uncapped_rewards_all_time));
+    println!(
+        "  Total Actual Rewards (All Time): {} ZKC",
+        format_zkc(global_summary.total_capped_rewards_all_time)
+    );
+    println!(
+        "  Total Uncapped Rewards (All Time): {} ZKC",
+        format_zkc(global_summary.total_uncapped_rewards_all_time)
+    );
     let capping_percentage = if global_summary.total_uncapped_rewards_all_time > U256::ZERO {
-        let capped_amount = global_summary.total_uncapped_rewards_all_time - global_summary.total_capped_rewards_all_time;
-        (capped_amount * U256::from(10000) / global_summary.total_uncapped_rewards_all_time).to::<u64>() as f64 / 100.0
+        let capped_amount = global_summary.total_uncapped_rewards_all_time
+            - global_summary.total_capped_rewards_all_time;
+        (capped_amount * U256::from(10000) / global_summary.total_uncapped_rewards_all_time)
+            .to::<u64>() as f64
+            / 100.0
     } else {
         0.0
     };
@@ -664,7 +682,12 @@ async fn print_aggregate_leaderboard(db: &dyn RewardsIndexerDb) {
 
     println!(
         "{:<5} {:<44} {:>20} {:>20} {:>20} {:>8}",
-        "Rank", "Work Log ID", "Total Work", "Actual Rewards (ZKC)", "Uncapped Rewards (ZKC)", "Epochs"
+        "Rank",
+        "Work Log ID",
+        "Total Work",
+        "Actual Rewards (ZKC)",
+        "Uncapped Rewards (ZKC)",
+        "Epochs"
     );
     println!("{}", "-".repeat(140));
 
