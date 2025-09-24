@@ -195,7 +195,7 @@ mod tests {
         ProofRequest::new(
             RequestId::new(signer, id),
             Requirements::new(Predicate::prefix_match(Digest::from_bytes(image_id.0), prefix)),
-            "test",
+            "http://test.null",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
@@ -213,7 +213,7 @@ mod tests {
         ProofRequest::new(
             RequestId::new(signer, id),
             Requirements::new(Predicate::claim_digest_match(claim_digest)),
-            "test",
+            "http://test.null",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
