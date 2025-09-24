@@ -30,8 +30,9 @@ const taskDBName = config.require("taskDBName");
 const minioUsername = config.get("minioUsername") || "minioadmin";
 const minioPassword = config.get("minioPassword") || "minioadmin123";
 
-// Execution configuration
 const executionCount = config.getNumber("executionCount") || 1;
+const proverCount = config.getNumber("proverWorkerCount") || 1;
+const auxCount = config.getNumber("auxWorkerCount") || 1;
 
 // 1) Instance role & profile (SSM access)
 const ec2Role = new aws.iam.Role("ec2SsmRole", {
@@ -163,11 +164,8 @@ echo "BENTO_BROKER_LISTEN_ADDR=0.0.0.0" >> /etc/environment
 echo "BENTO_BROKER_PORT=8082" >> /etc/environment
 echo "BENTO_EXECUTOR_LISTEN_ADDR=0.0.0.0" >> /etc/environment
 echo "BENTO_EXECUTOR_PORT=8083" >> /etc/environment
-echo "BENTO_AUX_LISTEN_ADDR=0.0.0.0" >> /etc/environment
-echo "BENTO_AUX_PORT=8084" >> /etc/environment
 echo "BENTO_PROVER_LISTEN_ADDR=0.0.0.0" >> /etc/environment
 echo "BENTO_PROVER_PORT=8086" >> /etc/environment
-echo "BENTO_FLAGS='aux --monitor-requeue'" >> /etc/environment
 
 # Database and Redis URLs for manager (localhost)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@localhost:5432/${dbName}" >> /etc/environment
@@ -246,8 +244,8 @@ docker exec boundless-redis redis-cli ping > /dev/null 2>&1 && echo "Redis is ru
 curl -f http://localhost:9000/minio/health/live > /dev/null 2>&1 && echo "MinIO is running" || echo "MinIO health check failed"
 
 systemctl daemon-reload
-systemctl start bento-api.service bento.service bento-broker.service
-systemctl enable bento-api.service bento.service bento-broker.service`;
+systemctl start bento-api.service bento-broker.service
+systemctl enable bento-api.service bento-broker.service`;
         return Buffer.from(userDataScript).toString('base64');
     }),
     userDataReplaceOnChange: false,
@@ -266,14 +264,8 @@ systemctl enable bento-api.service bento.service bento-broker.service`;
     },
 });
 
-// Create Auto Scaling Group for prover instances
-const proverCount = config.getNumber("proverCount") || 3;
-const minSize = config.getNumber("minProverCount") || 1;
-const maxSize = config.getNumber("maxProverCount") || 10;
-
-// 4) Launch template for prover instances with SSM tags
 const proverLaunchTemplate = new aws.ec2.LaunchTemplate("prover-launch-template", {
-    name: "boundless-bento-prover-template",
+    name: `boundless-bento-prover-template-${environment}`,
     imageId: imageId,
     instanceType: "g6.xlarge",
     vpcSecurityGroupIds: [securityGroup.id],
@@ -293,10 +285,9 @@ echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
-echo "BENTO_FLAGS='prove'" >> /etc/environment
 
 # Copy and configure service file
-cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
+cp /opt/boundless/config/bento-prover.service /etc/systemd/system/bento.service
 systemctl daemon-reload
 systemctl start bento.service
 systemctl enable bento.service`;
@@ -325,10 +316,10 @@ systemctl enable bento.service`;
 
 // Auto Scaling Group
 const proverAsg = new aws.autoscaling.Group("prover-asg", {
-    name: "boundless-bento-prover-asg",
+    name: `boundless-bento-prover-asg-${environment}`,
     vpcZoneIdentifiers: privSubNetIds,
-    minSize: minSize,
-    maxSize: maxSize,
+    minSize: proverCount,
+    maxSize: proverCount,
     desiredCapacity: proverCount,
     launchTemplate: {
         id: proverLaunchTemplate.id,
@@ -363,7 +354,7 @@ const proverAsg = new aws.autoscaling.Group("prover-asg", {
 });
 
 const executionLaunchTemplate = new aws.ec2.LaunchTemplate("execution-launch-template", {
-    name: "boundless-bento-execution-template",
+    name: `boundless-bento-execution-template-${environment}`,
     imageId: imageId,
     instanceType: "c7i.large",
     vpcSecurityGroupIds: [securityGroup.id],
@@ -383,10 +374,11 @@ echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
-echo "BENTO_FLAGS='exec --segment-po2 21'" >> /etc/environment
+echo "FINALIZE_RETRIES=3" >> /etc/environment
+echo "FINALIZE_TIMEOUT=60" >> /etc/environment
 
 # Copy and configure service file
-cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
+cp /opt/boundless/config/bento-executor.service /etc/systemd/system/bento.service
 systemctl daemon-reload
 systemctl start bento.service
 systemctl enable bento.service`;
@@ -415,10 +407,10 @@ systemctl enable bento.service`;
 
 // Auto Scaling Group
 const executionAsg = new aws.autoscaling.Group("execution-asg", {
-    name: "boundless-bento-execution-asg",
+    name: `boundless-bento-execution-asg-${environment}`,
     vpcZoneIdentifiers: privSubNetIds,
-    minSize: minSize,
-    maxSize: maxSize,
+    minSize: executionCount,
+    maxSize: executionCount,
     desiredCapacity: executionCount,
     launchTemplate: {
         id: executionLaunchTemplate.id,
@@ -452,6 +444,88 @@ const executionAsg = new aws.autoscaling.Group("execution-asg", {
     ],
 });
 
+// Launch template for aux agent instances
+const auxLaunchTemplate = new aws.ec2.LaunchTemplate("aux-launch-template", {
+    name: `boundless-bento-aux-template-${environment}`,
+    imageId: imageId,
+    instanceType: "t3.medium", // Smaller instance for aux agent
+    vpcSecurityGroupIds: [securityGroup.id],
+    iamInstanceProfile: {
+        name: ec2Profile.name,
+    },
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword, ethRpcUrl, privateKey]).apply(([managerIp, dbName, dbUser, dbPass, bucketName, minioUser, minioPass, rpcUrl, privKey]) => {
+        const userDataScript = `#!/bin/bash
+# Database and Redis URLs for aux agent (point to manager)
+echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
+echo "REDIS_URL=redis://${managerIp}:6379" >> /etc/environment
+
+# S3 Configuration - using MinIO on manager
+echo "RUST_LOG=info" >> /etc/environment
+echo "S3_BUCKET=${bucketName}" >> /etc/environment
+echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
+echo "AWS_REGION=us-west-2" >> /etc/environment
+echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
+echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
+
+# Copy and configure service file
+cp /opt/boundless/config/bento-aux.service /etc/systemd/system/bento.service
+systemctl daemon-reload
+systemctl start bento.service
+systemctl enable bento.service`;
+        return Buffer.from(userDataScript).toString('base64');
+    }),
+    blockDeviceMappings: [{
+        deviceName: "/dev/sda1",
+        ebs: {
+            volumeSize: 100,
+            volumeType: "gp3",
+            deleteOnTermination: "true",
+        },
+    }],
+    tagSpecifications: [{
+        resourceType: "instance",
+        tags: {
+            Name: "boundless-bento-aux-agent",
+            Environment: environment,
+            Component: "aux-agent",
+        },
+    }],
+});
+
+// Auto Scaling Group for aux agent
+const auxAsg = new aws.autoscaling.Group("aux-asg", {
+    name: `boundless-bento-aux-asg-${environment}`,
+    vpcZoneIdentifiers: privSubNetIds,
+    minSize: auxCount,
+    maxSize: auxCount,
+    desiredCapacity: auxCount,
+    launchTemplate: {
+        id: auxLaunchTemplate.id,
+        version: "$Latest",
+    },
+    healthCheckType: "EC2",
+    healthCheckGracePeriod: 300,
+    defaultCooldown: 300,
+    terminationPolicies: ["OldestInstance"],
+    tags: [
+        {
+            key: "Name",
+            value: "boundless-bento-aux-asg",
+            propagateAtLaunch: true,
+        },
+        {
+            key: "Environment",
+            value: environment,
+            propagateAtLaunch: true,
+        },
+        {
+            key: "Component",
+            value: "aux-agent",
+            propagateAtLaunch: true,
+        },
+    ],
+});
+
 
 // Outputs
 export const managerInstanceId = manager.id;
@@ -464,6 +538,20 @@ export const proverAsgArn = proverAsg.arn;
 export const proverDesiredCapacity = proverAsg.desiredCapacity;
 export const proverMinSize = proverAsg.minSize;
 export const proverMaxSize = proverAsg.maxSize;
+
+// Execution ASG outputs
+export const executionAsgName = executionAsg.name;
+export const executionAsgArn = executionAsg.arn;
+export const executionDesiredCapacity = executionAsg.desiredCapacity;
+export const executionMinSize = executionAsg.minSize;
+export const executionMaxSize = executionAsg.maxSize;
+
+// Aux ASG outputs
+export const auxAsgName = auxAsg.name;
+export const auxAsgArn = auxAsg.arn;
+export const auxDesiredCapacity = auxAsg.desiredCapacity;
+export const auxMinSize = auxAsg.minSize;
+export const auxMaxSize = auxAsg.maxSize;
 
 // Redis connection details
 export const redisHost = manager.privateIp;

@@ -66,6 +66,13 @@ sudo mkdir -p /opt/boundless
 sudo cp /tmp/bent*.service /etc/systemd/system/
 sudo cp /tmp/broker.toml /opt/boundless/broker.toml
 
+# Setup vector
+sudo bash -c "$(curl -L https://setup.vector.dev)"
+sudo apt install vector -y
+# Setup vector.toml
+echo "Setting up vector.toml..."
+sudo cp /tmp/vector.toml /etc/vector/vector.toml
+
 # Final cleanup
 echo "Performing final cleanup..."
 sudo apt-get autoremove -y

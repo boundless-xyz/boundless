@@ -1,0 +1,26 @@
+# Nix build artifacts
+result
+result-*
+
+# SOPS secrets
+secrets/
+*.age
+age-key.txt
+
+# Nix flake lock files (optional - some teams prefer to commit these)
+# flake.lock
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
