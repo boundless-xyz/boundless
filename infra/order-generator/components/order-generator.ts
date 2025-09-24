@@ -23,6 +23,7 @@ interface OrderGeneratorArgs {
   minPricePerMCycle: string;
   maxPricePerMCycle: string;
   secondsPerMCycle?: string;
+  rampUpSecondsPerMCycle?: string;
   inputMaxMCycles?: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
@@ -190,6 +191,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.rampUp) {
       ogArgs.push(`--ramp-up ${args.rampUp}`);
+    }
+    if (args.rampUpSecondsPerMCycle) {
+      ogArgs.push(`--ramp-up-seconds-per-mcycle ${args.rampUpSecondsPerMCycle}`);
     }
     if (args.secondsPerMCycle) {
       ogArgs.push(`--seconds-per-mcycle ${args.secondsPerMCycle}`);
