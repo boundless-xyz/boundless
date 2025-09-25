@@ -34,6 +34,10 @@ pub struct GlobalConfig {
     #[clap(long, env = "RPC_URL", global = true)]
     pub rpc_url: Option<Url>,
 
+    /// Limit the requests per second to the RPC endpoint
+    #[clap(long, env = "RPS", global = true, default_value_t = 25)]
+    pub rps: u32,
+
     /// Private key of the wallet (without 0x prefix)
     #[clap(long, env = "PRIVATE_KEY", global = true, hide_env_values = true)]
     pub private_key: Option<PrivateKeySigner>,

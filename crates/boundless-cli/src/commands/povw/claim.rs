@@ -21,8 +21,12 @@ use alloy::{
     contract::Event,
     primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
-    rpc::types::{Filter, Log},
+    rpc::{
+        client::RpcClient,
+        types::{Filter, Log},
+    },
     sol_types::SolEvent,
+    transports::layers::ThrottleLayer,
 };
 use anyhow::{bail, ensure, Context};
 use boundless_povw::{
@@ -99,12 +103,14 @@ impl PovwClaim {
         let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
 
-        // Connect to the chain.
-        let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
+        let client = RpcClient::builder()
+            .layer(ThrottleLayer::new(global_config.rps))
             .connect(rpc_url.as_str())
             .await
-            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+            .with_context(|| format!("failed to connect to {rpc_url}"))?;
+
+        // Connect to the chain.
+        let provider = ProviderBuilder::new().wallet(tx_signer).connect_client(client);
 
         let chain_id = provider.get_chain_id().await.context("Failed to query the chain ID")?;
         let chain_spec = CHAIN_SPECS.get(&chain_id).with_context(|| {
