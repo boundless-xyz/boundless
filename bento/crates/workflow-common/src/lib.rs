@@ -33,6 +33,7 @@ pub const SNARK_TIMEOUT: i32 = 60 * 2;
 pub enum CompressType {
     None,
     Groth16,
+    ShrinkBitvm2,
 }
 
 impl Default for CompressType {

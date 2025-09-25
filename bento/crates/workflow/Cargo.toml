@@ -34,6 +34,9 @@ risc0-zkvm = { workspace = true, default-features = false, features = [
 ] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+shrink_bitvm2 = { workspace = true, features = [
+    "prove",
+]}
 signal-hook = "0.3"
 sqlx = { workspace = true }
 taskdb = { workspace = true }

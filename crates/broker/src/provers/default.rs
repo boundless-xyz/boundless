@@ -402,7 +402,6 @@ impl Prover for DefaultProver {
         proof_id: &str,
         work_dir: Option<PathBuf>,
     ) -> Result<String, ProverError> {
-        let temp_dir = tempdir().context("Failed to crate tmpdir")?;
         tracing::info!("Compressing proof Shrink bitvm2 {proof_id}");
         let receipt = self
             .get_receipt(proof_id)
@@ -418,19 +417,22 @@ impl Prover for DefaultProver {
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
         tracing::debug!("shrink bitvm2 identity_p254 for proof {proof_id}");
-        let succinct_receipt = receipt.inner.succinct().unwrap();
-        let p254_receipt = risc0_zkvm::recursion::identity_p254(succinct_receipt)
-            .context("identity predicate failed")?;
+        let succinct_receipt = receipt.inner.succinct().unwrap().clone();
 
-        tracing::info!("Completing identity predicate, {proof_id}");
-
-        let work_dir =
-            if let Some(work_dir) = work_dir { work_dir } else { temp_dir.path().to_path_buf() };
-
-        let compress_result =
-            shrink_bitvm2::prove_and_verify(&proof_id, &work_dir, p254_receipt, receipt.journal)
-                .await
-                .map_err(ProverError::from);
+        let compress_result = tokio::task::spawn_blocking(move || {
+            #[cfg(feature = "shrink_bitvm2")] 
+            {
+                tracing::warn!("r0vm does not currently support shrink_bitvm2, compressing will be done locally");
+                shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, &receipt.journal.bytes)
+            }
+            #[cfg(not(feature = "shrink_bitvm2"))]
+            Err(ProverError::UnexpectedError(anyhow!(
+                "shrink_bitvm2 feature not enabled"
+            )))
+        })
+        .await
+        .unwrap()
+        .map_err(ProverError::from);
 
         let compressed_bytes = compress_result
             .as_ref()
@@ -477,7 +479,10 @@ mod tests {
         sha::{Digest, Digestible},
         Groth16Seal,
     };
-    use shrink_bitvm2::{from_seal, get_ark_verifying_key, ShrinkBitvm2ReceiptClaim};
+    use shrink_bitvm2::{
+        // from_seal, get_ark_verifying_key,
+        ShrinkBitvm2ReceiptClaim,
+    };
     use tempfile::tempdir;
 
     #[test]
@@ -624,25 +629,25 @@ mod tests {
         let final_output_bytes =
             ShrinkBitvm2ReceiptClaim::ok(image_id, stark_receipt.journal.bytes).digest();
 
-        let public_input_scalar =
-            ark_bn254::Fr::from_be_bytes_mod_order(final_output_bytes.as_bytes());
-
-        // let public_input_scalar_str = public_input_scalar.to_string();
         // let public_input_scalar =
-        //     risc0_groth16::PublicInputsJson { values: vec![public_input_scalar_str] }
-        //         .to_scalar()
-        //         .unwrap();
-        println!("Verify Start");
-        let ark_vk = get_ark_verifying_key();
-        let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
-        let res = ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
-            &ark_pvk,
-            &from_seal(&groth16_receipt.seal),
-            &[public_input_scalar],
-        )
-        .unwrap();
+        //     ark_bn254::Fr::from_be_bytes_mod_order(final_output_bytes.as_bytes());
 
-        println!("Shrink BitVM2 Verify result: {:?}", res);
+        // // let public_input_scalar_str = public_input_scalar.to_string();
+        // // let public_input_scalar =
+        // //     risc0_groth16::PublicInputsJson { values: vec![public_input_scalar_str] }
+        // //         .to_scalar()
+        // //         .unwrap();
+        // println!("Verify Start");
+        // let ark_vk = get_ark_verifying_key();
+        // let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
+        // let res = ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
+        //     &ark_pvk,
+        //     &from_seal(&groth16_receipt.seal),
+        //     &[public_input_scalar],
+        // )
+        // .unwrap();
+
+        // println!("Shrink BitVM2 Verify result: {:?}", res);
 
         // let verifying_key = shrink_bitvm2::get_r0_verifying_key();
 

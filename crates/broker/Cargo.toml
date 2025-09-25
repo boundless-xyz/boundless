@@ -86,3 +86,4 @@ test-log = { workspace = true }
 
 [features]
 test-utils = ["dep:boundless-test-utils"]
+shrink_bitvm2 = ["shrink_bitvm2/prove"]

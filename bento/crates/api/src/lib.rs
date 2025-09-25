@@ -598,6 +598,37 @@ async fn prove_groth16(
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
 
+const SHRINK_BITVM2_PATH: &str = "shrink_bitvm2/create";
+async fn shrink_bitvm2(
+    State(state): State<Arc<AppState>>,
+    ExtractApiKey(api_key): ExtractApiKey,
+    Json(start_req): Json<SnarkReq>,
+) -> Result<Json<CreateSessRes>, AppError> {
+    let (_aux_stream, _exec_stream, gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
+        helpers::get_or_create_streams(&state.db_pool, &api_key)
+            .await
+            .context("Failed to get / create steams")?;
+
+    let task_def = serde_json::to_value(TaskType::Snark(WorkflowSnarkReq {
+        receipt: start_req.session_id,
+        compress_type: CompressType::ShrinkBitvm2,
+    }))
+    .context("Failed to serialize ExecutorReq")?;
+
+    let job_id = taskdb::create_job(
+        &state.db_pool,
+        &gpu_prove_stream,
+        &task_def,
+        state.snark_retries,
+        state.snark_timeout,
+        &api_key,
+    )
+    .await
+    .context("Failed to create exec / init task")?;
+
+    Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
+}
+
 const SNARK_STATUS_PATH: &str = "/snark/status/:job_id";
 async fn groth16_status(
     State(state): State<Arc<AppState>>,
@@ -805,6 +836,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(RECEIPT_DOWNLOAD_PATH, get(receipt_download))
         .route(GET_JOURNAL_PATH, get(preflight_journal))
         .route(SNARK_START_PATH, post(prove_groth16))
+        .route(SHRINK_BITVM2_PATH, post(shrink_bitvm2))
         .route(SNARK_STATUS_PATH, get(groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
