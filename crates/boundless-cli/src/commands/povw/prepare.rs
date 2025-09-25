@@ -29,17 +29,17 @@ use super::{State, WorkReceipt};
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct PovwPrepare {
-    /// Create a new work log with the given work log identifier.
+    /// Create a new work log with the given rewards address.
     ///
-    /// The work log identifier is a 160-bit public key hash (i.e. an Ethereum address) which is
+    /// The rewards address is a 160-bit public key hash (i.e. an Ethereum address) which is
     /// used to identify the work log. A work log is a collection of work claims, including their
     /// value and nonces. A single work log can only include a nonce (and so a receipt) once.
     ///
-    /// A prover may have one or more work logs, and may set the work log ID equal to their onchain
-    /// prover address, or to a new address just used as the work log ID.
+    /// A prover may have one or more work logs, and may set the rewards address equal to their onchain
+    /// prover address, or to a new address just used as the rewards address.
     /// If this not set, then the state file must exist.
-    #[arg(short, long = "new")]
-    new_log_id: Option<PovwLogId>,
+    #[arg(short, long = "new", alias = "new-log-id")]
+    new_rewards_address: Option<PovwLogId>,
 
     /// Path of the work log state file to load the work log and store the prepared update.
     #[arg(short, long, env = "POVW_STATE_PATH")]
@@ -74,17 +74,17 @@ impl PovwPrepare {
     /// Run the [PovwPrepare] command.
     pub async fn run(&self) -> Result<()> {
         // Load the existing state, if provided.
-        let mut state = if let Some(log_id) = self.new_log_id {
+        let mut state = if let Some(log_id) = self.new_rewards_address {
             if self.state.exists() {
                 bail!("File already exists at the state path; refusing to overwrite");
             }
-            tracing::info!("Initializing a new work log with ID {log_id:x}");
+            tracing::info!("Initializing a new work log with rewards address {log_id:x}");
             State::new(log_id)
         } else {
             let state = State::load(&self.state).await.context("Failed to load state file")?;
             tracing::info!("Loaded work log state from {}", self.state.display(),);
             tracing::debug!(commit = %state.work_log.commit(), "Loaded work log commit");
-            tracing::info!("Preparing work log update for log ID: {:x}", state.log_id);
+            tracing::info!("Preparing work log update for rewards address: {:x}", state.log_id);
             state
         };
 
@@ -236,7 +236,7 @@ fn check_work_receipt<T: Borrow<WorkReceipt>>(
     // NOTE: If nonce_max does not have the same log ID as nonce_min, the exec will fail.
     ensure!(
         work_claim.nonce_min.log == log_id,
-        "Receipt has a log ID that does not match the work log: receipt: {:x}, work log: {:x}",
+        "Receipt has a rewards address that does not match the work log: receipt: {:x}, work log: {:x}",
         work_claim.nonce_min.log,
         log_id
     );

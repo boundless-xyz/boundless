@@ -161,7 +161,7 @@ async fn prove_and_send_update() -> anyhow::Result<()> {
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-        .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
+        .env("REWARDS_ADDRESS_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()))
         .assert()
         .success()
         // 4. Confirm that the command logs success
@@ -271,7 +271,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
         .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
         .env("RISC0_DEV_MODE", "1")
         .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-        .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
+        .env("REWARDS_ADDRESS_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
 
         let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
 
@@ -291,7 +291,7 @@ async fn claim_reward_multi_epoch() -> anyhow::Result<()> {
     // Run the claim command to mint the accumulated rewards
     println!("Running claim command");
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["povw", "claim", "--log-id", &format!("{:#x}", log_id)])
+    cmd.args(["povw", "claim", "--rewards-address", &format!("{:#x}", log_id)])
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
@@ -383,7 +383,7 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
     .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
     .env("RISC0_DEV_MODE", "1")
     .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-    .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
+    .env("REWARDS_ADDRESS_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
 
     let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
 
@@ -434,7 +434,7 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
     .env("PRIVATE_KEY", format!("{:#x}", tx_signer.to_bytes()))
     .env("RISC0_DEV_MODE", "1")
     .env("RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-    .env("POVW_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
+    .env("REWARDS_ADDRESS_PRIVATE_KEY", format!("{:#x}", work_log_signer.to_bytes()));
 
     let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
 
@@ -448,7 +448,7 @@ async fn claim_on_partially_finalized_epochs() -> anyhow::Result<()> {
     // Will warn about the second epoch.
     println!("Running claim command");
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["povw", "claim", "--log-id", &format!("{:#x}", log_id)])
+    cmd.args(["povw", "claim", "--rewards-address", &format!("{:#x}", log_id)])
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
         .env("POVW_ACCOUNTING_ADDRESS", format!("{:#x}", ctx.povw_accounting.address()))
