@@ -97,6 +97,47 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
             policyArn: "arn:aws:iam::aws:policy/CloudWatchFullAccess",
         }, { parent: this });
 
+        // Add S3 permissions for artifact bucket access
+        new aws.iam.RolePolicy("prover-cluster-s3-artifacts-policy", {
+            role: proverClusterRole.id,
+            policy: pulumi.all([artifactBucket.arn]).apply(([bucketArn]) => JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:GetObject",
+                            "s3:GetObjectVersion",
+                            "s3:PutObject",
+                            "s3:PutObjectAcl",
+                            "s3:ListBucket",
+                        ],
+                        Resource: [
+                            bucketArn,
+                            `${bucketArn}/*`,
+                        ],
+                    },
+                ],
+            })),
+        }, { parent: this });
+
+        // Add CodeStar connection permissions for GitHub access
+        new aws.iam.RolePolicy("prover-cluster-codestar-connection-policy", {
+            role: proverClusterRole.id,
+            policy: pulumi.all([connection.arn]).apply(([connectionArn]) => JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "codestar-connections:UseConnection",
+                        ],
+                        Resource: connectionArn,
+                    },
+                ],
+            })),
+        }, { parent: this });
+
         // Custom policy for cross-account deployment
         const proverClusterCrossAccountPolicy = new aws.iam.Policy("prover-cluster-cross-account-policy", {
             policy: JSON.stringify({
@@ -138,7 +179,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                 name: `${APP_NAME}-${environment}-deployment`,
                 serviceRole: proverClusterRole.arn,
                 artifacts: {
-                    type: "NO_ARTIFACTS",
+                    type: "CODEPIPELINE",
                 },
                 environment: {
                     type: "LINUX_CONTAINER",
@@ -183,6 +224,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     type: "CODEPIPELINE",
                     buildspec: PROVER_CLUSTER_BUILD_SPEC,
                 },
+                sourceVersion: "CODEPIPELINE",
                 tags: {
                     Project: "boundless",
                     Component: "prover-cluster",

@@ -26,11 +26,6 @@ phases:
   pre_build:
     commands:
       - echo "Starting Packer AMI build..."
-      - echo Assuming role $DEPLOYMENT_ROLE_ARN
-      - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --role-session-name PackerBuild --output text | tail -1)
-      - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
-      - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
-      - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
       - cd infra/packer
       - wget https://releases.hashicorp.com/packer/1.9.4/packer_1.9.4_linux_amd64.zip
       - unzip packer_1.9.4_linux_amd64.zip
@@ -51,32 +46,14 @@ export class PackerPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: PackerPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:packer-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, opsAccountId, serviceAccountIds } = args;
-
-        // Create IAM role for Packer builds in ops account
-        const packerRole = new aws.iam.Role("packer-build-role", {
-            assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
-                Service: "codebuild.amazonaws.com",
-            }),
-        }, { parent: this });
-
-        // Attach policies for Packer to create AMIs
-        new aws.iam.RolePolicyAttachment("packer-ec2-policy", {
-            role: packerRole.name,
-            policyArn: "arn:aws:iam::aws:policy/AmazonEC2FullAccess",
-        }, { parent: this });
-
-        new aws.iam.RolePolicyAttachment("packer-ssm-policy", {
-            role: packerRole.name,
-            policyArn: "arn:aws:iam::aws:policy/AmazonSSMFullAccess",
-        }, { parent: this });
+        const { artifactBucket, connection, opsAccountId, serviceAccountIds, role } = args;
 
         // CodeBuild project for Packer builds
         const packerBuildProject = new aws.codebuild.Project("packer-build-project", {
             name: `${APP_NAME}-packer-build`,
-            serviceRole: packerRole.arn,
+            serviceRole: role.arn,
             artifacts: {
-                type: "NO_ARTIFACTS",
+                type: "CODEPIPELINE",
             },
             environment: {
                 type: "LINUX_CONTAINER",
@@ -84,10 +61,6 @@ export class PackerPipeline extends pulumi.ComponentResource {
                 computeType: "BUILD_GENERAL1_LARGE",
                 privilegedMode: true,
                 environmentVariables: [
-                    {
-                        name: "DEPLOYMENT_ROLE_ARN",
-                        value: `arn:aws:iam::${opsAccountId}:role/DeploymentRole`,
-                    },
                     {
                         name: "BOUNDLESS_BENTO_VERSION",
                         value: "v1.0.1",
@@ -114,6 +87,7 @@ export class PackerPipeline extends pulumi.ComponentResource {
                 type: "CODEPIPELINE",
                 buildspec: PACKER_BUILD_SPEC,
             },
+            sourceVersion: "CODEPIPELINE",
             tags: {
                 Project: "boundless",
                 Component: "packer",
