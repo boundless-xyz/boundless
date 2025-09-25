@@ -1303,14 +1303,14 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
         println!("Transaction Timeout: <not set>");
     }
     println!("Log Level: {:?}", config.log_level);
-    // if let Some(ref deployment) = config.deployment {
-    //     println!("Using custom Boundless deployment");
-    //     println!("Chain ID: {:?}", deployment.chain_id);
-    //     println!("Boundless Market Address: {}", deployment.boundless_market_address);
-    //     println!("Verifier Address: {:?}", deployment.verifier_router_address);
-    //     println!("Set Verifier Address: {}", deployment.set_verifier_address);
-    //     println!("Order Stream URL: {:?}", deployment.order_stream_url);
-    // }
+    if let Some(ref deployment) = config.deployment {
+        println!("Using custom Boundless deployment");
+        println!("Chain ID: {:?}", deployment.chain_id);
+        println!("Boundless Market Address: {}", deployment.boundless_market_address);
+        println!("Verifier Address: {:?}", deployment.verifier_router_address);
+        println!("Set Verifier Address: {}", deployment.set_verifier_address);
+        println!("Order Stream URL: {:?}", deployment.order_stream_url);
+    }
 
     // Validate RPC connection
     println!("\n=== Environment Validation ===\n");
@@ -1329,8 +1329,10 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
         }
     };
 
-    let Some(deployment) = Deployment::from_chain_id(chain_id) else {
-        println!("❌ No Boundless deployment config for chain ID: {chain_id}");
+    let Some(deployment) =
+        config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+    else {
+        println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
         return Ok(());
     };
 
@@ -1488,6 +1490,7 @@ mod tests {
         let config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(private_key),
+            deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
@@ -1504,7 +1507,7 @@ mod tests {
         GlobalConfig,
         JoinHandle<()>,
     ) {
-        let (mut ctx, anvil, global_config) = setup_test_env(owner).await;
+        let (mut ctx, anvil, mut global_config) = setup_test_env(owner).await;
 
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
@@ -1530,7 +1533,7 @@ mod tests {
 
         // Add the order_stream_url to the deployment config.
         ctx.deployment.order_stream_url = Some(order_stream_url.to_string().into());
-        // global_config.deployment = Some(ctx.deployment.clone());
+        global_config.deployment = Some(ctx.deployment.clone());
 
         (ctx, anvil, global_config, order_stream_handle)
     }
@@ -1955,6 +1958,7 @@ mod tests {
         let prover_config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(ctx.prover_signer.clone()),
+            deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
@@ -2289,6 +2293,7 @@ mod tests {
         let prover_config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
             private_key: Some(ctx.prover_signer.clone()),
+            deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };

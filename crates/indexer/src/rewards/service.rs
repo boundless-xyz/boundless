@@ -101,7 +101,7 @@ impl RewardsIndexerService {
 
     pub async fn run(&mut self) -> Result<()> {
         let start_time = std::time::Instant::now();
-        tracing::info!("🚀 Starting rewards indexer run");
+        tracing::info!("Starting rewards indexer run");
 
         // Get deployments based on chain ID
         let povw_deployment = PovwDeployment::from_chain_id(self.chain_id)
@@ -124,7 +124,7 @@ impl RewardsIndexerService {
         let current_block = self.provider.get_block_number().await?;
 
         tracing::info!(
-            "📊 Fetching events from block {} to {} ({} blocks)",
+            "Fetching events from block {} to {} ({} blocks)",
             start_block,
             current_block,
             current_block - start_block
@@ -140,10 +140,7 @@ impl RewardsIndexerService {
             current_block,
         )
         .await?;
-        tracing::info!(
-            "✅ Event fetching completed in {:.2}s",
-            fetch_start.elapsed().as_secs_f64()
-        );
+        tracing::info!("Event fetching completed in {:.2}s", fetch_start.elapsed().as_secs_f64());
 
         // Get current epoch from ZKC contract
         let zkc = IZKC::new(self.zkc_address, &self.provider);
@@ -191,7 +188,7 @@ impl RewardsIndexerService {
         )
         .await?;
         tracing::info!(
-            "✅ PoVW rewards cache built in {:.2}s",
+            "PoVW rewards cache built in {:.2}s",
             cache_build_start.elapsed().as_secs_f64()
         );
 
@@ -201,7 +198,7 @@ impl RewardsIndexerService {
         let staking_result =
             compute_staking_positions(&povw_cache.timestamped_stake_events, current_epoch_u64)?;
         tracing::info!(
-            "✅ Staking positions computed in {:.2}s (current total: {} ZKC, {} stakers)",
+            "Staking positions computed in {:.2}s (current total: {} ZKC, {} stakers)",
             staking_start.elapsed().as_secs_f64(),
             staking_result.summary.current_total_staked / U256::from(10).pow(U256::from(18)),
             staking_result.summary.current_active_stakers
@@ -397,7 +394,7 @@ impl RewardsIndexerService {
                 );
             }
         }
-        tracing::info!("✅ Staking positions stored in {:.2}s", db_start.elapsed().as_secs_f64());
+        tracing::info!("Staking positions stored in {:.2}s", db_start.elapsed().as_secs_f64());
 
         // Compute and store aggregates (latest epoch is the current state)
         if let Some(latest) = staking_result.epoch_positions.last() {
@@ -469,7 +466,7 @@ impl RewardsIndexerService {
             current_epoch_u64,
         )?;
         tracing::info!(
-            "✅ Delegation powers computed in {:.2}s",
+            "Delegation powers computed in {:.2}s",
             delegation_start.elapsed().as_secs_f64()
         );
 
@@ -524,7 +521,7 @@ impl RewardsIndexerService {
             tracing::debug!("Updated delegation powers for epoch {}", epoch_data.epoch);
         }
         tracing::info!(
-            "✅ Delegation powers stored in {:.2}s",
+            "Delegation powers stored in {:.2}s",
             delegation_db_start.elapsed().as_secs_f64()
         );
 
@@ -599,7 +596,7 @@ impl RewardsIndexerService {
         self.db.set_last_rewards_block(current_block).await?;
 
         tracing::info!(
-            "🎉 Rewards indexer run completed successfully in {:.2}s",
+            "Rewards indexer run completed successfully in {:.2}s",
             start_time.elapsed().as_secs_f64()
         );
         Ok(())
