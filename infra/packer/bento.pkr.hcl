@@ -17,14 +17,14 @@ variable "instance_type" {
   default = "c7a.4xlarge"
 }
 
-variable "boundless_version" {
+variable "boundless_bento_version" {
   type    = string
   default = "latest"
 }
 
-variable "docker_tag" {
+variable "boundless_broker_version" {
   type    = string
-  default = "latest"
+  default = "v1.0.0"
 }
 
 variable "service_account_ids" {
@@ -33,18 +33,12 @@ variable "service_account_ids" {
   description = "List of AWS account IDs to share the AMI with"
 }
 
-variable "environment" {
-  type    = string
-  default = "production"
-  description = "Environment name for tagging"
-}
-
 locals {
   timestamp = regex_replace(timestamp(), "[- TZ:]", "")
 }
 
 source "amazon-ebs" "boundless" {
-  ami_name      = "boundless-${var.boundless_version}-ubuntu-24.04-nvidia-${local.timestamp}"
+  ami_name      = "boundless-${var.boundless_bento_version}-ubuntu-24.04-nvidia-${local.timestamp}"
   instance_type = var.instance_type
   region        = var.aws_region
   source_ami_filter {
@@ -70,10 +64,9 @@ source "amazon-ebs" "boundless" {
   ami_users = var.service_account_ids
 
   tags = {
-    Name        = "boundless-${var.boundless_version}-ubuntu-24.04-nvidia-13.0"
-    Environment = var.environment
+    Name        = "boundless-${var.boundless_bento_version}-ubuntu-24.04-nvidia-13.0"
     ManagedBy   = "packer"
-    Version     = var.boundless_version
+    Version     = var.boundless_bento_version
     BuildDate   = local.timestamp
   }
 }
@@ -120,5 +113,9 @@ build {
   # Run the complete installation script
   provisioner "shell" {
     script = "scripts/setup.sh"
+    environment_vars = [
+      "BOUNDLESS_BENTO_VERSION=${var.boundless_bento_version}",
+      "BOUNDLESS_BROKER_VERSION=${var.boundless_broker_version}"
+    ]
   }
 }

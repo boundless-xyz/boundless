@@ -33,7 +33,9 @@ rm amazon-cloudwatch-agent.deb
 
 # Download and install Bento binaries
 echo "Installing Bento binaries..."
-curl -L -o /tmp/bento-bundle.tar.gz 'https://github.com/boundless-xyz/boundless/releases/download/bento-v1.0.1/bento-bundle-linux-amd64.tar.gz'
+BOUNDLESS_BENTO_VERSION=${BOUNDLESS_BENTO_VERSION:-"v1.0.1"}
+echo "Using Bento version: $BOUNDLESS_BENTO_VERSION"
+curl -L -o /tmp/bento-bundle.tar.gz "https://github.com/boundless-xyz/boundless/releases/download/bento-${BOUNDLESS_BENTO_VERSION}/bento-bundle-linux-amd64.tar.gz"
 tar -xzf /tmp/bento-bundle.tar.gz -C /tmp
 sudo mv /tmp/bento-bundle/bento-agent /usr/local/bin/agent
 sudo mv /tmp/bento-bundle/bento-rest-api /usr/local/bin/api
@@ -41,7 +43,9 @@ sudo chmod +x /usr/local/bin/agent /usr/local/bin/api
 
 # Download and install Broker binaries
 echo "Installing Broker binary..."
-wget https://github.com/boundless-xyz/boundless/releases/download/broker-v1.0.0/broker -O /tmp/broker
+BOUNDLESS_BROKER_VERSION=${BOUNDLESS_BROKER_VERSION:-"v1.0.0"}
+echo "Using Broker version: $BOUNDLESS_BROKER_VERSION"
+wget "https://github.com/boundless-xyz/boundless/releases/download/broker-${BOUNDLESS_BROKER_VERSION}/broker" -O /tmp/broker
 sudo mv /tmp/broker /usr/local/bin/broker
 sudo chmod +x /usr/local/bin/broker
 
