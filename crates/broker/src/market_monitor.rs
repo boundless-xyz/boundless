@@ -622,7 +622,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
-        primitives::{Address, Bytes, U256},
+        primitives::{address, Address, Bytes, U256},
         providers::{ext::AnvilApi, ProviderBuilder, WalletProvider},
         signers::local::PrivateKeySigner,
         sol_types::eip712_domain,
@@ -657,8 +657,8 @@ mod tests {
         let market_address = deploy_boundless_market(
             signer.address(),
             provider.clone(),
-            Address::ZERO,
-            Address::ZERO,
+            address!("0x0000000000000000000000000000000000000001"),
+            address!("0x0000000000000000000000000000000000000002"),
             Digest::from(ASSESSOR_GUEST_ID),
             format!("file://{ASSESSOR_GUEST_PATH}"),
             Some(signer.address()),

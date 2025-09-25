@@ -4239,7 +4239,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
                     ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_DURATION,
-                    address(0)
+                    address(0x01)
                 )
             ),
             abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
@@ -4258,7 +4258,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
                     ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_DURATION,
-                    address(0)
+                    address(0x01)
                 )
             ),
             "",
