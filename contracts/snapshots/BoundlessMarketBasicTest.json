@@ -1,6 +1,6 @@
 {
   "ERC20 approve: required for depositCollateral": "45966",
-  "bytecode size implementation": "24481",
+  "bytecode size implementation": "24523",
   "bytecode size proxy": "89",
   "deposit: first ever deposit": "50942",
   "deposit: second deposit": "33842",

@@ -632,6 +632,10 @@ contract BoundlessMarket is
         bytes calldata journal,
         bytes calldata seal
     ) internal {
+        // Ensure sufficient gas for callback, accounting for EIP-150 (63/64 rule).
+        // The requestor is responsible for ensuring that the callback gas limit is sufficient to cover
+        // for any extra overhead that the caller pays (calldata copy, cold access, etc.).
+        if (gasleft() * 63 / 64 < callbackGasLimit) revert InsufficientGas();
         try IBoundlessMarketCallback(callbackAddr).handleProof{gas: callbackGasLimit}(imageId, journal, seal) {}
         catch (bytes memory err) {
             emit CallbackFailed(id, callbackAddr, err);

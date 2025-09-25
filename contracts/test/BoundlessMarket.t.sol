@@ -3678,6 +3678,36 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    function testFulfillLockedRequestWithCallbackNotEnoughGas() public {
+        Client client = getClient(1);
+
+        // Create request with low gas callback
+        ProofRequest memory request = client.request(1);
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 500_000});
+
+        bytes memory clientSignature = client.sign(request);
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        // Lock and fulfill the request
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = fill;
+
+        vm.expectRevert(IBoundlessMarket.InsufficientGas.selector);
+        boundlessMarket.fulfill{gas: 499_000}(fills, assessorReceipt);
+
+        // Verify callback was not called
+        assertEq(mockCallback.getCallCount(), 0, "Callback should not be called");
+
+        expectRequestNotFulfilled(request.id);
+        expectMarketBalanceUnchanged();
+    }
+
     function testFulfillLockedRequestWithCallbackExceedGasLimit() public {
         Client client = getClient(1);
 
