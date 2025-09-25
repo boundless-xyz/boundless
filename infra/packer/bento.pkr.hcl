@@ -91,7 +91,7 @@ build {
   }
 
   provisioner "file" {
-    source = "./service_files/broker.toml"
+    source = "../../broker-template.toml"
     destination = "/tmp/broker.toml"
   }
 

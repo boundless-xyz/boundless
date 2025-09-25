@@ -25,16 +25,17 @@ env:
 phases:
   pre_build:
     commands:
-      - echo "Starting Packer AMI build..."
-      - cd infra/packer
-      - wget https://releases.hashicorp.com/packer/1.9.4/packer_1.9.4_linux_amd64.zip
-      - unzip packer_1.9.4_linux_amd64.zip
+      - wget https://releases.hashicorp.com/packer/1.14.2/packer_1.14.2_linux_amd64.zip
+      - unzip packer_1.14.2_linux_amd64.zip
       - sudo mv packer /usr/local/bin/
       - packer version
   build:
     commands:
       - echo "Building AMI with Packer and sharing with service accounts..."
-      - cd infra/packer
+      - cd infra/$APP_NAME
+      - echo "Initializing Packer plugins..."
+      - packer init bento.pkr.hcl
+      - echo "Building AMI with Packer..."
       - packer build -var "aws_region=us-west-2" -var "boundless_bento_version=$BOUNDLESS_BENTO_VERSION" -var "boundless_broker_version=$BOUNDLESS_BROKER_VERSION" -var "service_account_ids=[\"$STAGING_ACCOUNT_ID\",\"$PRODUCTION_ACCOUNT_ID\"]" bento.pkr.hcl
   post_build:
     commands:
@@ -61,6 +62,10 @@ export class PackerPipeline extends pulumi.ComponentResource {
                 computeType: "BUILD_GENERAL1_LARGE",
                 privilegedMode: true,
                 environmentVariables: [
+                    {
+                        name: "APP_NAME",
+                        value: APP_NAME,
+                    },
                     {
                         name: "BOUNDLESS_BENTO_VERSION",
                         value: "v1.0.1",
