@@ -5,6 +5,7 @@ import { BasePipelineArgs } from "./base";
 interface PackerPipelineArgs extends BasePipelineArgs {
     opsAccountId: string;
     serviceAccountIds: {
+        development: string;
         staging: string;
         production: string;
     };
@@ -36,7 +37,7 @@ phases:
       - echo "Initializing Packer plugins..."
       - packer init bento.pkr.hcl
       - echo "Building AMI with Packer..."
-      - packer build -var "aws_region=us-west-2" -var "boundless_bento_version=$BOUNDLESS_BENTO_VERSION" -var "boundless_broker_version=$BOUNDLESS_BROKER_VERSION" -var "service_account_ids=[\"$STAGING_ACCOUNT_ID\",\"$PRODUCTION_ACCOUNT_ID\"]" bento.pkr.hcl
+      - packer build -var "aws_region=us-west-2" -var "boundless_bento_version=$BOUNDLESS_BENTO_VERSION" -var "boundless_broker_version=$BOUNDLESS_BROKER_VERSION" -var "service_account_ids=[\"$DEVELOPMENT_ACCOUNT_ID\",\"$STAGING_ACCOUNT_ID\",\"$PRODUCTION_ACCOUNT_ID\"]" bento.pkr.hcl
   post_build:
     commands:
       - echo "AMI build and sharing completed successfully"
@@ -73,6 +74,10 @@ export class PackerPipeline extends pulumi.ComponentResource {
                     {
                         name: "BOUNDLESS_BROKER_VERSION",
                         value: "v1.0.0",
+                    },
+                    {
+                        name: "DEVELOPMENT_ACCOUNT_ID",
+                        value: serviceAccountIds.development,
                     },
                     {
                         name: "STAGING_ACCOUNT_ID",

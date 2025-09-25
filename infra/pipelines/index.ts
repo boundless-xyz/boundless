@@ -20,7 +20,8 @@ import {
   BOUNDLESS_STAGING_ADMIN_ROLE_ARN,
   BOUNDLESS_PROD_ADMIN_ROLE_ARN,
   BOUNDLESS_STAGING_ACCOUNT_ID,
-  BOUNDLESS_PROD_ACCOUNT_ID
+  BOUNDLESS_PROD_ACCOUNT_ID,
+  BOUNDLESS_DEV_ACCOUNT_ID
 } from "./accountConstants";
 import * as pulumi from '@pulumi/pulumi';
 
@@ -179,6 +180,7 @@ const packerPipeline = new PackerPipeline("packerPipeline", {
   role: codePipelineSharedResources.role,
   opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
   serviceAccountIds: {
+    development: BOUNDLESS_DEV_ACCOUNT_ID,
     staging: BOUNDLESS_STAGING_ACCOUNT_ID,
     production: BOUNDLESS_PROD_ACCOUNT_ID,
   },
