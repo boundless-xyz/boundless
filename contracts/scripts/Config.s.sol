@@ -3,7 +3,7 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {Vm} from "forge-std/Vm.sol";
 import {console2, stdToml} from "forge-std/Test.sol";

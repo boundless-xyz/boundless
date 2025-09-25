@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";

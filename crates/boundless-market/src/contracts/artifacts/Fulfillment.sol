@@ -2,7 +2,7 @@
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {RequestId} from "./RequestId.sol";
 import {FulfillmentDataType} from "./FulfillmentData.sol";
