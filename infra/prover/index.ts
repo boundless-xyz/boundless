@@ -51,7 +51,7 @@ export = () => {
     bentoBroker = new BentoEC2Broker(bentoBrokerServiceName, {
       chainId: getChainId(chainId),
       ethRpcUrl,
-      gitBranch: "main",
+      gitBranch: "willpote/bob-temporary-prover",
       privateKey: bentoProverPrivateKey,
       baseStackName,
       orderStreamUrl,
