@@ -2,8 +2,6 @@ import { PulumiStateBucket } from "./components/pulumiState";
 import { PulumiSecrets } from "./components/pulumiSecrets";
 import { SamplePipeline } from "./pipelines/sample";
 import { Notifications } from "./components/notifications";
-import { IndexerPipeline } from "./pipelines/indexer";
-import { DistributorPipeline } from "./pipelines/distributor";
 import { LDistributorPipeline } from "./pipelines/l-distributor";
 import { LIndexerPipeline } from "./pipelines/l-indexer";
 import { LOrderGeneratorPipeline } from "./pipelines/l-order-generator";
@@ -112,26 +110,6 @@ const samplePipeline = new SamplePipeline("samplePipeline", {
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
 });
-
-const indexerPipeline = new IndexerPipeline("indexerPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
-})
-
-const distributorPipeline = new DistributorPipeline("distributorPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
-})
 
 // Launch pipelines
 const lDistributorPipeline = new LDistributorPipeline("lDistributorPipeline", {
