@@ -71,7 +71,8 @@ sudo bash -c "$(curl -L https://setup.vector.dev)"
 sudo apt install vector -y
 # Setup vector.toml
 echo "Setting up vector.toml..."
-sudo cp /tmp/vector.toml /etc/vector/vector.toml
+sudo cp /tmp/vector.yaml /etc/vector/vector.yaml
+sudo systemctl enable vector
 
 # Final cleanup
 echo "Performing final cleanup..."

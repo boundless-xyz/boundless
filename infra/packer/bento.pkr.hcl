@@ -82,8 +82,8 @@ build {
   sources = ["source.amazon-ebs.boundless"]
 
   provisioner "file" {
-    source = "./config_files/vector.toml"
-    destination = "/tmp/vector.toml"
+    source = "./config_files/vector.yaml"
+    destination = "/tmp/vector.yaml"
   }
 
   # Copy service files first
