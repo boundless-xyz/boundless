@@ -3,10 +3,12 @@ import * as aws from "@pulumi/aws";
 import { BasePipelineArgs } from "./base";
 
 interface ProverClusterPipelineArgs extends BasePipelineArgs {
-    environment: "staging" | "production";
-    serviceAccountId: string;
+    stagingAccountId: string;
+    productionAccountId: string;
     opsAccountId: string;
     amiId?: string;
+    boundlessBentoVersion?: string;
+    boundlessBrokerVersion?: string;
 }
 
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
@@ -24,7 +26,7 @@ env:
 phases:
   pre_build:
     commands:
-      - echo "Starting Prover Cluster deployment..."
+      - echo "Starting Prover Cluster deployment to $ENVIRONMENT..."
       - echo Assuming role $DEPLOYMENT_ROLE_ARN
       - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --role-session-name ProverClusterDeployment --output text | tail -1)
       - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
@@ -41,10 +43,12 @@ phases:
   build:
     commands:
       - echo "Deploying Prover Cluster to $ENVIRONMENT..."
+      - echo "Using Bento version: $BOUNDLESS_BENTO_VERSION"
+      - echo "Using Broker version: $BOUNDLESS_BROKER_VERSION"
       - pulumi up --yes
   post_build:
     commands:
-      - echo "Prover Cluster deployment completed successfully"
+      - echo "Prover Cluster deployment to $ENVIRONMENT completed successfully"
       - echo "Cluster endpoints:"
       - pulumi stack output --json
 `;
@@ -53,7 +57,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: ProverClusterPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:prover-cluster-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, environment, serviceAccountId, opsAccountId, amiId } = args;
+        const { artifactBucket, connection, stagingAccountId, productionAccountId, opsAccountId, amiId, boundlessBentoVersion, boundlessBrokerVersion } = args;
 
         // Create IAM role for prover cluster deployment
         const proverClusterRole = new aws.iam.Role("prover-cluster-deployment-role", {
@@ -103,7 +107,10 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                         Action: [
                             "sts:AssumeRole"
                         ],
-                        Resource: `arn:aws:iam::${serviceAccountId}:role/DeploymentRole`
+                        Resource: [
+                            `arn:aws:iam::${stagingAccountId}:role/DeploymentRole`,
+                            `arn:aws:iam::${productionAccountId}:role/DeploymentRole`
+                        ]
                     },
                     {
                         Effect: "Allow",
@@ -125,57 +132,71 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
             policyArn: proverClusterCrossAccountPolicy.arn,
         }, { parent: this });
 
-        // CodeBuild project for prover cluster deployment
-        const proverClusterBuildProject = new aws.codebuild.Project("prover-cluster-build-project", {
-            name: `${APP_NAME}-${environment}-deployment`,
-            serviceRole: proverClusterRole.arn,
-            artifacts: {
-                type: "NO_ARTIFACTS",
-            },
-            environment: {
-                type: "LINUX_CONTAINER",
-                image: "aws/codebuild/amazonlinux2-x86_64-standard:5.0",
-                computeType: "BUILD_GENERAL1_MEDIUM",
-                environmentVariables: [
-                    {
-                        name: "DEPLOYMENT_ROLE_ARN",
-                        value: `arn:aws:iam::${serviceAccountId}:role/DeploymentRole`,
-                    },
-                    {
-                        name: "STACK_NAME",
-                        value: `prover-cluster-${environment}`,
-                    },
-                    {
-                        name: "ENVIRONMENT",
-                        value: environment,
-                    },
-                    {
-                        name: "SERVICE_ACCOUNT_ID",
-                        value: serviceAccountId,
-                    },
-                    {
-                        name: "AWS_DEFAULT_REGION",
-                        value: "us-west-2",
-                    },
-                    ...(amiId ? [{
-                        name: "AMI_ID",
-                        value: amiId,
-                    }] : []),
-                ],
-            },
-            source: {
-                type: "CODEPIPELINE",
-                buildspec: PROVER_CLUSTER_BUILD_SPEC,
-            },
-            tags: {
-                Project: "boundless",
-                Component: "prover-cluster",
-                Environment: environment,
-            },
-        }, { parent: this });
+        // Helper function to create CodeBuild projects
+        const createCodeBuildProject = (environment: string, accountId: string) => {
+            return new aws.codebuild.Project(`${APP_NAME}-${environment}-build`, {
+                name: `${APP_NAME}-${environment}-deployment`,
+                serviceRole: proverClusterRole.arn,
+                artifacts: {
+                    type: "NO_ARTIFACTS",
+                },
+                environment: {
+                    type: "LINUX_CONTAINER",
+                    image: "aws/codebuild/amazonlinux2-x86_64-standard:5.0",
+                    computeType: "BUILD_GENERAL1_MEDIUM",
+                    environmentVariables: [
+                        {
+                            name: "DEPLOYMENT_ROLE_ARN",
+                            value: `arn:aws:iam::${accountId}:role/DeploymentRole`,
+                        },
+                        {
+                            name: "STACK_NAME",
+                            value: `prover-cluster-${environment}`,
+                        },
+                        {
+                            name: "ENVIRONMENT",
+                            value: environment,
+                        },
+                        {
+                            name: "SERVICE_ACCOUNT_ID",
+                            value: accountId,
+                        },
+                        {
+                            name: "BOUNDLESS_BENTO_VERSION",
+                            value: boundlessBentoVersion || "v1.0.1",
+                        },
+                        {
+                            name: "BOUNDLESS_BROKER_VERSION",
+                            value: boundlessBrokerVersion || "v1.0.0",
+                        },
+                        {
+                            name: "AWS_DEFAULT_REGION",
+                            value: "us-west-2",
+                        },
+                        ...(amiId ? [{
+                            name: "AMI_ID",
+                            value: amiId,
+                        }] : []),
+                    ],
+                },
+                source: {
+                    type: "CODEPIPELINE",
+                    buildspec: PROVER_CLUSTER_BUILD_SPEC,
+                },
+                tags: {
+                    Project: "boundless",
+                    Component: "prover-cluster",
+                    Environment: environment,
+                },
+            }, { parent: this });
+        };
 
-        // Create the main pipeline
-        const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-${environment}-pipeline`, {
+        // Create CodeBuild projects for staging and production
+        const stagingBuildProject = createCodeBuildProject("staging", stagingAccountId);
+        const productionBuildProject = createCodeBuildProject("production", productionAccountId);
+
+        // Create the main pipeline with staging and production stages
+        const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
             roleArn: args.role.arn,
             pipelineType: "V2",
             artifactStores: [{
@@ -201,33 +222,62 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     }],
                 },
                 {
-                    name: "DeployCluster",
+                    name: "DeployStaging",
                     actions: [{
-                        name: "DeployCluster",
+                        name: "DeployStagingCluster",
                         category: "Build",
                         owner: "AWS",
                         provider: "CodeBuild",
                         version: "1",
                         configuration: {
-                            ProjectName: proverClusterBuildProject.name
+                            ProjectName: stagingBuildProject.name
                         },
-                        outputArtifacts: ["deployment_output"],
+                        outputArtifacts: ["staging_output"],
                         inputArtifacts: ["source_output"],
                     }],
+                },
+                {
+                    name: "DeployProduction",
+                    actions: [
+                        {
+                            name: "ApproveDeployToProduction",
+                            category: "Approval",
+                            owner: "AWS",
+                            provider: "Manual",
+                            version: "1",
+                            runOrder: 1,
+                            configuration: {}
+                        },
+                        {
+                            name: "DeployProductionCluster",
+                            category: "Build",
+                            owner: "AWS",
+                            provider: "CodeBuild",
+                            version: "1",
+                            runOrder: 2,
+                            configuration: {
+                                ProjectName: productionBuildProject.name
+                            },
+                            outputArtifacts: ["production_output"],
+                            inputArtifacts: ["source_output"],
+                        }
+                    ]
                 }
             ],
             tags: {
                 Project: "boundless",
                 Component: "prover-cluster",
-                Environment: environment,
+                Environment: "multi",
             },
         }, { parent: this });
 
         // Outputs
         this.pipelineName = pipeline.name;
-        this.buildProjectName = proverClusterBuildProject.name;
+        this.stagingBuildProjectName = stagingBuildProject.name;
+        this.productionBuildProjectName = productionBuildProject.name;
     }
 
     public readonly pipelineName!: pulumi.Output<string>;
-    public readonly buildProjectName!: pulumi.Output<string>;
+    public readonly stagingBuildProjectName!: pulumi.Output<string>;
+    public readonly productionBuildProjectName!: pulumi.Output<string>;
 }

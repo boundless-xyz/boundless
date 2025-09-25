@@ -31,10 +31,6 @@ phases:
       - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
       - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
       - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
-      - curl -fsSL https://get.pulumi.com/ | sh
-      - export PATH=$PATH:$HOME/.pulumi/bin
-      - pulumi login --non-interactive "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
-      - git submodule update --init --recursive
       - cd infra/packer
       - wget https://releases.hashicorp.com/packer/1.9.4/packer_1.9.4_linux_amd64.zip
       - unzip packer_1.9.4_linux_amd64.zip
@@ -42,12 +38,12 @@ phases:
       - packer version
   build:
     commands:
-      - echo "Building AMI with Packer..."
+      - echo "Building AMI with Packer and sharing with service accounts..."
       - cd infra/packer
-      - packer build -var "aws_region=us-west-2" -var "boundless_version=$BOUNDLESS_VERSION" bento.pkr.hcl
+      - packer build -var "aws_region=us-west-2" -var "boundless_bento_version=$BOUNDLESS_BENTO_VERSION" -var "boundless_broker_version=$BOUNDLESS_BROKER_VERSION" -var "service_account_ids=[\"$STAGING_ACCOUNT_ID\",\"$PRODUCTION_ACCOUNT_ID\"]" bento.pkr.hcl
   post_build:
     commands:
-      - echo "AMI build completed successfully"
+      - echo "AMI build and sharing completed successfully"
       - echo "AMI ID will be available in the build logs"
 `;
 
@@ -75,41 +71,6 @@ export class PackerPipeline extends pulumi.ComponentResource {
             policyArn: "arn:aws:iam::aws:policy/AmazonSSMFullAccess",
         }, { parent: this });
 
-        // Custom policy for cross-account AMI sharing
-        const packerCrossAccountPolicy = new aws.iam.Policy("packer-cross-account-policy", {
-            policy: pulumi.all([serviceAccountIds.staging, serviceAccountIds.production]).apply(([stagingId, prodId]) => JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "ec2:ModifyImageAttribute",
-                            "ec2:DescribeImages",
-                            "ec2:DescribeImageAttribute"
-                        ],
-                        Resource: "*"
-                    },
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "ec2:ModifyImageAttribute"
-                        ],
-                        Resource: "arn:aws:ec2:us-west-2:*:image/*",
-                        Condition: {
-                            StringEquals: {
-                                "ec2:Attribute": "launchPermission"
-                            }
-                        }
-                    }
-                ]
-            }))
-        }, { parent: this });
-
-        new aws.iam.RolePolicyAttachment("packer-cross-account-policy-attachment", {
-            role: packerRole.name,
-            policyArn: packerCrossAccountPolicy.arn,
-        }, { parent: this });
-
         // CodeBuild project for Packer builds
         const packerBuildProject = new aws.codebuild.Project("packer-build-project", {
             name: `${APP_NAME}-packer-build`,
@@ -128,8 +89,20 @@ export class PackerPipeline extends pulumi.ComponentResource {
                         value: `arn:aws:iam::${opsAccountId}:role/DeploymentRole`,
                     },
                     {
-                        name: "BOUNDLESS_VERSION",
+                        name: "BOUNDLESS_BENTO_VERSION",
                         value: "v1.0.1",
+                    },
+                    {
+                        name: "BOUNDLESS_BROKER_VERSION",
+                        value: "v1.0.0",
+                    },
+                    {
+                        name: "STAGING_ACCOUNT_ID",
+                        value: serviceAccountIds.staging,
+                    },
+                    {
+                        name: "PRODUCTION_ACCOUNT_ID",
+                        value: serviceAccountIds.production,
                     },
                     {
                         name: "AWS_DEFAULT_REGION",
@@ -148,126 +121,6 @@ export class PackerPipeline extends pulumi.ComponentResource {
             },
         }, { parent: this });
 
-        // Lambda function to share AMI with service accounts
-        const amiSharingLambda = new aws.lambda.Function("ami-sharing-lambda", {
-            name: `${APP_NAME}-ami-sharing`,
-            runtime: "python3.9",
-            handler: "index.handler",
-            role: new aws.iam.Role("ami-sharing-lambda-role", {
-                assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
-                    Service: "lambda.amazonaws.com",
-                }),
-                inlinePolicies: [{
-                    name: "ami-sharing-policy",
-                    policy: pulumi.all([serviceAccountIds.staging, serviceAccountIds.production]).apply(([stagingId, prodId]) => JSON.stringify({
-                        Version: "2012-10-17",
-                        Statement: [
-                            {
-                                Effect: "Allow",
-                                Action: [
-                                    "logs:CreateLogGroup",
-                                    "logs:CreateLogStream",
-                                    "logs:PutLogEvents"
-                                ],
-                                Resource: "arn:aws:logs:*:*:*"
-                            },
-                            {
-                                Effect: "Allow",
-                                Action: [
-                                    "ec2:ModifyImageAttribute",
-                                    "ec2:DescribeImages"
-                                ],
-                                Resource: "*"
-                            }
-                        ]
-                    }))
-                }]
-            }, { parent: this }).arn,
-            code: new pulumi.asset.AssetArchive({
-                "index.py": new pulumi.asset.StringAsset(`
-import json
-import boto3
-import os
-
-def handler(event, context):
-    ec2 = boto3.client('ec2')
-
-    # Get AMI ID from CodeBuild event
-    ami_id = event.get('detail', {}).get('additional-information', {}).get('environment', {}).get('environment-variables', [])
-    ami_id = next((var['value'] for var in ami_id if var['name'] == 'AMI_ID'), None)
-
-    if not ami_id:
-        print("No AMI ID found in event")
-        return {"statusCode": 400, "body": "No AMI ID found"}
-
-    # Service account IDs
-    staging_account = "${serviceAccountIds.staging}"
-    production_account = "${serviceAccountIds.production}"
-
-    try:
-        # Share AMI with staging account
-        ec2.modify_image_attribute(
-            ImageId=ami_id,
-            Attribute='launchPermission',
-            OperationType='add',
-            UserIds=[staging_account]
-        )
-        print(f"Shared AMI {ami_id} with staging account {staging_account}")
-
-        # Share AMI with production account
-        ec2.modify_image_attribute(
-            ImageId=ami_id,
-            Attribute='launchPermission',
-            OperationType='add',
-            UserIds=[production_account]
-        )
-        print(f"Shared AMI {ami_id} with production account {production_account}")
-
-        return {
-            "statusCode": 200,
-            "body": json.dumps({
-                "message": f"AMI {ami_id} shared successfully",
-                "staging_account": staging_account,
-                "production_account": production_account
-            })
-        }
-    except Exception as e:
-        print(f"Error sharing AMI: {str(e)}")
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": str(e)})
-        }
-`)
-            }),
-        }, { parent: this });
-
-        // EventBridge rule to trigger AMI sharing
-        const amiSharingRule = new aws.cloudwatch.EventRule("ami-sharing-rule", {
-            name: `${APP_NAME}-ami-sharing-rule`,
-            description: "Trigger AMI sharing when Packer build completes",
-            eventPattern: JSON.stringify({
-                source: ["aws.codebuild"],
-                "detail-type": ["CodeBuild Build State Change"],
-                detail: {
-                    "project-name": [packerBuildProject.name],
-                    "build-status": ["SUCCEEDED"]
-                }
-            })
-        }, { parent: this });
-
-        new aws.cloudwatch.EventTarget("ami-sharing-target", {
-            rule: amiSharingRule.name,
-            targetId: "AmiSharingTarget",
-            arn: amiSharingLambda.arn,
-        }, { parent: this });
-
-        new aws.lambda.Permission("ami-sharing-lambda-permission", {
-            statementId: "AllowExecutionFromEventBridge",
-            action: "lambda:InvokeFunction",
-            function: amiSharingLambda.name,
-            principal: "events.amazonaws.com",
-            sourceArn: amiSharingRule.arn,
-        }, { parent: this });
 
         // Create the main pipeline
         const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
@@ -309,20 +162,6 @@ def handler(event, context):
                         outputArtifacts: ["ami_output"],
                         inputArtifacts: ["source_output"],
                     }],
-                },
-                {
-                    name: "ShareAMI",
-                    actions: [{
-                        name: "ShareAMI",
-                        category: "Invoke",
-                        owner: "AWS",
-                        provider: "Lambda",
-                        version: "1",
-                        configuration: {
-                            FunctionName: amiSharingLambda.name
-                        },
-                        inputArtifacts: ["ami_output"],
-                    }],
                 }
             ],
             tags: {
@@ -335,10 +174,8 @@ def handler(event, context):
         // Outputs
         this.pipelineName = pipeline.name;
         this.packerBuildProjectName = packerBuildProject.name;
-        this.amiSharingLambdaName = amiSharingLambda.name;
     }
 
     public readonly pipelineName!: pulumi.Output<string>;
     public readonly packerBuildProjectName!: pulumi.Output<string>;
-    public readonly amiSharingLambdaName!: pulumi.Output<string>;
 }

@@ -15,8 +15,7 @@ import { LOrderStreamPipeline } from "./pipelines/l-order-stream";
 import { LProverPipeline } from "./pipelines/l-prover";
 import { LSlasherPipeline } from "./pipelines/l-slasher";
 import { PackerPipeline } from "./pipelines/packer";
-import { ProverClusterStagingPipeline } from "./pipelines/prover-cluster-staging";
-import { ProverClusterProductionPipeline } from "./pipelines/prover-cluster-production";
+import { ProverClusterPipeline } from "./pipelines/prover-cluster";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import {
@@ -256,22 +255,11 @@ const packerPipeline = new PackerPipeline("packerPipeline", {
 });
 
 // Prover cluster deployment pipelines
-const proverClusterStagingPipeline = new ProverClusterStagingPipeline("proverClusterStagingPipeline", {
+const proverClusterPipeline = new ProverClusterPipeline("proverClusterPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
   stagingAccountId: BOUNDLESS_STAGING_ACCOUNT_ID,
-  opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
-});
-
-const proverClusterProductionPipeline = new ProverClusterProductionPipeline("proverClusterProductionPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
   productionAccountId: BOUNDLESS_PROD_ACCOUNT_ID,
   opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
   githubToken,
@@ -280,6 +268,7 @@ const proverClusterProductionPipeline = new ProverClusterProductionPipeline("pro
   slackAlertsTopicArn: notifications.slackSNSTopic.arn,
 });
 
+
 export const bucketName = pulumiStateBucket.bucket.id;
 export const kmsKeyArn = pulumiSecrets.kmsKey.arn;
 export const boundlessAlertsBetaTopicArn = notifications.slackSNSTopic.arn;
@@ -287,5 +276,4 @@ export const boundlessPagerdutyBetaTopicArn = notifications.pagerdutySNSTopic.ar
 export const boundlessAlertsTopicArnLaunch = notifications.slackSNSTopicLaunch.arn;
 export const boundlessAlertsTopicArnStagingLaunch = notifications.slackSNSTopicStagingLaunch.arn;
 export const packerPipelineName = packerPipeline.pipelineName;
-export const proverClusterStagingPipelineName = proverClusterStagingPipeline.pipelineName;
-export const proverClusterProductionPipelineName = proverClusterProductionPipeline.pipelineName;
+export const proverClusterStagingPipelineName = proverClusterPipeline.pipelineName;
