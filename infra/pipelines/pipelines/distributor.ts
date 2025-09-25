@@ -8,7 +8,7 @@ interface DistributorPipelineArgs extends BasePipelineArgs { }
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "distributor";
 // The branch that we should deploy from on push.
-const BRANCH_NAME = "release-0.14";
+const BRANCH_NAME = "zeroecco/rm_beta";
 // The buildspec for the CodeBuild project that deploys our Pulumi stacks to the staging and prod accounts.
 // Note in pre-build we assume the deployment role for the given account before running pulumi commands, so
 // that we deploy to the target account.
@@ -37,10 +37,9 @@ const BUILD_SPEC = `
         commands:
           - cd infra/$APP_NAME
           - pulumi install
-          - echo "DEPLOYING stack $STACK_NAME"
+          - echo "Tearing down stack $STACK_NAME"
           - pulumi stack select $STACK_NAME
-          - pulumi cancel --yes
-          - pulumi up --yes
+          - pulumi down --yes
     `;
 
 export class DistributorPipeline extends pulumi.ComponentResource {

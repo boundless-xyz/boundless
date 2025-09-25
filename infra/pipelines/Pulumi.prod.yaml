@@ -10,7 +10,7 @@ config:
   pipelines:WORKSPACE_SLACK_ID:
     secure: v1:WCIxKMQodHB1/8dY:vn9J/+M+7r91/G+uYIFBC31Co740P6JoR4Md
   pipelines:PAGERDUTY_INTEGRATION_URL:
-    secure: v1:2E/GhMEBxiNIM0ZP:Ru621fMUaloOvdXAeH5c+E1wwz69G0bcwTYfxVpeib6mL+QjkJFfWoaKb4vowKVfvYeEP2+fWovxX98KBUhT1a6VfgW76s/ms2jWH8/Hs4a3V9S3qlxQtf8bPU069WFVMA==
+    secure: v1:SuGQcoGxlLA8piY9:L2zqgKR74YpdEVRykR4hNK2sx+yhRtlD7hQTwOOO67A/dhtvQii+lo/hOg7ZDRS6iM1doFR03MuX9thXHtLzl942npMXfa0US5daeHUhwDvZVqRLhGlbzUb0Y7CGmAUyYw==
   pipelines:BOUNDLESS_ALERTS_STAGING_SLACK_ID:
     secure: v1:iJPdXMnkpWW+PR4v:V81O9g4nIBNKLrRo9fCSUvWPV1ArT6Uera5i
   pipelines:SSO_BASE_URL:
