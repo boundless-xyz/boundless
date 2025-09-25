@@ -10,7 +10,6 @@
     "resolveJsonModule": true,
     "moduleResolution": "node",
     "outDir": "./bin",
-    "rootDir": "./"
   },
   "include": ["**/*.ts"],
   "exclude": ["node_modules", "bin"]
