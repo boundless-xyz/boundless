@@ -21,8 +21,8 @@ config:
     secure: v1:i9CIG3zUd/8/oSvS:Os4ADaigBy7AfMx9eqPtlwz9AZhnnh5CozWbf145vtIGkOu3SWwMYVKzAOMdD2zBWcOu8LTORPf7T/kZLPpjieYSrfGZ/2rJNM1r5BlafYI=
   prover-cluster:ethRpcUrl:
     secure: v1:icy7VtuUiCP59vj5:I3RDtVfHtgxufWcclgI1JP2lqaDUApPW9QUhXlwNoRCI/h/MmCMCztflfkXQPfUQwRDEyTrcMwIZJJbQe3ooor7ILE9lo9dj3JcMCX1JPH5PyhP7T16P3jhz6SlYIPJrTiwT0Gwv7yaGYiFbZKDwtAM=
-  prover-cluster:orderStreamUrl: "https://testnet.boundless.network/"
+  prover-cluster:orderStreamUrl: "https://eth-sepolia.boundless.network"
   prover-cluster:verifierAddress: "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-  prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
-  prover-cluster:boundlessMarketAddress: "0x7abb16522f4599481361d318b765af988bfcca8e"
+  prover-cluster:setVerifierAddress: "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
+  prover-cluster:boundlessMarketAddress: "0xc211b581cB62e3a6D396A592Bab34979E1bBBA7D"
   prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
