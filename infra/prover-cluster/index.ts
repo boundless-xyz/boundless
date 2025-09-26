@@ -55,6 +55,7 @@ const auxCount = config.getNumber("auxWorkerCount") || 1;
 
 // 1) Instance role & profile (SSM access)
 const ec2Role = new aws.iam.Role("ec2SsmRole", {
+    name: `boundless-bento-ec2-ssm-role-${environment}`,
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({ Service: "ec2.amazonaws.com" }),
 });
 
@@ -72,6 +73,7 @@ new aws.iam.RolePolicyAttachment("ec2-cloudwatch-policy", {
 
 // Create instance profile
 const ec2Profile = new aws.iam.InstanceProfile("ec2Profile", {
+    name: `boundless-bento-ec2-profile-${environment}`,
     role: ec2Role.name
 });
 

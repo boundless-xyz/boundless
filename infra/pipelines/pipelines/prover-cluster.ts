@@ -52,116 +52,12 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
 
         const { artifactBucket, connection, stagingAccountId, productionAccountId, opsAccountId, amiId, boundlessBentoVersion, boundlessBrokerVersion, stagingStackName, stagingStackName2, productionStackName } = args;
 
-        // Create IAM role for prover cluster deployment
-        const proverClusterRole = new aws.iam.Role("prover-cluster-deployment-role", {
-            assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
-                Service: "codebuild.amazonaws.com",
-            }),
-        }, { parent: this });
-
-        // The shared role already has all necessary permissions:
-        // - EC2FullAccess (VPC, security groups, etc.)
-        // - SSMFullAccess
-        // - CloudWatchFullAccessV2
-        // - CodeStar connection permissions
-        // - S3 artifact bucket access
-        // - Cross-account role assumption
-
-        // Add CloudWatch Logs permissions for CodeBuild
-        new aws.iam.RolePolicy("prover-cluster-logs-policy", {
-            role: proverClusterRole.id,
-            policy: JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "logs:CreateLogGroup",
-                            "logs:CreateLogStream",
-                            "logs:PutLogEvents",
-                            "logs:DescribeLogGroups",
-                            "logs:DescribeLogStreams"
-                        ],
-                        Resource: "*"
-                    }
-                ]
-            })
-        }, { parent: this });
-
-        // Add S3 permissions for CodePipeline artifact bucket access
-        new aws.iam.RolePolicy("prover-cluster-artifact-bucket-policy", {
-            role: proverClusterRole.id,
-            policy: pulumi.all([artifactBucket.arn]).apply(([bucketArn]) => JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "s3:GetObject",
-                            "s3:GetObjectVersion",
-                            "s3:ListBucket",
-                            "s3:PutObject"
-                        ],
-                        Resource: [
-                            bucketArn,
-                            `${bucketArn}/*`
-                        ]
-                    }
-                ]
-            })),
-        }, { parent: this });
-
-        // Add S3 permissions for Pulumi state bucket access
-        new aws.iam.RolePolicy("prover-cluster-pulumi-state-policy", {
-            role: proverClusterRole.id,
-            policy: JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "s3:GetObject",
-                            "s3:ListBucket",
-                            "s3:PutObject",
-                            "s3:DeleteObject",
-                        ],
-                        Resource: [
-                            "arn:aws:s3:::boundless-pulumi-state",
-                            "arn:aws:s3:::boundless-pulumi-state/*",
-                        ],
-                    },
-                ],
-            }),
-        }, { parent: this });
-
-        // Add KMS permissions for Pulumi state bucket encryption key access
-        new aws.iam.RolePolicy("prover-cluster-pulumi-state-kms-policy", {
-            role: proverClusterRole.id,
-            policy: JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "kms:Encrypt",
-                            "kms:Decrypt",
-                            "kms:ReEncrypt*",
-                            "kms:GenerateDataKey*",
-                            "kms:DescribeKey",
-                        ],
-                        Resource: "*",
-                    },
-                ],
-            }),
-        }, { parent: this });
-
-        // Cross-account deployment is handled by the shared role's existing permissions
 
         // Helper function to create CodeBuild projects
         const createCodeBuildProject = (environment: string, accountId: string, stackName: string) => {
             return new aws.codebuild.Project(`${APP_NAME}-${stackName}`, {
                 name: `${APP_NAME}-${stackName}-deployment`,
-                serviceRole: proverClusterRole.arn,
+                serviceRole: args.role.arn,
                 artifacts: {
                     type: "CODEPIPELINE",
                 },
@@ -325,12 +221,10 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
         this.stagingBuildProjectName = stagingBuildBaseSepolia.name;
         this.stagingBuildProject2Name = stagingBuildEthSepolia.name;
         this.productionBuildProjectName = productionBuildBaseMainnet.name;
-        this.deploymentRoleArn = proverClusterRole.arn;
     }
 
     public readonly pipelineName!: pulumi.Output<string>;
     public readonly stagingBuildProjectName!: pulumi.Output<string>;
     public readonly stagingBuildProject2Name!: pulumi.Output<string>;
     public readonly productionBuildProjectName!: pulumi.Output<string>;
-    public readonly deploymentRoleArn!: pulumi.Output<string>;
 }
