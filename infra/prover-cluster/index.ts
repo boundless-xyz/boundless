@@ -28,7 +28,7 @@ const boundlessVersion = config.get("boundlessVersion") || "latest";
 // Look up the latest packer-built AMI
 const boundlessAmi = aws.ec2.getAmi({
     mostRecent: true,
-    owners: ["self", "968153779208"], // Look for AMIs owned by this account
+    owners: ["self", "968153779208"],
     filters: [
         {
             name: "name",
@@ -73,34 +73,6 @@ new aws.iam.RolePolicyAttachment("ec2-cloudwatch-policy", {
 // Create instance profile
 const ec2Profile = new aws.iam.InstanceProfile("ec2Profile", {
     role: ec2Role.name
-});
-
-// Create S3 bucket for boundless data
-const s3Bucket = new aws.s3.Bucket("boundless-bento-bucket", {
-    bucket: `boundless-bento-${environment}-${pulumi.getStack()}`,
-    tags: {
-        Name: "boundless-bento-data",
-        Environment: environment,
-        Project: "boundless-bento-cluster",
-    },
-});
-
-// Create S3 bucket versioning
-const s3BucketVersioning = new aws.s3.BucketVersioningV2("boundless-bento-bucket-versioning", {
-    bucket: s3Bucket.id,
-    versioningConfiguration: {
-        status: "Enabled",
-    },
-});
-
-// Create S3 bucket server-side encryption
-const s3BucketServerSideEncryption = new aws.s3.BucketServerSideEncryptionConfigurationV2("boundless-bento-bucket-encryption", {
-    bucket: s3Bucket.id,
-    rules: [{
-        applyServerSideEncryptionByDefault: {
-            sseAlgorithm: "AES256",
-        },
-    }],
 });
 
 const securityGroup = new aws.ec2.SecurityGroup("manager-sg", {
@@ -167,7 +139,7 @@ const manager = new aws.ec2.Instance("manager", {
     subnetId: privSubNetIds.apply((subnets: any) => subnets[0]),
     vpcSecurityGroupIds: [securityGroup.id],
     iamInstanceProfile: ec2Profile.name,
-    userData: pulumi.all([taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword, ethRpcUrl, privateKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress]).apply(([dbName, dbUser, dbPass, bucketName, minioUser, minioPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress]) => {
+    userData: pulumi.all([taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, ethRpcUrl, privateKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress]).apply(([dbName, dbUser, dbPass, minioUser, minioPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress]) => {
         const userDataScript = `#!/bin/bash
 # Set environment variables
 echo "RUST_LOG=info" >> /etc/environment
@@ -186,7 +158,7 @@ echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@localhost:5432/${dbName}" >>
 echo "REDIS_URL=redis://localhost:6379" >> /etc/environment
 
 # S3 Configuration - using MinIO
-echo "S3_BUCKET=${bucketName}" >> /etc/environment
+echo "S3_BUCKET=bento" >> /etc/environment
 echo "S3_URL=http://localhost:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
@@ -292,7 +264,7 @@ const proverLaunchTemplate = new aws.ec2.LaunchTemplate("prover-launch-template"
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword]).apply(([managerIp, dbName, dbUser, dbPass, bucketName, minioUser, minioPass]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass]) => {
         const userDataScript = `#!/bin/bash
 # Database and Redis URLs for prover (point to manager)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
@@ -300,7 +272,7 @@ echo "REDIS_URL=redis://${managerIp}:6379" >> /etc/environment
 
 # S3 Configuration - using MinIO on manager
 echo "RUST_LOG=info" >> /etc/environment
-echo "S3_BUCKET=${bucketName}" >> /etc/environment
+echo "S3_BUCKET=bento" >> /etc/environment
 echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
@@ -394,7 +366,7 @@ const executionLaunchTemplate = new aws.ec2.LaunchTemplate("execution-launch-tem
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword]).apply(([managerIp, dbName, dbUser, dbPass, bucketName, minioUser, minioPass]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass]) => {
         const userDataScript = `#!/bin/bash
 # Database and Redis URLs for execution (point to manager)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
@@ -402,7 +374,7 @@ echo "REDIS_URL=redis://${managerIp}:6379" >> /etc/environment
 
 # S3 Configuration - using MinIO on manager
 echo "RUST_LOG=info" >> /etc/environment
-echo "S3_BUCKET=${bucketName}" >> /etc/environment
+echo "S3_BUCKET=bento" >> /etc/environment
 echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
@@ -500,7 +472,7 @@ const auxLaunchTemplate = new aws.ec2.LaunchTemplate("aux-launch-template", {
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword, ethRpcUrl, privateKey]).apply(([managerIp, dbName, dbUser, dbPass, bucketName, minioUser, minioPass, rpcUrl, privKey]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, ethRpcUrl, privateKey]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, rpcUrl, privKey]) => {
         const userDataScript = `#!/bin/bash
 # Database and Redis URLs for aux agent (point to manager)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
@@ -508,7 +480,7 @@ echo "REDIS_URL=redis://${managerIp}:6379" >> /etc/environment
 
 # S3 Configuration - using MinIO on manager
 echo "RUST_LOG=info" >> /etc/environment
-echo "S3_BUCKET=${bucketName}" >> /etc/environment
+echo "S3_BUCKET=bento" >> /etc/environment
 echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
@@ -623,10 +595,6 @@ export const auxMaxSize = auxAsg.maxSize;
 export const redisHost = manager.privateIp;
 export const redisPort = "6379";
 
-// S3 bucket details
-export const s3BucketName = s3Bucket.bucket;
-export const s3BucketArn = s3Bucket.arn;
-
 // Shared credentials for prover nodes
 export const sharedCredentials = {
     postgresHost: manager.privateIp,
@@ -636,7 +604,7 @@ export const sharedCredentials = {
     postgresPassword: taskDBPassword,
     redisHost: manager.privateIp,
     redisPort: "6379",
-    s3Bucket: s3Bucket.bucket,
+    s3Bucket: "bento",
     s3Region: "us-west-2",
 };
 
@@ -654,11 +622,6 @@ export const clusterInfo = {
         minSize: proverAsg.minSize,
         maxSize: proverAsg.maxSize,
         instanceType: "g6.xlarge",
-    },
-    s3: {
-        bucketName: s3Bucket.bucket,
-        bucketArn: s3Bucket.arn,
-        region: "us-west-2",
     },
     ami: {
         id: imageId,

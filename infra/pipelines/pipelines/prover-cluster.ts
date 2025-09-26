@@ -59,39 +59,37 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
             }),
         }, { parent: this });
 
-        // Attach policies for prover cluster deployment
-        new aws.iam.RolePolicyAttachment("prover-cluster-ec2-policy", {
-            role: proverClusterRole.name,
-            policyArn: "arn:aws:iam::aws:policy/AmazonEC2FullAccess",
+        // The shared role already has all necessary permissions:
+        // - EC2FullAccess (VPC, security groups, etc.)
+        // - SSMFullAccess
+        // - CloudWatchFullAccessV2
+        // - CodeStar connection permissions
+        // - S3 artifact bucket access
+        // - Cross-account role assumption
+
+        // Add CloudWatch Logs permissions for CodeBuild
+        new aws.iam.RolePolicy("prover-cluster-logs-policy", {
+            role: proverClusterRole.id,
+            policy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "logs:CreateLogGroup",
+                            "logs:CreateLogStream",
+                            "logs:PutLogEvents",
+                            "logs:DescribeLogGroups",
+                            "logs:DescribeLogStreams"
+                        ],
+                        Resource: "*"
+                    }
+                ]
+            })
         }, { parent: this });
 
-        new aws.iam.RolePolicyAttachment("prover-cluster-iam-policy", {
-            role: proverClusterRole.name,
-            policyArn: "arn:aws:iam::aws:policy/IAMFullAccess",
-        }, { parent: this });
-
-        new aws.iam.RolePolicyAttachment("prover-cluster-vpc-policy", {
-            role: proverClusterRole.name,
-            policyArn: "arn:aws:iam::aws:policy/AmazonVPCFullAccess",
-        }, { parent: this });
-
-        new aws.iam.RolePolicyAttachment("prover-cluster-autoscaling-policy", {
-            role: proverClusterRole.name,
-            policyArn: "arn:aws:iam::aws:policy/AutoScalingFullAccess",
-        }, { parent: this });
-
-        new aws.iam.RolePolicyAttachment("prover-cluster-ssm-policy", {
-            role: proverClusterRole.name,
-            policyArn: "arn:aws:iam::aws:policy/AmazonSSMFullAccess",
-        }, { parent: this });
-
-        new aws.iam.RolePolicyAttachment("prover-cluster-cloudwatch-policy", {
-            role: proverClusterRole.name,
-            policyArn: "arn:aws:iam::aws:policy/CloudWatchFullAccess",
-        }, { parent: this });
-
-        // Add S3 permissions for artifact bucket access
-        new aws.iam.RolePolicy("prover-cluster-s3-artifacts-policy", {
+        // Add S3 permissions for CodePipeline artifact bucket access
+        new aws.iam.RolePolicy("prover-cluster-artifact-bucket-policy", {
             role: proverClusterRole.id,
             policy: pulumi.all([artifactBucket.arn]).apply(([bucketArn]) => JSON.stringify({
                 Version: "2012-10-17",
@@ -101,33 +99,15 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                         Action: [
                             "s3:GetObject",
                             "s3:GetObjectVersion",
-                            "s3:PutObject",
-                            "s3:PutObjectAcl",
                             "s3:ListBucket",
+                            "s3:PutObject"
                         ],
                         Resource: [
                             bucketArn,
-                            `${bucketArn}/*`,
-                        ],
-                    },
-                ],
-            })),
-        }, { parent: this });
-
-        // Add CodeStar connection permissions for GitHub access
-        new aws.iam.RolePolicy("prover-cluster-codestar-connection-policy", {
-            role: proverClusterRole.id,
-            policy: pulumi.all([connection.arn]).apply(([connectionArn]) => JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "codestar-connections:UseConnection",
-                        ],
-                        Resource: connectionArn,
-                    },
-                ],
+                            `${bucketArn}/*`
+                        ]
+                    }
+                ]
             })),
         }, { parent: this });
 
@@ -175,45 +155,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
             }),
         }, { parent: this });
 
-        // Custom policy for cross-account deployment
-        const proverClusterCrossAccountPolicy = new aws.iam.Policy("prover-cluster-cross-account-policy", {
-            policy: JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "sts:AssumeRole"
-                        ],
-                        Resource: [
-                            BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
-                            BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN
-                        ]
-                    },
-                    {
-                        Effect: "Allow",
-                        Action: [
-                            "ec2:DescribeImages",
-                            "ec2:DescribeInstances",
-                            "ec2:DescribeSecurityGroups",
-                            "ec2:DescribeSubnets",
-                            "ec2:DescribeVpcs"
-                        ],
-                        Resource: "*"
-                    },
-                    {
-                        Effect: "Allow",
-                        Action: "s3:*",
-                        Resource: "*"
-                    }
-                ]
-            })
-        }, { parent: this });
-
-        new aws.iam.RolePolicyAttachment("prover-cluster-cross-account-policy-attachment", {
-            role: proverClusterRole.name,
-            policyArn: proverClusterCrossAccountPolicy.arn,
-        }, { parent: this });
+        // Cross-account deployment is handled by the shared role's existing permissions
 
         // Helper function to create CodeBuild projects
         const createCodeBuildProject = (environment: string, accountId: string, stackName: string) => {
@@ -231,7 +173,9 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                         {
                             name: "DEPLOYMENT_ROLE_ARN",
                             type: "PLAINTEXT",
-                            value: `arn:aws:iam::${accountId}:role/DeploymentRole`
+                            value: accountId === stagingAccountId
+                                ? BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN
+                                : BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN
                         },
                         {
                             name: "STACK_NAME",
