@@ -29,23 +29,11 @@ const boundlessVersion = config.get("boundlessVersion") || "latest";
 // Look up the latest packer-built AMI
 const boundlessAmi = aws.ec2.getAmi({
     mostRecent: true,
-    owners: ["self"], // Look for AMIs owned by this account
+    owners: ["self", "968153779208"], // Look for AMIs owned by this account
     filters: [
         {
             name: "name",
-            values: [`boundless-*-ubuntu-24.04-nvidia-*`]
-        },
-        {
-            name: "tag:ManagedBy",
-            values: ["packer"]
-        },
-        {
-            name: "tag:Version",
-            values: [boundlessVersion]
-        },
-        {
-            name: "state",
-            values: ["available"]
+            values: [`boundless-v*-ubuntu-24.04-nvidia-*`]
         }
     ]
 });
