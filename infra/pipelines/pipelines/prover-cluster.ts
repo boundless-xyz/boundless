@@ -1,6 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BasePipelineArgs } from "./base";
+import { BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
 
 interface ProverClusterPipelineArgs extends BasePipelineArgs {
     stagingAccountId: string;
@@ -185,8 +186,8 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                             "sts:AssumeRole"
                         ],
                         Resource: [
-                            `arn:aws:iam::${stagingAccountId}:role/DeploymentRole`,
-                            `arn:aws:iam::${productionAccountId}:role/DeploymentRole`
+                            BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
+                            BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN
                         ]
                     },
                     {
@@ -198,6 +199,11 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                             "ec2:DescribeSubnets",
                             "ec2:DescribeVpcs"
                         ],
+                        Resource: "*"
+                    },
+                    {
+                        Effect: "Allow",
+                        Action: "s3:*",
                         Resource: "*"
                     }
                 ]

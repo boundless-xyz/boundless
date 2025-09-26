@@ -2,7 +2,7 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFaRhyFHjBH4h7za4QR/PoxAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMwaTY/FRw6mApkTgWAgEQgDtVQ0eo7i+0qyEM+3rFhHURB9JjvpBlBgWPksPD1IYEqQSIVRTJMDTYBEXEXCnN0+F7ikGMzuo7i/WyLA==
 config:
   base:BASE_STACK: organization/bootstrap/services-staging
-  prover-cluster:environment: dev
+  prover-cluster:environment: staging
   prover-cluster:managerInstanceType: t3a.2xlarge
   prover-cluster:taskDBName: "taskdb"
   prover-cluster:taskDBUsername:
