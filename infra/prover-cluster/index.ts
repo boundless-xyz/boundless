@@ -67,6 +67,26 @@ new aws.iam.RolePolicyAttachment("ec2-cloudwatch-policy", {
     policyArn: "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
 });
 
+new aws.iam.RolePolicy("ec2-vector-logs-policy", {
+    role: ec2Role.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+            {
+                Effect: "Allow",
+                Action: [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:DescribeLogGroups",
+                    "logs:DescribeLogStreams",
+                    "logs:PutLogEvents"
+                ],
+                Resource: "*"
+            }
+        ]
+    })
+});
+
 // Create instance profile
 const ec2Profile = new aws.iam.InstanceProfile("ec2Profile", {
     name: `boundless-bento-ec2-profile-${stackName}`,
