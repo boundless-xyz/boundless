@@ -42,6 +42,7 @@ phases:
   build:
     commands:
       - echo "Deploying Prover Cluster to $ENVIRONMENT"
+      - pulumi refresh --yes
       - pulumi up --yes
 `;
 
