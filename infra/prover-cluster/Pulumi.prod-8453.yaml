@@ -3,6 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGA9yGzYmX18KEh3q
 config:
   base:BASE_STACK: organization/bootstrap/services-prod
   prover-cluster:environment: prod
+  prover-cluster:chainId: "8453"
   prover-cluster:managerInstanceType: t3a.2xlarge
   prover-cluster:taskDBName: "taskdb"
   prover-cluster:taskDBUsername:

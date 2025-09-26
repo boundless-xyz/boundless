@@ -4,6 +4,7 @@ config:
   base:BASE_STACK: organization/bootstrap/services-staging
   prover-cluster:environment: staging
   prover-cluster:managerInstanceType: t3a.2xlarge
+  prover-cluster:chainId: "11155111"
   prover-cluster:taskDBName: "taskdb"
   prover-cluster:taskDBUsername:
     secure: v1:Jb/ItvI4akaNU8U/:loiOIYCSbdryGaqPd1SJCuvQHev0

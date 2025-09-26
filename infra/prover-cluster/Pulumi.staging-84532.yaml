@@ -3,6 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFaRhyFHjBH4h7za4
 config:
   base:BASE_STACK: organization/bootstrap/services-staging
   prover-cluster:environment: staging
+  prover-cluster:chainId: "84532"
   prover-cluster:managerInstanceType: t3a.2xlarge
   prover-cluster:taskDBName: "taskdb"
   prover-cluster:taskDBUsername:

@@ -38,7 +38,6 @@ const boundlessAmi = aws.ec2.getAmi({
 });
 
 const imageId = boundlessAmi.then(ami => ami.id);
-// Removed spot market configuration - using g6.xlarge for all provers
 
 // Contract addresses
 const taskDBUsername = config.require("taskDBUsername");
@@ -55,7 +54,7 @@ const auxCount = config.getNumber("auxWorkerCount") || 1;
 
 // 1) Instance role & profile (SSM access)
 const ec2Role = new aws.iam.Role("ec2SsmRole", {
-    name: `boundless-bento-ec2-ssm-role-${environment}`,
+    name: `boundless-bento-ec2-ssm-role-${stackName}`,
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({ Service: "ec2.amazonaws.com" }),
 });
 
@@ -73,7 +72,7 @@ new aws.iam.RolePolicyAttachment("ec2-cloudwatch-policy", {
 
 // Create instance profile
 const ec2Profile = new aws.iam.InstanceProfile("ec2Profile", {
-    name: `boundless-bento-ec2-profile-${environment}`,
+    name: `boundless-bento-ec2-profile-${stackName}`,
     role: ec2Role.name
 });
 
@@ -259,7 +258,7 @@ systemctl enable bento-api.service bento-broker.service`;
 });
 
 const proverLaunchTemplate = new aws.ec2.LaunchTemplate("prover-launch-template", {
-    name: `boundless-bento-prover-template-${environment}`,
+    name: `boundless-bento-prover-template-${stackName}`,
     imageId: imageId,
     instanceType: "g6.xlarge",
     vpcSecurityGroupIds: [securityGroup.id],
@@ -311,7 +310,7 @@ systemctl enable bento.service`;
 
 // Auto Scaling Group
 const proverAsg = new aws.autoscaling.Group("prover-asg", {
-    name: `boundless-bento-prover-asg-${environment}`,
+    name: `boundless-bento-prover-asg-${stackName}`,
     vpcZoneIdentifiers: privSubNetIds,
     minSize: proverCount,
     maxSize: proverCount,
@@ -361,7 +360,7 @@ const proverAsg = new aws.autoscaling.Group("prover-asg", {
 });
 
 const executionLaunchTemplate = new aws.ec2.LaunchTemplate("execution-launch-template", {
-    name: `boundless-bento-execution-template-${environment}`,
+    name: `boundless-bento-execution-template-${stackName}`,
     imageId: imageId,
     instanceType: "c7i.large",
     vpcSecurityGroupIds: [securityGroup.id],
@@ -416,7 +415,7 @@ systemctl enable bento.service`;
 
 // Auto Scaling Group
 const executionAsg = new aws.autoscaling.Group("execution-asg", {
-    name: `boundless-bento-execution-asg-${environment}`,
+    name: `boundless-bento-execution-asg-${stackName}`,
     vpcZoneIdentifiers: privSubNetIds,
     minSize: executionCount,
     maxSize: executionCount,
@@ -467,7 +466,7 @@ const executionAsg = new aws.autoscaling.Group("execution-asg", {
 
 // Launch template for aux agent instances
 const auxLaunchTemplate = new aws.ec2.LaunchTemplate("aux-launch-template", {
-    name: `boundless-bento-aux-template-${environment}`,
+    name: `boundless-bento-aux-template-${stackName}`,
     imageId: imageId,
     instanceType: "t3.medium", // Smaller instance for aux agent
     vpcSecurityGroupIds: [securityGroup.id],
@@ -516,7 +515,7 @@ systemctl enable bento.service`;
 
 // Auto Scaling Group for aux agent
 const auxAsg = new aws.autoscaling.Group("aux-asg", {
-    name: `boundless-bento-aux-asg-${environment}`,
+    name: `boundless-bento-aux-asg-${stackName}`,
     vpcZoneIdentifiers: privSubNetIds,
     minSize: auxCount,
     maxSize: auxCount,
