@@ -4,7 +4,6 @@ import * as crypto from "crypto";
 
 const stackName = pulumi.getStack();
 const baseConfig = new pulumi.Config("base");
-// Pulumi shared outputs from the bootstrap stack
 const baseStackName = baseConfig.require('BASE_STACK');
 const baseStack = new pulumi.StackReference(baseStackName);
 const vpcId = baseStack.getOutput('VPC_ID');
@@ -21,9 +20,20 @@ const orderStreamUrl = config.require("orderStreamUrl");
 const verifierAddress = config.require("verifierAddress");
 const boundlessMarketAddress = config.require("boundlessMarketAddress");
 const setVerifierAddress = config.require("setVerifierAddress");
-
-// Optional configuration for AMI lookup
 const boundlessVersion = config.get("boundlessVersion") || "latest";
+// Contract addresses
+const taskDBUsername = config.require("taskDBUsername");
+const taskDBPassword = config.require("taskDBPassword");
+const taskDBName = config.require("taskDBName");
+
+// MinIO configuration
+const minioUsername = config.get("minioUsername") || "minioadmin";
+const minioPassword = config.get("minioPassword") || "minioadmin123";
+
+// Worker counts
+const executionCount = config.getNumber("executionCount") || 1;
+const proverCount = config.getNumber("proverWorkerCount") || 1;
+const auxCount = config.getNumber("auxWorkerCount") || 1;
 
 // Look up the latest packer-built AMI
 const boundlessAmi = aws.ec2.getAmi({
@@ -38,19 +48,6 @@ const boundlessAmi = aws.ec2.getAmi({
 });
 
 const imageId = boundlessAmi.then(ami => ami.id);
-
-// Contract addresses
-const taskDBUsername = config.require("taskDBUsername");
-const taskDBPassword = config.require("taskDBPassword");
-const taskDBName = config.require("taskDBName");
-
-// MinIO configuration
-const minioUsername = config.get("minioUsername") || "minioadmin";
-const minioPassword = config.get("minioPassword") || "minioadmin123";
-
-const executionCount = config.getNumber("executionCount") || 1;
-const proverCount = config.getNumber("proverWorkerCount") || 1;
-const auxCount = config.getNumber("auxWorkerCount") || 1;
 
 // 1) Instance role & profile (SSM access)
 const ec2Role = new aws.iam.Role("ec2SsmRole", {
@@ -140,7 +137,7 @@ const manager = new aws.ec2.Instance("manager", {
     subnetId: privSubNetIds.apply((subnets: any) => subnets[0]),
     vpcSecurityGroupIds: [securityGroup.id],
     iamInstanceProfile: ec2Profile.name,
-    userData: pulumi.all([taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, ethRpcUrl, privateKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress]).apply(([dbName, dbUser, dbPass, minioUser, minioPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress]) => {
+    userData: pulumi.all([taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, ethRpcUrl, privateKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, stackName]).apply(([dbName, dbUser, dbPass, minioUser, minioPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, stackName]) => {
         const userDataScript = `#!/bin/bash
 # Set environment variables
 echo "RUST_LOG=info" >> /etc/environment
@@ -164,6 +161,7 @@ echo "S3_URL=http://localhost:9000" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
+echo "STACK_NAME=${stackName}" >> /etc/environment
 
 # Ethereum configuration
 echo "RPC_URL=${rpcUrl}" >> /etc/environment

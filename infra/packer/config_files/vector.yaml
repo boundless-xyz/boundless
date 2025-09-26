@@ -16,7 +16,7 @@ sinks:
   cloudwatch_bento:
     type: aws_cloudwatch_logs
     inputs: ["extract_message"]
-    group_name: "/boundless/bento"
+    group_name: "/boundless/bento/${STACK_NAME}"
     stream_name: "%Y-%m-%d"
     region: "us-west-2"
     encoding:
