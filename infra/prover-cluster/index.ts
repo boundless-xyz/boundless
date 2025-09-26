@@ -33,7 +33,7 @@ const boundlessAmi = aws.ec2.getAmi({
     filters: [
         {
             name: "name",
-            values: [`boundless-${boundlessVersion}-ubuntu-24.04-nvidia-*`]
+            values: [`boundless-*-ubuntu-24.04-nvidia-*`]
         },
         {
             name: "tag:ManagedBy",
