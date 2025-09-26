@@ -110,7 +110,7 @@ export = () => {
   });
 
   const offchainConfig = new pulumi.Config("order-generator-offchain");
-  const autoDeposit = offchainConfig.require('AUTO_DEPOSIT');
+  const offchainAutoDeposit = offchainConfig.get('AUTO_DEPOSIT');
   const offchainWarnBalanceBelow = offchainConfig.get('WARN_BALANCE_BELOW');
   const offchainErrorBalanceBelow = offchainConfig.get('ERROR_BALANCE_BELOW');
   const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
@@ -128,10 +128,10 @@ export = () => {
     privateKey: offchainPrivateKey,
     pinataJWT,
     ethRpcUrl,
+    autoDeposit: offchainAutoDeposit,
     warnBalanceBelow: offchainWarnBalanceBelow,
     errorBalanceBelow: offchainErrorBalanceBelow,
     offchainConfig: {
-      autoDeposit,
       orderStreamUrl,
     },
     image,
