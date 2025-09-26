@@ -256,6 +256,7 @@ docker exec boundless-redis redis-cli ping > /dev/null 2>&1 && echo "Redis is ru
 curl -f http://localhost:9000/minio/health/live > /dev/null 2>&1 && echo "MinIO is running" || echo "MinIO health check failed"
 
 systemctl daemon-reload
+systemctl restart vector
 systemctl start bento-api.service bento-broker.service
 systemctl enable bento-api.service bento-broker.service`;
         return Buffer.from(userDataScript).toString('base64');
@@ -304,6 +305,7 @@ sed -i "s|group_name: \"/boundless/bent.*\"|group_name: \"/boundless/bento/${sta
 # Copy and configure service file
 cp /etc/systemd/system/bento-prover.service /etc/systemd/system/bento.service
 systemctl daemon-reload
+systemctl restart vector
 systemctl start bento.service
 systemctl enable bento.service`;
         return Buffer.from(userDataScript).toString('base64');
@@ -411,6 +413,7 @@ sed -i "s|group_name: \"/boundless/bent.*\"|group_name: \"/boundless/bento/${sta
 # Copy and configure service file
 cp /etc/systemd/system/bento-executor.service /etc/systemd/system/bento.service
 systemctl daemon-reload
+systemctl restart vector
 systemctl start bento.service
 systemctl enable bento.service`;
         return Buffer.from(userDataScript).toString('base64');
@@ -516,6 +519,7 @@ sed -i "s|group_name: \"/boundless/bent.*\"|group_name: \"/boundless/bento/${sta
 # Copy and configure service file
 cp /etc/systemd/system/bento-aux.service /etc/systemd/system/bento.service
 systemctl daemon-reload
+systemctl restart vector
 systemctl start bento.service
 systemctl enable bento.service`;
         return Buffer.from(userDataScript).toString('base64');
