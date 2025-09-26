@@ -1,10 +1,14 @@
 export enum ChainId {
+  ETH_MAINNET = "1",
   ETH_SEPOLIA = "11155111",
   BASE = "8453",
   BASE_SEPOLIA = "84532",
 }
 
 export const getChainName = (chainId: string | ChainId): string => {
+  if (chainId === ChainId.ETH_MAINNET) {
+    return "Ethereum Mainnet";
+  }
   if (chainId === ChainId.ETH_SEPOLIA) {
     return "Ethereum Sepolia";
   }
@@ -18,6 +22,9 @@ export const getChainName = (chainId: string | ChainId): string => {
 };
 
 export const getChainId = (chainId: string): ChainId => {
+  if (chainId === "1") {
+    return ChainId.ETH_MAINNET;
+  }
   if (chainId === "11155111") {
     return ChainId.ETH_SEPOLIA;
   }

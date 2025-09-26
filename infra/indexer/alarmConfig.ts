@@ -43,6 +43,10 @@ type ChainStageAlarmConfig = {
 
 
 export const alarmConfig: ChainStageAlarms = {
+  [ChainId.ETH_MAINNET]: {
+    [Stage.STAGING]: undefined,
+    [Stage.PROD]: undefined,
+  },
   [ChainId.BASE_SEPOLIA]: {
     [Stage.STAGING]: {
       clients: [

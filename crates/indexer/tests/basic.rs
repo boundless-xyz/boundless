@@ -70,7 +70,8 @@ async fn test_e2e() {
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    let exe_path = env!("CARGO_BIN_EXE_boundless-indexer");
+    let exe_path = std::env::var("CARGO_BIN_EXE_market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
     let args = [
         "--rpc-url",
         rpc_url.as_str(),
@@ -205,7 +206,8 @@ async fn test_monitoring() {
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    let exe_path = env!("CARGO_BIN_EXE_boundless-indexer");
+    let exe_path = std::env::var("CARGO_BIN_EXE_market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
     let args = [
         "--rpc-url",
         rpc_url.as_str(),

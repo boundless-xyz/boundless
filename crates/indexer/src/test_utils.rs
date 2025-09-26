@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use crate::{AnyDb, DbError, DbObj};
+use crate::db::{AnyDb, DbError, DbObj};
 use sqlx::any::install_default_drivers;
 use sqlx::AnyPool;
 use tempfile::NamedTempFile;

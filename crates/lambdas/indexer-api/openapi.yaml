@@ -1,0 +1,827 @@
+openapi: 3.0.3
+info:
+  title: Boundless Indexer API
+  description: API for accessing staking, delegation, and Proof of Verifiable Work (PoVW) data for the Boundless protocol.
+  version: 1.0.0
+  contact:
+    name: Boundless Development Team
+servers:
+  - url: https://api.example.com
+    description: Production API
+    variables:
+      basePath:
+        default: ''
+        description: Base path for the API
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Staking
+    description: Staking position and history endpoints
+  - name: PoVW
+    description: Proof of Verifiable Work rewards endpoints
+  - name: Delegations
+    description: Vote and reward delegation endpoints
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health Check
+      description: Check API health status
+      operationId: getHealth
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: indexer-api
+
+  /v1/staking:
+    get:
+      tags:
+        - Staking
+      summary: Get Aggregate Staking Leaderboard
+      description: Get the current aggregate staking leaderboard across all epochs
+      operationId: getAggregateStaking
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakingAggregateResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/staking/epochs/{epoch}:
+    get:
+      tags:
+        - Staking
+      summary: Get Staking by Epoch
+      description: Get staking positions for a specific epoch
+      operationId: getStakingByEpoch
+      parameters:
+        - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakingByEpochResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/staking/addresses/{address}:
+    get:
+      tags:
+        - Staking
+      summary: Get Staking History by Address
+      description: Get complete staking history for a specific address across all epochs
+      operationId: getStakingHistoryByAddress
+      parameters:
+        - $ref: '#/components/parameters/AddressParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+        - name: start_epoch
+          in: query
+          description: Filter results from this epoch onwards
+          schema:
+            type: integer
+            minimum: 0
+        - name: end_epoch
+          in: query
+          description: Filter results up to this epoch
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakingByEpochResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/staking/addresses/{address}/epochs/{epoch}:
+    get:
+      tags:
+        - Staking
+      summary: Get Staking by Address and Epoch
+      description: Get staking position for a specific address at a specific epoch
+      operationId: getStakingByAddressAndEpoch
+      parameters:
+        - $ref: '#/components/parameters/AddressParam'
+        - $ref: '#/components/parameters/EpochParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakingPositionByEpoch'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/povw:
+    get:
+      tags:
+        - PoVW
+      summary: Get Aggregate PoVW Leaderboard
+      description: Get the current aggregate PoVW rewards leaderboard across all epochs
+      operationId: getAggregatePovw
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PovwAggregateResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/povw/epochs/{epoch}:
+    get:
+      tags:
+        - PoVW
+      summary: Get PoVW by Epoch
+      description: Get PoVW rewards for a specific epoch
+      operationId: getPovwByEpoch
+      parameters:
+        - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PovwByEpochResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/povw/addresses/{address}:
+    get:
+      tags:
+        - PoVW
+      summary: Get PoVW History by Address
+      description: Get complete PoVW rewards history for a specific work log ID across all epochs
+      operationId: getPovwHistoryByAddress
+      parameters:
+        - $ref: '#/components/parameters/AddressParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+        - name: start_epoch
+          in: query
+          description: Filter results from this epoch onwards
+          schema:
+            type: integer
+            minimum: 0
+        - name: end_epoch
+          in: query
+          description: Filter results up to this epoch
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PovwByEpochResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/povw/addresses/{address}/epochs/{epoch}:
+    get:
+      tags:
+        - PoVW
+      summary: Get PoVW by Address and Epoch
+      description: Get PoVW rewards for a specific work log ID at a specific epoch
+      operationId: getPovwByAddressAndEpoch
+      parameters:
+        - $ref: '#/components/parameters/AddressParam'
+        - $ref: '#/components/parameters/EpochParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PovwRewardByEpoch'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/delegations/votes:
+    get:
+      tags:
+        - Delegations
+      summary: Get Aggregate Vote Delegations
+      description: Get aggregate vote delegation powers across all epochs
+      operationId: getAggregateVoteDelegations
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationAggregateResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/delegations/votes/epochs/{epoch}:
+    get:
+      tags:
+        - Delegations
+      summary: Get Vote Delegations by Epoch
+      description: Get vote delegation powers for a specific epoch
+      operationId: getVoteDelegationsByEpoch
+      parameters:
+        - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationByEpochResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/delegations/votes/addresses/{address}:
+    get:
+      tags:
+        - Delegations
+      summary: Get Vote Delegation History by Address
+      description: Get vote delegation history for a specific delegate address
+      operationId: getVoteDelegationHistoryByAddress
+      parameters:
+        - $ref: '#/components/parameters/AddressParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+        - name: start_epoch
+          in: query
+          description: Filter results from this epoch onwards
+          schema:
+            type: integer
+            minimum: 0
+        - name: end_epoch
+          in: query
+          description: Filter results up to this epoch
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationByEpochResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/delegations/votes/addresses/{address}/epochs/{epoch}:
+    get:
+      tags:
+        - Delegations
+      summary: Get Vote Delegation by Address and Epoch
+      description: Get vote delegation power for a specific delegate at a specific epoch
+      operationId: getVoteDelegationByAddressAndEpoch
+      parameters:
+        - $ref: '#/components/parameters/AddressParam'
+        - $ref: '#/components/parameters/EpochParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationPowerByEpoch'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/delegations/rewards:
+    get:
+      tags:
+        - Delegations
+      summary: Get Aggregate Reward Delegations
+      description: Get aggregate reward delegation powers across all epochs
+      operationId: getAggregateRewardDelegations
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationAggregateResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/delegations/rewards/epochs/{epoch}:
+    get:
+      tags:
+        - Delegations
+      summary: Get Reward Delegations by Epoch
+      description: Get reward delegation powers for a specific epoch
+      operationId: getRewardDelegationsByEpoch
+      parameters:
+        - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationByEpochResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/delegations/rewards/addresses/{address}:
+    get:
+      tags:
+        - Delegations
+      summary: Get Reward Delegation History by Address
+      description: Get reward delegation history for a specific delegate address
+      operationId: getRewardDelegationHistoryByAddress
+      parameters:
+        - $ref: '#/components/parameters/AddressParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+        - name: start_epoch
+          in: query
+          description: Filter results from this epoch onwards
+          schema:
+            type: integer
+            minimum: 0
+        - name: end_epoch
+          in: query
+          description: Filter results up to this epoch
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationByEpochResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/delegations/rewards/addresses/{address}/epochs/{epoch}:
+    get:
+      tags:
+        - Delegations
+      summary: Get Reward Delegation by Address and Epoch
+      description: Get reward delegation power for a specific delegate at a specific epoch
+      operationId: getRewardDelegationByAddressAndEpoch
+      parameters:
+        - $ref: '#/components/parameters/AddressParam'
+        - $ref: '#/components/parameters/EpochParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationPowerByEpoch'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  parameters:
+    LimitParam:
+      name: limit
+      in: query
+      description: Maximum number of results to return
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+
+    OffsetParam:
+      name: offset
+      in: query
+      description: Number of results to skip for pagination
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    EpochParam:
+      name: epoch
+      in: path
+      required: true
+      description: Epoch number (7-day period)
+      schema:
+        type: integer
+        minimum: 0
+
+    AddressParam:
+      name: address
+      in: path
+      required: true
+      description: Ethereum address (0x-prefixed, checksummed)
+      schema:
+        type: string
+        pattern: '^0x[a-fA-F0-9]{40}$'
+        example: '0x2408e37489c231f883126c87e8aadbad782a040a'
+
+  schemas:
+    Pagination:
+      type: object
+      required:
+        - count
+        - offset
+        - limit
+      properties:
+        count:
+          type: integer
+          description: Number of items in this response
+        offset:
+          type: integer
+          description: Offset used for this response
+        limit:
+          type: integer
+          description: Maximum items per response
+
+    StakingPositionAggregate:
+      type: object
+      required:
+        - rank
+        - staker_address
+        - total_staked
+        - is_withdrawing
+        - epochs_participated
+      properties:
+        rank:
+          type: integer
+          description: Leaderboard rank
+        staker_address:
+          type: string
+          description: Ethereum address of the staker
+        total_staked:
+          type: string
+          description: Total amount staked (in wei)
+        is_withdrawing:
+          type: boolean
+          description: Whether the staker is withdrawing
+        rewards_delegated_to:
+          type: string
+          nullable: true
+          description: Address rewards are delegated to
+        votes_delegated_to:
+          type: string
+          nullable: true
+          description: Address votes are delegated to
+        epochs_participated:
+          type: integer
+          description: Number of epochs participated
+
+    StakingPositionByEpoch:
+      type: object
+      required:
+        - staker_address
+        - epoch
+        - staked_amount
+        - is_withdrawing
+      properties:
+        rank:
+          type: integer
+          description: Leaderboard rank (only in list responses)
+        staker_address:
+          type: string
+          description: Ethereum address of the staker
+        epoch:
+          type: integer
+          description: Epoch number
+        staked_amount:
+          type: string
+          description: Amount staked in this epoch (in wei)
+        is_withdrawing:
+          type: boolean
+          description: Whether the staker is withdrawing
+        rewards_delegated_to:
+          type: string
+          nullable: true
+          description: Address rewards are delegated to
+        votes_delegated_to:
+          type: string
+          nullable: true
+          description: Address votes are delegated to
+
+    PovwRewardAggregate:
+      type: object
+      required:
+        - rank
+        - work_log_id
+        - total_work_submitted
+        - total_actual_rewards
+        - total_uncapped_rewards
+        - epochs_participated
+      properties:
+        rank:
+          type: integer
+          description: Leaderboard rank
+        work_log_id:
+          type: string
+          description: Work log ID (Ethereum address format)
+        total_work_submitted:
+          type: string
+          description: Total work submitted across all epochs
+        total_actual_rewards:
+          type: string
+          description: Total actual rewards received (after capping)
+        total_uncapped_rewards:
+          type: string
+          description: Total rewards before capping
+        epochs_participated:
+          type: integer
+          description: Number of epochs participated
+
+    PovwRewardByEpoch:
+      type: object
+      required:
+        - work_log_id
+        - epoch
+        - work_submitted
+        - percentage
+        - uncapped_rewards
+        - reward_cap
+        - actual_rewards
+        - is_capped
+        - staked_amount
+      properties:
+        rank:
+          type: integer
+          description: Leaderboard rank (only in list responses)
+        work_log_id:
+          type: string
+          description: Work log ID (Ethereum address format)
+        epoch:
+          type: integer
+          description: Epoch number
+        work_submitted:
+          type: string
+          description: Amount of work submitted in this epoch
+        percentage:
+          type: number
+          format: double
+          description: Percentage of total work in epoch
+        uncapped_rewards:
+          type: string
+          description: Rewards before capping (in wei)
+        reward_cap:
+          type: string
+          description: Maximum rewards allowed based on stake (in wei)
+        actual_rewards:
+          type: string
+          description: Actual rewards received (in wei)
+        is_capped:
+          type: boolean
+          description: Whether rewards were capped
+        staked_amount:
+          type: string
+          description: Amount staked (in wei)
+
+    DelegationPowerAggregate:
+      type: object
+      required:
+        - rank
+        - delegate_address
+        - power
+        - delegator_count
+        - delegators
+        - epochs_participated
+      properties:
+        rank:
+          type: integer
+          description: Leaderboard rank
+        delegate_address:
+          type: string
+          description: Ethereum address of the delegate
+        power:
+          type: string
+          description: Total delegation power (in wei)
+        delegator_count:
+          type: integer
+          description: Number of delegators
+        delegators:
+          type: array
+          items:
+            type: string
+          description: List of delegator addresses
+        epochs_participated:
+          type: integer
+          description: Number of epochs participated
+
+    DelegationPowerByEpoch:
+      type: object
+      required:
+        - delegate_address
+        - epoch
+        - power
+        - delegator_count
+        - delegators
+      properties:
+        rank:
+          type: integer
+          description: Leaderboard rank (only in list responses)
+        delegate_address:
+          type: string
+          description: Ethereum address of the delegate
+        epoch:
+          type: integer
+          description: Epoch number
+        power:
+          type: string
+          description: Delegation power in this epoch (in wei)
+        delegator_count:
+          type: integer
+          description: Number of delegators
+        delegators:
+          type: array
+          items:
+            type: string
+          description: List of delegator addresses
+
+    StakingAggregateResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/StakingPositionAggregate'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    StakingByEpochResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/StakingPositionByEpoch'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    PovwAggregateResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/PovwRewardAggregate'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    PovwByEpochResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/PovwRewardByEpoch'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    DelegationAggregateResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DelegationPowerAggregate'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    DelegationByEpochResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DelegationPowerByEpoch'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type
+        message:
+          type: string
+          description: Detailed error message
+
+  responses:
+    BadRequest:
+      description: Bad Request - Invalid parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Bad Request
+            message: Invalid address format
+
+    NotFound:
+      description: Not Found - Resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Not Found
+            message: No data found for the specified parameters
+
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Internal Server Error
+            message: An unexpected error occurred

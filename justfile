@@ -129,6 +129,7 @@ check-clippy:
     cargo clippy --workspace --all-targets
 
 check-docs:
+    cd documentation && bun install
     # Matches the docs-rs job in CI 
     RUSTDOCFLAGS="--cfg docsrs -D warnings" RISC0_SKIP_BUILD=1 cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
 

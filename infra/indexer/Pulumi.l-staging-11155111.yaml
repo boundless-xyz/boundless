@@ -1,0 +1,12 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFIpCALI/QCNNWmPcLuTxX9AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMnK86ocERMhqNKwPmAgEQgDvHWap3b3OE6kGKbObtaWi0/DRXcKml5Es7irokJKf1ZEu0qSEXwXsQjf0R3Le4n13PeRbyaRHpCg4f8w==
+config:
+  aws:region: us-west-2
+  indexer:DOCKER_DIR: ../../
+  indexer:DOCKER_TAG: latest
+  indexer:BASE_STACK: organization/bootstrap/services-staging
+  indexer:POVW_ACCOUNTING_ADDRESS: 0x129aEAB812d77c102ff1AD9D76DfB55FaAE4b8D3
+  indexer:VEZKC_ADDRESS: 0xB7c63161DA06eC56840465308e24C70dF65ABC56
+  indexer:ZKC_ADDRESS: 0x99A52662b576f4b2D4FFBc4504331A624a7b2846
+  indexer:RUST_LOG: "info"
+  indexer:CHAIN_ID: "11155111"
