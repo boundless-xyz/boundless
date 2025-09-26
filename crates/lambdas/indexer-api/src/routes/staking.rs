@@ -86,6 +86,8 @@ async fn get_aggregate_staking_impl(
         .enumerate()
         .map(|(index, agg)| {
             let total_staked_str = agg.total_staked.to_string();
+            let total_rewards_earned_str = agg.total_rewards_earned.to_string();
+            let total_rewards_generated_str = agg.total_rewards_generated.to_string();
             AggregateStakingEntry {
                 rank: params.offset + (index as u64) + 1,
                 staker_address: format!("{:#x}", agg.staker_address),
@@ -95,6 +97,10 @@ async fn get_aggregate_staking_impl(
                 rewards_delegated_to: agg.rewards_delegated_to.map(|a| format!("{:#x}", a)),
                 votes_delegated_to: agg.votes_delegated_to.map(|a| format!("{:#x}", a)),
                 epochs_participated: agg.epochs_participated,
+                total_rewards_earned: total_rewards_earned_str.clone(),
+                total_rewards_earned_formatted: format_zkc(&total_rewards_earned_str),
+                total_rewards_generated: total_rewards_generated_str.clone(),
+                total_rewards_generated_formatted: format_zkc(&total_rewards_generated_str),
             }
         })
         .collect();
@@ -108,6 +114,9 @@ async fn get_aggregate_staking_impl(
             total_unique_stakers: stats.total_unique_stakers,
             current_active_stakers: stats.current_active_stakers,
             current_withdrawing: stats.current_withdrawing,
+            total_staking_emissions_all_time: stats.total_staking_emissions_all_time.map(|v| v.to_string()),
+            total_staking_emissions_all_time_formatted: stats.total_staking_emissions_all_time.map(|v| format_zkc(&v.to_string())),
+            last_updated_at: stats.updated_at.clone(),
         };
         Ok(LeaderboardResponse::with_summary(
             entries,
@@ -165,6 +174,8 @@ async fn get_staking_by_epoch_impl(
         .enumerate()
         .map(|(index, position)| {
             let staked_amount_str = position.staked_amount.to_string();
+            let rewards_generated_str = position.rewards_generated.to_string();
+            let rewards_earned_str = alloy::primitives::U256::ZERO.to_string(); // TODO: Fetch from staking rewards
             EpochStakingEntry {
                 rank: params.offset + (index as u64) + 1,
                 staker_address: format!("{:#x}", position.staker_address),
@@ -174,6 +185,10 @@ async fn get_staking_by_epoch_impl(
                 is_withdrawing: position.is_withdrawing,
                 rewards_delegated_to: position.rewards_delegated_to.map(|a| format!("{:#x}", a)),
                 votes_delegated_to: position.votes_delegated_to.map(|a| format!("{:#x}", a)),
+                rewards_generated: rewards_generated_str.clone(),
+                rewards_generated_formatted: format_zkc(&rewards_generated_str),
+                rewards_earned: rewards_earned_str.clone(),
+                rewards_earned_formatted: format_zkc(&rewards_earned_str),
             }
         })
         .collect();
@@ -187,6 +202,14 @@ async fn get_staking_by_epoch_impl(
             total_staked_formatted: format_zkc(&total_staked_str),
             num_stakers: summary.num_stakers,
             num_withdrawing: summary.num_withdrawing,
+            total_staking_emissions: summary.total_staking_emissions.to_string(),
+            total_staking_emissions_formatted: format_zkc(&summary.total_staking_emissions.to_string()),
+            total_staking_power: summary.total_staking_power.to_string(),
+            total_staking_power_formatted: format_zkc(&summary.total_staking_power.to_string()),
+            num_reward_recipients: summary.num_reward_recipients,
+            epoch_start_time: summary.epoch_start_time,
+            epoch_end_time: summary.epoch_end_time,
+            last_updated_at: summary.updated_at.clone(),
         };
         Ok(LeaderboardResponse::with_summary(
             entries,
@@ -255,6 +278,8 @@ async fn get_staking_history_by_address_impl(
         .enumerate()
         .map(|(index, position)| {
             let staked_amount_str = position.staked_amount.to_string();
+            let rewards_generated_str = position.rewards_generated.to_string();
+            let rewards_earned_str = alloy::primitives::U256::ZERO.to_string(); // TODO: Fetch from staking rewards
             EpochStakingEntry {
                 rank: params.offset + (index as u64) + 1,
                 staker_address: format!("{:#x}", position.staker_address),
@@ -264,6 +289,10 @@ async fn get_staking_history_by_address_impl(
                 is_withdrawing: position.is_withdrawing,
                 rewards_delegated_to: position.rewards_delegated_to.map(|a| format!("{:#x}", a)),
                 votes_delegated_to: position.votes_delegated_to.map(|a| format!("{:#x}", a)),
+                rewards_generated: rewards_generated_str.clone(),
+                rewards_generated_formatted: format_zkc(&rewards_generated_str),
+                rewards_earned: rewards_earned_str.clone(),
+                rewards_earned_formatted: format_zkc(&rewards_earned_str),
             }
         })
         .collect();
@@ -271,6 +300,8 @@ async fn get_staking_history_by_address_impl(
     // Create response with summary if available
     if let Some(aggregate) = address_aggregate {
         let total_staked_str = aggregate.total_staked.to_string();
+        let total_rewards_earned_str = aggregate.total_rewards_earned.to_string();
+        let total_rewards_generated_str = aggregate.total_rewards_generated.to_string();
         let summary = StakingAddressSummary {
             staker_address: format!("{:#x}", aggregate.staker_address),
             total_staked: total_staked_str.clone(),
@@ -279,6 +310,10 @@ async fn get_staking_history_by_address_impl(
             rewards_delegated_to: aggregate.rewards_delegated_to.map(|a| format!("{:#x}", a)),
             votes_delegated_to: aggregate.votes_delegated_to.map(|a| format!("{:#x}", a)),
             epochs_participated: aggregate.epochs_participated,
+            total_rewards_earned: total_rewards_earned_str.clone(),
+            total_rewards_earned_formatted: format_zkc(&total_rewards_earned_str),
+            total_rewards_generated: total_rewards_generated_str.clone(),
+            total_rewards_generated_formatted: format_zkc(&total_rewards_generated_str),
         };
         Ok(LeaderboardResponse::with_summary(
             entries,
@@ -332,6 +367,8 @@ async fn get_staking_by_address_and_epoch_impl(
 
     let position = &positions[0];
     let staked_amount_str = position.staked_amount.to_string();
+    let rewards_generated_str = position.rewards_generated.to_string();
+    let rewards_earned_str = alloy::primitives::U256::ZERO.to_string(); // TODO: Fetch from staking rewards
     Ok(Some(EpochStakingEntry {
         rank: 0, // No rank for individual queries
         staker_address: format!("{:#x}", position.staker_address),
@@ -341,5 +378,9 @@ async fn get_staking_by_address_and_epoch_impl(
         is_withdrawing: position.is_withdrawing,
         rewards_delegated_to: position.rewards_delegated_to.map(|a| format!("{:#x}", a)),
         votes_delegated_to: position.votes_delegated_to.map(|a| format!("{:#x}", a)),
+        rewards_generated: rewards_generated_str.clone(),
+        rewards_generated_formatted: format_zkc(&rewards_generated_str),
+        rewards_earned: rewards_earned_str.clone(),
+        rewards_earned_formatted: format_zkc(&rewards_earned_str),
     }))
 }

@@ -17,6 +17,7 @@ use std::{str::FromStr, sync::Arc};
 use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
 use boundless_rewards::{StakingPosition, WorkLogRewardInfo};
+use chrono::Utc;
 use serde_json;
 use sqlx::{any::AnyPoolOptions, AnyPool, Row};
 
@@ -89,6 +90,7 @@ pub struct StakingPositionByEpoch {
     pub is_withdrawing: bool,
     pub rewards_delegated_to: Option<Address>,
     pub votes_delegated_to: Option<Address>,
+    pub rewards_generated: U256,
 }
 
 impl From<(Address, u64, &StakingPosition)> for StakingPositionByEpoch {
@@ -100,6 +102,7 @@ impl From<(Address, u64, &StakingPosition)> for StakingPositionByEpoch {
             is_withdrawing: value.2.is_withdrawing,
             rewards_delegated_to: value.2.rewards_delegated_to,
             votes_delegated_to: value.2.votes_delegated_to,
+            rewards_generated: value.2.rewards_generated,
         }
     }
 }
@@ -112,6 +115,17 @@ pub struct StakingPositionAggregate {
     pub rewards_delegated_to: Option<Address>,
     pub votes_delegated_to: Option<Address>,
     pub epochs_participated: u64,
+    pub total_rewards_generated: U256,
+    pub total_rewards_earned: U256,
+}
+
+#[derive(Debug, Clone)]
+pub struct StakingRewardByEpoch {
+    pub staker_address: Address,
+    pub epoch: u64,
+    pub staking_power: U256,
+    pub percentage: f64,
+    pub rewards_earned: U256,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +173,7 @@ pub struct PoVWSummaryStats {
     pub total_emissions_all_time: U256,
     pub total_capped_rewards_all_time: U256,
     pub total_uncapped_rewards_all_time: U256,
+    pub updated_at: Option<String>,
 }
 
 /// Per-epoch PoVW summary
@@ -172,6 +187,7 @@ pub struct EpochPoVWSummary {
     pub epoch_start_time: u64,
     pub epoch_end_time: u64,
     pub num_participants: u64,
+    pub updated_at: Option<String>,
 }
 
 /// Global staking summary statistics
@@ -181,6 +197,8 @@ pub struct StakingSummaryStats {
     pub total_unique_stakers: u64,
     pub current_active_stakers: u64,
     pub current_withdrawing: u64,
+    pub total_staking_emissions_all_time: Option<U256>,
+    pub updated_at: Option<String>,
 }
 
 /// Per-epoch staking summary
@@ -190,6 +208,12 @@ pub struct EpochStakingSummary {
     pub total_staked: U256,
     pub num_stakers: u64,
     pub num_withdrawing: u64,
+    pub total_staking_emissions: U256,
+    pub total_staking_power: U256,
+    pub num_reward_recipients: u64,
+    pub epoch_start_time: u64,
+    pub epoch_end_time: u64,
+    pub updated_at: Option<String>,
 }
 
 #[async_trait]
@@ -404,6 +428,43 @@ pub trait RewardsIndexerDb {
         &self,
         epoch: u64,
     ) -> Result<Option<EpochStakingSummary>, DbError>;
+
+    /// Upsert staking rewards for a specific epoch
+    async fn upsert_staking_rewards_by_epoch(
+        &self,
+        epoch: u64,
+        rewards: Vec<StakingRewardByEpoch>,
+    ) -> Result<(), DbError>;
+
+    /// Get staking rewards for a specific epoch with pagination
+    async fn get_staking_rewards_by_epoch(
+        &self,
+        epoch: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<StakingRewardByEpoch>, DbError>;
+
+    /// Get staking rewards for a specific address across epochs
+    async fn get_staking_rewards_by_address(
+        &self,
+        address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<StakingRewardByEpoch>, DbError>;
+
+    /// Get all epoch PoVW summaries
+    async fn get_all_epoch_povw_summaries(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<EpochPoVWSummary>, DbError>;
+
+    /// Get all epoch staking summaries
+    async fn get_all_epoch_staking_summaries(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<EpochStakingSummary>, DbError>;
 }
 
 pub struct RewardsDb {
@@ -695,14 +756,15 @@ impl RewardsIndexerDb for RewardsDb {
         for position in positions {
             let query = r#"
                 INSERT INTO staking_positions_by_epoch
-                (staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                (staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to, rewards_generated, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
                 ON CONFLICT (staker_address, epoch)
                 DO UPDATE SET
                     staked_amount = $3,
                     is_withdrawing = $4,
                     rewards_delegated_to = $5,
                     votes_delegated_to = $6,
+                    rewards_generated = $7,
                     updated_at = CURRENT_TIMESTAMP
             "#;
 
@@ -713,6 +775,7 @@ impl RewardsIndexerDb for RewardsDb {
                 .bind(if position.is_withdrawing { 1i32 } else { 0i32 })
                 .bind(position.rewards_delegated_to.map(|a| format!("{:#x}", a)))
                 .bind(position.votes_delegated_to.map(|a| format!("{:#x}", a)))
+                .bind(pad_u256(position.rewards_generated))
                 .execute(&mut *tx)
                 .await?;
         }
@@ -728,7 +791,7 @@ impl RewardsIndexerDb for RewardsDb {
         limit: u64,
     ) -> Result<Vec<StakingPositionByEpoch>, DbError> {
         let query = r#"
-            SELECT staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to
+            SELECT staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to, rewards_generated
             FROM staking_positions_by_epoch
             WHERE epoch = $1
             ORDER BY staked_amount DESC
@@ -755,6 +818,7 @@ impl RewardsIndexerDb for RewardsDb {
                 is_withdrawing: row.get::<i32, _>("is_withdrawing") != 0,
                 rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+                rewards_generated: unpad_u256(&row.get::<String, _>("rewards_generated"))?,
             });
         }
 
@@ -770,8 +834,8 @@ impl RewardsIndexerDb for RewardsDb {
         for aggregate in aggregates {
             let query = r#"
                 INSERT INTO staking_positions_aggregate
-                (staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                (staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated, total_rewards_generated, total_rewards_earned, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
                 ON CONFLICT (staker_address)
                 DO UPDATE SET
                     total_staked = $2,
@@ -779,6 +843,8 @@ impl RewardsIndexerDb for RewardsDb {
                     rewards_delegated_to = $4,
                     votes_delegated_to = $5,
                     epochs_participated = $6,
+                    total_rewards_generated = $7,
+                    total_rewards_earned = $8,
                     updated_at = CURRENT_TIMESTAMP
             "#;
 
@@ -789,6 +855,8 @@ impl RewardsIndexerDb for RewardsDb {
                 .bind(aggregate.rewards_delegated_to.map(|a| format!("{:#x}", a)))
                 .bind(aggregate.votes_delegated_to.map(|a| format!("{:#x}", a)))
                 .bind(aggregate.epochs_participated as i64)
+                .bind(pad_u256(aggregate.total_rewards_generated))
+                .bind(pad_u256(aggregate.total_rewards_earned))
                 .execute(&mut *tx)
                 .await?;
         }
@@ -803,7 +871,7 @@ impl RewardsIndexerDb for RewardsDb {
         limit: u64,
     ) -> Result<Vec<StakingPositionAggregate>, DbError> {
         let query = r#"
-            SELECT staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated
+            SELECT staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated, total_rewards_generated, total_rewards_earned
             FROM staking_positions_aggregate
             ORDER BY total_staked DESC
             LIMIT $1 OFFSET $2
@@ -825,6 +893,8 @@ impl RewardsIndexerDb for RewardsDb {
                 rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
+                total_rewards_generated: unpad_u256(&row.get::<String, _>("total_rewards_generated"))?,
+                total_rewards_earned: unpad_u256(&row.get::<String, _>("total_rewards_earned"))?,
             });
         }
 
@@ -836,7 +906,7 @@ impl RewardsIndexerDb for RewardsDb {
         address: Address,
     ) -> Result<Option<StakingPositionAggregate>, DbError> {
         let query = r#"
-            SELECT staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated
+            SELECT staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated, total_rewards_generated, total_rewards_earned
             FROM staking_positions_aggregate
             WHERE staker_address = $1
         "#;
@@ -856,6 +926,8 @@ impl RewardsIndexerDb for RewardsDb {
                 rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
+                total_rewards_generated: unpad_u256(&row.get::<String, _>("total_rewards_generated"))?,
+                total_rewards_earned: unpad_u256(&row.get::<String, _>("total_rewards_earned"))?,
             }))
         } else {
             Ok(None)
@@ -1239,6 +1311,7 @@ impl RewardsIndexerDb for RewardsDb {
                 is_withdrawing: row.get::<i32, _>("is_withdrawing") != 0,
                 rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
+                rewards_generated: unpad_u256(&row.get::<String, _>("rewards_generated"))?,
             });
         }
 
@@ -1417,15 +1490,16 @@ impl RewardsIndexerDb for RewardsDb {
             "INSERT INTO povw_summary_stats
              (id, total_epochs_with_work, total_unique_work_log_ids,
               total_work_all_time, total_emissions_all_time,
-              total_capped_rewards_all_time, total_uncapped_rewards_all_time)
-             VALUES (1, $1, $2, $3, $4, $5, $6)
+              total_capped_rewards_all_time, total_uncapped_rewards_all_time, updated_at)
+             VALUES (1, $1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (id) DO UPDATE SET
                 total_epochs_with_work = $1,
                 total_unique_work_log_ids = $2,
                 total_work_all_time = $3,
                 total_emissions_all_time = $4,
                 total_capped_rewards_all_time = $5,
-                total_uncapped_rewards_all_time = $6",
+                total_uncapped_rewards_all_time = $6,
+                updated_at = $7",
         )
         .bind(stats.total_epochs_with_work as i64)
         .bind(stats.total_unique_work_log_ids as i64)
@@ -1433,6 +1507,7 @@ impl RewardsIndexerDb for RewardsDb {
         .bind(pad_u256(stats.total_emissions_all_time))
         .bind(pad_u256(stats.total_capped_rewards_all_time))
         .bind(pad_u256(stats.total_uncapped_rewards_all_time))
+        .bind(stats.updated_at.unwrap_or_else(|| Utc::now().to_rfc3339()))
         .execute(&self.pool)
         .await
         .map_err(DbError::from)?;
@@ -1443,7 +1518,7 @@ impl RewardsIndexerDb for RewardsDb {
         let row = sqlx::query(
             "SELECT total_epochs_with_work, total_unique_work_log_ids,
                     total_work_all_time, total_emissions_all_time,
-                    total_capped_rewards_all_time, total_uncapped_rewards_all_time
+                    total_capped_rewards_all_time, total_uncapped_rewards_all_time, updated_at
              FROM povw_summary_stats
              WHERE id = 1",
         )
@@ -1465,6 +1540,7 @@ impl RewardsIndexerDb for RewardsDb {
                 total_uncapped_rewards_all_time: unpad_u256(
                     &row.get::<String, _>("total_uncapped_rewards_all_time"),
                 )?,
+                updated_at: row.get::<Option<String>, _>("updated_at")
             }))
         } else {
             Ok(None)
@@ -1479,8 +1555,8 @@ impl RewardsIndexerDb for RewardsDb {
         sqlx::query(
             "INSERT INTO epoch_povw_summary
              (epoch, total_work, total_emissions, total_capped_rewards,
-              total_uncapped_rewards, epoch_start_time, epoch_end_time, num_participants)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              total_uncapped_rewards, epoch_start_time, epoch_end_time, num_participants, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              ON CONFLICT (epoch) DO UPDATE SET
                 total_work = $2,
                 total_emissions = $3,
@@ -1488,7 +1564,8 @@ impl RewardsIndexerDb for RewardsDb {
                 total_uncapped_rewards = $5,
                 epoch_start_time = $6,
                 epoch_end_time = $7,
-                num_participants = $8",
+                num_participants = $8,
+                updated_at = $9",
         )
         .bind(epoch as i64)
         .bind(pad_u256(summary.total_work))
@@ -1498,6 +1575,7 @@ impl RewardsIndexerDb for RewardsDb {
         .bind(summary.epoch_start_time as i64)
         .bind(summary.epoch_end_time as i64)
         .bind(summary.num_participants as i64)
+        .bind(summary.updated_at.unwrap_or_else(|| Utc::now().to_rfc3339()))
         .execute(&self.pool)
         .await
         .map_err(DbError::from)?;
@@ -1510,7 +1588,7 @@ impl RewardsIndexerDb for RewardsDb {
     ) -> Result<Option<EpochPoVWSummary>, DbError> {
         let row = sqlx::query(
             "SELECT epoch, total_work, total_emissions, total_capped_rewards,
-                    total_uncapped_rewards, epoch_start_time, epoch_end_time, num_participants
+                    total_uncapped_rewards, epoch_start_time, epoch_end_time, num_participants, updated_at
              FROM epoch_povw_summary
              WHERE epoch = $1",
         )
@@ -1531,6 +1609,7 @@ impl RewardsIndexerDb for RewardsDb {
                 epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
                 epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
                 num_participants: row.get::<i64, _>("num_participants") as u64,
+                updated_at: row.get::<Option<String>, _>("updated_at")
             }))
         } else {
             Ok(None)
@@ -1544,18 +1623,23 @@ impl RewardsIndexerDb for RewardsDb {
         sqlx::query(
             "INSERT INTO staking_summary_stats
              (id, current_total_staked, total_unique_stakers,
-              current_active_stakers, current_withdrawing)
-             VALUES (1, $1, $2, $3, $4)
+              current_active_stakers, current_withdrawing,
+              total_staking_emissions_all_time, updated_at)
+             VALUES (1, $1, $2, $3, $4, $5, $6)
              ON CONFLICT (id) DO UPDATE SET
                 current_total_staked = $1,
                 total_unique_stakers = $2,
                 current_active_stakers = $3,
-                current_withdrawing = $4",
+                current_withdrawing = $4,
+                total_staking_emissions_all_time = $5,
+                updated_at = $6",
         )
         .bind(pad_u256(stats.current_total_staked))
         .bind(stats.total_unique_stakers as i64)
         .bind(stats.current_active_stakers as i64)
         .bind(stats.current_withdrawing as i64)
+        .bind(stats.total_staking_emissions_all_time.map(pad_u256))
+        .bind(stats.updated_at.unwrap_or_else(|| Utc::now().to_rfc3339()))
         .execute(&self.pool)
         .await
         .map_err(DbError::from)?;
@@ -1565,7 +1649,8 @@ impl RewardsIndexerDb for RewardsDb {
     async fn get_staking_summary_stats(&self) -> Result<Option<StakingSummaryStats>, DbError> {
         let row = sqlx::query(
             "SELECT current_total_staked, total_unique_stakers,
-                    current_active_stakers, current_withdrawing
+                    current_active_stakers, current_withdrawing,
+                    total_staking_emissions_all_time, updated_at
              FROM staking_summary_stats
              WHERE id = 1",
         )
@@ -1579,6 +1664,10 @@ impl RewardsIndexerDb for RewardsDb {
                 total_unique_stakers: row.get::<i64, _>("total_unique_stakers") as u64,
                 current_active_stakers: row.get::<i64, _>("current_active_stakers") as u64,
                 current_withdrawing: row.get::<i64, _>("current_withdrawing") as u64,
+                total_staking_emissions_all_time: row
+                    .get::<Option<String>, _>("total_staking_emissions_all_time")
+                    .and_then(|s| unpad_u256(&s).ok()),
+                updated_at: row.get::<Option<String>, _>("updated_at")
             }))
         } else {
             Ok(None)
@@ -1592,17 +1681,31 @@ impl RewardsIndexerDb for RewardsDb {
     ) -> Result<(), DbError> {
         sqlx::query(
             "INSERT INTO epoch_staking_summary
-             (epoch, total_staked, num_stakers, num_withdrawing)
-             VALUES ($1, $2, $3, $4)
+             (epoch, total_staked, num_stakers, num_withdrawing,
+              total_staking_emissions, total_staking_power,
+              num_reward_recipients, epoch_start_time, epoch_end_time, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (epoch) DO UPDATE SET
                 total_staked = $2,
                 num_stakers = $3,
-                num_withdrawing = $4",
+                num_withdrawing = $4,
+                total_staking_emissions = $5,
+                total_staking_power = $6,
+                num_reward_recipients = $7,
+                epoch_start_time = $8,
+                epoch_end_time = $9,
+                updated_at = $10",
         )
         .bind(epoch as i64)
         .bind(pad_u256(summary.total_staked))
         .bind(summary.num_stakers as i64)
         .bind(summary.num_withdrawing as i64)
+        .bind(pad_u256(summary.total_staking_emissions))
+        .bind(pad_u256(summary.total_staking_power))
+        .bind(summary.num_reward_recipients as i64)
+        .bind(summary.epoch_start_time as i64)
+        .bind(summary.epoch_end_time as i64)
+        .bind(summary.updated_at.unwrap_or_else(|| Utc::now().to_rfc3339()))
         .execute(&self.pool)
         .await
         .map_err(DbError::from)?;
@@ -1614,7 +1717,9 @@ impl RewardsIndexerDb for RewardsDb {
         epoch: u64,
     ) -> Result<Option<EpochStakingSummary>, DbError> {
         let row = sqlx::query(
-            "SELECT epoch, total_staked, num_stakers, num_withdrawing
+            "SELECT epoch, total_staked, num_stakers, num_withdrawing,
+                    total_staking_emissions, total_staking_power,
+                    num_reward_recipients, epoch_start_time, epoch_end_time, updated_at
              FROM epoch_staking_summary
              WHERE epoch = $1",
         )
@@ -1629,9 +1734,189 @@ impl RewardsIndexerDb for RewardsDb {
                 total_staked: unpad_u256(&row.get::<String, _>("total_staked"))?,
                 num_stakers: row.get::<i64, _>("num_stakers") as u64,
                 num_withdrawing: row.get::<i64, _>("num_withdrawing") as u64,
+                total_staking_emissions: unpad_u256(&row.get::<String, _>("total_staking_emissions"))?,
+                total_staking_power: unpad_u256(&row.get::<String, _>("total_staking_power"))?,
+                num_reward_recipients: row.get::<i64, _>("num_reward_recipients") as u64,
+                epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
+                epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
+                updated_at: row.get::<Option<String>, _>("updated_at")
             }))
         } else {
             Ok(None)
         }
+    }
+
+    async fn upsert_staking_rewards_by_epoch(
+        &self,
+        epoch: u64,
+        rewards: Vec<StakingRewardByEpoch>,
+    ) -> Result<(), DbError> {
+        for reward in rewards {
+            sqlx::query(
+                "INSERT INTO staking_rewards_by_epoch
+                 (staker_address, epoch, staking_power, percentage, rewards_earned)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (staker_address, epoch) DO UPDATE SET
+                 staking_power = $3,
+                 percentage = $4,
+                 rewards_earned = $5,
+                 updated_at = CURRENT_TIMESTAMP",
+            )
+            .bind(format!("{:#x}", reward.staker_address))
+            .bind(epoch as i64)
+            .bind(pad_u256(reward.staking_power))
+            .bind(reward.percentage)
+            .bind(pad_u256(reward.rewards_earned))
+            .execute(&self.pool)
+            .await
+            .map_err(DbError::from)?;
+        }
+        Ok(())
+    }
+
+    async fn get_staking_rewards_by_epoch(
+        &self,
+        epoch: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<StakingRewardByEpoch>, DbError> {
+        let rows = sqlx::query(
+            "SELECT staker_address, epoch, staking_power, percentage, rewards_earned
+             FROM staking_rewards_by_epoch
+             WHERE epoch = $1
+             ORDER BY rewards_earned DESC
+             LIMIT $2 OFFSET $3",
+        )
+        .bind(epoch as i64)
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+
+        let mut rewards = Vec::new();
+        for row in rows {
+            rewards.push(StakingRewardByEpoch {
+                staker_address: Address::from_str(&row.get::<String, _>("staker_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                staking_power: unpad_u256(&row.get::<String, _>("staking_power"))?,
+                percentage: row.get::<f64, _>("percentage"),
+                rewards_earned: unpad_u256(&row.get::<String, _>("rewards_earned"))?,
+            });
+        }
+        Ok(rewards)
+    }
+
+    async fn get_staking_rewards_by_address(
+        &self,
+        address: Address,
+        start_epoch: Option<u64>,
+        end_epoch: Option<u64>,
+    ) -> Result<Vec<StakingRewardByEpoch>, DbError> {
+        let mut query = String::from(
+            "SELECT staker_address, epoch, staking_power, percentage, rewards_earned
+             FROM staking_rewards_by_epoch
+             WHERE staker_address = $1",
+        );
+
+        if let Some(start) = start_epoch {
+            query.push_str(&format!(" AND epoch >= {}", start));
+        }
+        if let Some(end) = end_epoch {
+            query.push_str(&format!(" AND epoch <= {}", end));
+        }
+        query.push_str(" ORDER BY epoch DESC");
+
+        let rows = sqlx::query(&query)
+            .bind(format!("{:#x}", address))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(DbError::from)?;
+
+        let mut rewards = Vec::new();
+        for row in rows {
+            rewards.push(StakingRewardByEpoch {
+                staker_address: Address::from_str(&row.get::<String, _>("staker_address"))
+                    .map_err(|e| DbError::BadTransaction(e.to_string()))?,
+                epoch: row.get::<i64, _>("epoch") as u64,
+                staking_power: unpad_u256(&row.get::<String, _>("staking_power"))?,
+                percentage: row.get::<f64, _>("percentage"),
+                rewards_earned: unpad_u256(&row.get::<String, _>("rewards_earned"))?,
+            });
+        }
+        Ok(rewards)
+    }
+
+    async fn get_all_epoch_povw_summaries(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<EpochPoVWSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT epoch, total_work, total_emissions, total_capped_rewards,
+                    total_uncapped_rewards, epoch_start_time, epoch_end_time, num_participants, updated_at
+             FROM epoch_povw_summary
+             ORDER BY epoch DESC
+             LIMIT $1 OFFSET $2",
+        )
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+
+        let mut summaries = Vec::new();
+        for row in rows {
+            summaries.push(EpochPoVWSummary {
+                epoch: row.get::<i64, _>("epoch") as u64,
+                total_work: unpad_u256(&row.get::<String, _>("total_work"))?,
+                total_emissions: unpad_u256(&row.get::<String, _>("total_emissions"))?,
+                total_capped_rewards: unpad_u256(&row.get::<String, _>("total_capped_rewards"))?,
+                total_uncapped_rewards: unpad_u256(&row.get::<String, _>("total_uncapped_rewards"))?,
+                epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
+                epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
+                num_participants: row.get::<i64, _>("num_participants") as u64,
+                updated_at: row.get::<Option<String>, _>("updated_at")
+            });
+        }
+        Ok(summaries)
+    }
+
+    async fn get_all_epoch_staking_summaries(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<EpochStakingSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT epoch, total_staked, num_stakers, num_withdrawing,
+                    total_staking_emissions, total_staking_power, num_reward_recipients,
+                    epoch_start_time, epoch_end_time, updated_at
+             FROM epoch_staking_summary
+             ORDER BY epoch DESC
+             LIMIT $1 OFFSET $2",
+        )
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+
+        let mut summaries = Vec::new();
+        for row in rows {
+            summaries.push(EpochStakingSummary {
+                epoch: row.get::<i64, _>("epoch") as u64,
+                total_staked: unpad_u256(&row.get::<String, _>("total_staked"))?,
+                num_stakers: row.get::<i64, _>("num_stakers") as u64,
+                num_withdrawing: row.get::<i64, _>("num_withdrawing") as u64,
+                total_staking_emissions: unpad_u256(&row.get::<String, _>("total_staking_emissions"))?,
+                total_staking_power: unpad_u256(&row.get::<String, _>("total_staking_power"))?,
+                num_reward_recipients: row.get::<i64, _>("num_reward_recipients") as u64,
+                epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
+                epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
+                updated_at: row.get::<Option<String>, _>("updated_at")
+            });
+        }
+        Ok(summaries)
     }
 }

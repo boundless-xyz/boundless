@@ -28,7 +28,7 @@ use anyhow::{Context, Result};
 use boundless_povw::{deployments::Deployment as PovwDeployment, log_updater::IPovwAccounting};
 use boundless_rewards::{
     build_rewards_cache, compute_delegation_powers, compute_povw_rewards,
-    compute_staking_positions, fetch_all_event_logs, EpochTimeRange, MAINNET_FROM_BLOCK,
+    compute_staking_data, fetch_all_event_logs, EpochTimeRange, MAINNET_FROM_BLOCK,
     SEPOLIA_FROM_BLOCK,
 };
 use boundless_zkc::{contracts::IZKC, deployments::Deployment as ZkcDeployment};
@@ -38,10 +38,9 @@ use url::Url;
 use crate::db::rewards::{
     EpochPoVWSummary, EpochStakingSummary, PoVWSummaryStats, PovwRewardAggregate,
     PovwRewardByEpoch, RewardDelegationPowerAggregate, RewardDelegationPowerByEpoch, RewardsDb,
-    RewardsDbObj, StakingPositionAggregate, StakingPositionByEpoch, StakingSummaryStats,
-    VoteDelegationPowerAggregate, VoteDelegationPowerByEpoch,
+    RewardsDbObj, StakingPositionAggregate, StakingPositionByEpoch, StakingRewardByEpoch,
+    StakingSummaryStats, VoteDelegationPowerAggregate, VoteDelegationPowerByEpoch,
 };
-use std::collections::HashSet;
 
 const EPOCHS_TO_PROCESS: u64 = 10;
 
@@ -159,22 +158,10 @@ impl RewardsIndexerService {
             (0..=current_epoch_u64).collect::<Vec<_>>()
         };
 
-        // Extract unique work log IDs from the work logs
-        let mut unique_work_log_ids = HashSet::new();
-        for log in &all_logs.work_logs {
-            if let Ok(decoded) =
-                log.log_decode::<boundless_povw::log_updater::IPovwAccounting::WorkLogUpdated>()
-            {
-                unique_work_log_ids.insert(decoded.inner.data.workLogId);
-            }
-        }
-        let work_log_ids: Vec<Address> = unique_work_log_ids.into_iter().collect();
-
         // Build PoVW rewards cache with all necessary data (includes epoch times, block timestamps, and stake events)
         tracing::info!(
-            "🔨 Building PoVW rewards cache for {} epochs and {} work log IDs",
-            epochs_to_process.len(),
-            work_log_ids.len()
+            "🔨 Building rewards cache for {} epochs",
+            epochs_to_process.len()
         );
         let cache_build_start = std::time::Instant::now();
         let povw_cache = build_rewards_cache(
@@ -182,7 +169,6 @@ impl RewardsIndexerService {
             &povw_deployment,
             self.zkc_address,
             &epochs_to_process,
-            &work_log_ids,
             current_epoch_u64,
             &all_logs,
         )
@@ -192,28 +178,35 @@ impl RewardsIndexerService {
             cache_build_start.elapsed().as_secs_f64()
         );
 
-        // Compute staking positions from cached timestamped events
-        tracing::info!("🧮 Computing staking positions from events...");
+        // Compute all staking data (positions and rewards) using the unified function
+        tracing::info!("🧮 Computing staking data (positions + rewards)...");
         let staking_start = std::time::Instant::now();
-        let staking_result =
-            compute_staking_positions(&povw_cache.timestamped_stake_events, current_epoch_u64)?;
+
+        let staking_data = compute_staking_data(
+            current_epoch_u64,
+            &povw_cache.timestamped_stake_events,
+            &povw_cache.staking_emissions_by_epoch,
+            &povw_cache.staking_power_by_address_by_epoch,
+            &povw_cache.total_staking_power_by_epoch,
+        )?;
+
         tracing::info!(
-            "Staking positions computed in {:.2}s (current total: {} ZKC, {} stakers)",
+            "Staking data computed in {:.2}s (current total: {} ZKC, {} stakers, total emissions: {} ZKC)",
             staking_start.elapsed().as_secs_f64(),
-            staking_result.summary.current_total_staked / U256::from(10).pow(U256::from(18)),
-            staking_result.summary.current_active_stakers
+            staking_data.summary.current_total_staked / U256::from(10).pow(U256::from(18)),
+            staking_data.summary.current_active_stakers,
+            staking_data.summary.total_staking_emissions_all_time / U256::from(10).pow(U256::from(18))
         );
 
         // Store epoch and block caches from the povw_cache for later use
         self.epoch_cache = povw_cache.epoch_time_ranges.clone();
         self.block_timestamp_cache = povw_cache.block_timestamps.clone();
 
-        // Build staking lookup from computed positions
+        // Build staking lookup for PoVW rewards computation
         let mut staking_amounts_by_epoch: HashMap<(Address, u64), U256> = HashMap::new();
-        for epoch_data in &staking_result.epoch_positions {
-            for (address, position) in &epoch_data.positions {
-                staking_amounts_by_epoch
-                    .insert((*address, epoch_data.epoch), position.staked_amount);
+        for epoch_data in &staking_data.epochs {
+            for (address, position) in &epoch_data.positions_by_staker {
+                staking_amounts_by_epoch.insert((*address, epoch_data.epoch), position.staked_amount);
             }
         }
 
@@ -233,7 +226,7 @@ impl RewardsIndexerService {
             &povw_cache.work_recipients_by_epoch,
             &povw_cache.total_work_by_epoch,
             pending_epoch_total_work,
-            &povw_cache.emissions_by_epoch,
+            &povw_cache.povw_emissions_by_epoch,
             &povw_cache.reward_caps,
             &staking_amounts_by_epoch,
             &povw_cache.epoch_time_ranges,
@@ -317,6 +310,7 @@ impl RewardsIndexerService {
             total_emissions_all_time: povw_result.summary.total_emissions_all_time,
             total_capped_rewards_all_time: povw_result.summary.total_capped_rewards_all_time,
             total_uncapped_rewards_all_time: povw_result.summary.total_uncapped_rewards_all_time,
+            updated_at: Some(chrono::Utc::now().to_rfc3339()),
         };
         self.db.upsert_povw_summary_stats(povw_summary_stats).await?;
         tracing::info!("Updated PoVW global summary statistics");
@@ -337,41 +331,21 @@ impl RewardsIndexerService {
                 epoch_start_time: epoch_data.epoch_start_time,
                 epoch_end_time: epoch_data.epoch_end_time,
                 num_participants,
+                updated_at: Some(chrono::Utc::now().to_rfc3339()),
             };
             self.db.upsert_epoch_povw_summary(epoch_data.epoch.to::<u64>(), epoch_summary).await?;
         }
         tracing::info!("Updated per-epoch PoVW summaries");
 
-        // Process staking positions
-        tracing::info!("Computing staking positions");
+        // Store staking data
+        tracing::info!("💾 Storing staking data for {} epochs...", staking_data.epochs.len());
+        let staking_db_start = std::time::Instant::now();
 
-        // Epoch cache already built above at the beginning of the run
-
-        // Block timestamp cache already built above at the beginning of the run
-
-        // Collect all delegation-related logs for block timestamp cache
-        let _all_delegation_logs: Vec<&alloy::rpc::types::Log> = all_logs
-            .vote_delegation_change_logs
-            .iter()
-            .chain(all_logs.reward_delegation_change_logs.iter())
-            .chain(all_logs.vote_power_logs.iter())
-            .chain(all_logs.reward_power_logs.iter())
-            .collect();
-
-        // Build/update block timestamp cache for delegation logs (only fetches missing blocks)
-        // Block timestamps already built in povw_cache, no need to rebuild
-
-        // Staking positions already computed above and stored in epoch_positions
-
-        // Store staking positions by epoch
-        tracing::info!(
-            "💾 Storing staking positions for {} epochs...",
-            staking_result.epoch_positions.len()
-        );
-        let db_start = std::time::Instant::now();
-        for (i, epoch_data) in staking_result.epoch_positions.iter().enumerate() {
+        // Store staking positions and rewards by epoch
+        for epoch_data in &staking_data.epochs {
+            // Store positions
             let positions: Vec<StakingPositionByEpoch> = epoch_data
-                .positions
+                .positions_by_staker
                 .iter()
                 .map(|(address, position)| StakingPositionByEpoch {
                     staker_address: *address,
@@ -380,81 +354,92 @@ impl RewardsIndexerService {
                     is_withdrawing: position.is_withdrawing,
                     rewards_delegated_to: position.rewards_delegated_to,
                     votes_delegated_to: position.votes_delegated_to,
+                    rewards_generated: position.rewards_generated,
                 })
                 .collect();
 
             if !positions.is_empty() {
                 self.db.upsert_staking_positions_by_epoch(epoch_data.epoch, positions).await?;
-                tracing::debug!(
-                    "[{}/{}] Updated {} staking positions for epoch {}",
-                    i + 1,
-                    staking_result.epoch_positions.len(),
-                    epoch_data.positions.len(),
-                    epoch_data.epoch
-                );
-            }
-        }
-        tracing::info!("Staking positions stored in {:.2}s", db_start.elapsed().as_secs_f64());
-
-        // Compute and store aggregates (latest epoch is the current state)
-        if let Some(latest) = staking_result.epoch_positions.last() {
-            let mut epochs_per_address: HashMap<Address, u64> = HashMap::new();
-
-            // Count epochs participated for each address
-            for epoch_data in &staking_result.epoch_positions {
-                for address in epoch_data.positions.keys() {
-                    *epochs_per_address.entry(*address).or_insert(0) += 1;
-                }
             }
 
-            let aggregates: Vec<StakingPositionAggregate> = latest
-                .positions
+            // Store rewards
+            let rewards: Vec<StakingRewardByEpoch> = epoch_data
+                .rewards_by_address
                 .iter()
-                .map(|(address, position)| StakingPositionAggregate {
+                .map(|(address, info)| StakingRewardByEpoch {
                     staker_address: *address,
-                    total_staked: position.staked_amount,
-                    is_withdrawing: position.is_withdrawing,
-                    rewards_delegated_to: position.rewards_delegated_to,
-                    votes_delegated_to: position.votes_delegated_to,
-                    epochs_participated: epochs_per_address.get(address).copied().unwrap_or(0),
+                    epoch: epoch_data.epoch,
+                    staking_power: info.staking_power,
+                    percentage: info.percentage,
+                    rewards_earned: info.rewards_earned,
                 })
                 .collect();
 
-            if !aggregates.is_empty() {
-                self.db.upsert_staking_positions_aggregate(aggregates.clone()).await?;
-                tracing::info!(
-                    "Updated aggregate staking positions for {} addresses",
-                    aggregates.len()
-                );
+            if !rewards.is_empty() {
+                self.db.upsert_staking_rewards_by_epoch(epoch_data.epoch, rewards).await?;
             }
-        }
 
-        // Store staking global summary statistics
-        tracing::info!("Storing staking global summary statistics...");
-        let staking_summary_stats = StakingSummaryStats {
-            current_total_staked: staking_result.summary.current_total_staked,
-            total_unique_stakers: staking_result.summary.total_unique_stakers as u64,
-            current_active_stakers: staking_result.summary.current_active_stakers as u64,
-            current_withdrawing: staking_result.summary.current_withdrawing as u64,
-        };
-        self.db.upsert_staking_summary_stats(staking_summary_stats).await?;
-        tracing::info!("Updated staking global summary statistics");
+            // Get epoch time range from cache
+            let epoch_time_range = self.epoch_cache
+                .get(&epoch_data.epoch)
+                .cloned()
+                .unwrap_or(boundless_rewards::EpochTimeRange {
+                    start_time: 0,
+                    end_time: 0,
+                });
 
-        // Store per-epoch staking summaries
-        tracing::info!(
-            "Storing per-epoch staking summaries for {} epochs...",
-            staking_result.epoch_positions.len()
-        );
-        for epoch_data in &staking_result.epoch_positions {
+            // Store epoch summary
             let epoch_summary = EpochStakingSummary {
                 epoch: epoch_data.epoch,
                 total_staked: epoch_data.total_staked,
                 num_stakers: epoch_data.num_stakers as u64,
                 num_withdrawing: epoch_data.num_withdrawing as u64,
+                total_staking_emissions: epoch_data.total_staking_emissions,
+                total_staking_power: epoch_data.total_staking_power,
+                num_reward_recipients: epoch_data.num_reward_recipients as u64,
+                epoch_start_time: epoch_time_range.start_time,
+                epoch_end_time: epoch_time_range.end_time,
+                updated_at: Some(chrono::Utc::now().to_rfc3339()),
             };
             self.db.upsert_epoch_staking_summary(epoch_data.epoch, epoch_summary).await?;
         }
-        tracing::info!("Updated per-epoch staking summaries");
+
+        // Store staking position aggregates (with rewards)
+        let aggregates: Vec<StakingPositionAggregate> = staking_data
+            .staker_aggregates
+            .values()
+            .map(|agg| StakingPositionAggregate {
+                staker_address: agg.staker_address,
+                total_staked: agg.current_staked,
+                is_withdrawing: agg.is_withdrawing,
+                rewards_delegated_to: agg.rewards_delegated_to,
+                votes_delegated_to: agg.votes_delegated_to,
+                epochs_participated: agg.epochs_participated,
+                total_rewards_earned: agg.total_rewards_earned,
+                total_rewards_generated: agg.total_rewards_generated,
+            })
+            .collect();
+
+        if !aggregates.is_empty() {
+            self.db.upsert_staking_positions_aggregate(aggregates).await?;
+            tracing::info!("Updated staking position aggregates for {} addresses", staking_data.staker_aggregates.len());
+        }
+
+        // Store global staking summary statistics
+        let staking_summary_stats = StakingSummaryStats {
+            current_total_staked: staking_data.summary.current_total_staked,
+            total_unique_stakers: staking_data.summary.total_unique_stakers as u64,
+            current_active_stakers: staking_data.summary.current_active_stakers as u64,
+            current_withdrawing: staking_data.summary.current_withdrawing as u64,
+            total_staking_emissions_all_time: Some(staking_data.summary.total_staking_emissions_all_time),
+            updated_at: Some(chrono::Utc::now().to_rfc3339()),
+        };
+        self.db.upsert_staking_summary_stats(staking_summary_stats).await?;
+
+        tracing::info!(
+            "Staking data stored in {:.2}s",
+            staking_db_start.elapsed().as_secs_f64()
+        );
 
         // Compute delegation powers
         tracing::info!("🧮 Computing delegation powers from events...");

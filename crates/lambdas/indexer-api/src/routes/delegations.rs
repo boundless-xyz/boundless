@@ -32,26 +32,20 @@ use crate::{
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         // Vote delegation endpoints
-        .route("/votes", get(get_aggregate_vote_delegations))
-        .route("/votes/epochs/:epoch", get(get_vote_delegations_by_epoch))
+        .route("/votes/epochs/:epoch/addresses", get(get_vote_delegations_by_epoch))
+        .route("/votes/epochs/:epoch/addresses/:address", get(get_vote_delegation_by_address_and_epoch))
+        .route("/votes/addresses", get(get_aggregate_vote_delegations))
         .route("/votes/addresses/:address", get(get_vote_delegation_history_by_address))
-        .route(
-            "/votes/addresses/:address/epochs/:epoch",
-            get(get_vote_delegation_by_address_and_epoch),
-        )
         // Reward delegation endpoints
-        .route("/rewards", get(get_aggregate_reward_delegations))
-        .route("/rewards/epochs/:epoch", get(get_reward_delegations_by_epoch))
+        .route("/rewards/epochs/:epoch/addresses", get(get_reward_delegations_by_epoch))
+        .route("/rewards/epochs/:epoch/addresses/:address", get(get_reward_delegation_by_address_and_epoch))
+        .route("/rewards/addresses", get(get_aggregate_reward_delegations))
         .route("/rewards/addresses/:address", get(get_reward_delegation_history_by_address))
-        .route(
-            "/rewards/addresses/:address/epochs/:epoch",
-            get(get_reward_delegation_by_address_and_epoch),
-        )
 }
 
 // ===== VOTE DELEGATION ENDPOINTS =====
 
-/// GET /v1/delegations/votes
+/// GET /v1/delegations/votes/addresses
 /// Returns the current aggregate vote delegation powers
 async fn get_aggregate_vote_delegations(
     State(state): State<Arc<AppState>>,
@@ -99,7 +93,7 @@ async fn get_aggregate_vote_delegations_impl(
     Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
 }
 
-/// GET /v1/delegations/votes/epochs/:epoch
+/// GET /v1/delegations/votes/epochs/:epoch/addresses
 /// Returns vote delegation powers for a specific epoch
 async fn get_vote_delegations_by_epoch(
     State(state): State<Arc<AppState>>,
@@ -215,11 +209,11 @@ async fn get_vote_delegation_history_by_address_impl(
     Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
 }
 
-/// GET /v1/delegations/votes/addresses/:address/epochs/:epoch
+/// GET /v1/delegations/votes/epochs/:epoch/addresses/:address
 /// Returns vote delegation for a specific address at a specific epoch
 async fn get_vote_delegation_by_address_and_epoch(
     State(state): State<Arc<AppState>>,
-    Path((address_str, epoch)): Path<(String, u64)>,
+    Path((epoch, address_str)): Path<(u64, String)>,
 ) -> Response {
     let address = match Address::from_str(&address_str) {
         Ok(addr) => addr,
@@ -268,7 +262,7 @@ async fn get_vote_delegation_by_address_and_epoch_impl(
 
 // ===== REWARD DELEGATION ENDPOINTS =====
 
-/// GET /v1/delegations/rewards
+/// GET /v1/delegations/rewards/addresses
 /// Returns the current aggregate reward delegation powers
 async fn get_aggregate_reward_delegations(
     State(state): State<Arc<AppState>>,
@@ -318,7 +312,7 @@ async fn get_aggregate_reward_delegations_impl(
     Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
 }
 
-/// GET /v1/delegations/rewards/epochs/:epoch
+/// GET /v1/delegations/rewards/epochs/:epoch/addresses
 /// Returns reward delegation powers for a specific epoch
 async fn get_reward_delegations_by_epoch(
     State(state): State<Arc<AppState>>,
@@ -434,11 +428,11 @@ async fn get_reward_delegation_history_by_address_impl(
     Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
 }
 
-/// GET /v1/delegations/rewards/addresses/:address/epochs/:epoch
+/// GET /v1/delegations/rewards/epochs/:epoch/addresses/:address
 /// Returns reward delegation for a specific address at a specific epoch
 async fn get_reward_delegation_by_address_and_epoch(
     State(state): State<Arc<AppState>>,
-    Path((address_str, epoch)): Path<(String, u64)>,
+    Path((epoch, address_str)): Path<(u64, String)>,
 ) -> Response {
     let address = match Address::from_str(&address_str) {
         Ok(addr) => addr,

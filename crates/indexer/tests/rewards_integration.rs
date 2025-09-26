@@ -559,154 +559,260 @@ async fn test_rewards_indexer_integration() {
         println!("4. Run the test again to verify snapshots");
     }
 
-    // Print leaderboards for recent epochs
-    let epochs_to_show = (0..=current_epoch).collect::<Vec<_>>();
+    // Print simplified summary
+    println!("\n=== REWARDS SUMMARY ===\n");
 
-    for epoch in &epochs_to_show {
-        println!("=== Epoch {} Leaderboard (Top 10) ===", epoch);
-        print_epoch_leaderboard(&*db, *epoch).await;
-    }
+    // All-time summaries
+    println!("📊 ACROSS ALL EPOCHS\n");
+    print_top_povw_all_time(&*db, 5).await;
+    print_top_staking_all_time(&*db, 5).await;
 
-    // Print aggregate leaderboard
-    println!("=== Aggregate PoVW Leaderboard (All Time Top 20) ===");
-    print_aggregate_leaderboard(&*db).await;
+    // Epoch 4 specific (or latest epoch if < 4)
+    let display_epoch = if current_epoch >= 4 { 4 } else { current_epoch };
+    println!("\n📅 EPOCH {} SNAPSHOT\n", display_epoch);
+    print_top_povw_epoch(&*db, display_epoch, 5).await;
+    print_top_staking_epoch(&*db, display_epoch, 5).await;
 
-    // Print staking positions for recent epochs
-    for epoch in &epochs_to_show {
-        println!("=== Epoch {} Staking Positions (Top 10) ===", epoch);
-        print_epoch_staking(&*db, *epoch).await;
-    }
-
-    // Print aggregate staking positions
-    println!("=== Aggregate Staking Positions (All Time Top 20) ===");
-    print_aggregate_staking(&*db).await;
-
-    // Print delegation power information from database
-    print_delegation_powers_from_db(&*db).await;
-
-    // Test the new address history methods
-    println!("\n=== Testing Address History Methods ===");
-    test_address_history_methods(&*db).await;
+    // Delegation powers
+    println!("\n🤝 DELEGATION POWERS\n");
+    print_delegation_summary(&*db, 5).await;
 }
 
-async fn print_epoch_leaderboard(db: &dyn RewardsIndexerDb, epoch: u64) {
-    let rewards =
-        db.get_povw_rewards_by_epoch(epoch, 0, 10).await.expect("Failed to get epoch rewards");
+async fn print_top_povw_all_time(db: &dyn RewardsIndexerDb, limit: usize) {
+    // Get summary stats to show last_updated_at
+    if let Ok(Some(summary)) = db.get_povw_summary_stats().await {
+        if let Some(updated_at) = &summary.updated_at {
+            println!("Top {} PoVW Miners (All Time) [Last Updated: {}]", limit, updated_at);
+        } else {
+            println!("Top {} PoVW Miners (All Time)", limit);
+        }
+    } else {
+        println!("Top {} PoVW Miners (All Time)", limit);
+    }
+    println!("{:<42} {:>20} {:>20}", "Work Log ID", "Total Work", "Total Rewards (ZKC)");
+    println!("{}", "-".repeat(84));
+
+    let aggregates = db
+        .get_povw_rewards_aggregate(0, limit as u64)
+        .await
+        .expect("Failed to get PoVW aggregates");
+
+    for agg in aggregates {
+        println!(
+            "{:<42} {:>20} {:>20}",
+            format!("{:#x}", agg.work_log_id),
+            format_u256_short(agg.total_work_submitted),
+            format_zkc(agg.total_actual_rewards)
+        );
+    }
+}
+
+async fn print_top_staking_all_time(db: &dyn RewardsIndexerDb, limit: usize) {
+    // Get summary stats to show last_updated_at
+    if let Ok(Some(summary)) = db.get_staking_summary_stats().await {
+        if let Some(updated_at) = &summary.updated_at {
+            println!("\nTop {} Staking Positions (All Time) [Last Updated: {}]", limit, updated_at);
+        } else {
+            println!("\nTop {} Staking Positions (All Time)", limit);
+        }
+    } else {
+        println!("\nTop {} Staking Positions (All Time)", limit);
+    }
+    println!("{:<42} {:>15} {:>15} {:>15}", "Staker Address", "Staked (ZKC)", "Generated", "Earned");
+    println!("{}", "-".repeat(90));
+
+    let aggregates = db
+        .get_staking_positions_aggregate(0, limit as u64)
+        .await
+        .expect("Failed to get staking aggregates");
+
+    for agg in aggregates {
+        println!(
+            "{:<42} {:>15} {:>15} {:>15}",
+            format!("{:#x}", agg.staker_address),
+            format_zkc(agg.total_staked),
+            format_zkc(agg.total_rewards_generated),
+            format_zkc(agg.total_rewards_earned)
+        );
+        // Show delegation if present
+        if let Some(delegate) = agg.rewards_delegated_to {
+            if delegate != agg.staker_address {
+                println!("  └─ Rewards delegated to: {:#x}", delegate);
+            }
+        }
+    }
+}
+
+async fn print_top_povw_epoch(db: &dyn RewardsIndexerDb, epoch: u64, limit: usize) {
+    // Get epoch summary to show last_updated_at
+    if let Ok(Some(summary)) = db.get_epoch_povw_summary(epoch).await {
+        if let Some(updated_at) = &summary.updated_at {
+            println!("Top {} PoVW Miners (Epoch {}) [Last Updated: {}]", limit, epoch, updated_at);
+        } else {
+            println!("Top {} PoVW Miners (Epoch {})", limit, epoch);
+        }
+    } else {
+        println!("Top {} PoVW Miners (Epoch {})", limit, epoch);
+    }
+    println!("{:<42} {:>20} {:>20} {:>8}", "Work Log ID", "Work Submitted", "Rewards (ZKC)", "Capped");
+    println!("{}", "-".repeat(92));
+
+    let rewards = db
+        .get_povw_rewards_by_epoch(epoch, 0, limit as u64)
+        .await
+        .expect("Failed to get epoch PoVW rewards");
 
     if rewards.is_empty() {
-        println!("No rewards data for epoch {}", epoch);
-        return;
-    }
-
-    // Get epoch statistics from database
-    let epoch_summary = db
-        .get_epoch_povw_summary(epoch)
-        .await
-        .expect("Failed to get epoch summary")
-        .expect("Epoch summary not found");
-
-    println!("Epoch {} Statistics:", epoch);
-    println!("  Total Work: {}", format_u256_short(epoch_summary.total_work));
-    println!("  Total Actual Rewards: {} ZKC", format_zkc(epoch_summary.total_capped_rewards));
-    println!("  Total Uncapped Rewards: {} ZKC", format_zkc(epoch_summary.total_uncapped_rewards));
-    println!();
-
-    println!(
-        "{:<44} {:>20} {:>20} {:>20} {:>8} {:>8}",
-        "Work Log ID",
-        "Work Submitted",
-        "Actual Rewards (ZKC)",
-        "Uncapped Rewards (ZKC)",
-        "% Share",
-        "Capped"
-    );
-    println!("{}", "-".repeat(140));
-
-    for reward in rewards {
-        let work_submitted = format_u256_short(reward.work_submitted);
-        let actual_rewards = format_zkc(reward.actual_rewards);
-        let uncapped_rewards = format_zkc(reward.uncapped_rewards);
-        let percentage = format!("{:.2}%", reward.percentage);
-        let capped = if reward.is_capped { "Yes" } else { "No" };
-
-        println!(
-            "{:<44} {:>20} {:>20} {:>20} {:>8} {:>8}",
-            format!("{:#x}", reward.work_log_id),
-            work_submitted,
-            actual_rewards,
-            uncapped_rewards,
-            percentage,
-            capped
-        );
-    }
-}
-
-async fn print_aggregate_leaderboard(db: &dyn RewardsIndexerDb) {
-    let aggregates =
-        db.get_povw_rewards_aggregate(0, 20).await.expect("Failed to get aggregate rewards");
-
-    if aggregates.is_empty() {
-        println!("No aggregate rewards data");
-        return;
-    }
-
-    // Get global summary statistics from database
-    let global_summary = db
-        .get_povw_summary_stats()
-        .await
-        .expect("Failed to get PoVW summary stats")
-        .expect("PoVW summary stats not found");
-
-    println!("Overall PoVW Summary Statistics:");
-    println!("  Total Unique Work Log IDs: {}", global_summary.total_unique_work_log_ids);
-    println!("  Total Work (All Time): {}", format_u256_short(global_summary.total_work_all_time));
-    println!(
-        "  Total Actual Rewards (All Time): {} ZKC",
-        format_zkc(global_summary.total_capped_rewards_all_time)
-    );
-    println!(
-        "  Total Uncapped Rewards (All Time): {} ZKC",
-        format_zkc(global_summary.total_uncapped_rewards_all_time)
-    );
-    let capping_percentage = if global_summary.total_uncapped_rewards_all_time > U256::ZERO {
-        let capped_amount = global_summary.total_uncapped_rewards_all_time
-            - global_summary.total_capped_rewards_all_time;
-        (capped_amount * U256::from(10000) / global_summary.total_uncapped_rewards_all_time)
-            .to::<u64>() as f64
-            / 100.0
+        println!("  No PoVW data for epoch {}", epoch);
     } else {
-        0.0
-    };
-    println!("  Rewards Capped: {:.2}%", capping_percentage);
-    println!();
-
-    println!(
-        "{:<5} {:<44} {:>20} {:>20} {:>20} {:>8}",
-        "Rank",
-        "Work Log ID",
-        "Total Work",
-        "Actual Rewards (ZKC)",
-        "Uncapped Rewards (ZKC)",
-        "Epochs"
-    );
-    println!("{}", "-".repeat(140));
-
-    for (rank, aggregate) in aggregates.iter().enumerate() {
-        let total_work = format_u256_short(aggregate.total_work_submitted);
-        let total_actual = format_zkc(aggregate.total_actual_rewards);
-        let total_uncapped = format_zkc(aggregate.total_uncapped_rewards);
-
-        println!(
-            "#{:<4} {:<44} {:>20} {:>20} {:>20} {:>8}",
-            rank + 1,
-            format!("{:#x}", aggregate.work_log_id),
-            total_work,
-            total_actual,
-            total_uncapped,
-            aggregate.epochs_participated
-        );
+        for reward in rewards {
+            println!(
+                "{:<42} {:>20} {:>20} {:>8}",
+                format!("{:#x}", reward.work_log_id),
+                format_u256_short(reward.work_submitted),
+                format_zkc(reward.actual_rewards),
+                if reward.is_capped { "Yes" } else { "No" }
+            );
+        }
     }
 }
+
+async fn print_top_staking_epoch(db: &dyn RewardsIndexerDb, epoch: u64, limit: usize) {
+    // Get epoch summary to show last_updated_at
+    if let Ok(Some(summary)) = db.get_epoch_staking_summary(epoch).await {
+        if let Some(updated_at) = &summary.updated_at {
+            println!("\nTop {} Stakers (Epoch {}) [Last Updated: {}]", limit, epoch, updated_at);
+        } else {
+            println!("\nTop {} Stakers (Epoch {})", limit, epoch);
+        }
+    } else {
+        println!("\nTop {} Stakers (Epoch {})", limit, epoch);
+    }
+
+    // Get staking positions
+    let positions = db
+        .get_staking_positions_by_epoch(epoch, 0, limit as u64)
+        .await
+        .expect("Failed to get epoch staking positions");
+
+    // Get staking rewards for the same epoch to show earned amounts
+    let rewards = db
+        .get_staking_rewards_by_epoch(epoch, 0, limit as u64 * 2) // Get more to find all addresses
+        .await
+        .expect("Failed to get staking rewards");
+
+    // Create a map of address -> rewards_earned for quick lookup
+    let mut earned_map = std::collections::HashMap::new();
+    for reward in rewards {
+        earned_map.insert(reward.staker_address, reward.rewards_earned);
+    }
+
+    // Get epoch summary for rewards info
+    let summary = db
+        .get_epoch_staking_summary(epoch)
+        .await
+        .expect("Failed to get epoch staking summary");
+
+    // Get total staked from summary for accurate percentage calculation
+    let total_staked = summary.as_ref().map(|s| s.total_staked).unwrap_or(U256::ZERO);
+
+    if let Some(ref summary) = summary {
+        println!("Total Staking Emissions: {} ZKC", format_zkc(summary.total_staking_emissions));
+        println!("Total Staked: {} ZKC", format_zkc(summary.total_staked));
+    }
+
+    println!("{:<42} {:>12} {:>8} {:>12} {:>12}", "Staker Address", "Staked (ZKC)", "%", "Generated", "Earned");
+    println!("{}", "-".repeat(90));
+
+    if positions.is_empty() {
+        println!("  No staking data for epoch {}", epoch);
+    } else {
+        for position in positions {
+            // Get the earned amount for this address (might be 0 if delegated)
+            let earned = earned_map.get(&position.staker_address).copied().unwrap_or(U256::ZERO);
+
+            // Calculate percentage of total stake
+            let percentage = if total_staked > U256::ZERO {
+                (position.staked_amount * U256::from(10000) / total_staked).to::<u64>() as f64 / 100.0
+            } else {
+                0.0
+            };
+
+            // Show staking position with both generated and earned rewards
+            println!(
+                "{:<42} {:>12} {:>7.2}% {:>12} {:>12}",
+                format!("{:#x}", position.staker_address),
+                format_zkc(position.staked_amount),
+                percentage,
+                format_zkc(position.rewards_generated),
+                format_zkc(earned)
+            );
+            // Show delegation if present
+            if let Some(delegate) = position.rewards_delegated_to {
+                if delegate != position.staker_address {
+                    println!("  └─ Rewards delegated to: {:#x}", delegate);
+                }
+            }
+        }
+    }
+}
+
+async fn print_delegation_summary(db: &dyn RewardsIndexerDb, limit: usize) {
+    // Get current epoch
+    let current_epoch = db
+        .get_current_epoch()
+        .await
+        .expect("Failed to get current epoch")
+        .expect("Current epoch not set");
+
+    // Vote delegation powers
+    println!("Vote Power Delegates (Top {})", limit);
+    println!("{:<42} {:>20} {:>12}", "Delegate Address", "Vote Power (ZKC)", "Delegators");
+    println!("{}", "-".repeat(76));
+
+    let vote_powers = db
+        .get_vote_delegation_powers_by_epoch(current_epoch, 0, limit as u64)
+        .await
+        .expect("Failed to get vote delegation powers");
+
+    if vote_powers.is_empty() {
+        println!("  No vote delegations in epoch {}", current_epoch);
+    } else {
+        for power in vote_powers {
+            println!(
+                "{:<42} {:>20} {:>12}",
+                format!("{:#x}", power.delegate_address),
+                format_zkc(power.vote_power),
+                power.delegator_count
+            );
+        }
+    }
+
+    // Reward delegation powers
+    println!("\nReward Power Delegates (Top {})", limit);
+    println!("{:<42} {:>20} {:>12}", "Delegate Address", "Reward Power (ZKC)", "Delegators");
+    println!("{}", "-".repeat(76));
+
+    let reward_powers = db
+        .get_reward_delegation_powers_by_epoch(current_epoch, 0, limit as u64)
+        .await
+        .expect("Failed to get reward delegation powers");
+
+    if reward_powers.is_empty() {
+        println!("  No reward delegations in epoch {}", current_epoch);
+    } else {
+        for power in reward_powers {
+            println!(
+                "{:<42} {:>20} {:>12}",
+                format!("{:#x}", power.delegate_address),
+                format_zkc(power.reward_power),
+                power.delegator_count
+            );
+        }
+    }
+}
+
+// Removed old verbose print functions - using simplified versions above
 
 // Format U256 in a shorter readable format
 fn format_u256_short(value: U256) -> String {
@@ -724,290 +830,9 @@ fn format_u256_short(value: U256) -> String {
     // }
 }
 
-async fn print_epoch_staking(db: &dyn RewardsIndexerDb, epoch: u64) {
-    let positions = db
-        .get_staking_positions_by_epoch(epoch, 0, 10)
-        .await
-        .expect("Failed to get epoch staking positions");
+// Removed old verbose functions
 
-    if positions.is_empty() {
-        println!("No staking data for epoch {}", epoch);
-        return;
-    }
-
-    println!(
-        "{:<44} {:<4} {:>12} {:>44} {:>44}",
-        "Staker Address", "Staked Amount (ZKC)", "Withdrawing", "Reward Delegate", "Vote Delegate"
-    );
-    println!("{}", "-".repeat(166));
-
-    for (rank, position) in positions.iter().enumerate() {
-        let staked_amount = format_zkc(position.staked_amount);
-        let withdrawing = if position.is_withdrawing { "Yes" } else { "No" };
-        let reward_delegated = position
-            .rewards_delegated_to
-            .map(|addr| format!("{:#x}", addr))
-            .unwrap_or_else(|| "None".to_string());
-        let vote_delegated = position
-            .votes_delegated_to
-            .map(|addr| format!("{:#x}", addr))
-            .unwrap_or_else(|| "None".to_string());
-
-        println!(
-            "#{:<3} {:<40} {:<4} {:>12} {:>44} {:>44}",
-            rank + 1,
-            format!("{:#x}", position.staker_address),
-            staked_amount,
-            withdrawing,
-            reward_delegated,
-            vote_delegated
-        );
-    }
-}
-
-async fn print_aggregate_staking(db: &dyn RewardsIndexerDb) {
-    let aggregates = db
-        .get_staking_positions_aggregate(0, 20)
-        .await
-        .expect("Failed to get aggregate staking positions");
-
-    if aggregates.is_empty() {
-        println!("No aggregate staking data");
-        return;
-    }
-
-    println!(
-        "{:<44} {:<4} {:>12} {:>44} {:>44} {:>8}",
-        "Staker Address",
-        "Total Staked (ZKC)",
-        "Withdrawing",
-        "Reward Delegate",
-        "Vote Delegate",
-        "Epochs"
-    );
-    println!("{}", "-".repeat(174));
-
-    for (rank, aggregate) in aggregates.iter().enumerate() {
-        let total_staked = format_zkc(aggregate.total_staked);
-        let withdrawing = if aggregate.is_withdrawing { "Yes" } else { "No" };
-        let reward_delegated = aggregate
-            .rewards_delegated_to
-            .map(|addr| format!("{:#x}", addr))
-            .unwrap_or_else(|| "None".to_string());
-        let vote_delegated = aggregate
-            .votes_delegated_to
-            .map(|addr| format!("{:#x}", addr))
-            .unwrap_or_else(|| "None".to_string());
-
-        println!(
-            "#{:<3} {:<40} {:<4} {:>12} {:>44} {:>44} {:>8}",
-            rank + 1,
-            format!("{:#x}", aggregate.staker_address),
-            total_staked,
-            withdrawing,
-            reward_delegated,
-            vote_delegated,
-            aggregate.epochs_participated
-        );
-    }
-}
-
-async fn print_delegation_powers_from_db(db: &dyn RewardsIndexerDb) {
-    println!("=== Delegation Powers from Database ===");
-
-    // Get current epoch to display
-    let current_epoch = db
-        .get_current_epoch()
-        .await
-        .expect("Failed to get current epoch")
-        .expect("Current epoch not set");
-
-    println!("=== Current Epoch {} Delegation Powers ===", current_epoch);
-
-    // Get vote delegation powers for current epoch
-    let vote_powers = db
-        .get_vote_delegation_powers_by_epoch(current_epoch, 0, 10)
-        .await
-        .expect("Failed to get vote delegation powers");
-
-    if !vote_powers.is_empty() {
-        println!("\nVote Power Delegates (Top 10):");
-        println!(
-            "{:<44} {:<4} {:>12} Sample Delegators",
-            "Delegate Address", "Vote Power (ZKC)", "Delegators"
-        );
-        println!("{}", "-".repeat(100));
-
-        for power in vote_powers {
-            let vote_power_zkc = format_zkc(power.vote_power);
-            let sample_delegators = if power.delegator_count <= 3 {
-                power
-                    .delegators
-                    .iter()
-                    .map(|addr| format!("{:#x}", addr)[..10].to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            } else {
-                let sample = power
-                    .delegators
-                    .iter()
-                    .take(2)
-                    .map(|addr| format!("{:#x}", addr)[..10].to_string())
-                    .collect::<Vec<_>>();
-                format!("{}, +{} more", sample.join(", "), power.delegator_count - 2)
-            };
-
-            println!(
-                "{:<44} {:<4} {:>12} {}",
-                format!("{:#x}", power.delegate_address),
-                vote_power_zkc,
-                power.delegator_count,
-                sample_delegators
-            );
-        }
-    } else {
-        println!("\nNo vote power delegation found for epoch {}", current_epoch);
-    }
-
-    // Get reward delegation powers for current epoch
-    let reward_powers = db
-        .get_reward_delegation_powers_by_epoch(current_epoch, 0, 10)
-        .await
-        .expect("Failed to get reward delegation powers");
-
-    if !reward_powers.is_empty() {
-        println!("\nReward Power Delegates (Top 10):");
-        println!(
-            "{:<44} {:<4} {:>12} Sample Delegators",
-            "Delegate Address", "Reward Power (ZKC)", "Delegators"
-        );
-        println!("{}", "-".repeat(100));
-
-        for power in reward_powers {
-            let reward_power_zkc = format_zkc(power.reward_power);
-            let sample_delegators = if power.delegator_count <= 3 {
-                power
-                    .delegators
-                    .iter()
-                    .map(|addr| format!("{:#x}", addr)[..10].to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            } else {
-                let sample = power
-                    .delegators
-                    .iter()
-                    .take(2)
-                    .map(|addr| format!("{:#x}", addr)[..10].to_string())
-                    .collect::<Vec<_>>();
-                format!("{}, +{} more", sample.join(", "), power.delegator_count - 2)
-            };
-
-            println!(
-                "{:<44} {:<4} {:>12} {}",
-                format!("{:#x}", power.delegate_address),
-                reward_power_zkc,
-                power.delegator_count,
-                sample_delegators
-            );
-        }
-    } else {
-        println!("\nNo reward power delegation found for epoch {}", current_epoch);
-    }
-
-    // Print aggregate delegation powers
-    println!("\n=== Aggregate Vote Delegation Powers (All Time Top 10) ===");
-    let vote_aggregates = db
-        .get_vote_delegation_powers_aggregate(0, 10)
-        .await
-        .expect("Failed to get vote delegation aggregates");
-
-    if !vote_aggregates.is_empty() {
-        println!(
-            "{:<44} {:<4} {:>12} {:>8} Sample Delegators",
-            "Delegate Address", "Total Vote Power", "Delegators", "Epochs"
-        );
-        println!("{}", "-".repeat(110));
-
-        for (rank, aggregate) in vote_aggregates.iter().enumerate() {
-            let vote_power_zkc = format_zkc(aggregate.total_vote_power);
-            let sample_delegators = if aggregate.delegator_count <= 3 {
-                aggregate
-                    .delegators
-                    .iter()
-                    .map(|addr| format!("{:#x}", addr)[..10].to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            } else {
-                let sample = aggregate
-                    .delegators
-                    .iter()
-                    .take(2)
-                    .map(|addr| format!("{:#x}", addr)[..10].to_string())
-                    .collect::<Vec<_>>();
-                format!("{}, +{} more", sample.join(", "), aggregate.delegator_count - 2)
-            };
-
-            println!(
-                "#{:<3} {:<40} {:<4} {:>12} {:>8} {}",
-                rank + 1,
-                format!("{:#x}", aggregate.delegate_address),
-                vote_power_zkc,
-                aggregate.delegator_count,
-                aggregate.epochs_participated,
-                sample_delegators
-            );
-        }
-    } else {
-        println!("No aggregate vote delegation data available");
-    }
-
-    println!("\n=== Aggregate Reward Delegation Powers (All Time Top 10) ===");
-    let reward_aggregates = db
-        .get_reward_delegation_powers_aggregate(0, 10)
-        .await
-        .expect("Failed to get reward delegation aggregates");
-
-    if !reward_aggregates.is_empty() {
-        println!(
-            "{:<44} {:<4} {:>12} {:>8} Sample Delegators",
-            "Delegate Address", "Total Reward Power", "Delegators", "Epochs"
-        );
-        println!("{}", "-".repeat(110));
-
-        for (rank, aggregate) in reward_aggregates.iter().enumerate() {
-            let reward_power_zkc = format_zkc(aggregate.total_reward_power);
-            let sample_delegators = if aggregate.delegator_count <= 3 {
-                aggregate
-                    .delegators
-                    .iter()
-                    .map(|addr| format!("{:#x}", addr)[..10].to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            } else {
-                let sample = aggregate
-                    .delegators
-                    .iter()
-                    .take(2)
-                    .map(|addr| format!("{:#x}", addr)[..10].to_string())
-                    .collect::<Vec<_>>();
-                format!("{}, +{} more", sample.join(", "), aggregate.delegator_count - 2)
-            };
-
-            println!(
-                "#{:<3} {:<40} {:<4} {:>12} {:>8} {}",
-                rank + 1,
-                format!("{:#x}", aggregate.delegate_address),
-                reward_power_zkc,
-                aggregate.delegator_count,
-                aggregate.epochs_participated,
-                sample_delegators
-            );
-        }
-    } else {
-        println!("No aggregate reward delegation data available");
-    }
-}
-
+#[allow(dead_code)]
 async fn test_address_history_methods(db: &dyn RewardsIndexerDb) {
     use alloy::primitives::U256;
 

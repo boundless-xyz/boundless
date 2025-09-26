@@ -32,8 +32,12 @@ pub use povw::{
 };
 
 pub use staking::{
-    compute_staking_positions, EpochStakingPositions, StakeEvent, StakingPosition,
-    StakingPositionsResult, StakingSummary, TimestampedStakeEvent,
+    // Main unified function
+    compute_staking_data, EpochStakingData, StakerAggregate, StakingDataResult,
+    // Legacy functions (for compatibility)
+    compute_staking_positions, compute_staking_rewards, EpochStakingPositions,
+    EpochStakingRewards, StakeEvent, StakerRewardInfo, StakingPosition, StakingPositionsResult,
+    StakingRewardsResult, StakingRewardsSummary, StakingSummary, TimestampedStakeEvent,
 };
 
 pub use powers::{

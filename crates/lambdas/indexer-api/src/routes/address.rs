@@ -120,6 +120,7 @@ async fn get_address_history_impl(
             is_withdrawing: position.is_withdrawing,
             rewards_delegated_to: position.rewards_delegated_to.map(|a| format!("{:#x}", a)),
             votes_delegated_to: position.votes_delegated_to.map(|a| format!("{:#x}", a)),
+            rewards_generated: position.rewards_generated.to_string(),
         });
     }
 

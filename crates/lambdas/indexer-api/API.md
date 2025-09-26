@@ -1,708 +1,598 @@
-# Boundless Indexer API Documentation
+# Boundless Indexer API
 
-## Overview
+REST API for querying Boundless protocol data including PoVW rewards leaderboards and staking positions.
 
-The Boundless Indexer API provides access to staking, delegation, and Proof of Verifiable Work (PoVW) data for the Boundless protocol. The API is RESTful and returns JSON responses.
+## Base URL
 
-## Rate Limiting
-
-- CloudFront CDN: 75 requests per 5 minutes per IP
-
-## Common Response Format
-
-All list endpoints return paginated responses with this structure:
-
-```json
-{
-  "entries": [...],
-  "pagination": {
-    "count": 10,
-    "offset": 0,
-    "limit": 50
-  },
-  "summary": {
-    // Optional summary statistics (endpoint-specific)
-  }
-}
+```
+https://api.boundless.market/v1
 ```
 
-The `summary` field is optional and only included when summary data is available in the database.
+## Endpoints Summary
 
-## Documentation
+### PoVW Endpoints
+- `GET /v1/povw` - Get aggregate PoVW rewards leaderboard across all epochs
+- `GET /v1/povw/epochs/:epoch` - Get PoVW rewards leaderboard for a specific epoch
+- `GET /v1/povw/addresses/:address` - Get PoVW rewards history for a specific address
+- `GET /v1/povw/addresses/:address/epochs/:epoch` - Get PoVW rewards for an address at a specific epoch
 
-### Interactive API Documentation
+### Staking Endpoints
+- `GET /v1/staking` - Get aggregate staking positions leaderboard across all epochs
+- `GET /v1/staking/epochs/:epoch` - Get staking positions for a specific epoch
+- `GET /v1/staking/addresses/:address` - Get staking history for a specific address
+- `GET /v1/staking/addresses/:address/epochs/:epoch` - Get staking position for an address at a specific epoch
 
-#### GET `/docs`
+## Common Request/Response Structures
 
-Interactive Swagger UI documentation with try-it-out functionality. Open this endpoint in a browser to explore and test the API.
+### Pagination Parameters
+All list endpoints support pagination using query parameters:
+- `offset` (integer, default: 0) - Number of items to skip
+- `limit` (integer, default: 100, max: 1000) - Number of items to return
 
-## Endpoints
+### Common Headers
+- `Content-Type: application/json`
+- `Accept: application/json`
 
-### Health Check
+### Common Response Fields
+- `entries` - Array of items for the current page
+- `pagination` - Pagination metadata object
+  - `offset` - Current offset
+  - `limit` - Current limit
+  - `total` - Total number of items (if available)
+- `summary` - Optional summary statistics object
 
-#### GET `/health`
+## Detailed Endpoint Documentation
 
-Check API health status.
+### PoVW Endpoints
 
-**Response:**
+#### 1. Get Aggregate PoVW Leaderboard
 
-```json
-{
-  "status": "healthy",
-  "service": "indexer-api"
-}
+**Request:**
 ```
-
----
-
-## Staking Endpoints
-
-### Get Aggregate Staking Leaderboard
-
-#### GET `/v1/staking`
-
-Get the current aggregate staking leaderboard across all epochs with global staking statistics.
+GET /v1/povw?offset=0&limit=100
+```
 
 **Query Parameters:**
-
-- `limit` (optional, number): Maximum number of results (default: 50, max: 100)
-- `offset` (optional, number): Pagination offset (default: 0)
+- `offset` (integer, optional) - Start position for pagination
+- `limit` (integer, optional) - Number of results to return
 
 **Response Structure:**
-
-```typescript
-{
-  "entries": Array<{
-    "rank": number,                           // Position in leaderboard (1-based)
-    "staker_address": string,                 // Ethereum address (0x-prefixed)
-    "total_staked": string,                   // Total amount staked (wei)
-    "is_withdrawing": boolean,                // Current withdrawal status
-    "rewards_delegated_to": string | null,    // Reward delegation address
-    "votes_delegated_to": string | null,      // Vote delegation address
-    "epochs_participated": number             // Number of epochs participated
-  }>,
-  "pagination": {
-    "count": number,                           // Number of entries returned
-    "offset": number,                          // Pagination offset used
-    "limit": number                            // Pagination limit used
-  },
-  "summary": {                                 // Optional global statistics
-    "current_total_staked": string,           // Total amount currently staked (wei)
-    "total_unique_stakers": number,           // Total number of unique stakers all-time
-    "current_active_stakers": number,         // Number of currently active stakers
-    "current_withdrawing": number             // Number of stakers currently withdrawing
-  }
-}
-```
-
-**Response Example:**
-
 ```json
 {
   "entries": [
     {
       "rank": 1,
-      "staker_address": "0x2408e37489c231f883126c87e8aadbad782a040a",
-      "total_staked": "788626950526189926000000",
-      "is_withdrawing": false,
-      "rewards_delegated_to": "0x0164ec96442196a02931f57e7e20fa59cff43845",
-      "votes_delegated_to": null,
-      "epochs_participated": 4
+      "work_log_id": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+      "total_work_submitted": "1234567890123456789",
+      "total_work_submitted_formatted": "1,234.57 MCycles",
+      "total_actual_rewards": "9876543210987654321",
+      "total_actual_rewards_formatted": "9.88 ZKC",
+      "total_uncapped_rewards": "9876543210987654321",
+      "total_uncapped_rewards_formatted": "9.88 ZKC",
+      "epochs_participated": 5
     }
   ],
   "pagination": {
-    "count": 1,
     "offset": 0,
-    "limit": 50
+    "limit": 100,
+    "total": 500
   },
   "summary": {
-    "current_total_staked": "788626950526189926000000",
-    "total_unique_stakers": 15,
-    "current_active_stakers": 12,
-    "current_withdrawing": 3
+    "total_epochs_with_work": 10,
+    "total_unique_work_log_ids": 150,
+    "total_work_all_time": "98765432109876543210",
+    "total_work_all_time_formatted": "98,765.43 MCycles",
+    "total_emissions_all_time": "50000000000000000000000",
+    "total_emissions_all_time_formatted": "50,000.00 ZKC",
+    "total_capped_rewards_all_time": "45000000000000000000000",
+    "total_capped_rewards_all_time_formatted": "45,000.00 ZKC",
+    "total_uncapped_rewards_all_time": "50000000000000000000000",
+    "total_uncapped_rewards_all_time_formatted": "50,000.00 ZKC",
+    "last_updated_at": "2025-09-26T16:08:04.121573+00:00"
   }
 }
 ```
 
-### Get Staking by Epoch
+**Entry Fields:**
+- `rank` - Position in the leaderboard
+- `work_log_id` - Ethereum address of the work log
+- `total_work_submitted` - Raw amount of computational work (in cycles)
+- `total_work_submitted_formatted` - Human-readable work amount
+- `total_actual_rewards` - Actual rewards earned after caps (wei)
+- `total_actual_rewards_formatted` - Human-readable actual rewards
+- `total_uncapped_rewards` - Rewards before applying caps (wei)
+- `total_uncapped_rewards_formatted` - Human-readable uncapped rewards
+- `epochs_participated` - Number of epochs this address participated in
 
-#### GET `/v1/staking/epochs/{epoch}`
+**Summary Fields:**
+- `total_epochs_with_work` - Total epochs where work was submitted
+- `total_unique_work_log_ids` - Number of unique participants
+- `total_work_all_time` - Total computational work across all epochs
+- `total_emissions_all_time` - Total ZKC tokens emitted
+- `total_capped_rewards_all_time` - Total rewards after applying caps
+- `total_uncapped_rewards_all_time` - Total rewards before caps
+- `last_updated_at` - Timestamp of last data update
 
-Get staking positions for a specific epoch with epoch-level summary statistics.
+#### 2. Get PoVW by Epoch
+
+**Request:**
+```
+GET /v1/povw/epochs/:epoch?offset=0&limit=100
+```
 
 **Path Parameters:**
-
-- `epoch` (required, number): The epoch number
+- `epoch` (integer, required) - Epoch number
 
 **Query Parameters:**
-
-- `limit` (optional, number): Maximum number of results (default: 50, max: 100)
-- `offset` (optional, number): Pagination offset (default: 0)
+- `offset` (integer, optional) - Start position for pagination
+- `limit` (integer, optional) - Number of results to return
 
 **Response Structure:**
-
-```typescript
-{
-  "entries": Array<{
-    "rank": number,                           // Position in leaderboard (1-based)
-    "staker_address": string,                 // Ethereum address (0x-prefixed)
-    "epoch": number,                           // Epoch number
-    "staked_amount": string,                  // Amount staked in this epoch (wei)
-    "is_withdrawing": boolean,                // Withdrawal status during this epoch
-    "rewards_delegated_to": string | null,    // Reward delegation address
-    "votes_delegated_to": string | null       // Vote delegation address
-  }>,
-  "pagination": {
-    "count": number,                           // Number of entries returned
-    "offset": number,                          // Pagination offset used
-    "limit": number                            // Pagination limit used
-  },
-  "summary": {                                 // Optional epoch statistics
-    "epoch": number,                           // The epoch number
-    "total_staked": string,                   // Total staked in this epoch (wei)
-    "num_stakers": number,                     // Number of stakers in this epoch
-    "num_withdrawing": number                  // Number withdrawing in this epoch
-  }
-}
-```
-
-**Response Example:**
-
 ```json
 {
   "entries": [
     {
       "rank": 1,
-      "staker_address": "0x2408e37489c231f883126c87e8aadbad782a040a",
+      "work_log_id": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
       "epoch": 5,
-      "staked_amount": "788626950526189926000000",
-      "is_withdrawing": false,
-      "rewards_delegated_to": "0x0164ec96442196a02931f57e7e20fa59cff43845",
-      "votes_delegated_to": null
+      "work_submitted": "1234567890123456789",
+      "work_submitted_formatted": "1,234.57 MCycles",
+      "percentage": 25.5,
+      "uncapped_rewards": "9876543210987654321",
+      "uncapped_rewards_formatted": "9.88 ZKC",
+      "reward_cap": "10000000000000000000",
+      "reward_cap_formatted": "10.00 ZKC",
+      "actual_rewards": "9876543210987654321",
+      "actual_rewards_formatted": "9.88 ZKC",
+      "is_capped": false,
+      "staked_amount": "5000000000000000000",
+      "staked_amount_formatted": "5.00 ZKC"
     }
   ],
   "pagination": {
-    "count": 1,
     "offset": 0,
-    "limit": 50
+    "limit": 100,
+    "total": 25
   },
   "summary": {
     "epoch": 5,
-    "total_staked": "1500000000000000000000000",
-    "num_stakers": 8,
-    "num_withdrawing": 2
+    "total_work": "4938271560493827156",
+    "total_work_formatted": "4,938.27 MCycles",
+    "total_emissions": "5000000000000000000000",
+    "total_emissions_formatted": "5,000.00 ZKC",
+    "total_capped_rewards": "4500000000000000000000",
+    "total_capped_rewards_formatted": "4,500.00 ZKC",
+    "total_uncapped_rewards": "5000000000000000000000",
+    "total_uncapped_rewards_formatted": "5,000.00 ZKC",
+    "epoch_start_time": "2024-01-01T00:00:00Z",
+    "epoch_end_time": "2024-01-08T00:00:00Z",
+    "num_participants": 25,
+    "last_updated_at": "2025-09-26T16:08:04.121573+00:00"
   }
 }
 ```
 
-### Get Staking History by Address
+**Entry Fields:**
+- `rank` - Position in the epoch leaderboard
+- `work_log_id` - Ethereum address of the work log
+- `epoch` - Epoch number
+- `work_submitted` - Computational work submitted this epoch
+- `percentage` - Percentage of total epoch work
+- `uncapped_rewards` - Rewards before applying staking cap
+- `reward_cap` - Maximum rewards based on staking
+- `actual_rewards` - Final rewards after applying cap
+- `is_capped` - Whether rewards were limited by cap
+- `staked_amount` - Amount of ZKC staked
 
-#### GET `/v1/staking/addresses/{address}`
+**Summary Fields:**
+- `epoch` - Epoch number
+- `total_work` - Total work submitted in epoch
+- `total_emissions` - Total ZKC emitted for epoch
+- `total_capped_rewards` - Sum of actual (capped) rewards
+- `total_uncapped_rewards` - Sum of rewards before caps
+- `epoch_start_time` - Epoch start timestamp
+- `epoch_end_time` - Epoch end timestamp
+- `num_participants` - Number of unique participants
+- `last_updated_at` - Timestamp of last data update
 
-Get complete staking history for a specific address across all epochs with lifetime summary statistics.
+#### 3. Get PoVW History by Address
+
+**Request:**
+```
+GET /v1/povw/addresses/:address?offset=0&limit=100
+```
 
 **Path Parameters:**
-
-- `address` (required, string): Ethereum address (0x-prefixed, checksummed)
+- `address` (string, required) - Ethereum address (0x-prefixed)
 
 **Query Parameters:**
-
-- `limit` (optional, number): Maximum number of results (default: 50, max: 100)
-- `offset` (optional, number): Pagination offset (default: 0)
-- `start_epoch` (optional, number): Filter results from this epoch onwards
-- `end_epoch` (optional, number): Filter results up to this epoch
+- `offset` (integer, optional) - Start position for pagination
+- `limit` (integer, optional) - Number of results to return
 
 **Response Structure:**
-
-```typescript
-{
-  "entries": Array<{
-    "rank": number,                           // Position in results (1-based)
-    "staker_address": string,                 // Ethereum address (0x-prefixed)
-    "epoch": number,                           // Epoch number
-    "staked_amount": string,                  // Amount staked in this epoch (wei)
-    "is_withdrawing": boolean,                // Withdrawal status during this epoch
-    "rewards_delegated_to": string | null,    // Reward delegation address
-    "votes_delegated_to": string | null       // Vote delegation address
-  }>,
-  "pagination": {
-    "count": number,                           // Number of entries returned
-    "offset": number,                          // Pagination offset used
-    "limit": number                            // Pagination limit used
-  },
-  "summary": {                                 // Optional lifetime statistics for this address
-    "staker_address": string,                 // The staker's address
-    "total_staked": string,                   // Current total staked (wei)
-    "is_withdrawing": boolean,                // Current withdrawal status
-    "rewards_delegated_to": string | null,    // Current reward delegation
-    "votes_delegated_to": string | null,      // Current vote delegation
-    "epochs_participated": number             // Total epochs participated
-  }
-}
-```
-
-**Response Example:**
-
 ```json
 {
   "entries": [
     {
       "rank": 1,
-      "staker_address": "0x2408e37489c231f883126c87e8aadbad782a040a",
+      "work_log_id": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
       "epoch": 5,
-      "staked_amount": "788626950526189926000000",
-      "is_withdrawing": false,
-      "rewards_delegated_to": "0x0164ec96442196a02931f57e7e20fa59cff43845",
-      "votes_delegated_to": null
-    },
-    {
-      "rank": 2,
-      "staker_address": "0x2408e37489c231f883126c87e8aadbad782a040a",
-      "epoch": 4,
-      "staked_amount": "750500230877756033000000",
-      "is_withdrawing": false,
-      "rewards_delegated_to": "0x0164ec96442196a02931f57e7e20fa59cff43845",
-      "votes_delegated_to": null
-    }
-  ],
-  "pagination": {
-    "count": 2,
-    "offset": 0,
-    "limit": 50
-  },
-  "summary": {
-    "staker_address": "0x2408e37489c231f883126c87e8aadbad782a040a",
-    "total_staked": "788626950526189926000000",
-    "is_withdrawing": false,
-    "rewards_delegated_to": "0x0164ec96442196a02931f57e7e20fa59cff43845",
-    "votes_delegated_to": null,
-    "epochs_participated": 4
-  }
-}
-```
-
-### Get Staking by Address and Epoch
-
-#### GET `/v1/staking/addresses/{address}/epochs/{epoch}`
-
-Get staking position for a specific address at a specific epoch.
-
-**Path Parameters:**
-
-- `address` (required, string): Ethereum address (0x-prefixed, checksummed)
-- `epoch` (required, number): The epoch number
-
-**Response Example:**
-
-```json
-{
-  "staker_address": "0x2408e37489c231f883126c87e8aadbad782a040a",
-  "epoch": 5,
-  "staked_amount": "788626950526189926000000",
-  "is_withdrawing": false,
-  "rewards_delegated_to": "0x0164ec96442196a02931f57e7e20fa59cff43845",
-  "votes_delegated_to": null
-}
-```
-
----
-
-## PoVW (Proof of Verifiable Work) Endpoints
-
-### Important Notes on Emissions vs Rewards
-
-The PoVW system allocates emissions for each epoch, but rewards are only distributed when work is actually submitted:
-
-- **Emissions** (`total_emissions`): The amount of tokens allocated by the smart contract for an epoch. These are set regardless of whether any work is submitted.
-- **Uncapped Rewards** (`total_uncapped_rewards`): The sum of proportional rewards calculated based on actual work submitted. When no work is submitted, this will be 0.
-- **Why they differ**: If an epoch has no work submitted (common in early epochs like epoch 0), the emissions remain unspent. These unallocated tokens are never distributed.
-
-**Example**: Epoch 0 typically has emissions allocated but no work submitted, resulting in `total_emissions > 0` but `total_uncapped_rewards = 0`.
-
----
-
-### Get Aggregate PoVW Leaderboard
-
-#### GET `/v1/povw`
-
-Get the current aggregate PoVW rewards leaderboard across all epochs with global PoVW statistics.
-
-**Query Parameters:**
-
-- `limit` (optional, number): Maximum number of results (default: 50, max: 100)
-- `offset` (optional, number): Pagination offset (default: 0)
-
-**Response Structure:**
-
-```typescript
-{
-  "entries": Array<{
-    "rank": number,                           // Position in leaderboard (1-based)
-    "work_log_id": string,                    // Work log ID (Ethereum address)
-    "total_work_submitted": string,           // Total work submitted (wei)
-    "total_actual_rewards": string,           // Total actual rewards earned (wei)
-    "total_uncapped_rewards": string,         // Total uncapped rewards (wei)
-    "epochs_participated": number             // Number of epochs participated
-  }>,
-  "pagination": {
-    "count": number,                           // Number of entries returned
-    "offset": number,                          // Pagination offset used
-    "limit": number                            // Pagination limit used
-  },
-  "summary": {                                 // Optional global PoVW statistics
-    "total_epochs_with_work": number,         // Number of epochs with work submitted
-    "total_unique_work_log_ids": number,      // Number of unique work log IDs
-    "total_work_all_time": string,            // Total work submitted all-time (wei)
-    "total_emissions_all_time": string,       // Total emissions allocated by contract all-time (wei)
-                                              // Note: Includes emissions for epochs with no work (e.g., epoch 0)
-    "total_capped_rewards_all_time": string,  // Total actual rewards distributed after caps (wei)
-    "total_uncapped_rewards_all_time": string // Total proportional rewards calculated from work (wei)
-                                              // Note: Only includes rewards when work > 0
-                                              // Will be less than emissions if any epochs had no work
-  }
-}
-```
-
-**Response Example:**
-
-```json
-{
-  "entries": [
-    {
-      "rank": 1,
-      "work_log_id": "0x94072d2282cb2c718d23d5779a5f8484e2530f2a",
-      "total_work_submitted": "1000000000000000000",
-      "total_actual_rewards": "500000000000000000000",
-      "total_uncapped_rewards": "600000000000000000000",
-      "epochs_participated": 3
-    }
-  ],
-  "pagination": {
-    "count": 1,
-    "offset": 0,
-    "limit": 50
-  },
-  "summary": {
-    "total_epochs_with_work": 5,
-    "total_unique_work_log_ids": 12,
-    "total_work_all_time": "5000000000000000000",
-    "total_emissions_all_time": "2500000000000000000000",
-    "total_capped_rewards_all_time": "2000000000000000000000",
-    "total_uncapped_rewards_all_time": "2500000000000000000000"
-  }
-}
-```
-
-### Get PoVW by Epoch
-
-#### GET `/v1/povw/epochs/{epoch}`
-
-Get PoVW rewards for a specific epoch with epoch-level summary statistics.
-
-**Path Parameters:**
-
-- `epoch` (required, number): The epoch number
-
-**Query Parameters:**
-
-- `limit` (optional, number): Maximum number of results (default: 50, max: 100)
-- `offset` (optional, number): Pagination offset (default: 0)
-
-**Response Structure:**
-
-```typescript
-{
-  "entries": Array<{
-    "rank": number,                           // Position in leaderboard (1-based)
-    "work_log_id": string,                    // Work log ID (Ethereum address)
-    "epoch": number,                           // Epoch number
-    "work_submitted": string,                 // Work submitted in this epoch (wei)
-    "percentage": number,                      // Percentage of total work (0-100)
-    "uncapped_rewards": string,               // Rewards before cap (wei)
-    "reward_cap": string,                     // Maximum allowed rewards (wei)
-    "actual_rewards": string,                 // Actual rewards after cap (wei)
-    "is_capped": boolean,                     // Whether rewards were capped
-    "staked_amount": string                   // Staked amount for cap calculation (wei)
-  }>,
-  "pagination": {
-    "count": number,                           // Number of entries returned
-    "offset": number,                          // Pagination offset used
-    "limit": number                            // Pagination limit used
-  },
-  "summary": {                                 // Optional epoch PoVW statistics
-    "epoch": number,                           // The epoch number
-    "total_work": string,                     // Total work in this epoch (wei)
-    "total_emissions": string,                // Emissions allocated for this epoch (wei)
-                                              // Note: Set by contract regardless of work submitted
-    "total_capped_rewards": string,           // Total actual rewards after caps (wei)
-    "total_uncapped_rewards": string,         // Total proportional rewards before caps (wei)
-                                              // Note: Will be 0 if no work was submitted (e.g., epoch 0)
-    "epoch_start_time": number,               // Unix timestamp of epoch start
-    "epoch_end_time": number,                 // Unix timestamp of epoch end
-    "num_participants": number                // Number of participants
-  }
-}
-```
-
-**Response Example:**
-
-```json
-{
-  "entries": [
-    {
-      "rank": 1,
-      "work_log_id": "0x94072d2282cb2c718d23d5779a5f8484e2530f2a",
-      "epoch": 2,
-      "work_submitted": "500000000000000000",
+      "work_submitted": "1234567890123456789",
+      "work_submitted_formatted": "1,234.57 MCycles",
       "percentage": 25.5,
-      "uncapped_rewards": "300000000000000000000",
-      "reward_cap": "250000000000000000000",
-      "actual_rewards": "250000000000000000000",
-      "is_capped": true,
-      "staked_amount": "100000000000000000000"
+      "uncapped_rewards": "9876543210987654321",
+      "uncapped_rewards_formatted": "9.88 ZKC",
+      "reward_cap": "10000000000000000000",
+      "reward_cap_formatted": "10.00 ZKC",
+      "actual_rewards": "9876543210987654321",
+      "actual_rewards_formatted": "9.88 ZKC",
+      "is_capped": false,
+      "staked_amount": "5000000000000000000",
+      "staked_amount_formatted": "5.00 ZKC"
     }
   ],
   "pagination": {
-    "count": 1,
     "offset": 0,
-    "limit": 50
+    "limit": 100,
+    "total": 10
   },
   "summary": {
-    "epoch": 2,
-    "total_work": "2000000000000000000",
-    "total_emissions": "1000000000000000000000",
-    "total_capped_rewards": "900000000000000000000",
-    "total_uncapped_rewards": "1000000000000000000000",
-    "epoch_start_time": 1704067200,
-    "epoch_end_time": 1704672000,
-    "num_participants": 8
+    "work_log_id": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+    "total_work_submitted": "1234567890123456789",
+    "total_work_submitted_formatted": "1,234.57 MCycles",
+    "total_actual_rewards": "9876543210987654321",
+    "total_actual_rewards_formatted": "9.88 ZKC",
+    "total_uncapped_rewards": "9876543210987654321",
+    "total_uncapped_rewards_formatted": "9.88 ZKC",
+    "epochs_participated": 5
   }
 }
 ```
 
-### Get PoVW History by Address
+**Entry Fields:**
+Same as epoch endpoint, showing each epoch's performance
 
-#### GET `/v1/povw/addresses/{address}`
+**Summary Fields:**
+- `work_log_id` - The queried address
+- `total_work_submitted` - Total work across all epochs
+- `total_actual_rewards` - Total rewards earned
+- `total_uncapped_rewards` - Total rewards before caps
+- `epochs_participated` - Number of epochs participated
 
-Get complete PoVW rewards history for a specific work log ID across all epochs with lifetime summary statistics.
+#### 4. Get PoVW by Address and Epoch
+
+**Request:**
+```
+GET /v1/povw/addresses/:address/epochs/:epoch
+```
 
 **Path Parameters:**
-
-- `address` (required, string): Work log ID (Ethereum address format)
-
-**Query Parameters:**
-
-- `limit` (optional, number): Maximum number of results (default: 50, max: 100)
-- `offset` (optional, number): Pagination offset (default: 0)
-- `start_epoch` (optional, number): Filter results from this epoch onwards
-- `end_epoch` (optional, number): Filter results up to this epoch
+- `address` (string, required) - Ethereum address (0x-prefixed)
+- `epoch` (integer, required) - Epoch number
 
 **Response Structure:**
-
-```typescript
+```json
 {
-  "entries": Array<{
-    "rank": number,                           // Position in results (1-based)
-    "work_log_id": string,                    // Work log ID (Ethereum address)
-    "epoch": number,                           // Epoch number
-    "work_submitted": string,                 // Work submitted in this epoch (wei)
-    "percentage": number,                      // Percentage of total work (0-100)
-    "uncapped_rewards": string,               // Rewards before cap (wei)
-    "reward_cap": string,                     // Maximum allowed rewards (wei)
-    "actual_rewards": string,                 // Actual rewards after cap (wei)
-    "is_capped": boolean,                     // Whether rewards were capped
-    "staked_amount": string                   // Staked amount for cap calculation (wei)
-  }>,
-  "pagination": {
-    "count": number,                           // Number of entries returned
-    "offset": number,                          // Pagination offset used
-    "limit": number                            // Pagination limit used
-  },
-  "summary": {                                 // Optional lifetime statistics for this address
-    "work_log_id": string,                    // The work log ID
-    "total_work_submitted": string,           // Lifetime total work submitted (wei)
-    "total_actual_rewards": string,           // Lifetime total actual rewards (wei)
-    "total_uncapped_rewards": string,         // Lifetime total uncapped rewards (wei)
-    "epochs_participated": number             // Total epochs participated
-  }
+  "rank": 0,
+  "work_log_id": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+  "epoch": 5,
+  "work_submitted": "1234567890123456789",
+  "work_submitted_formatted": "1,234.57 MCycles",
+  "percentage": 25.5,
+  "uncapped_rewards": "9876543210987654321",
+  "uncapped_rewards_formatted": "9.88 ZKC",
+  "reward_cap": "10000000000000000000",
+  "reward_cap_formatted": "10.00 ZKC",
+  "actual_rewards": "9876543210987654321",
+  "actual_rewards_formatted": "9.88 ZKC",
+  "is_capped": false,
+  "staked_amount": "5000000000000000000",
+  "staked_amount_formatted": "5.00 ZKC"
 }
 ```
 
-**Response Example:**
+**Response Fields:**
+Same as epoch leaderboard entry, but for a single address/epoch combination. Returns `null` if no data exists for the specified combination.
 
+### Staking Endpoints
+
+#### 1. Get Aggregate Staking Leaderboard
+
+**Request:**
+```
+GET /v1/staking?offset=0&limit=100
+```
+
+**Query Parameters:**
+- `offset` (integer, optional) - Start position for pagination
+- `limit` (integer, optional) - Number of results to return
+
+**Response Structure:**
 ```json
 {
   "entries": [
     {
       "rank": 1,
-      "work_log_id": "0x94072d2282cb2c718d23d5779a5f8484e2530f2a",
-      "epoch": 3,
-      "work_submitted": "600000000000000000",
-      "percentage": 30.0,
-      "uncapped_rewards": "350000000000000000000",
-      "reward_cap": "350000000000000000000",
-      "actual_rewards": "350000000000000000000",
-      "is_capped": false,
-      "staked_amount": "150000000000000000000"
+      "staker_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+      "total_staked": "10000000000000000000000",
+      "total_staked_formatted": "10,000.00 ZKC",
+      "is_withdrawing": false,
+      "rewards_delegated_to": "0x1234567890123456789012345678901234567890",
+      "votes_delegated_to": "0x1234567890123456789012345678901234567890",
+      "epochs_participated": 5,
+      "total_rewards_earned": "1000000000000000000",
+      "total_rewards_earned_formatted": "1.00 ZKC",
+      "total_rewards_generated": "5000000000000000000",
+      "total_rewards_generated_formatted": "5.00 ZKC"
     }
   ],
   "pagination": {
-    "count": 1,
     "offset": 0,
-    "limit": 50
+    "limit": 100,
+    "total": 500
   },
   "summary": {
-    "work_log_id": "0x94072d2282cb2c718d23d5779a5f8484e2530f2a",
-    "total_work_submitted": "1000000000000000000",
-    "total_actual_rewards": "500000000000000000000",
-    "total_uncapped_rewards": "600000000000000000000",
-    "epochs_participated": 3
+    "current_total_staked": "1000000000000000000000000",
+    "current_total_staked_formatted": "1,000,000.00 ZKC",
+    "total_unique_stakers": 500,
+    "current_active_stakers": 450,
+    "current_withdrawing": 50,
+    "total_staking_emissions_all_time": "50000000000000000000000",
+    "total_staking_emissions_all_time_formatted": "50,000.00 ZKC",
+    "last_updated_at": "2025-09-26T16:08:04.121573+00:00"
   }
 }
 ```
 
-### Get PoVW by Address and Epoch
+**Entry Fields:**
+- `rank` - Position in the leaderboard
+- `staker_address` - Ethereum address of the staker
+- `total_staked` - Total amount staked (wei)
+- `total_staked_formatted` - Human-readable staked amount
+- `is_withdrawing` - Whether currently withdrawing
+- `rewards_delegated_to` - Address receiving staking rewards
+- `votes_delegated_to` - Address receiving voting power
+- `epochs_participated` - Number of epochs staked
+- `total_rewards_earned` - Total staking rewards earned
+- `total_rewards_generated` - Total rewards generated for delegatees
 
-#### GET `/v1/povw/addresses/{address}/epochs/{epoch}`
+**Summary Fields:**
+- `current_total_staked` - Current total staked across all users
+- `total_unique_stakers` - Total number of unique stakers ever
+- `current_active_stakers` - Currently active stakers
+- `current_withdrawing` - Stakers currently withdrawing
+- `total_staking_emissions_all_time` - Total staking emissions
+- `last_updated_at` - Timestamp of last data update
 
-Get PoVW rewards for a specific work log ID at a specific epoch.
+#### 2. Get Staking by Epoch
 
-**Path Parameters:**
-
-- `address` (required, string): Work log ID (Ethereum address format)
-- `epoch` (required, number): The epoch number
-
-**Response Example:**
-
-```json
-{
-  "work_log_id": "0x94072d2282cb2c718d23d5779a5f8484e2530f2a",
-  "epoch": 2,
-  "work_submitted": "500000000000000000",
-  "percentage": 25.5,
-  "uncapped_rewards": "300000000000000000000",
-  "reward_cap": "250000000000000000000",
-  "actual_rewards": "250000000000000000000",
-  "is_capped": true,
-  "staked_amount": "100000000000000000000"
-}
+**Request:**
+```
+GET /v1/staking/epochs/:epoch?offset=0&limit=100
 ```
 
----
-
-## Delegation Endpoints
-
-### Vote Delegations
-
-#### GET `/v1/delegations/votes`
-
-Get aggregate vote delegation powers across all epochs.
+**Path Parameters:**
+- `epoch` (integer, required) - Epoch number
 
 **Query Parameters:**
+- `offset` (integer, optional) - Start position for pagination
+- `limit` (integer, optional) - Number of results to return
 
-- `limit` (optional, number): Maximum number of results (default: 50, max: 100)
-- `offset` (optional, number): Pagination offset (default: 0)
-
-**Response Example:**
-
+**Response Structure:**
 ```json
 {
   "entries": [
     {
       "rank": 1,
-      "delegate_address": "0x1234567890123456789012345678901234567890",
-      "power": "1000000000000000000000",
-      "delegator_count": 5,
-      "delegators": [
-        "0xaaaa...",
-        "0xbbbb...",
-        "0xcccc...",
-        "0xdddd...",
-        "0xeeee..."
-      ],
-      "epochs_participated": 3
+      "staker_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+      "epoch": 5,
+      "staked_amount": "10000000000000000000000",
+      "staked_amount_formatted": "10,000.00 ZKC",
+      "is_withdrawing": false,
+      "rewards_delegated_to": "0x1234567890123456789012345678901234567890",
+      "votes_delegated_to": "0x1234567890123456789012345678901234567890",
+      "rewards_generated": "500000000000000000",
+      "rewards_generated_formatted": "0.50 ZKC",
+      "rewards_earned": "100000000000000000",
+      "rewards_earned_formatted": "0.10 ZKC"
     }
   ],
   "pagination": {
-    "count": 1,
     "offset": 0,
-    "limit": 50
+    "limit": 100,
+    "total": 250
+  },
+  "summary": {
+    "epoch": 5,
+    "total_staked": "500000000000000000000000",
+    "total_staked_formatted": "500,000.00 ZKC",
+    "num_stakers": 250,
+    "num_withdrawing": 25,
+    "total_staking_emissions": "5000000000000000000000",
+    "total_staking_emissions_formatted": "5,000.00 ZKC",
+    "total_staking_power": "450000000000000000000000",
+    "total_staking_power_formatted": "450,000.00 ZKC",
+    "num_reward_recipients": 200,
+    "epoch_start_time": "2024-01-01T00:00:00Z",
+    "epoch_end_time": "2024-01-08T00:00:00Z",
+    "last_updated_at": "2025-09-26T16:08:04.121573+00:00"
   }
 }
 ```
 
-#### GET `/v1/delegations/votes/epochs/{epoch}`
+**Entry Fields:**
+- `rank` - Position in the epoch leaderboard
+- `staker_address` - Ethereum address of the staker
+- `epoch` - Epoch number
+- `staked_amount` - Amount staked in this epoch
+- `is_withdrawing` - Withdrawal status during epoch
+- `rewards_delegated_to` - Rewards delegation address
+- `votes_delegated_to` - Voting delegation address
+- `rewards_generated` - Rewards generated for delegatees
+- `rewards_earned` - Staking rewards earned
 
-Get vote delegation powers for a specific epoch.
+**Summary Fields:**
+- `epoch` - Epoch number
+- `total_staked` - Total amount staked in epoch
+- `num_stakers` - Number of stakers
+- `num_withdrawing` - Number withdrawing
+- `total_staking_emissions` - Total staking rewards emitted
+- `total_staking_power` - Total effective staking power
+- `num_reward_recipients` - Number of reward recipients
+- `epoch_start_time` - Epoch start timestamp
+- `epoch_end_time` - Epoch end timestamp
+- `last_updated_at` - Timestamp of last data update
+
+#### 3. Get Staking History by Address
+
+**Request:**
+```
+GET /v1/staking/addresses/:address?offset=0&limit=100
+```
 
 **Path Parameters:**
-
-- `epoch` (required, number): The epoch number
-
-#### GET `/v1/delegations/votes/addresses/{address}`
-
-Get vote delegation history for a specific delegate address.
-
-**Path Parameters:**
-
-- `address` (required, string): Delegate address (0x-prefixed, checksummed)
-
-#### GET `/v1/delegations/votes/addresses/{address}/epochs/{epoch}`
-
-Get vote delegation power for a specific delegate at a specific epoch.
-
-### Reward Delegations
-
-#### GET `/v1/delegations/rewards`
-
-Get aggregate reward delegation powers across all epochs.
+- `address` (string, required) - Ethereum address (0x-prefixed)
 
 **Query Parameters:**
+- `offset` (integer, optional) - Start position for pagination
+- `limit` (integer, optional) - Number of results to return
 
-- `limit` (optional, number): Maximum number of results (default: 50, max: 100)
-- `offset` (optional, number): Pagination offset (default: 0)
-
-**Response Example:**
-
+**Response Structure:**
 ```json
 {
   "entries": [
     {
       "rank": 1,
-      "delegate_address": "0x0164ec96442196a02931f57e7e20fa59cff43845",
-      "power": "788626950526189926000000",
-      "delegator_count": 1,
-      "delegators": [
-        "0x2408e37489c231f883126c87e8aadbad782a040a"
-      ],
-      "epochs_participated": 4
+      "staker_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+      "epoch": 5,
+      "staked_amount": "10000000000000000000000",
+      "staked_amount_formatted": "10,000.00 ZKC",
+      "is_withdrawing": false,
+      "rewards_delegated_to": "0x1234567890123456789012345678901234567890",
+      "votes_delegated_to": "0x1234567890123456789012345678901234567890",
+      "rewards_generated": "500000000000000000",
+      "rewards_generated_formatted": "0.50 ZKC",
+      "rewards_earned": "100000000000000000",
+      "rewards_earned_formatted": "0.10 ZKC"
     }
   ],
   "pagination": {
-    "count": 1,
     "offset": 0,
-    "limit": 50
+    "limit": 100,
+    "total": 10
+  },
+  "summary": {
+    "staker_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+    "total_staked": "10000000000000000000000",
+    "total_staked_formatted": "10,000.00 ZKC",
+    "is_withdrawing": false,
+    "rewards_delegated_to": "0x1234567890123456789012345678901234567890",
+    "votes_delegated_to": "0x1234567890123456789012345678901234567890",
+    "epochs_participated": 5,
+    "total_rewards_earned": "1000000000000000000",
+    "total_rewards_earned_formatted": "1.00 ZKC",
+    "total_rewards_generated": "5000000000000000000",
+    "total_rewards_generated_formatted": "5.00 ZKC"
   }
 }
 ```
 
-#### GET `/v1/delegations/rewards/epochs/{epoch}`
+**Entry Fields:**
+Same as epoch endpoint, showing each epoch's staking position
 
-Get reward delegation powers for a specific epoch.
+**Summary Fields:**
+- `staker_address` - The queried address
+- `total_staked` - Current total staked amount
+- `is_withdrawing` - Current withdrawal status
+- `rewards_delegated_to` - Current rewards delegation
+- `votes_delegated_to` - Current voting delegation
+- `epochs_participated` - Number of epochs staked
+- `total_rewards_earned` - Total staking rewards earned
+- `total_rewards_generated` - Total rewards generated
 
-#### GET `/v1/delegations/rewards/addresses/{address}`
+#### 4. Get Staking by Address and Epoch
 
-Get reward delegation history for a specific delegate address.
+**Request:**
+```
+GET /v1/staking/addresses/:address/epochs/:epoch
+```
 
-#### GET `/v1/delegations/rewards/addresses/{address}/epochs/{epoch}`
+**Path Parameters:**
+- `address` (string, required) - Ethereum address (0x-prefixed)
+- `epoch` (integer, required) - Epoch number
 
-Get reward delegation power for a specific delegate at a specific epoch.
+**Response Structure:**
+```json
+{
+  "rank": 0,
+  "staker_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+  "epoch": 5,
+  "staked_amount": "10000000000000000000000",
+  "staked_amount_formatted": "10,000.00 ZKC",
+  "is_withdrawing": false,
+  "rewards_delegated_to": "0x1234567890123456789012345678901234567890",
+  "votes_delegated_to": "0x1234567890123456789012345678901234567890",
+  "rewards_generated": "500000000000000000",
+  "rewards_generated_formatted": "0.50 ZKC",
+  "rewards_earned": "100000000000000000",
+  "rewards_earned_formatted": "0.10 ZKC"
+}
+```
 
----
+**Response Fields:**
+Same as epoch staking entry, but for a single address/epoch combination. Returns `null` if no staking position exists for the specified combination.
 
-## Caching
+## Common Field Descriptions
 
-The API uses CloudFront CDN for caching:
+### Pagination Fields
+- `offset` - Number of items skipped
+- `limit` - Maximum items per page
+- `total` - Total items available (when known)
 
-- Current data (aggregate endpoints): 1 minute cache
-- Historical epoch data: 5 minutes cache
+### Formatting Fields
+- `*_formatted` - Human-readable format with units
+  - ZKC amounts: "1,234.57 ZKC"
+  - Cycles: "1,234.57 MCycles"
+- `last_updated_at` - ISO 8601 timestamp of last data update
+
+### Address Fields
+- `work_log_id` - Ethereum address for PoVW submissions
+- `staker_address` - Ethereum address of staker
+- `rewards_delegated_to` - Address receiving staking rewards
+- `votes_delegated_to` - Address receiving voting power
+
+### Numeric Fields
+- Raw values: String representation of wei/cycles
+- Formatted values: Human-readable with commas and units
+- `rank` - Position in leaderboard (1-indexed)
+- `epoch` - Epoch number (0-indexed, weekly periods)
+
+## Error Response Structure
+
+```json
+{
+  "error": "<error message>"
+}
+```
+
+### Common Error Codes
+- `400 Bad Request` - Invalid parameters or address format
+- `404 Not Found` - Resource not found
+- `429 Too Many Requests` - Rate limit exceeded
+- `500 Internal Server Error` - Server error
+
+## API Behavior
+
+### Rate Limiting
+- 100 requests per minute per IP address
+- Returns 429 status when exceeded
+
+### Caching
+Response headers include cache control:
+- Current/aggregate data: 60 second cache
+- Historical/epoch data: 5 minute cache
+
+### Data Freshness
+- `last_updated_at` field indicates data currency
+- Updates occur when new blockchain events are indexed
+- Typical delay: 1-2 minutes from on-chain activity

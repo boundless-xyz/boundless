@@ -7,6 +7,10 @@ homepage = { workspace = true }
 repository = { workspace = true }
 publish = false
 
+[[bin]]
+name = "local-server"
+path = "src/bin/local-server.rs"
+
 [package.metadata.release]
 release = false
 

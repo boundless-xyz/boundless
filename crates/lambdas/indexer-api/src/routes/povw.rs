@@ -119,6 +119,7 @@ async fn get_aggregate_povw_impl(
             total_capped_rewards_all_time_formatted: format_zkc(&capped_str),
             total_uncapped_rewards_all_time: uncapped_str.clone(),
             total_uncapped_rewards_all_time_formatted: format_zkc(&uncapped_str),
+            last_updated_at: stats.updated_at.clone(),
         };
         Ok(LeaderboardResponse::with_summary(
             entries,
@@ -219,6 +220,7 @@ async fn get_povw_by_epoch_impl(
             epoch_start_time: summary.epoch_start_time,
             epoch_end_time: summary.epoch_end_time,
             num_participants: summary.num_participants,
+            last_updated_at: summary.updated_at.clone(),
         };
         Ok(LeaderboardResponse::with_summary(
             entries,

@@ -111,7 +111,7 @@ pub fn compute_povw_rewards_for_epoch(
     work_recipients_by_epoch: &HashMap<(Address, u64), Address>,
     total_work_by_epoch: &HashMap<u64, U256>,
     pending_epoch_total_work: U256,
-    emissions_by_epoch: &HashMap<u64, U256>,
+    povw_emissions_by_epoch: &HashMap<u64, U256>,
     reward_caps: &HashMap<(Address, u64), U256>,
     staking_amounts_by_epoch: &HashMap<(Address, u64), U256>,
     epoch_time_ranges: &HashMap<u64, crate::EpochTimeRange>,
@@ -119,7 +119,7 @@ pub fn compute_povw_rewards_for_epoch(
     let epoch_u64 = epoch.to::<u64>();
 
     // Get emissions for the epoch from cache
-    let povw_emissions = emissions_by_epoch
+    let povw_emissions = povw_emissions_by_epoch
         .get(&epoch_u64)
         .copied()
         .ok_or_else(|| anyhow::anyhow!("Emissions not found for epoch {}", epoch_u64))?;
@@ -220,7 +220,7 @@ pub fn compute_povw_rewards(
     work_recipients_by_epoch: &HashMap<(Address, u64), Address>,
     total_work_by_epoch: &HashMap<u64, U256>,
     pending_epoch_total_work: U256,
-    emissions_by_epoch: &HashMap<u64, U256>,
+    povw_emissions_by_epoch: &HashMap<u64, U256>,
     reward_caps: &HashMap<(Address, u64), U256>,
     staking_amounts_by_epoch: &HashMap<(Address, u64), U256>,
     epoch_time_ranges: &HashMap<u64, crate::EpochTimeRange>,
@@ -244,7 +244,7 @@ pub fn compute_povw_rewards(
             work_recipients_by_epoch,
             total_work_by_epoch,
             pending_epoch_total_work,
-            emissions_by_epoch,
+            povw_emissions_by_epoch,
             reward_caps,
             staking_amounts_by_epoch,
             epoch_time_ranges,

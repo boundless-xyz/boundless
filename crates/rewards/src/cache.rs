@@ -34,8 +34,10 @@ use boundless_povw::log_updater::IPovwAccounting;
 /// Contains all the necessary data for the rewards computations
 #[derive(Debug, Clone, Default)]
 pub struct RewardsCache {
-    /// Emissions by epoch number
-    pub emissions_by_epoch: HashMap<u64, U256>,
+    /// PoVW emissions by epoch number
+    pub povw_emissions_by_epoch: HashMap<u64, U256>,
+    /// Staking emissions by epoch number
+    pub staking_emissions_by_epoch: HashMap<u64, U256>,
     /// Reward caps by (work_log_id, epoch) - includes both historical and current
     pub reward_caps: HashMap<(Address, u64), U256>,
     /// Epoch time ranges (start and end times) by epoch number
@@ -52,6 +54,10 @@ pub struct RewardsCache {
     pub total_work_by_epoch: HashMap<u64, U256>,
     /// Work recipients by work log ID and epoch
     pub work_recipients_by_epoch: HashMap<(Address, u64), Address>,
+    /// Individual staking power by (staker_address, epoch)
+    pub staking_power_by_address_by_epoch: HashMap<(Address, u64), U256>,
+    /// Total staking power by epoch
+    pub total_staking_power_by_epoch: HashMap<u64, U256>,
 }
 
 /// For the given epochs, pre-fetches all the necessary data for the rewards computations
@@ -61,41 +67,63 @@ pub async fn build_rewards_cache<P: Provider>(
     deployment: &Deployment,
     zkc_address: Address,
     epochs_to_process: &[u64],
-    work_log_ids: &[Address],
     current_epoch: u64,
     all_event_logs: &crate::AllEventLogs,
 ) -> anyhow::Result<RewardsCache> {
     let mut cache = RewardsCache::default();
 
+    // Extract unique work log IDs from the work logs
+    let mut unique_work_log_ids = std::collections::HashSet::new();
+    for log in &all_event_logs.work_logs {
+        if let Ok(decoded) = log.log_decode::<IPovwAccounting::WorkLogUpdated>() {
+            unique_work_log_ids.insert(decoded.inner.data.workLogId);
+        }
+    }
+    let work_log_ids: Vec<Address> = unique_work_log_ids.into_iter().collect();
+
     let zkc = IZKC::new(zkc_address, provider);
     let rewards_contract = IRewards::new(deployment.vezkc_address, provider);
 
-    // Batch 1: Fetch all epoch emissions using dynamic multicall
+    // Batch 1: Fetch all epoch emissions (both PoVW and staking) using dynamic multicall
     if !epochs_to_process.is_empty() {
         tracing::debug!(
-            "Fetching emissions for {} epochs using multicall",
+            "Fetching PoVW and staking emissions for {} epochs using multicall",
             epochs_to_process.len()
         );
 
         // Process in chunks to avoid hitting multicall limits
-        const CHUNK_SIZE: usize = 50;
+        const CHUNK_SIZE: usize = 50; // Smaller chunks since we're fetching both types
         for chunk in epochs_to_process.chunks(CHUNK_SIZE) {
-            // Use dynamic multicall for same-type calls
-            let mut multicall = provider
+            // Fetch PoVW emissions
+            let mut povw_multicall = provider
                 .multicall()
                 .dynamic::<boundless_zkc::contracts::IZKC::getPoVWEmissionsForEpochCall>(
             );
 
             for &epoch_num in chunk {
-                multicall =
-                    multicall.add_dynamic(zkc.getPoVWEmissionsForEpoch(U256::from(epoch_num)));
+                povw_multicall =
+                    povw_multicall.add_dynamic(zkc.getPoVWEmissionsForEpoch(U256::from(epoch_num)));
             }
 
-            let results: Vec<U256> = multicall.aggregate().await?;
+            let povw_results: Vec<U256> = povw_multicall.aggregate().await?;
+
+            // Fetch staking emissions
+            let mut staking_multicall = provider
+                .multicall()
+                .dynamic::<boundless_zkc::contracts::IZKC::getStakingEmissionsForEpochCall>(
+            );
+
+            for &epoch_num in chunk {
+                staking_multicall =
+                    staking_multicall.add_dynamic(zkc.getStakingEmissionsForEpoch(U256::from(epoch_num)));
+            }
+
+            let staking_results: Vec<U256> = staking_multicall.aggregate().await?;
 
             // Process results - zip with input epochs
-            for (&epoch_num, emission) in chunk.iter().zip(results.iter()) {
-                cache.emissions_by_epoch.insert(epoch_num, *emission);
+            for (i, &epoch_num) in chunk.iter().enumerate() {
+                cache.povw_emissions_by_epoch.insert(epoch_num, povw_results[i]);
+                cache.staking_emissions_by_epoch.insert(epoch_num, staking_results[i]);
             }
         }
     }
@@ -107,7 +135,7 @@ pub async fn build_rewards_cache<P: Provider>(
             epochs_to_process.len()
         );
 
-        const CHUNK_SIZE: usize = 25; // Smaller chunk since we're making 2 calls per epoch
+        const CHUNK_SIZE: usize = 50; // Smaller chunk since we're making 2 calls per epoch
         for chunk in epochs_to_process.chunks(CHUNK_SIZE) {
             // Fetch start times
             let mut start_time_multicall = provider
@@ -193,12 +221,12 @@ pub async fn build_rewards_cache<P: Provider>(
 
         // Build list of (work_log_id, epoch_num, epoch_end_time) tuples
         let mut past_cap_requests = Vec::new();
-        for &work_log_id in work_log_ids {
+        for work_log_id in &work_log_ids {
             for &epoch_num in epochs_to_process {
                 if epoch_num < current_epoch {
                     if let Some(epoch_range) = cache.epoch_time_ranges.get(&epoch_num) {
                         past_cap_requests.push((
-                            work_log_id,
+                            *work_log_id,
                             epoch_num,
                             U256::from(epoch_range.end_time),
                         ));
@@ -262,7 +290,7 @@ pub async fn build_rewards_cache<P: Provider>(
 
         // Fetch timestamps for blocks using concurrent futures
         // Process in chunks to avoid overwhelming the RPC
-        const CHUNK_SIZE: usize = 50;
+        const CHUNK_SIZE: usize = 100;
         for chunk in block_numbers.chunks(CHUNK_SIZE) {
             let futures: Vec<_> = chunk
                 .iter()
@@ -570,16 +598,189 @@ pub async fn build_rewards_cache<P: Provider>(
         }
     }
 
+    // Batch 11: Fetch staking power for rewards computation
+    // Extract unique stakers from stake events
+    tracing::debug!("Extracting unique stakers from stake events");
+    let mut stakers_by_epoch: HashMap<u64, HashSet<Address>> = HashMap::new();
+
+    // Process StakeCreated events
+    for event in &cache.timestamped_stake_events {
+        if let StakeEvent::Created { owner, .. } = &event.event {
+            stakers_by_epoch.entry(event.epoch).or_insert_with(HashSet::new).insert(*owner);
+            // Add to all future epochs too
+            for epoch in (event.epoch + 1)..=current_epoch {
+                stakers_by_epoch.entry(epoch).or_insert_with(HashSet::new).insert(*owner);
+            }
+        }
+    }
+
+    // Build a list of (staker, epoch) pairs we need to fetch
+    let mut staker_epoch_pairs: Vec<(Address, u64)> = Vec::new();
+    for (epoch, stakers) in &stakers_by_epoch {
+        for staker in stakers {
+            staker_epoch_pairs.push((*staker, *epoch));
+        }
+    }
+
+    if !staker_epoch_pairs.is_empty() {
+        tracing::debug!(
+            "Fetching staking power for {} staker-epoch pairs using multicall",
+            staker_epoch_pairs.len()
+        );
+
+        // Process in chunks to avoid hitting multicall limits
+        const CHUNK_SIZE: usize = 100;
+        for chunk in staker_epoch_pairs.chunks(CHUNK_SIZE) {
+            // Separate current and past epochs
+            let mut past_pairs = Vec::new();
+            let mut current_pairs = Vec::new();
+
+            for &(staker_address, epoch) in chunk {
+                if epoch == current_epoch {
+                    current_pairs.push((staker_address, epoch));
+                } else {
+                    past_pairs.push((staker_address, epoch));
+                }
+            }
+
+            // Fetch past staking rewards using getPastStakingRewards
+            if !past_pairs.is_empty() {
+                let mut past_power_multicall = provider
+                    .multicall()
+                    .dynamic::<boundless_zkc::contracts::IRewards::getPastStakingRewardsCall>();
+
+                for &(staker_address, epoch) in &past_pairs {
+                    let epoch_end_time = cache.epoch_time_ranges
+                        .get(&epoch)
+                        .ok_or_else(|| anyhow::anyhow!("Missing epoch time range for epoch {}", epoch))?
+                        .end_time;
+
+                    past_power_multicall = past_power_multicall.add_dynamic(
+                        rewards_contract.getPastStakingRewards(staker_address, U256::from(epoch_end_time))
+                    );
+                }
+
+                let past_results: Vec<U256> = past_power_multicall.aggregate().await?;
+
+                // Store past power results
+                for ((staker_address, epoch), power) in past_pairs.iter().zip(past_results.iter()) {
+                    cache.staking_power_by_address_by_epoch.insert(
+                        (*staker_address, *epoch),
+                        *power
+                    );
+                }
+            }
+
+            // Fetch current staking rewards using getStakingRewards
+            if !current_pairs.is_empty() {
+                let mut current_power_multicall = provider
+                    .multicall()
+                    .dynamic::<boundless_zkc::contracts::IRewards::getStakingRewardsCall>();
+
+                for &(staker_address, _epoch) in &current_pairs {
+                    current_power_multicall = current_power_multicall.add_dynamic(
+                        rewards_contract.getStakingRewards(staker_address)
+                    );
+                }
+
+                let current_results: Vec<U256> = current_power_multicall.aggregate().await?;
+
+                // Store current power results
+                for ((staker_address, epoch), power) in current_pairs.iter().zip(current_results.iter()) {
+                    cache.staking_power_by_address_by_epoch.insert(
+                        (*staker_address, *epoch),
+                        *power
+                    );
+                }
+            }
+        }
+
+        // Now fetch total staking power for each unique epoch
+        let unique_epochs: HashSet<u64> = staker_epoch_pairs.iter().map(|(_, e)| *e).collect();
+        if !unique_epochs.is_empty() {
+            tracing::debug!(
+                "Fetching total staking power for {} epochs using multicall",
+                unique_epochs.len()
+            );
+
+            const EPOCH_CHUNK_SIZE: usize = 50;
+            let epochs_vec: Vec<u64> = unique_epochs.into_iter().collect();
+
+            for epoch_chunk in epochs_vec.chunks(EPOCH_CHUNK_SIZE) {
+                // Separate current and past epochs
+                let mut current_epochs = Vec::new();
+                let mut past_epochs = Vec::new();
+
+                for &epoch in epoch_chunk {
+                    if epoch == current_epoch {
+                        current_epochs.push(epoch);
+                    } else {
+                        past_epochs.push(epoch);
+                    }
+                }
+
+                // Handle past epochs with getPastTotalStakingRewards
+                if !past_epochs.is_empty() {
+                    let mut total_power_multicall = provider
+                        .multicall()
+                        .dynamic::<boundless_zkc::contracts::IRewards::getPastTotalStakingRewardsCall>();
+
+                    let mut valid_epochs = Vec::new();
+                    for &epoch in &past_epochs {
+                        let epoch_end_time = cache.epoch_time_ranges
+                            .get(&epoch)
+                            .ok_or_else(|| anyhow::anyhow!("Missing epoch time range for epoch {}", epoch))?
+                            .end_time;
+
+                        total_power_multicall = total_power_multicall.add_dynamic(
+                            rewards_contract.getPastTotalStakingRewards(U256::from(epoch_end_time))
+                        );
+                        valid_epochs.push(epoch);
+                    }
+
+                    let total_results: Vec<U256> = total_power_multicall.aggregate().await?;
+
+                    // Store total power results
+                    for (epoch, total_power) in valid_epochs.iter().zip(total_results.iter()) {
+                        cache.total_staking_power_by_epoch.insert(*epoch, *total_power);
+                    }
+                }
+
+                // Handle current epoch with getTotalStakingRewards
+                if !current_epochs.is_empty() {
+                    let mut current_multicall = provider
+                        .multicall()
+                        .dynamic::<boundless_zkc::contracts::IRewards::getTotalStakingRewardsCall>();
+
+                    for &_epoch in &current_epochs {
+                        current_multicall = current_multicall.add_dynamic(
+                            rewards_contract.getTotalStakingRewards()
+                        );
+                    }
+
+                    let current_results: Vec<U256> = current_multicall.aggregate().await?;
+
+                    // Store current epoch results
+                    for (epoch, total_power) in current_epochs.iter().zip(current_results.iter()) {
+                        cache.total_staking_power_by_epoch.insert(*epoch, *total_power);
+                    }
+                }
+            }
+        }
+    }
+
     tracing::info!(
-        "Built PoVW rewards cache: {} epochs, {} work logs, {} reward caps, {} epoch time ranges, {} block timestamps, {} stake events, {} delegation events, {} work entries",
-        cache.emissions_by_epoch.len(),
+        "Built rewards cache: {} povw emissions, {} staking emissions, {} work logs, {} reward caps, {} epoch time ranges, {} block timestamps, {} stake events, {} delegation events, {} work entries, {} staking power entries",
+        cache.povw_emissions_by_epoch.len(),
+        cache.staking_emissions_by_epoch.len(),
         work_log_ids.len(),
         cache.reward_caps.len(),
         cache.epoch_time_ranges.len(),
         cache.block_timestamps.len(),
         cache.timestamped_stake_events.len(),
         cache.timestamped_delegation_events.len(),
-        cache.work_by_work_log_by_epoch.len()
+        cache.work_by_work_log_by_epoch.len(),
+        cache.staking_power_by_address_by_epoch.len()
     );
 
     Ok(cache)
