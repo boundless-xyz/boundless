@@ -182,6 +182,7 @@ echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
+sed -i "s|group_name: \"/boundless/bento/\${STACK_NAME}\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
 
 # Ethereum configuration
 echo "RPC_URL=${rpcUrl}" >> /etc/environment
@@ -283,7 +284,7 @@ const proverLaunchTemplate = new aws.ec2.LaunchTemplate("prover-launch-template"
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, stackName]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName]) => {
         const userDataScript = `#!/bin/bash
 # Database and Redis URLs for prover (point to manager)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
@@ -297,6 +298,8 @@ echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
+echo "STACK_NAME=${stackName}" >> /etc/environment
+sed -i "s|group_name: \"/boundless/bento/\${STACK_NAME}\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-prover.service /etc/systemd/system/bento.service
@@ -385,7 +388,7 @@ const executionLaunchTemplate = new aws.ec2.LaunchTemplate("execution-launch-tem
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, stackName]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName]) => {
         const userDataScript = `#!/bin/bash
 # Database and Redis URLs for execution (point to manager)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
@@ -402,6 +405,8 @@ echo "FINALIZE_RETRIES=3" >> /etc/environment
 echo "FINALIZE_TIMEOUT=60" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
 echo "SEGMENT_PO2=21" >> /etc/environment
+echo "STACK_NAME=${stackName}" >> /etc/environment
+sed -i "s|group_name: \"/boundless/bento/\${STACK_NAME}\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-executor.service /etc/systemd/system/bento.service
@@ -491,7 +496,7 @@ const auxLaunchTemplate = new aws.ec2.LaunchTemplate("aux-launch-template", {
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, ethRpcUrl, privateKey]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, rpcUrl, privKey]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, ethRpcUrl, privateKey, stackName]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName]) => {
         const userDataScript = `#!/bin/bash
 # Database and Redis URLs for aux agent (point to manager)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
@@ -505,6 +510,8 @@ echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
+echo "STACK_NAME=${stackName}" >> /etc/environment
+sed -i "s|group_name: \"/boundless/bento/\${STACK_NAME}\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-aux.service /etc/systemd/system/bento.service
