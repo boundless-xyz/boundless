@@ -1,12 +1,11 @@
 import { YoutubeEmbed } from '../../components/youtube-embed';
 
 # Quick Start
-
-:::tip[Need Help?]
-If you encounter issues that need technical support, join our [Discord community](https://discord.gg/aXRuD6spez) and claim the prover role via [Guild.xyz](https://guild.xyz/boundless-xyz) to get access to the *#prover-support-forum* channel. The Boundless team and experienced provers are there to help troubleshoot issues and share best practices.
-:::
-
 ## Video Walkthrough
+
+:::note[Boundless has launched Mainnet]
+This video was recorded early July 2025 during Boundless Mainnet Beta; there have been some further changes to the setup process. For the latest commands, make sure to check the tutorial below.
+:::
 
 To run your prover on Base Mainnet, follow the steps in the video below and make sure to set your RPC endpoint to Base mainnet i.e:
 
@@ -16,9 +15,6 @@ export RPC_URL="https://base-mainnet.g.alchemy.com/v2/{YOUR_ALCHEMY_APP_ID}"`
 
 <YoutubeEmbed videoId="MZqU-J-fW2M" />
 
-:::note[Boundless is in Beta!]
-This video was recorded early July 2025; there may be some further changes to the setup process. For the latest commands, make sure to check the tutorial below.
-:::
 
 ## Requirements
 
@@ -129,7 +125,13 @@ cargo install --locked --git https://github.com/boundless-xyz/boundless boundles
 
 ### Deposit Collateral
 
-With the environment variables set, you can now deposit ZKC tokens as collateral to your account balance:
+:::warning
+*$ZKC* is only on Ethereum mainnet. 
+
+Therefore, to use *$ZKC* as proving collateral, provers have to first [bridge *$ZKC*](/zkc/proving-collateral) from Ethereum mainnet to Base mainnet. 
+:::
+
+With the environment variables set, you can now deposit *$ZKC* tokens as collateral to your account balance:
 
 ```bash [Terminal]
 boundless account deposit-collateral 10

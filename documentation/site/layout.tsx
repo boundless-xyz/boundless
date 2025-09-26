@@ -6,7 +6,7 @@ export default function RootLayout({ children }) {
   return (
     <>
       {typeof window !== "undefined" && (
-        <link rel="canonical" href={`https://docs.beboundless.xyz${window.location.pathname}`} />
+        <link rel="canonical" href={`https://docs.boundless.network${window.location.pathname}`} />
       )}
 
       {/* Custom JS scripts */}
