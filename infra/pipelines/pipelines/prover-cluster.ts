@@ -20,7 +20,6 @@ interface ProverClusterPipelineArgs extends BasePipelineArgs {
 const APP_NAME = "prover-cluster";
 // The branch that we should deploy from on push.
 const BRANCH_NAME = "zeroecco/prover_cluster";
-
 // Buildspec for prover cluster deployment
 const PROVER_CLUSTER_BUILD_SPEC = `version: 0.2
 
@@ -50,38 +49,12 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: ProverClusterPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:prover-cluster-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, stagingAccountId, productionAccountId, opsAccountId, amiId, boundlessBentoVersion, boundlessBrokerVersion, stagingStackName, stagingStackName2, productionStackName, githubToken } = args;
-
-        // Create GitHub token secret
-        const githubTokenSecret = new aws.secretsmanager.Secret(`${APP_NAME}-ghToken`, {
-            name: `${APP_NAME}-ghToken`,
-        }, { parent: this });
-
-        new aws.secretsmanager.SecretVersion(`${APP_NAME}-ghTokenVersion`, {
-            secretId: githubTokenSecret.id,
-            secretString: githubToken,
-        }, { parent: this });
-
-        // Add secrets manager permissions to the shared role
-        new aws.iam.RolePolicy(`${APP_NAME}-secrets-policy`, {
-            role: args.role.id,
-            policy: JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [
-                    {
-                        Effect: "Allow",
-                        Action: ["secretsmanager:GetSecretValue"],
-                        Resource: githubTokenSecret.arn,
-                    },
-                ],
-            }),
-        }, { parent: this });
-
+        const { artifactBucket, connection, role, stagingAccountId, productionAccountId, amiId, boundlessBentoVersion, boundlessBrokerVersion, githubToken } = args;
         // Helper function to create CodeBuild projects
         const createCodeBuildProject = (environment: string, accountId: string, stackName: string) => {
             return new aws.codebuild.Project(`${APP_NAME}-${stackName}`, {
                 name: `${APP_NAME}-${stackName}-deployment`,
-                serviceRole: args.role.arn,
+                serviceRole: role.arn,
                 artifacts: {
                     type: "CODEPIPELINE",
                 },
@@ -129,8 +102,8 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                         },
                         {
                             name: "GITHUB_TOKEN",
-                            type: "SECRETS_MANAGER",
-                            value: githubTokenSecret.name
+                            type: "PLAINTEXT",
+                            value: githubToken
                         },
                         ...(amiId ? [{
                             name: "AMI_ID",
@@ -157,7 +130,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
 
         // Create the main pipeline with staging and production stages
         const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
-            roleArn: args.role.arn,
+            roleArn: role.arn,
             pipelineType: "V2",
             artifactStores: [{
                 type: "S3",
