@@ -182,7 +182,7 @@ echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
-sed -i "s|group_name: \"/boundless/bento/\${STACK_NAME}\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
+sed -i "s|group_name: \"/boundless/bent.*\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
 
 # Ethereum configuration
 echo "RPC_URL=${rpcUrl}" >> /etc/environment
@@ -299,7 +299,7 @@ echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
-sed -i "s|group_name: \"/boundless/bento/\${STACK_NAME}\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
+sed -i "s|group_name: \"/boundless/bent.*\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-prover.service /etc/systemd/system/bento.service
@@ -347,7 +347,7 @@ const proverAsg = new aws.autoscaling.Group("prover-asg", {
     tags: [
         {
             key: "userDataHash",
-            value: proverLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(u || "").digest("hex")),
+            value: proverLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(`${u || ""}-${Date.now()}`).digest("hex")),
             propagateAtLaunch: true,
         },
         {
@@ -406,7 +406,7 @@ echo "FINALIZE_TIMEOUT=60" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
 echo "SEGMENT_PO2=21" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
-sed -i "s|group_name: \"/boundless/bento/\${STACK_NAME}\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
+sed -i "s|group_name: \"/boundless/bent.*\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-executor.service /etc/systemd/system/bento.service
@@ -454,7 +454,7 @@ const executionAsg = new aws.autoscaling.Group("execution-asg", {
     tags: [
         {
             key: "userDataHash",
-            value: executionLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(u || "").digest("hex")),
+            value: executionLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(`${u || ""}-${Date.now()}`).digest("hex")),
             propagateAtLaunch: true,
         },
         {
@@ -511,7 +511,7 @@ echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
 echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
-sed -i "s|group_name: \"/boundless/bento/\${STACK_NAME}\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
+sed -i "s|group_name: \"/boundless/bent.*\"|group_name: \"/boundless/bento/${stackName}\"|g" /etc/vector/vector.yaml
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-aux.service /etc/systemd/system/bento.service
@@ -556,7 +556,7 @@ const auxAsg = new aws.autoscaling.Group("aux-asg", {
     tags: [
         {
             key: "userDataHash",
-            value: auxLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(u || "").digest("hex")),
+            value: auxLaunchTemplate.userData.apply(u => crypto.createHash("sha256").update(`${u || ""}-${Date.now()}`).digest("hex")),
             propagateAtLaunch: true,
         },
         {
