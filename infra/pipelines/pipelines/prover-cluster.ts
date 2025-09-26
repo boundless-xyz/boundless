@@ -50,8 +50,32 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: ProverClusterPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:prover-cluster-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, stagingAccountId, productionAccountId, opsAccountId, amiId, boundlessBentoVersion, boundlessBrokerVersion, stagingStackName, stagingStackName2, productionStackName } = args;
+        const { artifactBucket, connection, stagingAccountId, productionAccountId, opsAccountId, amiId, boundlessBentoVersion, boundlessBrokerVersion, stagingStackName, stagingStackName2, productionStackName, githubToken } = args;
 
+        // Create GitHub token secret
+        const githubTokenSecret = new aws.secretsmanager.Secret(`${APP_NAME}-ghToken`, {
+            name: `${APP_NAME}-ghToken`,
+        }, { parent: this });
+
+        new aws.secretsmanager.SecretVersion(`${APP_NAME}-ghTokenVersion`, {
+            secretId: githubTokenSecret.id,
+            secretString: githubToken,
+        }, { parent: this });
+
+        // Add secrets manager permissions to the shared role
+        new aws.iam.RolePolicy(`${APP_NAME}-secrets-policy`, {
+            role: args.role.id,
+            policy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: ["secretsmanager:GetSecretValue"],
+                        Resource: githubTokenSecret.arn,
+                    },
+                ],
+            }),
+        }, { parent: this });
 
         // Helper function to create CodeBuild projects
         const createCodeBuildProject = (environment: string, accountId: string, stackName: string) => {
@@ -102,6 +126,11 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                             name: "AWS_DEFAULT_REGION",
                             type: "PLAINTEXT",
                             value: "us-west-2"
+                        },
+                        {
+                            name: "GITHUB_TOKEN",
+                            type: "SECRETS_MANAGER",
+                            value: githubTokenSecret.name
                         },
                         ...(amiId ? [{
                             name: "AMI_ID",
