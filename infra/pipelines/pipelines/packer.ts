@@ -48,7 +48,7 @@ export class PackerPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: PackerPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:packer-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, opsAccountId, serviceAccountIds, role } = args;
+        const { artifactBucket, connection, serviceAccountIds, role } = args;
 
         // CodeBuild project for Packer builds
         const packerBuildProject = new aws.codebuild.Project("packer-build-project", {

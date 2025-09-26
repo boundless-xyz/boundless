@@ -17,9 +17,40 @@ const environment = config.get("environment") || "custom";
 // Required configuration
 const privateKey = config.requireSecret("privateKey");
 const ethRpcUrl = config.requireSecret("ethRpcUrl");
-const orderStreamUrl = config.require("orderStreamUrl");
-const imageId = config.require("imageId");
 const managerInstanceType = config.require("managerInstanceType");
+const orderStreamUrl = config.require("orderStreamUrl");
+const verifierAddress = config.require("verifierAddress");
+const boundlessMarketAddress = config.require("boundlessMarketAddress");
+const setVerifierAddress = config.require("setVerifierAddress");
+
+// Optional configuration for AMI lookup
+const boundlessVersion = config.get("boundlessVersion") || "latest";
+
+// Look up the latest packer-built AMI
+const boundlessAmi = aws.ec2.getAmi({
+    mostRecent: true,
+    owners: ["self"], // Look for AMIs owned by this account
+    filters: [
+        {
+            name: "name",
+            values: [`boundless-${boundlessVersion}-ubuntu-24.04-nvidia-*`]
+        },
+        {
+            name: "tag:ManagedBy",
+            values: ["packer"]
+        },
+        {
+            name: "tag:Version",
+            values: [boundlessVersion]
+        },
+        {
+            name: "state",
+            values: ["available"]
+        }
+    ]
+});
+
+const imageId = boundlessAmi.then(ami => ami.id);
 // Removed spot market configuration - using g6.xlarge for all provers
 
 // Contract addresses
@@ -149,7 +180,7 @@ const manager = new aws.ec2.Instance("manager", {
     subnetId: privSubNetIds.apply((subnets: any) => subnets[0]),
     vpcSecurityGroupIds: [securityGroup.id],
     iamInstanceProfile: ec2Profile.name,
-    userData: pulumi.all([taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword, ethRpcUrl, privateKey]).apply(([dbName, dbUser, dbPass, bucketName, minioUser, minioPass, rpcUrl, privKey]) => {
+    userData: pulumi.all([taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword, ethRpcUrl, privateKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress]).apply(([dbName, dbUser, dbPass, bucketName, minioUser, minioPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress]) => {
         const userDataScript = `#!/bin/bash
 # Set environment variables
 echo "RUST_LOG=info" >> /etc/environment
@@ -177,6 +208,12 @@ echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 # Ethereum configuration
 echo "RPC_URL=${rpcUrl}" >> /etc/environment
 echo "PRIVATE_KEY=${privKey}" >> /etc/environment
+# Public order stream URL
+echo "ORDER_STREAM_URL=${orderStreamUrl}" >> /etc/environment
+# Base contract addresses
+echo "VERIFIER_ADDRESS=${verifierAddress}" >> /etc/environment
+echo "BOUNDLESS_MARKET_ADDRESS=${boundlessMarketAddress}" >> /etc/environment
+echo "SET_VERIFIER_ADDRESS=${setVerifierAddress}" >> /etc/environment
 
 # Copy and configure service files
 cp /opt/boundless/config/bento-api.service /etc/systemd/system/bento-api.service
@@ -268,7 +305,7 @@ const proverLaunchTemplate = new aws.ec2.LaunchTemplate("prover-launch-template"
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword, ethRpcUrl, privateKey]).apply(([managerIp, dbName, dbUser, dbPass, bucketName, minioUser, minioPass, rpcUrl, privKey]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword]).apply(([managerIp, dbName, dbUser, dbPass, bucketName, minioUser, minioPass]) => {
         const userDataScript = `#!/bin/bash
 # Database and Redis URLs for prover (point to manager)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
@@ -370,7 +407,7 @@ const executionLaunchTemplate = new aws.ec2.LaunchTemplate("execution-launch-tem
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword, ethRpcUrl, privateKey]).apply(([managerIp, dbName, dbUser, dbPass, bucketName, minioUser, minioPass, rpcUrl, privKey]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, s3Bucket.bucket, minioUsername, minioPassword]).apply(([managerIp, dbName, dbUser, dbPass, bucketName, minioUser, minioPass]) => {
         const userDataScript = `#!/bin/bash
 # Database and Redis URLs for execution (point to manager)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
@@ -568,6 +605,12 @@ export const managerInstanceId = manager.id;
 export const managerPrivateIp = manager.privateIp;
 export const managerPublicIp = manager.publicIp;
 
+// AMI information
+export const amiId = imageId;
+export const amiName = boundlessAmi.then(ami => ami.name);
+export const amiDescription = boundlessAmi.then(ami => ami.description);
+export const boundlessVersionUsed = boundlessVersion;
+
 // ASG outputs
 export const proverAsgName = proverAsg.name;
 export const proverAsgArn = proverAsg.arn;
@@ -629,5 +672,10 @@ export const clusterInfo = {
         bucketName: s3Bucket.bucket,
         bucketArn: s3Bucket.arn,
         region: "us-west-2",
+    },
+    ami: {
+        id: imageId,
+        name: boundlessAmi.then(ami => ami.name),
+        version: boundlessVersion,
     },
 };
