@@ -225,7 +225,7 @@ const SIDEBAR_ITEMS = [
         link: "/zkc/proving-collateral"
       },
       {
-        text: "Proof of Verifiable Work",
+        text: "ZK Mining",
         link: "/zkc/povw/quick-start",
         items: [
           {

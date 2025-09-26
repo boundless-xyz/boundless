@@ -10,9 +10,9 @@ By staking *$ZKC*, token holders are directly contributing to the Boundless prot
 
 ![ZKC Flowchart](/stake_ZKC.png)
 
-### Staking *$ZKC* to earn Mining Rewards. 
+### Staking *$ZKC* to earn Mining Rewards 
 
-Proof-of-Verifiable-Work (PoVW), a novel invention within Boundless, is a permissionless incentive mechanism which enables provers to be rewarded in *$ZKC* in exchange for their proving work on the Boundless marketplace or elsewhere. This process is known as ZK mining, and therefore, the rewards are mining rewards; mining rewards are ONLY available to those who stake *$ZKC*.
+Proof-of-Verifiable-Work (PoVW), a novel invention within Boundless, is a permissionless incentive mechanism which enables provers to be rewarded in *$ZKC* in exchange for their proving work on the Boundless marketplace or elsewhere. This process is known as ZK mining; mining rewards are ONLY available to those who stake *$ZKC*.
 
 ## How to Stake *$ZKC*?
 
@@ -51,6 +51,8 @@ boundless zkc claim-rewards --private-key <PRIVATE_KEY> --rpc-url <RPC_URL>
 
 ## How do *$ZKC* Rewards work?
 
+### Overview
+
 *$ZKC* rewards are earned by token holders who have staked $ZKC. Rewards are distributed every reward epoch. Each epoch lasts ~2 days, resulting in ~182.5 epochs per year. 
 
 There are two types of *$ZKC* rewards:
@@ -84,7 +86,7 @@ The easiest way to understand staking rewards is to walk through a concrete exam
 If you're interested in earning mining rewards, after reading the section below, please head over to [PoVW Quick Start](/zkc/povw/quick-start).
 :::
 
-For the purposes of this section, "miner" will be used to refer to an entity which stakes *$ZKC* and submits valid work regularly. This term could be used interchangebly with prover, which is used commonly throughout the Boundless docs.
+For the purposes of this section, "miner" will be used to refer to somebody who stakes *$ZKC* and submits valid work regularly. This term could be used interchangebly with prover, which is used commonly throughout the Boundless docs.
 
 The easiest way to understand mining rewards is to walk through a concrete example and a relevant reward calculation:
 
@@ -111,9 +113,9 @@ mining_reward_cap = staked_amount / 15
 Multiple stake positions, across different wallets, can delegate their rewards to the same delegatee address. 
 :::
 
-A crucial part of *$ZKC* is the ability to delegate rewards, which delegates BOTH staking and mining rewards, to another address (known as the delegatee). In practice, this means that only the delegatee is able to claim staking and mining rewards on behalf of the total of all active stake positions delegated to that address. 
+A crucial part of *$ZKC* is the ability to delegate rewards, which delegates BOTH staking and mining rewards, to another address (known as the *delegatee*). In practice, this means that *only* the delegatee is able to claim staking and mining rewards on behalf of the total of all active stake positions delegated to that address. 
 
-For mining rewards, delegation is a recommended practice as it allows for separation between the wallet that stakes *$ZKC* and the wallet specified in Bento in work proofs as the `POVW_LOG_ID`. For more information, please see [PoVW Quick Start](/zkc/povw/quick-start).
+For mining rewards, delegation is a recommended practice as it allows for separation between the wallet that stakes *$ZKC* and the wallet specified in Bento in work proofs as the `REWARDS_ADDRESS`. For more information, please see [PoVW Quick Start](/zkc/povw/quick-start).
 
 To delegate rewards, the only recommended way is to use the Boundless CLI, specifically:
 
@@ -121,7 +123,7 @@ To delegate rewards, the only recommended way is to use the Boundless CLI, speci
 boundless zkc delegate-rewards <DELEGATEE> --rpc-url <RPC_URL> --private-key <PRIVATE_KEY>
 ```
 
-It is recommended to set `<DELEGATEE>` as the address set to `POVW_LOG_ID` in Bento. The private key should denote the address that you want to delegate *from* i.e. the wallet with an active stake position. 
+For mining rewards, it is recommended to set `<DELEGATEE>` as the address set to `REWARDS_ADDRESS` in Bento. The private key should denote the address that you want to delegate *from* i.e. the wallet with an active stake position. 
 
 ## How does Governance work?
 
@@ -140,7 +142,7 @@ With the launch of *$ZKC*, the DAO is going through a set of test proposals to e
 Initially, governance will control five main processes:
 
 - *Market upgrades*: Upgrades to the logic of the Boundless market and adjacent onchain infrastructure such as verifier contracts.
-- *Token upgrades*: Upgrades to core token variables such as emission schedules and permissions to distribute mining rewards
+- *Token upgrades*: Upgrades to core token variables such as emission schedules and permissions to distribute mining rewards.
 - *Governance upgrades*: Upgrades to the governance processes themselves.
 - *Grants*: Proposals for $ZKC token grants to community members, ecosystem partners and any other parties deemed to be contributing to the success of Boundless.
 - *Emergency upgrades*: Upgrades to address time sensitive issues that impact the safety of funds or the safety of protocols using Boundless.
