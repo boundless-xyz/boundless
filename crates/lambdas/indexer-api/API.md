@@ -5,20 +5,26 @@ REST API for querying Boundless protocol data including PoVW rewards leaderboard
 ## Base URL
 
 ```
-https://api.boundless.market/v1
+https://d2h2e3zcs9hfb5.cloudfront.net
 ```
 
 ## Endpoints Summary
 
 ### PoVW Endpoints
-- `GET /v1/povw` - Get aggregate PoVW rewards leaderboard across all epochs
-- `GET /v1/povw/epochs/:epoch` - Get PoVW rewards leaderboard for a specific epoch
+- `GET /v1/povw` - Get global PoVW summary statistics
+- `GET /v1/povw/addresses` - Get all-time PoVW leaderboard
+- `GET /v1/povw/epochs` - Get list of all epochs with summary data
+- `GET /v1/povw/epochs/:epoch` - Get summary for a specific epoch
+- `GET /v1/povw/epochs/:epoch/addresses` - Get PoVW leaderboard for a specific epoch
 - `GET /v1/povw/addresses/:address` - Get PoVW rewards history for a specific address
 - `GET /v1/povw/addresses/:address/epochs/:epoch` - Get PoVW rewards for an address at a specific epoch
 
 ### Staking Endpoints
-- `GET /v1/staking` - Get aggregate staking positions leaderboard across all epochs
-- `GET /v1/staking/epochs/:epoch` - Get staking positions for a specific epoch
+- `GET /v1/staking` - Get global staking summary statistics
+- `GET /v1/staking/addresses` - Get aggregate staking positions leaderboard
+- `GET /v1/staking/epochs` - Get list of all epochs with staking summary
+- `GET /v1/staking/epochs/:epoch` - Get staking summary for a specific epoch
+- `GET /v1/staking/epochs/:epoch/addresses` - Get staking positions for a specific epoch
 - `GET /v1/staking/addresses/:address` - Get staking history for a specific address
 - `GET /v1/staking/addresses/:address/epochs/:epoch` - Get staking position for an address at a specific epoch
 
@@ -320,8 +326,6 @@ GET /v1/staking?offset=0&limit=100
       "rewards_delegated_to": "0x1234567890123456789012345678901234567890",
       "votes_delegated_to": "0x1234567890123456789012345678901234567890",
       "epochs_participated": 5,
-      "total_rewards_earned": "1000000000000000000",
-      "total_rewards_earned_formatted": "1.00 ZKC",
       "total_rewards_generated": "5000000000000000000",
       "total_rewards_generated_formatted": "5.00 ZKC"
     }
@@ -353,7 +357,6 @@ GET /v1/staking?offset=0&limit=100
 - `rewards_delegated_to` - Address receiving staking rewards
 - `votes_delegated_to` - Address receiving voting power
 - `epochs_participated` - Number of epochs staked
-- `total_rewards_earned` - Total staking rewards earned
 - `total_rewards_generated` - Total rewards generated for delegatees
 
 **Summary Fields:**
@@ -393,8 +396,6 @@ GET /v1/staking/epochs/:epoch?offset=0&limit=100
       "votes_delegated_to": "0x1234567890123456789012345678901234567890",
       "rewards_generated": "500000000000000000",
       "rewards_generated_formatted": "0.50 ZKC",
-      "rewards_earned": "100000000000000000",
-      "rewards_earned_formatted": "0.10 ZKC"
     }
   ],
   "pagination": {
@@ -429,7 +430,6 @@ GET /v1/staking/epochs/:epoch?offset=0&limit=100
 - `rewards_delegated_to` - Rewards delegation address
 - `votes_delegated_to` - Voting delegation address
 - `rewards_generated` - Rewards generated for delegatees
-- `rewards_earned` - Staking rewards earned
 
 **Summary Fields:**
 - `epoch` - Epoch number
@@ -472,8 +472,6 @@ GET /v1/staking/addresses/:address?offset=0&limit=100
       "votes_delegated_to": "0x1234567890123456789012345678901234567890",
       "rewards_generated": "500000000000000000",
       "rewards_generated_formatted": "0.50 ZKC",
-      "rewards_earned": "100000000000000000",
-      "rewards_earned_formatted": "0.10 ZKC"
     }
   ],
   "pagination": {
@@ -489,8 +487,6 @@ GET /v1/staking/addresses/:address?offset=0&limit=100
     "rewards_delegated_to": "0x1234567890123456789012345678901234567890",
     "votes_delegated_to": "0x1234567890123456789012345678901234567890",
     "epochs_participated": 5,
-    "total_rewards_earned": "1000000000000000000",
-    "total_rewards_earned_formatted": "1.00 ZKC",
     "total_rewards_generated": "5000000000000000000",
     "total_rewards_generated_formatted": "5.00 ZKC"
   }
@@ -507,7 +503,6 @@ Same as epoch endpoint, showing each epoch's staking position
 - `rewards_delegated_to` - Current rewards delegation
 - `votes_delegated_to` - Current voting delegation
 - `epochs_participated` - Number of epochs staked
-- `total_rewards_earned` - Total staking rewards earned
 - `total_rewards_generated` - Total rewards generated
 
 #### 4. Get Staking by Address and Epoch
@@ -533,9 +528,7 @@ GET /v1/staking/addresses/:address/epochs/:epoch
   "rewards_delegated_to": "0x1234567890123456789012345678901234567890",
   "votes_delegated_to": "0x1234567890123456789012345678901234567890",
   "rewards_generated": "500000000000000000",
-  "rewards_generated_formatted": "0.50 ZKC",
-  "rewards_earned": "100000000000000000",
-  "rewards_earned_formatted": "0.10 ZKC"
+  "rewards_generated_formatted": "0.50 ZKC"
 }
 ```
 

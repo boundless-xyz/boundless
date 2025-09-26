@@ -261,8 +261,6 @@ async fn get_epoch_leaderboard_impl(
                     .rewards_delegated_to
                     .map(|addr| format!("{:#x}", addr)),
                 votes_delegated_to: position.votes_delegated_to.map(|addr| format!("{:#x}", addr)),
-                rewards_earned: "0".to_string(),
-                rewards_earned_formatted: format_zkc("0"),
                 rewards_generated: generated_str.clone(),
                 rewards_generated_formatted: format_zkc(&generated_str),
             }
@@ -332,8 +330,6 @@ async fn get_address_at_epoch_impl(
             .rewards_delegated_to
             .map(|addr| format!("{:#x}", addr)),
         votes_delegated_to: position.votes_delegated_to.map(|addr| format!("{:#x}", addr)),
-        rewards_earned: "0".to_string(),
-        rewards_earned_formatted: format_zkc("0"),
         rewards_generated: generated_str.clone(),
         rewards_generated_formatted: format_zkc(&generated_str),
     }))
@@ -483,8 +479,6 @@ async fn get_address_history_impl(
                     .rewards_delegated_to
                     .map(|addr| format!("{:#x}", addr)),
                 votes_delegated_to: position.votes_delegated_to.map(|addr| format!("{:#x}", addr)),
-                rewards_earned: "0".to_string(),
-                rewards_earned_formatted: format_zkc("0"),
                 rewards_generated: generated_str.clone(),
                 rewards_generated_formatted: format_zkc(&generated_str),
             }

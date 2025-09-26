@@ -255,12 +255,6 @@ pub struct EpochStakingEntry {
 
     /// Rewards generated (human-readable)
     pub rewards_generated_formatted: String,
-
-    /// Rewards earned by this address in this epoch (may be from delegated positions)
-    pub rewards_earned: String,
-
-    /// Rewards earned (human-readable)
-    pub rewards_earned_formatted: String,
 }
 
 /// Query parameters for address history endpoint

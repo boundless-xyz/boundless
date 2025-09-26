@@ -40,8 +40,8 @@ export ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
 
 This script will:
 1. Build both services
-2. Run the rewards-indexer for 60 seconds to populate data
-3. Start the API server on port 3000
+2. Run the rewards-indexer for 60 seconds to populate data to a local sqlite db
+3. Start the API server on port 3000 backed by the sqlite db
 
 ### Option 2: Running services manually
 
@@ -61,7 +61,7 @@ This script will:
        --interval 600
    ```
 
-   Let it run for a minute or until you see "Sleeping for 600 seconds", then stop it with Ctrl+C.
+   Let it run for a few minutes then stop with Ctrl+C.
 
 2. **Start the API server:**
 
@@ -102,11 +102,3 @@ sqlite3 local_indexer.db
 .schema povw_rewards  # Show schema for a table
 SELECT * FROM povw_summary_stats;  # Query data
 ```
-
-## Notes
-
-- The indexer will fetch real blockchain data from Ethereum mainnet
-- Initial data population may take a few minutes
-- The database persists between runs unless you delete the `.db` file
-- Both services use the same SQLite database file
-- The API server runs on port 3000 by default (configurable via PORT env var)

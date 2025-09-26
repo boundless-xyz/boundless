@@ -6,7 +6,7 @@ info:
   contact:
     name: Boundless Development Team
 servers:
-  - url: https://api.example.com
+  - url: https://d2h2e3zcs9hfb5.cloudfront.net
     description: Production API
     variables:
       basePath:
@@ -50,12 +50,9 @@ paths:
     get:
       tags:
         - Staking
-      summary: Get Aggregate Staking Leaderboard
-      description: Get the current aggregate staking leaderboard across all epochs
-      operationId: getAggregateStaking
-      parameters:
-        - $ref: '#/components/parameters/LimitParam'
-        - $ref: '#/components/parameters/OffsetParam'
+      summary: Get Staking Summary Statistics
+      description: Get global staking summary statistics across all epochs
+      operationId: getStakingSummary
       responses:
         '200':
           description: Successful response
@@ -66,12 +63,52 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /v1/staking/addresses:
+    get:
+      tags:
+        - Staking
+      summary: Get Aggregate Staking Leaderboard
+      description: Get the aggregate staking positions leaderboard
+      operationId: getStakingLeaderboard
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakingLeaderboardResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/staking/epochs:
+    get:
+      tags:
+        - Staking
+      summary: Get All Epochs Staking Summary
+      description: Get a list of all epochs with staking summary statistics
+      operationId: getAllEpochsStakingSummary
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakingEpochsSummaryResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /v1/staking/epochs/{epoch}:
     get:
       tags:
         - Staking
-      summary: Get Staking by Epoch
-      description: Get staking positions for a specific epoch
+      summary: Get Epoch Staking Summary
+      description: Get staking summary statistics for a specific epoch
       operationId: getStakingByEpoch
       parameters:
         - $ref: '#/components/parameters/EpochParam'
@@ -84,6 +121,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StakingByEpochResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/staking/epochs/{epoch}/addresses:
+    get:
+      tags:
+        - Staking
+      summary: Get Epoch Staking Positions
+      description: Get staking positions for a specific epoch
+      operationId: getEpochStakingPositions
+      parameters:
+        - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakingEpochResponse'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -122,6 +180,28 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /v1/staking/epochs/{epoch}/addresses/{address}:
+    get:
+      tags:
+        - Staking
+      summary: Get Staking Position by Address and Epoch
+      description: Get staking position for a specific address at a specific epoch
+      operationId: getStakingByAddressAndEpoch
+      parameters:
+        - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/AddressParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakingPosition'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /v1/staking/addresses/{address}/epochs/{epoch}:
     get:
       tags:
@@ -150,12 +230,9 @@ paths:
     get:
       tags:
         - PoVW
-      summary: Get Aggregate PoVW Leaderboard
-      description: Get the current aggregate PoVW rewards leaderboard across all epochs
-      operationId: getAggregatePovw
-      parameters:
-        - $ref: '#/components/parameters/LimitParam'
-        - $ref: '#/components/parameters/OffsetParam'
+      summary: Get PoVW Summary Statistics
+      description: Get global PoVW summary statistics across all epochs
+      operationId: getPovwSummary
       responses:
         '200':
           description: Successful response
@@ -166,12 +243,52 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /v1/povw/addresses:
+    get:
+      tags:
+        - PoVW
+      summary: Get All-Time PoVW Leaderboard
+      description: Get the all-time PoVW leaderboard ranking all work log IDs by total rewards
+      operationId: getPovwLeaderboard
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PovwLeaderboardResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/povw/epochs:
+    get:
+      tags:
+        - PoVW
+      summary: Get All Epochs Summary
+      description: Get a list of all epochs with summary statistics for each
+      operationId: getAllEpochsSummary
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpochsSummaryResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /v1/povw/epochs/{epoch}:
     get:
       tags:
         - PoVW
-      summary: Get PoVW by Epoch
-      description: Get PoVW rewards for a specific epoch
+      summary: Get Epoch Summary
+      description: Get summary statistics for a specific epoch
       operationId: getPovwByEpoch
       parameters:
         - $ref: '#/components/parameters/EpochParam'
@@ -184,6 +301,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PovwByEpochResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/povw/epochs/{epoch}/addresses:
+    get:
+      tags:
+        - PoVW
+      summary: Get Epoch PoVW Leaderboard
+      description: Get the PoVW leaderboard for a specific epoch
+      operationId: getEpochPovwLeaderboard
+      parameters:
+        - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PovwEpochResponse'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -219,6 +357,28 @@ paths:
                 $ref: '#/components/schemas/PovwByEpochResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/povw/epochs/{epoch}/addresses/{address}:
+    get:
+      tags:
+        - PoVW
+      summary: Get PoVW by Address and Epoch
+      description: Get PoVW rewards for a specific work log ID at a specific epoch
+      operationId: getPovwByAddressAndEpoch
+      parameters:
+        - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/AddressParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PovwEntry'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
