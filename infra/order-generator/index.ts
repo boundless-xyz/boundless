@@ -157,6 +157,7 @@ export = () => {
   });
 
   const onchainConfig = new pulumi.Config("order-generator-onchain");
+  const onchainAutoDeposit = onchainConfig.get('AUTO_DEPOSIT');
   const onchainWarnBalanceBelow = onchainConfig.get('WARN_BALANCE_BELOW');
   const onchainErrorBalanceBelow = onchainConfig.get('ERROR_BALANCE_BELOW');
   const onchainPrivateKey = isDev ? pulumi.output(getEnvVar("ONCHAIN_PRIVATE_KEY")) : onchainConfig.requireSecret('PRIVATE_KEY');
@@ -171,6 +172,7 @@ export = () => {
   new OrderGenerator('onchain', {
     chainId,
     stackName,
+    autoDeposit: onchainAutoDeposit,
     warnBalanceBelow: onchainWarnBalanceBelow,
     errorBalanceBelow: onchainErrorBalanceBelow,
     privateKey: onchainPrivateKey,

@@ -310,36 +310,33 @@ async fn handle_request(
 
     let submit_offchain = args.submit_offchain;
 
-    // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
-    // in the submitRequest call.
-    if submit_offchain {
-        if let Some(auto_deposit) = args.auto_deposit {
-            let market = client.boundless_market.clone();
-            let caller = client.caller();
-            let balance = market.balance_of(caller).await?;
+    // Check balance and auto-deposit if needed for both onchain and offchain submissions
+    if let Some(auto_deposit) = args.auto_deposit {
+        let market = client.boundless_market.clone();
+        let caller = client.caller();
+        let balance = market.balance_of(caller).await?;
+        tracing::info!(
+            "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
+            caller,
+            format_units(balance, "ether")?,
+            client.deployment.boundless_market_address,
+            format_units(auto_deposit, "ether")?
+        );
+        if balance < auto_deposit {
             tracing::info!(
-                "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
-                caller,
+                "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
                 format_units(balance, "ether")?,
-                client.deployment.boundless_market_address,
                 format_units(auto_deposit, "ether")?
             );
-            if balance < auto_deposit {
-                tracing::info!(
-                    "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
-                    format_units(balance, "ether")?,
-                    format_units(auto_deposit, "ether")?
-                );
-                match market.deposit(auto_deposit).await {
-                    Ok(_) => {
-                        tracing::info!(
-                            "Successfully deposited {} ETH",
-                            format_units(auto_deposit, "ether")?
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to auto deposit ETH: {e:?}");
-                    }
+            match market.deposit(auto_deposit).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Successfully deposited {} ETH",
+                        format_units(auto_deposit, "ether")?
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to auto deposit ETH: {e:?}");
                 }
             }
         }

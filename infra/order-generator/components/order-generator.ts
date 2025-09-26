@@ -32,6 +32,7 @@ interface OrderGeneratorArgs {
     autoDeposit: string;
     orderStreamUrl: pulumi.Output<string>;
   };
+  autoDeposit?: string;
   warnBalanceBelow?: string;
   errorBalanceBelow?: string;
   txTimeout: string;
@@ -154,6 +155,11 @@ export class OrderGenerator extends pulumi.ComponentResource {
       secrets.push({
         name: 'ORDER_STREAM_URL',
         valueFrom: orderStreamUrlSecret.arn,
+      });
+    } else if (args.autoDeposit) {
+      environment.push({
+        name: 'AUTO_DEPOSIT',
+        value: args.autoDeposit,
       });
     };
 
