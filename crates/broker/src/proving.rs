@@ -347,7 +347,78 @@ impl ProvingService {
                     proof_retry_count
                 );
 
-                handle_order_failure(&self.db, &order_id, "Proving failed").await;
+                let err_str = format!("{err:?}");
+                if err_str.contains("[B-BON-005] Prover failure: SessionId") {
+                    if let Some(job_id) = order.proof_id.clone() {
+                        tracing::warn!("[auto-reset] Detected prover failure [B-BON-005], resetting order {order_id} job {job_id}");
+                        if let Err(e) = self.db.reset_order(&order_id).await {
+                            tracing::error!(
+                                "[auto-reset] Failed to reset order {order_id} with job {job_id}: {:?}",
+                                e
+                            );
+                        }
+                    } else {
+                        tracing::warn!("[auto-reset] Prover failure triggered but no proof_id present for order {order_id}");
+                    }
+                } else if err_str.contains("[B-TASK-EOF]") {
+                    use std::collections::hash_map::Entry;
+                    use tokio::time::{sleep, Duration};
+                    static MAX_SEGMENT_RETRIES: usize = 3;
+
+                    thread_local! {
+                        static SEGMENT_RETRY_MAP: std::cell::RefCell<std::collections::HashMap<String, usize>> =
+                            std::cell::RefCell::new(std::collections::HashMap::new());
+                    }
+
+                    if let Some(job_id) = order.proof_id.clone() {
+                        let mut exceeded = false;
+                        SEGMENT_RETRY_MAP.with(|map| {
+                            let mut map = map.borrow_mut();
+                            match map.entry(format!("{order_id}:{job_id}")) {
+                                Entry::Occupied(mut e) => {
+                                    let count = e.get_mut();
+                                    *count += 1;
+                                    if *count > MAX_SEGMENT_RETRIES {
+                                        exceeded = true;
+                                        e.remove();
+                                    }
+                                }
+                                Entry::Vacant(v) => {
+                                    v.insert(1);
+                                }
+                            }
+                        });
+
+                        if exceeded {
+                            tracing::warn!(
+                                "[segment-retry] Order {order_id}, job {job_id} exceeded {MAX_SEGMENT_RETRIES} retries — escalating to full reset"
+                            );
+                            if let Err(e) = self.db.reset_order(&order_id).await {
+                                tracing::error!(
+                                    "[segment-retry] Failed to reset order {order_id} after exceeded retries: {:?}",
+                                    e
+                                );
+                            }
+                        } else {
+                            tracing::warn!(
+                                "[segment-retry] Detected corrupted segment data for order {order_id}, job {job_id}. Retrying failed task (attempt <= {MAX_SEGMENT_RETRIES})"
+                            );
+                            sleep(Duration::from_secs(2)).await;
+                            if let Err(e) = self.db.retry_corrupted_task(&job_id).await {
+                                tracing::error!(
+                                    "[segment-retry] Failed to retry corrupted segment for job {job_id}: {:?}",
+                                    e
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            "[segment-retry] Corrupted task marker detected but no proof_id/job_id present for order {order_id}"
+                        );
+                    }
+                } else {
+                    handle_order_failure(&self.db, &order_id, "Proving failed").await;
+                }
             }
         }
     }
