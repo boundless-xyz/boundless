@@ -1,0 +1,84 @@
+# Mining + Claiming Rewards
+
+## Overview
+
+The following diagram illustrates the overall mining workflow, including claiming rewards:
+
+![Reward Claim Flow](/reward_claim_flow.png)
+
+For more information on recommended wallet practices, please see [Wallet Setup](/zkc/mining/wallet-setup).
+
+## Mining Guide
+
+::::steps
+
+### Enable ZK mining within Bento
+
+Please see [How to enable ZK Mining](/zkc/mining/quick-start#how-to-enable-zk-mining). 
+
+### Start Proving
+
+Provers are now ready to run proving workloads with ZK mining enabled; this can be done by [running a prover](/provers/quick-start) on the Boundless marketplace or elsewhere.
+
+For each proving job, R0VM will automatically generate work proofs. These work proofs track the total amount of proving work done (in cycles). Each epoch, provers will need to submit their accumulated work to the PoVW accounting smart contract. To do this, provers must use the Boundless PoVW CLI and run the following three commands, `prepare`, `submit` and `claim`.
+
+### Create and Update the State File
+
+Once provers have run some jobs, they can create a new "state" file from work proofs stored in Bento using `prepare`:
+
+```bash
+boundless povw prepare --new ${REWARD_ADDRESS} --state ${STATE_FILE_LOCATION} --from-bento
+```
+
+where `${STATE_FILE_LOCATION}` is something like: `~/folder/state.bin`. 
+
+`prepare` aggregates all work proofs and stores the combined proof to the state file. This process is entirely local (i.e. it does not send any transaction). This state file keeps track of all work done so far for one reward address. Each reward address should have *exactly* one state file associated with it. 
+
+:::warning
+Please note that this state file is *very important* and it should be kept in a durable location. Loss of this state file *will result* in the loss of all work that is not submitted** for the respective rewards address, meaning rewards for any work done since the last work log update (via `submit`) **will be lost**. In this scenario, a new rewards address must be specified for Bento, and Bento should be restarted to allow further work to be recorded properly against the new rewards address. *To avoid this scenario, it is recommended to store the state file in a durable location.*
+
+:::
+
+Provers only specify the `--new ${REWARD_ADDRESS}` flag once, this is necessary to create the state file for that specific rewards address. Once the state file is created, provers can run `prepare` and use the state file like so:
+
+```bash
+boundless povw prepare --state ${STATE_FILE_LOCATION} --from-bento
+```
+
+### Send the aggregated work proof onchain
+
+After running `prepare`, provers are ready to submit onchain with:
+
+```bash
+boundless povw submit --state ${STATE_FILE_LOCATION} --rpc-url ${RPC_URL}
+```
+
+::::
+
+## Claiming Rewards
+
+:::tip
+Claiming mining rewards requires *both* a valid archive node RPC endpoint and a Beacon Chain RPC endpoint. 
+
+In our testing, the Alchemy free RPC plan in combination with the public beacon chain API URL (`https://ethereum-beacon-api.publicnode.com/`) works for claiming rewards. Quicknode works for the beacon chain endpoint, but both free and paid Quicknode RPC endpoints are not recommended for `claim` as it commonly errors with request rate limits. 
+:::
+
+After the reward epoch has finalized, rewards can be claimed with:
+
+```bash
+boundless povw claim --reward-address ${REWARD_ADDRESS} --beacon-api-url${BEACON_CHAIN_RPC_ENDPOINT} --rpc-url ${RPC_URL}
+```
+
+### Checking Details of Current Reward Epoch
+
+If the reward epoch has not been finalized yet, provers can check details of the the current epoch:
+
+```bash
+boundless zkc get-current-epoch
+```
+
+This will return the epoch number; this epoch number can be passed into the following command to get the end time for the current epoch:
+
+```bash
+boundless zkc get-epoch-end-time <EPOCH_NUMBER>
+```

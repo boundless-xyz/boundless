@@ -1,0 +1,54 @@
+# Wallet Setup
+
+## Overview
+
+To [enable ZK mining](/zkc/mining/quick-start#how-to-enable-zk-mining), the prover specifies the reward address which must be a valid Ethereum address. This address *does not* have to be the same as the *$ZKC* staking wallet address or a Boundless prover address, though it can be used for all three purposes. 
+
+Note that mining rewards are eligible for *all verifiable work*, not solely work done to prove Boundless market orders. Therefore, provers not connected to the Boundless market are still eligible for *$ZKC* rewards, provided they are proving during the epoch and they have staked *$ZKC*.
+
+The following diagram illustrates a typical wallet setup when ZK mining and/or running a Boundless prover: 
+
+![Wallet Setup](/boundless_wallet_setup.png)
+
+## Separating the Staking Wallet from the Rewards Address
+
+When [enabling ZK mining](/zkc/mining/quick-start#how-to-enable-zk-mining), provers specify the following environment variables:
+
+```bash
+export REWARD_ADDRESS="0x0000...0000"
+export REWARD_ADDRESS_PRIVATE_KEY="..."
+```
+
+To stake from a separate wallet, provers may additionally specify:
+
+```bash
+export ZKC_WALLET_ADDRESS="0x0000...0000"
+export PRIVATE_KEY="..."
+```
+
+Provers can now follow the [staking instructions](/zkc/quick-start#how-to-stake-zkc) to stake $ZKC from the `ZKC_WALLET_ADDRESS`. Once staked, provers must delegate rewards i.e. associate the `REWARD_ADDRESS` with `ZKC_WALLET_ADDRESS`. This is done with the following command:
+
+```bash
+boundless zkc delegate-rewards ${REWARD_ADDRESS}
+```
+
+This command uses the `PRIVATE_KEY` environment variable to send a transaction onchain, therefore funds are required on `ZKC_WALLET_ADDRESS`.
+
+Once the rewards are delegated, the prover can continue and they can start proving as normal.
+
+## Separating the Staking Wallet from the Value Recipient
+
+Additionally, the prover can specify a separate Ethereum address to receive the $ZKC reward. By default this is the rewards address, but you can override it with `--value-recipient <address>` when running `submit`.
+
+## What about my Boundless prover address?
+
+Since many Boundless provers run clusters on hosted cloud providers, and because the private key must be in plaintext when starting the broker, the security of this wallet depends on your trust in the cloud provider. Therefore, for provers running large proving/ZK-mining clusters with large expected $ZKC reward amounts, it is not recommended to use your Boundless proving address as the value recipient. If the key is compromised, this can lead to a loss of rewards and require new wallet setup to resume proving.
+
+At the minimum, we recommend most provers separate their value recipient address, such that:
+
+* Boundless Prover Address + Rewards Address can be the same
+* Value Recipient is a separate address
+
+This setup allows the proving cluster to prove orders on the Boundless market and generate and post work log updates onchain to be eligible for rewards. It also means that after running `claim`, the reward $ZKC is transferred to a separate address. Claiming rewards is a permissionless process and does not require access to the private key for the rewards address.
+
+

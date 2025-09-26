@@ -221,26 +221,26 @@ const SIDEBAR_ITEMS = [
         link: "/zkc/quick-start"
       },
       {
-        text: "$ZKC as Proving Collateral",
-        link: "/zkc/proving-collateral"
-      },
-      {
         text: "ZK Mining",
-        link: "/zkc/povw/quick-start",
+        link: "/zkc/mining/quick-start",
         items: [
           {
             text: "Quick Start",
-            link: "/zkc/povw/quick-start",
+            link: "/zkc/mining/quick-start",
           },
           {
-            text: "How does PoVW work?",
-            link: "/zkc/povw/povw-101",
+            text: "Wallet Setup",
+            link: "/zkc/mining/wallet-setup",
           },
           {
-            text: "Claiming Rewards",
-            link: "/zkc/povw/claiming-rewards",
+            text: "Mining + Claiming Rewards",
+            link: "/zkc/mining/claiming-rewards",
           }
         ],
+      },
+      {
+        text: "$ZKC as Proving Collateral",
+        link: "/zkc/proving-collateral"
       },
       {
         text: "Token Source Code & Docs",

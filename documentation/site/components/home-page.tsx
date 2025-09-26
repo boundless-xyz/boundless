@@ -100,10 +100,10 @@ export default function HomePage() {
               $ZKC
             </a>
             <a
-              href="/zkc/povw/quick-start"
+              href="/zkc/mining/quick-start"
               className="rounded-lg border border-neutral-400 px-4 py-1 font-bold text-[20px] hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
             >
-              PoVW
+              ZK Mining
             </a>
           </div>
         </div>

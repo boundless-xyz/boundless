@@ -8,11 +8,13 @@
 
 By staking *$ZKC*, token holders are directly contributing to the Boundless protocol. The protocol rewards stakers with staking rewards, governance voting power, and *most importantly* eligibility for mining rewards. 
 
-![ZKC Flowchart](/stake_ZKC.png)
-
 ### Staking *$ZKC* to earn Mining Rewards 
 
-Proof-of-Verifiable-Work (PoVW), a novel invention within Boundless, is a permissionless incentive mechanism which enables provers to be rewarded in *$ZKC* in exchange for their proving work on the Boundless marketplace or elsewhere. This process is known as ZK mining; mining rewards are ONLY available to those who stake *$ZKC*.
+Proof-of-Verifiable-Work (PoVW), a novel invention within Boundless, is a permissionless incentive mechanism which enables provers to be rewarded in *$ZKC* in exchange for their proving work on the Boundless marketplace or elsewhere. This process is known as *ZK Mining*; mining rewards are ONLY available to those who stake *$ZKC*. 
+
+To get started with ZK Mining, see the [ZK Mining Quick Start](/zkc/mining/quick-start).
+
+
 
 ## How to Stake *$ZKC*?
 
@@ -33,9 +35,15 @@ To claim available staking rewards, click "Claim" in the Rewards section of the 
 The [Boundless CLI](/developers/tooling/cli#installation) has a suite of commands that deal with staking; to see a full list run:
 
 ```bash
-boundless zkc --h
+boundless zkc --help
+```
 
 To stake $ZKC using the Boundless CLI (make sure to have [Foundry](https://getfoundry.sh/introduction/installation/) installed for `cast`), first make sure to export the corresponding `PRIVATE_KEY` variable, and a valid `RPC_URL` endpoint for Ethereum mainnet:
+
+```bash
+export PRIVATE_KEY=[PRIVATE_KEY]
+export RPC_URL=[RPC_URL]
+```
 
 To stake *$ZKC*, run:
 
@@ -46,8 +54,10 @@ boundless zkc stake --amount $(cast parse-units 100 18)
 To claim staking rewards, run:
 
 ```bash
-boundless zkc claim-rewards --private-key <PRIVATE_KEY> --rpc-url <RPC_URL>
+boundless zkc claim --private-key <PRIVATE_KEY> --rpc-url <RPC_URL>
 ```
+
+where `<PRIVATE_KEY>` is the private key for the *reward address*.
 
 ## How do *$ZKC* Rewards work?
 
@@ -83,7 +93,7 @@ The easiest way to understand staking rewards is to walk through a concrete exam
 ### Mining Rewards
 
 :::tip
-If you're interested in earning mining rewards, after reading the section below, please head over to [PoVW Quick Start](/zkc/povw/quick-start).
+If you're interested in earning mining rewards, after reading the section below, please head over to [PoVW Quick Start](/zkc/mining/quick-start).
 :::
 
 For the purposes of this section, "miner" will be used to refer to somebody who stakes *$ZKC* and submits valid work regularly. This term could be used interchangebly with prover, which is used commonly throughout the Boundless docs.
@@ -115,7 +125,7 @@ Multiple stake positions, across different wallets, can delegate their rewards t
 
 A crucial part of *$ZKC* is the ability to delegate rewards, which delegates BOTH staking and mining rewards, to another address (known as the *delegatee*). In practice, this means that *only* the delegatee is able to claim staking and mining rewards on behalf of the total of all active stake positions delegated to that address. 
 
-For mining rewards, delegation is a recommended practice as it allows for separation between the wallet that stakes *$ZKC* and the wallet specified in Bento in work proofs as the `REWARDS_ADDRESS`. For more information, please see [PoVW Quick Start](/zkc/povw/quick-start).
+For mining rewards, delegation is a recommended practice as it allows for separation between the wallet that stakes *$ZKC* and the wallet specified in Bento in work proofs as the `REWARDS_ADDRESS`. For more information, please see [PoVW Quick Start](/zkc/mining/quick-start).
 
 To delegate rewards, the only recommended way is to use the Boundless CLI, specifically:
 

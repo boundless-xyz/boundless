@@ -125,7 +125,13 @@ cargo install --locked --git https://github.com/boundless-xyz/boundless boundles
 
 ### Deposit Collateral
 
-With the environment variables set, you can now deposit ZKC tokens as collateral to your account balance:
+:::warning
+*$ZKC* is only on Ethereum mainnet. 
+
+Therefore, to use *$ZKC* as proving collateral, provers have to first [bridge *$ZKC*](/zkc/proving-collateral) from Ethereum mainnet to Base mainnet. 
+:::
+
+With the environment variables set, you can now deposit *$ZKC* tokens as collateral to your account balance:
 
 ```bash [Terminal]
 boundless account deposit-collateral 10
