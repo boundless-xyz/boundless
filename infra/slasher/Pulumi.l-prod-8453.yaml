@@ -15,7 +15,7 @@ config:
   slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   slasher:PRIVATE_KEY:
     secure: v1:DzP1HFrzfw+86hhh:vX2duZPa5SwCZq7hhtDI9LljCYuQVIapi1GGe7htC9Psqh63ku5/C0xoBUKc9DkbuCwmDHoZEBsL1oPykGdEL2kCoXJLzRlCYq64qy3ePrg=
-  slasher:RETRIES: "5"
+  slasher:RETRIES: "3"
   slasher:SKIP_ADDRESSES: ""
   slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   slasher:TX_TIMEOUT: "60"

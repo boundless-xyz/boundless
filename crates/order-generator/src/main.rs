@@ -87,6 +87,9 @@ struct MainArgs {
     /// Additional time in seconds to add to the timeout for each 1M cycles.
     #[clap(long, default_value = "20")]
     seconds_per_mcycle: u32,
+    /// Additional time in seconds to add to the ramp-up period for each 1M cycles.
+    #[clap(long, default_value = "20")]
+    ramp_up_seconds_per_mcycle: u32,
     /// Execution rate in kHz for calculating bidding start delays.
     /// Default is 2000 kHz (2 MHz).
     #[clap(long, default_value = "2000", env)]
@@ -234,8 +237,21 @@ async fn handle_request(
     // Use the input directly as the estimated cycle count, since we are using a loop program.
     let m_cycles = input >> 20;
     let seconds_for_mcycles = args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-    let ramp_up = args.ramp_up + seconds_for_mcycles;
+    let ramp_up_seconds_for_mcycles =
+        args.ramp_up_seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    let ramp_up = args.ramp_up + ramp_up_seconds_for_mcycles;
     let lock_timeout = args.lock_timeout + seconds_for_mcycles;
+    tracing::debug!(
+        "m_cycles: {}, seconds_for_mcycles: {}, ramp_up [{} + {}]: {}, lock_timeout [{} + {}]: {}",
+        m_cycles,
+        seconds_for_mcycles,
+        args.ramp_up,
+        ramp_up_seconds_for_mcycles,
+        ramp_up,
+        args.lock_timeout,
+        seconds_for_mcycles,
+        lock_timeout
+    );
     // Give equal time for provers that are fulfilling after lock expiry to prove.
     let timeout: u32 = args.timeout + lock_timeout + seconds_for_mcycles;
 
@@ -381,6 +397,7 @@ mod tests {
             timeout: 1000,
             lock_timeout: 1000,
             seconds_per_mcycle: 60,
+            ramp_up_seconds_per_mcycle: 60,
             exec_rate_khz: 5000,
             program: Some(LOOP_PATH.parse().unwrap()),
             input: None,

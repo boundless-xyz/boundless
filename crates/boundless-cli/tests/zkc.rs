@@ -61,12 +61,12 @@ async fn test_stake_unstake() -> anyhow::Result<()> {
 
     // Fund the user
     let amount = U256::from(1_000_000_000);
-    let stake_amount = U256::from(500_000_000);
+    let stake_amount = format_ether(U256::from(500_000_000));
     ctx.zkc.initialMint(vec![user.address()], vec![amount]).send().await?.watch().await?;
 
     // Run stake
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["zkc", "stake", "--amount", stake_amount.to_string().as_str()])
+    cmd.args(["zkc", "stake", "--amount", &stake_amount])
         .env("ZKC_ADDRESS", format!("{:#x}", ctx.deployment.zkc_address))
         .env("VEZKC_ADDRESS", format!("{:#x}", ctx.deployment.vezkc_address))
         .env("STAKING_REWARDS_ADDRESS", format!("{:#x}", ctx.deployment.staking_rewards_address))
@@ -74,13 +74,14 @@ async fn test_stake_unstake() -> anyhow::Result<()> {
         .env("PRIVATE_KEY", &user_private_key)
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
+        .write_stdin("yes\n")
         .assert()
         .success()
-        .stdout(contains(format_ether(stake_amount)));
+        .stdout(contains(&stake_amount));
 
     // Run stake again
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["zkc", "stake", "--amount", stake_amount.to_string().as_str()])
+    cmd.args(["zkc", "stake", "--amount", &stake_amount])
         .env("ZKC_ADDRESS", format!("{:#x}", ctx.deployment.zkc_address))
         .env("VEZKC_ADDRESS", format!("{:#x}", ctx.deployment.vezkc_address))
         .env("STAKING_REWARDS_ADDRESS", format!("{:#x}", ctx.deployment.staking_rewards_address))
@@ -90,7 +91,7 @@ async fn test_stake_unstake() -> anyhow::Result<()> {
         .env("RUST_LOG", "boundless_cli=debug,info")
         .assert()
         .success()
-        .stdout(contains(format_ether(stake_amount)));
+        .stdout(contains(&stake_amount));
 
     // Run get staked amount
     let mut cmd = Command::cargo_bin("boundless")?;
@@ -115,6 +116,7 @@ async fn test_stake_unstake() -> anyhow::Result<()> {
         .env("PRIVATE_KEY", &user_private_key)
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
+        .write_stdin("yes\n")
         .assert()
         .success()
         .stdout(contains("Unstaking completed"));
@@ -148,12 +150,12 @@ async fn test_delegate_rewards() -> anyhow::Result<()> {
 
     // Fund the user
     let amount = U256::from(1_000_000_000);
-    let stake_amount = U256::from(500_000_000);
+    let stake_amount = format_ether(U256::from(500_000_000));
     ctx.zkc.initialMint(vec![user.address()], vec![amount]).send().await?.watch().await?;
 
     // Run stake
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["zkc", "stake", "--amount", stake_amount.to_string().as_str()])
+    cmd.args(["zkc", "stake", "--amount", &stake_amount])
         .env("ZKC_ADDRESS", format!("{:#x}", ctx.deployment.zkc_address))
         .env("VEZKC_ADDRESS", format!("{:#x}", ctx.deployment.vezkc_address))
         .env("STAKING_REWARDS_ADDRESS", format!("{:#x}", ctx.deployment.staking_rewards_address))
@@ -161,9 +163,10 @@ async fn test_delegate_rewards() -> anyhow::Result<()> {
         .env("PRIVATE_KEY", &user_private_key)
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
+        .write_stdin("yes\n")
         .assert()
         .success()
-        .stdout(contains(format_ether(stake_amount)));
+        .stdout(contains(&stake_amount));
 
     // Run delegate rewards
     let mut cmd = Command::cargo_bin("boundless")?;

@@ -156,12 +156,12 @@ enum AccountCommands {
     },
     /// Deposit collateral funds into the market
     DepositCollateral {
-        /// Amount to deposit in HP or USDC based on the chain ID.
+        /// Amount to deposit in ZKC.
         amount: String,
     },
     /// Withdraw collateral funds from the market
     WithdrawCollateral {
-        /// Amount to withdraw in HP or USDC based on the chain ID.
+        /// Amount to withdraw in ZKC.
         amount: String,
     },
     /// Check the collateral balance of an account in the market
@@ -574,7 +574,7 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             let balance = client.boundless_market.balance_of_collateral(addr).await?;
             let balance = format_units(balance, decimals)
                 .map_err(|e| anyhow!("Failed to format collateral balance: {}", e))?;
-            tracing::info!("Stake balance for address {}: {} {}", addr, balance, symbol);
+            tracing::info!("Collateral balance for address {}: {} {}", addr, balance, symbol);
             Ok(())
         }
     }
@@ -1616,7 +1616,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_deposit_withdraw_stake() {
+    async fn test_deposit_withdraw_collateral() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Prover).await;
 
         let mut args = MainArgs {
@@ -1649,7 +1649,7 @@ mod tests {
             ctx.prover_signer.address()
         )));
         assert!(logs_contain(&format!(
-            "Stake balance for address {}: {} HP",
+            "Collateral balance for address {}: {} HP",
             ctx.prover_signer.address(),
             format_units(default_allowance(), "ether").unwrap()
         )));
@@ -1700,7 +1700,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_fail_deposit_withdraw_stake() {
+    async fn test_fail_deposit_withdraw_collateral() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         let mut args = MainArgs {

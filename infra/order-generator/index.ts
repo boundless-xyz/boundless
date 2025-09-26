@@ -119,6 +119,7 @@ export = () => {
   const offchainLockTimeout = offchainConfig.get('LOCK_TIMEOUT');
   const offchainTimeout = offchainConfig.get('TIMEOUT');
   const offchainSecondsPerMCycle = offchainConfig.get('SECONDS_PER_MCYCLE');
+  const offchainRampUpSecondsPerMCycle = offchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const offchainInterval = offchainConfig.get('INTERVAL');
   const offchainExecRateKhz = offchainConfig.get('EXEC_RATE_KHZ');
   new OrderGenerator('offchain', {
@@ -148,6 +149,7 @@ export = () => {
     txTimeout,
     inputMaxMCycles: offchainInputMaxMCycles,
     rampUp: offchainRampUp,
+    rampUpSecondsPerMCycle: offchainRampUpSecondsPerMCycle,
     lockTimeout: offchainLockTimeout,
     timeout: offchainTimeout,
     secondsPerMCycle: offchainSecondsPerMCycle,
@@ -163,6 +165,7 @@ export = () => {
   const onchainLockTimeout = onchainConfig.get('LOCK_TIMEOUT');
   const onchainTimeout = onchainConfig.get('TIMEOUT');
   const onchainSecondsPerMCycle = onchainConfig.get('SECONDS_PER_MCYCLE');
+  const onchainRampUpSecondsPerMCycle = onchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const onchainInterval = onchainConfig.get('INTERVAL');
   const onchainExecRateKhz = onchainConfig.get('EXEC_RATE_KHZ');
   new OrderGenerator('onchain', {
@@ -185,6 +188,7 @@ export = () => {
     minPricePerMCycle,
     maxPricePerMCycle,
     secondsPerMCycle: onchainSecondsPerMCycle,
+    rampUpSecondsPerMCycle: onchainRampUpSecondsPerMCycle,
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArns: alertsTopicArns,

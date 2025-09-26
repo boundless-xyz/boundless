@@ -40,12 +40,10 @@ pub struct ZkcDelegateRewards {
 impl ZkcDelegateRewards {
     /// Run the [DelegateRewards] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
@@ -57,6 +55,13 @@ impl ZkcDelegateRewards {
             print_calldata(&deployment, self.to);
             return Ok(());
         }
+
+        let tx_signer = global_config.require_private_key()?;
+        let provider = ProviderBuilder::new()
+            .wallet(tx_signer.clone())
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
         let rewards = IRewards::new(deployment.vezkc_address, provider.clone());
 
