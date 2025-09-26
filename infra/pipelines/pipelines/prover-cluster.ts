@@ -36,7 +36,6 @@ phases:
       - curl -fsSL https://get.pulumi.com/ | sh
       - export PATH=$PATH:$HOME/.pulumi/bin
       - pulumi login --non-interactive "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
-      - git submodule update --init --recursive
       - cd infra/prover-cluster
       - pulumi install
       - pulumi stack select $STACK_NAME

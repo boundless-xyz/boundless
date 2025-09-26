@@ -21,7 +21,7 @@ config:
   prover-cluster:ethRpcUrl:
     secure: v1:lFT0b4jaqt9DTTz8:QUmzfFkJTx753kerYTsYteef43jKTjRsk4GUjgW2vfV41yRzarZ1YVGFJ3QyXfmC8fsfTezQ7JwcEFdprqmkkTu+NaN9wrkb2aZsEdwahxxEIuLUD+DMR1vSO7IgVbd3MmunrP2Dm7ufmVlbzhsTXQ==
   prover-cluster:orderStreamUrl: "https://testnet.boundless.network/"
-  prover-cluster:verifyAddress: "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+  prover-cluster:verifierAddress: "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
   prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
   prover-cluster:boundlessMarketAddress: "0x7abb16522f4599481361d318b765af988bfcca8e"
   prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
