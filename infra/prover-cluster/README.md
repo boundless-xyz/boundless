@@ -5,6 +5,7 @@ This directory contains the Pulumi infrastructure code for deploying a Boundless
 ## Architecture
 
 The cluster consists of:
+
 - **1 Manager Node**: Runs PostgreSQL, Redis, API, Executor, Aux, and Broker services
 - **Auto Scaling Group of Prover Nodes**: Run the Bento prover agents (g6.xlarge instances) with automatic scaling
 
@@ -31,6 +32,7 @@ The cloud-init configurations are now separated into template files for better r
 ## Configuration
 
 Edit `Pulumi.dev.yaml` to configure:
+
 - Prover count (desired capacity)
 - Min/max prover counts for auto scaling
 - Database credentials
@@ -61,6 +63,7 @@ Edit `Pulumi.dev.yaml` to configure:
 ## Management
 
 ### Check Instance Status
+
 ```bash
 # Check manager instance
 aws ec2 describe-instances \
@@ -82,6 +85,7 @@ aws autoscaling describe-auto-scaling-groups \
 ```
 
 ### Connect to Instances
+
 ```bash
 # Manager
 aws ssm start-session --target <manager-instance-id>
@@ -94,6 +98,7 @@ aws autoscaling describe-auto-scaling-groups \
 ```
 
 ### Check Services
+
 ```bash
 # On manager
 sudo systemctl status boundless-api.service bento-executor.service bento-aux.service boundless-broker.service
@@ -129,6 +134,7 @@ sudo systemctl status bento-prover.service
 3. **SSM Access**: Verify security group allows outbound HTTPS traffic
 
 ### Logs
+
 ```bash
 # Service logs
 journalctl -u bento-aux.service -f

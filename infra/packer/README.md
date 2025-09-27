@@ -5,6 +5,7 @@ This directory contains Packer configurations for building Amazon Machine Images
 ## Overview
 
 The Packer setup provides:
+
 - **Unified AMI builds**: Single AMI for both manager and prover nodes
 - **Cross-account sharing**: AMIs automatically shared with service accounts
 - **Version control**: Independent versioning for Bento and Broker components
@@ -34,13 +35,13 @@ packer/
 ## AMI Configuration
 
 ### **Unified AMI** (`bento.pkr.hcl`)
+
 - **Purpose**: General-purpose AMI for both manager and prover nodes
 - **Instance Type**: Configurable (default: c7a.4xlarge)
 - **Services**: All Bento services (API, Broker, Executor, Aux, Prover)
 - **GPU**: Optional, based on instance type
 - **Logging**: Vector configured for CloudWatch log forwarding
 - **Base Image**: Ubuntu 24.04 with NVIDIA drivers
-
 
 ## Usage
 
@@ -82,14 +83,14 @@ packer/
 
 ### **Variables**
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `aws_region` | AWS region for AMI build | `us-west-2` |
-| `instance_type` | Instance type for build | `c7a.4xlarge` |
-| `boundless_bento_version` | Bento version to install | `1.0.1` |
-| `boundless_broker_version` | Broker version to install | `v1.0.0` |
-| `service_account_ids` | Account IDs to share AMI with | `[]` |
-| `environment` | Environment name for tagging | `production` |
+| Variable                   | Description                   | Default       |
+| -------------------------- | ----------------------------- | ------------- |
+| `aws_region`               | AWS region for AMI build      | `us-west-2`   |
+| `instance_type`            | Instance type for build       | `c7a.4xlarge` |
+| `boundless_bento_version`  | Bento version to install      | `1.0.1`       |
+| `boundless_broker_version` | Broker version to install     | `v1.0.0`      |
+| `service_account_ids`      | Account IDs to share AMI with | `[]`          |
+| `environment`              | Environment name for tagging  | `production`  |
 
 ### **Environment-Specific Configuration**
 
@@ -121,11 +122,13 @@ packer build \
 ## AMI Sharing
 
 ### **Automatic Sharing**
+
 - AMIs are automatically shared with service accounts after build
 - Lambda function handles cross-account sharing
 - EventBridge triggers sharing on successful build
 
 ### **Manual Sharing**
+
 ```bash
 # Share AMI with specific accounts
 aws ec2 modify-image-attribute \
@@ -137,6 +140,7 @@ aws ec2 modify-image-attribute \
 ## AMI Contents
 
 ### **Pre-installed Components**
+
 - **Bento Services**: API, Broker, Executor, Aux, Prover
 - **NVIDIA Drivers**: CUDA 13.0 toolkit
 - **RISC0**: Groth16 prover support
@@ -144,6 +148,7 @@ aws ec2 modify-image-attribute \
 - **AWS Tools**: CLI v2, SSM Agent, CloudWatch Agent
 
 ### **Logging Configuration**
+
 - **Vector**: Configured to forward logs to CloudWatch
 - **Destination**: `/boundless/bento` log group
 - **Streams**: Daily rotation with format `%Y-%m-%d`
@@ -184,6 +189,7 @@ aws ec2 modify-image-attribute \
 ## Security
 
 ### **AMI Security**
+
 - **Encryption**: AMIs encrypted at rest
 - **Sharing**: Only shared with authorized accounts
 - **Tags**: Proper tagging for compliance and tracking
@@ -191,6 +197,7 @@ aws ec2 modify-image-attribute \
 ## Contributing
 
 When making changes:
+
 1. Test locally first
 2. Update documentation
 3. Use meaningful commit messages
