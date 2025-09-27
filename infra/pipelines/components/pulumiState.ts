@@ -88,7 +88,7 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
       }
     );
 
-    // Boundless Pulumi backend state bucket. Used by all pipelines and staging/prod 
+    // Boundless Pulumi backend state bucket. Used by all pipelines and staging/prod
     // for tracking state for their deployments. Not used for local development.
     this.bucket = new aws.s3.BucketV2(
       'boundlessPulumiStateBucket',
@@ -106,10 +106,10 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
       "pulumiStateBucketSSEConfiguration", {
       bucket: this.bucket.id,
       rules: [{
-          applyServerSideEncryptionByDefault: {
-              kmsMasterKeyId: this.kmsKey.arn,
-              sseAlgorithm: "aws:kms",
-          },
+        applyServerSideEncryptionByDefault: {
+          kmsMasterKeyId: this.kmsKey.arn,
+          sseAlgorithm: "aws:kms",
+        },
       }],
     });
 
@@ -151,35 +151,35 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
     const bucketPolicy: aws.iam.PolicyDocument = {
       Version: "2012-10-17",
       Statement: [
-          {
-              "Effect": "Allow",
-              "Principal": {
-                  "AWS": args.readWriteStateBucketArns
-              },
-              "Action": [
-                  "s3:GetObject",
-                  "s3:ListBucket",
-                  "s3:PutObject",
-                  "s3:DeleteObject",
-              ],
-              "Resource": [
-                  pulumi.interpolate`${this.bucket.arn}`,
-                  pulumi.interpolate`${this.bucket.arn}/*`
-              ]
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "AWS": args.readWriteStateBucketArns
           },
-          {
-            "Effect": "Allow",
-            "Principal": {
-                "AWS": args.readOnlyStateBucketArns
-            },
-            "Action": [
-                "s3:GetObject",
-                "s3:ListBucket",
-            ],
-            "Resource": [
-                pulumi.interpolate`${this.bucket.arn}`,
-                pulumi.interpolate`${this.bucket.arn}/*`
-            ]
+          "Action": [
+            "s3:GetObject",
+            "s3:ListBucket",
+            "s3:PutObject",
+            "s3:DeleteObject",
+          ],
+          "Resource": [
+            pulumi.interpolate`${this.bucket.arn}`,
+            pulumi.interpolate`${this.bucket.arn}/*`
+          ]
+        },
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "AWS": args.readOnlyStateBucketArns
+          },
+          "Action": [
+            "s3:GetObject",
+            "s3:ListBucket",
+          ],
+          "Resource": [
+            pulumi.interpolate`${this.bucket.arn}`,
+            pulumi.interpolate`${this.bucket.arn}/*`
+          ]
         }
       ]
     };
