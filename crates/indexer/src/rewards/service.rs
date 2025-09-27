@@ -249,6 +249,7 @@ impl RewardsIndexerService {
                 .cloned()
                 .unwrap_or_else(|| {
                     // Create empty epoch if not found
+                    // For empty epochs, use reasonable defaults for times
                     boundless_rewards::EpochPoVWRewards {
                         epoch: U256::from(epoch),
                         total_work: U256::ZERO,
@@ -256,7 +257,7 @@ impl RewardsIndexerService {
                         total_capped_rewards: U256::ZERO,
                         total_proportional_rewards: U256::ZERO,
                         epoch_start_time: 0,
-                        epoch_end_time: u64::MAX,
+                        epoch_end_time: 0,
                         rewards_by_work_log_id: HashMap::new(),
                     }
                 });

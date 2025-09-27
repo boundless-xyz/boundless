@@ -1273,7 +1273,8 @@ impl RewardsIndexerDb for RewardsDb {
         end_epoch: Option<u64>,
     ) -> Result<Vec<StakingPositionByEpoch>, DbError> {
         let mut query = String::from(
-            "SELECT staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to
+            "SELECT staker_address, epoch, staked_amount, is_withdrawing,
+                    rewards_delegated_to, votes_delegated_to, rewards_generated
              FROM staking_positions_by_epoch
              WHERE staker_address = $1"
         );

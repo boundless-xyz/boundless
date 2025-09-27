@@ -7,10 +7,18 @@ set -e
 echo "=== Local Indexer Testing Script ==="
 echo ""
 
+# Load .env file if it exists
+if [ -f .env ]; then
+    echo "Loading environment variables from .env file..."
+    set -a
+    source .env
+    set +a
+fi
+
 # Configuration
 DB_PATH="local_test.db"
 DB_URL="sqlite:$DB_PATH"
-API_PORT=3000
+API_PORT=${PORT:-3005}
 
 # Ethereum mainnet configuration
 # Set ETH_RPC_URL environment variable before running this script
@@ -64,7 +72,7 @@ DATABASE_URL="$DB_URL" \
 VEZKC_ADDRESS="$VEZKC_ADDRESS" \
 ZKC_ADDRESS="$ZKC_ADDRESS" \
 POVW_ACCOUNTING_ADDRESS="$POVW_ACCOUNTING_ADDRESS" \
-RUST_LOG=info \
+RUST_LOG=debug \
 ../../../target/debug/rewards-indexer \
     --rpc-url "$RPC_URL" \
     --vezkc-address "$VEZKC_ADDRESS" \

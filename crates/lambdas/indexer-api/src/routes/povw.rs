@@ -249,7 +249,7 @@ async fn get_epoch_leaderboard_impl(
             let actual_str = reward.actual_rewards.to_string();
             let staked_str = reward.staked_amount.to_string();
             EpochLeaderboardEntry {
-                rank: params.offset + (index as u64) + 1,
+                rank: Some(params.offset + (index as u64) + 1),
                 work_log_id: format!("{:#x}", reward.work_log_id),
                 epoch: reward.epoch,
                 work_submitted: work_str.clone(),
@@ -319,7 +319,7 @@ async fn get_address_at_epoch_impl(
     let actual_str = reward.actual_rewards.to_string();
     let staked_str = reward.staked_amount.to_string();
     Ok(Some(EpochLeaderboardEntry {
-        rank: 0, // No rank for individual queries
+        rank: None, // No rank for individual queries
         work_log_id: format!("{:#x}", reward.work_log_id),
         epoch: reward.epoch,
         work_submitted: work_str.clone(),
@@ -456,18 +456,17 @@ async fn get_address_history_impl(
         vec![]
     };
 
-    // Convert to response format
+    // Convert to response format without rank (this is address history, not a leaderboard)
     let entries: Vec<EpochLeaderboardEntry> = paginated
         .into_iter()
-        .enumerate()
-        .map(|(index, reward)| {
+        .map(|reward| {
             let work_str = reward.work_submitted.to_string();
             let uncapped_str = reward.uncapped_rewards.to_string();
             let cap_str = reward.reward_cap.to_string();
             let actual_str = reward.actual_rewards.to_string();
             let staked_str = reward.staked_amount.to_string();
             EpochLeaderboardEntry {
-                rank: params.offset + (index as u64) + 1,
+                rank: None, // No rank for individual address history
                 work_log_id: format!("{:#x}", reward.work_log_id),
                 epoch: reward.epoch,
                 work_submitted: work_str.clone(),

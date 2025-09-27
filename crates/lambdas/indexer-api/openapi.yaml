@@ -79,7 +79,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StakingLeaderboardResponse'
+                $ref: '#/components/schemas/StakingAggregateResponse'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -141,7 +141,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StakingEpochResponse'
+                $ref: '#/components/schemas/StakingByEpochResponse'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -196,35 +196,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StakingPosition'
+                $ref: '#/components/schemas/StakingPositionByEpoch'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/staking/addresses/{address}/epochs/{epoch}:
-    get:
-      tags:
-        - Staking
-      summary: Get Staking by Address and Epoch
-      description: Get staking position for a specific address at a specific epoch
-      operationId: getStakingByAddressAndEpoch
-      parameters:
-        - $ref: '#/components/parameters/AddressParam'
-        - $ref: '#/components/parameters/EpochParam'
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StakingPositionByEpoch'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
   /v1/povw:
     get:
@@ -259,7 +236,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PovwLeaderboardResponse'
+                $ref: '#/components/schemas/PovwAggregateResponse'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -321,7 +298,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PovwEpochResponse'
+                $ref: '#/components/schemas/PovwByEpochResponse'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -376,35 +353,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PovwEntry'
+                $ref: '#/components/schemas/PovwRewardByEpoch'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/povw/addresses/{address}/epochs/{epoch}:
-    get:
-      tags:
-        - PoVW
-      summary: Get PoVW by Address and Epoch
-      description: Get PoVW rewards for a specific work log ID at a specific epoch
-      operationId: getPovwByAddressAndEpoch
-      parameters:
-        - $ref: '#/components/parameters/AddressParam'
-        - $ref: '#/components/parameters/EpochParam'
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PovwRewardByEpoch'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
   /v1/delegations/votes:
     get:
@@ -631,7 +585,7 @@ components:
       name: epoch
       in: path
       required: true
-      description: Epoch number (7-day period)
+      description: Epoch number (2-day period)
       schema:
         type: integer
         minimum: 0
@@ -890,6 +844,76 @@ components:
         pagination:
           $ref: '#/components/schemas/Pagination'
 
+    StakingEpochsSummaryResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/EpochStakingSummary'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    EpochStakingSummary:
+      type: object
+      required:
+        - epoch
+        - total_staked
+        - total_staked_formatted
+        - num_stakers
+        - num_withdrawing
+        - total_staking_emissions
+        - total_staking_emissions_formatted
+        - total_staking_power
+        - total_staking_power_formatted
+        - num_reward_recipients
+        - epoch_start_time
+        - epoch_end_time
+      properties:
+        epoch:
+          type: integer
+          description: Epoch number
+        total_staked:
+          type: string
+          description: Total amount staked in this epoch (in wei)
+        total_staked_formatted:
+          type: string
+          description: Total amount staked (human-readable)
+        num_stakers:
+          type: integer
+          description: Number of stakers in this epoch
+        num_withdrawing:
+          type: integer
+          description: Number of stakers withdrawing
+        total_staking_emissions:
+          type: string
+          description: Total staking emissions for this epoch (in wei)
+        total_staking_emissions_formatted:
+          type: string
+          description: Total staking emissions (human-readable)
+        total_staking_power:
+          type: string
+          description: Total staking power in this epoch (in wei)
+        total_staking_power_formatted:
+          type: string
+          description: Total staking power (human-readable)
+        num_reward_recipients:
+          type: integer
+          description: Number of unique reward recipients
+        epoch_start_time:
+          type: integer
+          description: Unix timestamp when epoch started
+        epoch_end_time:
+          type: integer
+          description: Unix timestamp when epoch ends
+        last_updated_at:
+          type: string
+          nullable: true
+          description: Last update timestamp
+
     PovwAggregateResponse:
       type: object
       required:
@@ -915,6 +939,76 @@ components:
             $ref: '#/components/schemas/PovwRewardByEpoch'
         pagination:
           $ref: '#/components/schemas/Pagination'
+
+    EpochsSummaryResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/EpochPoVWSummary'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    EpochPoVWSummary:
+      type: object
+      required:
+        - epoch
+        - total_work
+        - total_work_formatted
+        - total_emissions
+        - total_emissions_formatted
+        - total_capped_rewards
+        - total_capped_rewards_formatted
+        - total_uncapped_rewards
+        - total_uncapped_rewards_formatted
+        - epoch_start_time
+        - epoch_end_time
+        - num_participants
+      properties:
+        epoch:
+          type: integer
+          description: Epoch number
+        total_work:
+          type: string
+          description: Total work submitted in this epoch
+        total_work_formatted:
+          type: string
+          description: Total work (human-readable)
+        total_emissions:
+          type: string
+          description: Total emissions for this epoch (in wei)
+        total_emissions_formatted:
+          type: string
+          description: Total emissions (human-readable)
+        total_capped_rewards:
+          type: string
+          description: Total capped rewards distributed (in wei)
+        total_capped_rewards_formatted:
+          type: string
+          description: Total capped rewards (human-readable)
+        total_uncapped_rewards:
+          type: string
+          description: Total uncapped rewards before capping (in wei)
+        total_uncapped_rewards_formatted:
+          type: string
+          description: Total uncapped rewards (human-readable)
+        epoch_start_time:
+          type: integer
+          description: Unix timestamp when epoch started
+        epoch_end_time:
+          type: integer
+          description: Unix timestamp when epoch ends
+        num_participants:
+          type: integer
+          description: Number of participants in this epoch
+        last_updated_at:
+          type: string
+          nullable: true
+          description: Last update timestamp
 
     DelegationAggregateResponse:
       type: object

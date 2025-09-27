@@ -187,13 +187,25 @@ async fn not_found() -> impl IntoResponse {
 
 /// Global error handler that converts anyhow errors to HTTP responses
 pub fn handle_error(err: anyhow::Error) -> impl IntoResponse {
+    // Log the full error with backtrace for debugging
     tracing::error!("Request failed: {:?}", err);
 
+    // Check if it's a database connection error
+    let error_message = err.to_string();
+    let (status, message) = if error_message.contains("database") || error_message.contains("connection") {
+        (StatusCode::SERVICE_UNAVAILABLE, "Database connection error. Please try again later.")
+    } else if error_message.contains("not found") || error_message.contains("No data found") {
+        (StatusCode::NOT_FOUND, "The requested data was not found.")
+    } else {
+        // For production, return a generic message. In dev, you might want to return the actual error
+        (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred. Please try again later.")
+    };
+
     (
-        StatusCode::INTERNAL_SERVER_ERROR,
+        status,
         Json(json!({
-            "error": "Internal Server Error",
-            "message": err.to_string()
+            "error": status.canonical_reason().unwrap_or("Error"),
+            "message": message
         })),
     )
 }

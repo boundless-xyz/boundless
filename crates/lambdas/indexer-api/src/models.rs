@@ -74,8 +74,9 @@ pub struct AggregateLeaderboardEntry {
 /// Response for epoch-specific PoVW rewards leaderboard
 #[derive(Debug, Serialize)]
 pub struct EpochLeaderboardEntry {
-    /// Rank in the leaderboard (1-based)
-    pub rank: u64,
+    /// Rank in the leaderboard (1-based, only present in leaderboard contexts)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank: Option<u64>,
 
     /// Work log ID (Ethereum address)
     pub work_log_id: String,

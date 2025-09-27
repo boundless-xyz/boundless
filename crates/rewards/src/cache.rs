@@ -166,12 +166,7 @@ pub async fn build_rewards_cache<P: Provider>(
             // Process results
             for (i, &epoch_num) in chunk.iter().enumerate() {
                 let start_time = start_times[i];
-                let end_time = if epoch_num == current_epoch {
-                    // For current epoch, use far future time
-                    U256::from(u64::MAX)
-                } else {
-                    end_times[i]
-                };
+                let end_time = end_times[i];
 
                 cache.epoch_time_ranges.insert(
                     epoch_num,
