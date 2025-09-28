@@ -6,12 +6,8 @@ info:
   contact:
     name: Boundless Development Team
 servers:
-  - url: https://d2h2e3zcs9hfb5.cloudfront.net
-    description: Production API
-    variables:
-      basePath:
-        default: ''
-        description: Base path for the API
+  - url: /
+    description: Current server
 
 tags:
   - name: Health
@@ -360,7 +356,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 
 
-  /v1/delegations/votes:
+  /v1/delegations/votes/addresses:
     get:
       tags:
         - Delegations
@@ -380,7 +376,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/delegations/votes/epochs/{epoch}:
+  /v1/delegations/votes/epochs/{epoch}/addresses:
     get:
       tags:
         - Delegations
@@ -436,7 +432,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/delegations/votes/addresses/{address}/epochs/{epoch}:
+  /v1/delegations/votes/epochs/{epoch}/addresses/{address}:
     get:
       tags:
         - Delegations
@@ -444,8 +440,8 @@ paths:
       description: Get vote delegation power for a specific delegate at a specific epoch
       operationId: getVoteDelegationByAddressAndEpoch
       parameters:
-        - $ref: '#/components/parameters/AddressParam'
         - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/AddressParam'
       responses:
         '200':
           description: Successful response
@@ -460,7 +456,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/delegations/rewards:
+  /v1/delegations/rewards/addresses:
     get:
       tags:
         - Delegations
@@ -480,7 +476,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/delegations/rewards/epochs/{epoch}:
+  /v1/delegations/rewards/epochs/{epoch}/addresses:
     get:
       tags:
         - Delegations
@@ -536,7 +532,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/delegations/rewards/addresses/{address}/epochs/{epoch}:
+  /v1/delegations/rewards/epochs/{epoch}/addresses/{address}:
     get:
       tags:
         - Delegations
@@ -544,8 +540,8 @@ paths:
       description: Get reward delegation power for a specific delegate at a specific epoch
       operationId: getRewardDelegationByAddressAndEpoch
       parameters:
-        - $ref: '#/components/parameters/AddressParam'
         - $ref: '#/components/parameters/EpochParam'
+        - $ref: '#/components/parameters/AddressParam'
       responses:
         '200':
           description: Successful response
@@ -621,7 +617,6 @@ components:
     StakingPositionAggregate:
       type: object
       required:
-        - rank
         - staker_address
         - total_staked
         - is_withdrawing
@@ -629,7 +624,8 @@ components:
       properties:
         rank:
           type: integer
-          description: Leaderboard rank
+          nullable: true
+          description: Leaderboard rank (only present in leaderboard contexts)
         staker_address:
           type: string
           description: Ethereum address of the staker
@@ -661,7 +657,8 @@ components:
       properties:
         rank:
           type: integer
-          description: Leaderboard rank (only in list responses)
+          nullable: true
+          description: Leaderboard rank (only present in leaderboard contexts, not in individual address queries)
         staker_address:
           type: string
           description: Ethereum address of the staker
@@ -686,7 +683,6 @@ components:
     PovwRewardAggregate:
       type: object
       required:
-        - rank
         - work_log_id
         - total_work_submitted
         - total_actual_rewards
@@ -695,6 +691,7 @@ components:
       properties:
         rank:
           type: integer
+          nullable: true
           description: Leaderboard rank
         work_log_id:
           type: string
@@ -727,6 +724,7 @@ components:
       properties:
         rank:
           type: integer
+          nullable: true
           description: Leaderboard rank (only in list responses)
         work_log_id:
           type: string
@@ -799,7 +797,7 @@ components:
       properties:
         rank:
           type: integer
-          description: Leaderboard rank (only in list responses)
+          description: Leaderboard rank (only present in list/leaderboard responses, absent for individual address queries)
         delegate_address:
           type: string
           description: Ethereum address of the delegate

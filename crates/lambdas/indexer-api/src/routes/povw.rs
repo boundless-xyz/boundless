@@ -380,7 +380,7 @@ async fn get_all_time_leaderboard_impl(
             let actual_str = agg.total_actual_rewards.to_string();
             let uncapped_str = agg.total_uncapped_rewards.to_string();
             AggregateLeaderboardEntry {
-                rank: params.offset + (index as u64) + 1,
+                rank: Some(params.offset + (index as u64) + 1),
                 work_log_id: format!("{:#x}", agg.work_log_id),
                 total_work_submitted: work_str.clone(),
                 total_work_submitted_formatted: format_cycles(&work_str),

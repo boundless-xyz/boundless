@@ -80,7 +80,7 @@ async fn get_aggregate_vote_delegations_impl(
         .into_iter()
         .enumerate()
         .map(|(index, agg)| DelegationPowerEntry {
-            rank: params.offset + (index as u64) + 1,
+            rank: Some(params.offset + (index as u64) + 1),
             delegate_address: format!("{:#x}", agg.delegate_address),
             power: agg.total_vote_power.to_string(),
             delegator_count: agg.delegator_count,
@@ -133,7 +133,7 @@ async fn get_vote_delegations_by_epoch_impl(
         .into_iter()
         .enumerate()
         .map(|(index, power)| DelegationPowerEntry {
-            rank: params.offset + (index as u64) + 1,
+            rank: Some(params.offset + (index as u64) + 1),
             delegate_address: format!("{:#x}", power.delegate_address),
             power: power.vote_power.to_string(),
             delegator_count: power.delegator_count,
@@ -194,9 +194,8 @@ async fn get_vote_delegation_history_by_address_impl(
 
     let entries: Vec<DelegationPowerEntry> = paginated
         .into_iter()
-        .enumerate()
-        .map(|(index, power)| DelegationPowerEntry {
-            rank: params.offset + (index as u64) + 1,
+        .map(|power| DelegationPowerEntry {
+            rank: None,
             delegate_address: format!("{:#x}", power.delegate_address),
             power: power.vote_power.to_string(),
             delegator_count: power.delegator_count,
@@ -250,7 +249,7 @@ async fn get_vote_delegation_by_address_and_epoch_impl(
 
     let power = &history[0];
     Ok(Some(DelegationPowerEntry {
-        rank: 0,
+        rank: None,
         delegate_address: format!("{:#x}", power.delegate_address),
         power: power.vote_power.to_string(),
         delegator_count: power.delegator_count,
@@ -299,7 +298,7 @@ async fn get_aggregate_reward_delegations_impl(
         .into_iter()
         .enumerate()
         .map(|(index, agg)| DelegationPowerEntry {
-            rank: params.offset + (index as u64) + 1,
+            rank: Some(params.offset + (index as u64) + 1),
             delegate_address: format!("{:#x}", agg.delegate_address),
             power: agg.total_reward_power.to_string(),
             delegator_count: agg.delegator_count,
@@ -352,7 +351,7 @@ async fn get_reward_delegations_by_epoch_impl(
         .into_iter()
         .enumerate()
         .map(|(index, power)| DelegationPowerEntry {
-            rank: params.offset + (index as u64) + 1,
+            rank: Some(params.offset + (index as u64) + 1),
             delegate_address: format!("{:#x}", power.delegate_address),
             power: power.reward_power.to_string(),
             delegator_count: power.delegator_count,
@@ -413,9 +412,8 @@ async fn get_reward_delegation_history_by_address_impl(
 
     let entries: Vec<DelegationPowerEntry> = paginated
         .into_iter()
-        .enumerate()
-        .map(|(index, power)| DelegationPowerEntry {
-            rank: params.offset + (index as u64) + 1,
+        .map(|power| DelegationPowerEntry {
+            rank: None,
             delegate_address: format!("{:#x}", power.delegate_address),
             power: power.reward_power.to_string(),
             delegator_count: power.delegator_count,
@@ -469,7 +467,7 @@ async fn get_reward_delegation_by_address_and_epoch_impl(
 
     let power = &history[0];
     Ok(Some(DelegationPowerEntry {
-        rank: 0,
+        rank: None,
         delegate_address: format!("{:#x}", power.delegate_address),
         power: power.reward_power.to_string(),
         delegator_count: power.delegator_count,

@@ -251,7 +251,7 @@ async fn get_epoch_leaderboard_impl(
             let staked_str = position.staked_amount.to_string();
             let generated_str = position.rewards_generated.to_string();
             EpochStakingEntry {
-                rank: params.offset + (index as u64) + 1,
+                rank: Some(params.offset + (index as u64) + 1),
                 staker_address: format!("{:#x}", position.staker_address),
                 epoch: position.epoch,
                 staked_amount: staked_str.clone(),
@@ -320,7 +320,7 @@ async fn get_address_at_epoch_impl(
     let staked_str = position.staked_amount.to_string();
     let generated_str = position.rewards_generated.to_string();
     Ok(Some(EpochStakingEntry {
-        rank: 0, // No rank for individual queries
+        rank: None, // No rank for individual queries
         staker_address: format!("{:#x}", position.staker_address),
         epoch: position.epoch,
         staked_amount: staked_str.clone(),
@@ -376,10 +376,9 @@ async fn get_all_time_leaderboard_impl(
         .enumerate()
         .map(|(index, aggregate)| {
             let staked_str = aggregate.total_staked.to_string();
-            let earned_str = aggregate.total_rewards_earned.to_string();
             let generated_str = aggregate.total_rewards_generated.to_string();
             AggregateStakingEntry {
-                rank: params.offset + (index as u64) + 1,
+                rank: Some(params.offset + (index as u64) + 1),
                 staker_address: format!("{:#x}", aggregate.staker_address),
                 total_staked: staked_str.clone(),
                 total_staked_formatted: format_zkc(&staked_str),
@@ -389,8 +388,6 @@ async fn get_all_time_leaderboard_impl(
                     .map(|addr| format!("{:#x}", addr)),
                 votes_delegated_to: aggregate.votes_delegated_to.map(|addr| format!("{:#x}", addr)),
                 epochs_participated: aggregate.epochs_participated,
-                total_rewards_earned: earned_str.clone(),
-                total_rewards_earned_formatted: format_zkc(&earned_str),
                 total_rewards_generated: generated_str.clone(),
                 total_rewards_generated_formatted: format_zkc(&generated_str),
             }
@@ -465,11 +462,11 @@ async fn get_address_history_impl(
     let entries: Vec<EpochStakingEntry> = paginated
         .into_iter()
         .enumerate()
-        .map(|(index, position)| {
+        .map(|(_, position)| {
             let staked_str = position.staked_amount.to_string();
             let generated_str = position.rewards_generated.to_string();
             EpochStakingEntry {
-                rank: params.offset + (index as u64) + 1,
+                rank: None, // No rank for individual address queries
                 staker_address: format!("{:#x}", position.staker_address),
                 epoch: position.epoch,
                 staked_amount: staked_str.clone(),
@@ -488,7 +485,6 @@ async fn get_address_history_impl(
     // Create response with summary if available
     if let Some(aggregate) = address_aggregate {
         let staked_str = aggregate.total_staked.to_string();
-        let earned_str = aggregate.total_rewards_earned.to_string();
         let generated_str = aggregate.total_rewards_generated.to_string();
         let summary = StakingAddressSummary {
             staker_address: format!("{:#x}", aggregate.staker_address),
@@ -500,8 +496,6 @@ async fn get_address_history_impl(
                 .map(|addr| format!("{:#x}", addr)),
             votes_delegated_to: aggregate.votes_delegated_to.map(|addr| format!("{:#x}", addr)),
             epochs_participated: aggregate.epochs_participated,
-            total_rewards_earned: earned_str.clone(),
-            total_rewards_earned_formatted: format_zkc(&earned_str),
             total_rewards_generated: generated_str.clone(),
             total_rewards_generated_formatted: format_zkc(&generated_str),
         };

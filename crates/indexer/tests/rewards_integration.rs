@@ -401,7 +401,7 @@ fn get_expected_snapshots() -> Vec<EpochSnapshot> {
 /// See the documentation for `get_expected_snapshots()` for instructions on how
 /// to capture and update the snapshot data.
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL to be set and makes real RPC calls"]
+#[ignore = "Requires ETH_RPC_URL to be set with a mainnet RPC that is an archive node and supports queries"]
 async fn test_rewards_indexer_integration() {
     // Setup tracing subscriber for real-time log output
     tracing_subscriber::registry()

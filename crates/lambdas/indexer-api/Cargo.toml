@@ -58,3 +58,9 @@ tracing-subscriber = { workspace = true, features = [
 reqwest = { version = "0.12", features = ["json"] }
 # Async runtime for tests
 tokio = { workspace = true, features = ["test-util"] }
+# Temporary file handling for tests
+tempfile = "3.8"
+# Command assertion for integration tests
+assert_cmd = "2.0"
+# Test logging
+test-log = { version = "0.2", default-features = false, features = ["trace"] }

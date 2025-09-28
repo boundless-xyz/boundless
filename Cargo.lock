@@ -5710,6 +5710,7 @@ version = "0.15.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "assert_cmd",
  "aws-config",
  "axum 0.7.9",
  "boundless-indexer",
@@ -5721,6 +5722,8 @@ dependencies = [
  "serde_json",
  "serde_yaml 0.9.34+deprecated",
  "sqlx",
+ "tempfile",
+ "test-log",
  "tokio",
  "tower 0.5.2",
  "tower-http 0.6.6",
