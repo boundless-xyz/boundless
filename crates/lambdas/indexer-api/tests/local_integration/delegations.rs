@@ -34,6 +34,21 @@ async fn test_delegations_votes_leaderboard()  {
     assert!(response.entries.len() <= 3);
     assert_eq!(response.pagination.limit, 3);
 
+    // Check specific values from real data for top entries
+    if response.entries.len() >= 2 {
+        let first = &response.entries[0];
+        assert_eq!(first.delegate_address, "0x2408e37489c231f883126c87e8aadbad782a040a");
+        assert_eq!(first.power, "726927981342423248000000");
+        assert_eq!(first.delegator_count, 0);
+        assert_eq!(first.delegators.len(), 0);
+
+        let second = &response.entries[1];
+        assert_eq!(second.delegate_address, "0x7cc3376b8d38b2c923cd9d5164f9d74e303482b2");
+        assert_eq!(second.power, "603060340000000000000000");
+        assert_eq!(second.delegator_count, 0);
+        assert_eq!(second.delegators.len(), 0);
+    }
+
     // Verify rank ordering if we have data
     if response.entries.len() > 1 {
         for i in 1..response.entries.len() {
@@ -60,6 +75,21 @@ async fn test_delegations_rewards_leaderboard()  {
     assert!(response.entries.len() <= 3);
     assert_eq!(response.pagination.limit, 3);
 
+    // Check specific values from real data for top entries
+    if response.entries.len() >= 2 {
+        let first = &response.entries[0];
+        assert_eq!(first.delegate_address, "0x0164ec96442196a02931f57e7e20fa59cff43845");
+        assert_eq!(first.power, "726927981342423248000000");
+        assert_eq!(first.delegator_count, 1);
+        assert_eq!(first.delegators.len(), 1);
+
+        let second = &response.entries[1];
+        assert_eq!(second.delegate_address, "0x7cc3376b8d38b2c923cd9d5164f9d74e303482b2");
+        assert_eq!(second.power, "603060340000000000000000");
+        assert_eq!(second.delegator_count, 0);
+        assert_eq!(second.delegators.len(), 0);
+    }
+
     // Verify rank ordering if we have data
     if response.entries.len() > 1 {
         for i in 1..response.entries.len() {
@@ -75,13 +105,13 @@ async fn test_delegations_rewards_leaderboard()  {
 async fn test_delegations_votes_by_epoch()  {
     let env = TestEnv::new().await.unwrap();
 
-    // Test votes delegation for a specific epoch
-    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/epochs/7/addresses").await.unwrap();
+    // Test votes delegation for a specific epoch (we index up to epoch 4)
+    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/epochs/3/addresses").await.unwrap();
 
     // Basic validation
     assert!(response.pagination.count <= response.pagination.limit as usize);
 
-    // Verify we have entries (epoch 7 should have data)
+    // Verify we have entries (epoch 3 should have data)
     if response.pagination.count > 0 {
         assert!(!response.entries.is_empty());
 
@@ -98,13 +128,13 @@ async fn test_delegations_votes_by_epoch()  {
 async fn test_delegations_rewards_by_epoch()  {
     let env = TestEnv::new().await.unwrap();
 
-    // Test rewards delegation for a specific epoch
-    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/rewards/epochs/7/addresses").await.unwrap();
+    // Test rewards delegation for a specific epoch (we index up to epoch 4)
+    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/rewards/epochs/3/addresses").await.unwrap();
 
     // Basic validation
     assert!(response.pagination.count <= response.pagination.limit as usize);
 
-    // Verify we have entries (epoch 7 should have data)
+    // Verify we have entries (epoch 3 should have data)
     if response.pagination.count > 0 {
         assert!(!response.entries.is_empty());
 
