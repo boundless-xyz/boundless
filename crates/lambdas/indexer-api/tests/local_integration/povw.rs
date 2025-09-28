@@ -16,7 +16,6 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use test_log::test;
 
 use super::{PaginatedResponse, TestEnv};
 
@@ -62,7 +61,7 @@ struct EpochSummary {
     num_participants: u64,
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_leaderboard() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -84,7 +83,7 @@ async fn test_povw_leaderboard() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_epochs_summary() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -104,7 +103,7 @@ async fn test_povw_epochs_summary() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_epoch_details() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -120,7 +119,7 @@ async fn test_povw_epoch_details() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_address() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -148,7 +147,7 @@ async fn test_povw_address() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_pagination() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;

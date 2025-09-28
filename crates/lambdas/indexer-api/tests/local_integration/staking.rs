@@ -16,7 +16,6 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use test_log::test;
 
 use super::{PaginatedResponse, TestEnv};
 
@@ -58,7 +57,7 @@ struct EpochStakingSummary {
     num_withdrawing: u64,
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_leaderboard() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -80,7 +79,7 @@ async fn test_staking_leaderboard() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_epochs_summary() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -99,7 +98,7 @@ async fn test_staking_epochs_summary() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_epoch_details() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -115,7 +114,7 @@ async fn test_staking_epoch_details() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_address() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -141,7 +140,7 @@ async fn test_staking_address() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_filters() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -157,7 +156,7 @@ async fn test_staking_filters() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_pagination() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;

@@ -49,6 +49,8 @@ pub struct RewardsIndexerServiceConfig {
     pub interval: Duration,
     pub retries: u32,
     pub start_block: Option<u64>,
+    pub end_block: Option<u64>,
+    pub end_epoch: Option<u64>,
 }
 
 type ProviderType = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
@@ -119,34 +121,63 @@ impl RewardsIndexerService {
             }
         };
 
-        // Get current block
-        let current_block = self.provider.get_block_number().await?;
+        // Determine ending block (use end_block if provided, otherwise current block)
+        let actual_current_block = self.provider.get_block_number().await?;
+        let end_block = self.config.end_block.unwrap_or(actual_current_block);
+
+        // Validate end_block is not greater than current block
+        if end_block > actual_current_block {
+            anyhow::bail!(
+                "End block {} is greater than current block {}",
+                end_block,
+                actual_current_block
+            );
+        }
 
         tracing::info!(
             "Fetching events from block {} to {} ({} blocks)",
             start_block,
-            current_block,
-            current_block - start_block
+            end_block,
+            end_block - start_block
         );
 
-        // Fetch all event logs
+        // Fetch all event logs up to end_block
         let fetch_start = std::time::Instant::now();
         let all_logs = fetch_all_event_logs(
             &self.provider,
             &povw_deployment,
             &zkc_deployment,
             start_block,
-            current_block,
+            end_block,
         )
         .await?;
         tracing::info!("Event fetching completed in {:.2}s", fetch_start.elapsed().as_secs_f64());
 
         // Get current epoch from ZKC contract
         let zkc = IZKC::new(self.zkc_address, &self.provider);
-        let current_epoch = zkc.getCurrentEpoch().call().await?;
-        let current_epoch_u64 = current_epoch.to::<u64>();
+        let actual_current_epoch = zkc.getCurrentEpoch().call().await?;
+        let actual_current_epoch_u64 = actual_current_epoch.to::<u64>();
 
-        tracing::info!("Current epoch: {}", current_epoch_u64);
+        // Use end_epoch if specified, otherwise use current epoch
+        let current_epoch_u64 = if let Some(end_epoch) = self.config.end_epoch {
+            if end_epoch > actual_current_epoch_u64 {
+                anyhow::bail!(
+                    "End epoch {} is greater than current epoch {}",
+                    end_epoch,
+                    actual_current_epoch_u64
+                );
+            }
+            tracing::info!(
+                "Using end epoch: {} (current epoch: {})",
+                end_epoch,
+                actual_current_epoch_u64
+            );
+            end_epoch
+        } else {
+            actual_current_epoch_u64
+        };
+
+        tracing::info!("Processing up to epoch: {}", current_epoch_u64);
 
         // Store current epoch
         self.db.set_current_epoch(current_epoch_u64).await?;
@@ -579,7 +610,7 @@ impl RewardsIndexerService {
         }
 
         // Save last processed block
-        self.db.set_last_rewards_block(current_block).await?;
+        self.db.set_last_rewards_block(end_block).await?;
 
         tracing::info!(
             "Rewards indexer run completed successfully in {:.2}s",

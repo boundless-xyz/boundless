@@ -15,7 +15,6 @@
 //! Integration tests for Delegations API endpoints
 
 use serde::Deserialize;
-use test_log::test;
 
 use super::{PaginatedResponse, TestEnv};
 
@@ -28,7 +27,7 @@ struct DelegationEntry {
     delegator_count: u64,
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_votes_leaderboard() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -54,7 +53,7 @@ async fn test_delegations_votes_leaderboard() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_rewards_leaderboard() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -80,7 +79,7 @@ async fn test_delegations_rewards_leaderboard() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_votes_by_epoch() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -105,7 +104,7 @@ async fn test_delegations_votes_by_epoch() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_rewards_by_epoch() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -130,7 +129,7 @@ async fn test_delegations_rewards_by_epoch() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_pagination() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;

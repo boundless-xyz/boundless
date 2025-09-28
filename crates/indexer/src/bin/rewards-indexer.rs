@@ -48,6 +48,14 @@ struct RewardsIndexerArgs {
     #[clap(long)]
     start_block: Option<u64>,
 
+    /// Ending block number (must be provided together with --end-epoch).
+    #[clap(long, requires = "end_epoch")]
+    end_block: Option<u64>,
+
+    /// Ending epoch number (must be provided together with --end-block).
+    #[clap(long, requires = "end_block")]
+    end_epoch: Option<u64>,
+
     /// Interval in seconds between checking for new events.
     #[clap(long, default_value = "600")]
     interval: u64,
@@ -79,6 +87,8 @@ async fn main() -> Result<()> {
         interval: Duration::from_secs(args.interval),
         retries: args.retries,
         start_block: args.start_block,
+        end_block: args.end_block,
+        end_epoch: args.end_epoch,
     };
 
     let mut service = RewardsIndexerService::new(

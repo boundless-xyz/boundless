@@ -15,11 +15,10 @@
 //! Integration tests for documentation and OpenAPI endpoints
 
 use serde_json::Value;
-use test_log::test;
 
 use super::{HealthResponse, TestEnv};
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_health_endpoint() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -32,14 +31,14 @@ async fn test_health_endpoint() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_openapi_yaml_endpoint() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
 
     // Get the raw YAML response
     let client = reqwest::Client::new();
-    let url = format!("{}/openapi.yaml", env.api_url);
+    let url = format!("{}/openapi.yaml", env.api_url());
     let response = client.get(&url).send().await?;
 
     assert!(response.status().is_success());
@@ -58,7 +57,7 @@ async fn test_openapi_yaml_endpoint() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_openapi_json_endpoint() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
@@ -101,14 +100,14 @@ async fn test_openapi_json_endpoint() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_swagger_ui_endpoint() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
 
     // Get the raw HTML response
     let client = reqwest::Client::new();
-    let url = format!("{}/docs", env.api_url);
+    let url = format!("{}/docs", env.api_url());
     let response = client.get(&url).send().await?;
 
     assert!(response.status().is_success());
@@ -130,14 +129,14 @@ async fn test_swagger_ui_endpoint() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_404_handler() -> anyhow::Result<()> {
     let env = TestEnv::new().await?;
 
     // Try to access a non-existent endpoint
     let client = reqwest::Client::new();
-    let url = format!("{}/v1/nonexistent", env.api_url);
+    let url = format!("{}/v1/nonexistent", env.api_url());
     let response = client.get(&url).send().await?;
 
     assert_eq!(response.status().as_u16(), 404);
