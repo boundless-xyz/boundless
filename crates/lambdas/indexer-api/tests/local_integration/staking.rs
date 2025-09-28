@@ -82,12 +82,12 @@ async fn test_staking_epochs_summary() {
 async fn test_staking_epoch_details() {
     let env = TestEnv::new().await.unwrap();
 
-    // Test specific epoch (epoch 7 usually has data)
-    let response: LeaderboardResponse<EpochStakingEntry> = env.get("/v1/staking/epochs/7").await.unwrap();
+    // Test specific epoch (epoch 3 should have data, we index up to epoch 4)
+    let response: LeaderboardResponse<EpochStakingEntry> = env.get("/v1/staking/epochs/3/addresses").await.unwrap();
 
     // Verify all entries are for the requested epoch if we have data
     for entry in &response.entries {
-        assert_eq!(entry.epoch, 7);
+        assert_eq!(entry.epoch, 3);
     }
 }
 
@@ -116,19 +116,7 @@ async fn test_staking_address() {
     }
 }
 
-#[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
-async fn test_staking_filters() {
-    let env = TestEnv::new().await.unwrap();
-
-    // Test filtering by withdrawing status
-    let response: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?is_withdrawing=false").await.unwrap();
-
-    // Verify all entries match the filter
-    for entry in &response.entries {
-        assert_eq!(entry.is_withdrawing, false);
-    }
-}
+// Removed test_staking_filters - the API doesn't support is_withdrawing filter parameter
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]

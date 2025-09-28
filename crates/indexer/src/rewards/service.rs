@@ -158,8 +158,10 @@ impl RewardsIndexerService {
         let actual_current_epoch = zkc.getCurrentEpoch().call().await?;
         let actual_current_epoch_u64 = actual_current_epoch.to::<u64>();
 
-        // Use end_epoch if specified, otherwise use current epoch
-        let current_epoch_u64 = if let Some(end_epoch) = self.config.end_epoch {
+        tracing::info!("Current blockchain epoch: {}", actual_current_epoch_u64);
+
+        // Determine the end epoch for processing
+        let processing_end_epoch = if let Some(end_epoch) = self.config.end_epoch {
             if end_epoch > actual_current_epoch_u64 {
                 anyhow::bail!(
                     "End epoch {} is greater than current epoch {}",
@@ -168,25 +170,26 @@ impl RewardsIndexerService {
                 );
             }
             tracing::info!(
-                "Using end epoch: {} (current epoch: {})",
+                "Historical mode: processing up to epoch {} (current epoch: {})",
                 end_epoch,
                 actual_current_epoch_u64
             );
             end_epoch
         } else {
+            tracing::info!("Live mode: processing up to current epoch {}", actual_current_epoch_u64);
             actual_current_epoch_u64
         };
 
-        tracing::info!("Processing up to epoch: {}", current_epoch_u64);
+        tracing::info!("Processing up to epoch: {}", processing_end_epoch);
 
         // Store current epoch
-        self.db.set_current_epoch(current_epoch_u64).await?;
+        self.db.set_current_epoch(actual_current_epoch_u64).await?;
 
         // Process the last EPOCHS_TO_PROCESS epochs
-        let epochs_to_process = if current_epoch_u64 >= EPOCHS_TO_PROCESS {
-            (current_epoch_u64 - EPOCHS_TO_PROCESS + 1..=current_epoch_u64).collect::<Vec<_>>()
+        let epochs_to_process = if processing_end_epoch >= EPOCHS_TO_PROCESS {
+            (processing_end_epoch - EPOCHS_TO_PROCESS + 1..=processing_end_epoch).collect::<Vec<_>>()
         } else {
-            (0..=current_epoch_u64).collect::<Vec<_>>()
+            (0..=processing_end_epoch).collect::<Vec<_>>()
         };
 
         // Build PoVW rewards cache with all necessary data (includes epoch times, block timestamps, and stake events)
@@ -200,7 +203,8 @@ impl RewardsIndexerService {
             &povw_deployment,
             self.zkc_address,
             &epochs_to_process,
-            current_epoch_u64,
+            actual_current_epoch_u64,  // Pass real current epoch
+            self.config.end_epoch,     // Pass end_epoch for historical mode detection
             &all_logs,
         )
         .await?;
@@ -214,7 +218,8 @@ impl RewardsIndexerService {
         let staking_start = std::time::Instant::now();
 
         let staking_data = compute_staking_data(
-            current_epoch_u64,
+            actual_current_epoch_u64,  // Real current epoch for comparison
+            processing_end_epoch,       // Process up to this epoch
             &povw_cache.timestamped_stake_events,
             &povw_cache.staking_emissions_by_epoch,
             &povw_cache.staking_power_by_address_by_epoch,
@@ -242,7 +247,11 @@ impl RewardsIndexerService {
         }
 
         // Get pending epoch total work
-        let pending_epoch_total_work = {
+        // For historical indexing (when end_epoch is specified), don't fetch live blockchain state
+        let pending_epoch_total_work = if self.config.end_epoch.is_some() {
+            tracing::info!("Historical indexing mode - using finalized epoch data only");
+            U256::ZERO
+        } else {
             let povw_accounting =
                 IPovwAccounting::new(povw_deployment.povw_accounting_address, &self.provider);
             let pending_epoch = povw_accounting.pendingEpoch().call().await?;
@@ -250,9 +259,10 @@ impl RewardsIndexerService {
         };
 
         // Compute rewards for all epochs at once
-        tracing::info!("Computing PoVW rewards for all epochs (0 to {})...", current_epoch_u64);
+        tracing::info!("Computing PoVW rewards for all epochs (0 to {})...", processing_end_epoch);
         let povw_result = compute_povw_rewards(
-            current_epoch_u64,
+            actual_current_epoch_u64,  // Real current epoch for comparison logic
+            processing_end_epoch,      // Process up to this epoch
             &povw_cache.work_by_work_log_by_epoch,
             &povw_cache.work_recipients_by_epoch,
             &povw_cache.total_work_by_epoch,
@@ -480,7 +490,8 @@ impl RewardsIndexerService {
         // Compute delegation powers from pre-processed events
         let epoch_delegation_powers = compute_delegation_powers(
             &povw_cache.timestamped_delegation_events,
-            current_epoch_u64,
+            actual_current_epoch_u64,  // Real current epoch for comparison
+            processing_end_epoch,       // Process up to this epoch
         )?;
         tracing::info!(
             "Delegation powers computed in {:.2}s",

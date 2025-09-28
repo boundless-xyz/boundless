@@ -143,13 +143,14 @@ pub struct StakingDataResult {
 /// Compute all staking data (positions and rewards) for all epochs
 pub fn compute_staking_data(
     current_epoch: u64,
+    processing_end_epoch: u64,
     timestamped_stake_events: &[TimestampedStakeEvent],
     staking_emissions_by_epoch: &HashMap<u64, U256>,
     staking_power_by_address_by_epoch: &HashMap<(Address, u64), U256>,
     total_staking_power_by_epoch: &HashMap<u64, U256>,
 ) -> anyhow::Result<StakingDataResult> {
     // First compute positions for all epochs
-    let positions_by_epoch = compute_positions(timestamped_stake_events, current_epoch)?;
+    let positions_by_epoch = compute_positions(timestamped_stake_events, current_epoch, processing_end_epoch)?;
 
     // Now compute rewards and combine with positions
     let mut epochs = Vec::new();
@@ -322,6 +323,7 @@ pub struct EpochStakingPositions {
 fn compute_positions(
     timestamped_events: &[TimestampedStakeEvent],
     current_epoch: u64,
+    processing_end_epoch: u64,
 ) -> anyhow::Result<Vec<EpochStakingPositions>> {
     // Tracking current state
     let mut current_stakes: HashMap<Address, U256> = HashMap::new();
@@ -392,8 +394,8 @@ fn compute_positions(
         last_processed_epoch = Some(event.epoch);
     }
 
-    // Process any remaining epochs up to current
-    for epoch in last_processed_epoch.unwrap_or(0)..=current_epoch {
+    // Process any remaining epochs up to processing_end_epoch
+    for epoch in last_processed_epoch.unwrap_or(0)..=processing_end_epoch {
         if epoch_positions.iter().any(|e| e.epoch == epoch) {
             continue; // Already processed
         }
@@ -462,8 +464,9 @@ fn create_epoch_snapshot(
 pub fn compute_staking_positions(
     timestamped_events: &[TimestampedStakeEvent],
     current_epoch: u64,
+    processing_end_epoch: u64,
 ) -> anyhow::Result<StakingPositionsResult> {
-    let positions = compute_positions(timestamped_events, current_epoch)?;
+    let positions = compute_positions(timestamped_events, current_epoch, processing_end_epoch)?;
 
     // Convert to legacy format
     let epoch_positions = positions
@@ -514,6 +517,7 @@ pub struct StakingPositionsResult {
 
 pub fn compute_staking_rewards(
     current_epoch: u64,
+    processing_end_epoch: u64,
     staking_emissions_by_epoch: &HashMap<u64, U256>,
     staking_power_by_address_by_epoch: &HashMap<(Address, u64), U256>,
     total_staking_power_by_epoch: &HashMap<u64, U256>,
@@ -521,6 +525,7 @@ pub fn compute_staking_rewards(
     // Use the new unified function internally
     let data = compute_staking_data(
         current_epoch,
+        processing_end_epoch,
         &[], // No events needed for just rewards
         staking_emissions_by_epoch,
         staking_power_by_address_by_epoch,

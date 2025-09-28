@@ -62,6 +62,7 @@ pub struct TimestampedDelegationEvent {
 pub fn compute_delegation_powers(
     timestamped_events: &[TimestampedDelegationEvent],
     current_epoch: u64,
+    processing_end_epoch: u64,
 ) -> anyhow::Result<Vec<EpochDelegationPowers>> {
     // Track current state
     let mut current_vote_powers: HashMap<Address, U256> = HashMap::new();
@@ -124,7 +125,7 @@ pub fn compute_delegation_powers(
 
     // Capture final state for remaining epochs
     if let Some(last) = last_epoch {
-        for epoch in last..=current_epoch {
+        for epoch in last..=processing_end_epoch {
             let epoch_powers = build_epoch_delegation_powers(
                 &current_vote_powers,
                 &current_reward_powers,

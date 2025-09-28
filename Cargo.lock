@@ -5717,6 +5717,7 @@ dependencies = [
  "lambda_http",
  "lambda_runtime",
  "openssl",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",

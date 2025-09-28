@@ -68,6 +68,7 @@ pub async fn build_rewards_cache<P: Provider>(
     zkc_address: Address,
     epochs_to_process: &[u64],
     current_epoch: u64,
+    end_epoch: Option<u64>,
     all_event_logs: &crate::AllEventLogs,
 ) -> anyhow::Result<RewardsCache> {
     let mut cache = RewardsCache::default();
@@ -180,7 +181,8 @@ pub async fn build_rewards_cache<P: Provider>(
     }
 
     // Batch 3: Fetch current reward caps using dynamic multicall
-    if !work_log_ids.is_empty() {
+    // Skip this if we're in historical mode (end_epoch is set)
+    if !work_log_ids.is_empty() && end_epoch.is_none() {
         tracing::debug!(
             "Fetching current reward caps for {} work log IDs using multicall",
             work_log_ids.len()
@@ -599,11 +601,14 @@ pub async fn build_rewards_cache<P: Provider>(
     let mut stakers_by_epoch: HashMap<u64, HashSet<Address>> = HashMap::new();
 
     // Process StakeCreated events
+    // In historical mode, only process up to end_epoch, not current_epoch
+    let max_epoch = end_epoch.unwrap_or(current_epoch);
+
     for event in &cache.timestamped_stake_events {
         if let StakeEvent::Created { owner, .. } = &event.event {
             stakers_by_epoch.entry(event.epoch).or_insert_with(HashSet::new).insert(*owner);
-            // Add to all future epochs too
-            for epoch in (event.epoch + 1)..=current_epoch {
+            // Add to all future epochs too (up to max_epoch)
+            for epoch in (event.epoch + 1)..=max_epoch {
                 stakers_by_epoch.entry(epoch).or_insert_with(HashSet::new).insert(*owner);
             }
         }

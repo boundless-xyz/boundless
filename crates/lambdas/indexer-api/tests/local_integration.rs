@@ -15,6 +15,7 @@
 //! Test utilities for local integration tests
 
 use assert_cmd::Command;
+use rand::Rng;
 use reqwest::Client;
 use serde::Deserialize;
 use std::{
@@ -77,7 +78,7 @@ impl TestEnv {
 
         // Create temp directory for database
         let temp_dir = TempDir::new()?;
-        let db_path = temp_dir.path().join("test.db");
+        let db_path = temp_dir.path().join(format!("test_{}.db", rand::thread_rng().gen_range(1..=10000000)));
 
         // Build binaries using assert_cmd (which handles cargo build automatically)
         info!("Building binaries...");

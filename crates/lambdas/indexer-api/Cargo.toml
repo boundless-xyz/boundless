@@ -67,3 +67,5 @@ test-log = { version = "0.2", default-features = false, features = ["trace"] }
 # Logging for tests
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+# Random number generation for tests
+rand = "0.8"

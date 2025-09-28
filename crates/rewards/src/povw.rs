@@ -216,6 +216,7 @@ pub fn compute_povw_rewards_for_epoch(
 #[allow(clippy::too_many_arguments)]
 pub fn compute_povw_rewards(
     current_epoch: u64,
+    processing_end_epoch: u64,
     work_by_work_log_by_epoch: &HashMap<(Address, u64), U256>,
     work_recipients_by_epoch: &HashMap<(Address, u64), Address>,
     total_work_by_epoch: &HashMap<u64, U256>,
@@ -235,8 +236,8 @@ pub fn compute_povw_rewards(
     let mut total_capped_rewards_all_time = U256::ZERO;
     let mut total_uncapped_rewards_all_time = U256::ZERO;
 
-    // Process each epoch from 0 to current
-    for epoch_num in 0..=current_epoch {
+    // Process each epoch from 0 to processing_end_epoch
+    for epoch_num in 0..=processing_end_epoch {
         let epoch_result = compute_povw_rewards_for_epoch(
             U256::from(epoch_num),
             U256::from(current_epoch),
