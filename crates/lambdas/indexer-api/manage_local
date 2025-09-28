@@ -27,8 +27,11 @@ usage() {
     echo "Usage: $0 <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  run-indexer <db_file> [duration]  Run rewards-indexer to populate SQLite database"
+    echo "  run-indexer <db_file> [duration] [end_epoch] [end_block]"
+    echo "                                     Run rewards-indexer to populate SQLite database"
     echo "                                     duration: seconds to run (default: 30)"
+    echo "                                     end_epoch: stop at this epoch (optional)"
+    echo "                                     end_block: stop at this block (optional)"
     echo ""
     echo "  run-api <port> <db_file>          Run API server with debug logging"
     echo ""
@@ -71,6 +74,8 @@ build_binaries() {
 run_indexer() {
     local db_file="$1"
     local duration="${2:-30}"
+    local end_epoch="$3"
+    local end_block="$4"
 
     check_rpc_url
 
@@ -101,7 +106,29 @@ run_indexer() {
     echo -e "${GREEN}Running rewards-indexer for $duration seconds...${NC}"
     echo "Database: sqlite:$db_file"
     echo "RPC URL: $ETH_RPC_URL"
+    if [ ! -z "$end_epoch" ]; then
+        echo "End epoch: $end_epoch"
+    fi
+    if [ ! -z "$end_block" ]; then
+        echo "End block: $end_block"
+    fi
     echo ""
+
+    # Build command with optional parameters
+    local cmd="../../../target/debug/rewards-indexer"
+    cmd="$cmd --rpc-url \"$ETH_RPC_URL\""
+    cmd="$cmd --vezkc-address \"$VEZKC_ADDRESS\""
+    cmd="$cmd --zkc-address \"$ZKC_ADDRESS\""
+    cmd="$cmd --povw-accounting-address \"$POVW_ACCOUNTING_ADDRESS\""
+    cmd="$cmd --db \"sqlite:$db_file\""
+    cmd="$cmd --interval 600"
+
+    if [ ! -z "$end_epoch" ]; then
+        cmd="$cmd --end-epoch $end_epoch"
+    fi
+    if [ ! -z "$end_block" ]; then
+        cmd="$cmd --end-block $end_block"
+    fi
 
     # Run the indexer in background
     DATABASE_URL="sqlite:$db_file" \
@@ -109,13 +136,7 @@ run_indexer() {
     ZKC_ADDRESS="$ZKC_ADDRESS" \
     POVW_ACCOUNTING_ADDRESS="$POVW_ACCOUNTING_ADDRESS" \
     RUST_LOG=info \
-    ../../../target/debug/rewards-indexer \
-        --rpc-url "$ETH_RPC_URL" \
-        --vezkc-address "$VEZKC_ADDRESS" \
-        --zkc-address "$ZKC_ADDRESS" \
-        --povw-accounting-address "$POVW_ACCOUNTING_ADDRESS" \
-        --db "sqlite:$db_file" \
-        --interval 600 &
+    eval "$cmd &"
 
     INDEXER_PID=$!
 

@@ -101,6 +101,15 @@ async fn main() -> Result<()> {
     )
     .await?;
 
+    // If both end-epoch and end-block are specified, run once and exit
+    if args.end_epoch.is_some() && args.end_block.is_some() {
+        tracing::info!("Running indexer once (end-epoch and end-block specified)");
+        service.run().await?;
+        tracing::info!("Indexer completed successfully");
+        return Ok(());
+    }
+
+    // Otherwise, run in a loop
     let mut failures = 0u32;
     loop {
         match service.run().await {

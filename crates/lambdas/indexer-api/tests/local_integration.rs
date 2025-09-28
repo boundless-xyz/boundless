@@ -158,78 +158,54 @@ impl TestEnv {
             }
         });
 
-        // Wait for database to be populated
-        info!("Waiting for database to be populated...");
-        let mut populated = false;
-        for i in 0..60 {
-            tokio::time::sleep(Duration::from_secs(1)).await;
+        // Wait for indexer to complete (it should exit when it reaches --end-block)
+        info!("Waiting for indexer to complete (will exit at block {})...", END_BLOCK);
 
-            if Self::check_database_populated(db_path).await {
-                info!("Database populated after {} seconds", i + 1);
-                populated = true;
-                break;
-            }
+        // Set a timeout for the indexer to complete
+        let timeout = Duration::from_secs(120);
+        let start = std::time::Instant::now();
 
-            // Print progress every 5 seconds
-            if (i + 1) % 5 == 0 {
-                let size = std::fs::metadata(db_path)
-                    .map(|m| m.len())
-                    .unwrap_or(0);
-                info!("Still waiting... ({}/60 seconds, DB size: {} bytes)", i + 1, size);
+        loop {
+            // Check if process has exited
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    info!("Indexer exited with status: {:?}", status);
+                    if !status.success() {
+                        anyhow::bail!("Indexer exited with error: {:?}", status);
+                    }
+                    break;
+                }
+                Ok(None) => {
+                    // Process still running
+                    if start.elapsed() > timeout {
+                        info!("Timeout reached, killing indexer...");
+                        child.kill().await?;
+                        let _ = child.wait().await;
+                        anyhow::bail!("Indexer did not complete within {} seconds", timeout.as_secs());
+                    }
+
+                    // Print progress every 5 seconds
+                    if start.elapsed().as_secs() % 5 == 0 {
+                        let size = std::fs::metadata(db_path)
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                        debug!("Still indexing... (elapsed: {}s, DB size: {} bytes)",
+                               start.elapsed().as_secs(), size);
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                Err(e) => {
+                    anyhow::bail!("Error checking indexer status: {}", e);
+                }
             }
         }
 
-        // Stop the indexer
-        info!("Stopping indexer...");
-        child.kill().await?;
-        let _ = child.wait().await;
-
-        if !populated {
-            anyhow::bail!("Database was not populated after 60 seconds");
-        }
+        info!("Indexer completed successfully");
 
         Ok(())
     }
 
-    /// Check if database has been populated with data
-    async fn check_database_populated(db_path: &PathBuf) -> bool {
-        use sqlx::sqlite::SqlitePool;
-
-        let db_url = format!("sqlite:{}", db_path.display());
-
-        match SqlitePool::connect(&db_url).await {
-            Ok(pool) => {
-                // Query for count of epochs in the epoch_povw_summary table
-                let query = "SELECT COUNT(*) FROM epoch_povw_summary";
-                match sqlx::query_scalar::<_, i64>(query).fetch_one(&pool).await {
-                    Ok(count) => {
-                        debug!("Found {} epochs in epoch_povw_summary table", count);
-                        // We expect END_EPOCH epochs based on --end-epoch parameter
-                        if count >= END_EPOCH as i64 {
-                            info!("Found {} epochs, sleeping 3 more seconds for other tables to populate...", count);
-                            tokio::time::sleep(Duration::from_secs(3)).await;
-                            true
-                        } else {
-                            false
-                        }
-                    },
-                    Err(e) => {
-                        // Table might not exist yet or query failed
-                        if e.to_string().contains("no such table") {
-                            debug!("epoch_povw_summary table doesn't exist yet");
-                        } else {
-                            debug!("Failed to query epoch_povw_summary: {}", e);
-                        }
-                        false
-                    }
-                }
-            },
-            Err(e) => {
-                debug!("Failed to connect to database: {}", e);
-                false
-            }
-        }
-    }
 
     /// Find an available port for the API server
     fn find_available_port() -> anyhow::Result<u16> {
@@ -295,24 +271,4 @@ impl TestEnv {
 
         Ok(response.json().await?)
     }
-}
-
-// Common response structures
-#[derive(Debug, Deserialize)]
-pub struct PaginatedResponse<T> {
-    pub entries: Vec<T>,
-    pub pagination: PaginationMetadata,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PaginationMetadata {
-    pub count: usize,
-    pub offset: u64,
-    pub limit: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct HealthResponse {
-    pub status: String,
-    pub service: String,
 }

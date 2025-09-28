@@ -191,7 +191,7 @@ impl RewardsIndexerService {
 
         // Build PoVW rewards cache with all necessary data (includes epoch times, block timestamps, and stake events)
         tracing::info!(
-            "🔨 Building rewards cache for {} epochs",
+            "Building rewards cache for {} epochs",
             epochs_to_process.len()
         );
         let cache_build_start = std::time::Instant::now();
@@ -210,7 +210,7 @@ impl RewardsIndexerService {
         );
 
         // Compute all staking data (positions and rewards) using the unified function
-        tracing::info!("🧮 Computing staking data (positions + rewards)...");
+        tracing::info!("Computing staking data (positions + rewards)...");
         let staking_start = std::time::Instant::now();
 
         let staking_data = compute_staking_data(
@@ -370,7 +370,7 @@ impl RewardsIndexerService {
         tracing::info!("Updated per-epoch PoVW summaries");
 
         // Store staking data
-        tracing::info!("💾 Storing staking data for {} epochs...", staking_data.epochs.len());
+        tracing::info!("Storing staking data for {} epochs...", staking_data.epochs.len());
         let staking_db_start = std::time::Instant::now();
 
         // Store staking positions and rewards by epoch

@@ -14,78 +14,69 @@
 
 //! Integration tests for Delegations API endpoints
 
-use serde::Deserialize;
+use indexer_api::models::{DelegationPowerEntry, LeaderboardResponse};
 
-use super::{PaginatedResponse, TestEnv};
-
-#[derive(Debug, Deserialize)]
-struct DelegationEntry {
-    rank: u64,
-    delegatee_address: String,
-    total_power: String,
-    total_power_formatted: String,
-    delegator_count: u64,
-}
+use super::TestEnv;
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_delegations_votes_leaderboard() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_delegations_votes_leaderboard()  {
+    let env = TestEnv::new().await.unwrap();
 
     // Test votes delegation leaderboard
-    let response: PaginatedResponse<DelegationEntry> = env.get("/v1/delegations/votes").await?;
+    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/addresses").await.unwrap();
 
     // Basic validation
     assert!(response.pagination.count <= response.pagination.limit as usize);
 
     // Test with limit
-    let response: PaginatedResponse<DelegationEntry> = env.get("/v1/delegations/votes?limit=3").await?;
+    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/addresses?limit=3").await.unwrap();
     assert!(response.entries.len() <= 3);
     assert_eq!(response.pagination.limit, 3);
 
     // Verify rank ordering if we have data
     if response.entries.len() > 1 {
         for i in 1..response.entries.len() {
-            assert!(response.entries[i-1].rank < response.entries[i].rank);
+            if let (Some(rank1), Some(rank2)) = (response.entries[i-1].rank, response.entries[i].rank) {
+                assert!(rank1 < rank2);
+            }
         }
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_delegations_rewards_leaderboard() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_delegations_rewards_leaderboard()  {
+    let env = TestEnv::new().await.unwrap();
 
     // Test rewards delegation leaderboard
-    let response: PaginatedResponse<DelegationEntry> = env.get("/v1/delegations/rewards").await?;
+    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/rewards/addresses").await.unwrap();
 
     // Basic validation
     assert!(response.pagination.count <= response.pagination.limit as usize);
 
     // Test with limit
-    let response: PaginatedResponse<DelegationEntry> = env.get("/v1/delegations/rewards?limit=3").await?;
+    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/rewards/addresses?limit=3").await.unwrap();
     assert!(response.entries.len() <= 3);
     assert_eq!(response.pagination.limit, 3);
 
     // Verify rank ordering if we have data
     if response.entries.len() > 1 {
         for i in 1..response.entries.len() {
-            assert!(response.entries[i-1].rank < response.entries[i].rank);
+            if let (Some(rank1), Some(rank2)) = (response.entries[i-1].rank, response.entries[i].rank) {
+                assert!(rank1 < rank2);
+            }
         }
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_delegations_votes_by_epoch() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_delegations_votes_by_epoch()  {
+    let env = TestEnv::new().await.unwrap();
 
     // Test votes delegation for a specific epoch
-    let response: PaginatedResponse<DelegationEntry> = env.get("/v1/delegations/votes?epoch=7").await?;
+    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/epochs/7/addresses").await.unwrap();
 
     // Basic validation
     assert!(response.pagination.count <= response.pagination.limit as usize);
@@ -96,21 +87,19 @@ async fn test_delegations_votes_by_epoch() -> anyhow::Result<()> {
 
         // Verify addresses are valid
         for entry in &response.entries {
-            assert!(entry.delegatee_address.starts_with("0x"));
-            assert_eq!(entry.delegatee_address.len(), 42);
+            assert!(entry.delegate_address.starts_with("0x"));
+            assert_eq!(entry.delegate_address.len(), 42);
         }
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_delegations_rewards_by_epoch() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_delegations_rewards_by_epoch()  {
+    let env = TestEnv::new().await.unwrap();
 
     // Test rewards delegation for a specific epoch
-    let response: PaginatedResponse<DelegationEntry> = env.get("/v1/delegations/rewards?epoch=7").await?;
+    let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/rewards/epochs/7/addresses").await.unwrap();
 
     // Basic validation
     assert!(response.pagination.count <= response.pagination.limit as usize);
@@ -121,31 +110,27 @@ async fn test_delegations_rewards_by_epoch() -> anyhow::Result<()> {
 
         // Verify addresses are valid
         for entry in &response.entries {
-            assert!(entry.delegatee_address.starts_with("0x"));
-            assert_eq!(entry.delegatee_address.len(), 42);
+            assert!(entry.delegate_address.starts_with("0x"));
+            assert_eq!(entry.delegate_address.len(), 42);
         }
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_delegations_pagination() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_delegations_pagination()  {
+    let env = TestEnv::new().await.unwrap();
 
     // Test pagination for votes
-    let response1: PaginatedResponse<DelegationEntry> = env.get("/v1/delegations/votes?limit=2").await?;
-    let response2: PaginatedResponse<DelegationEntry> = env.get("/v1/delegations/votes?limit=2&offset=2").await?;
+    let response1: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/addresses?limit=2").await.unwrap();
+    let response2: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/addresses?limit=2&offset=2").await.unwrap();
 
     // Ensure responses are different if we have enough data
     if response1.entries.len() == 2 && response2.entries.len() > 0 {
-        assert_ne!(response1.entries[0].delegatee_address, response2.entries[0].delegatee_address);
+        assert_ne!(response1.entries[0].delegate_address, response2.entries[0].delegate_address);
     }
 
     // Verify pagination metadata
     assert_eq!(response1.pagination.offset, 0);
     assert_eq!(response2.pagination.offset, 2);
-
-    Ok(())
 }

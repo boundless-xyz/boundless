@@ -14,78 +14,59 @@
 
 //! Integration tests for Staking API endpoints
 
-use serde::Deserialize;
-use serde_json::Value;
+use indexer_api::models::{
+    AggregateStakingEntry, EpochStakingEntry, EpochStakingSummary,
+    LeaderboardResponse, StakingAddressSummary
+};
 
-use super::{PaginatedResponse, TestEnv};
-
-#[derive(Debug, Deserialize)]
-struct StakingEntry {
-    rank: Option<u64>,
-    staker_address: String,
-    epoch: Option<u64>,
-    staked_amount: Option<String>,
-    staked_amount_formatted: Option<String>,
-    is_withdrawing: bool,
-    rewards_delegated_to: Option<String>,
-    votes_delegated_to: Option<String>,
-    rewards_generated: Option<String>,
-    rewards_generated_formatted: Option<String>,
-    total_staked: Option<String>,
-    total_staked_formatted: Option<String>,
-    epochs_participated: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StakingAddressResponse {
-    entries: Vec<StakingEntry>,
-    pagination: super::PaginationMetadata,
-    summary: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StakingEpochsSummaryResponse {
-    entries: Vec<EpochStakingSummary>,
-    pagination: super::PaginationMetadata,
-}
-
-#[derive(Debug, Deserialize)]
-struct EpochStakingSummary {
-    epoch: u64,
-    total_staked: String,
-    num_stakers: u64,
-    num_withdrawing: u64,
-}
+use super::TestEnv;
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_staking_leaderboard() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_staking_leaderboard() {
+    let env = TestEnv::new().await.unwrap();
 
     // Test default leaderboard
-    let response: PaginatedResponse<StakingEntry> = env.get("/v1/staking").await?;
+    let response: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses").await.unwrap();
     assert!(response.pagination.count <= response.pagination.limit as usize);
 
-    // Test with limit
-    let response: PaginatedResponse<StakingEntry> = env.get("/v1/staking?limit=5").await?;
-    assert!(response.entries.len() <= 5);
-    assert_eq!(response.pagination.limit, 5);
+    // Test with limit of 2 to check top entries
+    let response: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?limit=2").await.unwrap();
+    assert!(response.entries.len() <= 2);
+    assert_eq!(response.pagination.limit, 2);
 
     // Verify rank field is present for leaderboard
     if !response.entries.is_empty() {
         assert!(response.entries[0].rank.is_some());
-    }
 
-    Ok(())
+        // Check specific values from real data for top 2
+        if response.entries.len() >= 2 {
+            let first = &response.entries[0];
+            assert_eq!(first.staker_address, "0x2408e37489c231f883126c87e8aadbad782a040a");
+            assert_eq!(first.total_staked, "726927981342423248000000");
+            assert_eq!(first.total_rewards_generated, "43793837998280676959348");
+            assert_eq!(first.is_withdrawing, false);
+            assert_eq!(first.rewards_delegated_to, Some("0x0164ec96442196a02931f57e7e20fa59cff43845".to_string()));
+            assert_eq!(first.epochs_participated, 3);
+
+            let second = &response.entries[1];
+            assert_eq!(second.staker_address, "0x7cc3376b8d38b2c923cd9d5164f9d74e303482b2");
+            assert_eq!(second.total_staked, "603060340000000000000000");
+            assert_eq!(second.total_rewards_generated, "28191507291258394253114");
+            assert_eq!(second.is_withdrawing, false);
+            assert_eq!(second.rewards_delegated_to, None);
+            assert_eq!(second.epochs_participated, 2);
+        }
+    }
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_staking_epochs_summary() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_staking_epochs_summary() {
+    let env = TestEnv::new().await.unwrap();
 
     // Test epochs summary
-    let response: StakingEpochsSummaryResponse = env.get("/v1/staking/epochs").await?;
+    let response: LeaderboardResponse<EpochStakingSummary> = env.get("/v1/staking/epochs").await.unwrap();
 
     // Verify we have some epochs
     assert!(!response.entries.is_empty(), "Should have at least one epoch");
@@ -94,36 +75,32 @@ async fn test_staking_epochs_summary() -> anyhow::Result<()> {
     let epoch = &response.entries[0];
     assert!(epoch.epoch > 0);
     assert!(epoch.num_stakers > 0);
-
-    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_staking_epoch_details() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_staking_epoch_details() {
+    let env = TestEnv::new().await.unwrap();
 
     // Test specific epoch (epoch 7 usually has data)
-    let response: PaginatedResponse<StakingEntry> = env.get("/v1/staking/epochs/7").await?;
+    let response: LeaderboardResponse<EpochStakingEntry> = env.get("/v1/staking/epochs/7").await.unwrap();
 
-    // Verify all entries are for the requested epoch
+    // Verify all entries are for the requested epoch if we have data
     for entry in &response.entries {
-        assert_eq!(entry.epoch, Some(7));
+        assert_eq!(entry.epoch, 7);
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_staking_address() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_staking_address() {
+    let env = TestEnv::new().await.unwrap();
 
     // Use a known address with staking data
     let address = "0x00000000f2708738d4886bc4aedefd8dd04818b0";
     let path = format!("/v1/staking/addresses/{}", address);
 
-    let response: StakingAddressResponse = env.get(&path).await?;
+    let response: LeaderboardResponse<EpochStakingEntry> = env.get(&path).await.unwrap();
 
     // Verify address-specific response
     for entry in &response.entries {
@@ -131,39 +108,36 @@ async fn test_staking_address() -> anyhow::Result<()> {
     }
 
     // Check summary if present
-    if let Some(summary) = response.summary {
-        assert!(summary.get("staker_address").is_some());
-        assert!(summary.get("epochs_participated").is_some());
-        assert!(summary.get("total_staked").is_some());
+    if let Some(summary_val) = response.summary {
+        let summary: StakingAddressSummary = serde_json::from_value(summary_val).unwrap();
+        assert_eq!(summary.staker_address.to_lowercase(), address);
+        assert!(summary.epochs_participated > 0);
+        assert!(!summary.total_staked.is_empty());
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_staking_filters() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_staking_filters() {
+    let env = TestEnv::new().await.unwrap();
 
     // Test filtering by withdrawing status
-    let response: PaginatedResponse<StakingEntry> = env.get("/v1/staking?is_withdrawing=false").await?;
+    let response: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?is_withdrawing=false").await.unwrap();
 
     // Verify all entries match the filter
     for entry in &response.entries {
         assert_eq!(entry.is_withdrawing, false);
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
-async fn test_staking_pagination() -> anyhow::Result<()> {
-    let env = TestEnv::new().await?;
+async fn test_staking_pagination() {
+    let env = TestEnv::new().await.unwrap();
 
     // Test pagination with offset
-    let response1: PaginatedResponse<StakingEntry> = env.get("/v1/staking?limit=2").await?;
-    let response2: PaginatedResponse<StakingEntry> = env.get("/v1/staking?limit=2&offset=2").await?;
+    let response1: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?limit=2").await.unwrap();
+    let response2: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?limit=2&offset=2").await.unwrap();
 
     // Ensure responses are different if we have enough data
     if response1.entries.len() == 2 && response2.entries.len() > 0 {
@@ -173,6 +147,4 @@ async fn test_staking_pagination() -> anyhow::Result<()> {
     // Verify pagination metadata
     assert_eq!(response1.pagination.offset, 0);
     assert_eq!(response2.pagination.offset, 2);
-
-    Ok(())
 }
