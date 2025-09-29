@@ -1,11 +1,7 @@
 import { PulumiStateBucket } from "./components/pulumiState";
 import { PulumiSecrets } from "./components/pulumiSecrets";
 import { SamplePipeline } from "./pipelines/sample";
-import { ProverPipeline } from "./pipelines/prover";
-import { SlasherPipeline } from "./pipelines/slasher";
 import { Notifications } from "./components/notifications";
-import { OrderGeneratorPipeline } from "./pipelines/order-generator";
-import { OrderStreamPipeline } from "./pipelines/order-stream";
 import { IndexerPipeline } from "./pipelines/indexer";
 import { DistributorPipeline } from "./pipelines/distributor";
 import { LDistributorPipeline } from "./pipelines/l-distributor";
@@ -114,46 +110,6 @@ const samplePipeline = new SamplePipeline("samplePipeline", {
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
 });
-
-const proverPipeline = new ProverPipeline("proverPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
-})
-
-const orderGeneratorPipeline = new OrderGeneratorPipeline("orderGeneratorPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
-})
-
-const slasherPipeline = new SlasherPipeline("slasherPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
-})
-
-const orderStreamPipeline = new OrderStreamPipeline("orderStreamPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
-})
 
 const indexerPipeline = new IndexerPipeline("indexerPipeline", {
   connection: githubConnection,
