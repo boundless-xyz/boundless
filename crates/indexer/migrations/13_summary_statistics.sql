@@ -38,6 +38,5 @@ CREATE TABLE IF NOT EXISTS epoch_staking_summary (
     num_withdrawing BIGINT NOT NULL
 );
 
--- Create indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_epoch_povw_summary_epoch ON epoch_povw_summary(epoch);
 CREATE INDEX IF NOT EXISTS idx_epoch_staking_summary_epoch ON epoch_staking_summary(epoch);

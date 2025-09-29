@@ -51,7 +51,7 @@ test-indexer:
     #!/usr/bin/env bash
     set -e
     if [ -z "$ETH_RPC_URL" ]; then
-        echo "Error: ETH_RPC_URL environment variable must be set"
+        echo "Error: ETH_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
         exit 1
     fi
     RISC0_DEV_MODE=1 cargo test -p boundless-indexer --all-targets -- --ignored --nocapture

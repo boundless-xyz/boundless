@@ -1,5 +1,0 @@
-config:
-  builder:PUBLIC_KEY:
-    secure: v1:ctIdkFd5G2Hzi+9Q:/cetTTkIoT00dEbGTVjg35oJVztsioPWnpA2f9vEQrG1W30NpoQMxetZx53/WowcmQWfrW/6Ffv/x9FLTCz8oL4B8d2HjsHymEQ7dRkitBk5XRyL9dtLDrRD5Vt/QVHn
-secretsprovider: awskms:///arn:aws:kms:us-west-2:751442549745:alias/builder-secrets-key-v2
-encryptedkey: AQICAHgm0K/glXIvUNBw+GhbHHLp6SLfQ57fTH1aIOiP+pqHJAEQDV7WYQiWX/8pffaAzby8AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM51+77AFALV1TWdYKAgEQgDuFybs3zEd71EqXi6WCU24yqljOea/fZjQ09huSFCnAmn3lAh/0CN/F8GHVSUQLeAdi6z4m25c548nprg==

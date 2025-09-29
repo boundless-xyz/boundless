@@ -1,4 +1,3 @@
--- Migration to add indexes for efficient address history queries
 -- These composite indexes optimize queries that filter by address and optionally by epoch range
 
 -- Index for staking history by address

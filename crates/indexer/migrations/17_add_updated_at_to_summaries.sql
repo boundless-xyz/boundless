@@ -1,6 +1,5 @@
 -- Add updated_at timestamps to summary tables
 -- Using TEXT for better compatibility with sqlx Any driver
--- Note: SQLite doesn't support IF NOT EXISTS in ALTER TABLE ADD COLUMN
 
 -- Add updated_at to global PoVW summary statistics
 ALTER TABLE povw_summary_stats
