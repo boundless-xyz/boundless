@@ -20,7 +20,7 @@ use serde_json::Value;
 use super::TestEnv;
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_health_endpoint() {
     let env = TestEnv::shared().await;
 
@@ -31,7 +31,7 @@ async fn test_health_endpoint() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_openapi_yaml_endpoint() {
     let env = TestEnv::shared().await;
 
@@ -53,7 +53,7 @@ async fn test_openapi_yaml_endpoint() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_openapi_json_endpoint() {
     let env = TestEnv::shared().await;
 
@@ -88,7 +88,7 @@ async fn test_openapi_json_endpoint() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_swagger_ui_endpoint() {
     let env = TestEnv::shared().await;
 
@@ -113,7 +113,7 @@ async fn test_swagger_ui_endpoint() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_404_handler() {
     let env = TestEnv::shared().await;
 

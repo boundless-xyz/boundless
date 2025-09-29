@@ -22,7 +22,7 @@ use indexer_api::models::{
 use super::TestEnv;
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_leaderboard() {
     let env = TestEnv::shared().await;
 
@@ -61,7 +61,7 @@ async fn test_povw_leaderboard() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_summary() {
     let env = TestEnv::shared().await;
 
@@ -83,7 +83,7 @@ async fn test_povw_summary() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_epochs_summary() {
     let env = TestEnv::shared().await;
 
@@ -101,7 +101,7 @@ async fn test_povw_epochs_summary() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_epoch_details() {
     let env = TestEnv::shared().await;
 
@@ -116,7 +116,7 @@ async fn test_povw_epoch_details() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_address() {
     let env = TestEnv::shared().await;
 
@@ -141,7 +141,7 @@ async fn test_povw_address() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_pagination() {
     let env = TestEnv::shared().await;
 

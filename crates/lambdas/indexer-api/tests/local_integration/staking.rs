@@ -22,7 +22,7 @@ use indexer_api::models::{
 use super::TestEnv;
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_staking_leaderboard() {
     let env = TestEnv::shared().await;
 
@@ -66,7 +66,7 @@ async fn test_staking_leaderboard() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_staking_epochs_summary() {
     let env = TestEnv::shared().await;
 
@@ -84,7 +84,7 @@ async fn test_staking_epochs_summary() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_staking_epoch_details() {
     let env = TestEnv::shared().await;
 
@@ -99,7 +99,7 @@ async fn test_staking_epoch_details() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_staking_address() {
     let env = TestEnv::shared().await;
 
@@ -126,7 +126,7 @@ async fn test_staking_address() {
 // Removed test_staking_filters - the API doesn't support is_withdrawing filter parameter
 
 #[tokio::test]
-#[ignore = "Requires ETH_RPC_URL"]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_staking_pagination() {
     let env = TestEnv::shared().await;
 

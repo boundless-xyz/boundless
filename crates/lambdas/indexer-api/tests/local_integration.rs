@@ -115,9 +115,9 @@ impl SharedTestEnv {
 
         info!("Creating shared test environment...");
 
-        // Check for ETH_RPC_URL
-        let rpc_url =
-            env::var("ETH_RPC_URL").expect("ETH_RPC_URL environment variable must be set");
+        // Check for ETH_MAINNET_RPC_URL
+        let rpc_url = env::var("ETH_MAINNET_RPC_URL")
+            .expect("ETH_MAINNET_RPC_URL environment variable must be set");
 
         // Create temp file for database
         let temp_file = NamedTempFile::new()?;

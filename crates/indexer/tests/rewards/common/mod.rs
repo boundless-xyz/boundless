@@ -54,7 +54,8 @@ async fn initialize_test_db() -> TestDbState {
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
 
     // Get RPC URL from environment
-    let rpc_url = env::var("ETH_RPC_URL").expect("ETH_RPC_URL environment variable must be set");
+    let rpc_url = env::var("ETH_MAINNET_RPC_URL")
+        .expect("ETH_MAINNET_RPC_URL environment variable must be set");
 
     // Create temporary database file
     let temp_file = NamedTempFile::new().expect("Failed to create temp file");

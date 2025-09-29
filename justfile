@@ -31,7 +31,7 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli -- --include-ignored
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -46,16 +46,16 @@ test-cargo-db:
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
 
-# Run indexer integration tests (requires ETH_RPC_URL)
+# Run indexer integration tests (requires ETH_MAINNET_RPC_URL)
 test-indexer:
     #!/usr/bin/env bash
     set -e
-    if [ -z "$ETH_RPC_URL" ]; then
-        echo "Error: ETH_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+    if [ -z "$ETH_MAINNET_RPC_URL" ]; then
+        echo "Error: ETH_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
         exit 1
     fi
     RISC0_DEV_MODE=1 cargo test -p boundless-indexer --all-targets -- --ignored --nocapture
-    RISC0_DEV_MODE=1 cargo test git -p indexer-api --all-targets -- --ignored --nocapture
+    RISC0_DEV_MODE=1 cargo test -p indexer-api --all-targets -- --ignored --nocapture
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
