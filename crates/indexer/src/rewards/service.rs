@@ -28,7 +28,8 @@ use anyhow::{Context, Result};
 use boundless_povw::{deployments::Deployment as PovwDeployment, log_updater::IPovwAccounting};
 use boundless_rewards::{
     build_rewards_cache, compute_delegation_powers, compute_povw_rewards,
-    compute_staking_data, fetch_all_event_logs, EpochTimeRange, MAINNET_FROM_BLOCK,
+    compute_staking_data, fetch_all_event_logs, AllEventLogs,
+    EpochTimeRange, RewardsCache, StakingDataResult, MAINNET_FROM_BLOCK,
     SEPOLIA_FROM_BLOCK,
 };
 use boundless_zkc::{contracts::IZKC, deployments::Deployment as ZkcDeployment};
@@ -54,6 +55,17 @@ pub struct RewardsIndexerServiceConfig {
 }
 
 type ProviderType = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
+
+struct EventsAndPreparedData {
+    all_logs: AllEventLogs,
+    actual_current_epoch_u64: u64,
+    processing_end_epoch: u64,
+    epochs_to_process: Vec<u64>,
+    end_block: u64,
+    povw_deployment: PovwDeployment,
+    #[allow(dead_code)]
+    zkc_deployment: ZkcDeployment,
+}
 
 pub struct RewardsIndexerService {
     provider: ProviderType,
@@ -104,6 +116,55 @@ impl RewardsIndexerService {
         let start_time = std::time::Instant::now();
         tracing::info!("Starting rewards indexer run");
 
+        // Step 1: Fetch events and prepare data
+        let prepared_data = self.fetch_events_and_prepare_data().await?;
+
+        // Store current epoch in database
+        self.db.set_current_epoch(prepared_data.actual_current_epoch_u64).await?;
+
+        // Step 2: Build cache
+        let povw_cache = self.build_cache(
+            &prepared_data.povw_deployment,
+            &prepared_data.epochs_to_process,
+            prepared_data.actual_current_epoch_u64,
+            &prepared_data.all_logs,
+        ).await?;
+
+        // Step 3: Compute and store staking rewards
+        let (_staking_data, staking_amounts_by_epoch) = self.compute_and_store_staking_rewards(
+            prepared_data.actual_current_epoch_u64,
+            prepared_data.processing_end_epoch,
+            &povw_cache,
+        ).await?;
+
+        // Step 4: Compute and store PoVW rewards
+        self.compute_and_store_povw_rewards(
+            prepared_data.actual_current_epoch_u64,
+            prepared_data.processing_end_epoch,
+            &prepared_data.epochs_to_process,
+            &povw_cache,
+            &prepared_data.povw_deployment,
+            &staking_amounts_by_epoch,
+        ).await?;
+
+        // Step 5: Compute and store delegation powers
+        self.compute_and_store_delegation_powers(
+            prepared_data.actual_current_epoch_u64,
+            prepared_data.processing_end_epoch,
+            &povw_cache,
+        ).await?;
+
+        // Save last processed block
+        self.db.set_last_rewards_block(prepared_data.end_block).await?;
+
+        tracing::info!(
+            "Rewards indexer run completed successfully in {:.2}s",
+            start_time.elapsed().as_secs_f64()
+        );
+        Ok(())
+    }
+
+    async fn fetch_events_and_prepare_data(&self) -> Result<EventsAndPreparedData> {
         // Get deployments based on chain ID
         let povw_deployment = PovwDeployment::from_chain_id(self.chain_id)
             .context("Could not determine PoVW deployment from chain ID")?;
@@ -182,9 +243,6 @@ impl RewardsIndexerService {
 
         tracing::info!("Processing up to epoch: {}", processing_end_epoch);
 
-        // Store current epoch
-        self.db.set_current_epoch(actual_current_epoch_u64).await?;
-
         // Process the last EPOCHS_TO_PROCESS epochs
         let epochs_to_process = if processing_end_epoch >= EPOCHS_TO_PROCESS {
             (processing_end_epoch - EPOCHS_TO_PROCESS + 1..=processing_end_epoch).collect::<Vec<_>>()
@@ -192,6 +250,24 @@ impl RewardsIndexerService {
             (0..=processing_end_epoch).collect::<Vec<_>>()
         };
 
+        Ok(EventsAndPreparedData {
+            all_logs,
+            actual_current_epoch_u64,
+            processing_end_epoch,
+            epochs_to_process,
+            end_block,
+            povw_deployment,
+            zkc_deployment,
+        })
+    }
+
+    async fn build_cache(
+        &self,
+        povw_deployment: &PovwDeployment,
+        epochs_to_process: &[u64],
+        actual_current_epoch_u64: u64,
+        all_logs: &AllEventLogs,
+    ) -> Result<RewardsCache> {
         // Build PoVW rewards cache with all necessary data (includes epoch times, block timestamps, and stake events)
         tracing::info!(
             "Building rewards cache for {} epochs",
@@ -200,12 +276,12 @@ impl RewardsIndexerService {
         let cache_build_start = std::time::Instant::now();
         let povw_cache = build_rewards_cache(
             &self.provider,
-            &povw_deployment,
+            povw_deployment,
             self.zkc_address,
-            &epochs_to_process,
+            epochs_to_process,
             actual_current_epoch_u64,  // Pass real current epoch
             self.config.end_epoch,     // Pass end_epoch for historical mode detection
-            &all_logs,
+            all_logs,
         )
         .await?;
         tracing::info!(
@@ -213,6 +289,15 @@ impl RewardsIndexerService {
             cache_build_start.elapsed().as_secs_f64()
         );
 
+        Ok(povw_cache)
+    }
+
+    async fn compute_and_store_staking_rewards(
+        &mut self,
+        actual_current_epoch_u64: u64,
+        processing_end_epoch: u64,
+        povw_cache: &RewardsCache,
+    ) -> Result<(StakingDataResult, HashMap<(Address, u64), U256>)> {
         // Compute all staking data (positions and rewards) using the unified function
         tracing::info!("Computing staking data (positions + rewards)...");
         let staking_start = std::time::Instant::now();
@@ -245,139 +330,6 @@ impl RewardsIndexerService {
                 staking_amounts_by_epoch.insert((*address, epoch_data.epoch), position.staked_amount);
             }
         }
-
-        // Get pending epoch total work
-        // For historical indexing (when end_epoch is specified), don't fetch live blockchain state
-        let pending_epoch_total_work = if self.config.end_epoch.is_some() {
-            tracing::info!("Historical indexing mode - using finalized epoch data only");
-            U256::ZERO
-        } else {
-            let povw_accounting =
-                IPovwAccounting::new(povw_deployment.povw_accounting_address, &self.provider);
-            let pending_epoch = povw_accounting.pendingEpoch().call().await?;
-            U256::from(pending_epoch.totalWork)
-        };
-
-        // Compute rewards for all epochs at once
-        tracing::info!("Computing PoVW rewards for all epochs (0 to {})...", processing_end_epoch);
-        let povw_result = compute_povw_rewards(
-            actual_current_epoch_u64,  // Real current epoch for comparison logic
-            processing_end_epoch,      // Process up to this epoch
-            &povw_cache.work_by_work_log_by_epoch,
-            &povw_cache.work_recipients_by_epoch,
-            &povw_cache.total_work_by_epoch,
-            pending_epoch_total_work,
-            &povw_cache.povw_emissions_by_epoch,
-            &povw_cache.reward_caps,
-            &staking_amounts_by_epoch,
-            &povw_cache.epoch_time_ranges,
-        )?;
-
-        tracing::info!(
-            "Computed rewards for {} epochs with {} unique work logs. Total work: {}, Total emissions: {}",
-            povw_result.summary.total_epochs_with_work,
-            povw_result.summary.total_unique_work_log_ids,
-            povw_result.summary.total_work_all_time,
-            povw_result.summary.total_emissions_all_time
-        );
-
-        // Store rewards for epochs we're processing
-        for &epoch in &epochs_to_process {
-            let epoch_rewards = povw_result
-                .epoch_rewards
-                .iter()
-                .find(|e| e.epoch == U256::from(epoch))
-                .cloned()
-                .unwrap_or_else(|| {
-                    // Create empty epoch if not found
-                    // For empty epochs, use reasonable defaults for times
-                    boundless_rewards::EpochPoVWRewards {
-                        epoch: U256::from(epoch),
-                        total_work: U256::ZERO,
-                        total_emissions: U256::ZERO,
-                        total_capped_rewards: U256::ZERO,
-                        total_proportional_rewards: U256::ZERO,
-                        epoch_start_time: 0,
-                        epoch_end_time: 0,
-                        rewards_by_work_log_id: HashMap::new(),
-                    }
-                });
-
-            // Convert to database format
-            let mut db_rewards = Vec::new();
-            let num_rewards = epoch_rewards.rewards_by_work_log_id.len();
-            let total_work = epoch_rewards.total_work;
-
-            for (_, info) in epoch_rewards.rewards_by_work_log_id {
-                // Calculate percentage before conversion
-                let percentage = if total_work > U256::ZERO {
-                    (info.work * U256::from(10000) / total_work).to::<u64>() as f64 / 100.0
-                } else {
-                    0.0
-                };
-
-                let mut reward: PovwRewardByEpoch = info.into();
-                reward.epoch = epoch;
-                reward.percentage = percentage;
-                db_rewards.push(reward);
-            }
-
-            // Upsert epoch rewards
-            self.db.upsert_povw_rewards_by_epoch(epoch, db_rewards).await?;
-            tracing::info!("Updated {} rewards for epoch {}", num_rewards, epoch);
-        }
-
-        // Convert aggregates to database format and upsert
-        let aggregates: Vec<PovwRewardAggregate> = povw_result
-            .summary_by_work_log_id
-            .into_values()
-            .map(|aggregate| PovwRewardAggregate {
-                work_log_id: aggregate.work_log_id,
-                total_work_submitted: aggregate.total_work_submitted,
-                total_actual_rewards: aggregate.total_actual_rewards,
-                total_uncapped_rewards: aggregate.total_uncapped_rewards,
-                epochs_participated: aggregate.epochs_participated,
-            })
-            .collect();
-        self.db.upsert_povw_rewards_aggregate(aggregates.clone()).await?;
-
-        tracing::info!("Updated aggregate rewards for {} work logs", aggregates.len());
-
-        // Store PoVW global summary statistics
-        tracing::info!("Storing PoVW global summary statistics...");
-        let povw_summary_stats = PoVWSummaryStats {
-            total_epochs_with_work: povw_result.summary.total_epochs_with_work as u64,
-            total_unique_work_log_ids: povw_result.summary.total_unique_work_log_ids as u64,
-            total_work_all_time: povw_result.summary.total_work_all_time,
-            total_emissions_all_time: povw_result.summary.total_emissions_all_time,
-            total_capped_rewards_all_time: povw_result.summary.total_capped_rewards_all_time,
-            total_uncapped_rewards_all_time: povw_result.summary.total_uncapped_rewards_all_time,
-            updated_at: Some(chrono::Utc::now().to_rfc3339()),
-        };
-        self.db.upsert_povw_summary_stats(povw_summary_stats).await?;
-        tracing::info!("Updated PoVW global summary statistics");
-
-        // Store per-epoch PoVW summaries
-        tracing::info!(
-            "Storing per-epoch PoVW summaries for {} epochs...",
-            povw_result.epoch_rewards.len()
-        );
-        for epoch_data in &povw_result.epoch_rewards {
-            let num_participants = epoch_data.rewards_by_work_log_id.len() as u64;
-            let epoch_summary = EpochPoVWSummary {
-                epoch: epoch_data.epoch.to::<u64>(),
-                total_work: epoch_data.total_work,
-                total_emissions: epoch_data.total_emissions,
-                total_capped_rewards: epoch_data.total_capped_rewards,
-                total_uncapped_rewards: epoch_data.total_proportional_rewards,
-                epoch_start_time: epoch_data.epoch_start_time,
-                epoch_end_time: epoch_data.epoch_end_time,
-                num_participants,
-                updated_at: Some(chrono::Utc::now().to_rfc3339()),
-            };
-            self.db.upsert_epoch_povw_summary(epoch_data.epoch.to::<u64>(), epoch_summary).await?;
-        }
-        tracing::info!("Updated per-epoch PoVW summaries");
 
         // Store staking data
         tracing::info!("Storing staking data for {} epochs...", staking_data.epochs.len());
@@ -483,6 +435,160 @@ impl RewardsIndexerService {
             staking_db_start.elapsed().as_secs_f64()
         );
 
+        Ok((staking_data, staking_amounts_by_epoch))
+    }
+
+    async fn compute_and_store_povw_rewards(
+        &self,
+        actual_current_epoch_u64: u64,
+        processing_end_epoch: u64,
+        epochs_to_process: &[u64],
+        povw_cache: &RewardsCache,
+        povw_deployment: &PovwDeployment,
+        staking_amounts_by_epoch: &HashMap<(Address, u64), U256>,
+    ) -> Result<()> {
+        // Get pending epoch total work
+        // For historical indexing (when end_epoch is specified), don't fetch live blockchain state
+        let pending_epoch_total_work = if self.config.end_epoch.is_some() {
+            tracing::info!("Historical indexing mode - using finalized epoch data only");
+            U256::ZERO
+        } else {
+            let povw_accounting =
+                IPovwAccounting::new(povw_deployment.povw_accounting_address, &self.provider);
+            let pending_epoch = povw_accounting.pendingEpoch().call().await?;
+            U256::from(pending_epoch.totalWork)
+        };
+
+        // Compute rewards for all epochs at once
+        tracing::info!("Computing PoVW rewards for all epochs (0 to {})...", processing_end_epoch);
+        let povw_result = compute_povw_rewards(
+            actual_current_epoch_u64,  // Real current epoch for comparison logic
+            processing_end_epoch,      // Process up to this epoch
+            &povw_cache.work_by_work_log_by_epoch,
+            &povw_cache.work_recipients_by_epoch,
+            &povw_cache.total_work_by_epoch,
+            pending_epoch_total_work,
+            &povw_cache.povw_emissions_by_epoch,
+            &povw_cache.reward_caps,
+            staking_amounts_by_epoch,
+            &povw_cache.epoch_time_ranges,
+        )?;
+
+        tracing::info!(
+            "Computed rewards for {} epochs with {} unique work logs. Total work: {}, Total emissions: {}",
+            povw_result.summary.total_epochs_with_work,
+            povw_result.summary.total_unique_work_log_ids,
+            povw_result.summary.total_work_all_time,
+            povw_result.summary.total_emissions_all_time
+        );
+
+        // Store rewards for epochs we're processing
+        for &epoch in epochs_to_process {
+            let epoch_rewards = povw_result
+                .epoch_rewards
+                .iter()
+                .find(|e| e.epoch == U256::from(epoch))
+                .cloned()
+                .unwrap_or_else(|| {
+                    // Create empty epoch if not found
+                    // For empty epochs, use reasonable defaults for times
+                    boundless_rewards::EpochPoVWRewards {
+                        epoch: U256::from(epoch),
+                        total_work: U256::ZERO,
+                        total_emissions: U256::ZERO,
+                        total_capped_rewards: U256::ZERO,
+                        total_proportional_rewards: U256::ZERO,
+                        epoch_start_time: 0,
+                        epoch_end_time: 0,
+                        rewards_by_work_log_id: HashMap::new(),
+                    }
+                });
+
+            // Convert to database format
+            let mut db_rewards = Vec::new();
+            let num_rewards = epoch_rewards.rewards_by_work_log_id.len();
+            let total_work = epoch_rewards.total_work;
+
+            for (_, info) in epoch_rewards.rewards_by_work_log_id {
+                // Calculate percentage before conversion
+                let percentage = if total_work > U256::ZERO {
+                    (info.work * U256::from(10000) / total_work).to::<u64>() as f64 / 100.0
+                } else {
+                    0.0
+                };
+
+                let mut reward: PovwRewardByEpoch = info.into();
+                reward.epoch = epoch;
+                reward.percentage = percentage;
+                db_rewards.push(reward);
+            }
+
+            // Upsert epoch rewards
+            self.db.upsert_povw_rewards_by_epoch(epoch, db_rewards).await?;
+            tracing::info!("Updated {} rewards for epoch {}", num_rewards, epoch);
+        }
+
+        // Convert aggregates to database format and upsert
+        let aggregates: Vec<PovwRewardAggregate> = povw_result
+            .summary_by_work_log_id
+            .into_values()
+            .map(|aggregate| PovwRewardAggregate {
+                work_log_id: aggregate.work_log_id,
+                total_work_submitted: aggregate.total_work_submitted,
+                total_actual_rewards: aggregate.total_actual_rewards,
+                total_uncapped_rewards: aggregate.total_uncapped_rewards,
+                epochs_participated: aggregate.epochs_participated,
+            })
+            .collect();
+        self.db.upsert_povw_rewards_aggregate(aggregates.clone()).await?;
+
+        tracing::info!("Updated aggregate rewards for {} work logs", aggregates.len());
+
+        // Store PoVW global summary statistics
+        tracing::info!("Storing PoVW global summary statistics...");
+        let povw_summary_stats = PoVWSummaryStats {
+            total_epochs_with_work: povw_result.summary.total_epochs_with_work as u64,
+            total_unique_work_log_ids: povw_result.summary.total_unique_work_log_ids as u64,
+            total_work_all_time: povw_result.summary.total_work_all_time,
+            total_emissions_all_time: povw_result.summary.total_emissions_all_time,
+            total_capped_rewards_all_time: povw_result.summary.total_capped_rewards_all_time,
+            total_uncapped_rewards_all_time: povw_result.summary.total_uncapped_rewards_all_time,
+            updated_at: Some(chrono::Utc::now().to_rfc3339()),
+        };
+        self.db.upsert_povw_summary_stats(povw_summary_stats).await?;
+        tracing::info!("Updated PoVW global summary statistics");
+
+        // Store per-epoch PoVW summaries
+        tracing::info!(
+            "Storing per-epoch PoVW summaries for {} epochs...",
+            povw_result.epoch_rewards.len()
+        );
+        for epoch_data in &povw_result.epoch_rewards {
+            let num_participants = epoch_data.rewards_by_work_log_id.len() as u64;
+            let epoch_summary = EpochPoVWSummary {
+                epoch: epoch_data.epoch.to::<u64>(),
+                total_work: epoch_data.total_work,
+                total_emissions: epoch_data.total_emissions,
+                total_capped_rewards: epoch_data.total_capped_rewards,
+                total_uncapped_rewards: epoch_data.total_proportional_rewards,
+                epoch_start_time: epoch_data.epoch_start_time,
+                epoch_end_time: epoch_data.epoch_end_time,
+                num_participants,
+                updated_at: Some(chrono::Utc::now().to_rfc3339()),
+            };
+            self.db.upsert_epoch_povw_summary(epoch_data.epoch.to::<u64>(), epoch_summary).await?;
+        }
+        tracing::info!("Updated per-epoch PoVW summaries");
+
+        Ok(())
+    }
+
+    async fn compute_and_store_delegation_powers(
+        &self,
+        actual_current_epoch_u64: u64,
+        processing_end_epoch: u64,
+        povw_cache: &RewardsCache,
+    ) -> Result<()> {
         // Compute delegation powers
         tracing::info!("🧮 Computing delegation powers from events...");
         let delegation_start = std::time::Instant::now();
@@ -620,13 +726,8 @@ impl RewardsIndexerService {
             }
         }
 
-        // Save last processed block
-        self.db.set_last_rewards_block(end_block).await?;
-
-        tracing::info!(
-            "Rewards indexer run completed successfully in {:.2}s",
-            start_time.elapsed().as_secs_f64()
-        );
         Ok(())
     }
+
+    
 }
