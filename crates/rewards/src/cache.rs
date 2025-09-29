@@ -111,14 +111,14 @@ pub async fn build_rewards_cache<P: Provider>(
             let povw_results: Vec<U256> = povw_multicall.aggregate().await?;
 
             // Fetch staking emissions
-            let mut staking_multicall = provider
-                .multicall()
-                .dynamic::<boundless_zkc::contracts::IZKC::getStakingEmissionsForEpochCall>(
-            );
+            let mut staking_multicall =
+                provider
+                    .multicall()
+                    .dynamic::<boundless_zkc::contracts::IZKC::getStakingEmissionsForEpochCall>();
 
             for &epoch_num in chunk {
-                staking_multicall =
-                    staking_multicall.add_dynamic(zkc.getStakingEmissionsForEpoch(U256::from(epoch_num)));
+                staking_multicall = staking_multicall
+                    .add_dynamic(zkc.getStakingEmissionsForEpoch(U256::from(epoch_num)));
             }
 
             let staking_results: Vec<U256> = staking_multicall.aggregate().await?;
@@ -647,18 +647,23 @@ pub async fn build_rewards_cache<P: Provider>(
 
             // Fetch past staking rewards using getPastStakingRewards
             if !past_pairs.is_empty() {
-                let mut past_power_multicall = provider
-                    .multicall()
-                    .dynamic::<boundless_zkc::contracts::IRewards::getPastStakingRewardsCall>();
+                let mut past_power_multicall =
+                    provider
+                        .multicall()
+                        .dynamic::<boundless_zkc::contracts::IRewards::getPastStakingRewardsCall>();
 
                 for &(staker_address, epoch) in &past_pairs {
-                    let epoch_end_time = cache.epoch_time_ranges
+                    let epoch_end_time = cache
+                        .epoch_time_ranges
                         .get(&epoch)
-                        .ok_or_else(|| anyhow::anyhow!("Missing epoch time range for epoch {}", epoch))?
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("Missing epoch time range for epoch {}", epoch)
+                        })?
                         .end_time;
 
                     past_power_multicall = past_power_multicall.add_dynamic(
-                        rewards_contract.getPastStakingRewards(staker_address, U256::from(epoch_end_time))
+                        rewards_contract
+                            .getPastStakingRewards(staker_address, U256::from(epoch_end_time)),
                     );
                 }
 
@@ -666,33 +671,33 @@ pub async fn build_rewards_cache<P: Provider>(
 
                 // Store past power results
                 for ((staker_address, epoch), power) in past_pairs.iter().zip(past_results.iter()) {
-                    cache.staking_power_by_address_by_epoch.insert(
-                        (*staker_address, *epoch),
-                        *power
-                    );
+                    cache
+                        .staking_power_by_address_by_epoch
+                        .insert((*staker_address, *epoch), *power);
                 }
             }
 
             // Fetch current staking rewards using getStakingRewards
             if !current_pairs.is_empty() {
-                let mut current_power_multicall = provider
-                    .multicall()
-                    .dynamic::<boundless_zkc::contracts::IRewards::getStakingRewardsCall>();
+                let mut current_power_multicall =
+                    provider
+                        .multicall()
+                        .dynamic::<boundless_zkc::contracts::IRewards::getStakingRewardsCall>();
 
                 for &(staker_address, _epoch) in &current_pairs {
-                    current_power_multicall = current_power_multicall.add_dynamic(
-                        rewards_contract.getStakingRewards(staker_address)
-                    );
+                    current_power_multicall = current_power_multicall
+                        .add_dynamic(rewards_contract.getStakingRewards(staker_address));
                 }
 
                 let current_results: Vec<U256> = current_power_multicall.aggregate().await?;
 
                 // Store current power results
-                for ((staker_address, epoch), power) in current_pairs.iter().zip(current_results.iter()) {
-                    cache.staking_power_by_address_by_epoch.insert(
-                        (*staker_address, *epoch),
-                        *power
-                    );
+                for ((staker_address, epoch), power) in
+                    current_pairs.iter().zip(current_results.iter())
+                {
+                    cache
+                        .staking_power_by_address_by_epoch
+                        .insert((*staker_address, *epoch), *power);
                 }
             }
         }
@@ -729,13 +734,16 @@ pub async fn build_rewards_cache<P: Provider>(
 
                     let mut valid_epochs = Vec::new();
                     for &epoch in &past_epochs {
-                        let epoch_end_time = cache.epoch_time_ranges
+                        let epoch_end_time = cache
+                            .epoch_time_ranges
                             .get(&epoch)
-                            .ok_or_else(|| anyhow::anyhow!("Missing epoch time range for epoch {}", epoch))?
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("Missing epoch time range for epoch {}", epoch)
+                            })?
                             .end_time;
 
                         total_power_multicall = total_power_multicall.add_dynamic(
-                            rewards_contract.getPastTotalStakingRewards(U256::from(epoch_end_time))
+                            rewards_contract.getPastTotalStakingRewards(U256::from(epoch_end_time)),
                         );
                         valid_epochs.push(epoch);
                     }
@@ -755,9 +763,8 @@ pub async fn build_rewards_cache<P: Provider>(
                         .dynamic::<boundless_zkc::contracts::IRewards::getTotalStakingRewardsCall>();
 
                     for &_epoch in &current_epochs {
-                        current_multicall = current_multicall.add_dynamic(
-                            rewards_contract.getTotalStakingRewards()
-                        );
+                        current_multicall = current_multicall
+                            .add_dynamic(rewards_contract.getTotalStakingRewards());
                     }
 
                     let current_results: Vec<U256> = current_multicall.aggregate().await?;

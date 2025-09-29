@@ -42,10 +42,8 @@ async fn test_openapi_yaml_endpoint() {
 
     assert!(response.status().is_success());
 
-    let content_type = response.headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let content_type =
+        response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
 
     assert!(content_type.contains("yaml") || content_type.contains("x-yaml"));
 
@@ -101,10 +99,8 @@ async fn test_swagger_ui_endpoint() {
 
     assert!(response.status().is_success());
 
-    let content_type = response.headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let content_type =
+        response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
 
     assert!(content_type.contains("text/html"));
 

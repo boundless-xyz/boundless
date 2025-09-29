@@ -32,19 +32,14 @@ async fn main() -> Result<()> {
         .or_else(|_| env::var("DATABASE_URL"))
         .unwrap_or_else(|_| "sqlite:local_indexer.db".to_string());
 
-    let port = env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(3000);
+    let port = env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok()).unwrap_or(3000);
 
     tracing::info!("Starting local indexer-api server");
     tracing::info!("Database URL: {}", db_url);
     tracing::info!("Port: {}", port);
 
     // Create application state with database connection
-    let state = AppState::new(&db_url)
-        .await
-        .context("Failed to create application state")?;
+    let state = AppState::new(&db_url).await.context("Failed to create application state")?;
     let shared_state = Arc::new(state);
 
     // Create the axum application with routes
@@ -56,14 +51,11 @@ async fn main() -> Result<()> {
     tracing::info!("Server listening on http://{}", addr);
 
     // Create the listener
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .context("Failed to bind to address")?;
+    let listener =
+        tokio::net::TcpListener::bind(addr).await.context("Failed to bind to address")?;
 
     // Run the server
-    axum::serve(listener, app)
-        .await
-        .context("Server failed")?;
+    axum::serve(listener, app).await.context("Server failed")?;
 
     Ok(())
 }

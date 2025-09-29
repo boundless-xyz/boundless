@@ -41,10 +41,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/epochs", get(get_all_epochs_summary))
         .route("/epochs/:epoch", get(get_epoch_summary))
         .route("/epochs/:epoch/addresses", get(get_epoch_leaderboard))
-        .route(
-            "/epochs/:epoch/addresses/:address",
-            get(get_address_at_epoch),
-        )
+        .route("/epochs/:epoch/addresses/:address", get(get_address_at_epoch))
         // Address endpoints
         .route("/addresses", get(get_all_time_leaderboard))
         .route("/addresses/:address", get(get_address_history))
@@ -56,8 +53,7 @@ async fn get_staking_summary(State(state): State<Arc<AppState>>) -> Response {
     match get_staking_summary_impl(state).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut()
-                .insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -75,7 +71,8 @@ async fn get_staking_summary_impl(state: Arc<AppState>) -> anyhow::Result<Stakin
         .ok_or_else(|| anyhow::anyhow!("No staking summary data available"))?;
 
     let total_str = summary.current_total_staked.to_string();
-    let emissions_str = summary.total_staking_emissions_all_time
+    let emissions_str = summary
+        .total_staking_emissions_all_time
         .map(|v| v.to_string())
         .unwrap_or_else(|| "0".to_string());
 
@@ -102,8 +99,7 @@ async fn get_all_epochs_summary(
     match get_all_epochs_summary_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut()
-                .insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -121,10 +117,8 @@ async fn get_all_epochs_summary_impl(
     );
 
     // Fetch all epoch summaries
-    let summaries = state
-        .rewards_db
-        .get_all_epoch_staking_summaries(params.offset, params.limit)
-        .await?;
+    let summaries =
+        state.rewards_db.get_all_epoch_staking_summaries(params.offset, params.limit).await?;
 
     // Convert to response format
     let entries: Vec<EpochStakingSummary> = summaries
@@ -156,15 +150,11 @@ async fn get_all_epochs_summary_impl(
 
 /// GET /v1/staking/epochs/:epoch
 /// Returns summary for a specific epoch
-async fn get_epoch_summary(
-    State(state): State<Arc<AppState>>,
-    Path(epoch): Path<u64>,
-) -> Response {
+async fn get_epoch_summary(State(state): State<Arc<AppState>>, Path(epoch): Path<u64>) -> Response {
     match get_epoch_summary_impl(state, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut()
-                .insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -217,8 +207,7 @@ async fn get_epoch_leaderboard(
     match get_epoch_leaderboard_impl(state, epoch, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut()
-                .insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -238,10 +227,8 @@ async fn get_epoch_leaderboard_impl(
     );
 
     // Fetch data from database
-    let positions = state
-        .rewards_db
-        .get_staking_positions_by_epoch(epoch, params.offset, params.limit)
-        .await?;
+    let positions =
+        state.rewards_db.get_staking_positions_by_epoch(epoch, params.offset, params.limit).await?;
 
     // Convert to response format with ranks
     let entries: Vec<EpochStakingEntry> = positions
@@ -287,8 +274,7 @@ async fn get_address_at_epoch(
     match get_address_at_epoch_impl(state, epoch, address).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut()
-                .insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -300,17 +286,11 @@ async fn get_address_at_epoch_impl(
     epoch: u64,
     address: Address,
 ) -> anyhow::Result<Option<EpochStakingEntry>> {
-    tracing::debug!(
-        "Fetching staking data for address {} at epoch {}",
-        address,
-        epoch
-    );
+    tracing::debug!("Fetching staking data for address {} at epoch {}", address, epoch);
 
     // Fetch staking history for the address at specific epoch
-    let positions = state
-        .rewards_db
-        .get_staking_history_by_address(address, Some(epoch), Some(epoch))
-        .await?;
+    let positions =
+        state.rewards_db.get_staking_history_by_address(address, Some(epoch), Some(epoch)).await?;
 
     if positions.is_empty() {
         return Ok(None);
@@ -326,9 +306,7 @@ async fn get_address_at_epoch_impl(
         staked_amount: staked_str.clone(),
         staked_amount_formatted: format_zkc(&staked_str),
         is_withdrawing: position.is_withdrawing,
-        rewards_delegated_to: position
-            .rewards_delegated_to
-            .map(|addr| format!("{:#x}", addr)),
+        rewards_delegated_to: position.rewards_delegated_to.map(|addr| format!("{:#x}", addr)),
         votes_delegated_to: position.votes_delegated_to.map(|addr| format!("{:#x}", addr)),
         rewards_generated: generated_str.clone(),
         rewards_generated_formatted: format_zkc(&generated_str),
@@ -346,8 +324,7 @@ async fn get_all_time_leaderboard(
     match get_all_time_leaderboard_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut()
-                .insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -365,10 +342,8 @@ async fn get_all_time_leaderboard_impl(
     );
 
     // Fetch aggregate data from database
-    let aggregates = state
-        .rewards_db
-        .get_staking_positions_aggregate(params.offset, params.limit)
-        .await?;
+    let aggregates =
+        state.rewards_db.get_staking_positions_aggregate(params.offset, params.limit).await?;
 
     // Convert to response format with ranks
     let entries: Vec<AggregateStakingEntry> = aggregates
@@ -417,8 +392,7 @@ async fn get_address_history(
     match get_address_history_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut()
-                .insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -438,25 +412,16 @@ async fn get_address_history_impl(
     );
 
     // Fetch staking history for the address
-    let positions = state
-        .rewards_db
-        .get_staking_history_by_address(address, None, None)
-        .await?;
+    let positions = state.rewards_db.get_staking_history_by_address(address, None, None).await?;
 
     // Fetch aggregate summary for this address
-    let address_aggregate = state
-        .rewards_db
-        .get_staking_position_aggregate_by_address(address)
-        .await?;
+    let address_aggregate =
+        state.rewards_db.get_staking_position_aggregate_by_address(address).await?;
 
     // Apply pagination
     let start = params.offset as usize;
     let end = (start + params.limit as usize).min(positions.len());
-    let paginated = if start < positions.len() {
-        positions[start..end].to_vec()
-    } else {
-        vec![]
-    };
+    let paginated = if start < positions.len() { positions[start..end].to_vec() } else { vec![] };
 
     // Convert to response format
     let entries: Vec<EpochStakingEntry> = paginated
@@ -490,9 +455,7 @@ async fn get_address_history_impl(
             total_staked: staked_str.clone(),
             total_staked_formatted: format_zkc(&staked_str),
             is_withdrawing: aggregate.is_withdrawing,
-            rewards_delegated_to: aggregate
-                .rewards_delegated_to
-                .map(|addr| format!("{:#x}", addr)),
+            rewards_delegated_to: aggregate.rewards_delegated_to.map(|addr| format!("{:#x}", addr)),
             votes_delegated_to: aggregate.votes_delegated_to.map(|addr| format!("{:#x}", addr)),
             epochs_participated: aggregate.epochs_participated,
             total_rewards_generated: generated_str.clone(),

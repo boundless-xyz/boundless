@@ -15,8 +15,8 @@
 //! Integration tests for PoVW API endpoints
 
 use indexer_api::models::{
-    AggregateLeaderboardEntry, EpochLeaderboardEntry, EpochPoVWSummary,
-    LeaderboardResponse, PoVWAddressSummary, PoVWSummaryStats
+    AggregateLeaderboardEntry, EpochLeaderboardEntry, EpochPoVWSummary, LeaderboardResponse,
+    PoVWAddressSummary, PoVWSummaryStats,
 };
 
 use super::TestEnv;
@@ -27,11 +27,13 @@ async fn test_povw_leaderboard() {
     let env = TestEnv::shared().await;
 
     // Test default leaderboard
-    let response: LeaderboardResponse<AggregateLeaderboardEntry> = env.get("/v1/povw/addresses").await.unwrap();
+    let response: LeaderboardResponse<AggregateLeaderboardEntry> =
+        env.get("/v1/povw/addresses").await.unwrap();
     assert!(response.pagination.count <= response.pagination.limit as usize);
 
     // Test with limit of 3 to check top entries
-    let response: LeaderboardResponse<AggregateLeaderboardEntry> = env.get("/v1/povw/addresses?limit=3").await.unwrap();
+    let response: LeaderboardResponse<AggregateLeaderboardEntry> =
+        env.get("/v1/povw/addresses?limit=3").await.unwrap();
     assert!(response.entries.len() <= 3);
     assert_eq!(response.pagination.limit, 3);
 
@@ -51,8 +53,8 @@ async fn test_povw_leaderboard() {
             let second = &response.entries[1];
             assert_eq!(second.work_log_id, "0x0164ec96442196a02931f57e7e20fa59cff43845");
             assert_eq!(second.total_work_submitted, "2349000278016");
-            assert_eq!(second.total_actual_rewards, "8825197537996492524728");  // Fixed: was 13540303064735614608777
-            assert_eq!(second.total_uncapped_rewards, "8825197537996492524728");  // Fixed: was 13540303064735614608777
+            assert_eq!(second.total_actual_rewards, "8825197537996492524728"); // Fixed: was 13540303064735614608777
+            assert_eq!(second.total_uncapped_rewards, "8825197537996492524728"); // Fixed: was 13540303064735614608777
             assert_eq!(second.epochs_participated, 2);
         }
     }
@@ -72,11 +74,12 @@ async fn test_povw_summary() {
     assert_eq!(summary.total_work_all_time, "24999835418624");
     assert_eq!(summary.total_emissions_all_time, "1395361974850288500000000");
     assert_eq!(summary.total_capped_rewards_all_time, "54999464530233482198753");
-    assert_eq!(summary.total_uncapped_rewards_all_time, "837217107775305749999989");  // Fixed: was 624997088546559733077848
+    assert_eq!(summary.total_uncapped_rewards_all_time, "837217107775305749999989"); // Fixed: was 624997088546559733077848
 
     // Verify formatted strings are present
     assert_eq!(summary.total_work_all_time_formatted, "24,999,835,418,624 cycles");
-    assert_eq!(summary.total_uncapped_rewards_all_time_formatted, "837,217 ZKC");  // Fixed: was 624,997 ZKC
+    assert_eq!(summary.total_uncapped_rewards_all_time_formatted, "837,217 ZKC");
+    // Fixed: was 624,997 ZKC
 }
 
 #[tokio::test]
@@ -103,7 +106,8 @@ async fn test_povw_epoch_details() {
     let env = TestEnv::shared().await;
 
     // Test specific epoch (epoch 4 usually has data)
-    let response: LeaderboardResponse<EpochLeaderboardEntry> = env.get("/v1/povw/epochs/4/addresses").await.unwrap();
+    let response: LeaderboardResponse<EpochLeaderboardEntry> =
+        env.get("/v1/povw/epochs/4/addresses").await.unwrap();
 
     // Verify all entries are for the requested epoch if we have data
     for entry in &response.entries {
@@ -142,8 +146,10 @@ async fn test_povw_pagination() {
     let env = TestEnv::shared().await;
 
     // Test pagination with offset
-    let response1: LeaderboardResponse<AggregateLeaderboardEntry> = env.get("/v1/povw/addresses?limit=2").await.unwrap();
-    let response2: LeaderboardResponse<AggregateLeaderboardEntry> = env.get("/v1/povw/addresses?limit=2&offset=2").await.unwrap();
+    let response1: LeaderboardResponse<AggregateLeaderboardEntry> =
+        env.get("/v1/povw/addresses?limit=2").await.unwrap();
+    let response2: LeaderboardResponse<AggregateLeaderboardEntry> =
+        env.get("/v1/povw/addresses?limit=2&offset=2").await.unwrap();
 
     // Ensure responses are different if we have enough data
     if response1.entries.len() == 2 && !response2.entries.is_empty() {

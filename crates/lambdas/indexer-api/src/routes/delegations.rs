@@ -33,12 +33,18 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         // Vote delegation endpoints
         .route("/votes/epochs/:epoch/addresses", get(get_vote_delegations_by_epoch))
-        .route("/votes/epochs/:epoch/addresses/:address", get(get_vote_delegation_by_address_and_epoch))
+        .route(
+            "/votes/epochs/:epoch/addresses/:address",
+            get(get_vote_delegation_by_address_and_epoch),
+        )
         .route("/votes/addresses", get(get_aggregate_vote_delegations))
         .route("/votes/addresses/:address", get(get_vote_delegation_history_by_address))
         // Reward delegation endpoints
         .route("/rewards/epochs/:epoch/addresses", get(get_reward_delegations_by_epoch))
-        .route("/rewards/epochs/:epoch/addresses/:address", get(get_reward_delegation_by_address_and_epoch))
+        .route(
+            "/rewards/epochs/:epoch/addresses/:address",
+            get(get_reward_delegation_by_address_and_epoch),
+        )
         .route("/rewards/addresses", get(get_aggregate_reward_delegations))
         .route("/rewards/addresses/:address", get(get_reward_delegation_history_by_address))
 }

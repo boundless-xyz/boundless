@@ -27,9 +27,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_povw::{deployments::Deployment as PovwDeployment, log_updater::IPovwAccounting};
 use boundless_rewards::{
-    build_rewards_cache, compute_delegation_powers, compute_povw_rewards,
-    compute_staking_data, fetch_all_event_logs, AllEventLogs,
-    EpochTimeRange, RewardsCache, MAINNET_FROM_BLOCK,
+    build_rewards_cache, compute_delegation_powers, compute_povw_rewards, compute_staking_data,
+    fetch_all_event_logs, AllEventLogs, EpochTimeRange, RewardsCache, MAINNET_FROM_BLOCK,
     SEPOLIA_FROM_BLOCK,
 };
 use boundless_zkc::{contracts::IZKC, deployments::Deployment as ZkcDeployment};
@@ -122,19 +121,23 @@ impl RewardsIndexerService {
         self.db.set_current_epoch(prepared_data.actual_current_epoch_u64).await?;
 
         // Build cache
-        let povw_cache = self.build_cache(
-            &prepared_data.povw_deployment,
-            &prepared_data.epochs_to_process,
-            prepared_data.actual_current_epoch_u64,
-            &prepared_data.all_logs,
-        ).await?;
+        let povw_cache = self
+            .build_cache(
+                &prepared_data.povw_deployment,
+                &prepared_data.epochs_to_process,
+                prepared_data.actual_current_epoch_u64,
+                &prepared_data.all_logs,
+            )
+            .await?;
 
         // Compute and store staking rewards
-        let staking_amounts_by_epoch = self.compute_and_store_staking_rewards(
-            prepared_data.actual_current_epoch_u64,
-            prepared_data.processing_end_epoch,
-            &povw_cache,
-        ).await?;
+        let staking_amounts_by_epoch = self
+            .compute_and_store_staking_rewards(
+                prepared_data.actual_current_epoch_u64,
+                prepared_data.processing_end_epoch,
+                &povw_cache,
+            )
+            .await?;
 
         // Compute and store PoVW rewards
         self.compute_and_store_povw_rewards(
@@ -144,14 +147,16 @@ impl RewardsIndexerService {
             &povw_cache,
             &prepared_data.povw_deployment,
             &staking_amounts_by_epoch,
-        ).await?;
+        )
+        .await?;
 
         // Compute and store delegation powers
         self.compute_and_store_delegation_powers(
             prepared_data.actual_current_epoch_u64,
             prepared_data.processing_end_epoch,
             &povw_cache,
-        ).await?;
+        )
+        .await?;
 
         // Save last processed block
         self.db.set_last_rewards_block(prepared_data.end_block).await?;
@@ -236,7 +241,10 @@ impl RewardsIndexerService {
             );
             end_epoch
         } else {
-            tracing::info!("Live mode: processing up to current epoch {}", actual_current_epoch_u64);
+            tracing::info!(
+                "Live mode: processing up to current epoch {}",
+                actual_current_epoch_u64
+            );
             actual_current_epoch_u64
         };
 
@@ -245,7 +253,8 @@ impl RewardsIndexerService {
         // Process the last epochs_to_process epochs
         let epochs_to_process_count = self.config.epochs_to_process;
         let epochs_to_process = if processing_end_epoch >= epochs_to_process_count {
-            (processing_end_epoch - epochs_to_process_count + 1..=processing_end_epoch).collect::<Vec<_>>()
+            (processing_end_epoch - epochs_to_process_count + 1..=processing_end_epoch)
+                .collect::<Vec<_>>()
         } else {
             (0..=processing_end_epoch).collect::<Vec<_>>()
         };
@@ -269,18 +278,15 @@ impl RewardsIndexerService {
         all_logs: &AllEventLogs,
     ) -> Result<RewardsCache> {
         // Build PoVW rewards cache with all necessary data (includes epoch times, block timestamps, and stake events)
-        tracing::info!(
-            "Building rewards cache for {} epochs",
-            epochs_to_process.len()
-        );
+        tracing::info!("Building rewards cache for {} epochs", epochs_to_process.len());
         let cache_build_start = std::time::Instant::now();
         let povw_cache = build_rewards_cache(
             &self.provider,
             povw_deployment,
             self.zkc_address,
             epochs_to_process,
-            actual_current_epoch_u64,  // Pass real current epoch
-            self.config.end_epoch,     // Pass end_epoch for historical mode detection
+            actual_current_epoch_u64, // Pass real current epoch
+            self.config.end_epoch,    // Pass end_epoch for historical mode detection
             all_logs,
         )
         .await?;
@@ -303,8 +309,8 @@ impl RewardsIndexerService {
         let staking_start = std::time::Instant::now();
 
         let staking_data = compute_staking_data(
-            actual_current_epoch_u64,  // Real current epoch for comparison
-            processing_end_epoch,       // Process up to this epoch
+            actual_current_epoch_u64, // Real current epoch for comparison
+            processing_end_epoch,     // Process up to this epoch
             &povw_cache.timestamped_stake_events,
             &povw_cache.staking_emissions_by_epoch,
             &povw_cache.staking_power_by_address_by_epoch,
@@ -327,7 +333,8 @@ impl RewardsIndexerService {
         let mut staking_amounts_by_epoch: HashMap<(Address, u64), U256> = HashMap::new();
         for epoch_data in &staking_data.epochs {
             for (address, position) in &epoch_data.positions_by_staker {
-                staking_amounts_by_epoch.insert((*address, epoch_data.epoch), position.staked_amount);
+                staking_amounts_by_epoch
+                    .insert((*address, epoch_data.epoch), position.staked_amount);
             }
         }
 
@@ -374,13 +381,11 @@ impl RewardsIndexerService {
             }
 
             // Get epoch time range from cache
-            let epoch_time_range = self.epoch_cache
+            let epoch_time_range = self
+                .epoch_cache
                 .get(&epoch_data.epoch)
                 .cloned()
-                .unwrap_or(boundless_rewards::EpochTimeRange {
-                    start_time: 0,
-                    end_time: 0,
-                });
+                .unwrap_or(boundless_rewards::EpochTimeRange { start_time: 0, end_time: 0 });
 
             // Store epoch summary
             let epoch_summary = EpochStakingSummary {
@@ -416,7 +421,10 @@ impl RewardsIndexerService {
 
         if !aggregates.is_empty() {
             self.db.upsert_staking_positions_aggregate(aggregates).await?;
-            tracing::info!("Updated staking position aggregates for {} addresses", staking_data.staker_aggregates.len());
+            tracing::info!(
+                "Updated staking position aggregates for {} addresses",
+                staking_data.staker_aggregates.len()
+            );
         }
 
         // Store global staking summary statistics
@@ -425,15 +433,14 @@ impl RewardsIndexerService {
             total_unique_stakers: staking_data.summary.total_unique_stakers as u64,
             current_active_stakers: staking_data.summary.current_active_stakers as u64,
             current_withdrawing: staking_data.summary.current_withdrawing as u64,
-            total_staking_emissions_all_time: Some(staking_data.summary.total_staking_emissions_all_time),
+            total_staking_emissions_all_time: Some(
+                staking_data.summary.total_staking_emissions_all_time,
+            ),
             updated_at: Some(chrono::Utc::now().to_rfc3339()),
         };
         self.db.upsert_staking_summary_stats(staking_summary_stats).await?;
 
-        tracing::info!(
-            "Staking data stored in {:.2}s",
-            staking_db_start.elapsed().as_secs_f64()
-        );
+        tracing::info!("Staking data stored in {:.2}s", staking_db_start.elapsed().as_secs_f64());
 
         Ok(staking_amounts_by_epoch)
     }
@@ -462,8 +469,8 @@ impl RewardsIndexerService {
         // Compute rewards for all epochs at once
         tracing::info!("Computing PoVW rewards for all epochs (0 to {})...", processing_end_epoch);
         let povw_result = compute_povw_rewards(
-            actual_current_epoch_u64,  // Real current epoch for comparison logic
-            processing_end_epoch,      // Process up to this epoch
+            actual_current_epoch_u64, // Real current epoch for comparison logic
+            processing_end_epoch,     // Process up to this epoch
             &povw_cache.work_by_work_log_by_epoch,
             &povw_cache.work_recipients_by_epoch,
             &povw_cache.total_work_by_epoch,
@@ -596,8 +603,8 @@ impl RewardsIndexerService {
         // Compute delegation powers from pre-processed events
         let epoch_delegation_powers = compute_delegation_powers(
             &povw_cache.timestamped_delegation_events,
-            actual_current_epoch_u64,  // Real current epoch for comparison
-            processing_end_epoch,       // Process up to this epoch
+            actual_current_epoch_u64, // Real current epoch for comparison
+            processing_end_epoch,     // Process up to this epoch
         )?;
         tracing::info!(
             "Delegation powers computed in {:.2}s",
@@ -605,10 +612,7 @@ impl RewardsIndexerService {
         );
 
         // Store delegation powers by epoch
-        tracing::info!(
-            "Storing delegation powers for {} epochs...",
-            epoch_delegation_powers.len()
-        );
+        tracing::info!("Storing delegation powers for {} epochs...", epoch_delegation_powers.len());
         let delegation_db_start = std::time::Instant::now();
 
         for epoch_data in &epoch_delegation_powers {
@@ -728,6 +732,4 @@ impl RewardsIndexerService {
 
         Ok(())
     }
-
-    
 }

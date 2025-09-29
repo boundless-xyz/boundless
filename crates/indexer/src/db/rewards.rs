@@ -893,7 +893,9 @@ impl RewardsIndexerDb for RewardsDb {
                 rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
-                total_rewards_generated: unpad_u256(&row.get::<String, _>("total_rewards_generated"))?,
+                total_rewards_generated: unpad_u256(
+                    &row.get::<String, _>("total_rewards_generated"),
+                )?,
                 total_rewards_earned: unpad_u256(&row.get::<String, _>("total_rewards_earned"))?,
             });
         }
@@ -926,7 +928,9 @@ impl RewardsIndexerDb for RewardsDb {
                 rewards_delegated_to: rewards_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 votes_delegated_to: votes_delegated_to.and_then(|s| Address::from_str(&s).ok()),
                 epochs_participated: row.get::<i64, _>("epochs_participated") as u64,
-                total_rewards_generated: unpad_u256(&row.get::<String, _>("total_rewards_generated"))?,
+                total_rewards_generated: unpad_u256(
+                    &row.get::<String, _>("total_rewards_generated"),
+                )?,
                 total_rewards_earned: unpad_u256(&row.get::<String, _>("total_rewards_earned"))?,
             }))
         } else {
@@ -1276,7 +1280,7 @@ impl RewardsIndexerDb for RewardsDb {
             "SELECT staker_address, epoch, staked_amount, is_withdrawing,
                     rewards_delegated_to, votes_delegated_to, rewards_generated
              FROM staking_positions_by_epoch
-             WHERE staker_address = $1"
+             WHERE staker_address = $1",
         );
 
         let mut bind_count = 1;
@@ -1541,7 +1545,7 @@ impl RewardsIndexerDb for RewardsDb {
                 total_uncapped_rewards_all_time: unpad_u256(
                     &row.get::<String, _>("total_uncapped_rewards_all_time"),
                 )?,
-                updated_at: row.get::<Option<String>, _>("updated_at")
+                updated_at: row.get::<Option<String>, _>("updated_at"),
             }))
         } else {
             Ok(None)
@@ -1610,7 +1614,7 @@ impl RewardsIndexerDb for RewardsDb {
                 epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
                 epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
                 num_participants: row.get::<i64, _>("num_participants") as u64,
-                updated_at: row.get::<Option<String>, _>("updated_at")
+                updated_at: row.get::<Option<String>, _>("updated_at"),
             }))
         } else {
             Ok(None)
@@ -1668,7 +1672,7 @@ impl RewardsIndexerDb for RewardsDb {
                 total_staking_emissions_all_time: row
                     .get::<Option<String>, _>("total_staking_emissions_all_time")
                     .and_then(|s| unpad_u256(&s).ok()),
-                updated_at: row.get::<Option<String>, _>("updated_at")
+                updated_at: row.get::<Option<String>, _>("updated_at"),
             }))
         } else {
             Ok(None)
@@ -1735,12 +1739,14 @@ impl RewardsIndexerDb for RewardsDb {
                 total_staked: unpad_u256(&row.get::<String, _>("total_staked"))?,
                 num_stakers: row.get::<i64, _>("num_stakers") as u64,
                 num_withdrawing: row.get::<i64, _>("num_withdrawing") as u64,
-                total_staking_emissions: unpad_u256(&row.get::<String, _>("total_staking_emissions"))?,
+                total_staking_emissions: unpad_u256(
+                    &row.get::<String, _>("total_staking_emissions"),
+                )?,
                 total_staking_power: unpad_u256(&row.get::<String, _>("total_staking_power"))?,
                 num_reward_recipients: row.get::<i64, _>("num_reward_recipients") as u64,
                 epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
                 epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
-                updated_at: row.get::<Option<String>, _>("updated_at")
+                updated_at: row.get::<Option<String>, _>("updated_at"),
             }))
         } else {
             Ok(None)
@@ -1874,11 +1880,13 @@ impl RewardsIndexerDb for RewardsDb {
                 total_work: unpad_u256(&row.get::<String, _>("total_work"))?,
                 total_emissions: unpad_u256(&row.get::<String, _>("total_emissions"))?,
                 total_capped_rewards: unpad_u256(&row.get::<String, _>("total_capped_rewards"))?,
-                total_uncapped_rewards: unpad_u256(&row.get::<String, _>("total_uncapped_rewards"))?,
+                total_uncapped_rewards: unpad_u256(
+                    &row.get::<String, _>("total_uncapped_rewards"),
+                )?,
                 epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
                 epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
                 num_participants: row.get::<i64, _>("num_participants") as u64,
-                updated_at: row.get::<Option<String>, _>("updated_at")
+                updated_at: row.get::<Option<String>, _>("updated_at"),
             });
         }
         Ok(summaries)
@@ -1910,12 +1918,14 @@ impl RewardsIndexerDb for RewardsDb {
                 total_staked: unpad_u256(&row.get::<String, _>("total_staked"))?,
                 num_stakers: row.get::<i64, _>("num_stakers") as u64,
                 num_withdrawing: row.get::<i64, _>("num_withdrawing") as u64,
-                total_staking_emissions: unpad_u256(&row.get::<String, _>("total_staking_emissions"))?,
+                total_staking_emissions: unpad_u256(
+                    &row.get::<String, _>("total_staking_emissions"),
+                )?,
                 total_staking_power: unpad_u256(&row.get::<String, _>("total_staking_power"))?,
                 num_reward_recipients: row.get::<i64, _>("num_reward_recipients") as u64,
                 epoch_start_time: row.get::<i64, _>("epoch_start_time") as u64,
                 epoch_end_time: row.get::<i64, _>("epoch_end_time") as u64,
-                updated_at: row.get::<Option<String>, _>("updated_at")
+                updated_at: row.get::<Option<String>, _>("updated_at"),
             });
         }
         Ok(summaries)

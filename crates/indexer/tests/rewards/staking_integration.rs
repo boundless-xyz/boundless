@@ -19,7 +19,9 @@ use super::common;
 async fn test_staking_summary_stats() {
     let db = common::setup_test_db().await;
 
-    let stats = db.get_staking_summary_stats().await
+    let stats = db
+        .get_staking_summary_stats()
+        .await
         .expect("Failed to get staking summary stats")
         .expect("No staking summary stats found");
 
@@ -37,7 +39,9 @@ async fn test_epoch_staking_summary() {
     let db = common::setup_test_db().await;
 
     // Test epoch 3 summary
-    let epoch3 = db.get_epoch_staking_summary(3).await
+    let epoch3 = db
+        .get_epoch_staking_summary(3)
+        .await
         .expect("Failed to get epoch 3 staking summary")
         .expect("No epoch 3 staking summary found");
 
@@ -47,7 +51,9 @@ async fn test_epoch_staking_summary() {
     assert_eq!(epoch3.num_withdrawing, 7);
 
     // Test epoch 4 summary
-    let epoch4 = db.get_epoch_staking_summary(4).await
+    let epoch4 = db
+        .get_epoch_staking_summary(4)
+        .await
         .expect("Failed to get epoch 4 staking summary")
         .expect("No epoch 4 staking summary found");
 
@@ -62,7 +68,9 @@ async fn test_staking_positions_by_epoch() {
     let db = common::setup_test_db().await;
 
     // Test staking positions for epoch 3
-    let positions = db.get_staking_positions_by_epoch(3, 0, 5).await
+    let positions = db
+        .get_staking_positions_by_epoch(3, 0, 5)
+        .await
         .expect("Failed to get staking positions for epoch 3");
 
     assert!(positions.len() >= 2); // Should have at least 2 stakers
@@ -75,7 +83,10 @@ async fn test_staking_positions_by_epoch() {
 
     // Check second staker
     let second = &positions[1];
-    assert_eq!(format!("{:#x}", second.staker_address), "0x7cc3376b8d38b2c923cd9d5164f9d74e303482b2");
+    assert_eq!(
+        format!("{:#x}", second.staker_address),
+        "0x7cc3376b8d38b2c923cd9d5164f9d74e303482b2"
+    );
     assert_eq!(second.staked_amount.to_string(), "603060340000000000000000");
     assert!(!second.is_withdrawing);
 }
@@ -85,7 +96,9 @@ async fn test_staking_positions_by_epoch() {
 async fn test_staking_positions_aggregate() {
     let db = common::setup_test_db().await;
 
-    let aggregates = db.get_staking_positions_aggregate(0, 5).await
+    let aggregates = db
+        .get_staking_positions_aggregate(0, 5)
+        .await
         .expect("Failed to get staking positions aggregate");
 
     assert!(aggregates.len() >= 2); // Returns top 5, but we have many stakers
@@ -109,7 +122,9 @@ async fn test_staking_positions_aggregate() {
 async fn test_all_epoch_staking_summaries() {
     let db = common::setup_test_db().await;
 
-    let summaries = db.get_all_epoch_staking_summaries(0, 10).await
+    let summaries = db
+        .get_all_epoch_staking_summaries(0, 10)
+        .await
         .expect("Failed to get all epoch staking summaries");
 
     // Should have epochs 0-4 (5 total)
@@ -124,10 +139,8 @@ async fn test_all_epoch_staking_summaries() {
     assert!(all_epochs.contains(&4));
 
     // Check that epochs 2, 3, 4 have stakers (and possibly more)
-    let epochs_with_stakers: Vec<u64> = summaries.iter()
-        .filter(|s| s.num_stakers > 0)
-        .map(|s| s.epoch)
-        .collect();
+    let epochs_with_stakers: Vec<u64> =
+        summaries.iter().filter(|s| s.num_stakers > 0).map(|s| s.epoch).collect();
 
     // At least epochs 2, 3, 4 should have stakers
     assert!(epochs_with_stakers.contains(&2));

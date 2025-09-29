@@ -15,8 +15,8 @@
 //! Integration tests for Staking API endpoints
 
 use indexer_api::models::{
-    AggregateStakingEntry, EpochStakingEntry, EpochStakingSummary,
-    LeaderboardResponse, StakingAddressSummary
+    AggregateStakingEntry, EpochStakingEntry, EpochStakingSummary, LeaderboardResponse,
+    StakingAddressSummary,
 };
 
 use super::TestEnv;
@@ -27,11 +27,13 @@ async fn test_staking_leaderboard() {
     let env = TestEnv::shared().await;
 
     // Test default leaderboard
-    let response: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses").await.unwrap();
+    let response: LeaderboardResponse<AggregateStakingEntry> =
+        env.get("/v1/staking/addresses").await.unwrap();
     assert!(response.pagination.count <= response.pagination.limit as usize);
 
     // Test with limit of 2 to check top entries
-    let response: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?limit=2").await.unwrap();
+    let response: LeaderboardResponse<AggregateStakingEntry> =
+        env.get("/v1/staking/addresses?limit=2").await.unwrap();
     assert!(response.entries.len() <= 2);
     assert_eq!(response.pagination.limit, 2);
 
@@ -46,7 +48,10 @@ async fn test_staking_leaderboard() {
             assert_eq!(first.total_staked, "726927981342423248000000");
             assert_eq!(first.total_rewards_generated, "43793837998280676959348");
             assert!(!first.is_withdrawing);
-            assert_eq!(first.rewards_delegated_to, Some("0x0164ec96442196a02931f57e7e20fa59cff43845".to_string()));
+            assert_eq!(
+                first.rewards_delegated_to,
+                Some("0x0164ec96442196a02931f57e7e20fa59cff43845".to_string())
+            );
             assert_eq!(first.epochs_participated, 3);
 
             let second = &response.entries[1];
@@ -66,7 +71,8 @@ async fn test_staking_epochs_summary() {
     let env = TestEnv::shared().await;
 
     // Test epochs summary
-    let response: LeaderboardResponse<EpochStakingSummary> = env.get("/v1/staking/epochs").await.unwrap();
+    let response: LeaderboardResponse<EpochStakingSummary> =
+        env.get("/v1/staking/epochs").await.unwrap();
 
     // Verify we have some epochs
     assert!(!response.entries.is_empty(), "Should have at least one epoch");
@@ -83,7 +89,8 @@ async fn test_staking_epoch_details() {
     let env = TestEnv::shared().await;
 
     // Test specific epoch (epoch 3 should have data, we index up to epoch 4)
-    let response: LeaderboardResponse<EpochStakingEntry> = env.get("/v1/staking/epochs/3/addresses").await.unwrap();
+    let response: LeaderboardResponse<EpochStakingEntry> =
+        env.get("/v1/staking/epochs/3/addresses").await.unwrap();
 
     // Verify all entries are for the requested epoch if we have data
     for entry in &response.entries {
@@ -124,8 +131,10 @@ async fn test_staking_pagination() {
     let env = TestEnv::shared().await;
 
     // Test pagination with offset
-    let response1: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?limit=2").await.unwrap();
-    let response2: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?limit=2&offset=2").await.unwrap();
+    let response1: LeaderboardResponse<AggregateStakingEntry> =
+        env.get("/v1/staking/addresses?limit=2").await.unwrap();
+    let response2: LeaderboardResponse<AggregateStakingEntry> =
+        env.get("/v1/staking/addresses?limit=2&offset=2").await.unwrap();
 
     // Ensure responses are different if we have enough data
     if response1.entries.len() == 2 && !response2.entries.is_empty() {

@@ -56,7 +56,7 @@ const END_BLOCK: u32 = 23395398;
 /// Shared test environment that persists across all tests
 struct SharedTestEnv {
     api_url: String,
-    _temp_file: NamedTempFile,  // Keep the database file alive
+    _temp_file: NamedTempFile, // Keep the database file alive
     _api_process: Child,
 }
 
@@ -76,20 +76,21 @@ impl TestEnv {
 
     /// Get or create the shared test environment
     pub async fn shared() -> Self {
-        let shared_env = SHARED_TEST_ENV.get_or_init(|| async {
-            Arc::new(SharedTestEnv::initialize().await.expect("Failed to initialize test environment"))
-        }).await;
+        let shared_env = SHARED_TEST_ENV
+            .get_or_init(|| async {
+                Arc::new(
+                    SharedTestEnv::initialize()
+                        .await
+                        .expect("Failed to initialize test environment"),
+                )
+            })
+            .await;
 
-        TestEnv {
-            api_url: shared_env.api_url.clone(),
-        }
+        TestEnv { api_url: shared_env.api_url.clone() }
     }
 
     /// Make a GET request to the API
-    pub async fn get<T: for<'de> Deserialize<'de>>(
-        &self,
-        path: &str
-    ) -> anyhow::Result<T> {
+    pub async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> anyhow::Result<T> {
         let url = format!("{}{}", self.api_url, path);
         let client = Client::new();
         let response = client.get(&url).send().await?;
@@ -115,8 +116,8 @@ impl SharedTestEnv {
         info!("Creating shared test environment...");
 
         // Check for ETH_RPC_URL
-        let rpc_url = env::var("ETH_RPC_URL")
-            .expect("ETH_RPC_URL environment variable must be set");
+        let rpc_url =
+            env::var("ETH_RPC_URL").expect("ETH_RPC_URL environment variable must be set");
 
         // Create temp file for database
         let temp_file = NamedTempFile::new()?;
@@ -137,11 +138,7 @@ impl SharedTestEnv {
         let api_url = format!("http://127.0.0.1:{}", api_port);
         Self::wait_for_api(&api_url).await?;
 
-        Ok(SharedTestEnv {
-            api_url,
-            _temp_file: temp_file,
-            _api_process: api_process,
-        })
+        Ok(SharedTestEnv { api_url, _temp_file: temp_file, _api_process: api_process })
     }
 
     /// Run indexer to populate database
@@ -159,14 +156,22 @@ impl SharedTestEnv {
         // Build command with tokio
         let mut child = TokioCommand::new(program)
             .args([
-                "--rpc-url", rpc_url,
-                "--vezkc-address", VEZKC_ADDRESS,
-                "--zkc-address", ZKC_ADDRESS,
-                "--povw-accounting-address", POVW_ACCOUNTING_ADDRESS,
-                "--db", &db_url,
-                "--interval", "600",
-                "--end-epoch", &END_EPOCH.to_string(),
-                "--end-block", &END_BLOCK.to_string(),
+                "--rpc-url",
+                rpc_url,
+                "--vezkc-address",
+                VEZKC_ADDRESS,
+                "--zkc-address",
+                ZKC_ADDRESS,
+                "--povw-accounting-address",
+                POVW_ACCOUNTING_ADDRESS,
+                "--db",
+                &db_url,
+                "--interval",
+                "600",
+                "--end-epoch",
+                &END_EPOCH.to_string(),
+                "--end-block",
+                &END_BLOCK.to_string(),
             ])
             .env("DATABASE_URL", &db_url)
             .env("RUST_LOG", "debug,sqlx=warn")
@@ -221,16 +226,20 @@ impl SharedTestEnv {
                         info!("Timeout reached, killing indexer...");
                         child.kill().await?;
                         let _ = child.wait().await;
-                        anyhow::bail!("Indexer did not complete within {} seconds", timeout.as_secs());
+                        anyhow::bail!(
+                            "Indexer did not complete within {} seconds",
+                            timeout.as_secs()
+                        );
                     }
 
                     // Print progress every 5 seconds
                     if start.elapsed().as_secs() % 5 == 0 {
-                        let size = std::fs::metadata(db_path)
-                            .map(|m| m.len())
-                            .unwrap_or(0);
-                        debug!("Still indexing... (elapsed: {}s, DB size: {} bytes)",
-                               start.elapsed().as_secs(), size);
+                        let size = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+                        debug!(
+                            "Still indexing... (elapsed: {}s, DB size: {} bytes)",
+                            start.elapsed().as_secs(),
+                            size
+                        );
                     }
 
                     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -245,7 +254,6 @@ impl SharedTestEnv {
 
         Ok(())
     }
-
 
     /// Find an available port for the API server
     fn find_available_port() -> anyhow::Result<u16> {

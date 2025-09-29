@@ -36,7 +36,7 @@ const END_BLOCK: u64 = 23395398;
 // The RewardsDb type implements Send + Sync, unlike the trait object
 struct TestDbState {
     db: Arc<RewardsDb>,
-    _temp_file: NamedTempFile,  // Kept alive as long as TestDbState exists
+    _temp_file: NamedTempFile, // Kept alive as long as TestDbState exists
 }
 
 // Static storage for the shared test database. Ensures each test doesn't need to re-index from chain.
@@ -44,22 +44,17 @@ static TEST_DB: OnceCell<TestDbState> = OnceCell::const_new();
 
 /// Get the shared test database, initializing it on first access
 pub async fn setup_test_db() -> Arc<dyn RewardsIndexerDb> {
-    let state = TEST_DB.get_or_init(|| async {
-        initialize_test_db().await
-    }).await;
+    let state = TEST_DB.get_or_init(|| async { initialize_test_db().await }).await;
 
     // Return the database as a trait object
     state.db.clone() as Arc<dyn RewardsIndexerDb>
 }
 
 async fn initialize_test_db() -> TestDbState {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
 
     // Get RPC URL from environment
-    let rpc_url = env::var("ETH_RPC_URL")
-        .expect("ETH_RPC_URL environment variable must be set");
+    let rpc_url = env::var("ETH_RPC_URL").expect("ETH_RPC_URL environment variable must be set");
 
     // Create temporary database file
     let temp_file = NamedTempFile::new().expect("Failed to create temp file");
@@ -69,9 +64,7 @@ async fn initialize_test_db() -> TestDbState {
     tracing::info!("Creating test database at: {}", db_path);
 
     // Create database connection
-    let db = Arc::new(RewardsDb::new(&db_url)
-        .await
-        .expect("Failed to create database"));
+    let db = Arc::new(RewardsDb::new(&db_url).await.expect("Failed to create database"));
 
     // Configure indexer
     let config = RewardsIndexerServiceConfig {
@@ -98,8 +91,5 @@ async fn initialize_test_db() -> TestDbState {
     service.run().await.expect("Failed to run indexer");
     tracing::info!("Indexer completed successfully");
 
-    TestDbState {
-        db,
-        _temp_file: temp_file,
-    }
+    TestDbState { db, _temp_file: temp_file }
 }

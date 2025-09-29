@@ -19,7 +19,9 @@ use super::common;
 async fn test_povw_summary_stats() {
     let db = common::setup_test_db().await;
 
-    let stats = db.get_povw_summary_stats().await
+    let stats = db
+        .get_povw_summary_stats()
+        .await
         .expect("Failed to get PoVW summary stats")
         .expect("No PoVW summary stats found");
 
@@ -38,7 +40,9 @@ async fn test_epoch_povw_summary() {
     let db = common::setup_test_db().await;
 
     // Test epoch 3 summary
-    let epoch3 = db.get_epoch_povw_summary(3).await
+    let epoch3 = db
+        .get_epoch_povw_summary(3)
+        .await
         .expect("Failed to get epoch 3 PoVW summary")
         .expect("No epoch 3 PoVW summary found");
 
@@ -48,7 +52,9 @@ async fn test_epoch_povw_summary() {
     assert_eq!(epoch3.total_capped_rewards.to_string(), "40087246525823817857153");
 
     // Test epoch 4 summary
-    let epoch4 = db.get_epoch_povw_summary(4).await
+    let epoch4 = db
+        .get_epoch_povw_summary(4)
+        .await
         .expect("Failed to get epoch 4 PoVW summary")
         .expect("No epoch 4 PoVW summary found");
 
@@ -63,7 +69,9 @@ async fn test_povw_rewards_by_epoch() {
     let db = common::setup_test_db().await;
 
     // Test top rewards for epoch 3
-    let rewards = db.get_povw_rewards_by_epoch(3, 0, 3).await
+    let rewards = db
+        .get_povw_rewards_by_epoch(3, 0, 3)
+        .await
         .expect("Failed to get PoVW rewards for epoch 3");
 
     assert!(rewards.len() >= 3);
@@ -87,8 +95,8 @@ async fn test_povw_rewards_aggregate() {
     let db = common::setup_test_db().await;
 
     // Test aggregate rewards for top performers
-    let aggregates = db.get_povw_rewards_aggregate(0, 5).await
-        .expect("Failed to get PoVW rewards aggregate");
+    let aggregates =
+        db.get_povw_rewards_aggregate(0, 5).await.expect("Failed to get PoVW rewards aggregate");
 
     assert!(aggregates.len() >= 5);
 
@@ -107,7 +115,9 @@ async fn test_povw_rewards_aggregate() {
 async fn test_all_epoch_povw_summaries() {
     let db = common::setup_test_db().await;
 
-    let summaries = db.get_all_epoch_povw_summaries(0, 10).await
+    let summaries = db
+        .get_all_epoch_povw_summaries(0, 10)
+        .await
         .expect("Failed to get all epoch PoVW summaries");
 
     // Should have epochs 0-4 (5 total)
@@ -123,7 +133,8 @@ async fn test_all_epoch_povw_summaries() {
     assert!(all_epochs.contains(&4));
 
     // Check that epochs 1, 2, 3 have actual work (4 has participants but no work yet)
-    let epochs_with_work: Vec<u64> = summaries.iter()
+    let epochs_with_work: Vec<u64> = summaries
+        .iter()
         .filter(|s| s.total_work > alloy::primitives::U256::from(0))
         .map(|s| s.epoch)
         .collect();

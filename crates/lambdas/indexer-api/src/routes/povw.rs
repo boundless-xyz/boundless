@@ -119,10 +119,8 @@ async fn get_all_epochs_summary_impl(
     );
 
     // Fetch all epoch summaries
-    let summaries = state
-        .rewards_db
-        .get_all_epoch_povw_summaries(params.offset, params.limit)
-        .await?;
+    let summaries =
+        state.rewards_db.get_all_epoch_povw_summaries(params.offset, params.limit).await?;
 
     // Convert to response format
     let entries: Vec<EpochPoVWSummary> = summaries
@@ -233,10 +231,8 @@ async fn get_epoch_leaderboard_impl(
     );
 
     // Fetch data from database
-    let rewards = state
-        .rewards_db
-        .get_povw_rewards_by_epoch(epoch, params.offset, params.limit)
-        .await?;
+    let rewards =
+        state.rewards_db.get_povw_rewards_by_epoch(epoch, params.offset, params.limit).await?;
 
     // Convert to response format with ranks
     let entries: Vec<EpochLeaderboardEntry> = rewards
@@ -366,10 +362,8 @@ async fn get_all_time_leaderboard_impl(
     );
 
     // Fetch data from database
-    let aggregates = state
-        .rewards_db
-        .get_povw_rewards_aggregate(params.offset, params.limit)
-        .await?;
+    let aggregates =
+        state.rewards_db.get_povw_rewards_aggregate(params.offset, params.limit).await?;
 
     // Convert to response format with ranks
     let entries: Vec<AggregateLeaderboardEntry> = aggregates
@@ -436,25 +430,15 @@ async fn get_address_history_impl(
     );
 
     // Fetch PoVW history for the address
-    let rewards = state
-        .rewards_db
-        .get_povw_rewards_history_by_address(address, None, None)
-        .await?;
+    let rewards = state.rewards_db.get_povw_rewards_history_by_address(address, None, None).await?;
 
     // Fetch aggregate summary for this address
-    let address_aggregate = state
-        .rewards_db
-        .get_povw_rewards_aggregate_by_address(address)
-        .await?;
+    let address_aggregate = state.rewards_db.get_povw_rewards_aggregate_by_address(address).await?;
 
     // Apply pagination
     let start = params.offset as usize;
     let end = (start + params.limit as usize).min(rewards.len());
-    let paginated = if start < rewards.len() {
-        rewards[start..end].to_vec()
-    } else {
-        vec![]
-    };
+    let paginated = if start < rewards.len() { rewards[start..end].to_vec() } else { vec![] };
 
     // Convert to response format without rank (this is address history, not a leaderboard)
     let entries: Vec<EpochLeaderboardEntry> = paginated

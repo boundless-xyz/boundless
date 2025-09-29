@@ -150,7 +150,8 @@ pub fn compute_staking_data(
     total_staking_power_by_epoch: &HashMap<u64, U256>,
 ) -> anyhow::Result<StakingDataResult> {
     // First compute positions for all epochs
-    let positions_by_epoch = compute_positions(timestamped_stake_events, current_epoch, processing_end_epoch)?;
+    let positions_by_epoch =
+        compute_positions(timestamped_stake_events, current_epoch, processing_end_epoch)?;
 
     // Now compute rewards and combine with positions
     let mut epochs = Vec::new();
@@ -165,16 +166,12 @@ pub fn compute_staking_data(
         let epoch = epoch_positions.epoch;
 
         // Get emissions for this epoch
-        let staking_emissions = staking_emissions_by_epoch
-            .get(&epoch)
-            .copied()
-            .unwrap_or(U256::ZERO);
+        let staking_emissions =
+            staking_emissions_by_epoch.get(&epoch).copied().unwrap_or(U256::ZERO);
 
         // Get total staking power
-        let total_staking_power = total_staking_power_by_epoch
-            .get(&epoch)
-            .copied()
-            .unwrap_or(U256::ZERO);
+        let total_staking_power =
+            total_staking_power_by_epoch.get(&epoch).copied().unwrap_or(U256::ZERO);
 
         // Compute rewards for this epoch
         let mut rewards_by_recipient = HashMap::new();
@@ -186,8 +183,8 @@ pub fn compute_staking_data(
                 for position in epoch_positions.positions.values_mut() {
                     if position.staked_amount > U256::ZERO {
                         // Rewards generated based on position's stake proportion
-                        position.rewards_generated =
-                            (position.staked_amount * staking_emissions) / epoch_positions.total_staked;
+                        position.rewards_generated = (position.staked_amount * staking_emissions)
+                            / epoch_positions.total_staked;
                     }
                 }
             }
@@ -195,21 +192,24 @@ pub fn compute_staking_data(
             // Second: Determine who RECEIVES the rewards using staking power
             // Staking power accounts for delegations (delegator has 0, delegate has sum)
             if total_staking_power > U256::ZERO {
-                for ((staker_address, staker_epoch), staking_power) in staking_power_by_address_by_epoch {
+                for ((staker_address, staker_epoch), staking_power) in
+                    staking_power_by_address_by_epoch
+                {
                     if *staker_epoch == epoch && *staking_power > U256::ZERO {
                         // Calculate rewards to receive based on staking power
-                        let rewards_to_receive = (*staking_power * staking_emissions) / total_staking_power;
+                        let rewards_to_receive =
+                            (*staking_power * staking_emissions) / total_staking_power;
 
                         // Find who actually receives these rewards
                         // Note: The staker with staking_power might be receiving delegated rewards
-                        let recipient_info = rewards_by_recipient.entry(*staker_address).or_insert_with(|| {
-                            StakerRewardInfo {
+                        let recipient_info = rewards_by_recipient
+                            .entry(*staker_address)
+                            .or_insert_with(|| StakerRewardInfo {
                                 staker_address: *staker_address,
                                 staking_power: U256::ZERO,
                                 rewards_earned: U256::ZERO,
                                 percentage: 0.0,
-                            }
-                        });
+                            });
                         recipient_info.staking_power += staking_power;
                         recipient_info.rewards_earned += rewards_to_receive;
 
@@ -219,7 +219,10 @@ pub fn compute_staking_data(
 
                 // Calculate percentages for recipients
                 for recipient_info in rewards_by_recipient.values_mut() {
-                    recipient_info.percentage = (recipient_info.staking_power * U256::from(10000) / total_staking_power).to::<u64>() as f64 / 100.0;
+                    recipient_info.percentage = (recipient_info.staking_power * U256::from(10000)
+                        / total_staking_power)
+                        .to::<u64>() as f64
+                        / 100.0;
                 }
             }
         }
@@ -231,17 +234,15 @@ pub fn compute_staking_data(
 
         // Update aggregates
         for (address, position) in &epoch_positions.positions {
-            let aggregate = staker_aggregates.entry(*address).or_insert_with(|| {
-                StakerAggregate {
-                    staker_address: *address,
-                    current_staked: U256::ZERO,
-                    is_withdrawing: false,
-                    rewards_delegated_to: None,
-                    votes_delegated_to: None,
-                    total_rewards_generated: U256::ZERO,
-                    total_rewards_earned: U256::ZERO,
-                    epochs_participated: 0,
-                }
+            let aggregate = staker_aggregates.entry(*address).or_insert_with(|| StakerAggregate {
+                staker_address: *address,
+                current_staked: U256::ZERO,
+                is_withdrawing: false,
+                rewards_delegated_to: None,
+                votes_delegated_to: None,
+                total_rewards_generated: U256::ZERO,
+                total_rewards_earned: U256::ZERO,
+                epochs_participated: 0,
             });
 
             // Update with latest position data (since we process epochs in order)
@@ -256,8 +257,8 @@ pub fn compute_staking_data(
         // Update aggregates from reward recipients (tracks who actually received rewards)
         for (recipient_address, reward_info) in &rewards_by_recipient {
             // Ensure recipient has an aggregate entry (they may only be receiving delegated rewards)
-            let aggregate = staker_aggregates.entry(*recipient_address).or_insert_with(|| {
-                StakerAggregate {
+            let aggregate =
+                staker_aggregates.entry(*recipient_address).or_insert_with(|| StakerAggregate {
                     staker_address: *recipient_address,
                     current_staked: U256::ZERO,
                     is_withdrawing: false,
@@ -266,8 +267,7 @@ pub fn compute_staking_data(
                     total_rewards_generated: U256::ZERO,
                     total_rewards_earned: U256::ZERO,
                     epochs_participated: 0,
-                }
-            });
+                });
 
             // Add earned rewards (these are rewards actually received)
             aggregate.total_rewards_earned += reward_info.rewards_earned;
@@ -302,11 +302,7 @@ pub fn compute_staking_data(
         total_unique_reward_recipients: all_reward_recipients_ever.len(),
     };
 
-    Ok(StakingDataResult {
-        epochs,
-        staker_aggregates,
-        summary,
-    })
+    Ok(StakingDataResult { epochs, staker_aggregates, summary })
 }
 
 /// Structure for position computation
@@ -369,20 +365,14 @@ fn compute_positions(
                 current_vote_delegations.remove(owner);
                 current_reward_delegations.remove(owner);
             }
-            StakeEvent::RewardDelegateChanged {
-                delegator,
-                new_delegate,
-            } => {
+            StakeEvent::RewardDelegateChanged { delegator, new_delegate } => {
                 if *new_delegate == Address::ZERO {
                     current_reward_delegations.remove(delegator);
                 } else {
                     current_reward_delegations.insert(*delegator, *new_delegate);
                 }
             }
-            StakeEvent::VoteDelegateChanged {
-                delegator,
-                new_delegate,
-            } => {
+            StakeEvent::VoteDelegateChanged { delegator, new_delegate } => {
                 if *new_delegate == Address::ZERO {
                     current_vote_delegations.remove(delegator);
                 } else {
@@ -447,13 +437,7 @@ fn create_epoch_snapshot(
     }
 
     let num_stakers = positions.len();
-    EpochStakingPositions {
-        epoch,
-        positions,
-        total_staked,
-        num_stakers,
-        num_withdrawing,
-    }
+    EpochStakingPositions { epoch, positions, total_staked, num_stakers, num_withdrawing }
 }
 
 // ============================================================================
@@ -481,9 +465,7 @@ pub fn compute_staking_positions(
         .collect::<Vec<_>>();
 
     // Get latest for summary
-    let latest = epoch_positions
-        .last()
-        .ok_or_else(|| anyhow::anyhow!("No epoch data"))?;
+    let latest = epoch_positions.last().ok_or_else(|| anyhow::anyhow!("No epoch data"))?;
 
     // Count unique stakers
     let mut all_stakers = HashSet::new();
@@ -499,13 +481,10 @@ pub fn compute_staking_positions(
         current_active_stakers: latest.num_stakers,
         current_withdrawing: latest.num_withdrawing,
         total_staking_emissions_all_time: U256::ZERO, // Not computed in legacy
-        total_unique_reward_recipients: 0, // Not computed in legacy
+        total_unique_reward_recipients: 0,            // Not computed in legacy
     };
 
-    Ok(StakingPositionsResult {
-        epoch_positions,
-        summary,
-    })
+    Ok(StakingPositionsResult { epoch_positions, summary })
 }
 
 /// Legacy result structure (kept for compatibility)
@@ -552,10 +531,7 @@ pub fn compute_staking_rewards(
         total_staking_emissions_all_time: data.summary.total_staking_emissions_all_time,
     };
 
-    Ok(StakingRewardsResult {
-        epoch_rewards,
-        summary,
-    })
+    Ok(StakingRewardsResult { epoch_rewards, summary })
 }
 
 /// Legacy: Rewards for a single epoch

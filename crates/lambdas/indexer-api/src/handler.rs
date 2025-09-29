@@ -192,7 +192,9 @@ pub fn handle_error(err: anyhow::Error) -> impl IntoResponse {
 
     // Check if it's a database connection error
     let error_message = err.to_string();
-    let (status, message) = if error_message.contains("database") || error_message.contains("connection") {
+    let (status, message) = if error_message.contains("database")
+        || error_message.contains("connection")
+    {
         (StatusCode::SERVICE_UNAVAILABLE, "Database connection error. Please try again later.")
     } else if error_message.contains("not found") || error_message.contains("No data found") {
         (StatusCode::NOT_FOUND, "The requested data was not found.")
