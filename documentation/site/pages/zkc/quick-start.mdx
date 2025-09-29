@@ -96,7 +96,7 @@ The easiest way to understand staking rewards is to walk through a concrete exam
 If you're interested in earning mining rewards, after reading the section below, please head over to [PoVW Quick Start](/zkc/mining/quick-start).
 :::
 
-For the purposes of this section, "miner" will be used to refer to somebody who stakes *$ZKC* and submits valid work regularly. This term could be used interchangebly with prover, which is used commonly throughout the Boundless docs.
+For the purposes of this section, "miner" will be used to refer to somebody who stakes *$ZKC* and submits valid work regularly. This term could be used interchangeably with prover, which is used commonly throughout the Boundless docs.
 
 The easiest way to understand mining rewards is to walk through a concrete example and a relevant reward calculation:
 
@@ -111,7 +111,7 @@ mining_reward_cap = staked_amount / 15
 
 *  Therefore, if a miner stakes 5000 $ZKC, they will have a mining reward cap of `5000 / 15 = 333.33 $ZKC` each epoch.
 * Miners carry out work using [Bento](/provers/proving-stack#what-is-bento). Each proving job in Bento will generate a work proof. These cryptographically verify the amount of work done for each job. 
-* These work proofs are submitted onchain; each miner MUST submit their work proofs onchain at least once every epoch IF they want to be elgibile for that epoch's rewards. Miners are free to submit previous work done during any later epochs; this will just delay any reward eligibility, for the work done, to the submission epoch. 
+* These work proofs are submitted onchain; each miner MUST submit their work proofs onchain at least once every epoch IF they want to be eligible for that epoch's rewards. Miners are free to submit previous work done during any later epochs; this will just delay any reward eligibility, for the work done, to the submission epoch. 
 * If there are 1 trillion cycles[^1] of work submitted for the current epoch, and a miner submits 1 billion cycles worth of work proofs, their work represent 0.1% of the total work in the epoch. 
 * Therefore, the miner will receive 0.1% of 75% of the total reward *$ZKC* for the epoch.
   - Specifically, the miner will receive `0.075% of ~385k` *$ZKC* which equals ~289 `$ZKC`. 
@@ -125,7 +125,7 @@ Multiple stake positions, across different wallets, can delegate their rewards t
 
 A crucial part of *$ZKC* is the ability to delegate rewards, which delegates BOTH staking and mining rewards, to another address (known as the *delegatee*). In practice, this means that *only* the delegatee is able to claim staking and mining rewards on behalf of the total of all active stake positions delegated to that address. 
 
-For mining rewards, delegation is a recommended practice as it allows for separation between the wallet that stakes *$ZKC* and the wallet specified in Bento in work proofs as the `REWARDS_ADDRESS`. For more information, please see [PoVW Quick Start](/zkc/mining/quick-start).
+For mining rewards, delegation is a recommended practice as it allows for separation between the wallet that stakes *$ZKC* and the wallet specified in Bento in work proofs as the `REWARD_ADDRESS`. For more information, please see [PoVW Quick Start](/zkc/mining/quick-start).
 
 To delegate rewards, the only recommended way is to use the Boundless CLI, specifically:
 
@@ -133,7 +133,7 @@ To delegate rewards, the only recommended way is to use the Boundless CLI, speci
 boundless zkc delegate-rewards <DELEGATEE> --rpc-url <RPC_URL> --private-key <PRIVATE_KEY>
 ```
 
-For mining rewards, it is recommended to set `<DELEGATEE>` as the address set to `REWARDS_ADDRESS` in Bento. The private key should denote the address that you want to delegate *from* i.e. the wallet with an active stake position. 
+For mining rewards, it is recommended to set `<DELEGATEE>` as the address set to `REWARD_ADDRESS` in Bento. The private key should denote the address that you want to delegate *from* i.e. the wallet with an active stake position. 
 
 ## How does Governance work?
 
