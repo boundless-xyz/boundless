@@ -309,5 +309,11 @@ This setup allows the proving cluster to prove orders on the Boundless market an
 
 ### Keeping the State File Safe
 
-`prepare` uses a state file to track compressed work receipts. Loss of this state file **will result in the loss of all work that is not submitted** for the respective Log ID, meaning rewards for any work done since the last work log update (via `submit`) **will be lost**. In this scenario, a new work log ID must be specified for Bento, and Bento should be restarted to allow further work to be recorded properly against the new Log ID. *To avoid this scenario, it is recommended to store the state file in a durable location.*
+:::note[Note] 
+It is highly recommended to store the state file in a durable location. 
+:::
+
+`prepare` and `submit` use a state file to track compressed work receipts. Loss of this state file **will result in the loss of all work that is not submitted** for the respective Log ID, meaning rewards for any work done since the last work log update (via `submit`) **will be lost**. Additionally, submitting work for a Log ID requires all previously submitted receipts to be included in the state file. **The same state file must be used for submitting any additional work done by the associated Log ID.** 
+
+If the state file is lost, a new work log ID must be specified for Bento, and Bento should be restarted to allow further work to be recorded properly against the new Log ID. Redelegation of rewards to the new Log ID may also be necessary.
 
