@@ -8,6 +8,7 @@ AWS Lambda function providing REST API access to Boundless protocol staking, del
 - `RUST_LOG` (optional) - Tracing log level (default: info)
 
 Additional environment variables for local testing:
+
 - `ETH_RPC_URL` - **Required for indexer**: Ethereum RPC endpoint URL
 - `VEZKC_ADDRESS` - Optional: veZKC contract address (defaults to mainnet address)
 - `ZKC_ADDRESS` - Optional: ZKC token address (defaults to mainnet address)
@@ -80,7 +81,9 @@ Build for Lambda deployment using cargo-lambda or similar tools. See `infra/inde
 Tests are ignored by default as they require an Ethereum RPC URL to be set, as they fetch real data from mainnet.
 
 ### Running the Tests
+
 Each test module:
+
 1. Spawns a rewards-indexer (see `crates/indexer`) process to populate a temporary SQLite database
 2. Starts the API server on a random port
 3. Makes HTTP requests to test various endpoints

@@ -23,10 +23,10 @@ alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types",
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 boundless-market = { workspace = true }
-chrono = { workspace = true }
 boundless-povw = { workspace = true }
 boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }

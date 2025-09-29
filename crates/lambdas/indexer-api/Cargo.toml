@@ -54,18 +54,18 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-# HTTP client for integration tests
-reqwest = { version = "0.12", features = ["json"] }
-# Async runtime for tests
-tokio = { workspace = true, features = ["test-util", "process"] }
-# Temporary file handling for tests
-tempfile = "3.8"
 # Command assertion for integration tests
 assert_cmd = "2.0"
+# Random number generation for tests
+rand = "0.8"
+# HTTP client for integration tests
+reqwest = { version = "0.12", features = ["json"] }
+# Temporary file handling for tests
+tempfile = "3.8"
 # Test logging
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
+# Async runtime for tests
+tokio = { workspace = true, features = ["test-util", "process"] }
 # Logging for tests
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
-# Random number generation for tests
-rand = "0.8"
