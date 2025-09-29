@@ -1489,6 +1489,7 @@ mod tests {
 
         let config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
+            rps: u32::MAX,
             private_key: Some(private_key),
             deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
@@ -1957,6 +1958,7 @@ mod tests {
 
         let prover_config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
+            rps: u32::MAX,
             private_key: Some(ctx.prover_signer.clone()),
             deployment: Some(ctx.deployment),
             tx_timeout: None,
@@ -2292,6 +2294,7 @@ mod tests {
 
         let prover_config = GlobalConfig {
             rpc_url: Some(anvil.endpoint_url()),
+            rps: u32::MAX,
             private_key: Some(ctx.prover_signer.clone()),
             deployment: Some(ctx.deployment),
             tx_timeout: None,
