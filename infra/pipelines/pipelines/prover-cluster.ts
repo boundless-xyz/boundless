@@ -87,16 +87,6 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                             value: accountId
                         },
                         {
-                            name: "BOUNDLESS_BENTO_VERSION",
-                            type: "PLAINTEXT",
-                            value: boundlessBentoVersion || "v1.0.1"
-                        },
-                        {
-                            name: "BOUNDLESS_BROKER_VERSION",
-                            type: "PLAINTEXT",
-                            value: boundlessBrokerVersion || "v1.0.0"
-                        },
-                        {
                             name: "AWS_DEFAULT_REGION",
                             type: "PLAINTEXT",
                             value: "us-west-2"
