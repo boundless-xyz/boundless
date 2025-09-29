@@ -183,7 +183,7 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     this.cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, {
       name: `${serviceName}-cluster`,
-    }, { parent: this });
+    }, { parent: this, dependsOn: [this.executionRole, this.dbUrlSecretVersion] });
 
     this.taskRole = new aws.iam.Role(`${serviceName}-task`, {
       assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
