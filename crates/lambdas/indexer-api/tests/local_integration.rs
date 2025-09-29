@@ -15,17 +15,20 @@
 //! Test utilities for local integration tests
 
 use assert_cmd::Command;
-use rand::Rng;
 use reqwest::Client;
 use serde::Deserialize;
 use std::{
     env,
     net::TcpListener,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
-use tempfile::TempDir;
-use tokio::process::{Child, Command as TokioCommand};
+use tempfile::NamedTempFile;
+use tokio::{
+    process::{Child, Command as TokioCommand},
+    sync::OnceCell,
+};
 use tracing::{debug, info};
 
 // Test modules
@@ -50,12 +53,20 @@ const POVW_ACCOUNTING_ADDRESS: &str = "0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF
 const END_EPOCH: u32 = 4;
 const END_BLOCK: u32 = 23395398;
 
-/// Test environment for a single test
-pub struct TestEnv {
+/// Shared test environment that persists across all tests
+struct SharedTestEnv {
     api_url: String,
-    _temp_dir: TempDir,
+    _temp_file: NamedTempFile,  // Keep the database file alive
     _api_process: Child,
 }
+
+/// Test environment handle for individual tests
+pub struct TestEnv {
+    api_url: String,
+}
+
+// Static storage for the shared test environment
+static SHARED_TEST_ENV: OnceCell<Arc<SharedTestEnv>> = OnceCell::const_new();
 
 impl TestEnv {
     /// Get the API URL
@@ -63,22 +74,53 @@ impl TestEnv {
         &self.api_url
     }
 
-    /// Create a new test environment
-    pub async fn new() -> anyhow::Result<Self> {
+    /// Get or create the shared test environment
+    pub async fn shared() -> Self {
+        let shared_env = SHARED_TEST_ENV.get_or_init(|| async {
+            Arc::new(SharedTestEnv::initialize().await.expect("Failed to initialize test environment"))
+        }).await;
+
+        TestEnv {
+            api_url: shared_env.api_url.clone(),
+        }
+    }
+
+    /// Make a GET request to the API
+    pub async fn get<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str
+    ) -> anyhow::Result<T> {
+        let url = format!("{}{}", self.api_url, path);
+        let client = Client::new();
+        let response = client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await?;
+            anyhow::bail!("Request failed with status {}: {}", status, text);
+        }
+
+        Ok(response.json().await?)
+    }
+}
+
+impl SharedTestEnv {
+    /// Initialize the shared test environment (called only once)
+    async fn initialize() -> anyhow::Result<Self> {
         // Initialize tracing if not already done
         let _ = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .try_init();
 
-        info!("Creating test environment...");
+        info!("Creating shared test environment...");
 
         // Check for ETH_RPC_URL
         let rpc_url = env::var("ETH_RPC_URL")
             .expect("ETH_RPC_URL environment variable must be set");
 
-        // Create temp directory for database
-        let temp_dir = TempDir::new()?;
-        let db_path = temp_dir.path().join(format!("test_{}.db", rand::thread_rng().gen_range(1..=1000)));
+        // Create temp file for database
+        let temp_file = NamedTempFile::new()?;
+        let db_path = temp_file.path().to_path_buf();
 
         // Run indexer to populate database
         info!("Running indexer to populate database...");
@@ -95,9 +137,9 @@ impl TestEnv {
         let api_url = format!("http://127.0.0.1:{}", api_port);
         Self::wait_for_api(&api_url).await?;
 
-        Ok(TestEnv {
+        Ok(SharedTestEnv {
             api_url,
-            _temp_dir: temp_dir,
+            _temp_file: temp_file,
             _api_process: api_process,
         })
     }
@@ -250,23 +292,5 @@ impl TestEnv {
         }
 
         anyhow::bail!("API server did not start within 15 seconds")
-    }
-
-    /// Make a GET request to the API
-    pub async fn get<T: for<'de> Deserialize<'de>>(
-        &self,
-        path: &str
-    ) -> anyhow::Result<T> {
-        let url = format!("{}{}", self.api_url, path);
-        let client = Client::new();
-        let response = client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await?;
-            anyhow::bail!("Request failed with status {}: {}", status, text);
-        }
-
-        Ok(response.json().await?)
     }
 }

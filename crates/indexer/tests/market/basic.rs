@@ -14,6 +14,8 @@
 
 use std::{process::Command, time::Duration};
 
+use assert_cmd::Command as AssertCommand;
+
 use alloy::{
     node_bindings::Anvil,
     primitives::{Address, Bytes, U256},
@@ -70,8 +72,10 @@ async fn test_e2e() {
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    let exe_path = std::env::var("CARGO_BIN_EXE_market-indexer")
+    // Use assert_cmd to find the binary path
+    let cmd = AssertCommand::cargo_bin("market-indexer")
         .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
     let args = [
         "--rpc-url",
         rpc_url.as_str(),
@@ -206,8 +210,10 @@ async fn test_monitoring() {
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    let exe_path = std::env::var("CARGO_BIN_EXE_market-indexer")
+    // Use assert_cmd to find the binary path
+    let cmd = AssertCommand::cargo_bin("market-indexer")
         .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
     let args = [
         "--rpc-url",
         rpc_url.as_str(),

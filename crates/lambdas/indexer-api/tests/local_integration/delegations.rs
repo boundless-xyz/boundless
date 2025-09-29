@@ -21,7 +21,7 @@ use super::TestEnv;
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_votes_leaderboard()  {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test votes delegation leaderboard
     let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/addresses").await.unwrap();
@@ -62,7 +62,7 @@ async fn test_delegations_votes_leaderboard()  {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_rewards_leaderboard()  {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test rewards delegation leaderboard
     let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/rewards/addresses").await.unwrap();
@@ -103,7 +103,7 @@ async fn test_delegations_rewards_leaderboard()  {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_votes_by_epoch()  {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test votes delegation for a specific epoch (we index up to epoch 4)
     let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/epochs/3/addresses").await.unwrap();
@@ -126,7 +126,7 @@ async fn test_delegations_votes_by_epoch()  {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_rewards_by_epoch()  {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test rewards delegation for a specific epoch (we index up to epoch 4)
     let response: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/rewards/epochs/3/addresses").await.unwrap();
@@ -149,7 +149,7 @@ async fn test_delegations_rewards_by_epoch()  {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_delegations_pagination()  {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test pagination for votes
     let response1: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/addresses?limit=2").await.unwrap();

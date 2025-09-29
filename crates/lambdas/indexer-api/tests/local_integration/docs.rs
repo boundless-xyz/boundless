@@ -22,7 +22,7 @@ use super::TestEnv;
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_health_endpoint() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     let response: HealthResponse = env.get("/health").await.unwrap();
 
@@ -33,7 +33,7 @@ async fn test_health_endpoint() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_openapi_yaml_endpoint() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Get the raw YAML response
     let client = reqwest::Client::new();
@@ -57,7 +57,7 @@ async fn test_openapi_yaml_endpoint() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_openapi_json_endpoint() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     let response: Value = env.get("/openapi.json").await.unwrap();
 
@@ -92,7 +92,7 @@ async fn test_openapi_json_endpoint() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_swagger_ui_endpoint() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Get the raw HTML response
     let client = reqwest::Client::new();
@@ -119,7 +119,7 @@ async fn test_swagger_ui_endpoint() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_404_handler() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Try to access a non-existent endpoint
     let client = reqwest::Client::new();

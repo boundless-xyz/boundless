@@ -2769,6 +2769,7 @@ version = "0.15.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "assert_cmd",
  "async-trait",
  "boundless-cli",
  "boundless-market",

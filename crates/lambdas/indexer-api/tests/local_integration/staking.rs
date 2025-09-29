@@ -24,7 +24,7 @@ use super::TestEnv;
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_leaderboard() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test default leaderboard
     let response: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses").await.unwrap();
@@ -63,7 +63,7 @@ async fn test_staking_leaderboard() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_epochs_summary() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test epochs summary
     let response: LeaderboardResponse<EpochStakingSummary> = env.get("/v1/staking/epochs").await.unwrap();
@@ -80,7 +80,7 @@ async fn test_staking_epochs_summary() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_epoch_details() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test specific epoch (epoch 3 should have data, we index up to epoch 4)
     let response: LeaderboardResponse<EpochStakingEntry> = env.get("/v1/staking/epochs/3/addresses").await.unwrap();
@@ -94,7 +94,7 @@ async fn test_staking_epoch_details() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_address() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Use a known address with staking data
     let address = "0x00000000f2708738d4886bc4aedefd8dd04818b0";
@@ -121,7 +121,7 @@ async fn test_staking_address() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_staking_pagination() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test pagination with offset
     let response1: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?limit=2").await.unwrap();

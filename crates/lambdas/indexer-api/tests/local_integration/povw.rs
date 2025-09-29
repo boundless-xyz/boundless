@@ -24,7 +24,7 @@ use super::TestEnv;
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_leaderboard() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test default leaderboard
     let response: LeaderboardResponse<AggregateLeaderboardEntry> = env.get("/v1/povw/addresses").await.unwrap();
@@ -61,7 +61,7 @@ async fn test_povw_leaderboard() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_summary() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test the summary endpoint
     let summary: PoVWSummaryStats = env.get("/v1/povw").await.unwrap();
@@ -82,7 +82,7 @@ async fn test_povw_summary() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_epochs_summary() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test epochs summary
     let response: LeaderboardResponse<EpochPoVWSummary> = env.get("/v1/povw/epochs").await.unwrap();
@@ -100,7 +100,7 @@ async fn test_povw_epochs_summary() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_epoch_details() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test specific epoch (epoch 4 usually has data)
     let response: LeaderboardResponse<EpochLeaderboardEntry> = env.get("/v1/povw/epochs/4/addresses").await.unwrap();
@@ -114,7 +114,7 @@ async fn test_povw_epoch_details() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_address() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Use a known address with PoVW data
     let address = "0x4a48ad93e826a0b64602b8ba7f86b056f079e609";
@@ -139,7 +139,7 @@ async fn test_povw_address() {
 #[tokio::test]
 #[ignore = "Requires ETH_RPC_URL"]
 async fn test_povw_pagination() {
-    let env = TestEnv::new().await.unwrap();
+    let env = TestEnv::shared().await;
 
     // Test pagination with offset
     let response1: LeaderboardResponse<AggregateLeaderboardEntry> = env.get("/v1/povw/addresses?limit=2").await.unwrap();

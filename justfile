@@ -40,11 +40,22 @@ test-cargo-example:
     RISC0_DEV_MODE=1 cargo test
 
 # Run database tests
-test-cargo-db: 
+test-cargo-db:
     just test-db setup
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
+
+# Run indexer integration tests (requires ETH_RPC_URL)
+test-indexer:
+    #!/usr/bin/env bash
+    set -e
+    if [ -z "$ETH_RPC_URL" ]; then
+        echo "Error: ETH_RPC_URL environment variable must be set"
+        exit 1
+    fi
+    RISC0_DEV_MODE=1 cargo test -p boundless-indexer --all-targets -- --ignored --nocapture
+    RISC0_DEV_MODE=1 cargo test git -p indexer-api --all-targets -- --ignored --nocapture
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
