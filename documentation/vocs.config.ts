@@ -214,7 +214,6 @@ const SIDEBAR_ITEMS = [
   {
     text: "$ZKC",
     collapsed: true,
-    link: "/zkc/quick-start",
     items: [
       {
         text: "Quick Start",

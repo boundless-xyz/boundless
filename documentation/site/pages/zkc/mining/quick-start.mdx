@@ -1,4 +1,4 @@
-# Getting Started with ZK Mining 
+# Quick Start
 
 ## What is ZK Mining?
 
@@ -56,6 +56,16 @@ Provers will require NVIDIA GPUs and Ubuntu 24.04. For a full list of requiremen
 
 ::::steps
 
+### Stop Bento Safely
+
+To enable PoVW in Bento, first make sure to stop Bento safely. This ensures that any in-progress proving jobs are completed before terminating the proving process. If Bento is backing the Broker, please carry out *Step 1* from [Safe Upgrade Steps](/provers/broker#safe-upgrade-steps) and then return to this page.
+
+Bento and/or broker can be safely stopped with:
+
+```bash
+just broker down
+```
+
 ### Install the latest release
 
 To install the latest release, and use the helpful setup script, provers can follow the instructions on the [Quick Start](/provers/quick-start) before continuing with the next step.
@@ -76,7 +86,7 @@ cargo install --locked --git https://github.com/boundless-xyz/boundless boundles
 
 Some commands in this tutorial use [cast](https://getfoundry.sh/cast/overview) from the [Foundry toolkit](https://getfoundry.sh/). This is not necessary, but it will make some CLI commands more straightforward.
 
-#### Install the latest version of rzup
+### Install the latest version of rzup
 
 Follow the instructions [here](https://dev.risczero.com/api/zkvm/install#installation-for-x86-64-linux-and-arm64-macos).
 
@@ -88,23 +98,13 @@ Run the following:
 rzup install risc0-groth16
 ```
 
-### Stop Bento Safely
-
-To enable PoVW in Bento, first make sure to stop Bento safely. This ensures that any in-progress proving jobs are completed before terminating the proving process. If Bento is backing the Broker, please carry out *Step 1* from [Safe Upgrade Steps](/provers/broker#safe-upgrade-steps) and then return to this page.
-
-Bento and/or broker can be safely stopped with:
-
-```bash
-just broker down
-```
-
 ### Specify the Reward Address
 
 :::tip[Tip]
 Provers can use their $ZKC staking address as their Reward Address but this is not recommended. In practice, provers should use a separate wallet to stake $ZKC. For more information, see [Wallet Setup](/zkc/mining/wallet-setup).
 :::
 
-Before starting Bento again, provers need to enable the PoVW feature. This requires a valid Ethereum address set to the `REWARD_ADDRESS` environment variable. It is recommended to set this directly with your compose.yml file:
+Before starting Bento again, provers need to enable the PoVW feature. This requires a valid Ethereum address set to the `REWARD_ADDRESS` environment variable. It is recommended to set this directly in the compose.yml file:
 
 ```yml
 x-base-environment: &base-environment
