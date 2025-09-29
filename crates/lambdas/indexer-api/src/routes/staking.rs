@@ -26,8 +26,8 @@ use crate::{
     db::AppState,
     handler::{cache_control, handle_error},
     models::{
-        AggregateStakingEntry, EpochStakingEntry, EpochStakingSummary, LeaderboardResponse,
-        PaginationParams, StakingAddressSummary, StakingSummaryStats,
+        AddressLeaderboardResponse, AggregateStakingEntry, EpochStakingEntry, EpochStakingSummary,
+        LeaderboardResponse, PaginationParams, StakingAddressSummary, StakingSummaryStats,
     },
     utils::format_zkc,
 };
@@ -403,7 +403,7 @@ async fn get_address_history_impl(
     state: Arc<AppState>,
     address: Address,
     params: PaginationParams,
-) -> anyhow::Result<LeaderboardResponse<EpochStakingEntry>> {
+) -> anyhow::Result<AddressLeaderboardResponse<EpochStakingEntry, StakingAddressSummary>> {
     tracing::debug!(
         "Fetching staking history for address {} with offset={}, limit={}",
         address,
@@ -446,11 +446,11 @@ async fn get_address_history_impl(
         })
         .collect();
 
-    // Create response with summary if available
-    if let Some(aggregate) = address_aggregate {
+    // Create summary from aggregate if available, otherwise use default
+    let summary = if let Some(aggregate) = address_aggregate {
         let staked_str = aggregate.total_staked.to_string();
         let generated_str = aggregate.total_rewards_generated.to_string();
-        let summary = StakingAddressSummary {
+        StakingAddressSummary {
             staker_address: format!("{:#x}", aggregate.staker_address),
             total_staked: staked_str.clone(),
             total_staked_formatted: format_zkc(&staked_str),
@@ -460,14 +460,21 @@ async fn get_address_history_impl(
             epochs_participated: aggregate.epochs_participated,
             total_rewards_generated: generated_str.clone(),
             total_rewards_generated_formatted: format_zkc(&generated_str),
-        };
-        Ok(LeaderboardResponse::with_summary(
-            entries,
-            params.offset,
-            params.limit,
-            serde_json::to_value(summary)?,
-        ))
+        }
     } else {
-        Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
-    }
+        // No data for this address - return empty summary
+        StakingAddressSummary {
+            staker_address: format!("{:#x}", address),
+            total_staked: "0".to_string(),
+            total_staked_formatted: format_zkc("0"),
+            is_withdrawing: false,
+            rewards_delegated_to: None,
+            votes_delegated_to: None,
+            epochs_participated: 0,
+            total_rewards_generated: "0".to_string(),
+            total_rewards_generated_formatted: format_zkc("0"),
+        }
+    };
+
+    Ok(AddressLeaderboardResponse::new(entries, params.offset, params.limit, summary))
 }

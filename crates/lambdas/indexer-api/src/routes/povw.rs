@@ -26,8 +26,9 @@ use crate::{
     db::AppState,
     handler::{cache_control, handle_error},
     models::{
-        AggregateLeaderboardEntry, EpochLeaderboardEntry, EpochPoVWSummary, LeaderboardResponse,
-        PaginationParams, PoVWAddressSummary, PoVWSummaryStats,
+        AddressLeaderboardResponse, AggregateLeaderboardEntry, EpochLeaderboardEntry,
+        EpochPoVWSummary, LeaderboardResponse, PaginationParams, PoVWAddressSummary,
+        PoVWSummaryStats,
     },
     utils::{format_cycles, format_zkc},
 };
@@ -421,7 +422,7 @@ async fn get_address_history_impl(
     state: Arc<AppState>,
     address: Address,
     params: PaginationParams,
-) -> anyhow::Result<LeaderboardResponse<EpochLeaderboardEntry>> {
+) -> anyhow::Result<AddressLeaderboardResponse<EpochLeaderboardEntry, PoVWAddressSummary>> {
     tracing::debug!(
         "Fetching PoVW history for address {} with offset={}, limit={}",
         address,
@@ -469,12 +470,12 @@ async fn get_address_history_impl(
         })
         .collect();
 
-    // Create response with summary if available
-    if let Some(aggregate) = address_aggregate {
+    // Create summary from aggregate if available, otherwise use default
+    let summary = if let Some(aggregate) = address_aggregate {
         let work_str = aggregate.total_work_submitted.to_string();
         let actual_str = aggregate.total_actual_rewards.to_string();
         let uncapped_str = aggregate.total_uncapped_rewards.to_string();
-        let summary = PoVWAddressSummary {
+        PoVWAddressSummary {
             work_log_id: format!("{:#x}", aggregate.work_log_id),
             total_work_submitted: work_str.clone(),
             total_work_submitted_formatted: format_cycles(&work_str),
@@ -483,14 +484,20 @@ async fn get_address_history_impl(
             total_uncapped_rewards: uncapped_str.clone(),
             total_uncapped_rewards_formatted: format_zkc(&uncapped_str),
             epochs_participated: aggregate.epochs_participated,
-        };
-        Ok(LeaderboardResponse::with_summary(
-            entries,
-            params.offset,
-            params.limit,
-            serde_json::to_value(summary)?,
-        ))
+        }
     } else {
-        Ok(LeaderboardResponse::new(entries, params.offset, params.limit))
-    }
+        // No data for this address - return empty summary
+        PoVWAddressSummary {
+            work_log_id: format!("{:#x}", address),
+            total_work_submitted: "0".to_string(),
+            total_work_submitted_formatted: format_cycles("0"),
+            total_actual_rewards: "0".to_string(),
+            total_actual_rewards_formatted: format_zkc("0"),
+            total_uncapped_rewards: "0".to_string(),
+            total_uncapped_rewards_formatted: format_zkc("0"),
+            epochs_participated: 0,
+        }
+    };
+
+    Ok(AddressLeaderboardResponse::new(entries, params.offset, params.limit, summary))
 }

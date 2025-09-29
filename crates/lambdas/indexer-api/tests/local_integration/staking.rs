@@ -15,8 +15,8 @@
 //! Integration tests for Staking API endpoints
 
 use indexer_api::models::{
-    AggregateStakingEntry, EpochStakingEntry, EpochStakingSummary, LeaderboardResponse,
-    StakingAddressSummary,
+    AddressLeaderboardResponse, AggregateStakingEntry, EpochStakingEntry, EpochStakingSummary,
+    LeaderboardResponse, StakingAddressSummary,
 };
 
 use super::TestEnv;
@@ -107,19 +107,21 @@ async fn test_staking_address() {
     let address = "0x00000000f2708738d4886bc4aedefd8dd04818b0";
     let path = format!("/v1/staking/addresses/{}", address);
 
-    let response: LeaderboardResponse<EpochStakingEntry> = env.get(&path).await.unwrap();
+    let response: AddressLeaderboardResponse<EpochStakingEntry, StakingAddressSummary> =
+        env.get(&path).await.unwrap();
 
     // Verify address-specific response
     for entry in &response.entries {
         assert_eq!(entry.staker_address.to_lowercase(), address);
     }
 
-    // Check summary if present
-    if let Some(summary_val) = response.summary {
-        let summary: StakingAddressSummary = serde_json::from_value(summary_val).unwrap();
-        assert_eq!(summary.staker_address.to_lowercase(), address);
+    // Check summary (always present in AddressLeaderboardResponse)
+    let summary = &response.summary;
+    assert_eq!(summary.staker_address.to_lowercase(), address);
+    // If there's data, verify it
+    if !response.entries.is_empty() {
         assert!(summary.epochs_participated > 0);
-        assert!(!summary.total_staked.is_empty());
+        assert!(summary.total_staked != "0");
     }
 }
 

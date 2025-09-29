@@ -55,7 +55,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StakingAggregateResponse'
+                $ref: '#/components/schemas/StakingSummaryStats'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -170,9 +170,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StakingByEpochResponse'
+                $ref: '#/components/schemas/StakingAddressHistoryResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -212,7 +214,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PovwAggregateResponse'
+                $ref: '#/components/schemas/PoVWSummaryStats'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -327,9 +329,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PovwByEpochResponse'
+                $ref: '#/components/schemas/PovwAddressHistoryResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -680,6 +684,47 @@ components:
           nullable: true
           description: Address votes are delegated to
 
+    StakingAddressSummary:
+      type: object
+      required:
+        - staker_address
+        - total_staked
+        - total_staked_formatted
+        - is_withdrawing
+        - epochs_participated
+        - total_rewards_generated
+        - total_rewards_generated_formatted
+      properties:
+        staker_address:
+          type: string
+          description: Ethereum address of the staker
+        total_staked:
+          type: string
+          description: Total amount staked (in wei)
+        total_staked_formatted:
+          type: string
+          description: Total amount staked (human-readable)
+        is_withdrawing:
+          type: boolean
+          description: Whether the staker is withdrawing
+        rewards_delegated_to:
+          type: string
+          nullable: true
+          description: Address rewards are delegated to
+        votes_delegated_to:
+          type: string
+          nullable: true
+          description: Address votes are delegated to
+        epochs_participated:
+          type: integer
+          description: Number of epochs participated
+        total_rewards_generated:
+          type: string
+          description: Total rewards generated (in wei)
+        total_rewards_generated_formatted:
+          type: string
+          description: Total rewards generated (human-readable)
+
     PovwRewardAggregate:
       type: object
       required:
@@ -816,6 +861,43 @@ components:
             type: string
           description: List of delegator addresses
 
+    StakingSummaryStats:
+      type: object
+      required:
+        - current_total_staked
+        - current_total_staked_formatted
+        - total_unique_stakers
+        - current_active_stakers
+        - current_withdrawing
+      properties:
+        current_total_staked:
+          type: string
+          description: Current total amount staked (in wei)
+        current_total_staked_formatted:
+          type: string
+          description: Current total staked (human-readable)
+        total_unique_stakers:
+          type: integer
+          description: Total number of unique stakers all-time
+        current_active_stakers:
+          type: integer
+          description: Number of currently active stakers
+        current_withdrawing:
+          type: integer
+          description: Number of stakers currently withdrawing
+        total_staking_emissions_all_time:
+          type: string
+          nullable: true
+          description: Total staking emissions distributed all-time (in wei)
+        total_staking_emissions_all_time_formatted:
+          type: string
+          nullable: true
+          description: Total staking emissions all-time (human-readable)
+        last_updated_at:
+          type: string
+          nullable: true
+          description: Last update timestamp
+
     StakingAggregateResponse:
       type: object
       required:
@@ -841,6 +923,22 @@ components:
             $ref: '#/components/schemas/StakingPositionByEpoch'
         pagination:
           $ref: '#/components/schemas/Pagination'
+
+    StakingAddressHistoryResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+        - summary
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/StakingPositionByEpoch'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        summary:
+          $ref: '#/components/schemas/StakingAddressSummary'
 
     StakingEpochsSummaryResponse:
       type: object
@@ -938,6 +1036,59 @@ components:
         pagination:
           $ref: '#/components/schemas/Pagination'
 
+    PovwAddressHistoryResponse:
+      type: object
+      required:
+        - entries
+        - pagination
+        - summary
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/PovwRewardByEpoch'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        summary:
+          $ref: '#/components/schemas/PoVWAddressSummary'
+
+    PoVWAddressSummary:
+      type: object
+      required:
+        - work_log_id
+        - total_work_submitted
+        - total_work_submitted_formatted
+        - total_actual_rewards
+        - total_actual_rewards_formatted
+        - total_uncapped_rewards
+        - total_uncapped_rewards_formatted
+        - epochs_participated
+      properties:
+        work_log_id:
+          type: string
+          description: Work log ID (Ethereum address format)
+        total_work_submitted:
+          type: string
+          description: Total work submitted across all epochs
+        total_work_submitted_formatted:
+          type: string
+          description: Total work submitted (human-readable)
+        total_actual_rewards:
+          type: string
+          description: Total actual rewards received (after capping, in wei)
+        total_actual_rewards_formatted:
+          type: string
+          description: Total actual rewards (human-readable)
+        total_uncapped_rewards:
+          type: string
+          description: Total rewards before capping (in wei)
+        total_uncapped_rewards_formatted:
+          type: string
+          description: Total uncapped rewards (human-readable)
+        epochs_participated:
+          type: integer
+          description: Number of epochs participated
+
     EpochsSummaryResponse:
       type: object
       required:
@@ -950,6 +1101,55 @@ components:
             $ref: '#/components/schemas/EpochPoVWSummary'
         pagination:
           $ref: '#/components/schemas/Pagination'
+
+    PoVWSummaryStats:
+      type: object
+      required:
+        - total_epochs_with_work
+        - total_unique_work_log_ids
+        - total_work_all_time
+        - total_work_all_time_formatted
+        - total_emissions_all_time
+        - total_emissions_all_time_formatted
+        - total_capped_rewards_all_time
+        - total_capped_rewards_all_time_formatted
+        - total_uncapped_rewards_all_time
+        - total_uncapped_rewards_all_time_formatted
+      properties:
+        total_epochs_with_work:
+          type: integer
+          description: Total number of epochs with work submitted
+        total_unique_work_log_ids:
+          type: integer
+          description: Total number of unique work log IDs
+        total_work_all_time:
+          type: string
+          description: Total work submitted all-time
+        total_work_all_time_formatted:
+          type: string
+          description: Total work all-time (human-readable)
+        total_emissions_all_time:
+          type: string
+          description: Total emissions distributed all-time (in wei)
+        total_emissions_all_time_formatted:
+          type: string
+          description: Total emissions all-time (human-readable)
+        total_capped_rewards_all_time:
+          type: string
+          description: Total capped rewards distributed all-time (in wei)
+        total_capped_rewards_all_time_formatted:
+          type: string
+          description: Total capped rewards all-time (human-readable)
+        total_uncapped_rewards_all_time:
+          type: string
+          description: Total uncapped rewards all-time before capping (in wei)
+        total_uncapped_rewards_all_time_formatted:
+          type: string
+          description: Total uncapped rewards all-time (human-readable)
+        last_updated_at:
+          type: string
+          nullable: true
+          description: Last update timestamp
 
     EpochPoVWSummary:
       type: object

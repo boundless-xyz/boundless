@@ -15,8 +15,8 @@
 //! Integration tests for PoVW API endpoints
 
 use indexer_api::models::{
-    AggregateLeaderboardEntry, EpochLeaderboardEntry, EpochPoVWSummary, LeaderboardResponse,
-    PoVWAddressSummary, PoVWSummaryStats,
+    AddressLeaderboardResponse, AggregateLeaderboardEntry, EpochLeaderboardEntry,
+    EpochPoVWSummary, LeaderboardResponse, PoVWAddressSummary, PoVWSummaryStats,
 };
 
 use super::TestEnv;
@@ -124,7 +124,8 @@ async fn test_povw_address() {
     let address = "0x4a48ad93e826a0b64602b8ba7f86b056f079e609";
     let path = format!("/v1/povw/addresses/{}", address);
 
-    let response: LeaderboardResponse<EpochLeaderboardEntry> = env.get(&path).await.unwrap();
+    let response: AddressLeaderboardResponse<EpochLeaderboardEntry, PoVWAddressSummary> =
+        env.get(&path).await.unwrap();
 
     // Verify address-specific response
     for entry in &response.entries {
@@ -132,10 +133,11 @@ async fn test_povw_address() {
         assert!(entry.work_log_id.to_lowercase().contains(&address[2..]));
     }
 
-    // Check summary if present
-    if let Some(summary_val) = response.summary {
-        let summary: PoVWAddressSummary = serde_json::from_value(summary_val).unwrap();
-        assert!(summary.work_log_id.to_lowercase().contains(&address[2..]));
+    // Check summary (always present in AddressLeaderboardResponse)
+    let summary = &response.summary;
+    assert!(summary.work_log_id.to_lowercase().contains(&address[2..]));
+    // If there's data, verify it
+    if !response.entries.is_empty() {
         assert!(summary.epochs_participated > 0);
     }
 }

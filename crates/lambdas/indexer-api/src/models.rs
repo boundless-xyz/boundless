@@ -137,10 +137,6 @@ pub struct LeaderboardResponse<T> {
 
     /// Pagination metadata
     pub pagination: PaginationMetadata,
-
-    /// Optional summary statistics
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<serde_json::Value>,
 }
 
 /// Pagination metadata
@@ -159,21 +155,27 @@ pub struct PaginationMetadata {
 impl<T> LeaderboardResponse<T> {
     pub fn new(entries: Vec<T>, offset: u64, limit: u64) -> Self {
         let count = entries.len();
-        Self { entries, pagination: PaginationMetadata { count, offset, limit }, summary: None }
+        Self { entries, pagination: PaginationMetadata { count, offset, limit } }
     }
+}
 
-    pub fn with_summary(
-        entries: Vec<T>,
-        offset: u64,
-        limit: u64,
-        summary: serde_json::Value,
-    ) -> Self {
+/// Response wrapper for address-specific endpoints with summary
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddressLeaderboardResponse<T, S> {
+    /// List of history entries
+    pub entries: Vec<T>,
+
+    /// Pagination metadata
+    pub pagination: PaginationMetadata,
+
+    /// Address summary statistics
+    pub summary: S,
+}
+
+impl<T, S> AddressLeaderboardResponse<T, S> {
+    pub fn new(entries: Vec<T>, offset: u64, limit: u64, summary: S) -> Self {
         let count = entries.len();
-        Self {
-            entries,
-            pagination: PaginationMetadata { count, offset, limit },
-            summary: Some(summary),
-        }
+        Self { entries, pagination: PaginationMetadata { count, offset, limit }, summary }
     }
 }
 
