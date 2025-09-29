@@ -28,7 +28,7 @@ For detailed request/response schemas, query parameters, and data models, please
 
 ### Setup
 
-Export `ETH_RPC_URL` to be an archive node endpoint with support for querying events.
+Export `ETH_MAINNET_RPC_URL` to be an archive node endpoint with support for querying events.
 
 ### Running the Services Locally
 

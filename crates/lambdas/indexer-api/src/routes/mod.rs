@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod address;
 pub mod delegations;
 pub mod povw;
 pub mod staking;

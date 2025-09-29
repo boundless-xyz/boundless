@@ -21,6 +21,7 @@ use axum::{
     Json, Router,
 };
 use std::{str::FromStr, sync::Arc};
+use utoipa;
 
 use crate::{
     db::AppState,
@@ -53,6 +54,18 @@ pub fn routes() -> Router<Arc<AppState>> {
 
 /// GET /v1/delegations/votes/addresses
 /// Returns the current aggregate vote delegation powers
+#[utoipa::path(
+    get,
+    path = "/v1/delegations/votes/addresses",
+    tag = "Delegations",
+    params(
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Aggregate vote delegation powers", body = LeaderboardResponse<DelegationPowerEntry>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_aggregate_vote_delegations(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
@@ -101,6 +114,19 @@ async fn get_aggregate_vote_delegations_impl(
 
 /// GET /v1/delegations/votes/epochs/:epoch/addresses
 /// Returns vote delegation powers for a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/delegations/votes/epochs/{epoch}/addresses",
+    tag = "Delegations",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number"),
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Vote delegation powers for epoch", body = LeaderboardResponse<DelegationPowerEntry>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_vote_delegations_by_epoch(
     State(state): State<Arc<AppState>>,
     Path(epoch): Path<u64>,
@@ -154,6 +180,20 @@ async fn get_vote_delegations_by_epoch_impl(
 
 /// GET /v1/delegations/votes/addresses/:address
 /// Returns vote delegation history for a specific address
+#[utoipa::path(
+    get,
+    path = "/v1/delegations/votes/addresses/{address}",
+    tag = "Delegations",
+    params(
+        ("address" = String, Path, description = "Ethereum address"),
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Vote delegation history for address", body = LeaderboardResponse<DelegationPowerEntry>),
+        (status = 400, description = "Invalid address format"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_vote_delegation_history_by_address(
     State(state): State<Arc<AppState>>,
     Path(address_str): Path<String>,
@@ -216,6 +256,20 @@ async fn get_vote_delegation_history_by_address_impl(
 
 /// GET /v1/delegations/votes/epochs/:epoch/addresses/:address
 /// Returns vote delegation for a specific address at a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/delegations/votes/epochs/{epoch}/addresses/{address}",
+    tag = "Delegations",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number"),
+        ("address" = String, Path, description = "Ethereum address")
+    ),
+    responses(
+        (status = 200, description = "Vote delegation for address at epoch", body = Option<DelegationPowerEntry>),
+        (status = 400, description = "Invalid address format"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_vote_delegation_by_address_and_epoch(
     State(state): State<Arc<AppState>>,
     Path((epoch, address_str)): Path<(u64, String)>,
@@ -269,6 +323,18 @@ async fn get_vote_delegation_by_address_and_epoch_impl(
 
 /// GET /v1/delegations/rewards/addresses
 /// Returns the current aggregate reward delegation powers
+#[utoipa::path(
+    get,
+    path = "/v1/delegations/rewards/addresses",
+    tag = "Delegations",
+    params(
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Aggregate reward delegation powers", body = LeaderboardResponse<DelegationPowerEntry>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_aggregate_reward_delegations(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
@@ -319,6 +385,19 @@ async fn get_aggregate_reward_delegations_impl(
 
 /// GET /v1/delegations/rewards/epochs/:epoch/addresses
 /// Returns reward delegation powers for a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/delegations/rewards/epochs/{epoch}/addresses",
+    tag = "Delegations",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number"),
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Reward delegation powers for epoch", body = LeaderboardResponse<DelegationPowerEntry>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_reward_delegations_by_epoch(
     State(state): State<Arc<AppState>>,
     Path(epoch): Path<u64>,
@@ -372,6 +451,20 @@ async fn get_reward_delegations_by_epoch_impl(
 
 /// GET /v1/delegations/rewards/addresses/:address
 /// Returns reward delegation history for a specific address
+#[utoipa::path(
+    get,
+    path = "/v1/delegations/rewards/addresses/{address}",
+    tag = "Delegations",
+    params(
+        ("address" = String, Path, description = "Ethereum address"),
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Reward delegation history for address", body = LeaderboardResponse<DelegationPowerEntry>),
+        (status = 400, description = "Invalid address format"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_reward_delegation_history_by_address(
     State(state): State<Arc<AppState>>,
     Path(address_str): Path<String>,
@@ -434,6 +527,20 @@ async fn get_reward_delegation_history_by_address_impl(
 
 /// GET /v1/delegations/rewards/epochs/:epoch/addresses/:address
 /// Returns reward delegation for a specific address at a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/delegations/rewards/epochs/{epoch}/addresses/{address}",
+    tag = "Delegations",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number"),
+        ("address" = String, Path, description = "Ethereum address")
+    ),
+    responses(
+        (status = 200, description = "Reward delegation for address at epoch", body = Option<DelegationPowerEntry>),
+        (status = 400, description = "Invalid address format"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_reward_delegation_by_address_and_epoch(
     State(state): State<Arc<AppState>>,
     Path((epoch, address_str)): Path<(u64, String)>,

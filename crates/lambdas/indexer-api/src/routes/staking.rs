@@ -21,6 +21,7 @@ use axum::{
     Json, Router,
 };
 use std::{str::FromStr, sync::Arc};
+use utoipa;
 
 use crate::{
     db::AppState,
@@ -49,6 +50,15 @@ pub fn routes() -> Router<Arc<AppState>> {
 
 /// GET /v1/staking
 /// Returns the aggregate staking summary
+#[utoipa::path(
+    get,
+    path = "/v1/staking",
+    tag = "Staking",
+    responses(
+        (status = 200, description = "Staking summary statistics", body = StakingSummaryStats),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_staking_summary(State(state): State<Arc<AppState>>) -> Response {
     match get_staking_summary_impl(state).await {
         Ok(response) => {
@@ -90,6 +100,18 @@ async fn get_staking_summary_impl(state: Arc<AppState>) -> anyhow::Result<Stakin
 
 /// GET /v1/staking/epochs
 /// Returns summary of all epochs
+#[utoipa::path(
+    get,
+    path = "/v1/staking/epochs",
+    tag = "Staking",
+    params(
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "All epochs staking summary", body = LeaderboardResponse<EpochStakingSummary>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_all_epochs_summary(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
@@ -150,6 +172,19 @@ async fn get_all_epochs_summary_impl(
 
 /// GET /v1/staking/epochs/:epoch
 /// Returns summary for a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/staking/epochs/{epoch}",
+    tag = "Staking",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number")
+    ),
+    responses(
+        (status = 200, description = "Epoch staking summary", body = EpochStakingSummary),
+        (status = 404, description = "Epoch not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_epoch_summary(State(state): State<Arc<AppState>>, Path(epoch): Path<u64>) -> Response {
     match get_epoch_summary_impl(state, epoch).await {
         Ok(response) => {
@@ -197,6 +232,19 @@ async fn get_epoch_summary_impl(
 
 /// GET /v1/staking/epochs/:epoch/addresses
 /// Returns the staking leaderboard for a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/staking/epochs/{epoch}/addresses",
+    tag = "Staking",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number"),
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Epoch staking leaderboard", body = LeaderboardResponse<EpochStakingEntry>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_epoch_leaderboard(
     State(state): State<Arc<AppState>>,
     Path(epoch): Path<u64>,
@@ -259,6 +307,20 @@ async fn get_epoch_leaderboard_impl(
 
 /// GET /v1/staking/epochs/:epoch/addresses/:address
 /// Returns staking data for a specific address at a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/staking/epochs/{epoch}/addresses/{address}",
+    tag = "Staking",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number"),
+        ("address" = String, Path, description = "Ethereum address")
+    ),
+    responses(
+        (status = 200, description = "Staking position for address at epoch", body = Option<EpochStakingEntry>),
+        (status = 400, description = "Invalid address format"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_address_at_epoch(
     State(state): State<Arc<AppState>>,
     Path((epoch, address_str)): Path<(u64, String)>,
@@ -315,6 +377,16 @@ async fn get_address_at_epoch_impl(
 
 /// GET /v1/staking/addresses
 /// Returns the all-time staking leaderboard
+#[utoipa::path(
+    get,
+    path = "/v1/staking/addresses",
+    tag = "Staking",
+    params(PaginationParams),
+    responses(
+        (status = 200, description = "Staking leaderboard", body = LeaderboardResponse<AggregateStakingEntry>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_all_time_leaderboard(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
@@ -374,6 +446,20 @@ async fn get_all_time_leaderboard_impl(
 
 /// GET /v1/staking/addresses/:address
 /// Returns the staking history for a specific address
+#[utoipa::path(
+    get,
+    path = "/v1/staking/addresses/{address}",
+    tag = "Staking",
+    params(
+        ("address" = String, Path, description = "Ethereum address"),
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Address staking history", body = AddressLeaderboardResponse<EpochStakingEntry, StakingAddressSummary>),
+        (status = 400, description = "Invalid address format"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_address_history(
     State(state): State<Arc<AppState>>,
     Path(address_str): Path<String>,

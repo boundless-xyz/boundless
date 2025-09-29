@@ -15,8 +15,8 @@
 //! Integration tests for PoVW API endpoints
 
 use indexer_api::models::{
-    AddressLeaderboardResponse, AggregateLeaderboardEntry, EpochLeaderboardEntry,
-    EpochPoVWSummary, LeaderboardResponse, PoVWAddressSummary, PoVWSummaryStats,
+    AddressLeaderboardResponse, AggregateLeaderboardEntry, EpochLeaderboardEntry, EpochPoVWSummary,
+    LeaderboardResponse, PoVWAddressSummary, PoVWSummaryStats,
 };
 
 use super::TestEnv;

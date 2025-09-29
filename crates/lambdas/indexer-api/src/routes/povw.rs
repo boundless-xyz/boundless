@@ -21,6 +21,7 @@ use axum::{
     Json, Router,
 };
 use std::{str::FromStr, sync::Arc};
+use utoipa;
 
 use crate::{
     db::AppState,
@@ -50,6 +51,15 @@ pub fn routes() -> Router<Arc<AppState>> {
 
 /// GET /v1/povw
 /// Returns the aggregate PoVW summary
+#[utoipa::path(
+    get,
+    path = "/v1/povw",
+    tag = "PoVW",
+    responses(
+        (status = 200, description = "PoVW summary statistics", body = PoVWSummaryStats),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_povw_summary(State(state): State<Arc<AppState>>) -> Response {
     match get_povw_summary_impl(state).await {
         Ok(response) => {
@@ -93,6 +103,18 @@ async fn get_povw_summary_impl(state: Arc<AppState>) -> anyhow::Result<PoVWSumma
 
 /// GET /v1/povw/epochs
 /// Returns summary of all epochs
+#[utoipa::path(
+    get,
+    path = "/v1/povw/epochs",
+    tag = "PoVW",
+    params(
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "All epochs PoVW summary", body = LeaderboardResponse<EpochPoVWSummary>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_all_epochs_summary(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
@@ -154,6 +176,19 @@ async fn get_all_epochs_summary_impl(
 
 /// GET /v1/povw/epochs/:epoch
 /// Returns summary for a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/povw/epochs/{epoch}",
+    tag = "PoVW",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number")
+    ),
+    responses(
+        (status = 200, description = "Epoch PoVW summary", body = EpochPoVWSummary),
+        (status = 404, description = "Epoch not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_epoch_summary(State(state): State<Arc<AppState>>, Path(epoch): Path<u64>) -> Response {
     match get_epoch_summary_impl(state, epoch).await {
         Ok(response) => {
@@ -202,6 +237,19 @@ async fn get_epoch_summary_impl(
 
 /// GET /v1/povw/epochs/:epoch/addresses
 /// Returns the leaderboard for a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/povw/epochs/{epoch}/addresses",
+    tag = "PoVW",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number"),
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Epoch PoVW leaderboard", body = LeaderboardResponse<EpochLeaderboardEntry>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_epoch_leaderboard(
     State(state): State<Arc<AppState>>,
     Path(epoch): Path<u64>,
@@ -270,6 +318,20 @@ async fn get_epoch_leaderboard_impl(
 
 /// GET /v1/povw/epochs/:epoch/addresses/:address
 /// Returns the PoVW rewards for a specific address at a specific epoch
+#[utoipa::path(
+    get,
+    path = "/v1/povw/epochs/{epoch}/addresses/{address}",
+    tag = "PoVW",
+    params(
+        ("epoch" = u64, Path, description = "Epoch number"),
+        ("address" = String, Path, description = "Ethereum address")
+    ),
+    responses(
+        (status = 200, description = "PoVW rewards for address at epoch", body = Option<EpochLeaderboardEntry>),
+        (status = 400, description = "Invalid address format"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_address_at_epoch(
     State(state): State<Arc<AppState>>,
     Path((epoch, address_str)): Path<(u64, String)>,
@@ -336,6 +398,16 @@ async fn get_address_at_epoch_impl(
 
 /// GET /v1/povw/addresses
 /// Returns the all-time PoVW leaderboard
+#[utoipa::path(
+    get,
+    path = "/v1/povw/addresses",
+    tag = "PoVW",
+    params(PaginationParams),
+    responses(
+        (status = 200, description = "PoVW leaderboard", body = LeaderboardResponse<AggregateLeaderboardEntry>),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_all_time_leaderboard(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
@@ -393,6 +465,20 @@ async fn get_all_time_leaderboard_impl(
 
 /// GET /v1/povw/addresses/:address
 /// Returns the PoVW rewards history for a specific address
+#[utoipa::path(
+    get,
+    path = "/v1/povw/addresses/{address}",
+    tag = "PoVW",
+    params(
+        ("address" = String, Path, description = "Work log ID (Ethereum address)"),
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Address PoVW history", body = AddressLeaderboardResponse<EpochLeaderboardEntry, PoVWAddressSummary>),
+        (status = 400, description = "Invalid address format"),
+        (status = 500, description = "Internal server error")
+    )
+)]
 async fn get_address_history(
     State(state): State<Arc<AppState>>,
     Path(address_str): Path<String>,

@@ -53,6 +53,11 @@ tracing-subscriber = { workspace = true, features = [
     "env-filter",
 ] }
 
+# OpenAPI generation
+utoipa = { version = "5", features = ["axum_extras", "chrono"] }
+utoipa-axum = "0.1"
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
+
 [dev-dependencies]
 # Command assertion for integration tests
 assert_cmd = "2.0"

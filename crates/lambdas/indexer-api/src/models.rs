@@ -13,16 +13,17 @@
 // limitations under the License.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Health check response
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,
     pub service: String,
 }
 
 /// Query parameters for pagination
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct PaginationParams {
     /// Number of results to return (default: 50, max: 100)
     #[serde(default = "default_limit")]
@@ -48,7 +49,7 @@ impl PaginationParams {
 }
 
 /// Response for aggregate PoVW rewards leaderboard
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AggregateLeaderboardEntry {
     /// Rank in the leaderboard (1-based, only present in leaderboard contexts)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,7 +81,7 @@ pub struct AggregateLeaderboardEntry {
 }
 
 /// Response for epoch-specific PoVW rewards leaderboard
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EpochLeaderboardEntry {
     /// Rank in the leaderboard (1-based, only present in leaderboard contexts)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -130,7 +131,7 @@ pub struct EpochLeaderboardEntry {
 }
 
 /// Response wrapper for leaderboard endpoints
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct LeaderboardResponse<T> {
     /// List of leaderboard entries
     pub entries: Vec<T>,
@@ -140,7 +141,7 @@ pub struct LeaderboardResponse<T> {
 }
 
 /// Pagination metadata
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PaginationMetadata {
     /// Number of results returned
     pub count: usize,
@@ -160,7 +161,7 @@ impl<T> LeaderboardResponse<T> {
 }
 
 /// Response wrapper for address-specific endpoints with summary
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AddressLeaderboardResponse<T, S> {
     /// List of history entries
     pub entries: Vec<T>,
@@ -180,7 +181,7 @@ impl<T, S> AddressLeaderboardResponse<T, S> {
 }
 
 /// Response for aggregate staking leaderboard
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AggregateStakingEntry {
     /// Rank in the leaderboard (1-based, only present in leaderboard contexts)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -215,7 +216,7 @@ pub struct AggregateStakingEntry {
 }
 
 /// Response for epoch-specific staking leaderboard
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EpochStakingEntry {
     /// Rank in the leaderboard (1-based, only present in leaderboard contexts)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -279,7 +280,7 @@ impl AddressHistoryParams {
 }
 
 /// Complete history for an address across epochs
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AddressHistoryResponse {
     /// The address being queried
     pub address: String,
@@ -292,7 +293,7 @@ pub struct AddressHistoryResponse {
 }
 
 /// History for a single epoch for an address
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AddressEpochHistory {
     /// Epoch number
     pub epoch: u64,
@@ -311,7 +312,7 @@ pub struct AddressEpochHistory {
 }
 
 /// Staking position data for an epoch
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct StakingPositionData {
     /// Amount staked
     pub staked_amount: String,
@@ -330,7 +331,7 @@ pub struct StakingPositionData {
 }
 
 /// PoVW rewards data for an epoch
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PovwRewardsData {
     /// Work submitted
     pub work_submitted: String,
@@ -355,7 +356,7 @@ pub struct PovwRewardsData {
 }
 
 /// Delegation power data for an epoch
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DelegationPowerData {
     /// Total power delegated
     pub power: String,
@@ -368,7 +369,7 @@ pub struct DelegationPowerData {
 }
 
 /// Global PoVW summary statistics
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct PoVWSummaryStats {
     pub total_epochs_with_work: u64,
     pub total_unique_work_log_ids: u64,
@@ -385,7 +386,7 @@ pub struct PoVWSummaryStats {
 }
 
 /// Per-epoch PoVW summary
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct EpochPoVWSummary {
     pub epoch: u64,
     pub total_work: String,
@@ -404,7 +405,7 @@ pub struct EpochPoVWSummary {
 }
 
 /// Global staking summary statistics
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct StakingSummaryStats {
     pub current_total_staked: String,
     pub current_total_staked_formatted: String,
@@ -418,7 +419,7 @@ pub struct StakingSummaryStats {
 }
 
 /// Per-epoch staking summary
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct EpochStakingSummary {
     pub epoch: u64,
     pub total_staked: String,
@@ -437,7 +438,7 @@ pub struct EpochStakingSummary {
 }
 
 /// Address-specific staking aggregate summary
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct StakingAddressSummary {
     pub staker_address: String,
     pub total_staked: String,
@@ -451,7 +452,7 @@ pub struct StakingAddressSummary {
 }
 
 /// Address-specific PoVW aggregate summary
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct PoVWAddressSummary {
     pub work_log_id: String,
     pub total_work_submitted: String,
@@ -464,7 +465,7 @@ pub struct PoVWAddressSummary {
 }
 
 /// Summary statistics for vote delegations
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct VoteDelegationSummaryStats {
     pub total_unique_delegates: u64,
     pub total_unique_delegators: u64,
@@ -474,7 +475,7 @@ pub struct VoteDelegationSummaryStats {
 }
 
 /// Summary statistics for reward delegations
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct RewardDelegationSummaryStats {
     pub total_unique_delegates: u64,
     pub total_unique_delegators: u64,
@@ -484,7 +485,7 @@ pub struct RewardDelegationSummaryStats {
 }
 
 /// Per-epoch delegation summary
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct EpochDelegationSummary {
     pub epoch: u64,
     pub total_delegated_power: String,
@@ -496,7 +497,7 @@ pub struct EpochDelegationSummary {
 }
 
 /// Response for delegation power entries
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DelegationPowerEntry {
     /// Rank in the leaderboard (1-based), None for individual queries
     #[serde(skip_serializing_if = "Option::is_none")]

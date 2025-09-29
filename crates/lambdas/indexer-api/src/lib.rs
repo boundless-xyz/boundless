@@ -15,5 +15,6 @@
 pub mod db;
 pub mod handler;
 pub mod models;
+pub mod openapi;
 pub mod routes;
 pub mod utils;

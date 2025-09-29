@@ -19,6 +19,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 mod db;
 mod handler;
 mod models;
+mod openapi;
 mod routes;
 mod utils;
 

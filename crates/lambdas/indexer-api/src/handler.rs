@@ -25,7 +25,10 @@ use std::{env, sync::Arc};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::db::AppState;
-use crate::routes::{address, delegations, povw, staking};
+use crate::openapi::ApiDoc;
+use crate::routes::{delegations, povw, staking};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 /// Creates the Lambda handler with axum router
 pub async fn create_handler() -> Result<Router, Error> {
@@ -49,11 +52,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     Router::new()
         // Health check endpoint
         .route("/health", get(health_check))
-        // OpenAPI spec endpoints
-        .route("/openapi.yaml", get(openapi_spec))
-        .route("/openapi.json", get(openapi_json))
-        // Swagger UI documentation
-        .route("/docs", get(swagger_docs))
+        // OpenAPI spec endpoint (YAML format)
+        .route("/openapi.yaml", get(openapi_yaml))
+        // Swagger UI documentation with generated spec (includes /openapi.json automatically)
+        .merge(SwaggerUi::new("/docs").url("/openapi.json", ApiDoc::openapi()))
         // API v1 routes
         .nest("/v1", api_v1_routes(state))
         // Add CORS layer
@@ -65,16 +67,22 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 /// API v1 routes
 fn api_v1_routes(state: Arc<AppState>) -> Router {
     Router::new()
-        // New RESTful structure
+        // RESTful structure
         .nest("/staking", staking::routes())
         .nest("/povw", povw::routes())
         .nest("/delegations", delegations::routes())
-        // Legacy address endpoint (to be removed later)
-        .nest("/rewards/address", address::routes())
         .with_state(state)
 }
 
 /// Health check endpoint
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Service is healthy", body = serde_json::Value)
+    )
+)]
 async fn health_check() -> impl IntoResponse {
     Json(json!({
         "status": "healthy",
@@ -83,96 +91,22 @@ async fn health_check() -> impl IntoResponse {
 }
 
 /// OpenAPI specification endpoint (YAML)
-async fn openapi_spec() -> impl IntoResponse {
-    const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/x-yaml")
-        .body(OPENAPI_YAML.to_string())
-        .unwrap()
-}
-
-/// OpenAPI specification endpoint (JSON)
-async fn openapi_json() -> impl IntoResponse {
-    const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
-
-    // Parse YAML and convert to JSON
-    match serde_yaml::from_str::<serde_json::Value>(OPENAPI_YAML) {
-        Ok(spec) => Json(spec).into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": "Failed to parse OpenAPI spec",
-                "message": err.to_string()
-            })),
-        )
-            .into_response(),
+async fn openapi_yaml() -> impl IntoResponse {
+    // Convert the generated JSON spec to YAML
+    let openapi_json = ApiDoc::openapi();
+    match serde_yaml::to_string(&openapi_json) {
+        Ok(yaml) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/x-yaml")
+            .body(yaml)
+            .unwrap(),
+        Err(err) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(format!("Failed to convert to YAML: {}", err))
+            .unwrap(),
     }
 }
 
-/// Swagger UI documentation endpoint
-async fn swagger_docs() -> impl IntoResponse {
-    const HTML: &str = r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boundless Indexer API Documentation</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.10.3/swagger-ui.css">
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-        #swagger-ui {
-            max-width: 1460px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .topbar {
-            display: none !important;
-        }
-    </style>
-</head>
-<body>
-    <div id="swagger-ui"></div>
-    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.10.3/swagger-ui-bundle.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.10.3/swagger-ui-standalone-preset.js"></script>
-    <script>
-        window.onload = function() {
-            // Get current origin to construct the OpenAPI spec URL
-            const baseUrl = window.location.origin;
-            const specUrl = baseUrl + '/openapi.json';
-
-            const ui = SwaggerUIBundle({
-                url: specUrl,
-                dom_id: '#swagger-ui',
-                deepLinking: true,
-                presets: [
-                    SwaggerUIBundle.presets.apis,
-                    SwaggerUIStandalonePreset
-                ],
-                plugins: [
-                    SwaggerUIBundle.plugins.DownloadUrl
-                ],
-                layout: "StandaloneLayout",
-                validatorUrl: null,
-                tryItOutEnabled: true,
-                supportedSubmitMethods: ['get']
-            });
-            window.ui = ui;
-        }
-    </script>
-</body>
-</html>"#;
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-        .body(HTML.to_string())
-        .unwrap()
-}
 
 /// 404 handler
 async fn not_found() -> impl IntoResponse {
