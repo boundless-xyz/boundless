@@ -107,7 +107,6 @@ async fn openapi_yaml() -> impl IntoResponse {
     }
 }
 
-
 /// 404 handler
 async fn not_found() -> impl IntoResponse {
     (
