@@ -45,7 +45,7 @@ async fn test_staking_leaderboard() {
             assert_eq!(first.staker_address, "0x2408e37489c231f883126c87e8aadbad782a040a");
             assert_eq!(first.total_staked, "726927981342423248000000");
             assert_eq!(first.total_rewards_generated, "43793837998280676959348");
-            assert_eq!(first.is_withdrawing, false);
+            assert!(!first.is_withdrawing);
             assert_eq!(first.rewards_delegated_to, Some("0x0164ec96442196a02931f57e7e20fa59cff43845".to_string()));
             assert_eq!(first.epochs_participated, 3);
 
@@ -53,7 +53,7 @@ async fn test_staking_leaderboard() {
             assert_eq!(second.staker_address, "0x7cc3376b8d38b2c923cd9d5164f9d74e303482b2");
             assert_eq!(second.total_staked, "603060340000000000000000");
             assert_eq!(second.total_rewards_generated, "28191507291258394253114");
-            assert_eq!(second.is_withdrawing, false);
+            assert!(!second.is_withdrawing);
             assert_eq!(second.rewards_delegated_to, None);
             assert_eq!(second.epochs_participated, 2);
         }
@@ -128,7 +128,7 @@ async fn test_staking_pagination() {
     let response2: LeaderboardResponse<AggregateStakingEntry> = env.get("/v1/staking/addresses?limit=2&offset=2").await.unwrap();
 
     // Ensure responses are different if we have enough data
-    if response1.entries.len() == 2 && response2.entries.len() > 0 {
+    if response1.entries.len() == 2 && !response2.entries.is_empty() {
         assert_ne!(response1.entries[0].staker_address, response2.entries[0].staker_address);
     }
 

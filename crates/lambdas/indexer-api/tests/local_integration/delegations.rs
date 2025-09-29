@@ -156,7 +156,7 @@ async fn test_delegations_pagination()  {
     let response2: LeaderboardResponse<DelegationPowerEntry> = env.get("/v1/delegations/votes/addresses?limit=2&offset=2").await.unwrap();
 
     // Ensure responses are different if we have enough data
-    if response1.entries.len() == 2 && response2.entries.len() > 0 {
+    if response1.entries.len() == 2 && !response2.entries.is_empty() {
         assert_ne!(response1.entries[0].delegate_address, response2.entries[0].delegate_address);
     }
 

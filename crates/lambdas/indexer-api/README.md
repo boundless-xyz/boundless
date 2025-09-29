@@ -34,13 +34,7 @@ Export `ETH_RPC_URL` to be an archive node endpoint with support for querying ev
 Use the `manage_local` CLI tool to run the indexer and API:
 
 ```bash
-# Run the indexer to populate a SQLite database
-# Arguments: <db_file> [duration_seconds]
-./manage_local run-indexer test.db 30
-
-# Run the API server with the populated database
-# Arguments: <port> <db_file>
-./manage_local run-api 3000 test.db
+./manage-local --help
 ```
 
 #### Example workflow
@@ -79,15 +73,15 @@ SELECT * FROM povw_summary_stats;  # Query data
 ## Deployment
 
 This Lambda function is designed to be deployed with AWS Lambda and API Gateway.
-Build for Lambda deployment using cargo-lambda or similar tools.
+Build for Lambda deployment using cargo-lambda or similar tools. See `infra/indexer` for how we deploy it.
 
 ## Testing
 
-The crate includes integration tests that spin up the indexer and API server to test endpoints. These tests require an Ethereum RPC URL to be set, as they fetch real data from mainnet.
+Tests are ignored by default as they require an Ethereum RPC URL to be set, as they fetch real data from mainnet.
 
 ### Running the Tests
 Each test module:
-1. Spawns a rewards-indexer process to populate a temporary SQLite database
+1. Spawns a rewards-indexer (see `crates/indexer`) process to populate a temporary SQLite database
 2. Starts the API server on a random port
 3. Makes HTTP requests to test various endpoints
 4. Cleans up processes and temporary files after completion
@@ -104,9 +98,4 @@ cargo test --test local_integration povw_tests -- --ignored
 cargo test --test local_integration staking_tests -- --ignored
 cargo test --test local_integration delegations_tests -- --ignored
 cargo test --test local_integration docs_tests -- --ignored
-
-# Run with verbose output and single thread (recommended for debugging)
-RUST_LOG=debug cargo test --test local_integration -- --ignored --nocapture --test-threads=1
-
-# Note: Tests will automatically build the required binaries (rewards-indexer and local-server)
 ```

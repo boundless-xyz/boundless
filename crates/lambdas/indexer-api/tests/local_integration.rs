@@ -21,7 +21,7 @@ use serde::Deserialize;
 use std::{
     env,
     net::TcpListener,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 use tempfile::TempDir;
@@ -78,10 +78,7 @@ impl TestEnv {
 
         // Create temp directory for database
         let temp_dir = TempDir::new()?;
-        let db_path = temp_dir.path().join(format!("test_{}.db", rand::thread_rng().gen_range(1..=10000000)));
-
-        // Build binaries using assert_cmd (which handles cargo build automatically)
-        info!("Building binaries...");
+        let db_path = temp_dir.path().join(format!("test_{}.db", rand::thread_rng().gen_range(1..=1000)));
 
         // Run indexer to populate database
         info!("Running indexer to populate database...");
@@ -119,7 +116,7 @@ impl TestEnv {
 
         // Build command with tokio
         let mut child = TokioCommand::new(program)
-            .args(&[
+            .args([
                 "--rpc-url", rpc_url,
                 "--vezkc-address", VEZKC_ADDRESS,
                 "--zkc-address", ZKC_ADDRESS,
@@ -216,7 +213,7 @@ impl TestEnv {
     }
 
     /// Start the API server
-    async fn start_api_server(db_path: &PathBuf, port: u16) -> anyhow::Result<Child> {
+    async fn start_api_server(db_path: &Path, port: u16) -> anyhow::Result<Child> {
         let db_url = format!("sqlite:{}", db_path.display());
         info!("Starting API server on port {} with database {}", port, db_path.display());
 

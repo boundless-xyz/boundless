@@ -322,7 +322,7 @@ pub struct EpochStakingPositions {
 /// Compute staking positions from timestamped events
 fn compute_positions(
     timestamped_events: &[TimestampedStakeEvent],
-    current_epoch: u64,
+    _current_epoch: u64,
     processing_end_epoch: u64,
 ) -> anyhow::Result<Vec<EpochStakingPositions>> {
     // Tracking current state

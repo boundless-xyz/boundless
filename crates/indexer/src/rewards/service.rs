@@ -29,7 +29,7 @@ use boundless_povw::{deployments::Deployment as PovwDeployment, log_updater::IPo
 use boundless_rewards::{
     build_rewards_cache, compute_delegation_powers, compute_povw_rewards,
     compute_staking_data, fetch_all_event_logs, AllEventLogs,
-    EpochTimeRange, RewardsCache, StakingDataResult, MAINNET_FROM_BLOCK,
+    EpochTimeRange, RewardsCache, MAINNET_FROM_BLOCK,
     SEPOLIA_FROM_BLOCK,
 };
 use boundless_zkc::{contracts::IZKC, deployments::Deployment as ZkcDeployment};
@@ -43,8 +43,6 @@ use crate::db::rewards::{
     StakingSummaryStats, VoteDelegationPowerAggregate, VoteDelegationPowerByEpoch,
 };
 
-const EPOCHS_TO_PROCESS: u64 = 10;
-
 #[derive(Clone)]
 pub struct RewardsIndexerServiceConfig {
     pub interval: Duration,
@@ -52,6 +50,7 @@ pub struct RewardsIndexerServiceConfig {
     pub start_block: Option<u64>,
     pub end_block: Option<u64>,
     pub end_epoch: Option<u64>,
+    pub epochs_to_process: u64,
 }
 
 type ProviderType = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
@@ -116,13 +115,13 @@ impl RewardsIndexerService {
         let start_time = std::time::Instant::now();
         tracing::info!("Starting rewards indexer run");
 
-        // Step 1: Fetch events and prepare data
+        // Fetch events and prepare data
         let prepared_data = self.fetch_events_and_prepare_data().await?;
 
         // Store current epoch in database
         self.db.set_current_epoch(prepared_data.actual_current_epoch_u64).await?;
 
-        // Step 2: Build cache
+        // Build cache
         let povw_cache = self.build_cache(
             &prepared_data.povw_deployment,
             &prepared_data.epochs_to_process,
@@ -130,14 +129,14 @@ impl RewardsIndexerService {
             &prepared_data.all_logs,
         ).await?;
 
-        // Step 3: Compute and store staking rewards
-        let (_staking_data, staking_amounts_by_epoch) = self.compute_and_store_staking_rewards(
+        // Compute and store staking rewards
+        let staking_amounts_by_epoch = self.compute_and_store_staking_rewards(
             prepared_data.actual_current_epoch_u64,
             prepared_data.processing_end_epoch,
             &povw_cache,
         ).await?;
 
-        // Step 4: Compute and store PoVW rewards
+        // Compute and store PoVW rewards
         self.compute_and_store_povw_rewards(
             prepared_data.actual_current_epoch_u64,
             prepared_data.processing_end_epoch,
@@ -147,7 +146,7 @@ impl RewardsIndexerService {
             &staking_amounts_by_epoch,
         ).await?;
 
-        // Step 5: Compute and store delegation powers
+        // Compute and store delegation powers
         self.compute_and_store_delegation_powers(
             prepared_data.actual_current_epoch_u64,
             prepared_data.processing_end_epoch,
@@ -243,9 +242,10 @@ impl RewardsIndexerService {
 
         tracing::info!("Processing up to epoch: {}", processing_end_epoch);
 
-        // Process the last EPOCHS_TO_PROCESS epochs
-        let epochs_to_process = if processing_end_epoch >= EPOCHS_TO_PROCESS {
-            (processing_end_epoch - EPOCHS_TO_PROCESS + 1..=processing_end_epoch).collect::<Vec<_>>()
+        // Process the last epochs_to_process epochs
+        let epochs_to_process_count = self.config.epochs_to_process;
+        let epochs_to_process = if processing_end_epoch >= epochs_to_process_count {
+            (processing_end_epoch - epochs_to_process_count + 1..=processing_end_epoch).collect::<Vec<_>>()
         } else {
             (0..=processing_end_epoch).collect::<Vec<_>>()
         };
@@ -297,7 +297,7 @@ impl RewardsIndexerService {
         actual_current_epoch_u64: u64,
         processing_end_epoch: u64,
         povw_cache: &RewardsCache,
-    ) -> Result<(StakingDataResult, HashMap<(Address, u64), U256>)> {
+    ) -> Result<HashMap<(Address, u64), U256>> {
         // Compute all staking data (positions and rewards) using the unified function
         tracing::info!("Computing staking data (positions + rewards)...");
         let staking_start = std::time::Instant::now();
@@ -435,7 +435,7 @@ impl RewardsIndexerService {
             staking_db_start.elapsed().as_secs_f64()
         );
 
-        Ok((staking_data, staking_amounts_by_epoch))
+        Ok(staking_amounts_by_epoch)
     }
 
     async fn compute_and_store_povw_rewards(
@@ -448,7 +448,7 @@ impl RewardsIndexerService {
         staking_amounts_by_epoch: &HashMap<(Address, u64), U256>,
     ) -> Result<()> {
         // Get pending epoch total work
-        // For historical indexing (when end_epoch is specified), don't fetch live blockchain state
+        // For historical indexing (when end_epoch is specified), we don't fetch pending work from blockchain state
         let pending_epoch_total_work = if self.config.end_epoch.is_some() {
             tracing::info!("Historical indexing mode - using finalized epoch data only");
             U256::ZERO
@@ -590,7 +590,7 @@ impl RewardsIndexerService {
         povw_cache: &RewardsCache,
     ) -> Result<()> {
         // Compute delegation powers
-        tracing::info!("🧮 Computing delegation powers from events...");
+        tracing::info!("Computing delegation powers from events...");
         let delegation_start = std::time::Instant::now();
 
         // Compute delegation powers from pre-processed events
@@ -606,7 +606,7 @@ impl RewardsIndexerService {
 
         // Store delegation powers by epoch
         tracing::info!(
-            "💾 Storing delegation powers for {} epochs...",
+            "Storing delegation powers for {} epochs...",
             epoch_delegation_powers.len()
         );
         let delegation_db_start = std::time::Instant::now();

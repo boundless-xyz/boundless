@@ -58,4 +58,4 @@ pub const MAINNET_FROM_BLOCK: u64 = 23250070;
 /// Sepolia starting block for event queries
 pub const SEPOLIA_FROM_BLOCK: u64 = 9110040;
 /// Chunk size for log queries to avoid rate limiting
-pub const LOG_QUERY_CHUNK_SIZE: u64 = 5000;
+pub const LOG_QUERY_CHUNK_SIZE: u64 = 2500;

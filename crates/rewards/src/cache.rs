@@ -58,6 +58,8 @@ pub struct RewardsCache {
     pub staking_power_by_address_by_epoch: HashMap<(Address, u64), U256>,
     /// Total staking power by epoch
     pub total_staking_power_by_epoch: HashMap<u64, U256>,
+    /// Staking amounts by (staker_address, epoch) - actual staked balances from positions
+    pub staking_amounts_by_epoch: HashMap<(Address, u64), U256>,
 }
 
 /// For the given epochs, pre-fetches all the necessary data for the rewards computations
@@ -606,10 +608,10 @@ pub async fn build_rewards_cache<P: Provider>(
 
     for event in &cache.timestamped_stake_events {
         if let StakeEvent::Created { owner, .. } = &event.event {
-            stakers_by_epoch.entry(event.epoch).or_insert_with(HashSet::new).insert(*owner);
+            stakers_by_epoch.entry(event.epoch).or_default().insert(*owner);
             // Add to all future epochs too (up to max_epoch)
             for epoch in (event.epoch + 1)..=max_epoch {
-                stakers_by_epoch.entry(epoch).or_insert_with(HashSet::new).insert(*owner);
+                stakers_by_epoch.entry(epoch).or_default().insert(*owner);
             }
         }
     }

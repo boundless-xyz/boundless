@@ -19,6 +19,7 @@ use boundless_indexer::{
     rewards::{RewardsIndexerService, RewardsIndexerServiceConfig},
 };
 use tempfile::NamedTempFile;
+use tokio::sync::OnceCell;
 use tracing_subscriber::EnvFilter;
 use url::Url;
 
@@ -31,9 +32,27 @@ const POVW_ACCOUNTING_ADDRESS: &str = "0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF
 const END_EPOCH: u64 = 4;
 const END_BLOCK: u64 = 23395398;
 
-/// Set up a test database with indexed rewards data
+// Store both the database and temp file to keep the file alive
+// The RewardsDb type implements Send + Sync, unlike the trait object
+struct TestDbState {
+    db: Arc<RewardsDb>,
+    _temp_file: NamedTempFile,  // Kept alive as long as TestDbState exists
+}
+
+// Static storage for the shared test database. Ensures each test doesn't need to re-index from chain.
+static TEST_DB: OnceCell<TestDbState> = OnceCell::const_new();
+
+/// Get the shared test database, initializing it on first access
 pub async fn setup_test_db() -> Arc<dyn RewardsIndexerDb> {
-    // Initialize tracing if not already done
+    let state = TEST_DB.get_or_init(|| async {
+        initialize_test_db().await
+    }).await;
+
+    // Return the database as a trait object
+    state.db.clone() as Arc<dyn RewardsIndexerDb>
+}
+
+async fn initialize_test_db() -> TestDbState {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
@@ -61,6 +80,7 @@ pub async fn setup_test_db() -> Arc<dyn RewardsIndexerDb> {
         start_block: None,
         end_block: Some(END_BLOCK),
         end_epoch: Some(END_EPOCH),
+        epochs_to_process: 10,
     };
 
     let mut service = RewardsIndexerService::new(
@@ -78,8 +98,8 @@ pub async fn setup_test_db() -> Arc<dyn RewardsIndexerDb> {
     service.run().await.expect("Failed to run indexer");
     tracing::info!("Indexer completed successfully");
 
-    // Keep temp file alive by leaking it (tests are short-lived)
-    std::mem::forget(temp_file);
-
-    db
+    TestDbState {
+        db,
+        _temp_file: temp_file,
+    }
 }

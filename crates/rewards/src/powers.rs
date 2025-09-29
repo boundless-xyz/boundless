@@ -61,7 +61,7 @@ pub struct TimestampedDelegationEvent {
 /// Compute delegation powers from pre-processed timestamped events
 pub fn compute_delegation_powers(
     timestamped_events: &[TimestampedDelegationEvent],
-    current_epoch: u64,
+    _current_epoch: u64,
     processing_end_epoch: u64,
 ) -> anyhow::Result<Vec<EpochDelegationPowers>> {
     // Track current state

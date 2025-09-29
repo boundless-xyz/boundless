@@ -461,8 +461,7 @@ async fn get_address_history_impl(
     // Convert to response format
     let entries: Vec<EpochStakingEntry> = paginated
         .into_iter()
-        .enumerate()
-        .map(|(_, position)| {
+        .map(|position| {
             let staked_str = position.staked_amount.to_string();
             let generated_str = position.rewards_generated.to_string();
             EpochStakingEntry {

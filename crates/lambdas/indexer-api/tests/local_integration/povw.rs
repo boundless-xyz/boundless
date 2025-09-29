@@ -146,7 +146,7 @@ async fn test_povw_pagination() {
     let response2: LeaderboardResponse<AggregateLeaderboardEntry> = env.get("/v1/povw/addresses?limit=2&offset=2").await.unwrap();
 
     // Ensure responses are different if we have enough data
-    if response1.entries.len() == 2 && response2.entries.len() > 0 {
+    if response1.entries.len() == 2 && !response2.entries.is_empty() {
         assert_ne!(response1.entries[0].work_log_id, response2.entries[0].work_log_id);
     }
 

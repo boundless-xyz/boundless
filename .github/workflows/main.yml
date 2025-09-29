@@ -177,6 +177,15 @@ jobs:
       - name: Build indexer-api
         run: cargo build -p indexer-api --bin local-server
 
+      - name: Run boundless-indexer integration tests
+        run: |
+          echo "Running boundless-indexer integration tests..."
+          cargo test -p boundless-indexer --test '*' -- --ignored --nocapture
+        env:
+          ETH_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
+          DB_URL: "sqlite::memory:"
+          RISC0_DEV_MODE: true
+
       - name: Run indexer-api integration tests
         run: |
           echo "Running indexer-api integration tests with SQLite..."
@@ -625,6 +634,8 @@ jobs:
             # Changes to indexer crates that require integration tests
             indexer:
               - 'crates/boundless-indexer/**'
+              - 'crates/indexer/**'
               - 'crates/lambdas/indexer-api/**'
+              - 'crates/rewards/**'
               - '.github/workflows/main.yml'
 
