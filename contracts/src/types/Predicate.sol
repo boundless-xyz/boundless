@@ -57,26 +57,38 @@ library PredicateLibrary {
         return Predicate({predicateType: PredicateType.ClaimDigestMatch, data: abi.encodePacked(claimDigest)});
     }
 
-    /// @notice Evaluates the predicate against the given journal and journal digest.
+    /// @notice Evaluates the predicate against the image ID and journal.
+    /// @dev If the predicate is of type ClaimDigestMatch and image ID and journal are not available,
+    /// use the evaluation function with the claim digest instead.
     /// @param predicate The predicate to evaluate.
+    /// @param imageId Image ID to use for evaluation.
     /// @param journal The journal to evaluate against.
-    /// @param journalDigest The digest of the journal.
     /// @return True if the predicate is satisfied, false otherwise.
-    function eval(Predicate memory predicate, bytes32 imageId, bytes memory journal, bytes32 journalDigest)
-        internal
-        pure
-        returns (bool)
-    {
+    function eval(Predicate memory predicate, bytes32 imageId, bytes memory journal) internal pure returns (bool) {
         if (predicate.predicateType == PredicateType.DigestMatch) {
             bytes memory dataJournal = Bytes.slice(predicate.data, 32);
-            return bytes32(dataJournal) == journalDigest;
+            return bytes32(dataJournal) == sha256(abi.encode(journal)) && bytes32(predicate.data) == imageId;
         } else if (predicate.predicateType == PredicateType.PrefixMatch) {
             bytes memory dataJournal = Bytes.slice(predicate.data, 32);
-            return startsWith(journal, dataJournal);
+            return startsWith(journal, dataJournal) && bytes32(predicate.data) == imageId;
         } else if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
-            return bytes32(predicate.data) == ReceiptClaimLib.ok(imageId, journalDigest).digest();
+            return bytes32(predicate.data) == ReceiptClaimLib.ok(imageId, sha256(abi.encode(journal))).digest();
         } else {
             revert("Unreachable code");
+        }
+    }
+
+    /// @notice Evaluates the predicate against the claim digest.
+    /// @dev This function should be used when the predicate is of type ClaimDigestMatch
+    /// and the image ID and journal are not available.
+    /// @param predicate The predicate to evaluate.
+    /// @param claimDigest Claim digest to use for evaluation.
+    /// @return True if the predicate is satisfied, false otherwise.
+    function eval(Predicate memory predicate, bytes32 claimDigest) internal pure returns (bool) {
+        if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
+            return bytes32(predicate.data) == claimDigest;
+        } else {
+            revert("Predicate not of type ClaimDigestMatch");
         }
     }
 
