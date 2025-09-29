@@ -112,7 +112,15 @@ impl PovwPrepare {
                     tracing::warn!("{:?}", err.context("Skipping receipt"));
                     warning = true;
                 }
-                Ok(receipt) => work_receipts.push(receipt),
+                Ok(receipt) => {
+                    let log_id = receipt.claim().value().unwrap().work.value().unwrap().nonce_min.log;
+                    if log_id != state.log_id {
+                        tracing::warn!("Skipping receipt with log ID: {:?} != state log ID: {:?}", log_id, state.log_id);
+                    }
+                    else {
+                        work_receipts.push(receipt.clone());
+                    }
+                }
             }
         }
         if warning && !self.allow_partial_update {
