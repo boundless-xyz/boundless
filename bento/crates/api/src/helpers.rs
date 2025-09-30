@@ -10,10 +10,27 @@ use workflow_common::{
     AUX_WORK_TYPE, COPROC_WORK_TYPE, EXEC_WORK_TYPE, ExecutorResp, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
 };
 
+/// Extract reserved value from api_key string
+/// Format: "reserved:N" where N is a positive number (e.g., "reserved:5" or "user123-reserved:10")
+/// Returns 1 if no reserved value is specified
+pub fn extract_reserved(api_key: &str) -> i32 {
+    for part in api_key.split('-') {
+        if let Some(reserved_str) = part.strip_prefix("reserved:") {
+            if let Ok(reserved) = reserved_str.parse::<i32>() {
+                if reserved > 0 {
+                    return reserved;
+                }
+            }
+        }
+    }
+    0
+}
+
 pub async fn get_or_create_streams(
     pool: &PgPool,
     user_id: &str,
 ) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid)> {
+    let reserved = extract_reserved(user_id);
     let aux_stream = if let Some(res) = taskdb::get_stream(pool, user_id, AUX_WORK_TYPE)
         .await
         .context("Failed to get aux stream")?
@@ -21,7 +38,7 @@ pub async fn get_or_create_streams(
         res
     } else {
         tracing::info!("Creating a new aux stream for key: {user_id}");
-        taskdb::create_stream(pool, AUX_WORK_TYPE, 0, 1.0, user_id)
+        taskdb::create_stream(pool, AUX_WORK_TYPE, reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb aux stream")?
     };
@@ -33,7 +50,7 @@ pub async fn get_or_create_streams(
         res
     } else {
         tracing::info!("Creating a new cpu stream for key: {user_id}");
-        taskdb::create_stream(pool, EXEC_WORK_TYPE, 0, 1.0, user_id)
+        taskdb::create_stream(pool, EXEC_WORK_TYPE, reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb exec stream")?
     };
@@ -45,7 +62,7 @@ pub async fn get_or_create_streams(
         res
     } else {
         tracing::info!("Creating a new gpu stream for key: {user_id}");
-        taskdb::create_stream(pool, PROVE_WORK_TYPE, 0, 1.0, user_id)
+        taskdb::create_stream(pool, PROVE_WORK_TYPE, reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu prove stream")?
     };
@@ -57,7 +74,7 @@ pub async fn get_or_create_streams(
         res
     } else {
         tracing::info!("Creating a new gpu stream for key: {user_id}");
-        taskdb::create_stream(pool, COPROC_WORK_TYPE, 0, 1.0, user_id)
+        taskdb::create_stream(pool, COPROC_WORK_TYPE, reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu coproc stream")?
     };
@@ -69,7 +86,7 @@ pub async fn get_or_create_streams(
         res
     } else {
         tracing::info!("Creating a new gpu join stream for key: {user_id}");
-        taskdb::create_stream(pool, JOIN_WORK_TYPE, 0, 1.0, user_id)
+        taskdb::create_stream(pool, JOIN_WORK_TYPE, reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu join stream")?
     };
