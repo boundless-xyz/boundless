@@ -246,7 +246,7 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "$ZKC as Proving Collateral",
-        link: "/zkc/proving-collateral"
+        link: "/zkc/collateral"
       },
       {
         text: "Token Source Code & Docs",
