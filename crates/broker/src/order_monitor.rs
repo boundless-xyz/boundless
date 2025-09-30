@@ -416,8 +416,8 @@ where
 
         tracing::info!(
             "get_valid_orders called: prove_cache has {} orders, lock_and_prove_cache has {} orders",
-            self.prove_cache.len(),
-            self.lock_and_prove_cache.len()
+            self.prove_cache.entry_count(),
+            self.lock_and_prove_cache.entry_count()
         );
 
         fn is_within_deadline(
