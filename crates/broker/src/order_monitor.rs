@@ -414,6 +414,12 @@ where
     ) -> Result<Vec<Arc<OrderRequest>>> {
         let mut candidate_orders: Vec<Arc<OrderRequest>> = Vec::new();
 
+        tracing::info!(
+            "get_valid_orders called: prove_cache has {} orders, lock_and_prove_cache has {} orders",
+            self.prove_cache.len(),
+            self.lock_and_prove_cache.len()
+        );
+
         fn is_within_deadline(
             order: &OrderRequest,
             current_block_timestamp: u64,
@@ -506,14 +512,14 @@ where
         }
 
         if candidate_orders.is_empty() {
-            tracing::trace!(
+            tracing::info!(
                 "No orders to lock and/or prove as of block timestamp {}",
                 current_block_timestamp
             );
             return Ok(Vec::new());
         }
 
-        tracing::debug!(
+        tracing::info!(
             "Valid orders that reached target timestamp; ready for locking/proving, num: {}, ids: {}",
             candidate_orders.len(),
             candidate_orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(", ")
@@ -711,7 +717,7 @@ where
                 tracing::warn!("Proofs are behind what is estimated from peak_prove_khz config by {} seconds. Consider lowering this value to avoid overlocking orders.", seconds_behind);
                 prover_available_at = now;
             }
-            tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available in {} seconds", 
+            tracing::debug!("Already committed to {} orders, with a total cycle count of {}, a peak khz limit of {}, started working on them at {}, we estimate the prover will be available in {} seconds",
                 num_commited_orders,
                 total_commited_cycles,
                 peak_prove_khz,
@@ -760,7 +766,7 @@ where
                     // Otherwise, we keep the order for the next iteration as capacity may free up in the future.
 
                     if now + proof_time_seconds > expiration {
-                        tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
+                        tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping",
                             order.request.id,
                             expiration,
                             proof_time_seconds,
@@ -926,15 +932,24 @@ where
         &self,
         order: Box<OrderRequest>,
     ) -> Result<(), OrderMonitorErr> {
+        let order_id = order.id();
+        tracing::info!(
+            "OrderMonitor received order {} with fulfillment type {:?}",
+            order_id,
+            order.fulfillment_type
+        );
+
         match order.fulfillment_type {
             FulfillmentType::LockAndFulfill => {
                 // Note: this could be done without waiting for the batch to minimize latency, but
                 //       avoiding more complicated logic for checking capacity for each order.
 
                 // If not, add it to the cache to be locked after target time
+                tracing::info!("Adding order {} to lock_and_prove_cache", order_id);
                 self.lock_and_prove_cache.insert(order.id(), Arc::from(order)).await;
             }
             FulfillmentType::FulfillAfterLockExpire | FulfillmentType::FulfillWithoutLocking => {
+                tracing::info!("Adding order {} to prove_cache", order_id);
                 self.prove_cache.insert(order.id(), Arc::from(order)).await;
             }
         }

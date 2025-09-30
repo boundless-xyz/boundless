@@ -188,7 +188,11 @@ where
             }
         });
 
-        tracing::debug!("Found {} possible in the past {} blocks", logs.len(), lookback_blocks);
+        tracing::info!(
+            "Found {} possible orders in the past {} blocks",
+            logs.len(),
+            lookback_blocks
+        );
         let mut order_count = 0;
         for log in decoded_logs {
             let event = &log.inner.data;
@@ -204,7 +208,7 @@ where
                 };
 
             if !matches!(req_status, RequestStatus::Unknown) {
-                tracing::debug!(
+                tracing::info!(
                     "Skipping order {request_id:x} reason: order status no longer bidding: {req_status:?}",
                 );
                 continue;

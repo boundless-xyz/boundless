@@ -238,6 +238,7 @@ where
                         target_timestamp_secs,
                     );
 
+                    tracing::info!("Sending order {} to OrderMonitor for processing", order_id);
                     self.priced_orders_tx
                         .send(order)
                         .await
@@ -255,6 +256,7 @@ where
                     order.target_timestamp = Some(lock_expire_timestamp_secs);
                     order.expire_timestamp = Some(expiry_secs);
 
+                    tracing::info!("Sending order {} to OrderMonitor for processing", order_id);
                     self.priced_orders_tx
                         .send(order)
                         .await
@@ -560,7 +562,7 @@ where
                             }
                             Err(err) => match err {
                                 ProverError::ProvingFailed(ref err_msg) => {
-                                    if err_msg.contains("Session limit exceeded") 
+                                    if err_msg.contains("Session limit exceeded")
                                         || err_msg.contains("Execution stopped intentionally due to session limit") {
                                         tracing::debug!(
                                             "Skipping order {order_id_clone} due to intentional execution limit of {exec_limit_cycles}",
@@ -1179,7 +1181,7 @@ where
                     Some(order) = rx.recv() => {
                         let order_id = order.id();
                         pending_orders.push(order);
-                        tracing::debug!(
+                        tracing::info!(
                             "Queued order {} to be priced. Currently {} queued pricing tasks: {}",
                             order_id,
                             pending_orders.len(),
@@ -1254,6 +1256,12 @@ where
                 // Process pending orders if we have capacity
                 if !pending_orders.is_empty() && tasks.len() < current_capacity {
                     let available_capacity = current_capacity - tasks.len();
+                    tracing::info!(
+                        "Processing {} pending orders with capacity {} (current tasks: {})",
+                        pending_orders.len(),
+                        available_capacity,
+                        tasks.len()
+                    );
                     let selected_orders = picker.select_pricing_orders(
                         &mut pending_orders,
                         priority_mode,
