@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFaRhyFHjBH4h7za4QR/PoxAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMwaTY/FRw6mApkTgWAgEQgDtVQ0eo7i+0qyEM+3rFhHURB9JjvpBlBgWPksPD1IYEqQSIVRTJMDTYBEXEXCnN0+F7ikGMzuo7i/WyLA==
 config:
+  prover-cluster:boundlessAmiName: "boundless-bento-ubuntu-24.04-nvidia-*"
   base:BASE_STACK: organization/bootstrap/services-staging
   prover-cluster:environment: staging
   prover-cluster:chainId: "84532"

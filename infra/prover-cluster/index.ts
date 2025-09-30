@@ -10,44 +10,73 @@ const vpcId = baseStack.getOutput('VPC_ID');
 const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
 
 const config = new pulumi.Config();
-const environment = config.get("environment") || "custom";
+
+// Configuration with proper types
+const environment: string = config.get("environment") || "custom";
 
 // Required configuration
-const privateKey = config.requireSecret("privateKey");
-const ethRpcUrl = config.requireSecret("ethRpcUrl");
-const managerInstanceType = config.require("managerInstanceType");
-const orderStreamUrl = config.require("orderStreamUrl");
-const verifierAddress = config.require("verifierAddress");
-const boundlessMarketAddress = config.require("boundlessMarketAddress");
-const setVerifierAddress = config.require("setVerifierAddress");
-const boundlessVersion = config.get("boundlessVersion") || "latest";
+const privateKey: pulumi.Output<string> = config.requireSecret("privateKey");
+const ethRpcUrl: pulumi.Output<string> = config.requireSecret("ethRpcUrl");
+const managerInstanceType: string = config.require("managerInstanceType");
+const orderStreamUrl: string = config.require("orderStreamUrl");
+const verifierAddress: string = config.require("verifierAddress");
+const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
+const setVerifierAddress: string = config.require("setVerifierAddress");
+
 // Contract addresses
-const taskDBUsername = config.require("taskDBUsername");
-const taskDBPassword = config.require("taskDBPassword");
-const taskDBName = config.require("taskDBName");
+const taskDBUsername: string = config.require("taskDBUsername");
+const taskDBPassword: string = config.require("taskDBPassword");
+const taskDBName: string = config.require("taskDBName");
 
 // MinIO configuration
-const minioUsername = config.get("minioUsername") || "minioadmin";
-const minioPassword = config.get("minioPassword") || "minioadmin123";
+const minioUsername: string = config.get("minioUsername") || "minioadmin";
+const minioPassword: string = config.get("minioPassword") || "minioadmin123";
 
 // Worker counts
-const executionCount = config.getNumber("executionCount") || 1;
-const proverCount = config.getNumber("proverWorkerCount") || 1;
-const auxCount = config.getNumber("auxWorkerCount") || 1;
+const executionCount: number = config.getNumber("executionCount") || 1;
+const proverCount: number = config.getNumber("proverWorkerCount") || 1;
+const auxCount: number = config.getNumber("auxWorkerCount") || 1;
 
 // Look up the latest packer-built AMI
+const boundlessBentoVersion: string = config.get("boundlessBentoVersion") || "nightly";
 const boundlessAmi = aws.ec2.getAmi({
     mostRecent: true,
-    owners: ["self", "968153779208"],
+    owners: ["self", "968153779208"], // Self and Boundless AWS account
     filters: [
         {
             name: "name",
-            values: [`boundless-v*-ubuntu-24.04-nvidia-*`]
+            values: [`boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`]
         }
     ]
 });
 
 const imageId = boundlessAmi.then(ami => ami.id);
+
+// Helper function to generate common environment variables
+function generateCommonEnvVars(
+    managerIp: string,
+    dbName: string,
+    dbUser: string,
+    dbPass: string,
+    minioUser: string,
+    minioPass: string,
+    stackName: string
+): string {
+    return `# Database and Redis URLs
+echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
+echo "REDIS_URL=redis://${managerIp}:6379" >> /etc/environment
+
+# S3 Configuration - using MinIO on manager
+echo "RUST_LOG=info" >> /etc/environment
+echo "S3_BUCKET=bento" >> /etc/environment
+echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
+echo "AWS_REGION=us-west-2" >> /etc/environment
+echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
+echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
+echo "REDIS_TTL=57600" >> /etc/environment
+echo "STACK_NAME=${stackName}" >> /etc/environment
+/usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}"|g' /etc/vector/vector.yaml`;
+}
 
 // 1) Instance role & profile (SSM access)
 const ec2Role = new aws.iam.Role("ec2SsmRole", {
@@ -154,7 +183,7 @@ const securityGroup = new aws.ec2.SecurityGroup("manager-sg", {
 const manager = new aws.ec2.Instance("manager", {
     ami: imageId,
     instanceType: managerInstanceType,
-    subnetId: privSubNetIds.apply((subnets: any) => subnets[0]),
+    subnetId: privSubNetIds.apply((subnets: string[]) => subnets[0]),
     vpcSecurityGroupIds: [securityGroup.id],
     iamInstanceProfile: ec2Profile.name,
     userData: pulumi.all([taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, ethRpcUrl, privateKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, stackName]).apply(([dbName, dbUser, dbPass, minioUser, minioPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, stackName]) => {
@@ -287,20 +316,7 @@ const proverLaunchTemplate = new aws.ec2.LaunchTemplate("prover-launch-template"
     },
     userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, stackName]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName]) => {
         const userDataScript = `#!/bin/bash
-# Database and Redis URLs for prover (point to manager)
-echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
-echo "REDIS_URL=redis://${managerIp}:6379" >> /etc/environment
-
-# S3 Configuration - using MinIO on manager
-echo "RUST_LOG=info" >> /etc/environment
-echo "S3_BUCKET=bento" >> /etc/environment
-echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
-echo "AWS_REGION=us-west-2" >> /etc/environment
-echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
-echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
-echo "REDIS_TTL=57600" >> /etc/environment
-echo "STACK_NAME=${stackName}" >> /etc/environment
-/usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}"|g' /etc/vector/vector.yaml
+${generateCommonEnvVars(managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName)}
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-prover.service /etc/systemd/system/bento.service
@@ -392,23 +408,12 @@ const executionLaunchTemplate = new aws.ec2.LaunchTemplate("execution-launch-tem
     },
     userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, stackName]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName]) => {
         const userDataScript = `#!/bin/bash
-# Database and Redis URLs for execution (point to manager)
-echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
-echo "REDIS_URL=redis://${managerIp}:6379" >> /etc/environment
+${generateCommonEnvVars(managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName)}
 
-# S3 Configuration - using MinIO on manager
-echo "RUST_LOG=info" >> /etc/environment
-echo "S3_BUCKET=bento" >> /etc/environment
-echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
-echo "AWS_REGION=us-west-2" >> /etc/environment
-echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
-echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
+# Execution-specific environment variables
 echo "FINALIZE_RETRIES=3" >> /etc/environment
 echo "FINALIZE_TIMEOUT=60" >> /etc/environment
-echo "REDIS_TTL=57600" >> /etc/environment
 echo "SEGMENT_PO2=21" >> /etc/environment
-echo "STACK_NAME=${stackName}" >> /etc/environment
-/usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}"|g' /etc/vector/vector.yaml
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-executor.service /etc/systemd/system/bento.service
@@ -499,22 +504,9 @@ const auxLaunchTemplate = new aws.ec2.LaunchTemplate("aux-launch-template", {
     iamInstanceProfile: {
         name: ec2Profile.name,
     },
-    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, ethRpcUrl, privateKey, stackName]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName]) => {
+    userData: pulumi.all([manager.privateIp, taskDBName, taskDBUsername, taskDBPassword, minioUsername, minioPassword, stackName]).apply(([managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName]) => {
         const userDataScript = `#!/bin/bash
-# Database and Redis URLs for aux agent (point to manager)
-echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${managerIp}:5432/${dbName}" >> /etc/environment
-echo "REDIS_URL=redis://${managerIp}:6379" >> /etc/environment
-
-# S3 Configuration - using MinIO on manager
-echo "RUST_LOG=info" >> /etc/environment
-echo "S3_BUCKET=bento" >> /etc/environment
-echo "S3_URL=http://${managerIp}:9000" >> /etc/environment
-echo "AWS_REGION=us-west-2" >> /etc/environment
-echo "S3_ACCESS_KEY=${minioUser}" >> /etc/environment
-echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
-echo "REDIS_TTL=57600" >> /etc/environment
-echo "STACK_NAME=${stackName}" >> /etc/environment
-/usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}"|g' /etc/vector/vector.yaml
+${generateCommonEnvVars(managerIp, dbName, dbUser, dbPass, minioUser, minioPass, stackName)}
 
 # Copy and configure service file
 cp /etc/systemd/system/bento-aux.service /etc/systemd/system/bento.service
@@ -598,7 +590,7 @@ export const managerPublicIp = manager.publicIp;
 export const amiId = imageId;
 export const amiName = boundlessAmi.then(ami => ami.name);
 export const amiDescription = boundlessAmi.then(ami => ami.description);
-export const boundlessVersionUsed = boundlessVersion;
+export const boundlessVersionUsed = boundlessBentoVersion;
 
 // ASG outputs
 export const proverAsgName = proverAsg.name;
@@ -656,6 +648,6 @@ export const clusterInfo = {
     ami: {
         id: imageId,
         name: boundlessAmi.then(ami => ami.name),
-        version: boundlessVersion,
+        version: boundlessBentoVersion,
     },
 };

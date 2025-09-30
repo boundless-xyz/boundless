@@ -19,7 +19,7 @@ variable "instance_type" {
 
 variable "boundless_bento_version" {
   type    = string
-  default = "v1.0.1"
+  default = "latest"
 }
 
 variable "boundless_broker_version" {
@@ -38,7 +38,7 @@ locals {
 }
 
 source "amazon-ebs" "boundless" {
-  ami_name      = "boundless-${var.boundless_bento_version}-ubuntu-24.04-nvidia-${local.timestamp}"
+  ami_name      = "boundless-nightly-ubuntu-24.04-nvidia-${local.timestamp}"
   instance_type = var.instance_type
   region        = var.aws_region
   source_ami_filter {
@@ -64,9 +64,9 @@ source "amazon-ebs" "boundless" {
   ami_users = var.service_account_ids
 
   tags = {
-    Name        = "boundless-${var.boundless_bento_version}-ubuntu-24.04-nvidia-13.0"
+    Name        = "boundless-nightly-ubuntu-24.04-nvidia-13.0"
     ManagedBy   = "packer"
-    Version     = var.boundless_bento_version
+    Version     = "nightly"
     BuildDate   = local.timestamp
   }
 }
@@ -112,10 +112,7 @@ build {
 
   # Run the complete installation script
   provisioner "shell" {
-    script = "scripts/setup.sh"
-    environment_vars = [
-      "BOUNDLESS_BENTO_VERSION=${var.boundless_bento_version}",
-      "BOUNDLESS_BROKER_VERSION=${var.boundless_broker_version}"
-    ]
+    script = "scripts/setup_nightly.sh"
+
   }
 }
