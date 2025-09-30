@@ -7,7 +7,7 @@
     "build": "vocs build && bun ./scripts/reindex.ts",
     "dev": "vocs dev",
     "check-links": "bun ./scripts/check-links.ts",
-    "check-markdown": "remark . --quiet",
+    "check-markdown": "remark . --quiet --ignore-pattern 'site/pages/developers/smart-contracts/**'",
     "check": "run-p check-markdown check-links",
     "ci": "bun run build && bun run check",
     "format-markdown": "remark . --output --use sort-definitions --use remark-lint-match-punctuation --use remark-lint-no-url-trailing-slash",

@@ -1,0 +1,102 @@
+
+# Enabling ZK Mining
+
+:::note[Requirements]
+Provers will require NVIDIA GPUs and Ubuntu 24.04. For a full list of requirements, please see [Requirements](/provers/quick-start#requirements).
+:::
+
+::::steps
+
+## Stop Bento Safely
+
+To enable PoVW in Bento, first make sure to stop Bento safely. This ensures that any in-progress proving jobs are completed before terminating the proving process. If Bento is backing the Broker, please carry out *Step 1* from [Safe Upgrade Steps](/provers/broker#safe-upgrade-steps) and then return to this page.
+
+Bento and/or broker can be safely stopped with:
+
+```bash
+just broker down
+```
+
+## Install the latest release
+
+To install the latest release, and use the helpful setup script, provers can follow the instructions on the [Quick Start](/provers/quick-start) before continuing with the next step.
+
+## Install the latest version of Rust
+
+Follow the instructions [here](https://www.rust-lang.org/tools/install).
+
+## Make sure to have the Boundless CLI installed
+
+Provers use the Boundless CLI to stake $ZKC, prepare work log updates, and submit them onchain. To install the Boundless CLI (and build with CUDA support), run:
+
+```bash
+cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless
+```
+
+## Install the latest version of Foundry
+
+Some commands in this tutorial use [cast](https://getfoundry.sh/cast/overview) from the [Foundry toolkit](https://getfoundry.sh/). This is not necessary, but it will make some CLI commands more straightforward.
+
+## Install the latest version of rzup
+
+Follow the instructions [here](https://dev.risczero.com/api/zkvm/install#installation-for-x86-64-linux-and-arm64-macos).
+
+## Install `risc0-groth16` using `rzup`
+
+Run the following:
+
+```bash
+rzup install risc0-groth16
+```
+
+## Specify the Reward Address
+
+:::tip[Tip]
+Provers can use their $ZKC staking address as their Reward Address but this is not recommended. In practice, provers should use a separate wallet to stake $ZKC. For more information, see [Wallet Setup](/zkc/mining/wallet-setup).
+:::
+
+Before starting Bento again, provers need to enable the ZK mining feature. This requires a valid Ethereum address set to the `REWARD_ADDRESS` environment variable. It is recommended to set this directly in the compose.yml file:
+
+```yml
+x-base-environment: &base-environment
+    DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
+  REDIS_URL: redis://${REDIS_HOST:-redis}:6379
+  S3_URL: http://${MINIO_HOST:-minio}:9000
+  S3_BUCKET: ${MINIO_BUCKET:-workflow}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
+  RUST_LOG: ${RUST_LOG:-info}
+  RISC0_HOME: /usr/local/risc0
+  RUST_BACKTRACE: 1
+  REWARD_ADDRESS: "0x1234...5678" // [!code hl] [!code focus]
+```
+
+## *Optional but highly recommended*: Delegate Reward Power to Reward Address
+
+Follow the instructions [How to Delegate Rewards](/zkc/mining/wallet-setup#how-to-delegate-rewards) to delegate reward power from the staking wallet to the reward address. For more context, please see the [Wallet Setup](/zkc/mining/wallet-setup) tutorial.
+
+## Start Bento
+
+Once enabled, Bento can be run as normal with:
+
+```bash
+just bento
+```
+
+Or if running the broker as well:
+
+```bash
+just broker
+```
+
+will start both the broker and Bento.
+
+## Generate Proofs + Submit Work Proofs Onchain
+
+Once Bento is running, provers can run proving jobs as normal. Bento will now create a work proof for every proving job; a work proof cryptographically proves how much work Bento has done (in [cycles](https://dev.risczero.com/terminology#clock-cycles)). 
+
+Using the Boundless CLI, provers aggregate these work proofs and submit the aggregated work proof *at least once* per [reward epoch](/zkc/quick-start#how-do-zkc-rewards-work) to be eligible for that epoch's mining rewards. This process is documented in [Mining + Claiming Rewards](/zkc/mining/claiming-rewards).
+
+::::
+
+
