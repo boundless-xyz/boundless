@@ -112,7 +112,14 @@ impl PovwPrepare {
                     tracing::warn!("{:?}", err.context("Skipping receipt"));
                     warning = true;
                 }
-                Ok(receipt) => work_receipts.push(receipt),
+                Ok(receipt) => match check_work_receipt(state.log_id, &state.work_log, receipt) {
+                    Ok(receipt) => {
+                        work_receipts.push(receipt);
+                    }
+                    Err(err) => {
+                        tracing::warn!("Skipping receipt: {:#}", err);
+                    }
+                },
             }
         }
         if warning && !self.allow_partial_update {
