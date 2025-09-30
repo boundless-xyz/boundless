@@ -2,7 +2,7 @@
 
 ## Overview
 
-To [enable ZK mining](/zkc/mining/quick-start#how-to-enable-zk-mining), the prover specifies the reward address which must be a valid Ethereum address. This address *does not* have to be the same as the *$ZKC* staking wallet address or a Boundless prover address, though it can be used for all three purposes. 
+To [enable ZK mining](/zkc/mining/enable), the prover specifies the reward address which must be a valid Ethereum address. This address *does not* have to be the same as the *$ZKC* staking wallet address or a Boundless prover address, though it can be used for all three purposes. 
 
 Note that mining rewards are eligible for *all verifiable work*, not solely work done to prove Boundless market orders. Therefore, provers not connected to the Boundless market are still eligible for *$ZKC* rewards, provided they are proving during the epoch and they have staked *$ZKC*.
 
@@ -12,7 +12,7 @@ The following diagram illustrates a typical wallet setup when ZK mining and/or r
 
 ## Separating the Staking Wallet from the Rewards Address
 
-When [enabling ZK mining](/zkc/mining/quick-start#how-to-enable-zk-mining), provers specify the following environment variables:
+When [enabling ZK mining](/zkc/mining/enable), provers specify the following environment variables:
 
 ```bash
 export REWARD_ADDRESS="0x0000...0000"

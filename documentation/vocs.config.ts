@@ -221,7 +221,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "ZK Mining",
-        link: "/zkc/mining/quick-start",
         items: [
           {
             text: "Overview",

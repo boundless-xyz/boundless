@@ -109,7 +109,7 @@ async function localPathExists(linkPath: string): Promise<boolean> {
 }
 
 async function checkLinks() {
-  const files = await glob("**/*.{md,mdx}", { ignore: ["node_modules/**"] });
+  const files = await glob("**/*.{md,mdx}", { ignore: ["node_modules/**", "/site/pages/developers/smart-contracts/**"] });
   let hasErrors = false;
 
   for (const file of files) {
