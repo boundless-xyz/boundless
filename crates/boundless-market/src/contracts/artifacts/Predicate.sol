@@ -66,12 +66,15 @@ library PredicateLibrary {
     /// @return True if the predicate is satisfied, false otherwise.
     function eval(Predicate memory predicate, bytes32 imageId, bytes memory journal) internal pure returns (bool) {
         if (predicate.predicateType == PredicateType.DigestMatch) {
+            require(predicate.data.length == 64, "Invalid DigestMatch data length");
             bytes memory dataJournal = Bytes.slice(predicate.data, 32);
             return bytes32(dataJournal) == sha256(abi.encode(journal)) && bytes32(predicate.data) == imageId;
         } else if (predicate.predicateType == PredicateType.PrefixMatch) {
+            require(predicate.data.length >= 32, "Invalid PrefixMatch data length");
             bytes memory dataJournal = Bytes.slice(predicate.data, 32);
             return startsWith(journal, dataJournal) && bytes32(predicate.data) == imageId;
         } else if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
+            require(predicate.data.length == 32, "Invalid ClaimDigestMatch data length");
             return bytes32(predicate.data) == ReceiptClaimLib.ok(imageId, sha256(abi.encode(journal))).digest();
         } else {
             revert("Unreachable code");
@@ -86,6 +89,7 @@ library PredicateLibrary {
     /// @return True if the predicate is satisfied, false otherwise.
     function eval(Predicate memory predicate, bytes32 claimDigest) internal pure returns (bool) {
         if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
+            require(predicate.data.length == 32, "Invalid ClaimDigestMatch data length");
             return bytes32(predicate.data) == claimDigest;
         } else {
             revert("Predicate not of type ClaimDigestMatch");
