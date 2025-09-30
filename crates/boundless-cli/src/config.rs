@@ -175,8 +175,8 @@ impl ProverConfig {
         if let Some(ref api_key) = self.bento_api_key {
             std::env::set_var("BONSAI_API_KEY", api_key);
         } else {
-            tracing::debug!("No API key provided. Setting BONSAI_API_KEY to reserved:1");
-            std::env::set_var("BONSAI_API_KEY", "reserved:1");
+            tracing::debug!("No API key provided. Setting BONSAI_API_KEY to reserved:5");
+            std::env::set_var("BONSAI_API_KEY", "reserved:5");
         }
     }
 
