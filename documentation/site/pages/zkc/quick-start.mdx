@@ -1,4 +1,4 @@
-# Quick Start
+# Quick Start ($ZKC)
 
 ## It all starts with *Staking* 
 
@@ -6,7 +6,7 @@
 *$ZKC* is the native token of Boundless and the gateway to participation in the protocol. 
 :::
 
-By staking *$ZKC*, token holders are directly contributing to the Boundless protocol. The protocol rewards stakers with staking rewards, governance voting power, and *most importantly* eligibility for mining rewards. 
+By staking *$ZKC*, token holders signal their commitment to the long term success of the Boundless protocol. The protocol rewards stakers with staking rewards, governance voting power, and *most importantly* eligibility for mining rewards. 
 
 ### Staking *$ZKC* to earn Mining Rewards 
 
@@ -16,7 +16,7 @@ To get started with ZK Mining, see the [ZK Mining Quick Start](/zkc/mining/quick
 
 
 
-## How to Stake *$ZKC*?
+## How to stake *$ZKC*?
 
 :::note
 - *$ZKC* is staked on Ethereum Mainnet ONLY. 
@@ -59,7 +59,7 @@ boundless zkc claim --private-key <PRIVATE_KEY> --rpc-url <RPC_URL>
 
 where `<PRIVATE_KEY>` is the private key for the *reward address*.
 
-## How do *$ZKC* Rewards work?
+## How do *$ZKC* rewards work?
 
 ### Overview
 
@@ -117,7 +117,7 @@ mining_reward_cap = staked_amount / 15
   - Specifically, the miner will receive `0.075% of ~385k` *$ZKC* which equals ~289 `$ZKC`. 
   - The miner has a reward cap of ~333 $ZKC. Since the miner has already submitted enough work for ~289 *$ZKC*, they have ~45 $ZKC worth of reward cap left. If they submit enough work before the end of the epoch to cover the ~45 *$ZKC* remaining, they will receive the full amount their stake position entitles them to. 
   
-## How does Delegating Rewards work?
+## How does delegating rewards work?
 
 :::tip
 Multiple stake positions, across different wallets, can delegate their rewards to the same delegatee address. 
@@ -135,7 +135,7 @@ boundless zkc delegate-rewards <DELEGATEE> --rpc-url <RPC_URL> --private-key <PR
 
 For mining rewards, it is recommended to set `<DELEGATEE>` as the address set to `REWARD_ADDRESS` in Bento. The private key should denote the address that you want to delegate *from* i.e. the wallet with an active stake position. 
 
-## How does Governance work?
+## How does governance work?
 
 :::note[Governance Contract Deployments]
 The Boundless governance contracts have been deployed by Aragon: [Boundless DAO](https://app.aragon.org/dao/ethereum-mainnet/boundless.dao.eth).
