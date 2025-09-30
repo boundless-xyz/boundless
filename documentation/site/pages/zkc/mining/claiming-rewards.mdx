@@ -1,6 +1,6 @@
 # Claiming Rewards
 
-## Via the CLI
+## Mining Rewards
 
 :::tip
 Claiming mining rewards requires *both* a valid archive node RPC endpoint and a Beacon Chain RPC endpoint. 
@@ -8,11 +8,23 @@ Claiming mining rewards requires *both* a valid archive node RPC endpoint and a 
 In our testing, the Alchemy free RPC plan in combination with the public beacon chain API URL (`https://ethereum-beacon-api.publicnode.com/`) works for claiming rewards. Quicknode works for the beacon chain endpoint, but both free and paid Quicknode RPC endpoints are not recommended for `claim` as it commonly errors with request rate limits. 
 :::
 
-After the reward epoch has finalized, rewards can be claimed with:
+After the reward epoch has finalized, mining rewards can be claimed with:
 
 ```bash
-boundless povw claim --reward-address ${REWARD_ADDRESS} --beacon-api-url${BEACON_CHAIN_RPC_ENDPOINT} --rpc-url ${RPC_URL}
+boundless povw claim --reward-address ${REWARD_ADDRESS} --beacon-api-url${BEACON_CHAIN_RPC_ENDPOINT} --rpc-url ${RPC_URL} --private-key ${PRIVATE_KEY}
 ```
+
+This process is permissionless and DOES NOT require the private key for the address eligible for the rewards. The only requirement is that the `PRIVATE_KEY` has enough funds to cover gas costs on Ethereum mainnet.
+
+## Staking Rewards
+
+After the reward epoch has finalized, staking rewards can be claimed with:
+
+```bash
+boundless zkc claim-rewards --rpc-url <RPC_URL> --private-key <PRIVATE_KEY>
+```
+
+where `PRIVATE_KEY` is the private key of the address that has the [reward power](/zkc/mining/wallet-setup#stakes-zkc-and-receives-reward-power) i.e. the rewards address if the delegation best practice is followed. 
 
 ## Checking Details of Current Reward Epoch
 

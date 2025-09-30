@@ -55,7 +55,7 @@ rzup install risc0-groth16
 Provers can use their $ZKC staking address as their Reward Address but this is not recommended. In practice, provers should use a separate wallet to stake $ZKC. For more information, see [Wallet Setup](/zkc/mining/wallet-setup).
 :::
 
-Before starting Bento again, provers need to enable the PoVW feature. This requires a valid Ethereum address set to the `REWARD_ADDRESS` environment variable. It is recommended to set this directly in the compose.yml file:
+Before starting Bento again, provers need to enable the ZK mining feature. This requires a valid Ethereum address set to the `REWARD_ADDRESS` environment variable. It is recommended to set this directly in the compose.yml file:
 
 ```yml
 x-base-environment: &base-environment
@@ -70,6 +70,10 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
   REWARD_ADDRESS: "0x1234...5678" // [!code hl] [!code focus]
 ```
+
+## *Optional but highly recommended*: Delegate Reward Power to Reward Address
+
+Follow the instructions [How to Delegate Rewards](/zkc/mining/wallet-setup#how-to-delegate-rewards) to delegate reward power from the staking wallet to the reward address. For more context, please see the [Wallet Setup](/zkc/mining/wallet-setup) tutorial.
 
 ## Start Bento
 

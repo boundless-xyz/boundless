@@ -286,7 +286,7 @@ export default defineConfig({
   logoUrl: "/logo.svg",
   topNav: [
     { text: "Explorer", link: "https://explorer.boundless.network/orders" },
-    { text: "Discord", link: "https://discord.gg/aXRuD6spez" }
+    { text: "Support Forum", link: "https://github.com/boundless-xyz/boundless/discussions" }
   ],
   font: {
     mono: {
@@ -306,6 +306,10 @@ export default defineConfig({
       icon: "x",
       link: "https://x.com/boundless_xyz",
     },
+    {
+      icon: "discord",
+      link: "https://discord.com/invite/boundlessxyz",
+    }
   ],
   rootDir: "site",
   title: "Boundless Docs",
