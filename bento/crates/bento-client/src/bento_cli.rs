@@ -67,8 +67,7 @@ async fn main() -> Result<()> {
         String::new()
     };
 
-    let client =
-        ProvingClient::from_parts(args.endpoint, api_key, risc0_zkvm::VERSION).unwrap();
+    let client = ProvingClient::from_parts(args.endpoint, api_key, risc0_zkvm::VERSION).unwrap();
 
     let (image, input) = if let Some(elf_file) = args.elf_file {
         let image = std::fs::read(elf_file).context("Failed to read elf file from disk")?;
