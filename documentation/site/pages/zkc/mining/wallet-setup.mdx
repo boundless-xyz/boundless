@@ -19,7 +19,7 @@ The prover stakes *$ZKC*, this gives [reward power](https://github.com/boundless
 
 The staking address can delegate the reward power to another address known as the *delegatee*. We recommend delegating reward power, as it allows for a hot wallet to receive rewards *and* to restake the rewards to increase the total reward power for compounding gains. Restaking directly with a cold wallet would be quite troublesome, as it would require restaking every epoch (~2 days). 
 
-Separating the staking wallet from the reward address also means that a maximum of a single reward epoch's rewards are lost if the reward address private key is lost or compromised. This is because the staking address can simply re-delegate rewards to a new address and [enable ZK mining](/zkc/mining/enable/) with that address specified. Otherwise, without separation between the staking address and the rewards address, the prover would lose *both* the total stake position and the total reward power.  
+Separating the staking wallet from the reward address also means that a maximum of a single reward epoch's rewards are lost if the reward address private key is lost or compromised. This is because the staking address can simply re-delegate rewards to a new address and [enable ZK mining](/zkc/mining/enable) with that address specified. Otherwise, without separation between the staking address and the rewards address, the prover would lose *both* the total stake position and the total reward power.  
 
 ### Submits Proof of Verifiable Work
 
