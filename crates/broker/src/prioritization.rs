@@ -134,9 +134,9 @@ where
         }
         UnifiedPriorityMode::HighestProfitability => {
             // For pricing prioritization, we can't use profitability yet since orders haven't been preflighted
-            // Always fall back to max_price sorting for preflight prioritization
+            // Use current price based on ramp-up timing for preflight prioritization
             tracing::info!(
-                "Using HIGHEST PROFITABILITY mode: Orders not preflighted yet, falling back to max_price sorting for {} orders",
+                "Using HIGHEST PROFITABILITY mode: Orders not preflighted yet, falling back to current_price sorting for {} orders",
                 orders.len()
             );
 
@@ -145,26 +145,30 @@ where
                 tracing::info!("Order {} total_cycles: {:?}", i, order.as_ref().total_cycles);
             }
 
-            // Always use max_price sorting for preflight prioritization
-            // Log max_price for each order before sorting
+            // Use current price based on ramp-up timing for preflight prioritization
+            // Log current_price for each order before sorting
             for (i, order) in orders.iter().enumerate() {
+                let current_price = order.as_ref().request.offer.price_at(crate::now_timestamp());
                 let max_price = order.as_ref().request.offer.maxPrice;
+                let min_price = order.as_ref().request.offer.minPrice;
                 tracing::info!(
-                    "Order {} (index {}): max_price={} (total_cycles={})",
+                    "Order {} (index {}): current_price={}, min_price={}, max_price={} (total_cycles={})",
                     order.as_ref().id(),
                     i,
+                    current_price,
+                    min_price,
                     max_price,
                     order.as_ref().total_cycles.unwrap_or(0)
                 );
             }
 
             orders.sort_by(|a, b| {
-                let price_a = a.as_ref().request.offer.maxPrice;
-                let price_b = b.as_ref().request.offer.maxPrice;
+                let price_a = a.as_ref().request.offer.price_at(crate::now_timestamp());
+                let price_b = b.as_ref().request.offer.price_at(crate::now_timestamp());
                 let comparison = price_b.cmp(&price_a); // Descending order (highest first)
 
                 tracing::debug!(
-                    "Comparing orders by max_price: {} (price={}) vs {} (price={}) -> {:?}",
+                    "Comparing orders by current_price: {} (price={}) vs {} (price={}) -> {:?}",
                     a.as_ref().id(),
                     price_a,
                     b.as_ref().id(),
@@ -177,13 +181,14 @@ where
 
             // Log final order after sorting
             tracing::info!(
-                "Orders sorted by max_price (highest first): {}",
+                "Orders sorted by current_price (highest first): {}",
                 orders
                     .iter()
                     .enumerate()
                     .map(|(i, order)| {
-                        let max_price = order.as_ref().request.offer.maxPrice;
-                        format!("[{}] {} (max_price={})", i, order.as_ref().id(), max_price)
+                        let current_price =
+                            order.as_ref().request.offer.price_at(crate::now_timestamp());
+                        format!("[{}] {} (current_price={})", i, order.as_ref().id(), current_price)
                     })
                     .collect::<Vec<_>>()
                     .join(", ")
