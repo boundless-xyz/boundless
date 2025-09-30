@@ -389,7 +389,7 @@ fn is_dev_mode() -> bool {
 mod tests {
     use super::*;
     use alloy::{
-        primitives::{FixedBytes, Signature},
+        primitives::{FixedBytes, Signature, U256},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
@@ -412,7 +412,11 @@ mod tests {
                 }),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
-            Offer::default(),
+            Offer::default()
+                .with_timeout(60)
+                .with_lock_timeout(30)
+                .with_max_price(U256::from(1000))
+                .with_ramp_up_start(10),
         );
 
         let signature = request.sign_request(signer, Address::ZERO, 1).await.unwrap();
