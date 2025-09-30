@@ -152,23 +152,28 @@ where
                 let max_price = order.as_ref().request.offer.maxPrice;
                 let min_price = order.as_ref().request.offer.minPrice;
                 tracing::info!(
-                    "Order {} (index {}): current_price={}, min_price={}, max_price={} (total_cycles={})",
-                    order.as_ref().id(),
-                    i,
-                    current_price,
-                    min_price,
-                    max_price,
-                    order.as_ref().total_cycles.unwrap_or(0)
-                );
+                            "Order {} (index {}): current_price={:?}, min_price={}, max_price={} (total_cycles={})",
+                            order.as_ref().id(),
+                            i,
+                            current_price,
+                            min_price,
+                            max_price,
+                            order.as_ref().total_cycles.unwrap_or(0)
+                        );
             }
 
             orders.sort_by(|a, b| {
                 let price_a = a.as_ref().request.offer.price_at(crate::now_timestamp());
                 let price_b = b.as_ref().request.offer.price_at(crate::now_timestamp());
-                let comparison = price_b.cmp(&price_a); // Descending order (highest first)
+
+                // Handle Result by using unwrap_or with a default value
+                let price_a_val = price_a.unwrap_or(U256::ZERO);
+                let price_b_val = price_b.unwrap_or(U256::ZERO);
+
+                let comparison = price_b_val.cmp(&price_a_val); // Descending order (highest first)
 
                 tracing::debug!(
-                    "Comparing orders by current_price: {} (price={}) vs {} (price={}) -> {:?}",
+                    "Comparing orders by current_price: {} (price={:?}) vs {} (price={:?}) -> {:?}",
                     a.as_ref().id(),
                     price_a,
                     b.as_ref().id(),
@@ -188,7 +193,12 @@ where
                     .map(|(i, order)| {
                         let current_price =
                             order.as_ref().request.offer.price_at(crate::now_timestamp());
-                        format!("[{}] {} (current_price={})", i, order.as_ref().id(), current_price)
+                        format!(
+                            "[{}] {} (current_price={:?})",
+                            i,
+                            order.as_ref().id(),
+                            current_price
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join(", ")

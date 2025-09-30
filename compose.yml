@@ -171,17 +171,18 @@ services:
 
   exec_agent:
     <<: *exec-agent-common
-    replicas: 12
+    deploy:
+      replicas: 12
 
   aux_agent:
     <<: *agent-common
-    replicas: 2
     mem_limit: 256M
     cpus: 1
     environment:
       <<: *base-environment
-
     entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
+    deploy:
+      replicas: 2
 
   gpu_prove_agent0:
     <<: *agent-common
