@@ -38,16 +38,16 @@ const SIDEBAR_ITEMS = [
             link: "/developers/proof-lifecycle",
           },
           {
+            text: "Pricing a Request",
+            link: "/developers/tutorials/pricing",
+          },
+          {
             text: "Request a Proof",
             link: "/developers/tutorials/request",
           },
           {
-            text: "Tracking your Request",
+            text: "Tracking a Request",
             link: "/developers/tutorials/tracking",
-          },
-          {
-            text: "Pricing a Request",
-            link: "/developers/tutorials/pricing",
           },
           {
             text: "Use a Proof",
@@ -224,15 +224,23 @@ const SIDEBAR_ITEMS = [
         link: "/zkc/mining/quick-start",
         items: [
           {
-            text: "Quick Start",
-            link: "/zkc/mining/quick-start",
+            text: "Overview",
+            link: "/zkc/mining/overview",
           },
           {
             text: "Wallet Setup",
             link: "/zkc/mining/wallet-setup",
           },
           {
-            text: "Mining + Claiming Rewards",
+            text: "Enabling ZK Mining",
+            link: "/zkc/mining/enable",
+          },
+          {
+            text: "Mining Walkthrough",
+            link: "/zkc/mining/walkthrough",
+          },
+          {
+            text: "Claiming Rewards",
             link: "/zkc/mining/claiming-rewards",
           }
         ],
