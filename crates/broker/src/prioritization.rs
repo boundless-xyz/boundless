@@ -133,37 +133,42 @@ where
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
         UnifiedPriorityMode::HighestProfitability => {
-            // Sort by profitability (price per cycle) in descending order
-            // Orders with higher profitability come first
+            // For pricing prioritization, we can't use profitability yet since orders haven't been preflighted
+            // Always fall back to max_price sorting for preflight prioritization
             tracing::info!(
-                "Using HIGHEST PROFITABILITY mode: Sorting {} orders by price per cycle (descending)",
+                "Using HIGHEST PROFITABILITY mode: Orders not preflighted yet, falling back to max_price sorting for {} orders",
                 orders.len()
             );
 
-            // Log profitability for each order before sorting
+            // Debug: log the first few orders' total_cycles values
+            for (i, order) in orders.iter().take(3).enumerate() {
+                tracing::info!("Order {} total_cycles: {:?}", i, order.as_ref().total_cycles);
+            }
+
+            // Always use max_price sorting for preflight prioritization
+            // Log max_price for each order before sorting
             for (i, order) in orders.iter().enumerate() {
-                let profit = calculate_profitability(order.as_ref());
+                let max_price = order.as_ref().request.offer.maxPrice;
                 tracing::info!(
-                    "Order {} (index {}): profitability = {} (max_price={}, total_cycles={})",
+                    "Order {} (index {}): max_price={} (total_cycles={})",
                     order.as_ref().id(),
                     i,
-                    profit,
-                    order.as_ref().request.offer.maxPrice,
+                    max_price,
                     order.as_ref().total_cycles.unwrap_or(0)
                 );
             }
 
             orders.sort_by(|a, b| {
-                let profit_a = calculate_profitability(a.as_ref());
-                let profit_b = calculate_profitability(b.as_ref());
-                let comparison = profit_b.cmp(&profit_a); // Descending order (highest first)
+                let price_a = a.as_ref().request.offer.maxPrice;
+                let price_b = b.as_ref().request.offer.maxPrice;
+                let comparison = price_b.cmp(&price_a); // Descending order (highest first)
 
                 tracing::debug!(
-                    "Comparing orders: {} (profit={}) vs {} (profit={}) -> {:?}",
+                    "Comparing orders by max_price: {} (price={}) vs {} (price={}) -> {:?}",
                     a.as_ref().id(),
-                    profit_a,
+                    price_a,
                     b.as_ref().id(),
-                    profit_b,
+                    price_b,
                     comparison
                 );
 
@@ -172,13 +177,13 @@ where
 
             // Log final order after sorting
             tracing::info!(
-                "Orders sorted by profitability (highest first): {}",
+                "Orders sorted by max_price (highest first): {}",
                 orders
                     .iter()
                     .enumerate()
                     .map(|(i, order)| {
-                        let profit = calculate_profitability(order.as_ref());
-                        format!("[{}] {} (profit={})", i, order.as_ref().id(), profit)
+                        let max_price = order.as_ref().request.offer.maxPrice;
+                        format!("[{}] {} (max_price={})", i, order.as_ref().id(), max_price)
                     })
                     .collect::<Vec<_>>()
                     .join(", ")

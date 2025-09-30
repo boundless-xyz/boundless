@@ -442,7 +442,7 @@ where
             match order.target_timestamp {
                 Some(target_timestamp) => {
                     if current_block_timestamp < target_timestamp {
-                        tracing::trace!(
+                        tracing::info!(
                             "Request {:x} target timestamp {} not yet reached (current: {}). Waiting.",
                             order.request.id,
                             target_timestamp,
@@ -450,6 +450,12 @@ where
                         );
                         false
                     } else {
+                        tracing::info!(
+                            "Request {:x} target timestamp {} reached (current: {}). Ready to process.",
+                            order.request.id,
+                            target_timestamp,
+                            current_block_timestamp
+                        );
                         true
                     }
                 }
@@ -463,29 +469,38 @@ where
         }
 
         for (_, order) in self.prove_cache.iter() {
+            let order_id = order.id();
+            tracing::info!("Processing prove_cache order: {}", order_id);
+
             let is_fulfilled = self
                 .db
                 .is_request_fulfilled(U256::from(order.request.id))
                 .await
                 .context("Failed to check if request is fulfilled")?;
             if is_fulfilled {
-                tracing::debug!(
+                tracing::info!(
                     "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
                 self.skip_order(&order, "was fulfilled by other").await;
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
+                tracing::info!("Order {} failed deadline check", order_id);
                 self.skip_order(&order, "expired").await;
             } else if is_target_time_reached(&order, current_block_timestamp) {
                 tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
                 candidate_orders.push(order);
+            } else {
+                tracing::info!("Order {} target time not reached yet", order_id);
             }
         }
 
         for (_, order) in self.lock_and_prove_cache.iter() {
+            let order_id = order.id();
+            tracing::info!("Processing lock_and_prove_cache order: {}", order_id);
+
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
-                tracing::debug!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
+                tracing::info!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
                 self.skip_order(&order, "lock expired before we locked").await;
             } else if let Some((locker, _)) =
                 self.db.get_request_locked(U256::from(order.request.id)).await?
@@ -497,17 +512,21 @@ where
                 let locker_address_normalized = locker_address.trim_start_matches("0x");
 
                 if locker_address_normalized != our_address_normalized {
-                    tracing::debug!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
+                    tracing::info!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
                     self.skip_order(&order, "locked by another prover").await;
                 } else {
                     // Edge case where we locked the order, but due to some reason was not moved to proving state. Should not happen.
-                    tracing::debug!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
+                    tracing::info!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
                     candidate_orders.push(order);
                 }
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
+                tracing::info!("Order {} failed deadline check", order_id);
                 self.skip_order(&order, "insufficient deadline").await;
             } else if is_target_time_reached(&order, current_block_timestamp) {
+                tracing::info!("Order {} target time reached, adding to candidates", order_id);
                 candidate_orders.push(order);
+            } else {
+                tracing::info!("Order {} target time not reached yet", order_id);
             }
         }
 

@@ -169,14 +169,13 @@ services:
       - redis
       - minio
 
-  exec_agent0:
+  exec_agent:
     <<: *exec-agent-common
-
-  exec_agent1:
-    <<: *exec-agent-common
+    replicas: 12
 
   aux_agent:
     <<: *agent-common
+    replicas: 2
     mem_limit: 256M
     cpus: 1
     environment:
