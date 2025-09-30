@@ -11,15 +11,13 @@ use workflow_common::{
 };
 
 /// Extract reserved value from api_key string
-/// Format: "reserved:N" where N is a positive number (e.g., "reserved:5" or "user123-reserved:10")
-/// Returns 1 if no reserved value is specified
+/// Format: "reserved:N" where N is a positive number (e.g., "reserved:5" or "reserved:10")
+/// Returns 0 if no reserved value is specified
 pub fn extract_reserved(api_key: &str) -> i32 {
-    for part in api_key.split('-') {
-        if let Some(reserved_str) = part.strip_prefix("reserved:") {
-            if let Ok(reserved) = reserved_str.parse::<i32>() {
-                if reserved > 0 {
-                    return reserved;
-                }
+    if let Some(reserved_str) = api_key.strip_prefix("reserved:") {
+        if let Ok(reserved) = reserved_str.parse::<i32>() {
+            if reserved >= 0 {
+                return reserved;
             }
         }
     }
