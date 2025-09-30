@@ -43,6 +43,15 @@ pub(crate) fn serialize_obj<T: Serialize>(item: &T) -> Result<Vec<u8>> {
 
 /// Deserializes a an encoded function
 pub(crate) fn deserialize_obj<T: for<'de> Deserialize<'de>>(encoded: &[u8]) -> Result<T> {
-    let decoded = bincode::deserialize(encoded)?;
-    Ok(decoded)
+    match bincode::deserialize(encoded) {
+        Ok(decoded) => Ok(decoded),
+        Err(e) => {
+            let msg = format!("{:?}", e);
+            if msg.contains("EOF") || msg.contains("end of file") {
+                // Add explicit marker so task runners can detect & trigger selective reset
+                return Err(anyhow::anyhow!("[B-TASK-EOF] Corrupted segment data: {}", msg));
+            }
+            Err(anyhow::anyhow!(e))
+        }
+    }
 }
