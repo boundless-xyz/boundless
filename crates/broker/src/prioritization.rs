@@ -19,8 +19,37 @@ use crate::{
     OrderRequest,
 };
 
+use alloy::primitives::U256;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
+
+/// Calculate the profitability (price per cycle) for an order
+/// Returns the maximum price per cycle, or 0 if cycles are not available
+fn calculate_profitability(order: &OrderRequest) -> U256 {
+    let Some(total_cycles) = order.total_cycles else {
+        tracing::debug!("Order {} has no total_cycles, profitability = 0", order.id());
+        return U256::ZERO;
+    };
+
+    if total_cycles == 0 {
+        tracing::debug!("Order {} has 0 total_cycles, profitability = 0", order.id());
+        return U256::ZERO;
+    }
+
+    // Use the maximum price from the offer for profitability calculation
+    let max_price = U256::from(order.request.offer.maxPrice);
+    let profitability = max_price / U256::from(total_cycles);
+
+    tracing::debug!(
+        "Order {} profitability calculation: max_price={}, total_cycles={}, profitability={}",
+        order.id(),
+        max_price,
+        total_cycles,
+        profitability
+    );
+
+    profitability
+}
 
 /// Unified priority mode for both pricing and commitment
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +57,7 @@ enum UnifiedPriorityMode {
     Random,
     TimeOrdered,
     ShortestExpiry,
+    HighestProfitability,
 }
 
 impl From<OrderPricingPriority> for UnifiedPriorityMode {
@@ -36,6 +66,7 @@ impl From<OrderPricingPriority> for UnifiedPriorityMode {
             OrderPricingPriority::Random => UnifiedPriorityMode::Random,
             OrderPricingPriority::ObservationTime => UnifiedPriorityMode::TimeOrdered,
             OrderPricingPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
+            OrderPricingPriority::HighestProfitability => UnifiedPriorityMode::HighestProfitability,
         }
     }
 }
@@ -45,6 +76,9 @@ impl From<OrderCommitmentPriority> for UnifiedPriorityMode {
         match mode {
             OrderCommitmentPriority::Random => UnifiedPriorityMode::Random,
             OrderCommitmentPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
+            OrderCommitmentPriority::HighestProfitability => {
+                UnifiedPriorityMode::HighestProfitability
+            }
         }
     }
 }
@@ -57,19 +91,33 @@ fn sort_orders_by_priority_and_mode<T>(
     T: AsRef<OrderRequest>,
 {
     let Some(addresses) = priority_addresses else {
+        tracing::debug!("No priority addresses specified, sorting all orders by mode: {:?}", mode);
         sort_by_mode(orders, mode);
         return;
     };
 
+    tracing::info!(
+        "Priority addresses specified: {}, sorting orders with priority first",
+        addresses.len()
+    );
+
     let (mut priority_orders, mut regular_orders): (Vec<T>, Vec<T>) = orders
         .drain(..)
         .partition(|order| addresses.contains(&order.as_ref().request.client_address()));
+
+    tracing::info!(
+        "Partitioned orders: {} priority orders, {} regular orders",
+        priority_orders.len(),
+        regular_orders.len()
+    );
 
     sort_by_mode(&mut priority_orders, mode);
     sort_by_mode(&mut regular_orders, mode);
 
     orders.extend(priority_orders);
     orders.extend(regular_orders);
+
+    tracing::info!("Final order after priority sorting: {} total orders", orders.len());
 }
 
 fn sort_by_mode<T>(orders: &mut [T], mode: UnifiedPriorityMode)
@@ -84,6 +132,58 @@ where
         UnifiedPriorityMode::ShortestExpiry => {
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
+        UnifiedPriorityMode::HighestProfitability => {
+            // Sort by profitability (price per cycle) in descending order
+            // Orders with higher profitability come first
+            tracing::info!(
+                "Using HIGHEST PROFITABILITY mode: Sorting {} orders by price per cycle (descending)",
+                orders.len()
+            );
+
+            // Log profitability for each order before sorting
+            for (i, order) in orders.iter().enumerate() {
+                let profit = calculate_profitability(order.as_ref());
+                tracing::info!(
+                    "Order {} (index {}): profitability = {} (max_price={}, total_cycles={})",
+                    order.as_ref().id(),
+                    i,
+                    profit,
+                    order.as_ref().request.offer.maxPrice,
+                    order.as_ref().total_cycles.unwrap_or(0)
+                );
+            }
+
+            orders.sort_by(|a, b| {
+                let profit_a = calculate_profitability(a.as_ref());
+                let profit_b = calculate_profitability(b.as_ref());
+                let comparison = profit_b.cmp(&profit_a); // Descending order (highest first)
+
+                tracing::debug!(
+                    "Comparing orders: {} (profit={}) vs {} (profit={}) -> {:?}",
+                    a.as_ref().id(),
+                    profit_a,
+                    b.as_ref().id(),
+                    profit_b,
+                    comparison
+                );
+
+                comparison
+            });
+
+            // Log final order after sorting
+            tracing::info!(
+                "Orders sorted by profitability (highest first): {}",
+                orders
+                    .iter()
+                    .enumerate()
+                    .map(|(i, order)| {
+                        let profit = calculate_profitability(order.as_ref());
+                        format!("[{}] {} (profit={})", i, order.as_ref().id(), profit)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
     }
 }
 
@@ -97,13 +197,29 @@ impl<P> OrderPicker<P> {
         capacity: usize,
     ) -> Vec<Box<OrderRequest>> {
         if orders.is_empty() || capacity == 0 {
+            tracing::debug!("No orders to select or capacity is 0");
             return Vec::new();
         }
+
+        tracing::info!(
+            "Selecting pricing orders: {} orders available, capacity={}, priority_mode={:?}",
+            orders.len(),
+            capacity,
+            priority_mode
+        );
 
         sort_orders_by_priority_and_mode(orders, priority_addresses, priority_mode.into());
 
         let take_count = std::cmp::min(capacity, orders.len());
-        orders.drain(..take_count).collect()
+        let selected_orders: Vec<Box<OrderRequest>> = orders.drain(..take_count).collect();
+
+        tracing::info!(
+            "Selected {} orders for pricing: {}",
+            selected_orders.len(),
+            selected_orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(", ")
+        );
+
+        selected_orders
     }
 }
 
@@ -116,12 +232,30 @@ impl<P> OrderMonitor<P> {
         priority_mode: OrderCommitmentPriority,
         priority_addresses: Option<&[alloy::primitives::Address]>,
     ) -> Vec<Arc<OrderRequest>> {
+        tracing::info!(
+            "Prioritizing {} orders for commitment: priority_mode={:?}",
+            orders.len(),
+            priority_mode
+        );
+
         // Sort orders with priority addresses first, then by mode
         sort_orders_by_priority_and_mode(&mut orders, priority_addresses, priority_mode.into());
 
-        tracing::debug!(
-            "Orders ready for proving, prioritized. Before applying capacity limits: {}",
-            orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+        tracing::info!(
+            "Orders ready for proving, prioritized. Final order: {}",
+            orders
+                .iter()
+                .enumerate()
+                .map(|(i, order)| {
+                    if priority_mode == OrderCommitmentPriority::HighestProfitability {
+                        let profit = calculate_profitability(order.as_ref());
+                        format!("[{}] {} (profit={})", i, order.id(), profit)
+                    } else {
+                        format!("[{}] {}", i, order.id())
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
         orders
@@ -174,6 +308,116 @@ mod tests {
         }
 
         assert_eq!(selected_order_indices, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_pricing_priority_highest_profitability_with_logging() {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+
+        let base_time = now_timestamp();
+
+        // Create orders with different profitability (price per cycle)
+        let mut orders = Vec::new();
+        let test_cases = [
+            (100, 1000), // 10 wei per cycle
+            (200, 2000), // 10 wei per cycle (same as above)
+            (300, 1500), // 5 wei per cycle
+            (400, 4000), // 10 wei per cycle (same as first two)
+            (500, 1000), // 2 wei per cycle
+        ];
+
+        for (i, (cycles, max_price)) in test_cases.iter().enumerate() {
+            let mut order = ctx
+                .generate_next_order(OrderParams {
+                    order_index: i as u32,
+                    bidding_start: base_time,
+                    lock_timeout: 300,
+                    max_price: U256::from(*max_price),
+                    ..Default::default()
+                })
+                .await;
+            // Manually set cycles for profitability calculation
+            order.total_cycles = Some(*cycles);
+            orders.push(order);
+        }
+
+        // Test that highest profitability mode returns orders by profitability (descending)
+        let mut selected_order_indices = Vec::new();
+        while !orders.is_empty() {
+            let selected_orders = ctx.picker.select_pricing_orders(
+                &mut orders,
+                OrderPricingPriority::HighestProfitability,
+                None,
+                1,
+            );
+            if let Some(order) = selected_orders.into_iter().next() {
+                let order_index =
+                    boundless_market::contracts::RequestId::try_from(order.request.id)
+                        .unwrap()
+                        .index;
+                selected_order_indices.push(order_index);
+            }
+        }
+
+        // Expected order: 0, 1, 3 (10 wei/cycle), then 2 (5 wei/cycle), then 4 (2 wei/cycle)
+        // Orders with same profitability maintain their relative order
+        assert_eq!(selected_order_indices, vec![0, 1, 3, 2, 4]);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_pricing_priority_highest_profitability() {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+
+        let base_time = now_timestamp();
+
+        // Create orders with different profitability (price per cycle)
+        let mut orders = Vec::new();
+        let test_cases = [
+            (100, 1000), // 10 wei per cycle
+            (200, 2000), // 10 wei per cycle (same as above)
+            (300, 1500), // 5 wei per cycle
+            (400, 4000), // 10 wei per cycle (same as first two)
+            (500, 1000), // 2 wei per cycle
+        ];
+
+        for (i, (cycles, max_price)) in test_cases.iter().enumerate() {
+            let mut order = ctx
+                .generate_next_order(OrderParams {
+                    order_index: i as u32,
+                    bidding_start: base_time,
+                    lock_timeout: 300,
+                    max_price: U256::from(*max_price),
+                    ..Default::default()
+                })
+                .await;
+            // Manually set cycles for profitability calculation
+            order.total_cycles = Some(*cycles);
+            orders.push(order);
+        }
+
+        // Test that highest profitability mode returns orders by profitability (descending)
+        let mut selected_order_indices = Vec::new();
+        while !orders.is_empty() {
+            let selected_orders = ctx.picker.select_pricing_orders(
+                &mut orders,
+                OrderPricingPriority::HighestProfitability,
+                None,
+                1,
+            );
+            if let Some(order) = selected_orders.into_iter().next() {
+                let order_index =
+                    boundless_market::contracts::RequestId::try_from(order.request.id)
+                        .unwrap()
+                        .index;
+                selected_order_indices.push(order_index);
+            }
+        }
+
+        // Expected order: 0, 1, 3 (10 wei/cycle), then 2 (5 wei/cycle), then 4 (2 wei/cycle)
+        // Orders with same profitability maintain their relative order
+        assert_eq!(selected_order_indices, vec![0, 1, 3, 2, 4]);
     }
 
     #[tokio::test]
@@ -340,6 +584,53 @@ mod tests {
             sorted_ordering.sort();
             assert_eq!(sorted_ordering, vec![0, 1, 2, 3, 4]);
         }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_prioritize_orders_highest_profitability() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Create orders with different profitability
+        let mut orders = Vec::new();
+
+        // High profitability order (10 wei per cycle)
+        let mut order1 = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+        // Manually set cycles and price for profitability calculation
+        order1.total_cycles = Some(100);
+        order1.request.offer.maxPrice = U256::from(1000); // 1000 wei for 100 cycles = 10 wei/cycle
+        let order_1_id = order1.id();
+
+        // Medium profitability order (5 wei per cycle)
+        let mut order2 = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 200, 300)
+            .await;
+        order2.total_cycles = Some(200);
+        order2.request.offer.maxPrice = U256::from(1000); // 1000 wei for 200 cycles = 5 wei/cycle
+        let order_2_id = order2.id();
+
+        // Low profitability order (2 wei per cycle)
+        let mut order3 = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 500, 600)
+            .await;
+        order3.total_cycles = Some(500);
+        order3.request.offer.maxPrice = U256::from(1000); // 1000 wei for 500 cycles = 2 wei/cycle
+        let order_3_id = order3.id();
+
+        let orders = vec![Arc::from(order1), Arc::from(order2), Arc::from(order3)];
+        let prioritized_orders = ctx.monitor.prioritize_orders(
+            orders,
+            OrderCommitmentPriority::HighestProfitability,
+            None,
+        );
+
+        // Should be ordered by profitability: order1 (10 wei/cycle), order2 (5 wei/cycle), order3 (2 wei/cycle)
+        assert_eq!(prioritized_orders[0].id(), order_1_id);
+        assert_eq!(prioritized_orders[1].id(), order_2_id);
+        assert_eq!(prioritized_orders[2].id(), order_3_id);
     }
 
     #[tokio::test]

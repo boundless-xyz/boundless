@@ -97,6 +97,8 @@ pub enum OrderPricingPriority {
     ObservationTime,
     /// Process orders by shortest expiry first (earliest deadline)
     ShortestExpiry,
+    /// Process orders by highest profitability first (max price per cycle)
+    HighestProfitability,
 }
 
 impl Default for OrderPricingPriority {
@@ -113,6 +115,8 @@ pub enum OrderCommitmentPriority {
     Random,
     /// Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
     ShortestExpiry,
+    /// Process orders by highest profitability first (max price per cycle)
+    HighestProfitability,
 }
 
 impl Default for OrderCommitmentPriority {
@@ -264,6 +268,7 @@ pub struct MarketConf {
     /// - "random": Process orders in random order to distribute competition among provers (default)
     /// - "observation_time": Process orders in the order they were observed (FIFO)
     /// - "shortest_expiry": Process orders by shortest expiry first (earliest deadline)
+    /// - "highest_profitability": Process orders by highest profitability first (max price per cycle)
     #[serde(default)]
     pub order_pricing_priority: OrderPricingPriority,
     /// Order commitment priority mode
@@ -271,6 +276,7 @@ pub struct MarketConf {
     /// Determines how orders are prioritized when committing to prove them. Options:
     /// - "random": Process orders in random order to distribute competition among provers (default)
     /// - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+    /// - "highest_profitability": Process orders by highest profitability first (max price per cycle)
     #[serde(default, alias = "expired_order_fulfillment_priority")]
     pub order_commitment_priority: OrderCommitmentPriority,
 }
