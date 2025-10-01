@@ -18,6 +18,7 @@ config:
   slasher:RETRIES: "3"
   slasher:SKIP_ADDRESSES: ""
   slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  slasher:START_BLOCK: "35521325"
   slasher:TX_TIMEOUT: "60"
   slasher:WARN_BALANCE_BELOW: "0.01"
   slasher:ETH_RPC_URL:
