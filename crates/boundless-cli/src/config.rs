@@ -26,6 +26,7 @@ use url::Url;
 use boundless_market::{
     client::ClientBuilder, request_builder::StandardRequestBuilder, Client, Deployment, NotProvided,
 };
+use boundless_zkc;
 
 /// Common configuration options for all commands
 #[derive(Args, Debug, Clone)]
@@ -49,12 +50,25 @@ pub struct GlobalConfig {
     /// Configuration for the Boundless deployment to use.
     #[clap(flatten, next_help_heading = "Boundless Deployment")]
     pub deployment: Option<Deployment>,
+
+    /// Configuration for the ZKC deployment to use.
+    /// Note: Not flattened to avoid chain_id conflict with boundless_market::Deployment
+    #[clap(skip)]
+    pub zkc_deployment: Option<boundless_zkc::deployments::Deployment>,
 }
 
 impl GlobalConfig {
     // NOTE: It does not appear this is possible to specify the required dependencies with clap
     // natively. There is _some_ ability to use the #[group(requires = _)] attribute to do this,
     // but experimentation as of August 26, 2025 shows this is error prone and potentially buggy.
+
+    /// Initialize ZKC deployment based on chain ID if not already set
+    pub fn with_zkc_deployment_from_chain_id(mut self, chain_id: u64) -> Self {
+        if self.zkc_deployment.is_none() {
+            self.zkc_deployment = boundless_zkc::deployments::Deployment::from_chain_id(chain_id);
+        }
+        self
+    }
 
     /// Access [Self::rpc_url] or return an error that can be shown to the user.
     pub fn require_rpc_url(&self) -> Result<Url> {
@@ -68,6 +82,72 @@ impl GlobalConfig {
         self.private_key.clone().context(
             "Private key not provided; please set --private-key or the PRIVATE_KEY env var",
         )
+    }
+
+    /// Get the ZKC contract address from deployment or environment variable.
+    pub fn zkc_address(&self) -> Result<alloy::primitives::Address> {
+        // Check environment variable first (takes precedence)
+        if let Ok(addr_str) = std::env::var("ZKC_ADDRESS") {
+            return addr_str.parse()
+                .context("Failed to parse ZKC_ADDRESS environment variable");
+        }
+
+        // Fall back to deployment configuration
+        self.zkc_deployment
+            .as_ref()
+            .map(|d| d.zkc_address)
+            .context("ZKC address not provided; please set --zkc-address or the ZKC_ADDRESS env var")
+    }
+
+    /// Get the veZKC (staking) contract address from deployment or environment variable.
+    pub fn vezkc_address(&self) -> Result<alloy::primitives::Address> {
+        // Check environment variable first (takes precedence)
+        if let Ok(addr_str) = std::env::var("VEZKC_ADDRESS") {
+            return addr_str.parse()
+                .context("Failed to parse VEZKC_ADDRESS environment variable");
+        }
+
+        // Fall back to deployment configuration
+        self.zkc_deployment
+            .as_ref()
+            .map(|d| d.vezkc_address)
+            .context("veZKC address not provided; please set --vezkc-address or the VEZKC_ADDRESS env var")
+    }
+
+    /// Get the staking rewards contract address from deployment or environment variable.
+    pub fn staking_rewards_address(&self) -> Result<alloy::primitives::Address> {
+        // Check environment variable first (takes precedence)
+        if let Ok(addr_str) = std::env::var("STAKING_REWARDS_ADDRESS") {
+            return addr_str.parse()
+                .context("Failed to parse STAKING_REWARDS_ADDRESS environment variable");
+        }
+
+        // Fall back to deployment configuration
+        self.zkc_deployment
+            .as_ref()
+            .map(|d| d.staking_rewards_address)
+            .context("Staking rewards address not provided; please set --staking-rewards-address or the STAKING_REWARDS_ADDRESS env var")
+    }
+
+    /// Get the prover address from environment variable.
+    pub fn prover_address(&self) -> Result<alloy::primitives::Address> {
+        std::env::var("PROVER_ADDRESS")
+            .context("PROVER_ADDRESS environment variable not set")?
+            .parse()
+            .context("Failed to parse PROVER_ADDRESS")
+    }
+
+    /// Get the prover private key from environment variable.
+    pub fn require_prover_private_key(&self) -> Result<String> {
+        std::env::var("PROVER_PRIVATE_KEY")
+            .context("PROVER_PRIVATE_KEY environment variable not set")
+    }
+
+    /// Get the work log private key from environment variable.
+    pub fn work_log_private_key(&self) -> Result<String> {
+        std::env::var("WORK_LOG_PRIVATE_KEY")
+            .or_else(|_| std::env::var("POVW_PRIVATE_KEY"))
+            .context("WORK_LOG_PRIVATE_KEY or POVW_PRIVATE_KEY environment variable not set")
     }
 
     /// Create a parially initialzed [ClientBuilder] from the options in this struct.

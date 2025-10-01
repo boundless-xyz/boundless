@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Commands within the Boundless CLI
+mod common;
+use common::TestContext;
+use predicates::str::contains;
 
-// New command structure
-pub mod prover;
-pub mod requestor;
-pub mod rewards;
-pub mod setup;
-
-// Legacy commands (to be removed/migrated)
-pub mod povw;
-pub mod zkc;
+#[tokio::test]
+async fn test_withdraw_collateral_help() {
+    common::BoundlessCmd::new("prover", "withdraw-collateral")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(contains("Usage:"))
+        .stdout(contains("withdraw-collateral"));
+}

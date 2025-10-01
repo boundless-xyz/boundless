@@ -52,6 +52,7 @@ name = "boundless"
 name = "boundless-ffi"
 
 [dev-dependencies]
+alloy-node-bindings = { workspace = true }
 assert_cmd = "2.0"
 assert_fs = "1.1"
 boundless-market = { workspace = true }
@@ -61,6 +62,7 @@ predicates = "3.1"
 rand = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tempfile = { workspace = true }
+tokio-test = "0.4"
 tracing-test = { workspace = true }
 
 [features]

@@ -63,7 +63,17 @@ use alloy::{
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{
-    commands::zkc::ZKCCommands, config::ProverConfig, convert_timestamp, DefaultProver,
+    commands::{
+        prover::ProverCommands,
+        requestor::RequestorCommands,
+        rewards::RewardsCommands,
+        setup::SetupCommands,
+        zkc::ZKCCommands,  // Legacy - to be removed
+        povw::PovwCommands,  // Legacy - to be removed
+    },
+    config::ProverConfig,
+    convert_timestamp,
+    DefaultProver,
     OrderFulfilled,
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
@@ -72,14 +82,13 @@ use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
     compute_image_id, default_executor,
-    sha::{Digest, Digestible},
-    Journal, SessionInfo,
+    sha::{Digest, Digestible}, SessionInfo,
 };
 use shadow_rs::shadow;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
-use boundless_cli::{commands::povw::PovwCommands, config::GlobalConfig};
+use boundless_cli::config::GlobalConfig;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, UnlockedRequest},
@@ -96,32 +105,45 @@ shadow!(build);
 
 #[derive(Subcommand, Clone, Debug)]
 enum Command {
-    /// Account management commands
+    /// Commands for requestors submitting proof requests
     #[command(subcommand)]
+    Requestor(Box<RequestorCommands>),
+
+    /// Commands for provers executing and fulfilling requests
+    #[command(subcommand)]
+    Prover(Box<ProverCommands>),
+
+    /// Commands for managing rewards, staking, and PoVW
+    #[command(subcommand)]
+    Rewards(Box<RewardsCommands>),
+
+    /// Setup and configuration commands
+    #[command(subcommand)]
+    Setup(Box<SetupCommands>),
+
+    // Legacy commands - kept temporarily for migration
+    #[command(subcommand, hide = true)]
     Account(Box<AccountCommands>),
 
-    /// Proof request commands
-    #[command(subcommand)]
+    #[command(subcommand, hide = true)]
     Request(Box<RequestCommands>),
 
-    /// Proof execution commands
-    #[command(subcommand)]
+    #[command(subcommand, hide = true)]
     Proving(Box<ProvingCommands>),
 
-    /// Operations on the boundless market
-    #[command(subcommand)]
+    #[command(subcommand, hide = true)]
     Ops(Box<OpsCommands>),
 
-    #[command(subcommand)]
+    #[command(subcommand, hide = true)]
     Povw(Box<PovwCommands>),
 
-    #[command(subcommand)]
+    #[command(subcommand, hide = true)]
     Zkc(Box<ZKCCommands>),
 
-    /// Display configuration and environment variables
+    #[command(hide = true)]
     Config {},
 
-    /// Print shell completions (e.g. for bash or zsh) to stdout.
+    #[command(hide = true)]
     Completions { shell: Shell },
 }
 
@@ -427,6 +449,13 @@ async fn main() -> Result<()> {
 
 pub(crate) async fn run(args: &MainArgs) -> Result<()> {
     match &args.command {
+        // New command structure
+        Command::Requestor(cmd) => cmd.run(&args.config).await,
+        Command::Prover(cmd) => cmd.run(&args.config).await,
+        Command::Rewards(cmd) => cmd.run(&args.config).await,
+        Command::Setup(cmd) => cmd.run(&args.config).await,
+
+        // Legacy commands - still functional but hidden
         Command::Account(account_cmd) => handle_account_command(account_cmd, &args.config).await,
         Command::Request(request_cmd) => handle_request_command(request_cmd, &args.config).await,
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, &args.config).await,
@@ -655,8 +684,12 @@ async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) ->
                         image_id_from_data,
                         *image_id
                     );
-                    let journal_digest =
-                        <[u8; 32]>::from(Journal::new(journal.to_vec()).digest()).into();
+                    // Compute journal digest
+                    let journal_digest = {
+                        use risc0_zkvm::sha::Digestible;
+                        let digest = journal.digest();
+                        B256::from(<[u8; 32]>::from(digest))
+                    };
 
                     verifier
                         .verify(seal, *image_id, journal_digest)
@@ -1493,6 +1526,7 @@ mod tests {
             deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
+            zkc_deployment: None,
         };
 
         (ctx, anvil, config)
@@ -1961,6 +1995,7 @@ mod tests {
             deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
+            zkc_deployment: None,
         };
 
         // test the Lock command
@@ -2296,6 +2331,7 @@ mod tests {
             deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
+            zkc_deployment: None,
         };
 
         // test the Lock command

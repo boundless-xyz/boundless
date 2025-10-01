@@ -12,14 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Commands within the Boundless CLI
+use anyhow::Result;
+use clap::Args;
+use clap_complete::aot::Shell;
 
-// New command structure
-pub mod prover;
-pub mod requestor;
-pub mod rewards;
-pub mod setup;
+/// Print shell completions to stdout
+#[derive(Args, Clone, Debug)]
+pub struct SetupCompletions {
+    /// The shell to generate completions for
+    pub shell: Shell,
+}
 
-// Legacy commands (to be removed/migrated)
-pub mod povw;
-pub mod zkc;
+impl SetupCompletions {
+    /// Run the completions command
+    pub fn run(&self) -> Result<()> {
+        // This will be implemented when we update the main binary
+        tracing::info!("Generating completions for {:?}", self.shell);
+        Ok(())
+    }
+}
