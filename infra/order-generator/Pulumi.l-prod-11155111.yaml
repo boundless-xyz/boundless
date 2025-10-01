@@ -29,7 +29,7 @@ config:
     secure: v1:gZhTUWYhNP6NKfwa:b+NeBHD83JDT5FyYg4zUM6rHh5W9fNTreHNQqz+PJnMstR/oDW1nAe0dPGaFXL8JW+MA04YIGZxyDMLX36wvjcZtZbTM351kLMq4np+LZfKH3pk9KUHrnoDV6klbMFhON2btid5q/egAMbphn/RmJpZWncnbwLu7kkq+9oalfsQPmymkakeTBVMbzv+iyjHu6sdOMwTcBDvTvub5QTbeJAXRzqzW3YZ5SLtdiA/FYCV+j8CkH9JteaAJB682ateK6D7yjlhz8sS0zoEwhcck4biEUDE8H/gPhfbfegGMX222/W/PT247OtJVZwISk4/X295YbU56Aw/g9RF8EkhfFx1/wJfSe1WyZXY2y9Y5GabE5gxWk7bP0Cc29cQari+zOwahZVfgHWXWUyQOotHPi2HVachJDACUk6iU/gMmH6Jp5OdiqDbnHHy7YJMIvgqx6dkN9zFmnE4SouUMFln8A403FCPChoYZxl2MBfwRjH1lkspu7Y4LW7NXagoGYBFYUvosZcq/Rim62N7BuIwRjOO5XMnZpjEW4vpgG/CzHrr8q58rhqGaxvQg+TXeRHIm7trizxUT/LSW25ljNoFVqNlhD4a4r0sJWxn2BDsty52DPu3yWgHBx4N3ZzbezqhhM2uZxv9MmluV2wqqI6Wxsa3ZMyG7Nfp/g87c6C3mzTOore4aOmkPCegvCfNr3ov2b/p7GLK+KVmg37Wa5nmePrwHpOk8iRuZ2kckqtnHqpyGYOs9ztJjvLUsILY4sNfXg1CSebk15zILAS9aUwOsDiOfsns2ivbvKa91OhygQcDn2t/zphN842qNlnjTOj+8XnQlsZK1JKCUYJm2TOeeEMIDqb8vG0q7E+770RIdsxhHfBu9QvC+50kqGSopcMWiBymV6d9C94zZHUF20gzEUdL4UylKiJmp
   order-generator-base:SET_VERIFIER_ADDR: 0xcb9D14347b1e816831ECeE46EC199144F360B55c
   order-generator-base:TX_TIMEOUT: "120"
-  order-generator-offchain:AUTO_DEPOSIT: "15"
+  order-generator-offchain:AUTO_DEPOSIT: "10"
   order-generator-offchain:ERROR_BALANCE_BELOW: "5"
   order-generator-offchain:INPUT_MAX_MCYCLES: "10"
   order-generator-offchain:LOCK_TIMEOUT: "900"
@@ -39,6 +39,7 @@ config:
   order-generator-offchain:TIMEOUT: "1500"
   order-generator-offchain:INTERVAL: "1200"
   order-generator-offchain:WARN_BALANCE_BELOW: "9"
+  order-generator-onchain:AUTO_DEPOSIT: "10"
   order-generator-onchain:ERROR_BALANCE_BELOW: "5"
   order-generator-onchain:LOCK_TIMEOUT: "900"
   order-generator-onchain:RAMP_UP: "600"
