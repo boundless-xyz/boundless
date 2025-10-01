@@ -39,7 +39,7 @@ distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
-shrink_bitvm2 = { path = "/home/homepup/repos/shrink_bitvm2/shrink_bitvm2" }
+shrink_bitvm2 = { path = "/home/etu/shrink_bitvm2/shrink_bitvm2" }
 
 async-stream = "0.3"
 alloy = { version = "1.0", default-features = false }
@@ -107,5 +107,13 @@ lto = true
 # codegen-units = 1
 
 [patch.crates-io]
-risc0-ethereum-contracts = { path = "/home/homepup/repos/risc0-ethereum/contracts" }
-risc0-aggregation = { path = "/home/homepup/repos/risc0-ethereum/crates/aggregation" }
+risc0-ethereum-contracts = { path = "/home/etu/risc0-ethereum/contracts" }
+risc0-aggregation = { path = "/home/etu/risc0-ethereum/crates/aggregation" }
+
+risc0-groth16 = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
+risc0-groth16-sys = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
+risc0-zkp = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
+risc0-binfmt = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
+risc0-build = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
+risc0-zkvm = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
+risc0-circuit-recursion = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }

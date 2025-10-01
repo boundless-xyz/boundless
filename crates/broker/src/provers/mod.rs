@@ -140,15 +140,7 @@ pub trait Prover {
     async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
     async fn compress(&self, proof_id: &str) -> Result<String, ProverError>;
     async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
-    async fn shrink_bitvm2(
-        &self,
-        proof_id: &str,
-        work_dir: Option<PathBuf>,
-    ) -> Result<String, ProverError>;
-    async fn get_shrink_bitvm2_receipt(
-        &self,
-        proof_id: &str,
-    ) -> Result<Option<Vec<u8>>, ProverError>;
+    async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError>;
 }
 
 pub type ProverObj = Arc<dyn Prover + Send + Sync>;
