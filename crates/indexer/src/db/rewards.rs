@@ -467,6 +467,11 @@ pub trait RewardsIndexerDb {
     ) -> Result<Vec<EpochStakingSummary>, DbError>;
 }
 
+// Batch insert chunk size to avoid parameter limits
+// PostgreSQL: 65535 max params, SQLite: 999-32766 params (configurable)
+// Using conservative chunk size that works safely for both databases
+const BATCH_INSERT_CHUNK_SIZE: usize = 75;
+
 pub struct RewardsDb {
     pool: AnyPool,
 }
@@ -474,7 +479,7 @@ pub struct RewardsDb {
 impl RewardsDb {
     pub async fn new(database_url: &str) -> Result<Self, DbError> {
         sqlx::any::install_default_drivers();
-        let pool = AnyPoolOptions::new().max_connections(5).connect(database_url).await?;
+        let pool = AnyPoolOptions::new().max_connections(20).connect(database_url).await?;
 
         // Run migrations
         sqlx::migrate!("./migrations").run(&pool).await?;
@@ -490,37 +495,64 @@ impl RewardsIndexerDb for RewardsDb {
         epoch: u64,
         rewards: Vec<PovwRewardByEpoch>,
     ) -> Result<(), DbError> {
+        if rewards.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        for reward in rewards {
-            let query = r#"
-                INSERT INTO povw_rewards_by_epoch
+        // Process in chunks to avoid parameter limits
+        for chunk in rewards.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
+
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${},${},${},${},${},CURRENT_TIMESTAMP)",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4,
+                    param_idx + 5,
+                    param_idx + 6,
+                    param_idx + 7,
+                    param_idx + 8
+                ));
+                param_idx += 9;
+            }
+
+            let query = format!(
+                r#"INSERT INTO povw_rewards_by_epoch
                 (work_log_id, epoch, work_submitted, percentage, uncapped_rewards, reward_cap, actual_rewards, is_capped, staked_amount, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+                VALUES {}
                 ON CONFLICT (work_log_id, epoch)
                 DO UPDATE SET
-                    work_submitted = $3,
-                    percentage = $4,
-                    uncapped_rewards = $5,
-                    reward_cap = $6,
-                    actual_rewards = $7,
-                    is_capped = $8,
-                    staked_amount = $9,
-                    updated_at = CURRENT_TIMESTAMP
-            "#;
+                    work_submitted = EXCLUDED.work_submitted,
+                    percentage = EXCLUDED.percentage,
+                    uncapped_rewards = EXCLUDED.uncapped_rewards,
+                    reward_cap = EXCLUDED.reward_cap,
+                    actual_rewards = EXCLUDED.actual_rewards,
+                    is_capped = EXCLUDED.is_capped,
+                    staked_amount = EXCLUDED.staked_amount,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
 
-            sqlx::query(query)
-                .bind(format!("{:#x}", reward.work_log_id))
-                .bind(epoch as i64)
-                .bind(pad_u256(reward.work_submitted))
-                .bind(reward.percentage)
-                .bind(pad_u256(reward.uncapped_rewards))
-                .bind(pad_u256(reward.reward_cap))
-                .bind(pad_u256(reward.actual_rewards))
-                .bind(if reward.is_capped { 1i32 } else { 0i32 })
-                .bind(pad_u256(reward.staked_amount))
-                .execute(&mut *tx)
-                .await?;
+            let mut q = sqlx::query(&query);
+            for reward in chunk {
+                q = q
+                    .bind(format!("{:#x}", reward.work_log_id))
+                    .bind(epoch as i64)
+                    .bind(pad_u256(reward.work_submitted))
+                    .bind(reward.percentage)
+                    .bind(pad_u256(reward.uncapped_rewards))
+                    .bind(pad_u256(reward.reward_cap))
+                    .bind(pad_u256(reward.actual_rewards))
+                    .bind(if reward.is_capped { 1i32 } else { 0i32 })
+                    .bind(pad_u256(reward.staked_amount));
+            }
+            q.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -603,30 +635,53 @@ impl RewardsIndexerDb for RewardsDb {
         &self,
         aggregates: Vec<PovwRewardAggregate>,
     ) -> Result<(), DbError> {
+        if aggregates.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        for agg in aggregates {
-            let query = r#"
-                INSERT INTO povw_rewards_aggregate
+        // Process in chunks to avoid parameter limits
+        for chunk in aggregates.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
+
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${},CURRENT_TIMESTAMP)",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4
+                ));
+                param_idx += 5;
+            }
+
+            let query = format!(
+                r#"INSERT INTO povw_rewards_aggregate
                 (work_log_id, total_work_submitted, total_actual_rewards, total_uncapped_rewards, epochs_participated, updated_at)
-                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                VALUES {}
                 ON CONFLICT (work_log_id)
                 DO UPDATE SET
-                    total_work_submitted = $2,
-                    total_actual_rewards = $3,
-                    total_uncapped_rewards = $4,
-                    epochs_participated = $5,
-                    updated_at = CURRENT_TIMESTAMP
-            "#;
+                    total_work_submitted = EXCLUDED.total_work_submitted,
+                    total_actual_rewards = EXCLUDED.total_actual_rewards,
+                    total_uncapped_rewards = EXCLUDED.total_uncapped_rewards,
+                    epochs_participated = EXCLUDED.epochs_participated,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
 
-            sqlx::query(query)
-                .bind(format!("{:#x}", agg.work_log_id))
-                .bind(pad_u256(agg.total_work_submitted))
-                .bind(pad_u256(agg.total_actual_rewards))
-                .bind(pad_u256(agg.total_uncapped_rewards))
-                .bind(agg.epochs_participated as i64)
-                .execute(&mut *tx)
-                .await?;
+            let mut q = sqlx::query(&query);
+            for agg in chunk {
+                q = q
+                    .bind(format!("{:#x}", agg.work_log_id))
+                    .bind(pad_u256(agg.total_work_submitted))
+                    .bind(pad_u256(agg.total_actual_rewards))
+                    .bind(pad_u256(agg.total_uncapped_rewards))
+                    .bind(agg.epochs_participated as i64);
+            }
+            q.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -751,33 +806,58 @@ impl RewardsIndexerDb for RewardsDb {
         epoch: u64,
         positions: Vec<StakingPositionByEpoch>,
     ) -> Result<(), DbError> {
+        if positions.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        for position in positions {
-            let query = r#"
-                INSERT INTO staking_positions_by_epoch
+        // Process in chunks to avoid parameter limits
+        for chunk in positions.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
+
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${},${},${},CURRENT_TIMESTAMP)",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4,
+                    param_idx + 5,
+                    param_idx + 6
+                ));
+                param_idx += 7;
+            }
+
+            let query = format!(
+                r#"INSERT INTO staking_positions_by_epoch
                 (staker_address, epoch, staked_amount, is_withdrawing, rewards_delegated_to, votes_delegated_to, rewards_generated, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+                VALUES {}
                 ON CONFLICT (staker_address, epoch)
                 DO UPDATE SET
-                    staked_amount = $3,
-                    is_withdrawing = $4,
-                    rewards_delegated_to = $5,
-                    votes_delegated_to = $6,
-                    rewards_generated = $7,
-                    updated_at = CURRENT_TIMESTAMP
-            "#;
+                    staked_amount = EXCLUDED.staked_amount,
+                    is_withdrawing = EXCLUDED.is_withdrawing,
+                    rewards_delegated_to = EXCLUDED.rewards_delegated_to,
+                    votes_delegated_to = EXCLUDED.votes_delegated_to,
+                    rewards_generated = EXCLUDED.rewards_generated,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
 
-            sqlx::query(query)
-                .bind(format!("{:#x}", position.staker_address))
-                .bind(epoch as i64)
-                .bind(pad_u256(position.staked_amount))
-                .bind(if position.is_withdrawing { 1i32 } else { 0i32 })
-                .bind(position.rewards_delegated_to.map(|a| format!("{:#x}", a)))
-                .bind(position.votes_delegated_to.map(|a| format!("{:#x}", a)))
-                .bind(pad_u256(position.rewards_generated))
-                .execute(&mut *tx)
-                .await?;
+            let mut q = sqlx::query(&query);
+            for position in chunk {
+                q = q
+                    .bind(format!("{:#x}", position.staker_address))
+                    .bind(epoch as i64)
+                    .bind(pad_u256(position.staked_amount))
+                    .bind(if position.is_withdrawing { 1i32 } else { 0i32 })
+                    .bind(position.rewards_delegated_to.map(|a| format!("{:#x}", a)))
+                    .bind(position.votes_delegated_to.map(|a| format!("{:#x}", a)))
+                    .bind(pad_u256(position.rewards_generated));
+            }
+            q.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -829,36 +909,62 @@ impl RewardsIndexerDb for RewardsDb {
         &self,
         aggregates: Vec<StakingPositionAggregate>,
     ) -> Result<(), DbError> {
+        if aggregates.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        for aggregate in aggregates {
-            let query = r#"
-                INSERT INTO staking_positions_aggregate
+        // Process in chunks to avoid parameter limits
+        for chunk in aggregates.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
+
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${},${},${},${},CURRENT_TIMESTAMP)",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4,
+                    param_idx + 5,
+                    param_idx + 6,
+                    param_idx + 7
+                ));
+                param_idx += 8;
+            }
+
+            let query = format!(
+                r#"INSERT INTO staking_positions_aggregate
                 (staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated, total_rewards_generated, total_rewards_earned, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+                VALUES {}
                 ON CONFLICT (staker_address)
                 DO UPDATE SET
-                    total_staked = $2,
-                    is_withdrawing = $3,
-                    rewards_delegated_to = $4,
-                    votes_delegated_to = $5,
-                    epochs_participated = $6,
-                    total_rewards_generated = $7,
-                    total_rewards_earned = $8,
-                    updated_at = CURRENT_TIMESTAMP
-            "#;
+                    total_staked = EXCLUDED.total_staked,
+                    is_withdrawing = EXCLUDED.is_withdrawing,
+                    rewards_delegated_to = EXCLUDED.rewards_delegated_to,
+                    votes_delegated_to = EXCLUDED.votes_delegated_to,
+                    epochs_participated = EXCLUDED.epochs_participated,
+                    total_rewards_generated = EXCLUDED.total_rewards_generated,
+                    total_rewards_earned = EXCLUDED.total_rewards_earned,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
 
-            sqlx::query(query)
-                .bind(format!("{:#x}", aggregate.staker_address))
-                .bind(pad_u256(aggregate.total_staked))
-                .bind(if aggregate.is_withdrawing { 1i32 } else { 0i32 })
-                .bind(aggregate.rewards_delegated_to.map(|a| format!("{:#x}", a)))
-                .bind(aggregate.votes_delegated_to.map(|a| format!("{:#x}", a)))
-                .bind(aggregate.epochs_participated as i64)
-                .bind(pad_u256(aggregate.total_rewards_generated))
-                .bind(pad_u256(aggregate.total_rewards_earned))
-                .execute(&mut *tx)
-                .await?;
+            let mut q = sqlx::query(&query);
+            for aggregate in chunk {
+                q = q
+                    .bind(format!("{:#x}", aggregate.staker_address))
+                    .bind(pad_u256(aggregate.total_staked))
+                    .bind(if aggregate.is_withdrawing { 1i32 } else { 0i32 })
+                    .bind(aggregate.rewards_delegated_to.map(|a| format!("{:#x}", a)))
+                    .bind(aggregate.votes_delegated_to.map(|a| format!("{:#x}", a)))
+                    .bind(aggregate.epochs_participated as i64)
+                    .bind(pad_u256(aggregate.total_rewards_generated))
+                    .bind(pad_u256(aggregate.total_rewards_earned));
+            }
+            q.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -943,34 +1049,57 @@ impl RewardsIndexerDb for RewardsDb {
         epoch: u64,
         powers: Vec<VoteDelegationPowerByEpoch>,
     ) -> Result<(), DbError> {
+        if powers.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        for power in powers {
-            let delegators_json = serde_json::to_string(
-                &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
-            )
-            .unwrap_or_else(|_| "[]".to_string());
+        // Process in chunks to avoid parameter limits
+        for chunk in powers.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
 
-            let query = r#"
-                INSERT INTO vote_delegation_powers_by_epoch
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${},CURRENT_TIMESTAMP)",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4
+                ));
+                param_idx += 5;
+            }
+
+            let query = format!(
+                r#"INSERT INTO vote_delegation_powers_by_epoch
                 (delegate_address, epoch, vote_power, delegator_count, delegators, updated_at)
-                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                VALUES {}
                 ON CONFLICT (delegate_address, epoch)
                 DO UPDATE SET
-                    vote_power = $3,
-                    delegator_count = $4,
-                    delegators = $5,
-                    updated_at = CURRENT_TIMESTAMP
-            "#;
+                    vote_power = EXCLUDED.vote_power,
+                    delegator_count = EXCLUDED.delegator_count,
+                    delegators = EXCLUDED.delegators,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
 
-            sqlx::query(query)
-                .bind(format!("{:#x}", power.delegate_address))
-                .bind(epoch as i64)
-                .bind(pad_u256(power.vote_power))
-                .bind(power.delegator_count as i32)
-                .bind(delegators_json)
-                .execute(&mut *tx)
-                .await?;
+            let mut q = sqlx::query(&query);
+            for power in chunk {
+                let delegators_json = serde_json::to_string(
+                    &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
+                )
+                .unwrap_or_else(|_| "[]".to_string());
+
+                q = q
+                    .bind(format!("{:#x}", power.delegate_address))
+                    .bind(epoch as i64)
+                    .bind(pad_u256(power.vote_power))
+                    .bind(power.delegator_count as i32)
+                    .bind(delegators_json);
+            }
+            q.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -1028,35 +1157,58 @@ impl RewardsIndexerDb for RewardsDb {
         &self,
         aggregates: Vec<VoteDelegationPowerAggregate>,
     ) -> Result<(), DbError> {
+        if aggregates.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        for aggregate in aggregates {
-            let delegators_json = serde_json::to_string(
-                &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
-            )
-            .unwrap_or_else(|_| "[]".to_string());
+        // Process in chunks to avoid parameter limits
+        for chunk in aggregates.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
 
-            let query = r#"
-                INSERT INTO vote_delegation_powers_aggregate
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${},CURRENT_TIMESTAMP)",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4
+                ));
+                param_idx += 5;
+            }
+
+            let query = format!(
+                r#"INSERT INTO vote_delegation_powers_aggregate
                 (delegate_address, total_vote_power, delegator_count, delegators, epochs_participated, updated_at)
-                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                VALUES {}
                 ON CONFLICT (delegate_address)
                 DO UPDATE SET
-                    total_vote_power = $2,
-                    delegator_count = $3,
-                    delegators = $4,
-                    epochs_participated = $5,
-                    updated_at = CURRENT_TIMESTAMP
-            "#;
+                    total_vote_power = EXCLUDED.total_vote_power,
+                    delegator_count = EXCLUDED.delegator_count,
+                    delegators = EXCLUDED.delegators,
+                    epochs_participated = EXCLUDED.epochs_participated,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
 
-            sqlx::query(query)
-                .bind(format!("{:#x}", aggregate.delegate_address))
-                .bind(pad_u256(aggregate.total_vote_power))
-                .bind(aggregate.delegator_count as i32)
-                .bind(delegators_json)
-                .bind(aggregate.epochs_participated as i64)
-                .execute(&mut *tx)
-                .await?;
+            let mut q = sqlx::query(&query);
+            for aggregate in chunk {
+                let delegators_json = serde_json::to_string(
+                    &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
+                )
+                .unwrap_or_else(|_| "[]".to_string());
+
+                q = q
+                    .bind(format!("{:#x}", aggregate.delegate_address))
+                    .bind(pad_u256(aggregate.total_vote_power))
+                    .bind(aggregate.delegator_count as i32)
+                    .bind(delegators_json)
+                    .bind(aggregate.epochs_participated as i64);
+            }
+            q.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -1109,34 +1261,57 @@ impl RewardsIndexerDb for RewardsDb {
         epoch: u64,
         powers: Vec<RewardDelegationPowerByEpoch>,
     ) -> Result<(), DbError> {
+        if powers.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        for power in powers {
-            let delegators_json = serde_json::to_string(
-                &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
-            )
-            .unwrap_or_else(|_| "[]".to_string());
+        // Process in chunks to avoid parameter limits
+        for chunk in powers.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
 
-            let query = r#"
-                INSERT INTO reward_delegation_powers_by_epoch
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${},CURRENT_TIMESTAMP)",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4
+                ));
+                param_idx += 5;
+            }
+
+            let query = format!(
+                r#"INSERT INTO reward_delegation_powers_by_epoch
                 (delegate_address, epoch, reward_power, delegator_count, delegators, updated_at)
-                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                VALUES {}
                 ON CONFLICT (delegate_address, epoch)
                 DO UPDATE SET
-                    reward_power = $3,
-                    delegator_count = $4,
-                    delegators = $5,
-                    updated_at = CURRENT_TIMESTAMP
-            "#;
+                    reward_power = EXCLUDED.reward_power,
+                    delegator_count = EXCLUDED.delegator_count,
+                    delegators = EXCLUDED.delegators,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
 
-            sqlx::query(query)
-                .bind(format!("{:#x}", power.delegate_address))
-                .bind(epoch as i64)
-                .bind(pad_u256(power.reward_power))
-                .bind(power.delegator_count as i32)
-                .bind(delegators_json)
-                .execute(&mut *tx)
-                .await?;
+            let mut q = sqlx::query(&query);
+            for power in chunk {
+                let delegators_json = serde_json::to_string(
+                    &power.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
+                )
+                .unwrap_or_else(|_| "[]".to_string());
+
+                q = q
+                    .bind(format!("{:#x}", power.delegate_address))
+                    .bind(epoch as i64)
+                    .bind(pad_u256(power.reward_power))
+                    .bind(power.delegator_count as i32)
+                    .bind(delegators_json);
+            }
+            q.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -1194,35 +1369,58 @@ impl RewardsIndexerDb for RewardsDb {
         &self,
         aggregates: Vec<RewardDelegationPowerAggregate>,
     ) -> Result<(), DbError> {
+        if aggregates.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
-        for aggregate in aggregates {
-            let delegators_json = serde_json::to_string(
-                &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
-            )
-            .unwrap_or_else(|_| "[]".to_string());
+        // Process in chunks to avoid parameter limits
+        for chunk in aggregates.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
 
-            let query = r#"
-                INSERT INTO reward_delegation_powers_aggregate
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${},CURRENT_TIMESTAMP)",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4
+                ));
+                param_idx += 5;
+            }
+
+            let query = format!(
+                r#"INSERT INTO reward_delegation_powers_aggregate
                 (delegate_address, total_reward_power, delegator_count, delegators, epochs_participated, updated_at)
-                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                VALUES {}
                 ON CONFLICT (delegate_address)
                 DO UPDATE SET
-                    total_reward_power = $2,
-                    delegator_count = $3,
-                    delegators = $4,
-                    epochs_participated = $5,
-                    updated_at = CURRENT_TIMESTAMP
-            "#;
+                    total_reward_power = EXCLUDED.total_reward_power,
+                    delegator_count = EXCLUDED.delegator_count,
+                    delegators = EXCLUDED.delegators,
+                    epochs_participated = EXCLUDED.epochs_participated,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
 
-            sqlx::query(query)
-                .bind(format!("{:#x}", aggregate.delegate_address))
-                .bind(pad_u256(aggregate.total_reward_power))
-                .bind(aggregate.delegator_count as i32)
-                .bind(delegators_json)
-                .bind(aggregate.epochs_participated as i64)
-                .execute(&mut *tx)
-                .await?;
+            let mut q = sqlx::query(&query);
+            for aggregate in chunk {
+                let delegators_json = serde_json::to_string(
+                    &aggregate.delegators.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>(),
+                )
+                .unwrap_or_else(|_| "[]".to_string());
+
+                q = q
+                    .bind(format!("{:#x}", aggregate.delegate_address))
+                    .bind(pad_u256(aggregate.total_reward_power))
+                    .bind(aggregate.delegator_count as i32)
+                    .bind(delegators_json)
+                    .bind(aggregate.epochs_participated as i64);
+            }
+            q.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -1758,25 +1956,49 @@ impl RewardsIndexerDb for RewardsDb {
         epoch: u64,
         rewards: Vec<StakingRewardByEpoch>,
     ) -> Result<(), DbError> {
-        for reward in rewards {
-            sqlx::query(
-                "INSERT INTO staking_rewards_by_epoch
-                 (staker_address, epoch, staking_power, percentage, rewards_earned)
-                 VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT (staker_address, epoch) DO UPDATE SET
-                 staking_power = $3,
-                 percentage = $4,
-                 rewards_earned = $5,
-                 updated_at = CURRENT_TIMESTAMP",
-            )
-            .bind(format!("{:#x}", reward.staker_address))
-            .bind(epoch as i64)
-            .bind(pad_u256(reward.staking_power))
-            .bind(reward.percentage)
-            .bind(pad_u256(reward.rewards_earned))
-            .execute(&self.pool)
-            .await
-            .map_err(DbError::from)?;
+        if rewards.is_empty() {
+            return Ok(());
+        }
+
+        // Process in chunks to avoid parameter limits
+        for chunk in rewards.chunks(BATCH_INSERT_CHUNK_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
+
+            for _ in chunk {
+                values_clauses.push(format!(
+                    "(${},${},${},${},${})",
+                    param_idx,
+                    param_idx + 1,
+                    param_idx + 2,
+                    param_idx + 3,
+                    param_idx + 4
+                ));
+                param_idx += 5;
+            }
+
+            let query = format!(
+                r#"INSERT INTO staking_rewards_by_epoch
+                (staker_address, epoch, staking_power, percentage, rewards_earned)
+                VALUES {}
+                ON CONFLICT (staker_address, epoch) DO UPDATE SET
+                    staking_power = EXCLUDED.staking_power,
+                    percentage = EXCLUDED.percentage,
+                    rewards_earned = EXCLUDED.rewards_earned,
+                    updated_at = CURRENT_TIMESTAMP"#,
+                values_clauses.join(",")
+            );
+
+            let mut q = sqlx::query(&query);
+            for reward in chunk {
+                q = q
+                    .bind(format!("{:#x}", reward.staker_address))
+                    .bind(epoch as i64)
+                    .bind(pad_u256(reward.staking_power))
+                    .bind(reward.percentage)
+                    .bind(pad_u256(reward.rewards_earned));
+            }
+            q.execute(&self.pool).await.map_err(DbError::from)?;
         }
         Ok(())
     }
