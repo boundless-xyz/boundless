@@ -177,6 +177,25 @@ export class MarketIndexer extends pulumi.ComponentResource {
       },
     }, { parent: this, dependsOn: [infra.taskRole, infra.taskRolePolicyAttachment] });
 
+    // Grant execution role permission to write to this service's specific log group
+    const region = aws.getRegionOutput().name;
+    const accountId = aws.getCallerIdentityOutput().accountId;
+    const logGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${serviceLogGroup}:*`;
+
+    new aws.iam.RolePolicy(`${serviceName}-market-logs-policy`, {
+      role: infra.executionRole.id,
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+            Resource: logGroupArn,
+          },
+        ],
+      },
+    }, { parent: this });
+
     const alarmActions = boundlessAlertsTopicArns ?? [];
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-err-filter`, {

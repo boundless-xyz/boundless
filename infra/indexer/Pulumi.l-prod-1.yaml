@@ -11,4 +11,5 @@ config:
   indexer:ZKC_ADDRESS: 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555
   indexer:RUST_LOG: "info"
   indexer:CHAIN_ID: "1"
+  indexer:INDEXER_API_DOMAIN: indexer.eth-mainnet.boundless.network
   

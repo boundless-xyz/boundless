@@ -73,7 +73,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         }
         : undefined,
       buildArgs: {
-        S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
+        S3_CACHE_PREFIX: `private/boundless/${serviceName}/rust-cache-docker-Linux-X64/sccache`,
       },
       secrets: buildSecrets,
       cacheFrom: [
@@ -180,6 +180,25 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         },
       },
     }, { parent: this, dependsOn: [infra.taskRole, infra.taskRolePolicyAttachment] });
+
+    // Grant execution role permission to write to this service's specific log group
+    const region = aws.getRegionOutput().name;
+    const accountId = aws.getCallerIdentityOutput().accountId;
+    const logGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${rewardsServiceLogGroup}:*`;
+
+    new aws.iam.RolePolicy(`${serviceName}-rewards-logs-policy`, {
+      role: infra.executionRole.id,
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+            Resource: logGroupArn,
+          },
+        ],
+      },
+    }, { parent: this });
 
     const alarmActions = boundlessAlertsTopicArns ?? [];
 

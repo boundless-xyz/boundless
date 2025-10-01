@@ -150,7 +150,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       }),
     }, { parent: this });
 
-    this.ecrRepository.repository.arn.apply(() => {
+    this.ecrRepository.repository.arn.apply((repoArn) => {
       new aws.iam.RolePolicy(`${serviceName}-ecs-execution-pol`, {
         role: this.executionRole.id,
         policy: {
@@ -158,18 +158,20 @@ export class IndexerShared extends pulumi.ComponentResource {
           Statement: [
             {
               Effect: 'Allow',
-              Action: [
-                'ecr:GetAuthorizationToken',
-                'ecr:BatchCheckLayerAvailability',
-                'ecr:GetDownloadUrlForLayer',
-                'ecr:BatchGetImage',
-              ],
+              // GetAuthorizationToken is an account-level AWS ECR action
+              // and does not support resource-level permissions. Must use '*'.
+              // See: https://docs.aws.amazon.com/AmazonECR/latest/userguide/security-iam-awsmanpol.html
+              Action: ['ecr:GetAuthorizationToken'],
               Resource: '*',
             },
             {
               Effect: 'Allow',
-              Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
-              Resource: '*',
+              Action: [
+                'ecr:BatchCheckLayerAvailability',
+                'ecr:GetDownloadUrlForLayer',
+                'ecr:BatchGetImage',
+              ],
+              Resource: repoArn,
             },
             {
               Effect: 'Allow',

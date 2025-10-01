@@ -47,6 +47,7 @@ export = () => {
   const vezkcAddress = config.get('VEZKC_ADDRESS');
   const zkcAddress = config.get('ZKC_ADDRESS');
   const povwAccountingAddress = config.get('POVW_ACCOUNTING_ADDRESS');
+  const indexerApiDomain = config.get('INDEXER_API_DOMAIN');
 
   const shouldDeployMarket = !!boundlessAddress && !!startBlock;
   const shouldDeployRewards = !!vezkcAddress && !!zkcAddress && !!povwAccountingAddress;
@@ -132,6 +133,7 @@ export = () => {
       rdsSgId: infra.rdsSecurityGroupId,
       indexerSgId: infra.indexerSecurityGroup.id,
       rustLogLevel: rustLogLevel,
+      domain: indexerApiDomain,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
