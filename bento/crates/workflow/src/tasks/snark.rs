@@ -33,7 +33,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
             .compress(&ProverOpts::groth16(), &receipt)
             .context("groth16 compress failed")?,
         CompressType::ShrinkBitvm2 => {
-            // First we compress a succinct receipt
+            // First we compress a succinct receipt just to make sure we have a succinct receipt
             let succinct_receipt = agent
                 .prover
                 .as_ref()
@@ -48,7 +48,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
                 .identity_p254(succinct_receipt)
                 .context("failed to create p254 receipt")?;
             // TODO(ec2): Handle cpu vs gpu here?
-            let seal = shrink_bitvm2::shrink_wrap_gpu(&p254_receipt, &receipt.journal.bytes)?;
+            let seal = shrink_bitvm2::shrink_wrap(&p254_receipt, &receipt.journal.bytes)?;
             shrink_bitvm2::finalize(
                 receipt.journal.bytes,
                 p254_receipt.claim.clone(),
