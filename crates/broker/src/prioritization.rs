@@ -96,7 +96,7 @@ fn sort_orders_by_priority_and_mode<T>(
         return;
     };
 
-    tracing::info!(
+    tracing::debug!(
         "Priority addresses specified: {}, sorting orders with priority first",
         addresses.len()
     );
@@ -105,7 +105,7 @@ fn sort_orders_by_priority_and_mode<T>(
         .drain(..)
         .partition(|order| addresses.contains(&order.as_ref().request.client_address()));
 
-    tracing::info!(
+    tracing::debug!(
         "Partitioned orders: {} priority orders, {} regular orders",
         priority_orders.len(),
         regular_orders.len()
@@ -117,7 +117,7 @@ fn sort_orders_by_priority_and_mode<T>(
     orders.extend(priority_orders);
     orders.extend(regular_orders);
 
-    tracing::info!("Final order after priority sorting: {} total orders", orders.len());
+    tracing::debug!("Final order after priority sorting: {} total orders", orders.len());
 }
 
 fn sort_by_mode<T>(orders: &mut [T], mode: UnifiedPriorityMode)
@@ -135,32 +135,10 @@ where
         UnifiedPriorityMode::HighestProfitability => {
             // For pricing prioritization, we can't use profitability yet since orders haven't been preflighted
             // Use current price based on ramp-up timing for preflight prioritization
-            tracing::info!(
-                "Using HIGHEST PROFITABILITY mode: Orders not preflighted yet, falling back to current_price sorting for {} orders",
+            tracing::debug!(
+                "Using HIGHEST PROFITABILITY mode: Sorting {} orders by current price (ramp-up timing)",
                 orders.len()
             );
-
-            // Debug: log the first few orders' total_cycles values
-            for (i, order) in orders.iter().take(3).enumerate() {
-                tracing::info!("Order {} total_cycles: {:?}", i, order.as_ref().total_cycles);
-            }
-
-            // Use current price based on ramp-up timing for preflight prioritization
-            // Log current_price for each order before sorting
-            for (i, order) in orders.iter().enumerate() {
-                let current_price = order.as_ref().request.offer.price_at(crate::now_timestamp());
-                let max_price = order.as_ref().request.offer.maxPrice;
-                let min_price = order.as_ref().request.offer.minPrice;
-                tracing::info!(
-                            "Order {} (index {}): current_price={:?}, min_price={}, max_price={} (total_cycles={})",
-                            order.as_ref().id(),
-                            i,
-                            current_price,
-                            min_price,
-                            max_price,
-                            order.as_ref().total_cycles.unwrap_or(0)
-                        );
-            }
 
             orders.sort_by(|a, b| {
                 let price_a = a.as_ref().request.offer.price_at(crate::now_timestamp());
@@ -170,35 +148,19 @@ where
                 let price_a_val = price_a.unwrap_or(U256::ZERO);
                 let price_b_val = price_b.unwrap_or(U256::ZERO);
 
-                let comparison = price_b_val.cmp(&price_a_val); // Descending order (highest first)
-
-                tracing::debug!(
-                    "Comparing orders by current_price: {} (price={:?}) vs {} (price={:?}) -> {:?}",
-                    a.as_ref().id(),
-                    price_a_val,
-                    b.as_ref().id(),
-                    price_b_val,
-                    comparison
-                );
-
-                comparison
+                price_b_val.cmp(&price_a_val) // Descending order (highest first)
             });
 
-            // Log final order after sorting
-            tracing::info!(
-                "Orders sorted by current_price (highest first): {}",
+            tracing::debug!(
+                "Orders sorted by current price (highest first): {}",
                 orders
                     .iter()
+                    .take(5) // Only show first 5 orders
                     .enumerate()
                     .map(|(i, order)| {
                         let current_price =
                             order.as_ref().request.offer.price_at(crate::now_timestamp());
-                        format!(
-                            "[{}] {} (current_price={:?})",
-                            i,
-                            order.as_ref().id(),
-                            current_price
-                        )
+                        format!("[{}] {} (price={:?})", i, order.as_ref().id(), current_price)
                     })
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -221,7 +183,7 @@ impl<P> OrderPicker<P> {
             return Vec::new();
         }
 
-        tracing::info!(
+        tracing::debug!(
             "Selecting pricing orders: {} orders available, capacity={}, priority_mode={:?}",
             orders.len(),
             capacity,
@@ -233,11 +195,7 @@ impl<P> OrderPicker<P> {
         let take_count = std::cmp::min(capacity, orders.len());
         let selected_orders: Vec<Box<OrderRequest>> = orders.drain(..take_count).collect();
 
-        tracing::info!(
-            "Selected {} orders for pricing: {}",
-            selected_orders.len(),
-            selected_orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(", ")
-        );
+        tracing::debug!("Selected {} orders for pricing", selected_orders.len());
 
         selected_orders
     }
@@ -252,7 +210,7 @@ impl<P> OrderMonitor<P> {
         priority_mode: OrderCommitmentPriority,
         priority_addresses: Option<&[alloy::primitives::Address]>,
     ) -> Vec<Arc<OrderRequest>> {
-        tracing::info!(
+        tracing::debug!(
             "Prioritizing {} orders for commitment: priority_mode={:?}",
             orders.len(),
             priority_mode
@@ -261,22 +219,7 @@ impl<P> OrderMonitor<P> {
         // Sort orders with priority addresses first, then by mode
         sort_orders_by_priority_and_mode(&mut orders, priority_addresses, priority_mode.into());
 
-        tracing::info!(
-            "Orders ready for proving, prioritized. Final order: {}",
-            orders
-                .iter()
-                .enumerate()
-                .map(|(i, order)| {
-                    if priority_mode == OrderCommitmentPriority::HighestProfitability {
-                        let profit = calculate_profitability(order.as_ref());
-                        format!("[{}] {} (profit={})", i, order.id(), profit)
-                    } else {
-                        format!("[{}] {}", i, order.id())
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        tracing::debug!("Orders ready for proving, prioritized: {} orders", orders.len());
 
         orders
     }

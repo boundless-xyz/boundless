@@ -864,6 +864,13 @@ where
         );
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+        // Status check interval - check every 30 seconds for missed events
+        let mut status_check_interval = tokio::time::interval_at(
+            tokio::time::Instant::now(),
+            tokio::time::Duration::from_secs(30),
+        );
+        status_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         let mut new_orders = self.priced_order_rx.lock().await;
         let mut prev_orders_by_status = String::new();
 
@@ -937,12 +944,164 @@ where
                         }
                     }
                 }
+
+                // Periodic status check for orders in caches to catch missed events
+                _ = status_check_interval.tick() => {
+                    self.check_cached_orders_status().await?;
+                }
+
                 _ = cancel_token.cancelled() => {
                     tracing::debug!("Order monitor received cancellation");
                     break;
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Check the status of orders in caches to catch missed events
+    async fn check_cached_orders_status(&self) -> Result<(), OrderMonitorErr> {
+        let prove_cache_count = self.prove_cache.entry_count();
+        let lock_and_prove_cache_count = self.lock_and_prove_cache.entry_count();
+
+        if prove_cache_count == 0 && lock_and_prove_cache_count == 0 {
+            return Ok(());
+        }
+
+        tracing::debug!(
+            "Status check: Checking {} orders in prove_cache and {} orders in lock_and_prove_cache",
+            prove_cache_count,
+            lock_and_prove_cache_count
+        );
+
+        // Check orders in prove_cache
+        let mut orders_to_remove = Vec::new();
+        for (order_id, order) in self.prove_cache.iter() {
+            let request_id = U256::from(order.request.id);
+
+            // Check if the request has been fulfilled
+            match self.db.is_request_fulfilled(request_id).await {
+                Ok(true) => {
+                    tracing::info!(
+                        "Status check: Order {} (request 0x{:x}) was fulfilled by another prover, removing from prove_cache",
+                        order_id,
+                        request_id
+                    );
+                    orders_to_remove.push(order_id.clone());
+                }
+                Ok(false) => {
+                    // Check if the request has been locked by another prover
+                    match self.db.get_request_locked(request_id).await {
+                        Ok(Some((locker, _))) => {
+                            let our_address =
+                                self.provider.default_signer_address().to_string().to_lowercase();
+                            let locker_address = locker.to_lowercase();
+                            let our_address_normalized = our_address.trim_start_matches("0x");
+                            let locker_address_normalized = locker_address.trim_start_matches("0x");
+
+                            if locker_address_normalized != our_address_normalized {
+                                tracing::info!(
+                                    "Status check: Order {} (request 0x{:x}) was locked by another prover ({}), removing from prove_cache",
+                                    order_id,
+                                    request_id,
+                                    locker
+                                );
+                                orders_to_remove.push(order_id.clone());
+                            }
+                        }
+                        Ok(None) => {
+                            // Not locked, continue processing
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Status check: Failed to check lock status for order {} (request 0x{:x}): {:?}",
+                                order_id,
+                                request_id,
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Status check: Failed to check fulfillment status for order {} (request 0x{:x}): {:?}",
+                        order_id,
+                        request_id,
+                        e
+                    );
+                }
+            }
+        }
+
+        // Remove orders that are no longer valid
+        for order_id in orders_to_remove {
+            self.prove_cache.remove(&order_id).await;
+        }
+
+        // Check orders in lock_and_prove_cache
+        let mut orders_to_remove = Vec::new();
+        for (order_id, order) in self.lock_and_prove_cache.iter() {
+            let request_id = U256::from(order.request.id);
+
+            // Check if the request has been fulfilled
+            match self.db.is_request_fulfilled(request_id).await {
+                Ok(true) => {
+                    tracing::info!(
+                        "Status check: Order {} (request 0x{:x}) was fulfilled by another prover, removing from lock_and_prove_cache",
+                        order_id,
+                        request_id
+                    );
+                    orders_to_remove.push(order_id.clone());
+                }
+                Ok(false) => {
+                    // Check if the request has been locked by another prover
+                    match self.db.get_request_locked(request_id).await {
+                        Ok(Some((locker, _))) => {
+                            let our_address =
+                                self.provider.default_signer_address().to_string().to_lowercase();
+                            let locker_address = locker.to_lowercase();
+                            let our_address_normalized = our_address.trim_start_matches("0x");
+                            let locker_address_normalized = locker_address.trim_start_matches("0x");
+
+                            if locker_address_normalized != our_address_normalized {
+                                tracing::info!(
+                                    "Status check: Order {} (request 0x{:x}) was locked by another prover ({}), removing from lock_and_prove_cache",
+                                    order_id,
+                                    request_id,
+                                    locker
+                                );
+                                orders_to_remove.push(order_id.clone());
+                            }
+                        }
+                        Ok(None) => {
+                            // Not locked, continue processing
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Status check: Failed to check lock status for order {} (request 0x{:x}): {:?}",
+                                order_id,
+                                request_id,
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Status check: Failed to check fulfillment status for order {} (request 0x{:x}): {:?}",
+                        order_id,
+                        request_id,
+                        e
+                    );
+                }
+            }
+        }
+
+        // Remove orders that are no longer valid
+        for order_id in orders_to_remove {
+            self.lock_and_prove_cache.remove(&order_id).await;
+        }
+
         Ok(())
     }
 

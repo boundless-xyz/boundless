@@ -18,6 +18,7 @@ use sha2::{Digest as Sha2Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::task::JoinSet;
 
 use crate::{
     chain_monitor::ChainMonitorService,
@@ -156,6 +157,97 @@ enum OrderPricingOutcome {
     Skip,
 }
 
+/// Check the status of active tasks to catch missed events
+async fn check_active_tasks_status<P>(
+    picker: &OrderPicker<P>,
+    active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
+    tasks: &mut JoinSet<(String, U256)>,
+) where
+    P: ProverObj + Send + Sync + Clone + 'static,
+{
+    if active_tasks.is_empty() {
+        return;
+    }
+
+    tracing::debug!("Checking status of {} active tasks", active_tasks.len());
+
+    let mut tasks_to_cancel = Vec::new();
+
+    for (request_id, order_tasks) in active_tasks.iter() {
+        // Check if the request has been fulfilled
+        match picker.db.is_request_fulfilled(*request_id).await {
+            Ok(true) => {
+                tracing::info!(
+                    "Status check: Request 0x{:x} was fulfilled by another prover, cancelling {} tasks",
+                    request_id,
+                    order_tasks.len()
+                );
+                for (order_id, _) in order_tasks {
+                    tasks_to_cancel.push((order_id.clone(), *request_id));
+                }
+            }
+            Ok(false) => {
+                // Check if the request has been locked by another prover
+                match picker.db.get_request_locked(*request_id).await {
+                    Ok(Some((locker, _))) => {
+                        let our_address =
+                            picker.provider.default_signer_address().to_string().to_lowercase();
+                        let locker_address = locker.to_lowercase();
+                        let our_address_normalized = our_address.trim_start_matches("0x");
+                        let locker_address_normalized = locker_address.trim_start_matches("0x");
+
+                        if locker_address_normalized != our_address_normalized {
+                            tracing::info!(
+                                "Status check: Request 0x{:x} was locked by another prover ({}), cancelling {} tasks",
+                                request_id,
+                                locker,
+                                order_tasks.len()
+                            );
+                            for (order_id, _) in order_tasks {
+                                tasks_to_cancel.push((order_id.clone(), *request_id));
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // Not locked, continue processing
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Status check: Failed to check lock status for request 0x{:x}: {:?}",
+                            request_id,
+                            e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Status check: Failed to check fulfillment status for request 0x{:x}: {:?}",
+                    request_id,
+                    e
+                );
+            }
+        }
+    }
+
+    // Cancel tasks that are no longer valid
+    for (order_id, request_id) in tasks_to_cancel {
+        if let Some(order_tasks) = active_tasks.get_mut(&request_id) {
+            if let Some(cancel_token) = order_tasks.remove(&order_id) {
+                cancel_token.cancel();
+                tracing::debug!(
+                    "Cancelled task for order {} (request 0x{:x})",
+                    order_id,
+                    request_id
+                );
+            }
+            if order_tasks.is_empty() {
+                active_tasks.remove(&request_id);
+            }
+        }
+    }
+}
+
 impl<P> OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -238,7 +330,7 @@ where
                         target_timestamp_secs,
                     );
 
-                    tracing::info!("Sending order {} to OrderMonitor for processing", order_id);
+                    tracing::debug!("Sending order {} to OrderMonitor for processing", order_id);
                     self.priced_orders_tx
                         .send(order)
                         .await
@@ -256,7 +348,7 @@ where
                     order.target_timestamp = Some(lock_expire_timestamp_secs);
                     order.expire_timestamp = Some(expiry_secs);
 
-                    tracing::info!("Sending order {} to OrderMonitor for processing", order_id);
+                    tracing::debug!("Sending order {} to OrderMonitor for processing", order_id);
                     self.priced_orders_tx
                         .send(order)
                         .await
@@ -1170,6 +1262,7 @@ where
             let mut rx = picker.new_order_rx.lock().await;
             let mut order_state_rx = picker.order_state_tx.subscribe();
             let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
+            let mut status_check_interval = tokio::time::interval(Duration::from_secs(30)); // Check every 30 seconds
             let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
             let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> =
                 BTreeMap::new();
@@ -1181,11 +1274,10 @@ where
                     Some(order) = rx.recv() => {
                         let order_id = order.id();
                         pending_orders.push(order);
-                        tracing::info!(
-                            "Queued order {} to be priced. Currently {} queued pricing tasks: {}",
+                        tracing::debug!(
+                            "Queued order {} to be priced. Currently {} queued pricing tasks",
                             order_id,
-                            pending_orders.len(),
-                            format_truncated(pending_orders.iter().map(|o| o.id()))
+                            pending_orders.len()
                         );
                     }
                     Ok(state_change) = order_state_rx.recv() => {
@@ -1244,6 +1336,11 @@ where
                         }
                     }
 
+                    _ = status_check_interval.tick() => {
+                        // Periodic status check for active tasks to catch missed events
+                        check_active_tasks_status(&picker, &mut active_tasks, &mut tasks).await;
+                    }
+
                     _ = cancel_token.cancelled() => {
                         tracing::debug!("Order picker received cancellation, shutting down gracefully");
 
@@ -1256,7 +1353,7 @@ where
                 // Process pending orders if we have capacity
                 if !pending_orders.is_empty() && tasks.len() < current_capacity {
                     let available_capacity = current_capacity - tasks.len();
-                    tracing::info!(
+                    tracing::debug!(
                         "Processing {} pending orders with capacity {} (current tasks: {})",
                         pending_orders.len(),
                         available_capacity,
