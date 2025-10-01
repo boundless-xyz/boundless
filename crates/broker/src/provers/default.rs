@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Borrow, collections::HashMap, path::PathBuf, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
 use crate::config::ProverConf;
 use crate::provers::{ExecutorResp, ProofResult, Prover, ProverError};
@@ -22,7 +22,6 @@ use risc0_zkvm::{
     default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
     VERSION,
 };
-use tempfile::tempdir;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -416,16 +415,12 @@ impl Prover for DefaultProver {
         tracing::debug!("shrink bitvm2 identity_p254 for proof {proof_id}");
 
         let compress_result: Result<Receipt, _> = tokio::task::spawn_blocking(move || {
-            #[cfg(feature = "shrink_bitvm2")] 
-            {
-                tracing::debug!("r0vm does not currently support shrink_bitvm2, compressing will be done locally");
-                let succinct_receipt = receipt.inner.succinct().unwrap().clone();
-                shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, &receipt.journal.bytes).map_err(|e| ProverError::UnexpectedError(anyhow!(e)))
-            }
-            #[cfg(not(feature = "shrink_bitvm2"))]
-            return Err(ProverError::UnexpectedError(anyhow!(
-                "shrink_bitvm2 feature not enabled"
-            )));
+            tracing::debug!(
+                "r0vm does not currently support shrink_bitvm2, compressing will be done locally"
+            );
+            let succinct_receipt = receipt.inner.succinct().unwrap().clone();
+            shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, &receipt.journal.bytes)
+                .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))
         })
         .await
         .unwrap();
@@ -460,13 +455,8 @@ mod tests {
     use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID};
     use tokio::test;
 
-    use ark_ff::PrimeField;
-    use risc0_zkvm::{
-        sha::{Digest, Digestible},
-        Groth16Seal,
-    };
-    use shrink_bitvm2::{verify::verify_proof, ShrinkBitvm2ReceiptClaim};
-    use tempfile::tempdir;
+    use risc0_zkvm::{sha::Digest, Groth16Seal};
+    use shrink_bitvm2::verify::verify_proof;
 
     #[test]
     async fn test_upload_input_and_image() {
@@ -584,7 +574,6 @@ mod tests {
     #[test]
     async fn test_shrink_bitvm2() {
         let prover = DefaultProver::new();
-
         // Upload test data
         let input_data = [255u8; 32].to_vec(); // Example input data
         let input_id = prover.upload_input(input_data.clone()).await.unwrap();
@@ -607,9 +596,7 @@ mod tests {
         let groth16_seal = Groth16Seal::decode(&groth16_receipt.seal)
             .expect("Failed to create Groth16 seal from receipt");
 
-        let final_output_bytes =
-            ShrinkBitvm2ReceiptClaim::ok(image_id, stark_receipt.journal.bytes).digest();
-        verify_proof(&groth16_seal, final_output_bytes.as_bytes())
+        verify_proof(&groth16_seal, image_id, stark_receipt.journal.bytes)
             .expect("Failed to verify Shrink BitVM2 receipt");
     }
 }
