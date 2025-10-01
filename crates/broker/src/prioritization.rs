@@ -167,8 +167,8 @@ where
                 let price_b = b.as_ref().request.offer.price_at(crate::now_timestamp());
 
                 // Handle Result by using unwrap_or with a default value
-                let price_a_val = price_a.unwrap_or(U256::ZERO);
-                let price_b_val = price_b.unwrap_or(U256::ZERO);
+                let price_a_val = price_a.clone().unwrap_or(U256::ZERO);
+                let price_b_val = price_b.clone().unwrap_or(U256::ZERO);
 
                 let comparison = price_b_val.cmp(&price_a_val); // Descending order (highest first)
 
