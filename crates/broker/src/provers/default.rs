@@ -371,7 +371,8 @@ impl Prover for DefaultProver {
             .map(|receipt| bincode::serialize(receipt).unwrap())
             .unwrap_or_default();
 
-        let mut proofs = self.state.proofs.write().await;
+        let mut proofs: tokio::sync::RwLockWriteGuard<'_, HashMap<String, ProofData>> =
+            self.state.proofs.write().await;
         let proof = proofs.get_mut(&proof_id).unwrap();
         match compress_result {
             Ok(_) => {
@@ -397,11 +398,7 @@ impl Prover for DefaultProver {
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
 
-    async fn shrink_bitvm2(
-        &self,
-        proof_id: &str,
-        work_dir: Option<PathBuf>,
-    ) -> Result<String, ProverError> {
+    async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError> {
         tracing::info!("Compressing proof Shrink bitvm2 {proof_id}");
         let receipt = self
             .get_receipt(proof_id)
@@ -417,22 +414,21 @@ impl Prover for DefaultProver {
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
         tracing::debug!("shrink bitvm2 identity_p254 for proof {proof_id}");
-        let succinct_receipt = receipt.inner.succinct().unwrap().clone();
 
-        let compress_result = tokio::task::spawn_blocking(move || {
+        let compress_result: Result<Receipt, _> = tokio::task::spawn_blocking(move || {
             #[cfg(feature = "shrink_bitvm2")] 
             {
-                tracing::warn!("r0vm does not currently support shrink_bitvm2, compressing will be done locally");
-                shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, &receipt.journal.bytes)
+                tracing::debug!("r0vm does not currently support shrink_bitvm2, compressing will be done locally");
+                let succinct_receipt = receipt.inner.succinct().unwrap().clone();
+                shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, &receipt.journal.bytes).map_err(|e| ProverError::UnexpectedError(anyhow!(e)))
             }
             #[cfg(not(feature = "shrink_bitvm2"))]
-            Err(ProverError::UnexpectedError(anyhow!(
+            return Err(ProverError::UnexpectedError(anyhow!(
                 "shrink_bitvm2 feature not enabled"
-            )))
+            )));
         })
         .await
-        .unwrap()
-        .map_err(ProverError::from);
+        .unwrap();
 
         let compressed_bytes = compress_result
             .as_ref()
@@ -456,16 +452,6 @@ impl Prover for DefaultProver {
             }
         }
     }
-    async fn get_shrink_bitvm2_receipt(
-        &self,
-        proof_id: &str,
-    ) -> Result<Option<Vec<u8>>, ProverError> {
-        let proofs = self.state.proofs.read().await;
-        let proof_data = proofs
-            .get(proof_id)
-            .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
-        Ok(proof_data.compressed_receipt.as_ref().cloned())
-    }
 }
 
 #[cfg(test)]
@@ -479,10 +465,7 @@ mod tests {
         sha::{Digest, Digestible},
         Groth16Seal,
     };
-    use shrink_bitvm2::{
-        // from_seal, get_ark_verifying_key,
-        ShrinkBitvm2ReceiptClaim,
-    };
+    use shrink_bitvm2::{verify::verify_proof, ShrinkBitvm2ReceiptClaim};
     use tempfile::tempdir;
 
     #[test]
@@ -600,7 +583,6 @@ mod tests {
 
     #[test]
     async fn test_shrink_bitvm2() {
-        let work_dir = tempdir().expect("Failed to create temp dir");
         let prover = DefaultProver::new();
 
         // Upload test data
@@ -613,8 +595,7 @@ mod tests {
         let ProofResult { id: stark_id, .. } =
             prover.prove_and_monitor_stark(&image_id.to_string(), &input_id, vec![]).await.unwrap();
 
-        let snark_id =
-            prover.shrink_bitvm2(&stark_id, Some(work_dir.path().to_path_buf())).await.unwrap();
+        let snark_id = prover.shrink_bitvm2(&stark_id).await.unwrap();
 
         // Fetch the compressed receipt
         let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
@@ -628,32 +609,7 @@ mod tests {
 
         let final_output_bytes =
             ShrinkBitvm2ReceiptClaim::ok(image_id, stark_receipt.journal.bytes).digest();
-
-        // let public_input_scalar =
-        //     ark_bn254::Fr::from_be_bytes_mod_order(final_output_bytes.as_bytes());
-
-        // // let public_input_scalar_str = public_input_scalar.to_string();
-        // // let public_input_scalar =
-        // //     risc0_groth16::PublicInputsJson { values: vec![public_input_scalar_str] }
-        // //         .to_scalar()
-        // //         .unwrap();
-        // println!("Verify Start");
-        // let ark_vk = get_ark_verifying_key();
-        // let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
-        // let res = ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
-        //     &ark_pvk,
-        //     &from_seal(&groth16_receipt.seal),
-        //     &[public_input_scalar],
-        // )
-        // .unwrap();
-
-        // println!("Shrink BitVM2 Verify result: {:?}", res);
-
-        // let verifying_key = shrink_bitvm2::get_r0_verifying_key();
-
-        // let v = risc0_groth16::Verifier::new(&groth16_seal, &public_input_scalar, &verifying_key)
-        //     .unwrap();
-        // println!("R0 Verify result: {:?}", v.verify().is_ok());
-        // assert!(v.verify().is_ok(), "R0 verification failed");
+        verify_proof(&groth16_seal, final_output_bytes.as_bytes())
+            .expect("Failed to verify Shrink BitVM2 receipt");
     }
 }

@@ -564,11 +564,7 @@ impl Prover for Bonsai {
         Ok(Some(receipt_buf))
     }
 
-    async fn shrink_bitvm2(
-        &self,
-        proof_id: &str,
-        _work_dir: Option<PathBuf>,
-    ) -> Result<String, ProverError> {
+    async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError> {
         let proof_id = self
             .retry(
                 || async { Ok(self.client.shrink_bitvm2(proof_id.into()).await?) },
@@ -584,29 +580,6 @@ impl Prover for Bonsai {
         poller.poll_with_retries_shrink_bitvm2_id(&proof_id, &self.client).await?;
 
         Ok(proof_id.uuid)
-    }
-
-    async fn get_shrink_bitvm2_receipt(
-        &self,
-        proof_id: &str,
-    ) -> Result<Option<Vec<u8>>, ProverError> {
-        let snark_id = ShrinkBitvm2Id { uuid: proof_id.into() };
-        let status = self
-            .retry(
-                || async { Ok(snark_id.status(&self.client).await?) },
-                "get status of bitvm2 snark",
-            )
-            .await?;
-
-        let Some(output) = status.output else { return Ok(None) };
-        let receipt_buf = self
-            .retry(
-                || async { Ok(self.client.download(&output).await?) },
-                "download bitvm2 snark output",
-            )
-            .await?;
-
-        Ok(Some(receipt_buf))
     }
 }
 
