@@ -1348,7 +1348,7 @@ fn calculate_max_cycles_for_time(prove_khz: u64, time_seconds: u64) -> u64 {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{path::PathBuf, time::Duration};
+    use std::time::Duration;
 
     use super::*;
     use crate::{
