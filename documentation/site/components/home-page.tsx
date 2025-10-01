@@ -51,7 +51,7 @@ const navigation = [
     ],
   },
   {
-    title: "External",
+    title: "ZKC",
     links: [
       ["Boundless Staking Portal", "https://staking.boundless.network"],
       ["Steel Crate Docs", "https://boundless-xyz.github.io/steel/risc0_steel/index.html"],
