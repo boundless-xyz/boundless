@@ -112,7 +112,14 @@ impl PovwPrepare {
                     tracing::warn!("{:?}", err.context("Skipping receipt"));
                     warning = true;
                 }
-                Ok(receipt) => work_receipts.push(receipt),
+                Ok(receipt) => match check_work_receipt(state.log_id, &state.work_log, receipt) {
+                    Ok(receipt) => {
+                        work_receipts.push(receipt);
+                    }
+                    Err(err) => {
+                        tracing::warn!("Skipping receipt: {:#}", err);
+                    }
+                },
             }
         }
         if warning && !self.allow_partial_update {
@@ -303,7 +310,7 @@ async fn fetch_work_receipts(
 
         if info_log_id != log_id {
             // Log any unknown log IDs we find, but only once.
-            if !seen_log_ids.insert(info_log_id) {
+            if seen_log_ids.insert(info_log_id) {
                 tracing::warn!("Skipping receipts with log ID {info_log_id:x} in Bento storage");
             }
             tracing::debug!("Skipping receipt with key {}; log ID does not match", info.key);

@@ -1,0 +1,61 @@
+# ZK Mining Overview
+
+:::note
+This page covers the high level concepts behind ZK mining. 
+
+If you're looking for technical tutorials on setting up ZK mining and claiming rewards, please see the following:
+
+- [Enabling ZK Mining](/zkc/mining/enable)
+- [Mining Walkthrough](/zkc/mining/walkthrough)
+- [Claiming Rewards](/zkc/mining/claiming-rewards)
+:::
+
+
+## What is ZK Mining?
+
+Proof of Verifiable Work (PoVW), a novel invention within Boundless, is a permissionless incentive mechanism which enables provers to be rewarded in *$ZKC* in exchange for their proving work on the Boundless marketplace or elsewhere. Provers generating zero-knowledge proofs are rewarded with *$ZKC*; this process is known as *ZK Mining*. 
+
+
+### ZK Mining Lifecycle
+
+::::steps
+#### Provers generate ZK proofs + work proofs
+
+Generating a ZK proof, with the "Reward Address" specified in Bento, will generate an associated "work proof". This work proof proves that the prover generated a valid ZK proof and tallies the amount of "work" done (measured in [cycles](https://dev.risczero.com/terminology#clock-cycles)). 
+
+#### Provers aggregate work proofs with `prepare`
+
+The `prepare` CLI command (`boundless povw prepare ...`) compresses all local work proofs (stored in Bento) to reflect work done during any given epoch. This aggregated proof is stored in a local “state” file.
+
+#### Provers submit the aggregated work proof with `submit`
+
+Towards the end of an epoch, the prover must verify their work done to the PoVW contracts using the `submit` CLI command (`boundless povw submit ...`).
+
+Provers submit the aggregated work proof to the PoVW smart contract to prove their total work done during the current reward epoch. `submit` uses the rewards address's private key for signing and posting the work proof onchain.
+
+#### Provers wait for current epoch to finalize
+
+The prover waits for the current reward epoch to finalize. This allows all work log updates to be tallied, and all the respective rewards for each rewards address to be calculated.
+
+To check details of the current epoch, please see [Checking Details of Current Reward Epoch](/zkc/mining/claiming-rewards#checking-details-of-current-reward-epoch),
+
+#### Provers claim rewards with `claim`
+
+Once the epoch has been finalized, the `claim` CLI command can be used to claim any unclaimed rewards; claiming rewards does not have to be done every epoch; all unclaimed rewards from past epochs will be claimed automatically on the next valid `claim` call.
+
+#### Repeat steps 1 - 4 every epoch
+
+With the start of the new epoch, all provers start with a work total of 0. Provers continue to generate ZK proofs, and submit an aggregated work proof *at least once* every epoch to be eligible for rewards (based on the total work done by all provers).
+
+::::
+
+## Who can ZK mine?
+
+* Provers must satisfy the [minimum hardware requirements](/provers/quick-start#requirements) to be able to run [Bento](/provers/proving-stack#what-is-bento).
+* Provers must [stake $ZKC](/zkc/quick-start#how-to-stake-zkc) to be eligible for PoVW rewards. 
+  * Before staking, any proving work submitted *is not* eligible for rewards.
+  * After staking, any work submitted is eligible for rewards in the current reward epoch.
+* The maximum mining rewards each prover can earn for each reward epoch is directly correlated with their total staked *$ZKC*. It is approximately `staked_amount/15` (please see the [token documentation](https://github.com/boundless-xyz/zkc?tab=readme-ov-file#zkc) for more information).
+* Provers must enable ZK mining in Bento by specifying the `REWARD_ADDRESS` environment variable. 
+* To learn how to enable ZK mining, see [Enabling ZK mining](/zkc/mining/enable).
+
