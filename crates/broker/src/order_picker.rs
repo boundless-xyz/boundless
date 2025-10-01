@@ -25,7 +25,7 @@ use crate::{
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
-    provers::{ProverError, ProverObj},
+    provers::{Prover, ProverError, ProverObj},
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils, FulfillmentType, OrderRequest, OrderStateChange,
@@ -163,7 +163,7 @@ async fn check_active_tasks_status<P>(
     active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
     tasks: &mut JoinSet<(String, U256)>,
 ) where
-    P: ProverObj + Send + Sync + Clone + 'static,
+    P: Prover + Send + Sync + Clone + 'static,
 {
     if active_tasks.is_empty() {
         return;
