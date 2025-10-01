@@ -45,7 +45,7 @@ use boundless_market::{
         Fulfillment as BoundlessFulfillment, FulfillmentData, PredicateType, RequestInputType,
     },
     input::GuestEnv,
-    selector::{is_groth16_selector, SupportedSelectors},
+    selector::{is_groth16_selector, is_shrink_bitvm2_selector, SupportedSelectors},
     storage::fetch_url,
     ProofRequest,
 };
@@ -176,6 +176,21 @@ impl DefaultProver {
         let receipt = succinct_receipt.clone();
         tokio::task::spawn_blocking(move || {
             default_prover().compress(&ProverOpts::groth16(), &receipt)
+        })
+        .await?
+    }
+
+    pub(crate) async fn shrink_bitvm2(&self, succinct_receipt: &Receipt) -> Result<Receipt> {
+        let prover = default_prover();
+        if is_dev_mode() {
+            return Ok(succinct_receipt.clone());
+        }
+        if prover.get_name() == "bonsai" {
+            return shrink_bitvm2_with_bonsai(succinct_receipt).await;
+        }
+        let receipt = succinct_receipt.clone();
+        tokio::task::spawn_blocking(move || {
+            shrink_bitvm2::succinct_to_bitvm2(receipt.inner.succinct()?, &receipt.journal.bytes)
         })
         .await?
     }
@@ -312,6 +327,9 @@ impl DefaultProver {
             let order_seal = if is_groth16_selector(req.requirements.selector) {
                 let receipt = self.compress(&receipts[i]).await?;
                 encode_seal(&receipt)?
+            } else if is_shrink_bitvm2_selector(req.requirements.selector) {
+                let receipt = self.shrink_bitvm2(&receipts[i]).await?;
+                encode_seal(&receipt)?
             } else {
                 order_inclusion_receipt.abi_encode_seal()?
             };
@@ -376,6 +394,33 @@ async fn compress_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
     }
 }
 
+async fn shrink_bitvm2_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
+    let client = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
+    let encoded_receipt = bincode::serialize(succinct_receipt)?;
+    let receipt_id = client.upload_receipt(encoded_receipt).await?;
+    let snark_id = client.shrink_bitvm2(receipt_id).await?;
+    loop {
+        let status = snark_id.status(&client).await?;
+        match status.status.as_ref() {
+            "RUNNING" => {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                continue;
+            }
+            "SUCCEEDED" => {
+                let receipt_buf = client.download(&status.output.unwrap()).await?;
+                let snark_receipt: Receipt = bincode::deserialize(&receipt_buf)?;
+                return Ok(snark_receipt);
+            }
+            status_code => {
+                let err_msg = status.error_msg.unwrap_or_default();
+                return Err(anyhow::anyhow!(
+                    "snark proving failed with status {status_code}: {err_msg}"
+                ));
+            }
+        }
+    }
+}
+
 // Returns `true` if the dev mode environment variable is enabled.
 fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
@@ -398,6 +443,7 @@ mod tests {
     };
     use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
     use risc0_ethereum_contracts::selector::Selector;
+    use shrink_bitvm2::ShrinkBitvm2ReceiptClaim;
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
@@ -444,6 +490,35 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
 
+        let domain = eip712_domain(Address::ZERO, 1);
+        let prover = DefaultProver::new(
+            SET_BUILDER_ELF.to_vec(),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            domain,
+        )
+        .expect("failed to create prover");
+
+        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_fulfill_shrink_bitvm2_selector() {
+        let input = [255u8; 32].to_vec(); // Example output data
+        let blake3_claim_digest =
+            ShrinkBitvm2ReceiptClaim::ok(Digest::from(ECHO_ID), input.clone()).digest();
+        let signer = PrivateKeySigner::random();
+        let request = ProofRequest::new(
+            RequestId::new(signer.address(), 0),
+            Requirements::new(Predicate::claim_digest_match(blake3_claim_digest))
+                .with_selector(FixedBytes::from(Selector::shrink_bitvm2_latest() as u32)),
+            format!("file://{ECHO_PATH}"),
+            RequestInput::builder().write_slice(&input).build_inline().unwrap(),
+            Offer::default(),
+        );
+
+        let signature = request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
         let domain = eip712_domain(Address::ZERO, 1);
         let prover = DefaultProver::new(
             SET_BUILDER_ELF.to_vec(),

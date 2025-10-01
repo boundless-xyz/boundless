@@ -16,7 +16,7 @@ path = "src/bin/agent.rs"
 
 [features]
 default = []
-cuda = ["risc0-zkvm/cuda"]
+cuda = ["risc0-zkvm/cuda", "shrink_bitvm2/cuda"]
 
 [dependencies]
 anyhow = { workspace = true }

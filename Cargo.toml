@@ -39,7 +39,7 @@ distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
-shrink_bitvm2 = { path = "/home/etu/shrink_bitvm2/shrink_bitvm2" }
+shrink_bitvm2 = { git = "https://github.com/ec2/shrink_bitvm2.git", rev = "a1166bda124e53cdfa8a7b78eb26423c9ae49e26", default-features = false }
 
 async-stream = "0.3"
 alloy = { version = "1.0", default-features = false }
@@ -107,8 +107,8 @@ lto = true
 # codegen-units = 1
 
 [patch.crates-io]
-risc0-ethereum-contracts = { path = "/home/etu/risc0-ethereum/contracts" }
-risc0-aggregation = { path = "/home/etu/risc0-ethereum/crates/aggregation" }
+risc0-ethereum-contracts = { git = "https://github.com/ec2/risc0-ethereum.git", rev = "a022764453253ba28aab69dee4de60c0245c915e" }
+risc0-aggregation = { git = "https://github.com/ec2/risc0-ethereum.git", rev = "a022764453253ba28aab69dee4de60c0245c915e" }
 
 risc0-groth16 = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
 risc0-groth16-sys = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }

@@ -5648,6 +5648,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shrink_bitvm2"
 version = "0.1.0"
+source = "git+https://github.com/ec2/shrink_bitvm2.git?rev=a1166bda124e53cdfa8a7b78eb26423c9ae49e26#a1166bda124e53cdfa8a7b78eb26423c9ae49e26"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -5661,6 +5662,7 @@ dependencies = [
  "hex",
  "num-bigint 0.4.6",
  "num-traits",
+ "risc0-circuit-recursion",
  "risc0-groth16",
  "risc0-groth16-sys",
  "risc0-zkp",

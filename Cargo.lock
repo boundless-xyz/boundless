@@ -2660,8 +2660,10 @@ dependencies = [
  "serde_json",
  "serde_yaml 0.9.34+deprecated",
  "shadow-rs",
+ "shrink_bitvm2",
  "sqlx",
  "tempfile",
+ "test-log",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",
@@ -5434,7 +5436,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -6074,7 +6076,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.53.4",
 ]
 
 [[package]]
@@ -6829,7 +6831,7 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77e878c846a8abae00dd069496dbe8751b16ac1c3d6bd2a7283a938e8228f90d"
 dependencies = [
- "proc-macro-crate 1.1.3",
+ "proc-macro-crate 3.4.0",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -7684,7 +7686,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.32",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -7721,7 +7723,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -8294,6 +8296,7 @@ dependencies = [
 [[package]]
 name = "risc0-aggregation"
 version = "0.9.0"
+source = "git+https://github.com/ec2/risc0-ethereum.git?rev=a022764453253ba28aab69dee4de60c0245c915e#a022764453253ba28aab69dee4de60c0245c915e"
 dependencies = [
  "alloy-primitives 1.4.0",
  "alloy-sol-types",
@@ -8517,6 +8520,7 @@ dependencies = [
 [[package]]
 name = "risc0-ethereum-contracts"
 version = "3.0.1"
+source = "git+https://github.com/ec2/risc0-ethereum.git?rev=a022764453253ba28aab69dee4de60c0245c915e#a022764453253ba28aab69dee4de60c0245c915e"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.0",
@@ -9594,6 +9598,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shrink_bitvm2"
 version = "0.1.0"
+source = "git+https://github.com/ec2/shrink_bitvm2.git?rev=a1166bda124e53cdfa8a7b78eb26423c9ae49e26#a1166bda124e53cdfa8a7b78eb26423c9ae49e26"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -9607,6 +9612,7 @@ dependencies = [
  "hex",
  "num-bigint 0.4.6",
  "num-traits",
+ "risc0-circuit-recursion",
  "risc0-groth16",
  "risc0-groth16-sys",
  "risc0-zkp",
@@ -11398,7 +11404,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
