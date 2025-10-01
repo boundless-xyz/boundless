@@ -59,7 +59,7 @@ x-broker-common: &broker-common
   depends_on:
     rest_api:
       condition: service_healthy
-    gpu_prove_agent0:
+    gpu_prove_agent:
       condition: service_started
     exec_agent0:
       condition: service_started
@@ -172,7 +172,7 @@ services:
   exec_agent:
     <<: *exec-agent-common
     deploy:
-      replicas: 12
+      replicas: 2
 
   aux_agent:
     <<: *agent-common
@@ -182,22 +182,20 @@ services:
       <<: *base-environment
     entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
     deploy:
-      replicas: 2
+      replicas: 1
 
-  gpu_prove_agent0:
+  gpu_prove_agent:
     <<: *agent-common
     mem_limit: 4G
     cpus: 4
-    entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
-
-    # comment-out if running in CPU proving mode
+    entrypoint: /bin/bash -c 'nvidia-smi --list-gpus; GPU_COUNT=$$(nvidia-smi --list-gpus | wc -l); for i in $$(seq 0 $$((GPU_COUNT - 1))); do CUDA_VISIBLE_DEVICES=$$i /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600} & done; wait'
     deploy:
+      replicas: 1  # Only need 1 replica since it spawns workers for all GPUs
       resources:
         reservations:
           devices:
             - driver: nvidia
-              # TODO: how to scale this with N gpus?
-              device_ids: ["0"]
+              device_ids: ["all"]
               capabilities: [gpu]
 
   rest_api:

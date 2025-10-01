@@ -12,7 +12,6 @@
     "./Cargo.toml",
     "./crates/distributor/Cargo.toml",
     "./bento/crates/workflow/Cargo.toml",
-    "./crates/broker/Cargo.toml",
     "./crates/povw/mint-calculator/Cargo.toml",
     "./crates/povw/log-updater/Cargo.toml"
     // "./crates/guest/assessor/assessor-guest/Cargo.toml",

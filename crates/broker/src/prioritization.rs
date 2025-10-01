@@ -21,11 +21,12 @@ use crate::{
 
 use alloy::primitives::U256;
 use rand::seq::SliceRandom;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Calculate the profitability (price per cycle) for an order
-/// Returns the maximum price per cycle, or 0 if cycles are not available
-fn calculate_profitability(order: &OrderRequest) -> U256 {
+/// Calculate the profitability (net price per cycle) for an order
+/// Returns the net price per cycle after accounting for gas costs, or 0 if cycles are not available
+fn calculate_profitability(order: &OrderRequest, gas_cost: Option<U256>) -> U256 {
     let Some(total_cycles) = order.total_cycles else {
         tracing::debug!("Order {} has no total_cycles, profitability = 0", order.id());
         return U256::ZERO;
@@ -36,14 +37,33 @@ fn calculate_profitability(order: &OrderRequest) -> U256 {
         return U256::ZERO;
     }
 
-    // Use the maximum price from the offer for profitability calculation
-    let max_price = U256::from(order.request.offer.maxPrice);
-    let profitability = max_price / U256::from(total_cycles);
+    // Use the current price at the time of prioritization, not max price
+    let current_price = order.request.offer.price_at(crate::now_timestamp()).unwrap_or(U256::ZERO);
+
+    // Subtract gas costs if provided
+    let net_price = if let Some(gas_cost) = gas_cost {
+        current_price.saturating_sub(gas_cost)
+    } else {
+        current_price
+    };
+
+    // Ensure we don't have negative profitability
+    if net_price == U256::ZERO {
+        tracing::debug!(
+            "Order {} has zero or negative net price after gas costs, profitability = 0",
+            order.id()
+        );
+        return U256::ZERO;
+    }
+
+    let profitability = net_price / U256::from(total_cycles);
 
     tracing::debug!(
-        "Order {} profitability calculation: max_price={}, total_cycles={}, profitability={}",
+        "Order {} profitability calculation: current_price={}, gas_cost={:?}, net_price={}, total_cycles={}, profitability={}",
         order.id(),
-        max_price,
+        current_price,
+        gas_cost,
+        net_price,
         total_cycles,
         profitability
     );
@@ -90,9 +110,20 @@ fn sort_orders_by_priority_and_mode<T>(
 ) where
     T: AsRef<OrderRequest>,
 {
+    sort_orders_by_priority_and_mode_with_gas(orders, priority_addresses, mode, None);
+}
+
+fn sort_orders_by_priority_and_mode_with_gas<T>(
+    orders: &mut Vec<T>,
+    priority_addresses: Option<&[alloy::primitives::Address]>,
+    mode: UnifiedPriorityMode,
+    gas_costs: Option<&HashMap<String, U256>>,
+) where
+    T: AsRef<OrderRequest>,
+{
     let Some(addresses) = priority_addresses else {
         tracing::debug!("No priority addresses specified, sorting all orders by mode: {:?}", mode);
-        sort_by_mode(orders, mode);
+        sort_by_mode_with_gas(orders, mode, gas_costs);
         return;
     };
 
@@ -111,8 +142,8 @@ fn sort_orders_by_priority_and_mode<T>(
         regular_orders.len()
     );
 
-    sort_by_mode(&mut priority_orders, mode);
-    sort_by_mode(&mut regular_orders, mode);
+    sort_by_mode_with_gas(&mut priority_orders, mode, gas_costs);
+    sort_by_mode_with_gas(&mut regular_orders, mode, gas_costs);
 
     orders.extend(priority_orders);
     orders.extend(regular_orders);
@@ -124,6 +155,16 @@ fn sort_by_mode<T>(orders: &mut [T], mode: UnifiedPriorityMode)
 where
     T: AsRef<OrderRequest>,
 {
+    sort_by_mode_with_gas(orders, mode, None);
+}
+
+fn sort_by_mode_with_gas<T>(
+    orders: &mut [T],
+    mode: UnifiedPriorityMode,
+    gas_costs: Option<&HashMap<String, U256>>,
+) where
+    T: AsRef<OrderRequest>,
+{
     match mode {
         UnifiedPriorityMode::Random => orders.shuffle(&mut rand::rng()),
         UnifiedPriorityMode::TimeOrdered => {
@@ -133,34 +174,36 @@ where
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
         UnifiedPriorityMode::HighestProfitability => {
-            // For pricing prioritization, we can't use profitability yet since orders haven't been preflighted
-            // Use current price based on ramp-up timing for preflight prioritization
             tracing::debug!(
-                "Using HIGHEST PROFITABILITY mode: Sorting {} orders by current price (ramp-up timing)",
+                "Using HIGHEST PROFITABILITY mode: Sorting {} orders by profitability",
                 orders.len()
             );
 
             orders.sort_by(|a, b| {
-                let price_a = a.as_ref().request.offer.price_at(crate::now_timestamp());
-                let price_b = b.as_ref().request.offer.price_at(crate::now_timestamp());
+                let order_a = a.as_ref();
+                let order_b = b.as_ref();
 
-                // Handle Result by using unwrap_or with a default value
-                let price_a_val = price_a.unwrap_or(U256::ZERO);
-                let price_b_val = price_b.unwrap_or(U256::ZERO);
+                // Get gas cost for this order if available
+                let gas_cost_a = gas_costs.and_then(|costs| costs.get(&order_a.id())).copied();
+                let gas_cost_b = gas_costs.and_then(|costs| costs.get(&order_b.id())).copied();
 
-                price_b_val.cmp(&price_a_val) // Descending order (highest first)
+                let profitability_a = calculate_profitability(order_a, gas_cost_a);
+                let profitability_b = calculate_profitability(order_b, gas_cost_b);
+
+                profitability_b.cmp(&profitability_a) // Descending order (highest first)
             });
 
             tracing::debug!(
-                "Orders sorted by current price (highest first): {}",
+                "Orders sorted by profitability (highest first): {}",
                 orders
                     .iter()
                     .take(5) // Only show first 5 orders
                     .enumerate()
                     .map(|(i, order)| {
-                        let current_price =
-                            order.as_ref().request.offer.price_at(crate::now_timestamp());
-                        format!("[{}] {} (price={:?})", i, order.as_ref().id(), current_price)
+                        let gas_cost =
+                            gas_costs.and_then(|costs| costs.get(&order.as_ref().id())).copied();
+                        let profitability = calculate_profitability(order.as_ref(), gas_cost);
+                        format!("[{}] {} (profitability={})", i, order.as_ref().id(), profitability)
                     })
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -223,6 +266,36 @@ impl<P> OrderMonitor<P> {
 
         orders
     }
+
+    /// Prioritize orders with gas cost consideration for more accurate profitability calculation
+    pub(crate) fn prioritize_orders_with_gas_costs(
+        &self,
+        mut orders: Vec<Arc<OrderRequest>>,
+        priority_mode: OrderCommitmentPriority,
+        priority_addresses: Option<&[alloy::primitives::Address]>,
+        gas_costs: Option<&HashMap<String, U256>>,
+    ) -> Vec<Arc<OrderRequest>> {
+        tracing::debug!(
+            "Prioritizing {} orders for commitment with gas costs: priority_mode={:?}",
+            orders.len(),
+            priority_mode
+        );
+
+        // Sort orders with priority addresses first, then by mode with gas costs
+        sort_orders_by_priority_and_mode_with_gas(
+            &mut orders,
+            priority_addresses,
+            priority_mode.into(),
+            gas_costs,
+        );
+
+        tracing::debug!(
+            "Orders ready for proving, prioritized with gas costs: {} orders",
+            orders.len()
+        );
+
+        orders
+    }
 }
 
 #[cfg(test)]
@@ -280,22 +353,24 @@ mod tests {
 
         let base_time = now_timestamp();
 
-        // Create orders with different profitability (price per cycle)
+        // Create orders with different profitability (current price per cycle)
+        // Since we're using current price (which starts at min_price), we need to set min_price
         let mut orders = Vec::new();
         let test_cases = [
-            (100, 1000), // 10 wei per cycle
-            (200, 2000), // 10 wei per cycle (same as above)
-            (300, 1500), // 5 wei per cycle
-            (400, 4000), // 10 wei per cycle (same as first two)
-            (500, 1000), // 2 wei per cycle
+            (100, 1000, 1000), // 1000 wei for 100 cycles = 10 wei/cycle
+            (200, 2000, 2000), // 2000 wei for 200 cycles = 10 wei/cycle (same as above)
+            (300, 1500, 1500), // 1500 wei for 300 cycles = 5 wei/cycle
+            (400, 4000, 4000), // 4000 wei for 400 cycles = 10 wei/cycle (same as first two)
+            (500, 1000, 1000), // 1000 wei for 500 cycles = 2 wei/cycle
         ];
 
-        for (i, (cycles, max_price)) in test_cases.iter().enumerate() {
+        for (i, (cycles, min_price, max_price)) in test_cases.iter().enumerate() {
             let mut order = ctx
                 .generate_next_order(OrderParams {
                     order_index: i as u32,
                     bidding_start: base_time,
                     lock_timeout: 300,
+                    min_price: U256::from(*min_price),
                     max_price: U256::from(*max_price),
                     ..Default::default()
                 })
@@ -335,22 +410,23 @@ mod tests {
 
         let base_time = now_timestamp();
 
-        // Create orders with different profitability (price per cycle)
+        // Create orders with different profitability (current price per cycle)
         let mut orders = Vec::new();
         let test_cases = [
-            (100, 1000), // 10 wei per cycle
-            (200, 2000), // 10 wei per cycle (same as above)
-            (300, 1500), // 5 wei per cycle
-            (400, 4000), // 10 wei per cycle (same as first two)
-            (500, 1000), // 2 wei per cycle
+            (100, 1000, 1000), // 1000 wei for 100 cycles = 10 wei/cycle
+            (200, 2000, 2000), // 2000 wei for 200 cycles = 10 wei/cycle (same as above)
+            (300, 1500, 1500), // 1500 wei for 300 cycles = 5 wei/cycle
+            (400, 4000, 4000), // 4000 wei for 400 cycles = 10 wei/cycle (same as first two)
+            (500, 1000, 1000), // 1000 wei for 500 cycles = 2 wei/cycle
         ];
 
-        for (i, (cycles, max_price)) in test_cases.iter().enumerate() {
+        for (i, (cycles, min_price, max_price)) in test_cases.iter().enumerate() {
             let mut order = ctx
                 .generate_next_order(OrderParams {
                     order_index: i as u32,
                     bidding_start: base_time,
                     lock_timeout: 300,
+                    min_price: U256::from(*min_price),
                     max_price: U256::from(*max_price),
                     ..Default::default()
                 })
@@ -946,5 +1022,63 @@ mod tests {
         assert_eq!(prioritized_orders[0].request.lock_expires_at(), current_timestamp + 500);
         assert_eq!(prioritized_orders[0].request.client_address(), priority_addr);
         assert_eq!(prioritized_orders[1].request.lock_expires_at(), current_timestamp + 100);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_profitability_with_gas_costs() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Create orders with different profitability and gas costs
+        let mut orders = Vec::new();
+
+        // Order 1: High price, high gas cost (net: 800 wei for 100 cycles = 8 wei/cycle)
+        let mut order1 = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+        order1.total_cycles = Some(100);
+        order1.request.offer.minPrice = U256::from(1000);
+        order1.request.offer.maxPrice = U256::from(1000);
+        let order1_id = order1.id();
+
+        // Order 2: Medium price, low gas cost (net: 800 wei for 200 cycles = 4 wei/cycle)
+        let mut order2 = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 200, 300)
+            .await;
+        order2.total_cycles = Some(200);
+        order2.request.offer.minPrice = U256::from(1000);
+        order2.request.offer.maxPrice = U256::from(1000);
+        let order2_id = order2.id();
+
+        // Order 3: Low price, low gas cost (net: 400 wei for 100 cycles = 4 wei/cycle)
+        let mut order3 = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 300, 400)
+            .await;
+        order3.total_cycles = Some(100);
+        order3.request.offer.minPrice = U256::from(600);
+        order3.request.offer.maxPrice = U256::from(600);
+        let order3_id = order3.id();
+
+        let orders = vec![Arc::from(order1), Arc::from(order2), Arc::from(order3)];
+
+        // Create gas costs map
+        let mut gas_costs = HashMap::new();
+        gas_costs.insert(order1_id.clone(), U256::from(200)); // 200 wei gas cost
+        gas_costs.insert(order2_id.clone(), U256::from(200)); // 200 wei gas cost
+        gas_costs.insert(order3_id.clone(), U256::from(200)); // 200 wei gas cost
+
+        // Test prioritization with gas costs
+        let prioritized_orders = ctx.monitor.prioritize_orders_with_gas_costs(
+            orders,
+            OrderCommitmentPriority::HighestProfitability,
+            None,
+            Some(&gas_costs),
+        );
+
+        // Should be ordered by net profitability: order1 (8 wei/cycle), order2 (4 wei/cycle), order3 (4 wei/cycle)
+        assert_eq!(prioritized_orders[0].id(), order1_id);
+        assert_eq!(prioritized_orders[1].id(), order2_id);
+        assert_eq!(prioritized_orders[2].id(), order3_id);
     }
 }
