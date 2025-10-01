@@ -251,7 +251,8 @@ impl RewardsIndexerService {
         tracing::info!("Processing up to epoch: {}", processing_end_epoch);
 
         // Process the last epochs_to_process epochs, if the arg is provided in config.
-        let epochs_to_process = if let Some(epochs_to_process_count) = self.config.epochs_to_process {
+        let epochs_to_process = if let Some(epochs_to_process_count) = self.config.epochs_to_process
+        {
             if epochs_to_process_count > processing_end_epoch {
                 (0..=processing_end_epoch).collect::<Vec<_>>()
             } else {
