@@ -4,15 +4,15 @@
   "rust-analyzer.check.features": [],
   "rust-analyzer.server.extraEnv": {
     "RISC0_SKIP_BUILD": "1",
-    "RISC0_SKIP_BUILD_KERNELS": "1",
-    "CARGO_TARGET_DIR": "target/analyzer"
+    "RISC0_SKIP_BUILD_KERNELS": "1"
   },
   "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.check.extraArgs": ["--target-dir=target/analyzer"],
+  "rust-analyzer.check.extraArgs": [],
   "rust-analyzer.linkedProjects": [
     "./Cargo.toml",
     "./crates/distributor/Cargo.toml",
     "./bento/crates/workflow/Cargo.toml",
+    "./crates/broker/Cargo.toml",
     "./crates/povw/mint-calculator/Cargo.toml",
     "./crates/povw/log-updater/Cargo.toml"
     // "./crates/guest/assessor/assessor-guest/Cargo.toml",
