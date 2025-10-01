@@ -35,7 +35,7 @@ sample-guest-common = { path = "crates/sample-guest/common" }
 sample-guest-methods = { path = "crates/sample-guest/methods" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-shrink_bitvm2 = { git = "https://github.com/ec2/shrink_bitvm2.git", rev = "a1166bda124e53cdfa8a7b78eb26423c9ae49e26", default-features = false }
+shrink_bitvm2 = { git = "https://github.com/ec2/shrink_bitvm2.git", rev = "bd2583c4eed80fa17fea2c79669e8a06e829c854", default-features = false }
 sqlx = { version = "0.8", default-features = false }
 taskdb = { path = "crates/taskdb" }
 tempfile = "3.10"
@@ -55,10 +55,11 @@ debug = 1
 lto = true
 
 [patch.crates-io]
-risc0-groth16 = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
-risc0-groth16-sys = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
-risc0-zkp = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
-risc0-binfmt = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
-risc0-build = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
-risc0-zkvm = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
-risc0-circuit-recursion = { git = "https://github.com/ec2/risc0.git", rev = "5701800c54e1e3e9ba5fae95f901050b17eb296a" }
+risc0-groth16 = { git = "https://github.com/ec2/risc0.git", rev = "193ebbb3ea5e7a73388cb97724c7581116c58839" }
+risc0-groth16-sys = { git = "https://github.com/ec2/risc0.git", rev = "193ebbb3ea5e7a73388cb97724c7581116c58839" }
+risc0-zkp = { git = "https://github.com/ec2/risc0.git", rev = "193ebbb3ea5e7a73388cb97724c7581116c58839" }
+risc0-sys = { git = "https://github.com/ec2/risc0.git", rev = "193ebbb3ea5e7a73388cb97724c7581116c58839" }
+risc0-binfmt = { git = "https://github.com/ec2/risc0.git", rev = "193ebbb3ea5e7a73388cb97724c7581116c58839" }
+risc0-build = { git = "https://github.com/ec2/risc0.git", rev = "193ebbb3ea5e7a73388cb97724c7581116c58839" }
+risc0-zkvm = { git = "https://github.com/ec2/risc0.git", rev = "193ebbb3ea5e7a73388cb97724c7581116c58839" }
+risc0-circuit-recursion = { git = "https://github.com/ec2/risc0.git", rev = "193ebbb3ea5e7a73388cb97724c7581116c58839" }
