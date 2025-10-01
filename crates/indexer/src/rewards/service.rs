@@ -49,7 +49,7 @@ pub struct RewardsIndexerServiceConfig {
     pub start_block: Option<u64>,
     pub end_block: Option<u64>,
     pub end_epoch: Option<u64>,
-    pub epochs_to_process: u64,
+    pub epochs_to_process: Option<u64>,
 }
 
 type ProviderType = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
@@ -250,11 +250,14 @@ impl RewardsIndexerService {
 
         tracing::info!("Processing up to epoch: {}", processing_end_epoch);
 
-        // Process the last epochs_to_process epochs
-        let epochs_to_process_count = self.config.epochs_to_process;
-        let epochs_to_process = if processing_end_epoch >= epochs_to_process_count {
-            (processing_end_epoch - epochs_to_process_count + 1..=processing_end_epoch)
-                .collect::<Vec<_>>()
+        // Process the last epochs_to_process epochs, if the arg is provided in config.
+        let epochs_to_process = if let Some(epochs_to_process_count) = self.config.epochs_to_process {
+            if epochs_to_process_count > processing_end_epoch {
+                (0..=processing_end_epoch).collect::<Vec<_>>()
+            } else {
+                (processing_end_epoch - epochs_to_process_count + 1..=processing_end_epoch)
+                    .collect::<Vec<_>>()
+            }
         } else {
             (0..=processing_end_epoch).collect::<Vec<_>>()
         };
@@ -532,7 +535,7 @@ impl RewardsIndexerService {
 
             // Upsert epoch rewards
             self.db.upsert_povw_rewards_by_epoch(epoch, db_rewards).await?;
-            tracing::info!("Updated {} rewards for epoch {}", num_rewards, epoch);
+            tracing::debug!("Updated {} rewards for epoch {}", num_rewards, epoch);
         }
 
         // Convert aggregates to database format and upsert

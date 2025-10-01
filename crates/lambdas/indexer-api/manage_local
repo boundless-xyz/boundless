@@ -29,7 +29,7 @@ usage() {
     echo "Commands:"
     echo "  run-indexer <db_file> [duration] [end_epoch] [end_block]"
     echo "                                     Run rewards-indexer to populate SQLite database"
-    echo "                                     duration: seconds to run (default: 30)"
+    echo "                                     duration: seconds to run (default: 120)"
     echo "                                     end_epoch: stop at this epoch (optional)"
     echo "                                     end_block: stop at this block (optional)"
     echo ""
@@ -73,7 +73,7 @@ build_binaries() {
 # Function to run indexer
 run_indexer() {
     local db_file="$1"
-    local duration="${2:-30}"
+    local duration="${2:-120}"
     local end_epoch="$3"
     local end_block="$4"
 

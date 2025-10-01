@@ -74,7 +74,7 @@ async fn initialize_test_db() -> TestDbState {
         start_block: None,
         end_block: Some(END_BLOCK),
         end_epoch: Some(END_EPOCH),
-        epochs_to_process: 10,
+        epochs_to_process: Some(10),
     };
 
     let mut service = RewardsIndexerService::new(

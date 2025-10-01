@@ -69,9 +69,10 @@ struct RewardsIndexerArgs {
     log_json: bool,
 
     /// Number of epochs back from the current block to index each time. Only valid when
-    /// end_block and end_epoch are not provided. Defaults to 10.
-    #[clap(long, default_value = "10", conflicts_with_all = ["end_block", "end_epoch"])]
-    epochs_to_process: u64,
+    /// end_block and end_epoch are not provided. Defaults to process all epochs.
+    /// Typically only used for testing, as to get accurate aggregate counts we only support reindexing from 0.
+    #[clap(long, conflicts_with_all = ["end_block", "end_epoch"])]
+    epochs_to_process: Option<u64>,
 }
 
 #[tokio::main]
