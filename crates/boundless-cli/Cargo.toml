@@ -26,11 +26,14 @@ bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
+colored = "2.1"
 futures = { version = "0.3" }
 hex = { workspace = true }
+inquire = "0.7"
 libc = "0.2.159"
 num_enum = "0.7.4"
 reqwest = { workspace = true }
+toml = "0.8"
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 risc0-povw = { workspace = true, features = ["prover"] }

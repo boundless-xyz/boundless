@@ -31,8 +31,9 @@ use boundless_zkc;
 /// Common configuration options for all commands
 #[derive(Args, Debug, Clone)]
 pub struct GlobalConfig {
-    /// URL of the RPC endpoint
-    #[clap(long, env = "RPC_URL", global = true)]
+    /// URL of the RPC endpoint for Boundless network
+    #[clap(long = "boundless-rpc-url", env = "BOUNDLESS_RPC_URL", alias = "rpc-url", global = true)]
+    #[clap(help = "Also supports RPC_URL env var for backwards compatibility")]
     pub rpc_url: Option<Url>,
 
     /// Private key of the wallet (without 0x prefix)
@@ -62,6 +63,82 @@ impl GlobalConfig {
     // natively. There is _some_ ability to use the #[group(requires = _)] attribute to do this,
     // but experimentation as of August 26, 2025 shows this is error prone and potentially buggy.
 
+    /// Load configuration from files if not provided via CLI/env
+    pub fn load_from_files(mut self) -> Result<Self> {
+        use crate::config_file::{Config, Secrets};
+
+        let config = Config::load().ok();
+        let secrets = Secrets::load().ok();
+
+        if self.rpc_url.is_none() {
+            // Check for backwards compatible RPC_URL env var
+            if let Ok(rpc_url) = std::env::var("RPC_URL") {
+                self.rpc_url = Some(Url::parse(&rpc_url)?);
+            } else if let Some(ref config) = config {
+                if config.market.is_some() {
+                    if let Some(ref secrets) = secrets {
+                        if let Some(ref market_secrets) = secrets.market {
+                            if let Some(ref rpc_url) = market_secrets.rpc_url {
+                                self.rpc_url = Some(Url::parse(rpc_url)?);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.private_key.is_none() {
+            if let Some(ref config) = config {
+                if config.market.is_some() {
+                    if let Some(ref secrets) = secrets {
+                        if let Some(ref market_secrets) = secrets.market {
+                            if let Some(ref pk) = market_secrets.private_key {
+                                self.private_key = Some(pk.parse()?);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.deployment.is_none() {
+            if let Some(ref config) = config {
+                if let Some(ref market_config) = config.market {
+                    self.deployment = match market_config.network.as_str() {
+                        "base-mainnet" => Some(boundless_market::deployments::BASE),
+                        "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
+                        "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
+                        custom => {
+                            config.custom_markets.iter()
+                                .find(|m| m.name == custom)
+                                .map(|m| {
+                                    let mut builder = boundless_market::Deployment::builder();
+                                    builder
+                                        .chain_id(m.chain_id)
+                                        .boundless_market_address(m.boundless_market_address)
+                                        .set_verifier_address(m.set_verifier_address);
+
+                                    if let Some(addr) = m.verifier_router_address {
+                                        builder.verifier_router_address(addr);
+                                    }
+                                    if let Some(addr) = m.collateral_token_address {
+                                        builder.collateral_token_address(addr);
+                                    }
+                                    if let Some(url) = m.order_stream_url.as_ref() {
+                                        builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
+                                    }
+
+                                    builder.build().expect("Failed to build custom deployment")
+                                })
+                        }
+                    };
+                }
+            }
+        }
+
+        Ok(self)
+    }
+
     /// Initialize ZKC deployment based on chain ID if not already set
     pub fn with_zkc_deployment_from_chain_id(mut self, chain_id: u64) -> Self {
         if self.zkc_deployment.is_none() {
@@ -74,13 +151,13 @@ impl GlobalConfig {
     pub fn require_rpc_url(&self) -> Result<Url> {
         self.rpc_url
             .clone()
-            .context("Blockchain RPC URL not provided; please set --rpc-url or the RPC_URL env var")
+            .context("Blockchain RPC URL not provided.\n\nTo configure: run 'boundless setup requestor'\nOr set --boundless-rpc-url flag or BOUNDLESS_RPC_URL env var")
     }
 
     /// Access [Self::private_key] or return an error that can be shown to the user.
     pub fn require_private_key(&self) -> Result<PrivateKeySigner> {
         self.private_key.clone().context(
-            "Private key not provided; please set --private-key or the PRIVATE_KEY env var",
+            "Private key not provided.\n\nTo configure: run 'boundless setup requestor'\nOr set --private-key flag or PRIVATE_KEY env var",
         )
     }
 

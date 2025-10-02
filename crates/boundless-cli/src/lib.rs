@@ -20,6 +20,7 @@
 
 pub mod commands;
 pub mod config;
+pub mod config_file;
 pub mod indexer_client;
 
 use alloy::{

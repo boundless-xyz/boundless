@@ -28,11 +28,20 @@ pub struct RequestorBalance {
 impl RequestorBalance {
     /// Run the balance command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        // If address is provided, use it; otherwise try to get it from configured private key
+        let addr = if let Some(addr) = self.address {
+            addr
+        } else if let Some(ref pk) = global_config.private_key {
+            pk.address()
+        } else {
+            bail!(
+                "No address specified for balance query.\n\n\
+                To configure a default address: run 'boundless setup requestor'\n\
+                Or provide an address: boundless requestor balance <ADDRESS>"
+            );
+        };
+
         let client = global_config.build_client().await?;
-        let addr = self.address.unwrap_or(client.boundless_market.caller());
-        if addr == Address::ZERO {
-            bail!("No address specified for balance query. Please provide an address or a private key.")
-        }
         tracing::info!("Checking balance for address {}", addr);
         let balance = client.boundless_market.balance_of(addr).await?;
         tracing::info!("Balance for address {}: {} ETH", addr, format_ether(balance));

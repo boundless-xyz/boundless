@@ -406,7 +406,13 @@ struct SubmitOfferRequirements {
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, long_version = build::CLAP_LONG_VERSION, about = "CLI for Boundless", long_about = CLI_LONG_ABOUT)]
+#[clap(
+    author,
+    long_version = build::CLAP_LONG_VERSION,
+    about = "CLI for Boundless",
+    long_about = CLI_LONG_ABOUT,
+    arg_required_else_help = true
+)]
 struct MainArgs {
     /// Subcommand to run
     #[command(subcommand)]
@@ -416,8 +422,378 @@ struct MainArgs {
     config: GlobalConfig,
 }
 
+const LOGO: &str = r#"
+     .MMMMMMMMMM,
+  ,MMMMO     cMMMMMc
+ WMMMMx       .MMMMMM
+0MMMMM'        ;MMMMM0
+:MMMMM.           :MMM
+      0MMMMM;        .MMMMMK
+       MMMMMM.       dMMMMM
+        lMMMMM;     dMMMMc
+           lMMMMMMMMMM:
+               lMM;
+"#;
+
+fn obscure_url(url: &str) -> String {
+    use url::Url;
+
+    if let Ok(parsed) = Url::parse(url) {
+        let scheme = parsed.scheme();
+        let domain = parsed.host_str().unwrap_or("unknown");
+        let path = parsed.path();
+
+        // Build the visible prefix (scheme + domain + path structure, but we'll obscure part of path)
+        let base_prefix = format!("{}://{}", scheme, domain);
+
+        // For the path, show the structure but obscure sensitive parts
+        let url_len = url.len();
+        let base_len = base_prefix.len();
+
+        // Show domain + beginning of path, obscure the rest
+        let to_show = (base_len + path.len().min(10)).min(url_len.saturating_sub(8));
+
+        if url_len > to_show + 4 {
+            // Show beginning and last 4 characters
+            let beginning = &url[..to_show];
+            let last_4 = &url[url_len - 4..];
+            let obscured_count = url_len - to_show - 4;
+            let stars = "*".repeat(obscured_count);
+            format!("{}{}{}", beginning, stars, last_4)
+        } else if url_len > base_len {
+            // Show domain and obscure everything after
+            let obscured_count = url_len - base_len;
+            let stars = "*".repeat(obscured_count.min(20)); // Cap stars at 20
+            format!("{}{}", base_prefix, stars)
+        } else {
+            // URL is just the domain
+            base_prefix
+        }
+    } else {
+        "****".to_string()
+    }
+}
+
+fn address_from_private_key(private_key: &str) -> Option<String> {
+    use alloy::signers::local::PrivateKeySigner;
+
+    let key_str = if private_key.starts_with("0x") {
+        &private_key[2..]
+    } else {
+        private_key
+    };
+
+    if let Ok(signer) = key_str.parse::<PrivateKeySigner>() {
+        Some(format!("{:?}", signer.address()))
+    } else {
+        None
+    }
+}
+
+fn show_welcome_screen() -> Result<()> {
+    use boundless_cli::config_file::{Config, Secrets};
+    use colored::Colorize;
+
+    println!("{}", LOGO);
+    println!("{}\n", "Boundless CLI - Universal ZK Protocol".bold());
+
+    let config = Config::load().ok();
+    let secrets = Secrets::load().ok();
+
+    let market_configured = config.as_ref().and_then(|c| c.market.as_ref()).is_some();
+    let rewards_configured = config.as_ref().and_then(|c| c.rewards.as_ref()).is_some();
+
+    if market_configured {
+        let network = config.as_ref().unwrap().market.as_ref().unwrap().network.clone();
+        let market_secrets = secrets.as_ref().and_then(|s| s.market.as_ref());
+
+        let display_network = match network.as_str() {
+            "base-mainnet" => "Base Mainnet",
+            "base-sepolia" => "Base Sepolia",
+            "eth-sepolia" => "Ethereum Sepolia",
+            custom => custom,
+        };
+
+        println!("{} Requestor/Prover Module [{}]",
+            "✓".green().bold(),
+            display_network.blue().bold()
+        );
+
+        if let Some(market_sec) = market_secrets {
+            if let Some(ref pk) = market_sec.private_key {
+                if let Some(addr) = address_from_private_key(pk) {
+                    println!("  Address: {}", addr.green());
+                }
+                println!("  Status: {}", "Ready".green());
+            } else {
+                println!("  Status: {} (no credentials)", "Read-only".yellow());
+            }
+        } else {
+            println!("  Status: {} (no credentials)", "Read-only".yellow());
+        }
+    } else {
+        println!("{} Requestor/Prover Module: {}",
+            "✗".red().bold(),
+            "Not configured".red()
+        );
+        println!("  {} {}", "→".cyan(), "Run: boundless setup requestor".cyan());
+    }
+
+    println!();
+
+    if rewards_configured {
+        let network = config.as_ref().unwrap().rewards.as_ref().unwrap().network.clone();
+        let rewards_secrets = secrets.as_ref().and_then(|s| s.rewards.as_ref());
+
+        let display_network = match network.as_str() {
+            "mainnet" => "Ethereum Mainnet",
+            "sepolia" => "Ethereum Sepolia",
+            custom => custom,
+        };
+
+        println!("{} Rewards Module [{}]",
+            "✓".green().bold(),
+            display_network.blue().bold()
+        );
+
+        if let Some(rewards_sec) = rewards_secrets {
+            if let Some(ref pk) = rewards_sec.private_key {
+                if let Some(addr) = address_from_private_key(pk) {
+                    println!("  Address: {}", addr.green());
+                }
+                println!("  Status: {}", "Ready".green());
+            } else {
+                println!("  Status: {} (no credentials)", "Read-only".yellow());
+            }
+        } else {
+            println!("  Status: {} (no credentials)", "Read-only".yellow());
+        }
+    } else {
+        println!("{} Rewards Module: {}",
+            "✗".red().bold(),
+            "Not configured".red()
+        );
+        println!("  {} {}", "→".cyan(), "Run: boundless setup rewards".cyan());
+    }
+
+    println!();
+
+    if !market_configured && !rewards_configured {
+        println!("⚙️  Get started by running: {}", "boundless setup interactive".cyan());
+        println!("   or see all commands: {}", "boundless --help".cyan());
+    } else {
+        println!("Run {} to see available commands", "'boundless --help'".cyan());
+        println!("Run {} to modify configuration", "'boundless setup interactive'".cyan());
+    }
+
+    Ok(())
+}
+
+fn show_requestor_status() -> Result<()> {
+    use boundless_cli::config_file::{Config, Secrets};
+    use colored::Colorize;
+
+    println!("\n{}\n", "Requestor Module".bold().underline());
+
+    let config = Config::load().ok();
+    let secrets = Secrets::load().ok();
+
+    if let Some(ref cfg) = config {
+        if let Some(ref market) = cfg.market {
+            let display_network = match market.network.as_str() {
+                "base-mainnet" => "Base Mainnet",
+                "base-sepolia" => "Base Sepolia",
+                "eth-sepolia" => "Ethereum Sepolia",
+                custom => custom,
+            };
+
+            println!("{} {}", "Network:".bold(), display_network.blue());
+
+            if let Some(ref sec) = secrets {
+                if let Some(ref market_sec) = sec.market {
+                    if let Some(ref rpc) = market_sec.rpc_url {
+                        println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
+                    }
+                    if let Some(ref pk) = market_sec.private_key {
+                        if let Some(addr) = address_from_private_key(pk) {
+                            println!("{} {}", "Address:".bold(), addr.green());
+                        }
+                        println!("{} {}", "Private Key:".bold(), "Configured".green());
+                    } else {
+                        println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
+                    }
+                }
+            }
+        } else {
+            println!("{}", "Not configured - run 'boundless setup interactive'".red());
+            return Ok(());
+        }
+    } else {
+        println!("{}", "Not configured - run 'boundless setup interactive'".red());
+        return Ok(());
+    }
+
+    println!("\n{}\n", "Available Commands:".bold());
+    println!("  {} - Deposit funds into the market", "deposit".cyan());
+    println!("  {} - Withdraw funds from the market", "withdraw".cyan());
+    println!("  {} - Check your deposited balance", "balance".cyan());
+    println!("  {} - Submit a new proof request", "submit-offer".cyan());
+    println!("  {} - Check status of a request", "status".cyan());
+    println!("  {} - Get proof for a fulfilled request", "get-proof".cyan());
+    println!("  {} - Verify a proof", "verify-proof".cyan());
+
+    println!("\n💡 {} {}", "Tip:".bold(), "Try 'boundless requestor submit-offer --help' to get started".dimmed());
+
+    Ok(())
+}
+
+fn show_prover_status() -> Result<()> {
+    use boundless_cli::config_file::{Config, Secrets};
+    use colored::Colorize;
+
+    println!("\n{}\n", "Prover Module".bold().underline());
+
+    let config = Config::load().ok();
+    let secrets = Secrets::load().ok();
+
+    if let Some(ref cfg) = config {
+        if let Some(ref market) = cfg.market {
+            let display_network = match market.network.as_str() {
+                "base-mainnet" => "Base Mainnet",
+                "base-sepolia" => "Base Sepolia",
+                "eth-sepolia" => "Ethereum Sepolia",
+                custom => custom,
+            };
+
+            println!("{} {}", "Network:".bold(), display_network.blue());
+
+            if let Some(ref sec) = secrets {
+                if let Some(ref market_sec) = sec.market {
+                    if let Some(ref rpc) = market_sec.rpc_url {
+                        println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
+                    }
+                    if let Some(ref pk) = market_sec.private_key {
+                        if let Some(addr) = address_from_private_key(pk) {
+                            println!("{} {}", "Address:".bold(), addr.green());
+                        }
+                        println!("{} {}", "Private Key:".bold(), "Configured".green());
+                    } else {
+                        println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
+                    }
+                }
+            }
+
+            // Check for PROVER_ADDRESS env var
+            if let Ok(prover_addr) = std::env::var("PROVER_ADDRESS") {
+                println!("{} {}", "Prover Address:".bold(), prover_addr.green());
+            } else {
+                println!("{} {}", "Prover Address:".bold(), "Not set (use PROVER_ADDRESS env var)".yellow());
+            }
+        } else {
+            println!("{}", "Not configured - run 'boundless setup interactive'".red());
+            return Ok(());
+        }
+    } else {
+        println!("{}", "Not configured - run 'boundless setup interactive'".red());
+        return Ok(());
+    }
+
+    println!("\n{}\n", "Available Commands:".bold());
+    println!("  {} - Deposit collateral into the market", "deposit-collateral".cyan());
+    println!("  {} - Withdraw collateral from the market", "withdraw-collateral".cyan());
+    println!("  {} - Check your collateral balance", "balance-collateral".cyan());
+    println!("  {} - Lock a request for proving", "lock".cyan());
+    println!("  {} - Execute a request (test without submitting)", "execute".cyan());
+    println!("  {} - Fulfill and submit proofs", "fulfill".cyan());
+    println!("  {} - Benchmark proof requests", "benchmark".cyan());
+
+    println!("\n💡 {} {}", "Tip:".bold(), "Try 'boundless prover execute --help' to test proving locally".dimmed());
+
+    Ok(())
+}
+
+fn show_rewards_status() -> Result<()> {
+    use boundless_cli::config_file::{Config, Secrets};
+    use colored::Colorize;
+
+    println!("\n{}\n", "Rewards Module".bold().underline());
+
+    let config = Config::load().ok();
+    let secrets = Secrets::load().ok();
+
+    if let Some(ref cfg) = config {
+        if let Some(ref rewards) = cfg.rewards {
+            let display_network = match rewards.network.as_str() {
+                "mainnet" => "Ethereum Mainnet",
+                "sepolia" => "Ethereum Sepolia",
+                custom => custom,
+            };
+
+            println!("{} {}", "Network:".bold(), display_network.blue());
+
+            if let Some(ref sec) = secrets {
+                if let Some(ref rewards_sec) = sec.rewards {
+                    if let Some(ref rpc) = rewards_sec.rpc_url {
+                        println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
+                    }
+                    if let Some(ref pk) = rewards_sec.private_key {
+                        if let Some(addr) = address_from_private_key(pk) {
+                            println!("{} {}", "Address:".bold(), addr.green());
+                        }
+                        println!("{} {}", "Private Key:".bold(), "Configured".green());
+                    } else {
+                        println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
+                    }
+                }
+            }
+        } else {
+            println!("{}", "Not configured - run 'boundless setup interactive'".red());
+            return Ok(());
+        }
+    } else {
+        println!("{}", "Not configured - run 'boundless setup interactive'".red());
+        return Ok(());
+    }
+
+    println!("\n{}\n", "Available Commands:".bold());
+    println!("  {} - Stake ZKC tokens", "stake-zkc".cyan());
+    println!("  {} - Check ZKC balance", "balance-zkc".cyan());
+    println!("  {} - Check staked ZKC balance", "staked-balance-zkc".cyan());
+    println!("  {} - Submit PoVW work updates", "submit-povw".cyan());
+    println!("  {} - Claim PoVW rewards", "claim-povw-rewards".cyan());
+    println!("  {} - Claim staking rewards", "claim-staking-rewards".cyan());
+    println!("  {} - List historical staking rewards", "list-staking-rewards".cyan());
+    println!("  {} - List historical PoVW rewards", "list-povw-rewards".cyan());
+    println!("  {} - Delegate rewards to another address", "delegate".cyan());
+    println!("  {} - Get current epoch information", "get-current-epoch".cyan());
+
+    println!("\n💡 {} {}", "Tip:".bold(), "Try 'boundless rewards balance-zkc --help' to check your ZKC balance".dimmed());
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Check for module-level commands without subcommands
+    let raw_args: Vec<String> = std::env::args().collect();
+    if raw_args.len() == 2 {
+        match raw_args[1].as_str() {
+            "requestor" => {
+                show_requestor_status()?;
+                return Ok(());
+            }
+            "prover" => {
+                show_prover_status()?;
+                return Ok(());
+            }
+            "rewards" => {
+                show_rewards_status()?;
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
     let args = match MainArgs::try_parse() {
         Ok(args) => args,
         Err(err) => {
@@ -429,6 +805,11 @@ async fn main() -> Result<()> {
             if err.kind() == clap::error::ErrorKind::DisplayVersion {
                 // If it's a version request, print the version and exit successfully
                 err.print()?;
+                return Ok(());
+            }
+            // If no subcommand provided, show welcome screen
+            if err.kind() == clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
+                show_welcome_screen()?;
                 return Ok(());
             }
             return Err(err.into());
@@ -444,25 +825,29 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    run(&args).await
+    // Load configuration from files if not provided via CLI/env
+    let mut config = args.config.clone();
+    config = config.load_from_files()?;
+
+    run(&args, &config).await
 }
 
-pub(crate) async fn run(args: &MainArgs) -> Result<()> {
+pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
     match &args.command {
         // New command structure
-        Command::Requestor(cmd) => cmd.run(&args.config).await,
-        Command::Prover(cmd) => cmd.run(&args.config).await,
-        Command::Rewards(cmd) => cmd.run(&args.config).await,
-        Command::Setup(cmd) => cmd.run(&args.config).await,
+        Command::Requestor(cmd) => cmd.run(config).await,
+        Command::Prover(cmd) => cmd.run(config).await,
+        Command::Rewards(cmd) => cmd.run(config).await,
+        Command::Setup(cmd) => cmd.run(config).await,
 
         // Legacy commands - still functional but hidden
-        Command::Account(account_cmd) => handle_account_command(account_cmd, &args.config).await,
-        Command::Request(request_cmd) => handle_request_command(request_cmd, &args.config).await,
-        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, &args.config).await,
-        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, &args.config).await,
-        Command::Povw(povw_cmd) => povw_cmd.run(&args.config).await,
-        Command::Zkc(zkc_cmd) => zkc_cmd.run(&args.config).await,
-        Command::Config {} => handle_config_command(&args.config).await,
+        Command::Account(account_cmd) => handle_account_command(account_cmd, config).await,
+        Command::Request(request_cmd) => handle_request_command(request_cmd, config).await,
+        Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, config).await,
+        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, config).await,
+        Command::Povw(povw_cmd) => povw_cmd.run(config).await,
+        Command::Zkc(zkc_cmd) => zkc_cmd.run(config).await,
+        Command::Config {} => handle_config_command(config).await,
         Command::Completions { shell } => generate_shell_completions(shell),
     }
 }

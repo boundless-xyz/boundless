@@ -30,17 +30,24 @@ pub struct ProverBalanceCollateral {
 impl ProverBalanceCollateral {
     /// Run the balance collateral command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        // If address is provided, use it; otherwise try to get it from configured private key
+        let addr = if let Some(addr) = self.address {
+            addr
+        } else if let Some(ref pk) = global_config.private_key {
+            pk.address()
+        } else {
+            bail!(
+                "No address specified for collateral balance query.\n\n\
+                To configure a default address: run 'boundless setup prover'\n\
+                Or provide an address: boundless prover balance-collateral <ADDRESS>"
+            );
+        };
+
         let client = global_config.client_builder()?.build().await
             .context("Failed to build Boundless Client")?;
 
         let symbol = client.boundless_market.collateral_token_symbol().await?;
         let decimals = client.boundless_market.collateral_token_decimals().await?;
-
-        // Use provided address or default to caller's address
-        let addr = self.address.unwrap_or(client.boundless_market.caller());
-        if addr == Address::ZERO {
-            bail!("No address specified for collateral balance query. Please provide an address or a private key.")
-        }
 
         // Query both deposited and available balances
         let deposited = client.boundless_market.balance_of_collateral(addr).await?;
