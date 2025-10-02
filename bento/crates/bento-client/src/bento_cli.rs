@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
     // Format API key with reserved value if specified
     let api_key = if args.reserved != 0 {
         tracing::info!("Using reserved: {}", args.reserved);
-        format!("reserved:{}", args.reserved)
+        format!("v1:reserved:{}", args.reserved)
     } else {
         String::new()
     };

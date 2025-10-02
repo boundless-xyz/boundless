@@ -63,7 +63,7 @@ impl Bonsai {
             )
         };
 
-        let prover_type = if api_key.is_empty() || api_key.starts_with("reserved:") {
+        let prover_type = if api_key.is_empty() || api_key.starts_with("v1:reserved:") {
             ProverType::Bento
         } else {
             ProverType::Bonsai

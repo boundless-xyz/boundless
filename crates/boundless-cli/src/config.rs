@@ -176,7 +176,7 @@ impl ProverConfig {
             std::env::set_var("BONSAI_API_KEY", api_key);
         } else {
             tracing::debug!("No API key provided. Setting BONSAI_API_KEY to reserved:50");
-            std::env::set_var("BONSAI_API_KEY", "reserved:50");
+            std::env::set_var("BONSAI_API_KEY", "v1:reserved:50");
         }
     }
 
