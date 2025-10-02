@@ -1,0 +1,15 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGxUaGCL++GQCvX/zLtljzzAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM9k9K+qatJH8EMesJAgEQgDuCOpKHxoA6+LTQnfvVw5a6ELbGojJbAVAA6e5wTaWkMArFNkFiyhHacnJUQnjpAiVWKl2FDz6D4l6NkQ==
+config:
+  aws:region: us-west-2
+  indexer:DOCKER_DIR: ../../
+  indexer:DOCKER_TAG: latest
+  indexer:START_BLOCK: "23250070"
+  indexer:BASE_STACK: organization/bootstrap/services-prod
+  indexer:POVW_ACCOUNTING_ADDRESS: 0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF8
+  indexer:VEZKC_ADDRESS: 0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4
+  indexer:ZKC_ADDRESS: 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555
+  indexer:RUST_LOG: "info"
+  indexer:CHAIN_ID: "1"
+  indexer:INDEXER_API_DOMAIN: indexer.eth-mainnet.boundless.network
+  

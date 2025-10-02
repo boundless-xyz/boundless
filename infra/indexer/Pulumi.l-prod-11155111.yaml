@@ -7,6 +7,9 @@ config:
   indexer:CHAIN_ID: "11155111"
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
+  indexer:POVW_ACCOUNTING_ADDRESS: 0xC5E956732F4bA6B1973a859Cf382244db6e84D0b
+  indexer:VEZKC_ADDRESS: 0xc23340732038ca6C5765763180E81B395d2e9cCA
+  indexer:ZKC_ADDRESS: 0xb4FC69A452D09D2662BD8C3B5BB756902260aE28
   indexer:GH_TOKEN_SECRET:
     secure: v1:UidEowMsyIGoV5cu:nseGsOs61VAdZAZMS+XYkfRCoj9NHPqxbvGukVhJ6avXtzy/6/Fzmo0aYQRZWLziLLEsOrstp/IS0/IyHkO7iAzaKoV4mRmojpDx3Eg1xsWpR+7oRMZD6IOWaeBmf3p6P4t3jHm5IAhfO9UutQ==
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
@@ -17,3 +20,4 @@ config:
   indexer:START_BLOCK: "9125190"
   indexer:ETH_RPC_URL:
     secure: v1:9tN91A1uwvQ5nwuo:gCEg8168h9WizyuxgTEFHWN4xr6yRrLs4uD4BJcun1LMQ+YghSaDAqOxnQCYGRs4E76W41iQHolE3rZBuqftG0WDH/eIRNTI1gY=
+  indexer:INDEXER_API_DOMAIN: indexer.eth-sepolia.boundless.network
