@@ -1,0 +1,96 @@
+name: Nightly AMI Build
+
+on:
+  schedule:
+    # Run every day at 2 AM UTC (adjust timezone as needed)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      boundless_bento_version:
+        description: 'Bento version to build (default: latest)'
+        required: false
+        default: 'latest'
+      boundless_broker_version:
+        description: 'Broker version to build (default: v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+concurrency:
+  group: nightly-ami-build
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-west-2
+  INSTANCE_TYPE: c7a.4xlarge
+  BOUNDLESS_BENTO_VERSION: ${{ github.event.inputs.boundless_bento_version || 'latest' }}
+  BOUNDLESS_BROKER_VERSION: ${{ github.event.inputs.boundless_broker_version || 'v1.0.0' }}
+
+jobs:
+  build-nightly-ami:
+    name: Build Nightly AMI
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Packer
+        run: |
+          wget https://releases.hashicorp.com/packer/1.14.2/packer_1.14.2_linux_amd64.zip
+          unzip packer_1.14.2_linux_amd64.zip
+          sudo mv packer /usr/local/bin/
+          packer version
+
+      - name: Initialize Packer plugins
+        run: |
+          cd infra/packer
+          packer init bento_nightly.pkr.hcl
+
+      - name: Build Nightly AMI
+        run: |
+          cd infra/packer
+          packer build \
+            -var "aws_region=${{ env.AWS_REGION }}" \
+            -var "instance_type=${{ env.INSTANCE_TYPE }}" \
+            -var "service_account_ids=[\"751442549745\",\"245178712747\",\"632745187633\"]" \
+            bento_nightly.pkr.hcl
+
+      - name: Output AMI ID
+        run: |
+          echo "Nightly AMI build completed successfully"
+          echo "Check the Packer output above for the AMI ID"
+
+  notify-success:
+    name: Notify Success
+    runs-on: ubuntu-latest
+    needs: build-nightly-ami
+    if: success()
+
+    steps:
+      - name: Success notification
+        run: |
+          echo "✅ Nightly AMI build completed successfully"
+
+  notify-failure:
+    name: Notify Failure
+    runs-on: ubuntu-latest
+    needs: build-nightly-ami
+    if: failure()
+
+    steps:
+      - name: Failure notification
+        run: |
+          echo "❌ Nightly AMI build failed"
+          echo "Check the logs for details"

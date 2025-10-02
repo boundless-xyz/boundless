@@ -17,16 +17,6 @@ variable "instance_type" {
   default = "c7a.4xlarge"
 }
 
-variable "boundless_bento_version" {
-  type    = string
-  default = "latest"
-}
-
-variable "boundless_broker_version" {
-  type    = string
-  default = "v1.0.0"
-}
-
 variable "service_account_ids" {
   type = list(string)
   default = []

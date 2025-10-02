@@ -39,13 +39,14 @@ const auxCount: number = config.getNumber("auxWorkerCount") || 1;
 
 // Look up the latest packer-built AMI
 const boundlessBentoVersion: string = config.get("boundlessBentoVersion") || "nightly";
+const boundlessAmiName: string = config.get("boundlessAmiName") || `boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`;
 const boundlessAmi = aws.ec2.getAmi({
     mostRecent: true,
     owners: ["self", "968153779208"], // Self and Boundless AWS account
     filters: [
         {
             name: "name",
-            values: [`boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`]
+            values: [boundlessAmiName]
         }
     ]
 });
