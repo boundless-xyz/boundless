@@ -185,7 +185,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
     // Grant execution role permission to write to this service's specific log group
     const region = aws.getRegionOutput().name;
     const accountId = aws.getCallerIdentityOutput().accountId;
-    const logGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${serviceLogGroup}:*`;
+    const logGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${serviceLogGroupName}:*`;
 
     new aws.iam.RolePolicy(`${serviceName}-market-logs-policy`, {
       role: infra.executionRole.id,
@@ -205,7 +205,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-err-filter`, {
       name: `${serviceName}-market-log-err-filter`,
-      logGroupName: serviceLogGroup,
+      logGroupName: serviceLogGroupName,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
         name: `${serviceName}-market-log-err`,
@@ -241,7 +241,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-fatal-filter`, {
       name: `${serviceName}-market-log-fatal-filter`,
-      logGroupName: serviceLogGroup,
+      logGroupName: serviceLogGroupName,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
         name: `${serviceName}-market-log-fatal`,
