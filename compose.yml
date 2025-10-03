@@ -265,6 +265,26 @@ services:
 #     RPC_URL: ${RPC_URL_2}
 #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
+
+  miner:
+    build:
+      context: .
+      dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
+      args:
+        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.0.1/bento-bundle-linux-amd64.tar.gz}
+    restart: always
+    depends_on:
+      rest_api:
+        condition: service_healthy
+    profiles: [miner]
+    mem_limit: 2G
+    cpus: 2
+    network_mode: host
+    environment:
+      <<: *base-environment
+      RUST_LOG: ${RUST_LOG:-info}
+    entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 10000; done"
+
 volumes:
   redis-data:
   postgres-data:
