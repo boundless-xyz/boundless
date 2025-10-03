@@ -20,6 +20,8 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
     verifierAddress?: string;
     boundlessMarketAddress?: string;
     setVerifierAddress?: string;
+    collateralTokenAddress?: string;
+    chainId?: string;
     componentType: "manager" | "prover" | "execution" | "aux";
     volumeSize?: number;
 }
@@ -87,9 +89,11 @@ export class LaunchTemplateComponent extends BaseComponent {
             config.verifierAddress!,
             config.boundlessMarketAddress!,
             config.setVerifierAddress!,
+            config.collateralTokenAddress!,
+            config.chainId!,
             this.config.stackName,
             config.componentType
-        ]).apply(([dbName, dbUser, dbPass, minioUser, minioPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, stackName, componentType]) => {
+        ]).apply(([dbName, dbUser, dbPass, minioUser, minioPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType]) => {
             const userDataScript = `#!/bin/bash
 # Set environment variables
 echo "RUST_LOG=info" >> /etc/environment
@@ -126,6 +130,8 @@ echo "ORDER_STREAM_URL=${orderStreamUrl}" >> /etc/environment
 echo "VERIFIER_ADDRESS=${verifierAddress}" >> /etc/environment
 echo "BOUNDLESS_MARKET_ADDRESS=${boundlessMarketAddress}" >> /etc/environment
 echo "SET_VERIFIER_ADDRESS=${setVerifierAddress}" >> /etc/environment
+echo "COLLATERAL_TOKEN_ADDRESS=${collateralTokenAddress}" >> /etc/environment
+echo "CHAIN_ID=${chainId}" >> /etc/environment
 
 # Copy and configure service files
 cp /opt/boundless/config/bento-api.service /etc/systemd/system/bento-api.service

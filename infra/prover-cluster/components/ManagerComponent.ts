@@ -19,6 +19,8 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     verifierAddress: string;
     boundlessMarketAddress: string;
     setVerifierAddress: string;
+    collateralTokenAddress: string;
+    chainId: string;
 }
 
 export class ManagerComponent extends BaseComponent {

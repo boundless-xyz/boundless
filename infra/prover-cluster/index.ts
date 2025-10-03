@@ -27,6 +27,8 @@ const orderStreamUrl: string = config.require("orderStreamUrl");
 const verifierAddress: string = config.require("verifierAddress");
 const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
 const setVerifierAddress: string = config.require("setVerifierAddress");
+const collateralTokenAddress: string = config.require("collateralTokenAddress");
+const chainId: string = config.require("chainId");
 
 // Contract addresses
 const taskDBUsername: string = config.require("taskDBUsername");
@@ -87,6 +89,8 @@ const manager = new ManagerComponent({
     verifierAddress,
     boundlessMarketAddress,
     setVerifierAddress,
+    collateralTokenAddress,
+    chainId,
 });
 
 // Create worker clusters
