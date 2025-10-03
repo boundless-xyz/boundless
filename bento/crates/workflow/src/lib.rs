@@ -13,19 +13,24 @@ use clap::Parser;
 use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
+    collections::HashMap,
     rc::Rc,
     str::FromStr,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
 use taskdb::ReadyTask;
 use tokio::time;
+use uuid::Uuid;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
 
 mod redis;
 mod tasks;
+
+/// Type alias for the prefetch cache
+type PrefetchCache = Arc<Mutex<HashMap<Uuid, HashMap<usize, Vec<u8>>>>>;
 
 pub use workflow_common::{
     AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, s3::S3Client,
@@ -160,6 +165,8 @@ pub struct Agent {
     prover: Option<Rc<dyn ProverServer>>,
     /// risc0 verifier context
     verifier_ctx: VerifierContext,
+    /// Prefetch cache for segments - maps job_id to a cache of prefetched segment data
+    prefetch_cache: PrefetchCache,
 }
 
 impl Agent {
@@ -217,6 +224,7 @@ impl Agent {
             args,
             prover,
             verifier_ctx,
+            prefetch_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -373,6 +381,15 @@ impl Agent {
             .context("Failed to report task done")?;
 
         Ok(())
+    }
+
+    /// Clean up prefetch cache for a completed job
+    ///
+    /// This method removes all cached segments for a job to free up memory.
+    pub fn cleanup_job_cache(&self, job_id: &Uuid) {
+        let mut cache = self.prefetch_cache.lock().unwrap();
+        cache.remove(job_id);
+        tracing::debug!("Cleaned up prefetch cache for job {job_id}");
     }
 
     /// background task to poll for jobs that need to be requeued
