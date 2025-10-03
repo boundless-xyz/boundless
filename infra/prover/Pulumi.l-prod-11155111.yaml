@@ -8,7 +8,7 @@ config:
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
   base-prover:GH_TOKEN_SECRET:
-    secure: v1:SgHWu457nOvSICvi:qulKAUONxdDJFmhc0FuBEtMaGhOUs7Dl9KFNrgTxkiQiihQg90HRnvfBjzU+DuDp4KXpZB8JSatUxQbPzSSOYsqi/b0DiRqqsEYWEVcXprAqK0BT/ER8127IuitL0vdr4AByj/kn9W2352YTzQ==
+    secure: v1:lssIjDiZ49hKCUKf:cSfhl3uc8qrW9FibjiwIPU1+r1l95IpKORAygndjS9XLwNj+zFGCjZs9Winl+s5v4xczg7vUvxXrub/CDyDEJ25Zbb5h3c1SLQGpevrhb8TY64cIAhdtH8b//Uads20w/ChdPp49aTtIpohYig==
   base-prover:ORDER_STREAM_URL: https://eth-sepolia.boundless.network
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0x7aAB646f23D1392d4522CFaB0b7FB5eaf6821d64

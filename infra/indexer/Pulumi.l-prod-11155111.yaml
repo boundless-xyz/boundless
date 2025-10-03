@@ -11,7 +11,7 @@ config:
   indexer:VEZKC_ADDRESS: 0xc23340732038ca6C5765763180E81B395d2e9cCA
   indexer:ZKC_ADDRESS: 0xb4FC69A452D09D2662BD8C3B5BB756902260aE28
   indexer:GH_TOKEN_SECRET:
-    secure: v1:UidEowMsyIGoV5cu:nseGsOs61VAdZAZMS+XYkfRCoj9NHPqxbvGukVhJ6avXtzy/6/Fzmo0aYQRZWLziLLEsOrstp/IS0/IyHkO7iAzaKoV4mRmojpDx3Eg1xsWpR+7oRMZD6IOWaeBmf3p6P4t3jHm5IAhfO9UutQ==
+    secure: v1:BI9LsKe7JI+YUPKK:yGoRi8wm+HmRNmkWMBfXPT9/YicK5j0r7Bv8rt7ch3I0Ou9FxkoS2tDcODQpvkuuX94q65Zzjo8rvAYUccA6wSBkogtaWhAV0lc8QWHfHGKD0jddYox41OExgZnS1kuntlt3RiZTxpWsS402NQ==
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:RDS_PASSWORD:
     secure: v1:zLlFRu/iTeYvAicY:hEeggf3BbgDusgx3u85HTTbqhm2IQ1+2VcEK7P3Km9b1cg==

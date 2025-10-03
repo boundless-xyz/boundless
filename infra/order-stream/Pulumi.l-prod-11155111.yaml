@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAE1GUAlsUVjoBw6L0
 config:
   aws:region: us-west-2
   order-stream:ALB_DOMAIN: eth-sepolia.boundless.network
-  order-stream:DISABLE_CERT: false
+  order-stream:DISABLE_CERT: "false"
   order-stream:BASE_STACK: organization/bootstrap/services-prod
   order-stream:BOUNDLESS_ADDRESS: 0xc211b581cb62e3a6d396a592bab34979e1bbba7d
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
@@ -19,4 +19,4 @@ config:
   order-stream:ETH_RPC_URL:
     secure: v1:Z1dtl5MMHfZIBjRu:SmLklbPmz4PKEPphEnQuGIrzG0rst1nSfkAceR8Q1eX3G4MOB1Iw293ZeTlzDsurs0Ns6FT/0EzOs1gSacxQP6e2D2hye4tn5nI=
   order-stream:GH_TOKEN_SECRET:
-    secure: v1:+FmzXWE+O1kDyCcV:cKfBxaO/2JfoAXKeezos+ikm+2mPm8+o7Ju2++5H6OEtnaBlWiv5xZ5Hr4mRNOofwe1Olk2sgjCZua+/4gQrcToj6mcx5bOxHvzzFF8gszwe8bouehsucma+yhnJdLqqC6uW2O2TwGs1LqjTzA==
+    secure: v1:lczbvcZjJVdtaNn+:ZPyMXWvgEpt0mnHR6M7j6ZJKRsqiXAsUIYr8aBRPN6lsNVFgHpMCRjcPTPrFF51gpkwFED1GCvTk4wp1tqxvsWWztwHJxos2agMK3tExH/hrGp/qby3RMI+FxpgtsAakYT8ShB5MJTvTQlAHXQ==
