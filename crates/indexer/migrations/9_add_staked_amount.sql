@@ -1,0 +1,2 @@
+-- Add staked_amount column to povw_rewards_by_epoch table
+ALTER TABLE povw_rewards_by_epoch ADD COLUMN staked_amount TEXT NOT NULL DEFAULT '000000000000000000000000000000000000000000000000000000000000000000000000000000';

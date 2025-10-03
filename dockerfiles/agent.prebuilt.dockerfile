@@ -17,6 +17,7 @@ RUN if [ -z "$BINARY_URL" ]; then echo "ERROR: BINARY_URL is required" && exit 1
     curl -L -o /tmp/bento-bundle.tar.gz "$BINARY_URL" && \
     tar -xzf /tmp/bento-bundle.tar.gz -C /tmp && \
     mv /tmp/bento-bundle/bento-agent /app/agent && \
+    mv /tmp/bento-bundle/bento-cli /app/bento_cli && \
     rm -rf /tmp/*
 
 # TODO following rzup commands should likely only be done in a builder image to minimize image size

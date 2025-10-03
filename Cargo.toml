@@ -11,10 +11,12 @@ members = [
     "crates/guest/assessor",
     "crates/guest/util",
     "crates/indexer",
-    "crates/ops-lambdas/indexer-monitor",
+    "crates/lambdas/indexer-api",
+    "crates/lambdas/indexer-monitor",
     "crates/order-generator",
     "crates/order-stream",
     "crates/povw",
+    "crates/rewards",
     "crates/slasher",
     "crates/test-utils",
     "crates/zkc",
@@ -31,6 +33,7 @@ repository = "https://github.com/boundless-xyz/boundless/"
 boundless-assessor = { version = "0.15.0", path = "crates/assessor" }
 boundless-cli = { version = "0.15.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.15.0", path = "crates/boundless-market" }
+boundless-rewards = { version = "0.15.0", path = "crates/rewards" }
 boundless-test-utils = { path = "crates/test-utils" }
 boundless-zkc = { version = "0.15.0", path = "crates/zkc" }
 boundless-povw = { path = "crates/povw" }

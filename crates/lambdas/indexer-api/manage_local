@@ -1,0 +1,225 @@
+#!/bin/bash
+
+# Script to manage local indexer and API for testing
+set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Load .env file if it exists
+if [ -f .env ]; then
+    echo "Loading environment variables from .env file..."
+    set -a
+    source .env
+    set +a
+fi
+
+# Ethereum mainnet configuration
+VEZKC_ADDRESS="${VEZKC_ADDRESS:-0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4}"
+ZKC_ADDRESS="${ZKC_ADDRESS:-0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555}"
+POVW_ACCOUNTING_ADDRESS="${POVW_ACCOUNTING_ADDRESS:-0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF8}"
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  run-indexer <db_file> [duration] [end_epoch] [end_block]"
+    echo "                                     Run rewards-indexer to populate SQLite database"
+    echo "                                     duration: seconds to run (default: 120)"
+    echo "                                     end_epoch: stop at this epoch (optional)"
+    echo "                                     end_block: stop at this block (optional)"
+    echo ""
+    echo "  run-api <port> <db_file>          Run API server with debug logging"
+    echo ""
+    echo "Environment variables:"
+    echo "  ETH_RPC_URL                        Required: Ethereum RPC endpoint"
+    echo "  VEZKC_ADDRESS                      Optional: veZKC contract address"
+    echo "  ZKC_ADDRESS                        Optional: ZKC token address"
+    echo "  POVW_ACCOUNTING_ADDRESS            Optional: PoVW accounting address"
+    exit 1
+}
+
+# Function to check ETH_RPC_URL
+check_rpc_url() {
+    if [ -z "$ETH_RPC_URL" ]; then
+        echo -e "${RED}Error: ETH_RPC_URL environment variable is not set${NC}"
+        echo "Please set it to your Ethereum RPC endpoint"
+        exit 1
+    fi
+}
+
+# Function to build binaries
+build_binaries() {
+    echo -e "${GREEN}Building required binaries...${NC}"
+    cd ../../.. || exit 1
+
+    if [ "$1" == "indexer" ] || [ "$1" == "both" ]; then
+        echo "Building rewards-indexer..."
+        cargo build -p boundless-indexer --bin rewards-indexer
+    fi
+
+    if [ "$1" == "api" ] || [ "$1" == "both" ]; then
+        echo "Building local-server..."
+        cargo build -p indexer-api --bin local-server
+    fi
+
+    cd - > /dev/null || exit 1
+}
+
+# Function to run indexer
+run_indexer() {
+    local db_file="$1"
+    local duration="${2:-120}"
+    local end_epoch="$3"
+    local end_block="$4"
+
+    check_rpc_url
+
+    # Validate arguments
+    if [ -z "$db_file" ]; then
+        echo -e "${RED}Error: Database file path required${NC}"
+        usage
+    fi
+
+    # Convert to absolute path if relative
+    if [[ ! "$db_file" = /* ]]; then
+        db_file="$(pwd)/$db_file"
+    fi
+
+    # Clean up existing database
+    if [ -f "$db_file" ]; then
+        echo -e "${YELLOW}Removing existing database: $db_file${NC}"
+        rm "$db_file"
+    fi
+
+    # Create empty database file for SQLite
+    echo -e "${GREEN}Creating SQLite database: $db_file${NC}"
+    touch "$db_file"
+
+    # Build the indexer
+    build_binaries "indexer"
+
+    echo -e "${GREEN}Running rewards-indexer for $duration seconds...${NC}"
+    echo "Database: sqlite:$db_file"
+    echo "RPC URL: $ETH_RPC_URL"
+    if [ ! -z "$end_epoch" ]; then
+        echo "End epoch: $end_epoch"
+    fi
+    if [ ! -z "$end_block" ]; then
+        echo "End block: $end_block"
+    fi
+    echo ""
+
+    # Build command with optional parameters
+    local cmd="../../../target/debug/rewards-indexer"
+    cmd="$cmd --rpc-url \"$ETH_RPC_URL\""
+    cmd="$cmd --vezkc-address \"$VEZKC_ADDRESS\""
+    cmd="$cmd --zkc-address \"$ZKC_ADDRESS\""
+    cmd="$cmd --povw-accounting-address \"$POVW_ACCOUNTING_ADDRESS\""
+    cmd="$cmd --db \"sqlite:$db_file\""
+    cmd="$cmd --interval 600"
+
+    if [ ! -z "$end_epoch" ]; then
+        cmd="$cmd --end-epoch $end_epoch"
+    fi
+    if [ ! -z "$end_block" ]; then
+        cmd="$cmd --end-block $end_block"
+    fi
+
+    # Run the indexer in background
+    DATABASE_URL="sqlite:$db_file" \
+    VEZKC_ADDRESS="$VEZKC_ADDRESS" \
+    ZKC_ADDRESS="$ZKC_ADDRESS" \
+    POVW_ACCOUNTING_ADDRESS="$POVW_ACCOUNTING_ADDRESS" \
+    RUST_LOG=info \
+    eval "$cmd &"
+
+    INDEXER_PID=$!
+
+    # Show progress
+    echo -n "Populating database"
+    for i in $(seq 1 "$duration"); do
+        if ! kill -0 $INDEXER_PID 2>/dev/null; then
+            echo ""
+            echo -e "${RED}Indexer stopped unexpectedly${NC}"
+            exit 1
+        fi
+        sleep 1
+        echo -n "."
+    done
+    echo ""
+
+    # Stop the indexer
+    if kill -0 $INDEXER_PID 2>/dev/null; then
+        echo "Stopping indexer..."
+        kill $INDEXER_PID 2>/dev/null || true
+        wait $INDEXER_PID 2>/dev/null || true
+    fi
+
+    echo -e "${GREEN}Database populated successfully!${NC}"
+    echo "Database location: $db_file"
+}
+
+# Function to run API
+run_api() {
+    local port="$1"
+    local db_file="$2"
+
+    # Validate arguments
+    if [ -z "$port" ] || [ -z "$db_file" ]; then
+        echo -e "${RED}Error: Port and database file required${NC}"
+        usage
+    fi
+
+    # Convert to absolute path if relative
+    if [[ ! "$db_file" = /* ]]; then
+        db_file="$(pwd)/$db_file"
+    fi
+
+    # Check if database exists
+    if [ ! -f "$db_file" ]; then
+        echo -e "${RED}Error: Database file not found: $db_file${NC}"
+        echo "Run 'manage_local run-indexer' first to create and populate the database"
+        exit 1
+    fi
+
+    # Build the API server
+    build_binaries "api"
+
+    echo -e "${GREEN}Starting API server...${NC}"
+    echo "Port: $port"
+    echo "Database: sqlite:$db_file"
+    echo ""
+    echo "http://localhost:$port/docs"
+    echo ""
+
+    DB_URL="sqlite:$db_file" \
+    PORT="$port" \
+    RUST_LOG=debug \
+    ../../../target/debug/local-server
+}
+
+# Main script logic
+if [ $# -lt 1 ]; then
+    usage
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    run-indexer)
+        run_indexer "$@"
+        ;;
+    run-api)
+        run_api "$@"
+        ;;
+    *)
+        echo -e "${RED}Unknown command: $COMMAND${NC}"
+        usage
+        ;;
+esac
