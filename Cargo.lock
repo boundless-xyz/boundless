@@ -2782,6 +2782,7 @@ dependencies = [
  "futures-util",
  "hex",
  "indexer-monitor",
+ "order-stream",
  "risc0-zkvm",
  "serde",
  "serde_json",

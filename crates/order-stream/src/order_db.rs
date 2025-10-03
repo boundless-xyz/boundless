@@ -75,6 +75,10 @@ impl OrderDb {
         Ok(Self { pool })
     }
 
+    pub fn from_pool_no_migrate(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
     /// Construct a new [OrderDb] from environment variables
     ///
     /// Reads the following env vars:
