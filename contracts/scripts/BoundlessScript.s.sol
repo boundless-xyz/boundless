@@ -152,4 +152,40 @@ abstract contract BoundlessScriptBase is Script {
             );
         }
     }
+
+    /// @notice Print Gnosis Safe transaction information for manual upgrades
+    /// @param proxyAddress The proxy contract address (target for Gnosis Safe)
+    /// @param newImpl The new implementation address
+    /// @param initializerData The initializer call data (if any)
+    function _printGnosisSafeInfo(address proxyAddress, address newImpl, bytes memory initializerData) internal pure {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE UPGRADE INFO ===");
+        console2.log("Target Address (To): ", proxyAddress);
+
+        if (initializerData.length > 0) {
+            // For upgradeToAndCall
+            bytes memory callData = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", newImpl, initializerData);
+            console2.log("Function: upgradeToAndCall(address,bytes)");
+            console2.log("New Implementation: ", newImpl);
+            console2.log("Calldata:");
+            console2.logBytes(callData);
+            console2.log("");
+            console2.log("Expected Events on Successful Execution:");
+            console2.log("1. Upgraded(address indexed implementation)");
+            console2.log("   - implementation: ", newImpl);
+        } else {
+            // For upgradeTo
+            bytes memory callData = abi.encodeWithSignature("upgradeTo(address)", newImpl);
+            console2.log("Function: upgradeTo(address)");
+            console2.log("New Implementation: ", newImpl);
+            console2.log("Calldata:");
+            console2.logBytes(callData);
+            console2.log("");
+            console2.log("Expected Events on Successful Execution:");
+            console2.log("1. Upgraded(address indexed implementation)");
+            console2.log("   - implementation: ", newImpl);
+        }
+        console2.log("================================");
+    }
 }
