@@ -2912,6 +2912,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rand 0.9.2",
+ "requestor-lists",
  "reqwest",
  "reqwest-middleware",
  "reqwest-retry",
@@ -7895,6 +7896,18 @@ name = "regex-syntax"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
+
+[[package]]
+name = "requestor-lists"
+version = "0.15.0"
+dependencies = [
+ "alloy",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "url",
+]
 
 [[package]]
 name = "reqwest"

@@ -66,6 +66,7 @@ pub(crate) mod prioritization;
 pub(crate) mod provers;
 pub(crate) mod proving;
 pub(crate) mod reaper;
+pub(crate) mod requestor_list_refresher;
 pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
@@ -455,6 +456,7 @@ pub struct Broker<P> {
     provider: Arc<P>,
     db: DbObj,
     config_watcher: ConfigWatcher,
+    priority_requestors: requestor_list_refresher::PriorityRequestors,
 }
 
 impl<P> Broker<P>
@@ -484,7 +486,13 @@ where
             tracing::info!("Using default deployment configuration for chain ID {chain_id}");
         }
 
-        Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
+        Ok(Self {
+            args,
+            db,
+            provider: Arc::new(provider),
+            config_watcher,
+            priority_requestors: requestor_list_refresher::PriorityRequestors::new(),
+        })
     }
 
     pub fn deployment(&self) -> &Deployment {
@@ -855,6 +863,7 @@ where
             pricing_tx,
             collateral_token_decimals,
             order_state_tx.clone(),
+            self.priority_requestors.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -872,6 +881,7 @@ where
                 prover.clone(),
                 config.clone(),
                 order_state_tx.clone(),
+                self.priority_requestors.clone(),
             )
             .await
             .context("Failed to initialize proving service")?,
@@ -955,6 +965,17 @@ where
                 .await
                 .context("Failed to start reaper service")?;
             Ok(())
+        });
+
+        // Start the RequestorListRefresher to periodically fetch priority lists
+        let requestor_list_refresher = Arc::new(requestor_list_refresher::RequestorListRefresher::new(
+            config.clone(),
+            self.priority_requestors.clone(),
+            non_critical_cancel_token.clone(),
+        ));
+        let refresher_handle = requestor_list_refresher.clone().spawn();
+        supervisor_tasks.spawn(async move {
+            refresher_handle.await.context("Requestor list refresher panicked")?
         });
 
         let submitter = Arc::new(submitter::Submitter::new(

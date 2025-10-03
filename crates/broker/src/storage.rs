@@ -409,6 +409,7 @@ pub async fn upload_input_uri(
     prover: &crate::provers::ProverObj,
     request: &crate::ProofRequest,
     config: &crate::config::ConfigLock,
+    priority_requestors: &crate::requestor_list_refresher::PriorityRequestors,
 ) -> Result<String> {
     Ok(match request.input.inputType {
         boundless_market::contracts::RequestInputType::Inline => prover
@@ -430,11 +431,9 @@ pub async fn upload_input_uri(
             };
 
             let client_addr = request.client_address();
-            let skip_max_size_limit = if let Some(allow_addresses) = priority_requestor_addresses {
-                allow_addresses.contains(&client_addr)
-            } else {
-                false
-            };
+            let skip_max_size_limit = priority_requestors
+                .is_priority_requestor_combined(&client_addr, &priority_requestor_addresses);
+
             let input_uri = create_uri_handler(input_uri_str, config, skip_max_size_limit)
                 .await
                 .context("URL handling failed")?;

@@ -1,0 +1,182 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://beboundless.xyz/requestor-list.schema.json",
+  "title": "Boundless Requestor List",
+  "description": "Schema for lists requestors on Boundless",
+  "definitions": {
+    "Version": {
+      "type": "object",
+      "description": "Semantic version number",
+      "examples": [
+        {
+          "major": 1,
+          "minor": 0
+        }
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "type": "integer",
+          "description": "The major version number",
+          "minimum": 0,
+          "examples": [
+            1
+          ]
+        },
+        "minor": {
+          "type": "integer",
+          "description": "The minor version number",
+          "minimum": 0,
+          "examples": [
+            0
+          ]
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ]
+    },
+    "RequestorEntry": {
+      "type": "object",
+      "description": "A requestor entry in the priority list",
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "The Ethereum address of the requestor",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "examples": [
+            "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab"
+          ]
+        },
+        "chainId": {
+          "type": "integer",
+          "description": "The chain ID where this requestor operates",
+          "minimum": 1,
+          "examples": [
+            1,
+            8453,
+            11155111
+          ]
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Priority level (0-100, higher = more priority)",
+          "minimum": 0,
+          "maximum": 100,
+          "examples": [
+            0,
+            50,
+            100
+          ]
+        },
+        "name": {
+          "type": "string",
+          "description": "The human-readable name for the requestor",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[ \\w.'+\\-%/À-ÖØ-öø-ÿ:]+$",
+          "examples": [
+            "Alpha Requestor"
+          ]
+        },
+        "estimatedMcycleCountMin": {
+          "type": "integer",
+          "description": "Estimated minimum mcycle count for requests from this requestor",
+          "minimum": 0,
+          "examples": [
+            100,
+            1000
+          ]
+        },
+        "estimatedMcycleCountMax": {
+          "type": "integer",
+          "description": "Estimated maximum mcycle count for requests from this requestor",
+          "minimum": 0,
+          "examples": [
+            100,
+            10000
+          ]
+        },
+        "estimatedMaxInputSizeMB": {
+          "type": "number",
+          "description": "Estimated maximum input size in megabytes for requests from this requestor",
+          "minimum": 0,
+          "examples": [
+            1,
+            10,
+            100
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "description": "Tags for categorization and filtering",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "pattern": "^[a-zA-Z0-9-_]+$"
+          },
+          "maxItems": 20,
+          "examples": [
+            [
+              "fraud_proofs",
+              "defi"
+            ],
+            [
+              "nfts"
+            ]
+          ]
+        }
+      },
+      "required": [
+        "address",
+        "chainId",
+        "priority",
+        "name",
+        "estimatedMcycleCountMin",
+        "estimatedMcycleCountMax",
+        "estimatedMaxInputSizeMB",
+        "tags"
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "The name of the requestor list",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[\\w ]+$",
+      "examples": [
+        "Boundless Recommended Priority List"
+      ]
+    },
+    "schemaVersion": {
+      "description": "The version of the schema this list conforms to",
+      "$ref": "#/definitions/Version"
+    },
+    "version": {
+      "description": "The version of this list content (increments when requestors are added/removed)",
+      "$ref": "#/definitions/Version"
+    },
+    "requestors": {
+      "type": "array",
+      "description": "The list of requestors",
+      "items": {
+        "$ref": "#/definitions/RequestorEntry"
+      },
+      "minItems": 1,
+      "maxItems": 10000
+    }
+  },
+  "required": [
+    "name",
+    "schemaVersion",
+    "version",
+    "requestors"
+  ]
+}

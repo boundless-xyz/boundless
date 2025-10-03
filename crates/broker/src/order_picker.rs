@@ -134,6 +134,7 @@ pub struct OrderPicker<P> {
     order_cache: OrderCache,
     preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
+    priority_requestors: crate::requestor_list_refresher::PriorityRequestors,
 }
 
 #[derive(Debug)]
@@ -172,6 +173,7 @@ where
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
+        priority_requestors: crate::requestor_list_refresher::PriorityRequestors,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
@@ -203,6 +205,7 @@ where
                     .build(),
             ),
             order_state_tx,
+            priority_requestors,
         }
     }
 
@@ -511,6 +514,7 @@ where
             let request = order.request.clone();
             let order_id_clone = order_id.clone();
             let cache_key_clone: PreflightCacheKey = cache_key.clone();
+            let priority_requestors = self.priority_requestors.clone();
 
             let cache_cloned = self.preflight_cache.clone();
             let result = tokio::task::spawn(async move {
@@ -529,7 +533,7 @@ where
                             .await
                             .map_err(|e| OrderPickerErr::FetchImageErr(Arc::new(e)))?;
 
-                        let input_id = upload_input_uri(&prover, &request, &config)
+                        let input_id = upload_input_uri(&prover, &request, &config, &priority_requestors)
                             .await
                             .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?;
 
@@ -967,11 +971,12 @@ where
         let mut max_mcycle_limit = max_mcycle_limit;
         // Check if priority requestor address - skip all exec limit calculations
         let client_addr = order.request.client_address();
-        if let Some(allow_addresses) = &priority_requestor_addresses {
-            if allow_addresses.contains(&client_addr) {
-                max_mcycle_limit = None;
-                tracing::debug!("Order {order_id} exec limit config ignored due to client {} being part of priority_requestor_addresses.", client_addr);
-            }
+        if self
+            .priority_requestors
+            .is_priority_requestor_combined(&client_addr, &priority_requestor_addresses)
+        {
+            max_mcycle_limit = None;
+            tracing::debug!("Order {order_id} exec limit config ignored due to client {} being part of priority requestors.", client_addr);
         }
 
         if let Some(config_mcycle_limit) = max_mcycle_limit {

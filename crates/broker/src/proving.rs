@@ -64,6 +64,7 @@ pub struct ProvingService {
     prover: ProverObj,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
+    priority_requestors: crate::requestor_list_refresher::PriorityRequestors,
 }
 
 impl ProvingService {
@@ -72,8 +73,15 @@ impl ProvingService {
         prover: ProverObj,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
+        priority_requestors: crate::requestor_list_refresher::PriorityRequestors,
     ) -> Result<Self> {
-        Ok(Self { db, prover, config, order_state_tx })
+        Ok(Self {
+            db,
+            prover,
+            config,
+            order_state_tx,
+            priority_requestors,
+        })
     }
 
     async fn cancel_stark_session(&self, proof_id: &str, order_id: &str, reason: &str) {
@@ -155,9 +163,14 @@ impl ProvingService {
                 let input_id = match order.input_id.as_ref() {
                     Some(val) => val.clone(),
                     None => {
-                        crate::storage::upload_input_uri(&self.prover, &order.request, &self.config)
-                            .await
-                            .context("Failed to upload input")?
+                        crate::storage::upload_input_uri(
+                            &self.prover,
+                            &order.request,
+                            &self.config,
+                            &self.priority_requestors,
+                        )
+                        .await
+                        .context("Failed to upload input")?
                     }
                 };
 

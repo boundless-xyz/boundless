@@ -14,7 +14,7 @@ members = [
     "crates/ops-lambdas/indexer-monitor",
     "crates/order-generator",
     "crates/order-stream",
-    "crates/povw",
+    "crates/povw", "crates/requestor-lists",
     "crates/slasher",
     "crates/test-utils",
     "crates/zkc",
