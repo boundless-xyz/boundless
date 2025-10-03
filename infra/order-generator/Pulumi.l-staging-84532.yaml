@@ -9,7 +9,7 @@ config:
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:GH_TOKEN_SECRET:
-    secure: v1:MeGWFpq5rM1uNcVX:lt0N7dDlNj/paiQ17yLDY1BdRvbKRAP7zsNR9Z306290qNPbE3tAuR9NDmOqm/pSsIqENgYKZynGgQXIMepTKtf1EBVzQnSwP1cBfBm9u7AfQia+wJ9a38Vo4j9MYnsQfbt/3g1Z3rIb0fYnUA==
+    secure: v1:HE58lw5Sc9CwM6RH:gckFeDbAiHFC5h1J2WyLhiF5yg9CbO9SCb3JwRWxdOfpcryWOl0YTpDyqwfv26fzET/SW2GhMxp2LVooo9K8WJG5gtwoxBh6tkwXDaTUh1yOupyM4ToO9Rimsy6PmGV/tFzkXmhYc0VaIls/Uw==
   order-generator-base:INTERVAL: "600"
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
   order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"

@@ -39,7 +39,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
   ) {
     super(name, name, opts);
 
-    const serviceName = name;
+    const serviceName = `${name}-mon`;
     const chainId: ChainId = getChainId(args.chainId);
     const stage = pulumi.getStack().includes("staging") ? Stage.STAGING : Stage.PROD;
     const chainStageAlarmConfig = alarmConfig[chainId][stage];

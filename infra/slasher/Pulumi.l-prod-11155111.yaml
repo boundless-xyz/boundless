@@ -8,7 +8,7 @@ config:
   slasher:DOCKER_TAG: latest
   slasher:ERROR_BALANCE_BELOW: "2"
   slasher:GH_TOKEN_SECRET:
-    secure: v1:qG6o62j93sKoMezL:FyfU2cYbLddW90QudORVlVFFVSa/9HELlooRBE2irqDmaYI2HwsJhCt46F/5Bp0fDzNX7xUJt1lRYI8Kf+6pYcOswm7LxiUBl54TrnU18I1kAqnmqe2oeiN/BA/CxdlHepcBpLZ46ZmpeuaHkQ==
+    secure: v1:D2XzkzQJa2hQRzOn:ae5CCDDuhzwCAv4CZYmmVjULetn7n6J0e6+y1wFyvChnKsCiurco85EW4EDy2tIXSfh/CwSre+NEJle0plZFradD1tZdobYiWvoUjhE7YhcTGXGnNbBinu5d8vUlCqSLT50qqWK3II+9IUPMvA==
   slasher:INTERVAL: "60"
   slasher:LOG_LEVEL: boundless_slasher=trace,boundless_market=debug
   slasher:MAX_BLOCK_RANGE: "500"
