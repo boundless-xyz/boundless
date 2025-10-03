@@ -20,8 +20,7 @@ use crate::{
     db::DbObj,
     errors::CodedError,
     futures_retry::retry,
-    impl_coded_debug,
-    now_timestamp,
+    impl_coded_debug, now_timestamp,
     provers::ProverObj,
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
@@ -150,11 +149,9 @@ impl ProvingService {
                 // Mostly hit by skipping pre-flight
                 let image_id = match order.image_id.as_ref() {
                     Some(val) => val.clone(),
-                    None => {
-                        upload_image_uri(&self.prover, &order.request, &self.config)
-                            .await
-                            .context("Failed to upload image")?
-                    }
+                    None => upload_image_uri(&self.prover, &order.request, &self.config)
+                        .await
+                        .context("Failed to upload image")?,
                 };
 
                 let input_id = match order.input_id.as_ref() {
@@ -550,8 +547,7 @@ mod tests {
             .unwrap();
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
-        let priority_requestors =
-            PriorityRequestors::new(config.clone(), 1);
+        let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -580,8 +576,7 @@ mod tests {
 
         // Test that LockAndFulfill orders ignore fulfillment events
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
-        let priority_requestors =
-            PriorityRequestors::new(config.clone(), 1);
+        let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -637,8 +632,7 @@ mod tests {
         let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
-        let priority_requestors =
-            PriorityRequestors::new(config.clone(), 1);
+        let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover,
@@ -729,8 +723,7 @@ mod tests {
             .unwrap();
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
-        let priority_requestors =
-            PriorityRequestors::new(config.clone(), 1);
+        let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),

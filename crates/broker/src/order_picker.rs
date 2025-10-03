@@ -1582,8 +1582,7 @@ pub(crate) mod tests {
             tokio::spawn(chain_monitor.spawn(Default::default()));
 
             let chain_id = provider.get_chain_id().await.unwrap();
-            let priority_requestors =
-                PriorityRequestors::new(config.clone(), chain_id);
+            let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
