@@ -100,9 +100,12 @@ build {
     destination = "/tmp/bento-prover.service"
   }
 
+  provisioner "shell" {
+    script = "scripts/base.sh"
+  }
+
   # Run the complete installation script
   provisioner "shell" {
     script = "scripts/setup_nightly.sh"
-
   }
 }

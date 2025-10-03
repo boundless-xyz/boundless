@@ -110,9 +110,13 @@ build {
     destination = "/tmp/bento-prover.service"
   }
 
+  provisioner "shell" {
+    script = "scripts/base.sh"
+  }
+
   # Run the complete installation script
   provisioner "shell" {
-    script = "scripts/setup.sh"
+    script = "scripts/setup_release.sh"
     environment_vars = [
       "BOUNDLESS_BENTO_VERSION=${var.boundless_bento_version}",
       "BOUNDLESS_BROKER_VERSION=${var.boundless_broker_version}"

@@ -50,7 +50,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: ProverClusterPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:prover-cluster-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, role, stagingAccountId, productionAccountId, amiId, boundlessBentoVersion, boundlessBrokerVersion, githubToken } = args;
+        const { artifactBucket, connection, role, stagingAccountId, productionAccountId, amiId, githubToken } = args;
         // Helper function to create CodeBuild projects
         const createCodeBuildProject = (environment: string, accountId: string, stackName: string) => {
             return new aws.codebuild.Project(`${APP_NAME}-${stackName}`, {
@@ -118,6 +118,8 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
         const stagingBuildBaseSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-84532");
         const stagingBuildEthSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-11155111");
         const productionBuildBaseMainnet = createCodeBuildProject("production", productionAccountId, "prod-8453");
+        const productionBuildBaseMainnetNightly = createCodeBuildProject("production", productionAccountId, "prod-nightly-8453");
+        const productionBuildBaseMainnetRelease = createCodeBuildProject("production", productionAccountId, "prod-release-8453");
 
         // Create the main pipeline with staging and production stages
         const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
@@ -187,14 +189,27 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                             configuration: {}
                         },
                         {
-                            name: "DeployProductionBaseMainnet",
+                            name: "DeployProductionBaseMainnetNightly",
                             category: "Build",
                             owner: "AWS",
                             provider: "CodeBuild",
                             version: "1",
                             runOrder: 2,
                             configuration: {
-                                ProjectName: productionBuildBaseMainnet.name
+                                ProjectName: productionBuildBaseMainnetNightly.name
+                            },
+                            outputArtifacts: ["production_output_base_mainnet"],
+                            inputArtifacts: ["source_output"],
+                        },
+                        {
+                            name: "DeployProductionBaseMainnetRelease",
+                            category: "Build",
+                            owner: "AWS",
+                            provider: "CodeBuild",
+                            version: "1",
+                            runOrder: 2,
+                            configuration: {
+                                ProjectName: productionBuildBaseMainnetRelease.name
                             },
                             outputArtifacts: ["production_output_base_mainnet"],
                             inputArtifacts: ["source_output"],
@@ -213,11 +228,13 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
         this.pipelineName = pipeline.name;
         this.stagingBuildProjectName = stagingBuildBaseSepolia.name;
         this.stagingBuildProject2Name = stagingBuildEthSepolia.name;
-        this.productionBuildProjectName = productionBuildBaseMainnet.name;
+        this.productionBuildReleaseName = productionBuildBaseMainnetRelease.name;
+        this.productionBuildNightlyName = productionBuildBaseMainnetNightly.name;
     }
 
     public readonly pipelineName!: pulumi.Output<string>;
     public readonly stagingBuildProjectName!: pulumi.Output<string>;
     public readonly stagingBuildProject2Name!: pulumi.Output<string>;
-    public readonly productionBuildProjectName!: pulumi.Output<string>;
+    public readonly productionBuildReleaseName!: pulumi.Output<string>;
+    public readonly productionBuildNightlyName!: pulumi.Output<string>;
 }

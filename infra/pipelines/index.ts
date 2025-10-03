@@ -10,6 +10,7 @@ import { LProverPipeline } from "./pipelines/l-prover";
 import { LSlasherPipeline } from "./pipelines/l-slasher";
 import { PackerPipeline } from "./pipelines/packer";
 import { ProverClusterPipeline } from "./pipelines/prover-cluster";
+import { NightlyBuildPipeline } from "./pipelines/nightly-build";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import {
@@ -204,6 +205,23 @@ const proverClusterPipeline = new ProverClusterPipeline("proverClusterPipeline",
   slackAlertsTopicArn: notifications.slackSNSTopic.arn,
 });
 
+// Nightly build pipeline
+const nightlyBuildPipeline = new NightlyBuildPipeline("nightlyBuildPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
+  serviceAccountIds: {
+    development: BOUNDLESS_DEV_ACCOUNT_ID,
+    staging: BOUNDLESS_STAGING_ACCOUNT_ID,
+    production: BOUNDLESS_PROD_ACCOUNT_ID,
+  },
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+});
+
 
 export const bucketName = pulumiStateBucket.bucket.id;
 export const kmsKeyArn = pulumiSecrets.kmsKey.arn;
@@ -213,3 +231,4 @@ export const boundlessAlertsTopicArnLaunch = notifications.slackSNSTopicLaunch.a
 export const boundlessAlertsTopicArnStagingLaunch = notifications.slackSNSTopicStagingLaunch.arn;
 export const packerPipelineName = packerPipeline.pipelineName;
 export const proverClusterStagingPipelineName = proverClusterPipeline.pipelineName;
+export const nightlyBuildPipelineName = nightlyBuildPipeline.pipelineName;
