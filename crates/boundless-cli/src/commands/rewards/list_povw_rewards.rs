@@ -46,8 +46,7 @@ pub struct RewardsListPovwRewards {
 impl RewardsListPovwRewards {
     /// Run the list-povw-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        // Get chain ID from ETH_MAINNET_RPC_URL to determine indexer endpoint
-        let rpc_url = global_config.require_rpc_url()?;
+        let rpc_url = global_config.require_rewards_rpc_url()?;
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await

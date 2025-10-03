@@ -27,10 +27,7 @@ pub struct RewardsGetCurrentEpoch;
 impl RewardsGetCurrentEpoch {
     /// Run the get-current-epoch command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        // Get RPC URL and chain ID
-        let rpc_url = global_config
-            .require_rpc_url()
-            .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
+        let rpc_url = global_config.require_rewards_rpc_url()?;
 
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())

@@ -64,7 +64,7 @@ impl RewardsStakeZkc {
 
         // Actual staking implementation (migrated from zkc/stake.rs)
         let tx_signer = global_config.require_private_key()?;
-        let rpc_url = global_config.require_rpc_url()?;
+        let rpc_url = global_config.require_rewards_rpc_url()?;
 
         // Connect to the chain
         let provider = ProviderBuilder::new()
@@ -133,8 +133,7 @@ impl RewardsStakeZkc {
         tracing::warn!("   - Your staking duration");
         tracing::warn!("   - Network activity and emissions");
 
-        // Get chain ID from ETH_MAINNET_RPC_URL to determine indexer endpoint
-        let rpc_url = global_config.require_rpc_url()?;
+        let rpc_url = global_config.require_rewards_rpc_url()?;
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await

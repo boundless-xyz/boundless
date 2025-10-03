@@ -20,13 +20,25 @@ use inquire::{Confirm, Select, Text};
 
 use crate::config::GlobalConfig;
 use crate::config_file::{
-    Config, CustomMarketDeployment, CustomRewardsDeployment, MarketConfig, MarketSecrets,
-    RewardsConfig, RewardsSecrets, Secrets,
+    Config, CustomMarketDeployment, CustomRewardsDeployment, ProverConfig, ProverSecrets,
+    RequestorConfig, RequestorSecrets, RewardsConfig, RewardsSecrets, Secrets,
 };
 
 /// Interactive setup command
 #[derive(Args, Clone, Debug)]
-pub struct SetupInteractive;
+pub struct SetupInteractive {
+    /// Network name (e.g., base-mainnet, base-sepolia, eth-sepolia)
+    #[arg(long)]
+    pub network: Option<String>,
+
+    /// RPC URL for the network
+    #[arg(long)]
+    pub rpc_url: Option<String>,
+
+    /// Private key for transactions (will be stored in ~/.boundless/secrets.toml)
+    #[arg(long)]
+    pub private_key: Option<String>,
+}
 
 impl SetupInteractive {
     /// Run the interactive setup
@@ -35,7 +47,7 @@ impl SetupInteractive {
 
         let module = Select::new(
             "Which module would you like to configure?",
-            vec!["Requestor/Prover", "Rewards", "Both"],
+            vec!["Requestor", "Prover", "Rewards", "All"],
         )
         .prompt()?;
 
@@ -43,15 +55,19 @@ impl SetupInteractive {
         let mut secrets = Secrets::load().unwrap_or_default();
 
         match module {
-            "Requestor/Prover" => {
-                Self::setup_market(&mut config, &mut secrets).await?;
+            "Requestor" => {
+                self.setup_requestor(&mut config, &mut secrets).await?;
+            }
+            "Prover" => {
+                self.setup_prover(&mut config, &mut secrets).await?;
             }
             "Rewards" => {
-                Self::setup_rewards(&mut config, &mut secrets).await?;
+                self.setup_rewards(&mut config, &mut secrets).await?;
             }
-            "Both" => {
-                Self::setup_market(&mut config, &mut secrets).await?;
-                Self::setup_rewards(&mut config, &mut secrets).await?;
+            "All" => {
+                self.setup_requestor(&mut config, &mut secrets).await?;
+                self.setup_prover(&mut config, &mut secrets).await?;
+                self.setup_rewards(&mut config, &mut secrets).await?;
             }
             _ => unreachable!(),
         }
@@ -59,7 +75,7 @@ impl SetupInteractive {
         config.save()?;
         println!("\n✓ Configuration saved to {}", Config::path()?.display());
 
-        if secrets.market.is_some() || secrets.rewards.is_some() {
+        if secrets.requestor.is_some() || secrets.prover.is_some() || secrets.rewards.is_some() {
             secrets.save()?;
             println!("✓ Secrets saved to {} (permissions: 600)", Secrets::path()?.display());
             println!("\n⚠️  Warning: Secrets are stored in plaintext. Consider using environment variables instead.");
@@ -79,10 +95,13 @@ impl SetupInteractive {
 
         match module {
             "requestor" => {
-                Self::setup_market(&mut config, &mut secrets).await?;
+                self.setup_requestor(&mut config, &mut secrets).await?;
+            }
+            "prover" => {
+                self.setup_prover(&mut config, &mut secrets).await?;
             }
             "rewards" => {
-                Self::setup_rewards(&mut config, &mut secrets).await?;
+                self.setup_rewards(&mut config, &mut secrets).await?;
             }
             _ => unreachable!(),
         }
@@ -90,7 +109,7 @@ impl SetupInteractive {
         config.save()?;
         println!("\n✓ Configuration saved to {}", Config::path()?.display());
 
-        if secrets.market.is_some() || secrets.rewards.is_some() {
+        if secrets.requestor.is_some() || secrets.prover.is_some() || secrets.rewards.is_some() {
             secrets.save()?;
             println!("✓ Secrets saved to {} (permissions: 600)", Secrets::path()?.display());
             println!("\n⚠️  Warning: Secrets are stored in plaintext. Consider using environment variables instead.");
@@ -101,92 +120,184 @@ impl SetupInteractive {
         Ok(())
     }
 
-    async fn setup_market(config: &mut Config, secrets: &mut Secrets) -> Result<()> {
-        println!("\n--- Requestor/Prover Module Setup ---\n");
+    async fn setup_requestor(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
+        println!("\n--- Requestor Module Setup ---\n");
 
-        let existing_market = secrets.market.as_ref();
-        if existing_market.is_some() {
+        let existing_requestor = secrets.requestor.as_ref();
+        if existing_requestor.is_some() && self.network.is_none() && self.rpc_url.is_none() && self.private_key.is_none() {
             println!("📝 Existing configuration detected - current values will be shown\n");
         }
 
-        let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
-
-        for custom_market in &config.custom_markets {
-            network_options.push(&custom_market.name);
-        }
-        network_options.push("Custom (add new)");
-
-        let network = Select::new("Select Boundless Market network:", network_options).prompt()?;
-
-        let network_name = match network {
-            "Base Mainnet" => "base-mainnet".to_string(),
-            "Base Sepolia" => "base-sepolia".to_string(),
-            "Ethereum Sepolia" => "eth-sepolia".to_string(),
-            "Custom (add new)" => {
-                let custom = Self::setup_custom_market()?;
-                let name = custom.name.clone();
-                config.custom_markets.push(custom);
-                name
-            }
-            custom => custom.to_string(),
-        };
-
-        config.market = Some(MarketConfig { network: network_name });
-
-        let mut rpc_url_prompt = Text::new("Enter RPC URL for this network:")
-            .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
-
-        if let Some(existing_rpc) = existing_market.and_then(|m| m.rpc_url.as_ref()) {
-            rpc_url_prompt = rpc_url_prompt.with_default(existing_rpc);
-        }
-
-        let rpc_url = rpc_url_prompt.prompt()?;
-
-        let has_existing_key = existing_market.and_then(|m| m.private_key.as_ref()).is_some();
-        let private_key_prompt = if has_existing_key {
-            let help_msg = format!("Current: {}", Self::obscure_secret("existing_key"));
-            Confirm::new("Do you want to update the stored private key?")
-                .with_default(false)
-                .with_help_message(&help_msg)
-                .prompt()?
+        let network_name = if let Some(ref network) = self.network {
+            println!("✓ Using network: {}", network);
+            network.clone()
         } else {
-            Confirm::new("Do you want to store a private key?")
-                .with_default(false)
-                .with_help_message(
-                    "Required for write operations (submitting requests, depositing funds, etc.)",
-                )
-                .prompt()?
-        };
+            let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
 
-        let private_key = if private_key_prompt {
-            let storage_method = Select::new(
-                "How would you like to store the private key?",
-                vec!["Config file (less secure)", "Environment variable (recommended)"],
-            )
-            .prompt()?;
-
-            match storage_method {
-                "Config file (less secure)" => {
-                    let pk = Text::new("Enter private key (without 0x prefix):")
-                        .with_help_message("This will be stored in ~/.boundless/secrets.toml")
-                        .prompt()?;
-                    Some(pk)
-                }
-                "Environment variable (recommended)" => {
-                    println!("\n✓ Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):");
-                    println!("  export PRIVATE_KEY=your_private_key_here\n");
-                    None
-                }
-                _ => unreachable!(),
+            for custom_market in &config.custom_markets {
+                network_options.push(&custom_market.name);
             }
-        } else if has_existing_key {
-            existing_market.and_then(|m| m.private_key.clone())
-        } else {
-            println!("\n✓ You can set PRIVATE_KEY environment variable later for write operations");
-            None
+            network_options.push("Custom (add new)");
+
+            let network = Select::new("Select Boundless Market network:", network_options).prompt()?;
+
+            match network {
+                "Base Mainnet" => "base-mainnet".to_string(),
+                "Base Sepolia" => "base-sepolia".to_string(),
+                "Ethereum Sepolia" => "eth-sepolia".to_string(),
+                "Custom (add new)" => {
+                    let custom = Self::setup_custom_market()?;
+                    let name = custom.name.clone();
+                    config.custom_markets.push(custom);
+                    name
+                }
+                custom => custom.to_string(),
+            }
         };
 
-        secrets.market = Some(MarketSecrets { rpc_url: Some(rpc_url), private_key });
+        config.requestor = Some(RequestorConfig { network: network_name });
+
+        let rpc_url = if let Some(ref url) = self.rpc_url {
+            println!("✓ Using RPC URL: {}", url);
+            url.clone()
+        } else {
+            let mut rpc_url_prompt = Text::new("Enter RPC URL for this network:")
+                .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
+
+            if let Some(existing_rpc) = existing_requestor.and_then(|m| m.rpc_url.as_ref()) {
+                rpc_url_prompt = rpc_url_prompt.with_default(existing_rpc);
+            }
+
+            rpc_url_prompt.prompt()?
+        };
+
+        let private_key = if let Some(ref pk) = self.private_key {
+            let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+            println!("✓ Using provided private key");
+            Some(pk)
+        } else {
+            let has_existing_key = existing_requestor.and_then(|m| m.private_key.as_ref()).is_some();
+            let private_key_prompt = if has_existing_key {
+                let help_msg = format!("Current: {}", Self::obscure_secret("existing_key"));
+                Confirm::new("Do you want to update the stored private key?")
+                    .with_default(false)
+                    .with_help_message(&help_msg)
+                    .prompt()?
+            } else {
+                Confirm::new("Do you want to store a private key?")
+                    .with_default(false)
+                    .with_help_message(
+                        "Required for write operations. If no, you can set REQUESTOR_PRIVATE_KEY env variable instead.",
+                    )
+                    .prompt()?
+            };
+
+            if private_key_prompt {
+                let pk = Text::new("Enter private key:")
+                    .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
+                    .prompt()?;
+                let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
+                Some(pk)
+            } else if has_existing_key {
+                existing_requestor.and_then(|m| m.private_key.clone())
+            } else {
+                println!("\n✓ You can set REQUESTOR_PRIVATE_KEY environment variable later for write operations");
+                None
+            }
+        };
+
+        secrets.requestor = Some(RequestorSecrets { rpc_url: Some(rpc_url), private_key });
+
+        Ok(())
+    }
+
+    async fn setup_prover(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
+        println!("\n--- Prover Module Setup ---\n");
+
+        let existing_prover = secrets.prover.as_ref();
+        if existing_prover.is_some() && self.network.is_none() && self.rpc_url.is_none() && self.private_key.is_none() {
+            println!("📝 Existing configuration detected - current values will be shown\n");
+        }
+
+        let network_name = if let Some(ref network) = self.network {
+            println!("✓ Using network: {}", network);
+            network.clone()
+        } else {
+            let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
+
+            for custom_market in &config.custom_markets {
+                network_options.push(&custom_market.name);
+            }
+            network_options.push("Custom (add new)");
+
+            let network = Select::new("Select Boundless Market network:", network_options).prompt()?;
+
+            match network {
+                "Base Mainnet" => "base-mainnet".to_string(),
+                "Base Sepolia" => "base-sepolia".to_string(),
+                "Ethereum Sepolia" => "eth-sepolia".to_string(),
+                "Custom (add new)" => {
+                    let custom = Self::setup_custom_market()?;
+                    let name = custom.name.clone();
+                    config.custom_markets.push(custom);
+                    name
+                }
+                custom => custom.to_string(),
+            }
+        };
+
+        config.prover = Some(ProverConfig { network: network_name });
+
+        let rpc_url = if let Some(ref url) = self.rpc_url {
+            println!("✓ Using RPC URL: {}", url);
+            url.clone()
+        } else {
+            let mut rpc_url_prompt = Text::new("Enter RPC URL for this network:")
+                .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
+
+            if let Some(existing_rpc) = existing_prover.and_then(|m| m.rpc_url.as_ref()) {
+                rpc_url_prompt = rpc_url_prompt.with_default(existing_rpc);
+            }
+
+            rpc_url_prompt.prompt()?
+        };
+
+        let private_key = if let Some(ref pk) = self.private_key {
+            let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+            println!("✓ Using provided private key");
+            Some(pk)
+        } else {
+            let has_existing_key = existing_prover.and_then(|m| m.private_key.as_ref()).is_some();
+            let private_key_prompt = if has_existing_key {
+                let help_msg = format!("Current: {}", Self::obscure_secret("existing_key"));
+                Confirm::new("Do you want to update the stored private key?")
+                    .with_default(false)
+                    .with_help_message(&help_msg)
+                    .prompt()?
+            } else {
+                Confirm::new("Do you want to store a private key?")
+                    .with_default(false)
+                    .with_help_message(
+                        "Required for write operations. If no, you can set PROVER_PRIVATE_KEY env variable instead.",
+                    )
+                    .prompt()?
+            };
+
+            if private_key_prompt {
+                let pk = Text::new("Enter private key:")
+                    .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
+                    .prompt()?;
+                let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
+                Some(pk)
+            } else if has_existing_key {
+                existing_prover.and_then(|m| m.private_key.clone())
+            } else {
+                println!("\n✓ You can set PROVER_PRIVATE_KEY environment variable later for write operations");
+                None
+            }
+        };
+
+        secrets.prover = Some(ProverSecrets { rpc_url: Some(rpc_url), private_key });
 
         Ok(())
     }
@@ -262,86 +373,89 @@ impl SetupInteractive {
         })
     }
 
-    async fn setup_rewards(config: &mut Config, secrets: &mut Secrets) -> Result<()> {
+    async fn setup_rewards(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
         println!("\n--- Rewards Module Setup ---\n");
 
         let existing_rewards = secrets.rewards.as_ref();
-        if existing_rewards.is_some() {
+        if existing_rewards.is_some() && self.network.is_none() && self.rpc_url.is_none() && self.private_key.is_none() {
             println!("📝 Existing configuration detected - current values will be shown\n");
         }
 
-        let mut network_options = vec!["Mainnet", "Testnet (Sepolia)"];
+        let network_name = if let Some(ref network) = self.network {
+            println!("✓ Using network: {}", network);
+            network.clone()
+        } else {
+            let mut network_options = vec!["Mainnet", "Testnet (Sepolia)"];
 
-        for custom_rewards in &config.custom_rewards {
-            network_options.push(&custom_rewards.name);
-        }
-        network_options.push("Custom (add new)");
-
-        let network = Select::new("Select rewards network:", network_options).prompt()?;
-
-        let network_name = match network {
-            "Mainnet" => "mainnet".to_string(),
-            "Testnet (Sepolia)" => "sepolia".to_string(),
-            "Custom (add new)" => {
-                let custom = Self::setup_custom_rewards()?;
-                let name = custom.name.clone();
-                config.custom_rewards.push(custom);
-                name
+            for custom_rewards in &config.custom_rewards {
+                network_options.push(&custom_rewards.name);
             }
-            custom => custom.to_string(),
+            network_options.push("Custom (add new)");
+
+            let network = Select::new("Select rewards network:", network_options).prompt()?;
+
+            match network {
+                "Mainnet" => "mainnet".to_string(),
+                "Testnet (Sepolia)" => "sepolia".to_string(),
+                "Custom (add new)" => {
+                    let custom = Self::setup_custom_rewards()?;
+                    let name = custom.name.clone();
+                    config.custom_rewards.push(custom);
+                    name
+                }
+                custom => custom.to_string(),
+            }
         };
 
         config.rewards = Some(RewardsConfig { network: network_name });
 
-        let mut rpc_url_prompt = Text::new("Enter RPC URL for this network:")
-            .with_help_message("e.g., https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
-
-        if let Some(existing_rpc) = existing_rewards.and_then(|r| r.rpc_url.as_ref()) {
-            rpc_url_prompt = rpc_url_prompt.with_default(existing_rpc);
-        }
-
-        let rpc_url = rpc_url_prompt.prompt()?;
-
-        let has_existing_key = existing_rewards.and_then(|r| r.private_key.as_ref()).is_some();
-        let private_key_prompt = if has_existing_key {
-            let help_msg = format!("Current: {}", Self::obscure_secret("existing_key"));
-            Confirm::new("Do you want to update the stored private key?")
-                .with_default(false)
-                .with_help_message(&help_msg)
-                .prompt()?
+        let rpc_url = if let Some(ref url) = self.rpc_url {
+            println!("✓ Using RPC URL: {}", url);
+            url.clone()
         } else {
-            Confirm::new("Do you want to store a private key?")
-                .with_default(false)
-                .with_help_message("Required for staking, claiming rewards, etc.")
-                .prompt()?
+            let mut rpc_url_prompt = Text::new("Enter RPC URL for this network:")
+                .with_help_message("e.g., https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
+
+            if let Some(existing_rpc) = existing_rewards.and_then(|r| r.rpc_url.as_ref()) {
+                rpc_url_prompt = rpc_url_prompt.with_default(existing_rpc);
+            }
+
+            rpc_url_prompt.prompt()?
         };
 
-        let private_key = if private_key_prompt {
-            let storage_method = Select::new(
-                "How would you like to store the private key?",
-                vec!["Config file (less secure)", "Environment variable (recommended)"],
-            )
-            .prompt()?;
-
-            match storage_method {
-                "Config file (less secure)" => {
-                    let pk = Text::new("Enter private key (without 0x prefix):")
-                        .with_help_message("This will be stored in ~/.boundless/secrets.toml")
-                        .prompt()?;
-                    Some(pk)
-                }
-                "Environment variable (recommended)" => {
-                    println!("\n✓ Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):");
-                    println!("  export PRIVATE_KEY=your_private_key_here\n");
-                    None
-                }
-                _ => unreachable!(),
-            }
-        } else if has_existing_key {
-            existing_rewards.and_then(|r| r.private_key.clone())
+        let private_key = if let Some(ref pk) = self.private_key {
+            let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+            println!("✓ Using provided private key");
+            Some(pk)
         } else {
-            println!("\n✓ You can set PRIVATE_KEY environment variable later for write operations");
-            None
+            let has_existing_key = existing_rewards.and_then(|r| r.private_key.as_ref()).is_some();
+            let private_key_prompt = if has_existing_key {
+                let help_msg = format!("Current: {}", Self::obscure_secret("existing_key"));
+                Confirm::new("Do you want to update the stored private key?")
+                    .with_default(false)
+                    .with_help_message(&help_msg)
+                    .prompt()?
+            } else {
+                Confirm::new("Do you want to store a private key?")
+                    .with_default(false)
+                    .with_help_message(
+                        "Required for write operations. If no, you can set REWARDS_PRIVATE_KEY env variable instead.",
+                    )
+                    .prompt()?
+            };
+
+            if private_key_prompt {
+                let pk = Text::new("Enter private key:")
+                    .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
+                    .prompt()?;
+                let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
+                Some(pk)
+            } else if has_existing_key {
+                existing_rewards.and_then(|r| r.private_key.clone())
+            } else {
+                println!("\n✓ You can set REWARDS_PRIVATE_KEY environment variable later for write operations");
+                None
+            }
         };
 
         secrets.rewards = Some(RewardsSecrets { rpc_url: Some(rpc_url), private_key });

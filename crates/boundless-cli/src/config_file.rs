@@ -39,7 +39,15 @@ pub fn ensure_config_dir() -> Result<PathBuf> {
 /// Main configuration file (config.toml)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
-    /// Market (requestor/prover) configuration
+    /// Requestor configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requestor: Option<RequestorConfig>,
+
+    /// Prover configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prover: Option<ProverConfig>,
+
+    /// Market (requestor/prover) configuration (deprecated, for backwards compatibility)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub market: Option<MarketConfig>,
 
@@ -56,7 +64,21 @@ pub struct Config {
     pub custom_rewards: Vec<CustomRewardsDeployment>,
 }
 
-/// Market (requestor/prover) configuration
+/// Requestor configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestorConfig {
+    /// Network name
+    pub network: String,
+}
+
+/// Prover configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProverConfig {
+    /// Network name
+    pub network: String,
+}
+
+/// Market (requestor/prover) configuration (deprecated)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketConfig {
     /// Network name
@@ -114,7 +136,15 @@ pub struct CustomRewardsDeployment {
 /// Secrets file (secrets.toml)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Secrets {
-    /// Market secrets
+    /// Requestor secrets
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requestor: Option<RequestorSecrets>,
+
+    /// Prover secrets
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prover: Option<ProverSecrets>,
+
+    /// Market secrets (deprecated, for backwards compatibility)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub market: Option<MarketSecrets>,
 
@@ -123,7 +153,31 @@ pub struct Secrets {
     pub rewards: Option<RewardsSecrets>,
 }
 
-/// Market secrets
+/// Requestor secrets
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestorSecrets {
+    /// RPC URL for requestor network
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc_url: Option<String>,
+
+    /// Private key for transactions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_key: Option<String>,
+}
+
+/// Prover secrets
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProverSecrets {
+    /// RPC URL for prover network
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc_url: Option<String>,
+
+    /// Private key for transactions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_key: Option<String>,
+}
+
+/// Market secrets (deprecated)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketSecrets {
     /// RPC URL for market network

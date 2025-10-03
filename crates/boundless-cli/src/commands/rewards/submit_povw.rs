@@ -50,10 +50,7 @@ pub struct RewardsSubmitPovw {
 impl RewardsSubmitPovw {
     /// Run the submit-povw command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        // Get RPC URL and verify chain
-        let rpc_url = global_config
-            .require_rpc_url()
-            .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
+        let rpc_url = global_config.require_rewards_rpc_url()?;
 
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())

@@ -33,9 +33,9 @@ use crate::config::GlobalConfig;
 pub enum SetupCommands {
     /// Interactive setup wizard for all modules
     All(SetupInteractive),
-    /// Configure the Requestor/Prover module
+    /// Configure the Requestor module
     Requestor(SetupInteractive),
-    /// Configure the Prover module (alias for requestor)
+    /// Configure the Prover module
     Prover(SetupInteractive),
     /// Configure the Rewards module
     Rewards(SetupInteractive),
@@ -53,7 +53,7 @@ impl SetupCommands {
         match self {
             Self::All(cmd) => cmd.run(global_config).await,
             Self::Requestor(cmd) => cmd.run_module(global_config, "requestor").await,
-            Self::Prover(cmd) => cmd.run_module(global_config, "requestor").await,
+            Self::Prover(cmd) => cmd.run_module(global_config, "prover").await,
             Self::Rewards(cmd) => cmd.run_module(global_config, "rewards").await,
             Self::Config(cmd) => cmd.run(global_config).await,
             Self::Completions(cmd) => cmd.run(),

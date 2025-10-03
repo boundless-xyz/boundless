@@ -31,10 +31,7 @@ pub struct RewardsGetDelegate {
 impl RewardsGetDelegate {
     /// Run the get-delegate command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        // Get RPC URL
-        let rpc_url = global_config
-            .require_rpc_url()
-            .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
+        let rpc_url = global_config.require_rewards_rpc_url()?;
 
         // Connect to provider
         let provider = ProviderBuilder::new()

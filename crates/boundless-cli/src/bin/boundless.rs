@@ -495,12 +495,14 @@ fn show_welcome_screen() -> Result<()> {
     let config = Config::load().ok();
     let secrets = Secrets::load().ok();
 
-    let market_configured = config.as_ref().and_then(|c| c.market.as_ref()).is_some();
+    let requestor_configured = config.as_ref().and_then(|c| c.requestor.as_ref()).is_some();
+    let prover_configured = config.as_ref().and_then(|c| c.prover.as_ref()).is_some();
     let rewards_configured = config.as_ref().and_then(|c| c.rewards.as_ref()).is_some();
 
-    if market_configured {
-        let network = config.as_ref().unwrap().market.as_ref().unwrap().network.clone();
-        let market_secrets = secrets.as_ref().and_then(|s| s.market.as_ref());
+    // Show Requestor Module
+    if requestor_configured {
+        let network = config.as_ref().unwrap().requestor.as_ref().unwrap().network.clone();
+        let requestor_secrets = secrets.as_ref().and_then(|s| s.requestor.as_ref());
 
         let display_network = match network.as_str() {
             "base-mainnet" => "Base Mainnet",
@@ -510,15 +512,15 @@ fn show_welcome_screen() -> Result<()> {
         };
 
         println!(
-            "{} Requestor/Prover Module [{}]",
+            "{} Requestor Module [{}]",
             "✓".green().bold(),
             display_network.blue().bold()
         );
 
-        if let Some(market_sec) = market_secrets {
-            if let Some(ref pk) = market_sec.private_key {
+        if let Some(req_sec) = requestor_secrets {
+            if let Some(ref pk) = req_sec.private_key {
                 if let Some(addr) = address_from_private_key(pk) {
-                    println!("  Address: {}", addr.green());
+                    println!("  Requestor Address: {}", addr.green());
                 }
                 println!("  Status: {}", "Ready".green());
             } else {
@@ -528,8 +530,45 @@ fn show_welcome_screen() -> Result<()> {
             println!("  Status: {} (no credentials)", "Read-only".yellow());
         }
     } else {
-        println!("{} Requestor/Prover Module: {}", "✗".red().bold(), "Not configured".red());
+        println!("{} Requestor Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run: boundless setup requestor".cyan());
+    }
+
+    println!();
+
+    // Show Prover Module
+    if prover_configured {
+        let network = config.as_ref().unwrap().prover.as_ref().unwrap().network.clone();
+        let prover_secrets = secrets.as_ref().and_then(|s| s.prover.as_ref());
+
+        let display_network = match network.as_str() {
+            "base-mainnet" => "Base Mainnet",
+            "base-sepolia" => "Base Sepolia",
+            "eth-sepolia" => "Ethereum Sepolia",
+            custom => custom,
+        };
+
+        println!(
+            "{} Prover Module [{}]",
+            "✓".green().bold(),
+            display_network.blue().bold()
+        );
+
+        if let Some(prov_sec) = prover_secrets {
+            if let Some(ref pk) = prov_sec.private_key {
+                if let Some(addr) = address_from_private_key(pk) {
+                    println!("  Prover Address: {}", addr.green());
+                }
+                println!("  Status: {}", "Ready".green());
+            } else {
+                println!("  Status: {} (no credentials)", "Read-only".yellow());
+            }
+        } else {
+            println!("  Status: {} (no credentials)", "Read-only".yellow());
+        }
+    } else {
+        println!("{} Prover Module: {}", "✗".red().bold(), "Not configured".red());
+        println!("  {} {}", "→".cyan(), "Run: boundless setup prover".cyan());
     }
 
     println!();
@@ -565,12 +604,11 @@ fn show_welcome_screen() -> Result<()> {
 
     println!();
 
-    if !market_configured && !rewards_configured {
+    if !requestor_configured && !prover_configured && !rewards_configured {
         println!("⚙️  Get started by running: {}", "boundless setup all".cyan());
-        println!("   or see all commands: {}", "boundless --help".cyan());
+        println!("    or see all commands: {}", "boundless --help".cyan());
     } else {
         println!("Run {} to see available commands", "'boundless --help'".cyan());
-        println!("Run {} to modify configuration", "'boundless setup all'".cyan());
     }
 
     Ok(())
@@ -586,8 +624,8 @@ fn show_requestor_status() -> Result<()> {
     let secrets = Secrets::load().ok();
 
     if let Some(ref cfg) = config {
-        if let Some(ref market) = cfg.market {
-            let display_network = match market.network.as_str() {
+        if let Some(ref requestor) = cfg.requestor {
+            let display_network = match requestor.network.as_str() {
                 "base-mainnet" => "Base Mainnet",
                 "base-sepolia" => "Base Sepolia",
                 "eth-sepolia" => "Ethereum Sepolia",
@@ -597,13 +635,13 @@ fn show_requestor_status() -> Result<()> {
             println!("{} {}", "Network:".bold(), display_network.blue());
 
             if let Some(ref sec) = secrets {
-                if let Some(ref market_sec) = sec.market {
-                    if let Some(ref rpc) = market_sec.rpc_url {
+                if let Some(ref requestor_sec) = sec.requestor {
+                    if let Some(ref rpc) = requestor_sec.rpc_url {
                         println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
                     }
-                    if let Some(ref pk) = market_sec.private_key {
+                    if let Some(ref pk) = requestor_sec.private_key {
                         if let Some(addr) = address_from_private_key(pk) {
-                            println!("{} {}", "Address:".bold(), addr.green());
+                            println!("{} {}", "Requestor Address:".bold(), addr.green());
                         }
                         println!("{} {}", "Private Key:".bold(), "Configured".green());
                     } else {
@@ -616,11 +654,11 @@ fn show_requestor_status() -> Result<()> {
                 }
             }
         } else {
-            println!("{}", "Not configured - run 'boundless setup all'".red());
+            println!("{}", "Not configured - run 'boundless setup requestor'".red());
             return Ok(());
         }
     } else {
-        println!("{}", "Not configured - run 'boundless setup all'".red());
+        println!("{}", "Not configured - run 'boundless setup requestor'".red());
         return Ok(());
     }
 
@@ -652,8 +690,8 @@ fn show_prover_status() -> Result<()> {
     let secrets = Secrets::load().ok();
 
     if let Some(ref cfg) = config {
-        if let Some(ref market) = cfg.market {
-            let display_network = match market.network.as_str() {
+        if let Some(ref prover) = cfg.prover {
+            let display_network = match prover.network.as_str() {
                 "base-mainnet" => "Base Mainnet",
                 "base-sepolia" => "Base Sepolia",
                 "eth-sepolia" => "Ethereum Sepolia",
@@ -663,13 +701,13 @@ fn show_prover_status() -> Result<()> {
             println!("{} {}", "Network:".bold(), display_network.blue());
 
             if let Some(ref sec) = secrets {
-                if let Some(ref market_sec) = sec.market {
-                    if let Some(ref rpc) = market_sec.rpc_url {
+                if let Some(ref prover_sec) = sec.prover {
+                    if let Some(ref rpc) = prover_sec.rpc_url {
                         println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
                     }
-                    if let Some(ref pk) = market_sec.private_key {
+                    if let Some(ref pk) = prover_sec.private_key {
                         if let Some(addr) = address_from_private_key(pk) {
-                            println!("{} {}", "Address:".bold(), addr.green());
+                            println!("{} {}", "Prover Address:".bold(), addr.green());
                         }
                         println!("{} {}", "Private Key:".bold(), "Configured".green());
                     } else {
@@ -681,23 +719,12 @@ fn show_prover_status() -> Result<()> {
                     }
                 }
             }
-
-            // Check for PROVER_ADDRESS env var
-            if let Ok(prover_addr) = std::env::var("PROVER_ADDRESS") {
-                println!("{} {}", "Prover Address:".bold(), prover_addr.green());
-            } else {
-                println!(
-                    "{} {}",
-                    "Prover Address:".bold(),
-                    "Not set (use PROVER_ADDRESS env var)".yellow()
-                );
-            }
         } else {
-            println!("{}", "Not configured - run 'boundless setup all'".red());
+            println!("{}", "Not configured - run 'boundless setup prover'".red());
             return Ok(());
         }
     } else {
-        println!("{}", "Not configured - run 'boundless setup all'".red());
+        println!("{}", "Not configured - run 'boundless setup prover'".red());
         return Ok(());
     }
 
@@ -713,7 +740,7 @@ fn show_prover_status() -> Result<()> {
     println!(
         "\n💡 {} {}",
         "Tip:".bold(),
-        "Try 'boundless prover execute --help' to test proving locally".dimmed()
+        "Try 'boundless prover benchmark' to test the performance of your Bento cluster".dimmed()
     );
 
     Ok(())
@@ -843,8 +870,13 @@ async fn main() -> Result<()> {
         .init();
 
     // Load configuration from files if not provided via CLI/env
+    // Use the appropriate loader based on the command type
     let mut config = args.config.clone();
-    config = config.load_from_files()?;
+    config = match &args.command {
+        Command::Prover(_) => config.load_prover_from_files()?,
+        Command::Requestor(_) => config.load_requestor_from_files()?,
+        _ => config.load_from_files()?,
+    };
 
     run(&args, &config).await
 }

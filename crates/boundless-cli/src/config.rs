@@ -42,7 +42,8 @@ pub struct GlobalConfig {
     pub rpc_url: Option<Url>,
 
     /// Private key of the wallet (without 0x prefix)
-    #[clap(long, env = "PRIVATE_KEY", global = true, hide_env_values = true)]
+    #[clap(long, global = true, hide_env_values = true)]
+    #[clap(help = "Also supports REQUESTOR_PRIVATE_KEY, PROVER_PRIVATE_KEY, or PRIVATE_KEY env vars")]
     pub private_key: Option<PrivateKeySigner>,
 
     /// Ethereum transaction timeout in seconds.
@@ -68,39 +69,48 @@ impl GlobalConfig {
     // natively. There is _some_ ability to use the #[group(requires = _)] attribute to do this,
     // but experimentation as of August 26, 2025 shows this is error prone and potentially buggy.
 
-    /// Load configuration from files if not provided via CLI/env
-    pub fn load_from_files(mut self) -> Result<Self> {
+    /// Load configuration from requestor config files
+    pub fn load_requestor_from_files(mut self) -> Result<Self> {
         use crate::config_file::{Config, Secrets};
 
         let config = Config::load().ok();
         let secrets = Secrets::load().ok();
 
         if self.rpc_url.is_none() {
-            // Check for backwards compatible RPC_URL env var
-            if let Ok(rpc_url) = std::env::var("RPC_URL") {
+            // Try REQUESTOR_RPC_URL, then RPC_URL, then config file
+            if let Ok(rpc_url) = std::env::var("REQUESTOR_RPC_URL") {
                 self.rpc_url = Some(Url::parse(&rpc_url)?);
-            } else if let Some(ref config) = config {
-                if config.market.is_some() {
-                    if let Some(ref secrets) = secrets {
-                        if let Some(ref market_secrets) = secrets.market {
-                            if let Some(ref rpc_url) = market_secrets.rpc_url {
-                                self.rpc_url = Some(Url::parse(rpc_url)?);
-                            }
-                        }
+            } else if let Ok(rpc_url) = std::env::var("RPC_URL") {
+                self.rpc_url = Some(Url::parse(&rpc_url)?);
+            } else if let Some(ref secrets) = secrets {
+                if let Some(ref requestor_secrets) = secrets.requestor {
+                    if let Some(ref rpc_url) = requestor_secrets.rpc_url {
+                        self.rpc_url = Some(Url::parse(rpc_url)?);
+                    }
+                } else if let Some(ref market_secrets) = secrets.market {
+                    // Backward compatibility
+                    if let Some(ref rpc_url) = market_secrets.rpc_url {
+                        self.rpc_url = Some(Url::parse(rpc_url)?);
                     }
                 }
             }
         }
 
         if self.private_key.is_none() {
-            if let Some(ref config) = config {
-                if config.market.is_some() {
-                    if let Some(ref secrets) = secrets {
-                        if let Some(ref market_secrets) = secrets.market {
-                            if let Some(ref pk) = market_secrets.private_key {
-                                self.private_key = Some(pk.parse()?);
-                            }
-                        }
+            // Try REQUESTOR_PRIVATE_KEY, then PRIVATE_KEY, then config file
+            if let Ok(pk) = std::env::var("REQUESTOR_PRIVATE_KEY") {
+                self.private_key = Some(pk.parse()?);
+            } else if let Ok(pk) = std::env::var("PRIVATE_KEY") {
+                self.private_key = Some(pk.parse()?);
+            } else if let Some(ref secrets) = secrets {
+                if let Some(ref requestor_secrets) = secrets.requestor {
+                    if let Some(ref pk) = requestor_secrets.private_key {
+                        self.private_key = Some(pk.parse()?);
+                    }
+                } else if let Some(ref market_secrets) = secrets.market {
+                    // Backward compatibility
+                    if let Some(ref pk) = market_secrets.private_key {
+                        self.private_key = Some(pk.parse()?);
                     }
                 }
             }
@@ -108,38 +118,135 @@ impl GlobalConfig {
 
         if self.deployment.is_none() {
             if let Some(ref config) = config {
-                if let Some(ref market_config) = config.market {
-                    self.deployment = match market_config.network.as_str() {
+                let network = config
+                    .requestor
+                    .as_ref()
+                    .map(|r| &r.network)
+                    .or_else(|| config.market.as_ref().map(|m| &m.network));
+
+                if let Some(network) = network {
+                    self.deployment = match network.as_str() {
                         "base-mainnet" => Some(boundless_market::deployments::BASE),
                         "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
                         "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
-                        custom => {
-                            config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
-                                let mut builder = boundless_market::Deployment::builder();
-                                builder
-                                    .chain_id(m.chain_id)
-                                    .boundless_market_address(m.boundless_market_address)
-                                    .set_verifier_address(m.set_verifier_address);
+                        custom => config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
+                            let mut builder = boundless_market::Deployment::builder();
+                            builder
+                                .chain_id(m.chain_id)
+                                .boundless_market_address(m.boundless_market_address)
+                                .set_verifier_address(m.set_verifier_address);
 
-                                if let Some(addr) = m.verifier_router_address {
-                                    builder.verifier_router_address(addr);
-                                }
-                                if let Some(addr) = m.collateral_token_address {
-                                    builder.collateral_token_address(addr);
-                                }
-                                if let Some(url) = m.order_stream_url.as_ref() {
-                                    builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
-                                }
+                            if let Some(addr) = m.verifier_router_address {
+                                builder.verifier_router_address(addr);
+                            }
+                            if let Some(addr) = m.collateral_token_address {
+                                builder.collateral_token_address(addr);
+                            }
+                            if let Some(url) = m.order_stream_url.as_ref() {
+                                builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
+                            }
 
-                                builder.build().expect("Failed to build custom deployment")
-                            })
-                        }
+                            builder.build().expect("Failed to build custom deployment")
+                        }),
                     };
                 }
             }
         }
 
         Ok(self)
+    }
+
+    /// Load configuration from prover config files
+    pub fn load_prover_from_files(mut self) -> Result<Self> {
+        use crate::config_file::{Config, Secrets};
+
+        let config = Config::load().ok();
+        let secrets = Secrets::load().ok();
+
+        if self.rpc_url.is_none() {
+            // Try PROVER_RPC_URL, then RPC_URL, then config file
+            if let Ok(rpc_url) = std::env::var("PROVER_RPC_URL") {
+                self.rpc_url = Some(Url::parse(&rpc_url)?);
+            } else if let Ok(rpc_url) = std::env::var("RPC_URL") {
+                self.rpc_url = Some(Url::parse(&rpc_url)?);
+            } else if let Some(ref secrets) = secrets {
+                if let Some(ref prover_secrets) = secrets.prover {
+                    if let Some(ref rpc_url) = prover_secrets.rpc_url {
+                        self.rpc_url = Some(Url::parse(rpc_url)?);
+                    }
+                } else if let Some(ref market_secrets) = secrets.market {
+                    // Backward compatibility
+                    if let Some(ref rpc_url) = market_secrets.rpc_url {
+                        self.rpc_url = Some(Url::parse(rpc_url)?);
+                    }
+                }
+            }
+        }
+
+        if self.private_key.is_none() {
+            // Try PROVER_PRIVATE_KEY, then PRIVATE_KEY, then config file
+            if let Ok(pk) = std::env::var("PROVER_PRIVATE_KEY") {
+                self.private_key = Some(pk.parse()?);
+            } else if let Ok(pk) = std::env::var("PRIVATE_KEY") {
+                self.private_key = Some(pk.parse()?);
+            } else if let Some(ref secrets) = secrets {
+                if let Some(ref prover_secrets) = secrets.prover {
+                    if let Some(ref pk) = prover_secrets.private_key {
+                        self.private_key = Some(pk.parse()?);
+                    }
+                } else if let Some(ref market_secrets) = secrets.market {
+                    // Backward compatibility
+                    if let Some(ref pk) = market_secrets.private_key {
+                        self.private_key = Some(pk.parse()?);
+                    }
+                }
+            }
+        }
+
+        if self.deployment.is_none() {
+            if let Some(ref config) = config {
+                let network = config
+                    .prover
+                    .as_ref()
+                    .map(|p| &p.network)
+                    .or_else(|| config.market.as_ref().map(|m| &m.network));
+
+                if let Some(network) = network {
+                    self.deployment = match network.as_str() {
+                        "base-mainnet" => Some(boundless_market::deployments::BASE),
+                        "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
+                        "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
+                        custom => config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
+                            let mut builder = boundless_market::Deployment::builder();
+                            builder
+                                .chain_id(m.chain_id)
+                                .boundless_market_address(m.boundless_market_address)
+                                .set_verifier_address(m.set_verifier_address);
+
+                            if let Some(addr) = m.verifier_router_address {
+                                builder.verifier_router_address(addr);
+                            }
+                            if let Some(addr) = m.collateral_token_address {
+                                builder.collateral_token_address(addr);
+                            }
+                            if let Some(url) = m.order_stream_url.as_ref() {
+                                builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
+                            }
+
+                            builder.build().expect("Failed to build custom deployment")
+                        }),
+                    };
+                }
+            }
+        }
+
+        Ok(self)
+    }
+
+    /// Load configuration from files if not provided via CLI/env (tries both requestor and prover)
+    pub fn load_from_files(self) -> Result<Self> {
+        // Try requestor first, will fall back to market config for backward compatibility
+        self.load_requestor_from_files()
     }
 
     /// Initialize ZKC deployment based on chain ID if not already set
@@ -225,6 +332,19 @@ impl GlobalConfig {
         std::env::var("WORK_LOG_PRIVATE_KEY")
             .or_else(|_| std::env::var("POVW_PRIVATE_KEY"))
             .context("WORK_LOG_PRIVATE_KEY or POVW_PRIVATE_KEY environment variable not set")
+    }
+
+    /// Get the rewards private key from environment variable.
+    pub fn require_rewards_private_key(&self) -> Result<String> {
+        std::env::var("REWARDS_PRIVATE_KEY")
+            .context("REWARDS_PRIVATE_KEY environment variable not set")
+    }
+
+    /// Get the rewards RPC URL from environment variable.
+    pub fn require_rewards_rpc_url(&self) -> Result<Url> {
+        std::env::var("REWARDS_RPC_URL")
+            .context("REWARDS_RPC_URL environment variable not set")
+            .and_then(|url_str| Url::parse(&url_str).context("Invalid REWARDS_RPC_URL"))
     }
 
     /// Create a parially initialzed [ClientBuilder] from the options in this struct.
@@ -327,7 +447,7 @@ impl ProverConfig {
             return;
         }
 
-        tracing::info!("Using Bento prover at {}", self.bento_api_url);
+        println!("Using Bento prover at {}", self.bento_api_url);
         std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
         if let Some(ref api_key) = self.bento_api_key {
             std::env::set_var("BONSAI_API_KEY", api_key);

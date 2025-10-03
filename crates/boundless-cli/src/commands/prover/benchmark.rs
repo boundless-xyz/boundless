@@ -131,7 +131,8 @@ impl ProverBenchmark {
 
                 match status.status.as_ref() {
                     "RUNNING" => {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                        print!(".");
                         continue;
                     }
                     "SUCCEEDED" => {

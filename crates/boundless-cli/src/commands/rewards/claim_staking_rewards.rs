@@ -20,6 +20,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_zkc::contracts::IStakingRewards;
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::GlobalConfig;
 
@@ -28,19 +29,19 @@ use crate::config::GlobalConfig;
 pub struct RewardsClaimStakingRewards {
     /// Address to claim rewards for (defaults to wallet address)
     pub address: Option<Address>,
+
+    /// Address to receive the claimed rewards (defaults to claimer address)
+    #[arg(long)]
+    pub recipient: Option<Address>,
 }
 
 impl RewardsClaimStakingRewards {
     /// Run the claim-staking-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // Get RPC URL and private key for signing
-        let rpc_url = global_config
-            .require_rpc_url()
-            .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
+        let rpc_url = global_config.require_rewards_rpc_url()?;
 
-        let private_key = global_config
-            .require_prover_private_key()
-            .context("PROVER_PRIVATE_KEY is required for claiming rewards")?;
+        let private_key = global_config.require_rewards_private_key()?;
 
         // Create signer from private key
         let signer: PrivateKeySigner =
@@ -56,6 +57,8 @@ impl RewardsClaimStakingRewards {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
         }
 
+        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+
         // Get staking rewards contract address
         let staking_rewards_address = global_config
             .staking_rewards_address()
@@ -67,7 +70,21 @@ impl RewardsClaimStakingRewards {
         // Get address to claim for (defaults to signer address)
         let claim_address = self.address.unwrap_or(signer.address());
 
+        // Get recipient address (defaults to claim address)
+        let recipient_address = self.recipient.unwrap_or(claim_address);
+
+        println!(
+            "\n{} [{}]",
+            "Claiming Staking Rewards".bold(),
+            network_name.blue().bold()
+        );
+        println!("  Claim Address: {}", format!("{:#x}", claim_address).cyan());
+        if self.recipient.is_some() {
+            println!("  Recipient Address: {}", format!("{:#x}", recipient_address).cyan());
+        }
+
         // Get current epoch to check for claimable rewards
+        println!("  {} Checking for claimable rewards...", "→".dimmed());
         let current_epoch = staking_rewards
             .getCurrentEpoch()
             .call()
@@ -95,18 +112,12 @@ impl RewardsClaimStakingRewards {
         let total_unclaimed: alloy::primitives::U256 = unclaimed.iter().sum();
 
         if total_unclaimed == alloy::primitives::U256::ZERO {
-            tracing::info!("No staking rewards available to claim for {:#x}", claim_address);
+            println!("\n{} No staking rewards available to claim", "ℹ".blue().bold());
             return Ok(());
         }
 
-        tracing::info!(
-            "Claimable staking rewards for {:#x}: {} ZKC",
-            claim_address,
-            format_ether(total_unclaimed)
-        );
-
-        // Execute claim transaction
-        tracing::info!("Claiming staking rewards...");
+        let formatted_amount = crate::format_amount(&format_ether(total_unclaimed));
+        println!("  Claimable: {} {}", formatted_amount.green().bold(), "ZKC".green());
 
         // Claim rewards for the epochs with unclaimed rewards
         let epochs_to_claim: Vec<alloy::primitives::U256> = epochs_to_check
@@ -116,21 +127,34 @@ impl RewardsClaimStakingRewards {
             .map(|(epoch, _)| epoch)
             .collect();
 
-        let tx = staking_rewards
-            .claimRewards(epochs_to_claim)
-            .send()
-            .await
-            .context("Failed to send claim transaction")?;
+        println!("  {} Submitting claim transaction...", "→".dimmed());
 
-        tracing::info!("Transaction sent: {:#x}", tx.tx_hash());
-        tracing::info!("Waiting for confirmation...");
+        // Use different claim method based on whether recipient is specified
+        let tx = if self.recipient.is_some() {
+            staking_rewards
+                .claimRewardsToRecipient(epochs_to_claim, recipient_address)
+                .send()
+                .await
+                .context("Failed to send claim transaction")?
+        } else {
+            staking_rewards
+                .claimRewards(epochs_to_claim)
+                .send()
+                .await
+                .context("Failed to send claim transaction")?
+        };
 
-        // Wait for transaction confirmation
+        println!("  {} Waiting for confirmation...", "→".dimmed());
         let tx_hash = tx.watch().await.context("Failed to wait for transaction confirmation")?;
 
-        tracing::info!("Successfully claimed staking rewards!");
-        tracing::info!("Transaction: {:#x}", tx_hash);
-        tracing::info!("Rewards have been successfully claimed");
+        println!(
+            "\n{} Successfully claimed {} {}",
+            "✓".green().bold(),
+            formatted_amount.green().bold(),
+            "ZKC".green()
+        );
+        println!("  Transaction: {}", format!("{:#x}", tx_hash).dimmed());
+        println!("  Recipient:   {}", format!("{:#x}", recipient_address).green());
 
         Ok(())
     }
