@@ -100,7 +100,16 @@ export class MarketIndexer extends pulumi.ComponentResource {
       ],
     }, { parent: this });
 
-    const serviceLogGroup = `${serviceName}-service`;
+    const serviceLogGroupName = `${serviceName}-service`;
+    const serviceLogGroup = pulumi.output(aws.cloudwatch.getLogGroup({
+      name: serviceLogGroupName,
+    }, { async: true }).catch(() => {
+      return new aws.cloudwatch.LogGroup(serviceLogGroupName, {
+        name: serviceLogGroupName,
+        retentionInDays: 0,
+        skipDestroy: true,
+      }, { parent: this });
+    }));
 
     const marketService = new awsx.ecs.FargateService(`${serviceName}-market-service`, {
       name: `${serviceName}-market-service`,
@@ -119,11 +128,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       enableExecuteCommand: true,
       taskDefinitionArgs: {
         logGroup: {
-          args: {
-            name: serviceLogGroup,
-            retentionInDays: 0,
-            skipDestroy: true,
-          },
+          existing: serviceLogGroup,
         },
         executionRole: { roleArn: infra.executionRole.arn },
         taskRole: { roleArn: infra.taskRole.arn },
