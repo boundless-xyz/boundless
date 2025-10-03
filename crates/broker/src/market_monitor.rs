@@ -45,8 +45,6 @@ use crate::{
 use thiserror::Error;
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
-const MAX_POLL_RANGE: u64 = 500;
-const POLL_INTERVAL_SECS: u64 = 2;
 
 #[derive(Error)]
 pub enum MarketMonitorErr {
@@ -78,6 +76,7 @@ impl_coded_debug!(MarketMonitorErr);
 
 pub struct MarketMonitor<P> {
     lookback_blocks: u64,
+    poll_interval_ms: u64,
     market_addr: Address,
     provider: Arc<P>,
     db: DbObj,
@@ -104,6 +103,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         lookback_blocks: u64,
+        poll_interval_ms: u64,
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
@@ -115,6 +115,7 @@ where
     ) -> Self {
         Self {
             lookback_blocks,
+            poll_interval_ms,
             market_addr,
             provider,
             db,
@@ -250,6 +251,7 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
         market: BoundlessMarketService<Arc<P>>,
         lookback_blocks: u64,
+        poll_interval_ms: u64,
         filter_fn: FilterFn,
     ) -> impl futures_util::Stream<Item = Result<(T, alloy::rpc::types::Log), MarketMonitorErr>>
     where
@@ -266,7 +268,7 @@ where
                 .map_err(MarketMonitorErr::EventPollingErr)?;
 
             let mut from_block = current_block.saturating_sub(lookback_blocks);
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(POLL_INTERVAL_SECS));
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(poll_interval_ms));
 
             tracing::debug!("Polling events starting at block {}", from_block);
 
@@ -285,7 +287,7 @@ where
 
                 while from_block <= to_block {
                     let chunk_end = std::cmp::min(
-                        from_block.saturating_add(MAX_POLL_RANGE - 1),
+                        from_block.saturating_add(lookback_blocks - 1),
                         to_block
                     );
 
@@ -303,11 +305,13 @@ where
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn monitor_orders(
         market_addr: Address,
         provider: Arc<P>,
         chain_monitor: Arc<ChainMonitorService<P>>,
         lookback_blocks: u64,
+        poll_interval_ms: u64,
         new_order_tx: mpsc::Sender<Box<OrderRequest>>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
@@ -318,6 +322,7 @@ where
             chain_monitor,
             market.clone(),
             lookback_blocks,
+            poll_interval_ms,
             |market, from_block, to_block| async move {
                 market
                     .instance()
@@ -369,6 +374,7 @@ where
         chain_monitor: Arc<ChainMonitorService<P>>,
         db: DbObj,
         lookback_blocks: u64,
+        poll_interval_ms: u64,
         new_order_tx: mpsc::Sender<Box<OrderRequest>>,
         order_stream: Option<OrderStreamClient>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
@@ -381,6 +387,7 @@ where
             chain_monitor,
             market.clone(),
             lookback_blocks,
+            poll_interval_ms,
             |market, from_block, to_block| async move {
                 market
                     .instance()
@@ -483,12 +490,14 @@ where
     }
 
     /// Monitors the RequestFulfilled events and updates the database accordingly.
+    #[allow(clippy::too_many_arguments)]
     async fn monitor_order_fulfillments(
         market_addr: Address,
         provider: Arc<P>,
         chain_monitor: Arc<ChainMonitorService<P>>,
         db: DbObj,
         lookback_blocks: u64,
+        poll_interval_ms: u64,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
@@ -498,6 +507,7 @@ where
             chain_monitor,
             market.clone(),
             lookback_blocks,
+            poll_interval_ms,
             |market, from_block, to_block| async move {
                 market
                     .instance()
@@ -624,6 +634,7 @@ where
     type Error = MarketMonitorErr;
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let lookback_blocks = self.lookback_blocks;
+        let poll_interval_ms = self.poll_interval_ms;
         let market_addr = self.market_addr;
         let provider = self.provider.clone();
         let prover_addr = self.prover_addr;
@@ -655,6 +666,7 @@ where
                     provider.clone(),
                     chain_monitor.clone(),
                     lookback_blocks,
+                    poll_interval_ms,
                     new_order_tx.clone(),
                     cancel_token.clone()
                 ),
@@ -664,6 +676,7 @@ where
                     chain_monitor.clone(),
                     db.clone(),
                     lookback_blocks,
+                    poll_interval_ms,
                     order_state_tx.clone(),
                     cancel_token.clone()
                 ),
@@ -674,6 +687,7 @@ where
                     chain_monitor,
                     db,
                     lookback_blocks,
+                    poll_interval_ms,
                     new_order_tx,
                     order_stream,
                     order_state_tx,
@@ -806,6 +820,7 @@ mod tests {
         let (order_state_tx, _) = broadcast::channel(16);
         let market_monitor = MarketMonitor::new(
             1,
+            1000,
             Address::ZERO,
             provider,
             db,
