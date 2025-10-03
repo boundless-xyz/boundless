@@ -8,10 +8,10 @@ config:
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
   base-prover:GH_TOKEN_SECRET:
-    secure: v1:qiROsQz74mQAEIgZ:kVJAvyNWKaNEWl8mT54qD8H7/j/r3JzuP1T4kL3HbwMjg+o1R0wg7WH9SimMeX9g9GNxx5t+r9Q4PzQKuSSYCNK1rU7Y25PfbIqBSoQaupwUcx797ALpZ4Otr35wnIl4+dgDGUNfBQjKJiV1Zw==
+    secure: v1:UXx+RwQiLanwgphJ:/OsgpvJcH2PHPMoG/GzwBKtlSHz9ELVaY9CLUBWe7ItApG+gG8F0cLbIjU2u/k6ddnFIASvK9xqbL2WtfDs2FckzMT51qUTSZ/3BV9417oXeMriIYoGtX6yZhDBI4MUMA9wUE4/4jhc47WkvhQ==
   base-prover:ORDER_STREAM_URL: https://base-sepolia.boundless.network
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
-  base-prover:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  base-prover:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
   base-prover:COLLATERAL_TOKEN_ADDRESS: 0x8d4dA4b7938471A919B08F941461b2ed1679d7bb
   base-prover:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   bento-prover:BROKER_TOML_PATH: tomls/bento/broker-prod-84532.toml
@@ -26,7 +26,7 @@ config:
     secure: v1:NUfvnhjbv02eaNbz:Pl4RNC8Nudm9I5Nz8oSaDtM8L3nu1flVOsIY20sMxqWutX3Ay0pf2eH4hp5yJ8cJEdRe52BEKH0Bd/DmHlXDS7Z++df8HUB1SG4v4VE+Yxc=
   bento-prover:PRIVATE_KEY_2:
     secure: v1:E/4+400ZRDFLDq08:JxoIVE87uyBxhycfhG0LSY4aRNpPIRFwTNQQyjrQpK014Q+YrhHxlmsgADHi4hrTVA02Fu8FkF1E6dx9eWR/Oqc7y79RbZ/d3MIurblMdwI=
-  bento-prover:BRANCH: launch-infra
+  bento-prover:BRANCH: main
   bento-prover:POVW_LOG_ID:
     secure: v1:pGvXW8vJI5nCPU42:tVTUMFLYey3yOY+bHxU1ArN7gy12ZgxlFjP+UqOXnJGvTVVqC7MUzF3PHkRY9qLMi3k5fnoewg//jA==
   bento-prover:POVW_LOG_ID_1:

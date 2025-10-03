@@ -8,7 +8,7 @@ config:
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
   indexer:GH_TOKEN_SECRET:
-    secure: v1:YOjUrjGLO8aFDVNj:duLloMN6c3DozMqOSLt299VOt2K1/yvdRgfPTfFNHxMtGDIIONO43SMs2qiiEVWItGRNlEawi2S8KAAEsi9GY1weihnxRntGXL9H/VAGAibwyWE6o1DNneViJ5r46C7tcuK6Yx6NDrJ4sdREUA==
+    secure: v1:LEOVTR4gE67aokah:G8Cf5p7dbUPGivjKTERSCY4l77i7CgTjPrF42dHISuHwTXlgAZe97ZltaKnMa2B2jBk41TMD4l1D6WjrwCWr6b8Bs3qOVEwJ2TXEC9rZ/5nAllE9+OwW2KEuxfZTpmV1dsdXYqedQjy12zDrPw==
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:RDS_PASSWORD:
     secure: v1:U2jryXZCb4OMwmuN:sBIpdURgdAK7aeRz5x6//mFsQJVsm96fqcySBOUXkUDf6g==

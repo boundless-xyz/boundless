@@ -16,7 +16,7 @@ config:
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:GH_TOKEN_SECRET:
-    secure: v1:W8jLVMFnXDFMfl+5:dejyGpk4g1zqvpGOdX1GMMS7ustfapAgSCdlhKIQkIlwQcZ1o7W7y3jUQ6jO8UoKvjWxgV2m2eMmRG0t2a5/uAeX/8/HUaaED1ngR1akFDpETJU5JrdQb2vpEX7lBS6x9RNz78wY+xgoSlYjww==
+    secure: v1:pfTxhEjN74NTG5Zk:uqeqk81UF6asWxgfbxYTzL+yhrMfY32xWCvGx+rauPVc/z1jbMHGcHMKVIWhdKuNQx3sgIL7p9C3XrFXxb9IjSv01f02I3aRsPV+OQgUQy5+AsNT9CKGUz2p3vLre+pueTXjNpDcWXzvV3YIdg==
   order-generator-base:INTERVAL: "22"
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
   order-generator-base:LOCK_COLLATERAL_RAW: "7500000000000000000" # $7.5 ZKC
