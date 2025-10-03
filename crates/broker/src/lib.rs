@@ -708,7 +708,7 @@ where
 
         let config = self.config_watcher.config.clone();
 
-        let loopback_blocks = {
+        let lookback_blocks = {
             let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
@@ -763,7 +763,8 @@ where
 
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
-            loopback_blocks,
+            lookback_blocks,
+            self.args.rpc_retry_backoff,
             self.deployment().boundless_market_address,
             self.provider.clone(),
             self.db.clone(),

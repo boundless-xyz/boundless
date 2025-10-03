@@ -15,6 +15,7 @@ alloy = { workspace = true, features = ["network", "providers", "transports", "s
 alloy-chains = "0.2.0"
 anyhow = { workspace = true }
 async-channel = "2.3"
+async-stream = "0.3"
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
