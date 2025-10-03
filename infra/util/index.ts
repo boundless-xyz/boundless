@@ -50,7 +50,7 @@ export const getEnvVar = (name: string) => {
 //       To use a new naming scheme for new services, we should create a new "V2" function.
 export const getServiceNameV1 = (stackName: string, name: string, chainId?: ChainId | string) => {
   const isDev = stackName === "dev";
-  const prefix = isDev ? `${getEnvVar("DEV_NAME")}` : `${stackName}`;
+  const prefix = process.env.DEV_NAME || isDev ? `${getEnvVar("DEV_NAME")}` : `${stackName}`;
   const suffix = chainId ? `-${chainId}` : "";
   const serviceName = `${prefix}-${name}${suffix}`;
   return serviceName;

@@ -31,7 +31,7 @@ pub struct Version {
     pub minor: u32,
 }
 
-/// A requestor entry in the priority list
+/// A requestor entry in the list
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestorEntry {
     /// Ethereum address of the requestor
@@ -39,10 +39,48 @@ pub struct RequestorEntry {
     /// Chain ID where this requestor operates
     #[serde(rename = "chainId")]
     pub chain_id: u64,
-    /// Priority level (0-100, higher = more priority)
-    pub priority: i32,
     /// Human-readable name for the requestor
     pub name: String,
+    /// Optional description of the requestor
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Tags for categorization and filtering
+    pub tags: Vec<String>,
+    /// Optional extension metadata
+    #[serde(default, skip_serializing_if = "Extensions::is_empty")]
+    pub extensions: Extensions,
+}
+
+/// Extension metadata for requestor entries
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Extensions {
+    /// Priority ranking for this requestor
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<PriorityExtension>,
+    /// Estimated resource requirements for requests from this requestor
+    #[serde(skip_serializing_if = "Option::is_none", rename = "requestEstimates")]
+    pub request_estimates: Option<RequestEstimatesExtension>,
+    /// Denylist metadata if this requestor should be blocked
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub denylist: Option<DenylistExtension>,
+}
+
+impl Extensions {
+    pub fn is_empty(&self) -> bool {
+        self.priority.is_none() && self.request_estimates.is_none() && self.denylist.is_none()
+    }
+}
+
+/// Priority level for a requestor
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PriorityExtension {
+    /// Priority level (0-100, higher = more priority)
+    pub level: i32,
+}
+
+/// Estimated resource requirements for requests
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RequestEstimatesExtension {
     /// Estimated minimum mcycle count for requests from this requestor
     #[serde(rename = "estimatedMcycleCountMin")]
     pub estimated_mcycle_count_min: u64,
@@ -52,15 +90,26 @@ pub struct RequestorEntry {
     /// Estimated maximum input size in megabytes for requests from this requestor
     #[serde(rename = "estimatedMaxInputSizeMB")]
     pub estimated_max_input_size_mb: f64,
-    /// Tags for categorization and filtering
-    pub tags: Vec<String>,
 }
 
-/// A list of priority requestors
+/// Denylist metadata for blocked requestors
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DenylistExtension {
+    /// Reason for denylisting this requestor
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// ISO 8601 timestamp when blocking started
+    #[serde(skip_serializing_if = "Option::is_none", rename = "blockedSince")]
+    pub blocked_since: Option<String>,
+}
+
+/// A list of requestors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestorList {
     /// Name of this list
     pub name: String,
+    /// Description of this list's purpose
+    pub description: String,
     /// Version of the schema this list conforms to
     #[serde(rename = "schemaVersion")]
     pub schema_version: Version,
@@ -72,13 +121,13 @@ pub struct RequestorList {
 
 impl RequestorList {
     /// Create a new requestor list with the current schema version
-    pub fn new(name: String, version: Version, requestors: Vec<RequestorEntry>) -> Self {
-        Self {
-            name,
-            schema_version: CURRENT_SCHEMA_VERSION,
-            version,
-            requestors,
-        }
+    pub fn new(
+        name: String,
+        description: String,
+        version: Version,
+        requestors: Vec<RequestorEntry>,
+    ) -> Self {
+        Self { name, description, schema_version: CURRENT_SCHEMA_VERSION, version, requestors }
     }
 
     /// Validate the list according to schema rules
@@ -91,30 +140,35 @@ impl RequestorList {
             });
         }
 
-        let mut seen_addresses = HashSet::new();
+        let mut seen_entries = HashSet::new();
 
         for entry in &self.requestors {
-            // Check priority range
-            if entry.priority < MIN_PRIORITY || entry.priority > MAX_PRIORITY {
-                return Err(ValidationError::PriorityOutOfRange(entry.priority));
-            }
-
-            // Check for duplicate addresses
-            if !seen_addresses.insert(entry.address) {
+            // Check for duplicate (address, chain_id) pairs
+            // Same address on different chains is allowed
+            if !seen_entries.insert((entry.address, entry.chain_id)) {
                 return Err(ValidationError::DuplicateAddress(entry.address));
-            }
-
-            // Check mcycle range
-            if entry.estimated_mcycle_count_min > entry.estimated_mcycle_count_max {
-                return Err(ValidationError::InvalidMcycleRange {
-                    min: entry.estimated_mcycle_count_min,
-                    max: entry.estimated_mcycle_count_max,
-                });
             }
 
             // Check name is not empty
             if entry.name.trim().is_empty() {
                 return Err(ValidationError::EmptyName);
+            }
+
+            // Validate priority extension if present
+            if let Some(priority) = &entry.extensions.priority {
+                if priority.level < MIN_PRIORITY || priority.level > MAX_PRIORITY {
+                    return Err(ValidationError::PriorityOutOfRange(priority.level));
+                }
+            }
+
+            // Validate request estimates extension if present
+            if let Some(estimates) = &entry.extensions.request_estimates {
+                if estimates.estimated_mcycle_count_min > estimates.estimated_mcycle_count_max {
+                    return Err(ValidationError::InvalidMcycleRange {
+                        min: estimates.estimated_mcycle_count_min,
+                        max: estimates.estimated_mcycle_count_max,
+                    });
+                }
             }
         }
 
@@ -123,28 +177,23 @@ impl RequestorList {
 
     /// Parse a requestor list from JSON string
     pub fn from_json(json: &str) -> Result<Self, ValidationError> {
-        let list: RequestorList = serde_json::from_str(json)
-            .map_err(|e| ValidationError::ParseError(e.to_string()))?;
+        let list: RequestorList =
+            serde_json::from_str(json).map_err(|e| ValidationError::ParseError(e.to_string()))?;
         list.validate()?;
         Ok(list)
     }
 
     /// Serialize the list to JSON string
     pub fn to_json(&self) -> Result<String, ValidationError> {
-        serde_json::to_string_pretty(self)
-            .map_err(|e| ValidationError::ParseError(e.to_string()))
+        serde_json::to_string_pretty(self).map_err(|e| ValidationError::ParseError(e.to_string()))
     }
 
     /// Fetch and parse a requestor list from a URL
     pub async fn fetch_from_url(url: &str) -> Result<Self, ValidationError> {
-        let response = reqwest::get(url)
-            .await
-            .map_err(|e| ValidationError::FetchError(e.to_string()))?;
+        let response =
+            reqwest::get(url).await.map_err(|e| ValidationError::FetchError(e.to_string()))?;
 
-        let json = response
-            .text()
-            .await
-            .map_err(|e| ValidationError::FetchError(e.to_string()))?;
+        let json = response.text().await.map_err(|e| ValidationError::FetchError(e.to_string()))?;
 
         Self::from_json(&json)
     }
@@ -156,16 +205,20 @@ mod tests {
 
     fn create_valid_entry() -> RequestorEntry {
         RequestorEntry {
-            address: "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab"
-                .parse()
-                .unwrap(),
+            address: "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap(),
             chain_id: 1,
-            priority: 50,
             name: "Test Requestor".to_string(),
-            estimated_mcycle_count_min: 100,
-            estimated_mcycle_count_max: 1000,
-            estimated_max_input_size_mb: 10.0,
+            description: None,
             tags: vec!["test".to_string()],
+            extensions: Extensions {
+                priority: Some(PriorityExtension { level: 50 }),
+                request_estimates: Some(RequestEstimatesExtension {
+                    estimated_mcycle_count_min: 100,
+                    estimated_mcycle_count_max: 1000,
+                    estimated_max_input_size_mb: 10.0,
+                }),
+                denylist: None,
+            },
         }
     }
 
@@ -173,6 +226,7 @@ mod tests {
     fn test_valid_list() {
         let list = RequestorList::new(
             "Test List".to_string(),
+            "A test list for validation".to_string(),
             Version { major: 1, minor: 0 },
             vec![create_valid_entry()],
         );
@@ -182,16 +236,14 @@ mod tests {
     #[test]
     fn test_priority_out_of_range() {
         let mut entry = create_valid_entry();
-        entry.priority = 101;
+        entry.extensions.priority = Some(PriorityExtension { level: 101 });
         let list = RequestorList::new(
             "Test List".to_string(),
+            "A test list for validation".to_string(),
             Version { major: 1, minor: 0 },
             vec![entry],
         );
-        assert!(matches!(
-            list.validate(),
-            Err(ValidationError::PriorityOutOfRange(101))
-        ));
+        assert!(matches!(list.validate(), Err(ValidationError::PriorityOutOfRange(101))));
     }
 
     #[test]
@@ -199,29 +251,28 @@ mod tests {
         let entry = create_valid_entry();
         let list = RequestorList::new(
             "Test List".to_string(),
+            "A test list for validation".to_string(),
             Version { major: 1, minor: 0 },
             vec![entry.clone(), entry],
         );
-        assert!(matches!(
-            list.validate(),
-            Err(ValidationError::DuplicateAddress(_))
-        ));
+        assert!(matches!(list.validate(), Err(ValidationError::DuplicateAddress(_))));
     }
 
     #[test]
     fn test_invalid_mcycle_range() {
         let mut entry = create_valid_entry();
-        entry.estimated_mcycle_count_min = 1000;
-        entry.estimated_mcycle_count_max = 100;
+        entry.extensions.request_estimates = Some(RequestEstimatesExtension {
+            estimated_mcycle_count_min: 1000,
+            estimated_mcycle_count_max: 100,
+            estimated_max_input_size_mb: 10.0,
+        });
         let list = RequestorList::new(
             "Test List".to_string(),
+            "A test list for validation".to_string(),
             Version { major: 1, minor: 0 },
             vec![entry],
         );
-        assert!(matches!(
-            list.validate(),
-            Err(ValidationError::InvalidMcycleRange { .. })
-        ));
+        assert!(matches!(list.validate(), Err(ValidationError::InvalidMcycleRange { .. })));
     }
 
     #[test]
@@ -230,6 +281,7 @@ mod tests {
         entry.name = "".to_string();
         let list = RequestorList::new(
             "Test List".to_string(),
+            "A test list for validation".to_string(),
             Version { major: 1, minor: 0 },
             vec![entry],
         );
@@ -240,12 +292,71 @@ mod tests {
     fn test_json_serialization() {
         let list = RequestorList::new(
             "Test List".to_string(),
+            "A test list for validation".to_string(),
             Version { major: 1, minor: 0 },
             vec![create_valid_entry()],
         );
         let json = list.to_json().unwrap();
         let parsed = RequestorList::from_json(&json).unwrap();
         assert_eq!(list.name, parsed.name);
+        assert_eq!(list.description, parsed.description);
         assert_eq!(list.requestors.len(), parsed.requestors.len());
+    }
+
+    #[test]
+    fn test_parse_standard_example() {
+        let json = include_str!("../../../requestor-lists/boundless-priority-list.standard.json");
+        let list = RequestorList::from_json(json).unwrap();
+        assert_eq!(list.name, "Boundless Recommended Priority List");
+        assert_eq!(list.requestors.len(), 1);
+        assert!(list.requestors[0].description.is_some());
+    }
+
+    #[test]
+    fn test_parse_large_example() {
+        let json = include_str!("../../../requestor-lists/boundless-priority-list.large.json");
+        let list = RequestorList::from_json(json).unwrap();
+        assert_eq!(list.name, "Boundless Recommended Priority List for Large Provers");
+        assert_eq!(list.requestors.len(), 1);
+        assert!(list.requestors[0].description.is_some());
+    }
+
+    #[test]
+    fn test_multiple_chains_in_list() {
+        let entry_chain_1 = RequestorEntry {
+            address: "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap(),
+            chain_id: 1,
+            name: "Mainnet Requestor".to_string(),
+            description: None,
+            tags: vec![],
+            extensions: Extensions {
+                priority: Some(PriorityExtension { level: 50 }),
+                request_estimates: None,
+                denylist: None,
+            },
+        };
+
+        let entry_chain_8453 = RequestorEntry {
+            address: "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap(),
+            chain_id: 8453, // Base
+            name: "Base Requestor".to_string(),
+            description: None,
+            tags: vec![],
+            extensions: Extensions {
+                priority: Some(PriorityExtension { level: 75 }),
+                request_estimates: None,
+                denylist: None,
+            },
+        };
+
+        let list = RequestorList::new(
+            "Multi-Chain List".to_string(),
+            "List with same address on different chains".to_string(),
+            Version { major: 1, minor: 0 },
+            vec![entry_chain_1, entry_chain_8453],
+        );
+
+        assert!(list.validate().is_ok());
+        assert_eq!(list.requestors.len(), 2);
     }
 }

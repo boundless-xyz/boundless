@@ -409,7 +409,7 @@ pub async fn upload_input_uri(
     prover: &crate::provers::ProverObj,
     request: &crate::ProofRequest,
     config: &crate::config::ConfigLock,
-    priority_requestors: &crate::requestor_list_refresher::PriorityRequestors,
+    priority_requestors: &crate::requestor_monitor::PriorityRequestors,
 ) -> Result<String> {
     Ok(match request.input.inputType {
         boundless_market::contracts::RequestInputType::Inline => prover
@@ -425,14 +425,9 @@ pub async fn upload_input_uri(
             let input_uri_str =
                 std::str::from_utf8(&request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");
-            let priority_requestor_addresses = {
-                let conf = config.lock_all().context("Failed to read config")?;
-                conf.market.priority_requestor_addresses.clone()
-            };
 
             let client_addr = request.client_address();
-            let skip_max_size_limit = priority_requestors
-                .is_priority_requestor_combined(&client_addr, &priority_requestor_addresses);
+            let skip_max_size_limit = priority_requestors.is_priority_requestor(&client_addr);
 
             let input_uri = create_uri_handler(input_uri_str, config, skip_max_size_limit)
                 .await

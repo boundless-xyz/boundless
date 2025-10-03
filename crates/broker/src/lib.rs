@@ -66,7 +66,7 @@ pub(crate) mod prioritization;
 pub(crate) mod provers;
 pub(crate) mod proving;
 pub(crate) mod reaper;
-pub(crate) mod requestor_list_refresher;
+pub(crate) mod requestor_monitor;
 pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
@@ -456,7 +456,7 @@ pub struct Broker<P> {
     provider: Arc<P>,
     db: DbObj,
     config_watcher: ConfigWatcher,
-    priority_requestors: requestor_list_refresher::PriorityRequestors,
+    priority_requestors: requestor_monitor::PriorityRequestors,
 }
 
 impl<P> Broker<P>
@@ -486,13 +486,10 @@ where
             tracing::info!("Using default deployment configuration for chain ID {chain_id}");
         }
 
-        Ok(Self {
-            args,
-            db,
-            provider: Arc::new(provider),
-            config_watcher,
-            priority_requestors: requestor_list_refresher::PriorityRequestors::new(),
-        })
+        let priority_requestors =
+            requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
+
+        Ok(Self { args, db, provider: Arc::new(provider), config_watcher, priority_requestors })
     }
 
     pub fn deployment(&self) -> &Deployment {
@@ -967,16 +964,14 @@ where
             Ok(())
         });
 
-        // Start the RequestorListRefresher to periodically fetch priority lists
-        let requestor_list_refresher = Arc::new(requestor_list_refresher::RequestorListRefresher::new(
-            config.clone(),
+        // Start the RequestorMonitor to periodically fetch priority lists
+        let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
             self.priority_requestors.clone(),
             non_critical_cancel_token.clone(),
         ));
-        let refresher_handle = requestor_list_refresher.clone().spawn();
-        supervisor_tasks.spawn(async move {
-            refresher_handle.await.context("Requestor list refresher panicked")?
-        });
+        let monitor_handle = requestor_monitor.clone().spawn();
+        supervisor_tasks
+            .spawn(async move { monitor_handle.await.context("Requestor list monitor panicked")? });
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),

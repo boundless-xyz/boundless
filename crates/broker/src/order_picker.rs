@@ -134,7 +134,7 @@ pub struct OrderPicker<P> {
     order_cache: OrderCache,
     preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
-    priority_requestors: crate::requestor_list_refresher::PriorityRequestors,
+    priority_requestors: crate::requestor_monitor::PriorityRequestors,
 }
 
 #[derive(Debug)]
@@ -173,7 +173,7 @@ where
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
-        priority_requestors: crate::requestor_list_refresher::PriorityRequestors,
+        priority_requestors: crate::requestor_monitor::PriorityRequestors,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
@@ -888,13 +888,7 @@ where
         let request_expiration = order.expiry();
         let lock_expiry = order.request.lock_expires_at();
         let order_expiry = order.request.expires_at();
-        let (
-            max_mcycle_limit,
-            peak_prove_khz,
-            min_mcycle_price,
-            min_mcycle_price_collateral_token,
-            priority_requestor_addresses,
-        ) = {
+        let (max_mcycle_limit, peak_prove_khz, min_mcycle_price, min_mcycle_price_collateral_token) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             (
                 config.market.max_mcycle_limit,
@@ -906,7 +900,6 @@ where
                 )
                 .context("Failed to parse mcycle_price")?
                 .into(),
-                config.market.priority_requestor_addresses.clone(),
             )
         };
 
@@ -971,10 +964,7 @@ where
         let mut max_mcycle_limit = max_mcycle_limit;
         // Check if priority requestor address - skip all exec limit calculations
         let client_addr = order.request.client_address();
-        if self
-            .priority_requestors
-            .is_priority_requestor_combined(&client_addr, &priority_requestor_addresses)
-        {
+        if self.priority_requestors.is_priority_requestor(&client_addr) {
             max_mcycle_limit = None;
             tracing::debug!("Order {order_id} exec limit config ignored due to client {} being part of priority requestors.", client_addr);
         }
@@ -1590,6 +1580,10 @@ pub(crate) mod tests {
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn(Default::default()));
 
+            let chain_id = provider.get_chain_id().await.unwrap();
+            let priority_requestors =
+                crate::requestor_monitor::PriorityRequestors::new(config.clone(), chain_id);
+
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
             let (priced_orders_tx, priced_orders_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
@@ -1606,6 +1600,7 @@ pub(crate) mod tests {
                 priced_orders_tx,
                 self.collateral_token_decimals.unwrap_or(6),
                 order_state_tx,
+                priority_requestors,
             );
 
             PickerTestCtx {

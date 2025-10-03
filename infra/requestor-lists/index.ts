@@ -1,14 +1,16 @@
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
+import { getEnvVar, getServiceNameV1 } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
   const bucketName = config.get('BUCKET_NAME') || `boundless-requestor-lists-${stackName}`;
   const domain = config.get('DOMAIN');
+  const serviceName = getServiceNameV1(stackName, "requestor-lists");
 
   // Create an S3 bucket for hosting the requestor lists
-  const bucket = new aws.s3.Bucket('requestor-lists-bucket', {
+  const bucket = new aws.s3.Bucket(`${serviceName}-bucket`, {
     bucket: bucketName,
     corsRules: [
       {
@@ -19,65 +21,66 @@ export = () => {
         maxAgeSeconds: 3000,
       },
     ],
-    tags: {
-      Name: 'Boundless Requestor Priority Lists',
-      Environment: stackName,
+  });
+
+  const bucketOwnershipControls = new aws.s3.BucketOwnershipControls(`${serviceName}-ownership-controls`, {
+    bucket: bucket.id,
+    rule: {
+      objectOwnership: "BucketOwnerEnforced",
     },
   });
 
-  // Block public access settings (we'll use CloudFront OAI if custom domain is set)
-  const publicAccessBlock = new aws.s3.BucketPublicAccessBlock(
-    'requestor-lists-public-access',
+  const bucketPublicAccessBlock = new aws.s3.BucketPublicAccessBlock(
+    `${serviceName}-public-access-block`,
     {
       bucket: bucket.id,
-      blockPublicAcls: !domain,
-      blockPublicPolicy: !domain,
-      ignorePublicAcls: !domain,
-      restrictPublicBuckets: !domain,
+      blockPublicAcls: false,
+      blockPublicPolicy: false,
+      ignorePublicAcls: false,
+      restrictPublicBuckets: false,
     }
   );
 
-  // Bucket policy - allow CloudFront OAI or public read
-  let bucketPolicy: aws.s3.BucketPolicy | undefined;
+  // Bucket policy - always allow public read, plus CloudFront OAI if domain is set
   let originAccessIdentity: aws.cloudfront.OriginAccessIdentity | undefined;
 
   if (domain) {
-    // Create CloudFront Origin Access Identity for private bucket access
-    originAccessIdentity = new aws.cloudfront.OriginAccessIdentity('requestor-lists-oai', {
+    // Create CloudFront Origin Access Identity
+    originAccessIdentity = new aws.cloudfront.OriginAccessIdentity(`${serviceName}-oai`, {
       comment: `OAI for ${domain}`,
     });
+  }
 
-    bucketPolicy = new aws.s3.BucketPolicy(
-      'requestor-lists-bucket-policy',
-      {
-        bucket: bucket.id,
-        policy: pulumi.all([bucket.arn, originAccessIdentity.iamArn]).apply(([arn, oaiArn]: [string, string]) =>
-          JSON.stringify({
-            Version: '2012-10-17',
-            Statement: [
-              {
-                Sid: 'CloudFrontReadGetObject',
-                Effect: 'Allow',
-                Principal: {
-                  AWS: oaiArn,
+  // Always allow public read access
+  const bucketPolicy = new aws.s3.BucketPolicy(
+    `${serviceName}-bucket-policy`,
+    {
+      bucket: bucket.id,
+      policy: domain
+        ? pulumi.all([bucket.arn, originAccessIdentity!.iamArn]).apply(([arn, oaiArn]: [string, string]) =>
+            pulumi.jsonStringify({
+              Version: '2012-10-17',
+              Statement: [
+                {
+                  Sid: 'PublicReadGetObject',
+                  Effect: 'Allow',
+                  Principal: '*',
+                  Action: 's3:GetObject',
+                  Resource: pulumi.interpolate`${arn}/*`,
                 },
-                Action: 's3:GetObject',
-                Resource: `${arn}/*`,
-              },
-            ],
-          })
-        ),
-      },
-      { dependsOn: [publicAccessBlock] }
-    );
-  } else {
-    // Public bucket policy for direct S3 access
-    bucketPolicy = new aws.s3.BucketPolicy(
-      'requestor-lists-bucket-policy',
-      {
-        bucket: bucket.id,
-        policy: bucket.arn.apply((arn: string) =>
-          JSON.stringify({
+                {
+                  Sid: 'CloudFrontReadGetObject',
+                  Effect: 'Allow',
+                  Principal: {
+                    AWS: oaiArn,
+                  },
+                  Action: 's3:GetObject',
+                  Resource: pulumi.interpolate`${arn}/*`,
+                },
+              ],
+            })
+          )
+        : pulumi.jsonStringify({
             Version: '2012-10-17',
             Statement: [
               {
@@ -85,39 +88,55 @@ export = () => {
                 Effect: 'Allow',
                 Principal: '*',
                 Action: 's3:GetObject',
-                Resource: `${arn}/*`,
+                Resource: pulumi.interpolate`${bucket.arn}/*`,
               },
             ],
-          })
-        ),
-      },
-      { dependsOn: [publicAccessBlock] }
-    );
-  }
+          }),
+    },
+    {
+      dependsOn: [
+        bucketOwnershipControls,
+        bucketPublicAccessBlock,
+      ],
+    }
+  );
 
-  // Upload the JSON file
+  // Upload the JSON files
   new aws.s3.BucketObject(
-    'boundless-recommended-priority-list',
+    `${serviceName}-boundless-recommended-priority-list`,
     {
       bucket: bucket.id,
-      key: 'boundless-recommended-priority-list.json',
-      source: new pulumi.asset.FileAsset('../../requestor-lists/boundless-recommended-priority-list.json'),
+      key: 'boundless-recommended-priority-list.standard.json',
+      source: new pulumi.asset.FileAsset('../../requestor-lists/boundless-priority-list.standard.json'),
       contentType: 'application/json',
-      acl: domain ? undefined : 'public-read',
+      cacheControl: 'no-cache, no-store, must-revalidate',
+    },
+    { dependsOn: [bucketPolicy] }
+  );
+
+  new aws.s3.BucketObject(
+    `${serviceName}-boundless-recommended-priority-list-large`,
+    {
+      bucket: bucket.id,
+      key: 'boundless-recommended-priority-list.large.json',
+      source: new pulumi.asset.FileAsset('../../requestor-lists/boundless-priority-list.large.json'),
+      contentType: 'application/json',
+      cacheControl: 'no-cache, no-store, must-revalidate',
     },
     { dependsOn: [bucketPolicy] }
   );
 
   let outputs: any = {
     bucketName: bucket.id,
-    listUrl: pulumi.interpolate`https://${bucket.bucketDomainName}/boundless-recommended-priority-list.json`,
+    listUrl: pulumi.interpolate`https://${bucket.bucketRegionalDomainName}/boundless-recommended-priority-list.standard.json`,
+    listUrlLarge: pulumi.interpolate`https://${bucket.bucketRegionalDomainName}/boundless-recommended-priority-list.large.json`,
   };
 
   // If custom domain is configured, create ACM cert and CloudFront distribution
   if (domain) {
     // Create ACM certificate for the custom domain (must be in us-east-1 for CloudFront)
     const certificate = new aws.acm.Certificate(
-      'requestor-lists-cert',
+      `${serviceName}-cert`,
       {
         domainName: domain,
         validationMethod: 'DNS',
@@ -130,7 +149,7 @@ export = () => {
     );
 
     // Create CloudFront distribution
-    const distribution = new aws.cloudfront.Distribution('requestor-lists-cdn', {
+    const distribution = new aws.cloudfront.Distribution(`${serviceName}-cdn`, {
       enabled: true,
       aliases: [domain],
       origins: [
@@ -142,7 +161,7 @@ export = () => {
           },
         },
       ],
-      defaultRootObject: 'boundless-recommended-priority-list.json',
+      defaultRootObject: 'boundless-recommended-priority-list.standard.json',
       defaultCacheBehavior: {
         targetOriginId: 'S3-requestor-lists',
         viewerProtocolPolicy: 'redirect-to-https',
@@ -156,8 +175,8 @@ export = () => {
           },
         },
         minTtl: 0,
-        defaultTtl: 3600,
-        maxTtl: 86400,
+        defaultTtl: 0,
+        maxTtl: 0,
         compress: true,
       },
       restrictions: {
@@ -183,7 +202,8 @@ export = () => {
       certificateValidationRecords: certificate.domainValidationOptions,
       cloudfrontDomain: distribution.domainName,
       cloudfrontDistributionId: distribution.id,
-      customDomainUrl: pulumi.interpolate`https://${domain}/boundless-recommended-priority-list.json`,
+      customDomainUrl: pulumi.interpolate`https://${domain}/boundless-recommended-priority-list.standard.json`,
+      customDomainUrlLarge: pulumi.interpolate`https://${domain}/boundless-recommended-priority-list.large.json`,
     };
   }
 

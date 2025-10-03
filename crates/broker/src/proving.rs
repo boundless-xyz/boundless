@@ -64,7 +64,7 @@ pub struct ProvingService {
     prover: ProverObj,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
-    priority_requestors: crate::requestor_list_refresher::PriorityRequestors,
+    priority_requestors: crate::requestor_monitor::PriorityRequestors,
 }
 
 impl ProvingService {
@@ -73,15 +73,9 @@ impl ProvingService {
         prover: ProverObj,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
-        priority_requestors: crate::requestor_list_refresher::PriorityRequestors,
+        priority_requestors: crate::requestor_monitor::PriorityRequestors,
     ) -> Result<Self> {
-        Ok(Self {
-            db,
-            prover,
-            config,
-            order_state_tx,
-            priority_requestors,
-        })
+        Ok(Self { db, prover, config, order_state_tx, priority_requestors })
     }
 
     async fn cancel_stark_session(&self, proof_id: &str, order_id: &str, reason: &str) {
@@ -162,16 +156,14 @@ impl ProvingService {
 
                 let input_id = match order.input_id.as_ref() {
                     Some(val) => val.clone(),
-                    None => {
-                        crate::storage::upload_input_uri(
-                            &self.prover,
-                            &order.request,
-                            &self.config,
-                            &self.priority_requestors,
-                        )
-                        .await
-                        .context("Failed to upload input")?
-                    }
+                    None => crate::storage::upload_input_uri(
+                        &self.prover,
+                        &order.request,
+                        &self.config,
+                        &self.priority_requestors,
+                    )
+                    .await
+                    .context("Failed to upload input")?,
                 };
 
                 let proof_id = self
@@ -555,10 +547,17 @@ mod tests {
             .unwrap();
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
-        let proving_service =
-            ProvingService::new(db.clone(), prover.clone(), config.clone(), order_state_tx)
-                .await
-                .unwrap();
+        let priority_requestors =
+            crate::requestor_monitor::PriorityRequestors::new(config.clone(), 1);
+        let proving_service = ProvingService::new(
+            db.clone(),
+            prover.clone(),
+            config.clone(),
+            order_state_tx,
+            priority_requestors,
+        )
+        .await
+        .unwrap();
 
         let order = create_test_order(
             U256::ZERO,
@@ -578,10 +577,17 @@ mod tests {
 
         // Test that LockAndFulfill orders ignore fulfillment events
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
-        let proving_service_with_fulfillment =
-            ProvingService::new(db.clone(), prover.clone(), config.clone(), order_state_tx.clone())
-                .await
-                .unwrap();
+        let priority_requestors =
+            crate::requestor_monitor::PriorityRequestors::new(config.clone(), 1);
+        let proving_service_with_fulfillment = ProvingService::new(
+            db.clone(),
+            prover.clone(),
+            config.clone(),
+            order_state_tx.clone(),
+            priority_requestors,
+        )
+        .await
+        .unwrap();
 
         let lock_and_fulfill_order = create_test_order(
             U256::from(999),
@@ -628,8 +634,17 @@ mod tests {
         let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
-        let proving_service =
-            ProvingService::new(db.clone(), prover, config.clone(), order_state_tx).await.unwrap();
+        let priority_requestors =
+            crate::requestor_monitor::PriorityRequestors::new(config.clone(), 1);
+        let proving_service = ProvingService::new(
+            db.clone(),
+            prover,
+            config.clone(),
+            order_state_tx,
+            priority_requestors,
+        )
+        .await
+        .unwrap();
 
         let order_id = U256::ZERO;
         let min_price = 2;
@@ -711,10 +726,17 @@ mod tests {
             .unwrap();
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
-        let proving_service =
-            ProvingService::new(db.clone(), prover.clone(), config.clone(), order_state_tx.clone())
-                .await
-                .unwrap();
+        let priority_requestors =
+            crate::requestor_monitor::PriorityRequestors::new(config.clone(), 1);
+        let proving_service = ProvingService::new(
+            db.clone(),
+            prover.clone(),
+            config.clone(),
+            order_state_tx.clone(),
+            priority_requestors,
+        )
+        .await
+        .unwrap();
 
         let request_id = U256::from(123);
         let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();

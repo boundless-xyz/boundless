@@ -37,9 +37,84 @@
         "minor"
       ]
     },
+    "PriorityExtension": {
+      "type": "object",
+      "description": "Priority ranking for a requestor",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "integer",
+          "description": "Priority level (0-100, higher = more priority)",
+          "minimum": 0,
+          "maximum": 100,
+          "examples": [50, 75, 100]
+        }
+      },
+      "required": ["level"]
+    },
+    "RequestEstimatesExtension": {
+      "type": "object",
+      "description": "Estimated resource requirements for requests from this requestor",
+      "additionalProperties": false,
+      "properties": {
+        "estimatedMcycleCountMin": {
+          "type": "integer",
+          "description": "Estimated minimum mcycle count for requests from this requestor",
+          "minimum": 0,
+          "examples": [100, 1000]
+        },
+        "estimatedMcycleCountMax": {
+          "type": "integer",
+          "description": "Estimated maximum mcycle count for requests from this requestor",
+          "minimum": 0,
+          "examples": [100, 10000]
+        },
+        "estimatedMaxInputSizeMB": {
+          "type": "number",
+          "description": "Estimated maximum input size in megabytes for requests from this requestor",
+          "minimum": 0,
+          "examples": [1, 10, 100]
+        }
+      },
+      "required": ["estimatedMcycleCountMin", "estimatedMcycleCountMax", "estimatedMaxInputSizeMB"]
+    },
+    "DenylistExtension": {
+      "type": "object",
+      "description": "Denylist metadata for blocked requestors",
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Reason for denylisting this requestor",
+          "examples": ["spam", "malicious behavior"]
+        },
+        "blockedSince": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when blocking started",
+          "examples": ["2025-01-01T00:00:00Z"]
+        }
+      }
+    },
+    "Extensions": {
+      "type": "object",
+      "description": "Optional extension metadata for requestor entries",
+      "additionalProperties": false,
+      "properties": {
+        "priority": {
+          "$ref": "#/definitions/PriorityExtension"
+        },
+        "requestEstimates": {
+          "$ref": "#/definitions/RequestEstimatesExtension"
+        },
+        "denylist": {
+          "$ref": "#/definitions/DenylistExtension"
+        }
+      }
+    },
     "RequestorEntry": {
       "type": "object",
-      "description": "A requestor entry in the priority list",
+      "description": "A requestor entry in the list",
       "additionalProperties": false,
       "properties": {
         "address": {
@@ -60,53 +135,23 @@
             11155111
           ]
         },
-        "priority": {
-          "type": "integer",
-          "description": "Priority level (0-100, higher = more priority)",
-          "minimum": 0,
-          "maximum": 100,
-          "examples": [
-            0,
-            50,
-            100
-          ]
-        },
         "name": {
           "type": "string",
           "description": "The human-readable name for the requestor",
           "minLength": 1,
           "maxLength": 100,
-          "pattern": "^[ \\w.'+\\-%/À-ÖØ-öø-ÿ:]+$",
+          "pattern": "^[ \\w.'+\\-%/À-ÖØ-öø-ÿ:()]+$",
           "examples": [
             "Alpha Requestor"
           ]
         },
-        "estimatedMcycleCountMin": {
-          "type": "integer",
-          "description": "Estimated minimum mcycle count for requests from this requestor",
-          "minimum": 0,
+        "description": {
+          "type": "string",
+          "description": "Optional description of the requestor",
+          "minLength": 1,
+          "maxLength": 500,
           "examples": [
-            100,
-            1000
-          ]
-        },
-        "estimatedMcycleCountMax": {
-          "type": "integer",
-          "description": "Estimated maximum mcycle count for requests from this requestor",
-          "minimum": 0,
-          "examples": [
-            100,
-            10000
-          ]
-        },
-        "estimatedMaxInputSizeMB": {
-          "type": "number",
-          "description": "Estimated maximum input size in megabytes for requests from this requestor",
-          "minimum": 0,
-          "examples": [
-            1,
-            10,
-            100
+            "A DeFi protocol requestor focused on fraud proofs"
           ]
         },
         "tags": {
@@ -128,16 +173,15 @@
               "nfts"
             ]
           ]
+        },
+        "extensions": {
+          "$ref": "#/definitions/Extensions"
         }
       },
       "required": [
         "address",
         "chainId",
-        "priority",
         "name",
-        "estimatedMcycleCountMin",
-        "estimatedMcycleCountMax",
-        "estimatedMaxInputSizeMB",
         "tags"
       ]
     }
@@ -153,6 +197,15 @@
       "pattern": "^[\\w ]+$",
       "examples": [
         "Boundless Recommended Priority List"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of the list's purpose",
+      "minLength": 1,
+      "maxLength": 500,
+      "examples": [
+        "Official list of high-priority requestors recommended by Boundless"
       ]
     },
     "schemaVersion": {
@@ -175,6 +228,7 @@
   },
   "required": [
     "name",
+    "description",
     "schemaVersion",
     "version",
     "requestors"

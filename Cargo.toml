@@ -14,7 +14,8 @@ members = [
     "crates/ops-lambdas/indexer-monitor",
     "crates/order-generator",
     "crates/order-stream",
-    "crates/povw", "crates/requestor-lists",
+    "crates/povw", 
+    "crates/requestor-lists",
     "crates/slasher",
     "crates/test-utils",
     "crates/zkc",
@@ -38,6 +39,7 @@ distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
+requestor-lists = { path = "crates/requestor-lists" }
 
 async-stream = "0.3"
 alloy = { version = "1.0", default-features = false }
