@@ -14,7 +14,7 @@ interface PackerPipelineArgs extends BasePipelineArgs {
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "packer";
 // The branch that we should deploy from on push.
-const BRANCH_NAME = "zeroecco/prover_cluster";
+const BRANCH_NAME = "main";
 
 // Buildspec for Packer AMI builds
 const PACKER_BUILD_SPEC = `
