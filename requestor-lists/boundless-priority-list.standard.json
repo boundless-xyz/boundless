@@ -1,6 +1,6 @@
 {
   "name": "Boundless Recommended Priority List",
-  "description": "List of recommended priority requestors for provers. The requestors here should be suitable for most provers.",
+  "description": "List of recommended priority requestors for provers. The request sizes here should be suitable for most provers.",
   "schemaVersion": {
     "major": 1,
     "minor": 0
@@ -14,7 +14,7 @@
       "address": "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
       "chainId": 1,
       "name": "Anonymous Customer",
-      "description": "A rollup with moderate resource requirements",
+      "description": "",
       "tags": [],
       "extensions": {
         "requestEstimates": {

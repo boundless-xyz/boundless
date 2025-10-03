@@ -1,10 +1,12 @@
 # Requestor Lists
 
-Requestor Lists is a specification for listing Boundless Market requestors, and their relevant metadata (e.g. address, chainId, ...). Requestor Lists are intended to be flexible enough to be used by any application that needs one or more lists of requestors. Currently the Boundless Broker uses these lists for it's priority list feature.
+Requestor Lists is a specification for listing Boundless Market requestors and associated metadata (e.g. chainId, address, ..). 
+
+Requestor Lists are intended to be flexible enough to be used by any application that needs to consume lists of requestors. Currently the Boundless Broker supports these lists for defining priority requestors.
 
 ## Overview
 
-This crate provides a standardized JSON schema and Rust types for publishing lists of requestor addresses. The format is intentionally flexible to support multiple use cases:
+This crate provides a standardized JSON schema and Rust types for publishing lists of requestor addresses. The format is intentionally flexible to support multiple use cases, for example:
 
 - **Priority lists** - Requestors that should be prioritized for processing
 - **Allow lists** - Requestors that are permitted to submit requests

@@ -21,10 +21,13 @@ use crate::{
     errors::CodedError,
     futures_retry::retry,
     impl_coded_debug,
+    now_timestamp,
     provers::ProverObj,
+    requestor_monitor::PriorityRequestors,
+    storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils::cancel_proof_and_fail_order,
-    Order, OrderStateChange, OrderStatus,
+    FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use anyhow::{Context, Result};
 use thiserror::Error;
@@ -64,7 +67,7 @@ pub struct ProvingService {
     prover: ProverObj,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
-    priority_requestors: crate::requestor_monitor::PriorityRequestors,
+    priority_requestors: PriorityRequestors,
 }
 
 impl ProvingService {
@@ -73,7 +76,7 @@ impl ProvingService {
         prover: ProverObj,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
-        priority_requestors: crate::requestor_monitor::PriorityRequestors,
+        priority_requestors: PriorityRequestors,
     ) -> Result<Self> {
         Ok(Self { db, prover, config, order_state_tx, priority_requestors })
     }
@@ -148,7 +151,7 @@ impl ProvingService {
                 let image_id = match order.image_id.as_ref() {
                     Some(val) => val.clone(),
                     None => {
-                        crate::storage::upload_image_uri(&self.prover, &order.request, &self.config)
+                        upload_image_uri(&self.prover, &order.request, &self.config)
                             .await
                             .context("Failed to upload image")?
                     }
@@ -156,7 +159,7 @@ impl ProvingService {
 
                 let input_id = match order.input_id.as_ref() {
                     Some(val) => val.clone(),
-                    None => crate::storage::upload_input_uri(
+                    None => upload_input_uri(
                         &self.prover,
                         &order.request,
                         &self.config,
@@ -195,13 +198,13 @@ impl ProvingService {
         let timeout_duration = {
             let expiry_timestamp_secs =
                 order.expire_timestamp.expect("Order should have expiry set");
-            let now = crate::now_timestamp();
+            let now = now_timestamp();
             Duration::from_secs(expiry_timestamp_secs.saturating_sub(now))
         };
         // Only subscribe to order state events for FulfillAfterLockExpire orders
         let mut order_state_rx = if matches!(
             order.fulfillment_type,
-            crate::FulfillmentType::FulfillAfterLockExpire
+            FulfillmentType::FulfillAfterLockExpire
         ) {
             let rx = self.order_state_tx.subscribe();
 
@@ -548,7 +551,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors =
-            crate::requestor_monitor::PriorityRequestors::new(config.clone(), 1);
+            PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -578,7 +581,7 @@ mod tests {
         // Test that LockAndFulfill orders ignore fulfillment events
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors =
-            crate::requestor_monitor::PriorityRequestors::new(config.clone(), 1);
+            PriorityRequestors::new(config.clone(), 1);
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -635,7 +638,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors =
-            crate::requestor_monitor::PriorityRequestors::new(config.clone(), 1);
+            PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover,
@@ -727,7 +730,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors =
-            crate::requestor_monitor::PriorityRequestors::new(config.clone(), 1);
+            PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
