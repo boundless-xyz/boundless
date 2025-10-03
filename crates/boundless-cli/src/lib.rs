@@ -94,6 +94,52 @@ pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
     t.with_timezone(&Local)
 }
 
+/// Format an amount with smart decimal precision.
+/// Shows max 4 decimal places unless the first 4 are all zeros, in which case shows more.
+/// Removes trailing zeros.
+pub fn format_amount(amount_str: &str) -> String {
+    if let Some((whole, decimal)) = amount_str.split_once('.') {
+        let decimal_chars: Vec<char> = decimal.chars().collect();
+
+        let first_four = decimal_chars.iter().take(4).collect::<String>();
+        if first_four == "0000" || first_four.len() < 4 && first_four.chars().all(|c| c == '0') {
+            let first_nonzero = decimal_chars.iter().position(|&c| c != '0');
+            if let Some(pos) = first_nonzero {
+                let precision = (pos + 2).min(decimal_chars.len());
+                let trimmed = decimal_chars[..precision].iter().collect::<String>().trim_end_matches('0').to_string();
+                if trimmed.is_empty() {
+                    whole.to_string()
+                } else {
+                    format!("{}.{}", whole, trimmed)
+                }
+            } else {
+                whole.to_string()
+            }
+        } else {
+            let precision = 4.min(decimal_chars.len());
+            let trimmed = decimal_chars[..precision].iter().collect::<String>().trim_end_matches('0').to_string();
+            if trimmed.is_empty() {
+                whole.to_string()
+            } else {
+                format!("{}.{}", whole, trimmed)
+            }
+        }
+    } else {
+        amount_str.to_string()
+    }
+}
+
+/// Get the network name from a chain ID.
+pub fn network_name_from_chain_id(chain_id: Option<u64>) -> &'static str {
+    match chain_id {
+        Some(8453) => "Base Mainnet",
+        Some(84532) => "Base Sepolia",
+        Some(11155111) => "Ethereum Sepolia",
+        Some(_) => "Custom Network",
+        None => "Unknown Network",
+    }
+}
+
 /// The default prover implementation.
 /// This [DefaultProver] uses the default zkVM prover.
 /// The selection of the zkVM prover is based on environment variables.

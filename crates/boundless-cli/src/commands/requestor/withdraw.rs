@@ -15,6 +15,7 @@
 use alloy::primitives::{utils::{format_ether, parse_ether}, U256};
 use anyhow::Result;
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::GlobalConfig;
 
@@ -30,9 +31,15 @@ impl RequestorWithdraw {
     /// Run the withdraw command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let client = global_config.build_client_with_signer().await?;
-        tracing::info!("Withdrawing {} ETH from the market", format_ether(self.amount));
+        let formatted = crate::format_amount(&format_ether(self.amount));
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+
+        println!("\n{} [{}]", "Withdrawing funds from Boundless Market".bold(), network_name.blue().bold());
+        println!("  Amount: {} {}", formatted.cyan().bold(), "ETH".cyan());
+
         client.boundless_market.withdraw(self.amount).await?;
-        tracing::info!("Successfully withdrew {} ETH from the market", format_ether(self.amount));
+
+        println!("\n{} Successfully withdrew {} {}", "✓".green().bold(), formatted.green().bold(), "ETH".green());
         Ok(())
     }
 }

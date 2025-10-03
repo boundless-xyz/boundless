@@ -579,11 +579,11 @@ fn show_welcome_screen() -> Result<()> {
     println!();
 
     if !market_configured && !rewards_configured {
-        println!("⚙️  Get started by running: {}", "boundless setup interactive".cyan());
+        println!("⚙️  Get started by running: {}", "boundless setup all".cyan());
         println!("   or see all commands: {}", "boundless --help".cyan());
     } else {
         println!("Run {} to see available commands", "'boundless --help'".cyan());
-        println!("Run {} to modify configuration", "'boundless setup interactive'".cyan());
+        println!("Run {} to modify configuration", "'boundless setup all'".cyan());
     }
 
     Ok(())
@@ -625,11 +625,11 @@ fn show_requestor_status() -> Result<()> {
                 }
             }
         } else {
-            println!("{}", "Not configured - run 'boundless setup interactive'".red());
+            println!("{}", "Not configured - run 'boundless setup all'".red());
             return Ok(());
         }
     } else {
-        println!("{}", "Not configured - run 'boundless setup interactive'".red());
+        println!("{}", "Not configured - run 'boundless setup all'".red());
         return Ok(());
     }
 
@@ -690,11 +690,11 @@ fn show_prover_status() -> Result<()> {
                 println!("{} {}", "Prover Address:".bold(), "Not set (use PROVER_ADDRESS env var)".yellow());
             }
         } else {
-            println!("{}", "Not configured - run 'boundless setup interactive'".red());
+            println!("{}", "Not configured - run 'boundless setup all'".red());
             return Ok(());
         }
     } else {
-        println!("{}", "Not configured - run 'boundless setup interactive'".red());
+        println!("{}", "Not configured - run 'boundless setup all'".red());
         return Ok(());
     }
 
@@ -747,11 +747,11 @@ fn show_rewards_status() -> Result<()> {
                 }
             }
         } else {
-            println!("{}", "Not configured - run 'boundless setup interactive'".red());
+            println!("{}", "Not configured - run 'boundless setup all'".red());
             return Ok(());
         }
     } else {
-        println!("{}", "Not configured - run 'boundless setup interactive'".red());
+        println!("{}", "Not configured - run 'boundless setup all'".red());
         return Ok(());
     }
 
@@ -812,7 +812,9 @@ async fn main() -> Result<()> {
                 show_welcome_screen()?;
                 return Ok(());
             }
-            return Err(err.into());
+            // Print error directly to avoid double "Error:" prefix
+            err.print()?;
+            std::process::exit(1);
         }
     };
 

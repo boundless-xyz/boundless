@@ -17,6 +17,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::GlobalConfig;
 
@@ -43,11 +44,15 @@ impl ProverWithdrawCollateral {
             bail!("Amount is below the denomination minimum: {}", self.amount);
         }
 
-        let formatted_amount = format_units(parsed_amount, decimals)?;
+        let formatted_amount = crate::format_amount(&format_units(parsed_amount, decimals)?);
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 
-        tracing::info!("Withdrawing {} {} from collateral", formatted_amount, symbol);
+        println!("\n{} [{}]", "Withdrawing collateral from Boundless Market".bold(), network_name.blue().bold());
+        println!("  Amount: {} {}", formatted_amount.cyan().bold(), symbol.cyan());
+
         client.boundless_market.withdraw_collateral(parsed_amount).await?;
-        tracing::info!("Successfully withdrew {} {} from collateral", formatted_amount, symbol);
+
+        println!("\n{} Successfully withdrew {} {}", "✓".green().bold(), formatted_amount.green().bold(), symbol.green());
 
         Ok(())
     }

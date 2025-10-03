@@ -17,6 +17,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::GlobalConfig;
 
@@ -43,18 +44,21 @@ impl ProverDepositCollateral {
             bail!("Amount is below the denomination minimum: {}", self.amount);
         }
 
-        let formatted_amount = format_units(parsed_amount, decimals)?;
+        let formatted_amount = crate::format_amount(&format_units(parsed_amount, decimals)?);
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+
+        println!("\n{} [{}]", "Depositing collateral to Boundless Market".bold(), network_name.blue().bold());
+        println!("  Amount: {} {}", formatted_amount.cyan().bold(), symbol.cyan());
 
         // Check if collateral token supports permit (EIP-2612)
         if !client.deployment.collateral_token_supports_permit() {
-            // Traditional approve + deposit flow
-            tracing::info!("Approving {} {} as collateral", formatted_amount, symbol);
+            println!("  {} Approving token...", "→".dimmed());
             client.boundless_market.approve_deposit_collateral(parsed_amount).await?;
 
-            tracing::info!("Depositing {} {} as collateral", formatted_amount, symbol);
+            println!("  {} Depositing...", "→".dimmed());
             match client.boundless_market.deposit_collateral(parsed_amount).await {
                 Ok(_) => {
-                    tracing::info!("Successfully deposited {} {} as collateral", formatted_amount, symbol);
+                    println!("\n{} Successfully deposited {} {}", "✓".green().bold(), formatted_amount.green().bold(), symbol.green());
                     Ok(())
                 }
                 Err(e) => {
@@ -70,14 +74,13 @@ impl ProverDepositCollateral {
                 }
             }
         } else {
-            // Use permit for gasless approval
-            tracing::info!("Depositing {} {} as collateral (using permit)", formatted_amount, symbol);
+            println!("  {} Depositing with permit...", "→".dimmed());
             match client.boundless_market
                 .deposit_collateral_with_permit(parsed_amount, &client.signer.unwrap())
                 .await
             {
                 Ok(_) => {
-                    tracing::info!("Successfully deposited {} {} as collateral", formatted_amount, symbol);
+                    println!("\n{} Successfully deposited {} {}", "✓".green().bold(), formatted_amount.green().bold(), symbol.green());
                     Ok(())
                 }
                 Err(e) => {

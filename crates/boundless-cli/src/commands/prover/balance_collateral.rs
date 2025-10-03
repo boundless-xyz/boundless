@@ -17,6 +17,7 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::GlobalConfig;
 
@@ -58,9 +59,14 @@ impl ProverBalanceCollateral {
         let available = token.balanceOf(addr).call().await
             .context("Failed to query collateral token balance")?;
 
-        tracing::info!("Collateral balance for {:#x}:", addr);
-        tracing::info!("  Deposited: {} {}", format_units(deposited, decimals)?, symbol);
-        tracing::info!("  Available: {} {}", format_units(available, decimals)?, symbol);
+        let deposited_formatted = crate::format_amount(&format_units(deposited, decimals)?);
+        let available_formatted = crate::format_amount(&format_units(available, decimals)?);
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+
+        println!("\n{} [{}]", "Collateral Balance".bold(), network_name.blue().bold());
+        println!("  Address:   {}", format!("{:#x}", addr).dimmed());
+        println!("  Deposited: {} {}", deposited_formatted.green().bold(), symbol.green());
+        println!("  Available: {} {}", available_formatted.cyan().bold(), symbol.cyan());
 
         Ok(())
     }

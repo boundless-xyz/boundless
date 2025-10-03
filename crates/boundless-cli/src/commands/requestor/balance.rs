@@ -15,6 +15,7 @@
 use alloy::primitives::{utils::format_ether, Address};
 use anyhow::{bail, Result};
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::GlobalConfig;
 
@@ -42,9 +43,13 @@ impl RequestorBalance {
         };
 
         let client = global_config.build_client().await?;
-        tracing::info!("Checking balance for address {}", addr);
         let balance = client.boundless_market.balance_of(addr).await?;
-        tracing::info!("Balance for address {}: {} ETH", addr, format_ether(balance));
+        let formatted = crate::format_amount(&format_ether(balance));
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+
+        println!("\n{} [{}]", "Balance deposited to Boundless Market".bold(), network_name.blue().bold());
+        println!("  Address: {}", format!("{:#x}", addr).dimmed());
+        println!("  Amount:  {} {}", formatted.green().bold(), "ETH".green());
         Ok(())
     }
 }

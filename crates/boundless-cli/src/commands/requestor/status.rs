@@ -15,6 +15,7 @@
 use alloy::primitives::U256;
 use anyhow::Result;
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::GlobalConfig;
 
@@ -32,9 +33,21 @@ impl RequestorStatus {
     /// Run the status command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let client = global_config.build_client().await?;
-        tracing::info!("Checking status for request 0x{:x}", self.request_id);
         let status = client.boundless_market.get_status(self.request_id, self.expires_at).await?;
-        tracing::info!("Request 0x{:x} status: {:?}", self.request_id, status);
+
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+
+        println!("\n{} [{}]", "Request Status".bold(), network_name.blue().bold());
+        println!("  Request ID: {}", format!("{:#x}", self.request_id).dimmed());
+
+        let (status_text, status_color): (String, fn(&str) -> colored::ColoredString) = match status {
+            boundless_market::contracts::RequestStatus::Fulfilled => ("✓ Fulfilled".to_string(), |s| s.green().bold()),
+            boundless_market::contracts::RequestStatus::Locked => ("⏳ Locked".to_string(), |s| s.yellow().bold()),
+            boundless_market::contracts::RequestStatus::Expired => ("✗ Expired".to_string(), |s| s.red().bold()),
+            boundless_market::contracts::RequestStatus::Unknown => ("? Unknown".to_string(), |s| s.dimmed()),
+        };
+
+        println!("  Status:     {}", status_color(&status_text));
         Ok(())
     }
 }

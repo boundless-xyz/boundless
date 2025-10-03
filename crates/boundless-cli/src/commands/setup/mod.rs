@@ -30,7 +30,6 @@ use crate::config::GlobalConfig;
 #[derive(Subcommand, Clone, Debug)]
 pub enum SetupCommands {
     /// Interactive setup wizard for all modules
-    #[command(alias = "interactive", alias = "init")]
     All(SetupInteractive),
     /// Configure the Requestor/Prover module
     Requestor(SetupInteractive),
