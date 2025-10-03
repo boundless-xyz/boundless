@@ -447,6 +447,13 @@ impl Prover for DefaultProver {
             }
         }
     }
+    async fn get_bitvm2_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+        let proofs = self.state.proofs.read().await;
+        let proof_data = proofs
+            .get(proof_id)
+            .ok_or_else(|| ProverError::NotFound(format!("shrink bitvm2 proof {proof_id}")))?;
+        Ok(proof_data.compressed_receipt.as_ref().cloned())
+    }
 }
 
 #[cfg(test)]

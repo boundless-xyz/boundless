@@ -671,10 +671,12 @@ where
         // Validate the predicates:
         let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
             .map_err(|e| OrderPickerErr::RequestError(Arc::new(e.into())))?;
-        let eval_data = FulfillmentData::from_image_id_and_journal(
-            Digest::from_hex(image_id).unwrap(),
-            journal,
-        );
+        let eval_data = if is_shrink_bitvm2_selector(order.request.requirements.selector) {
+            // TODO(ec2): comment on this
+            FulfillmentData::None
+        } else {
+            FulfillmentData::from_image_id_and_journal(Digest::from_hex(image_id).unwrap(), journal)
+        };
         if predicate.eval(&eval_data).is_none() {
             tracing::info!("Order {order_id} predicate check failed, skipping");
             return Ok(Skip);
@@ -2732,6 +2734,13 @@ pub(crate) mod tests {
             self.default_prover.get_compressed_receipt(proof_id).await
         }
         async fn shrink_bitvm2(&self, _proof_id: &str) -> Result<String, ProverError> {
+            todo!("Shrink BitVM is not implemented yet");
+        }
+
+        async fn get_bitvm2_receipt(
+            &self,
+            _proof_id: &str,
+        ) -> Result<Option<Receipt>, ProverError> {
             todo!("Shrink BitVM is not implemented yet");
         }
     }
