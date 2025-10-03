@@ -1,6 +1,6 @@
 # Requestor Lists
 
-Requestor Lists is a specification for listing Boundless Market requestors and associated metadata (e.g. chainId, address, ..). 
+Requestor Lists is a specification for listing Boundless Market requestors and associated metadata (e.g. chainId, address, ..).
 
 Requestor Lists are intended to be flexible enough to be used by any application that needs to consume lists of requestors. Currently the Boundless Broker supports these lists for defining priority requestors.
 
