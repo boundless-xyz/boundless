@@ -21,7 +21,7 @@ use boundless_zkc::{contracts::IZKC, deployments::Deployment};
 use chrono::DateTime;
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Command to get the given epoch end time for ZKC.
 #[non_exhaustive]
@@ -32,12 +32,18 @@ pub struct ZkcGetEpochEndTime {
     pub deployment: Option<Deployment>,
     /// Epoch to get the end time for.
     pub epoch: u32,
+
+    /// Rewards configuration (RPC URL, private key, etc.)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl ZkcGetEpochEndTime {
     /// Run the [ZkcGetEpochEndTime] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let rpc_url = global_config.require_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()

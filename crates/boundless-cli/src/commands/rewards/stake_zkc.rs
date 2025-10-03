@@ -27,7 +27,7 @@ use boundless_zkc::{
 use clap::Args;
 
 use crate::{
-    config::GlobalConfig,
+    config::{GlobalConfig, RewardsConfig},
     indexer_client::{parse_amount, IndexerClient},
 };
 
@@ -53,18 +53,24 @@ pub struct RewardsStakeZkc {
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
+
+    /// Rewards configuration (RPC URL, private key, ZKC contract address)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl RewardsStakeZkc {
     /// Run the stake-zkc command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+
         if self.dry_run {
-            return self.run_dry_run(global_config).await;
+            return self.run_dry_run(global_config, &rewards_config).await;
         }
 
         // Actual staking implementation (migrated from zkc/stake.rs)
-        let tx_signer = global_config.require_private_key()?;
-        let rpc_url = global_config.require_rewards_rpc_url()?;
+        let tx_signer = rewards_config.require_private_key()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to the chain
         let provider = ProviderBuilder::new()
@@ -126,14 +132,14 @@ impl RewardsStakeZkc {
         Ok(())
     }
 
-    async fn run_dry_run(&self, global_config: &GlobalConfig) -> Result<()> {
+    async fn run_dry_run(&self, global_config: &GlobalConfig, rewards_config: &crate::config::RewardsConfig) -> Result<()> {
         tracing::info!("=== DRY RUN MODE: Estimating staking rewards ===");
         tracing::warn!("⚠️  These are estimates only. Actual rewards depend on:");
         tracing::warn!("   - Total staked amount in the epoch");
         tracing::warn!("   - Your staking duration");
         tracing::warn!("   - Network activity and emissions");
 
-        let rpc_url = global_config.require_rewards_rpc_url()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await

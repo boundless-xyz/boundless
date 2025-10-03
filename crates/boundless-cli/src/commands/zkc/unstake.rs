@@ -28,7 +28,7 @@ use clap::Args;
 
 use crate::{
     commands::zkc::{get_active_token_id, get_staked_amount},
-    config::GlobalConfig,
+    config::{GlobalConfig, RewardsConfig},
 };
 
 /// Command to unstake ZKC.
@@ -38,13 +38,19 @@ pub struct ZkcUnstake {
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
+
+    /// Rewards configuration (RPC URL, private key, etc.)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl ZkcUnstake {
     /// Run the [ZkcUnstake] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let tx_signer = global_config.require_private_key()?;
-        let rpc_url = global_config.require_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        let tx_signer = rewards_config.require_private_key()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()

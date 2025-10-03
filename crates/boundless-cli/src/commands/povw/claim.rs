@@ -35,7 +35,7 @@ use risc0_povw::PovwLogId;
 use risc0_zkvm::{default_prover, Digest, ProverOpts};
 use url::Url;
 
-use crate::config::{GlobalConfig, ProverConfig};
+use crate::config::{GlobalConfig, ProverConfig, RewardsConfig};
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
 
@@ -85,15 +85,22 @@ pub struct PovwClaim {
     #[clap(long, default_value_t = 10000)]
     pub event_query_chunk_size: u64,
 
+    /// Prover configuration (RPC URL, private key, deployment, Bento settings)
     #[clap(flatten, next_help_heading = "Prover")]
     prover_config: ProverConfig,
+
+    /// Rewards configuration (RPC URL, private key, ZKC contract address)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl PovwClaim {
     /// Run the [PovwClaim] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let tx_signer = global_config.require_private_key()?;
-        let rpc_url = global_config.require_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        let tx_signer = rewards_config.require_private_key()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()

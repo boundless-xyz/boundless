@@ -27,7 +27,7 @@ use crate::config::{GlobalConfig, ProverConfig};
 #[derive(Args, Clone, Debug)]
 pub struct ProverBenchmark {
     /// Proof request ids to benchmark.
-    #[arg(long, value_delimiter = ',')]
+    #[arg(long, value_delimiter = ',', required = true)]
     pub request_ids: Vec<U256>,
 
     /// Prover configuration options
@@ -38,7 +38,8 @@ pub struct ProverBenchmark {
 impl ProverBenchmark {
     /// Run the benchmark command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.client_builder()?.build().await?;
+        let prover_config = self.prover_config.clone().load_from_files()?;
+        let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 
         println!(
@@ -47,10 +48,6 @@ impl ProverBenchmark {
             network_name.blue().bold()
         );
         println!("  Total requests: {}", format!("{}", self.request_ids.len()).cyan().bold());
-
-        if self.request_ids.is_empty() {
-            bail!("No request IDs provided");
-        }
 
         if self.prover_config.use_default_prover {
             bail!("benchmark command does not support using the default prover");

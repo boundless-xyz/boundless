@@ -21,7 +21,7 @@ use anyhow::{ensure, Context};
 use boundless_zkc::{contracts::IRewards, deployments::Deployment};
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Command to delegate rewards for ZKC.
 #[non_exhaustive]
@@ -35,13 +35,19 @@ pub struct ZkcDelegateRewards {
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
+
+    /// Rewards configuration (RPC URL, private key, etc.)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl ZkcDelegateRewards {
     /// Run the [DelegateRewards] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let tx_signer = global_config.require_private_key()?;
-        let rpc_url = global_config.require_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        let tx_signer = rewards_config.require_private_key()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()

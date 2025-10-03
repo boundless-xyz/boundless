@@ -25,7 +25,7 @@ use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, S
 
 use colored::Colorize;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, ProverConfig};
 
 /// Execute a proof request using the RISC Zero zkVM executor
 #[derive(Args, Clone, Debug)]
@@ -45,12 +45,17 @@ pub struct ProverExecute {
     /// The tx hash of the request submission.
     #[arg(long, conflicts_with = "request_path", requires = "request_id")]
     pub tx_hash: Option<B256>,
+
+    /// Prover configuration options
+    #[clap(flatten, next_help_heading = "Prover")]
+    pub prover_config: ProverConfig,
 }
 
 impl ProverExecute {
     /// Run the execute command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.client_builder()?.build().await?;
+        let prover_config = self.prover_config.clone().load_from_files()?;
+        let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 
         println!(

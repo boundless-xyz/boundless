@@ -20,7 +20,7 @@ use anyhow::Result;
 use clap::Args;
 use colored::Colorize;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RequestorConfig};
 
 /// Command to deposit funds into the market
 #[derive(Args, Clone, Debug)]
@@ -28,12 +28,18 @@ pub struct RequestorDeposit {
     /// Amount in ether to deposit
     #[clap(value_parser = parse_ether)]
     pub amount: U256,
+
+    /// Requestor configuration (RPC URL, private key, deployment)
+    #[clap(flatten)]
+    pub requestor_config: RequestorConfig,
 }
 
 impl RequestorDeposit {
     /// Run the deposit command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.build_client_with_signer().await?;
+        let requestor_config = self.requestor_config.clone().load_from_files()?;
+
+        let client = requestor_config.client_builder_with_signer(global_config.tx_timeout)?.build().await?;
         let formatted = crate::format_amount(&format_ether(self.amount));
         let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 

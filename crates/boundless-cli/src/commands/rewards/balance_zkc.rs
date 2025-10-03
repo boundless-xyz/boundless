@@ -20,19 +20,24 @@ use anyhow::{bail, Context, Result};
 use boundless_market::contracts::token::IERC20;
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Check the ZKC token balance of an address
 #[derive(Args, Clone, Debug)]
 pub struct RewardsBalanceZkc {
     /// Address to check the balance of
     pub address: Address,
+
+    /// Rewards configuration (RPC URL, private key, ZKC contract address)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl RewardsBalanceZkc {
     /// Run the balance-zkc command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let rpc_url = global_config.require_rewards_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to provider
         let provider = ProviderBuilder::new()
@@ -48,8 +53,7 @@ impl RewardsBalanceZkc {
         }
 
         // Get ZKC contract address
-        let zkc_address =
-            global_config.zkc_address().context("ZKC_ADDRESS environment variable is required")?;
+        let zkc_address = rewards_config.zkc_address()?;
 
         tracing::debug!("Using ZKC address: {:#x}", zkc_address);
 

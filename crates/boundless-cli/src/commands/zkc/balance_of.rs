@@ -21,7 +21,7 @@ use boundless_market::contracts::token::IERC20;
 use boundless_zkc::deployments::Deployment;
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Command to get balance for ZKC.
 #[non_exhaustive]
@@ -32,12 +32,18 @@ pub struct ZkcBalanceOf {
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
+
+    /// Rewards configuration (RPC URL, private key, etc.)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl ZkcBalanceOf {
     /// Run the [ZkcBalanceOf] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let rpc_url = global_config.require_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        let rpc_url = rewards_config.require_rpc_url()?;
         // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())

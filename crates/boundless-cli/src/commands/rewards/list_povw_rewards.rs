@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 
 use crate::{
-    config::GlobalConfig,
+    config::{GlobalConfig, RewardsConfig},
     indexer_client::{parse_amount, IndexerClient},
 };
 
@@ -41,12 +41,17 @@ pub struct RewardsListPovwRewards {
     /// Show estimated rewards for current epoch (dry-run)
     #[clap(long)]
     pub dry_run: bool,
+
+    /// Rewards configuration (RPC URL, private key, ZKC contract address)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl RewardsListPovwRewards {
     /// Run the list-povw-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let rpc_url = global_config.require_rewards_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await

@@ -20,20 +20,25 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Args;
 use colored::Colorize;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, ProverConfig};
 
 /// Deposit collateral funds into the market
 #[derive(Args, Clone, Debug)]
 pub struct ProverDepositCollateral {
     /// Amount to deposit in HP or USDC based on the chain ID.
     pub amount: String,
+
+    /// Prover configuration options
+    #[clap(flatten, next_help_heading = "Prover")]
+    pub prover_config: ProverConfig,
 }
 
 impl ProverDepositCollateral {
     /// Run the deposit collateral command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config
-            .client_builder_with_signer()?
+        let prover_config = self.prover_config.clone().load_from_files()?;
+        let client = prover_config
+            .client_builder_with_signer(global_config.tx_timeout)?
             .build()
             .await
             .context("Failed to build Boundless Client with signer")?;

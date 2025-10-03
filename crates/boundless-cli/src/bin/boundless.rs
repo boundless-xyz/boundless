@@ -655,11 +655,9 @@ fn show_requestor_status() -> Result<()> {
             }
         } else {
             println!("{}", "Not configured - run 'boundless setup requestor'".red());
-            return Ok(());
         }
     } else {
         println!("{}", "Not configured - run 'boundless setup requestor'".red());
-        return Ok(());
     }
 
     println!("\n{}\n", "Available Commands:".bold());
@@ -674,7 +672,7 @@ fn show_requestor_status() -> Result<()> {
     println!(
         "\n💡 {} {}",
         "Tip:".bold(),
-        "Try 'boundless requestor submit-offer --help' to get started".dimmed()
+        "Try our guide for submitting requests via the CLI at: https://docs.boundless.network/developers/tooling/cli#requesting-a-proof-via-the-boundless-cli".dimmed()
     );
 
     Ok(())
@@ -721,11 +719,9 @@ fn show_prover_status() -> Result<()> {
             }
         } else {
             println!("{}", "Not configured - run 'boundless setup prover'".red());
-            return Ok(());
         }
     } else {
         println!("{}", "Not configured - run 'boundless setup prover'".red());
-        return Ok(());
     }
 
     println!("\n{}\n", "Available Commands:".bold());
@@ -786,11 +782,9 @@ fn show_rewards_status() -> Result<()> {
             }
         } else {
             println!("{}", "Not configured - run 'boundless setup all'".red());
-            return Ok(());
         }
     } else {
         println!("{}", "Not configured - run 'boundless setup all'".red());
-        return Ok(());
     }
 
     println!("\n{}\n", "Available Commands:".bold());
@@ -869,16 +863,7 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // Load configuration from files if not provided via CLI/env
-    // Use the appropriate loader based on the command type
-    let mut config = args.config.clone();
-    config = match &args.command {
-        Command::Prover(_) => config.load_prover_from_files()?,
-        Command::Requestor(_) => config.load_requestor_from_files()?,
-        _ => config.load_from_files()?,
-    };
-
-    run(&args, &config).await
+    run(&args, &args.config).await
 }
 
 pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
@@ -908,7 +893,13 @@ fn generate_shell_completions(shell: &Shell) -> Result<()> {
 
 /// Handle ops-related commands
 async fn handle_ops_command(cmd: &OpsCommands, config: &GlobalConfig) -> Result<()> {
-    let client = config.build_client_with_signer().await?;
+    use boundless_cli::config::RequestorConfig;
+    let requestor_config = RequestorConfig {
+        rpc_url: None,
+        private_key: None,
+        deployment: None,
+    }.load_from_files()?;
+    let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
     match cmd {
         OpsCommands::Slash { request_id } => {
             tracing::info!("Slashing prover for request 0x{:x}", request_id);
@@ -937,23 +928,30 @@ async fn parse_collateral_amount(
 
 /// Handle account-related commands
 async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) -> Result<()> {
+    use boundless_cli::config::RequestorConfig;
+    let requestor_config = RequestorConfig {
+        rpc_url: None,
+        private_key: None,
+        deployment: None,
+    }.load_from_files()?;
+
     match cmd {
         AccountCommands::Deposit { amount } => {
-            let client = config.build_client_with_signer().await?;
+            let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             tracing::info!("Depositing {} ETH into the market", format_ether(*amount));
             client.boundless_market.deposit(*amount).await?;
             tracing::info!("Successfully deposited {} ETH into the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Withdraw { amount } => {
-            let client = config.build_client_with_signer().await?;
+            let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             tracing::info!("Withdrawing {} ETH from the market", format_ether(*amount));
             client.boundless_market.withdraw(*amount).await?;
             tracing::info!("Successfully withdrew {} ETH from the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Balance { address } => {
-            let client = config.build_client().await?;
+            let client = requestor_config.client_builder(config.tx_timeout)?.build().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
             if addr == Address::ZERO {
                 bail!("No address specified for balance query. Please provide an address or a private key.")
@@ -964,7 +962,7 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             Ok(())
         }
         AccountCommands::DepositCollateral { amount } => {
-            let client = config.build_client_with_signer().await?;
+            let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             let (parsed_amount, formatted_amount, symbol) =
                 parse_collateral_amount(&client, amount).await?;
 
@@ -1017,7 +1015,7 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             }
         }
         AccountCommands::WithdrawCollateral { amount } => {
-            let client = config.build_client_with_signer().await?;
+            let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             let (parsed_amount, formatted_amount, symbol) =
                 parse_collateral_amount(&client, amount).await?;
             tracing::info!("Withdrawing {formatted_amount} {symbol} from collateral");
@@ -1026,7 +1024,7 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             Ok(())
         }
         AccountCommands::CollateralBalance { address } => {
-            let client = config.build_client().await?;
+            let client = requestor_config.client_builder(config.tx_timeout)?.build().await?;
             let symbol = client.boundless_market.collateral_token_symbol().await?;
             let decimals = client.boundless_market.collateral_token_decimals().await?;
             let addr = address.unwrap_or(client.boundless_market.caller());
@@ -1045,10 +1043,17 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
 
 /// Handle request-related commands
 async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) -> Result<()> {
+    use boundless_cli::config::RequestorConfig;
+    let requestor_config = RequestorConfig {
+        rpc_url: None,
+        private_key: None,
+        deployment: None,
+    }.load_from_files()?;
+
     match cmd {
         RequestCommands::SubmitOffer(offer_args) => {
-            let client = config
-                .client_builder_with_signer()?
+            let client = requestor_config
+                .client_builder_with_signer(config.tx_timeout)?
                 .with_storage_provider_config(&offer_args.storage_config)?
                 .build()
                 .await
@@ -1065,8 +1070,8 @@ async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) ->
         } => {
             tracing::info!("Submitting proof request from YAML file");
 
-            let client = config
-                .client_builder_with_signer()?
+            let client = requestor_config
+                .client_builder_with_signer(config.tx_timeout)?
                 .with_storage_provider_config(storage_config)?
                 .build()
                 .await
@@ -1079,14 +1084,14 @@ async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) ->
             .await
         }
         RequestCommands::Status { request_id, expires_at } => {
-            let client = config.build_client().await?;
+            let client = requestor_config.client_builder(config.tx_timeout)?.build().await?;
             tracing::info!("Checking status for request 0x{:x}", request_id);
             let status = client.boundless_market.get_status(*request_id, *expires_at).await?;
             tracing::info!("Request 0x{:x} status: {:?}", request_id, status);
             Ok(())
         }
         RequestCommands::GetProof { request_id } => {
-            let client = config.build_client().await?;
+            let client = requestor_config.client_builder(config.tx_timeout)?.build().await?;
             tracing::info!("Fetching proof for request 0x{:x}", request_id);
             let fulfillment = client.boundless_market.get_request_fulfillment(*request_id).await?;
             tracing::info!("Successfully retrieved proof for request 0x{:x}", request_id);
@@ -1098,7 +1103,7 @@ async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) ->
             Ok(())
         }
         RequestCommands::VerifyProof { request_id, image_id } => {
-            let client = config.build_client().await?;
+            let client = requestor_config.client_builder(config.tx_timeout)?.build().await?;
             tracing::info!("Verifying proof for request 0x{:x}", request_id);
 
             let verifier_address = client.deployment.verifier_router_address.context("no address provided for the verifier router; specify a verifier address with --verifier-address")?;
@@ -1148,9 +1153,20 @@ async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) ->
 
 /// Handle proving-related commands
 async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) -> Result<()> {
+    use boundless_cli::config::ProverConfig as ProverClientConfig;
+    let prover_client_config = ProverClientConfig {
+        rpc_url: None,
+        private_key: None,
+        deployment: None,
+        bento_api_url: "http://localhost:8081".to_string(),
+        bento_api_key: None,
+        use_default_prover: false,
+        skip_health_check: false,
+    }.load_from_files()?;
+
     match cmd {
         ProvingCommands::Execute { request_path, request_id, request_digest, tx_hash } => {
-            let client = config.build_client().await?;
+            let client = prover_client_config.client_builder(config.tx_timeout)?.build().await?;
             tracing::info!("Executing proof request");
             let request: ProofRequest = if let Some(file_path) = request_path {
                 tracing::debug!("Loading request from file: {:?}", file_path);
@@ -1192,7 +1208,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             withdraw,
             prover_config,
         } => {
-            let client = config.build_client_with_signer().await?;
+            let client = prover_client_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
             {
@@ -1296,7 +1312,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             }
         }
         ProvingCommands::Lock { request_id, request_digest, tx_hash } => {
-            let client = config.build_client_with_signer().await?;
+            let client = prover_client_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             tracing::info!("Locking proof request 0x{:x}", request_id);
 
             let (request, signature) =
@@ -1318,7 +1334,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             Ok(())
         }
         ProvingCommands::Benchmark { request_ids, prover_config } => {
-            let client = config.build_client().await?;
+            let client = prover_client_config.client_builder(config.tx_timeout)?.build().await?;
             benchmark(client, request_ids, prover_config).await
         }
     }
@@ -1750,15 +1766,22 @@ fn now_timestamp() -> u64 {
 
 /// Handle config command
 async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
+    use boundless_cli::config::RequestorConfig;
+    let requestor_config = RequestorConfig {
+        rpc_url: None,
+        private_key: None,
+        deployment: None,
+    }.load_from_files()?;
+
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");
 
     // Show configuration
-    let rpc_url = config.require_rpc_url()?;
+    let rpc_url = requestor_config.require_rpc_url()?;
     println!("RPC URL: {rpc_url}");
     println!(
         "Wallet Address: {}",
-        config
+        requestor_config
             .private_key
             .as_ref()
             .map(|sk| sk.address().to_string())
@@ -1770,7 +1793,7 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
         println!("Transaction Timeout: <not set>");
     }
     println!("Log Level: {:?}", config.log_level);
-    if let Some(ref deployment) = config.deployment {
+    if let Some(ref deployment) = requestor_config.deployment {
         println!("Using custom Boundless deployment");
         println!("Chain ID: {:?}", deployment.chain_id);
         println!("Boundless Market Address: {}", deployment.boundless_market_address);
@@ -1782,7 +1805,7 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
     // Validate RPC connection
     println!("\n=== Environment Validation ===\n");
     print!("Testing RPC connection... ");
-    let provider = ProviderBuilder::new().connect_http(rpc_url);
+    let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
 
     let chain_id = match provider.get_chain_id().await {
         Ok(chain_id) => {
@@ -1797,7 +1820,7 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
     };
 
     let Some(deployment) =
-        config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+        requestor_config.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
     else {
         println!("❌ No Boundless deployment config provided for unknown chain ID: {chain_id}");
         return Ok(());

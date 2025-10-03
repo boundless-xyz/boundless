@@ -19,19 +19,24 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Check the staked ZKC balance (veZKC) of an address
 #[derive(Args, Clone, Debug)]
 pub struct RewardsStakedBalanceZkc {
     /// Address to check the staked balance of
     pub address: Address,
+
+    /// Rewards configuration (RPC URL, private key, ZKC contract address)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl RewardsStakedBalanceZkc {
     /// Run the staked-balance-zkc command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let rpc_url = global_config.require_rewards_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to provider
         let provider = ProviderBuilder::new()
@@ -47,9 +52,7 @@ impl RewardsStakedBalanceZkc {
         }
 
         // Get veZKC (staking) contract address
-        let vezkc_address = global_config
-            .vezkc_address()
-            .context("VEZKC_ADDRESS environment variable is required")?;
+        let vezkc_address = rewards_config.vezkc_address()?;
 
         // Define ERC721Votes interface inline for veZKC
         alloy::sol! {

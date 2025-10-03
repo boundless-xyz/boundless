@@ -28,7 +28,7 @@ use boundless_market::{
 use clap::Args;
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, SessionInfo};
 
-use crate::{config::GlobalConfig, convert_timestamp};
+use crate::{config::{GlobalConfig, RequestorConfig}, convert_timestamp};
 
 /// Submit a fully specified proof request
 #[derive(Args, Clone, Debug)]
@@ -51,15 +51,21 @@ pub struct RequestorSubmit {
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
     pub storage_config: Box<StorageProviderConfig>,
+
+    /// Requestor configuration (RPC URL, private key, deployment)
+    #[clap(flatten)]
+    pub requestor_config: RequestorConfig,
 }
 
 impl RequestorSubmit {
     /// Run the submit command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        let requestor_config = self.requestor_config.clone().load_from_files()?;
+
         tracing::info!("Submitting proof request from YAML file");
 
-        let client = global_config
-            .client_builder_with_signer()?
+        let client = requestor_config
+            .client_builder_with_signer(global_config.tx_timeout)?
             .with_storage_provider_config(&self.storage_config)?
             .build()
             .await

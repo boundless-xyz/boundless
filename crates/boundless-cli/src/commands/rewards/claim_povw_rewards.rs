@@ -19,7 +19,7 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 use crate::indexer_client::IndexerClient;
 
 /// Claim available PoVW rewards for a prover address
@@ -27,12 +27,17 @@ use crate::indexer_client::IndexerClient;
 pub struct RewardsClaimPovwRewards {
     /// Prover address to claim rewards for (defaults to wallet address)
     pub prover_address: Option<Address>,
+
+    /// Rewards configuration (RPC URL, private key, ZKC contract address)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl RewardsClaimPovwRewards {
     /// Run the claim-povw-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let rpc_url = global_config.require_rewards_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
@@ -49,9 +54,10 @@ impl RewardsClaimPovwRewards {
         let prover_address = if let Some(addr) = self.prover_address {
             addr
         } else {
-            global_config.prover_address().context(
-                "No prover address provided and PROVER_ADDRESS environment variable not set",
-            )?
+            std::env::var("PROVER_ADDRESS")
+                .context("No prover address provided and PROVER_ADDRESS environment variable not set")?
+                .parse()
+                .context("Failed to parse PROVER_ADDRESS")?
         };
 
         // Create indexer client based on chain ID

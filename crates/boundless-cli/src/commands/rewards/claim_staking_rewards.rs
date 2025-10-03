@@ -15,14 +15,13 @@
 use alloy::{
     primitives::{utils::format_ether, Address},
     providers::{Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Context, Result};
 use boundless_zkc::contracts::IStakingRewards;
 use clap::Args;
 use colored::Colorize;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Claim accumulated staking rewards
 #[derive(Args, Clone, Debug)]
@@ -33,19 +32,21 @@ pub struct RewardsClaimStakingRewards {
     /// Address to receive the claimed rewards (defaults to claimer address)
     #[arg(long)]
     pub recipient: Option<Address>,
+
+    /// Rewards configuration (RPC URL, private key, ZKC contract address)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl RewardsClaimStakingRewards {
     /// Run the claim-staking-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+
         // Get RPC URL and private key for signing
-        let rpc_url = global_config.require_rewards_rpc_url()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
-        let private_key = global_config.require_rewards_private_key()?;
-
-        // Create signer from private key
-        let signer: PrivateKeySigner =
-            private_key.parse().context("Failed to parse private key")?;
+        let signer = rewards_config.require_private_key()?;
 
         // Connect to provider with signer
         let provider = ProviderBuilder::new().wallet(signer.clone()).on_http(rpc_url);
@@ -60,9 +61,7 @@ impl RewardsClaimStakingRewards {
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
         // Get staking rewards contract address
-        let staking_rewards_address = global_config
-            .staking_rewards_address()
-            .context("STAKING_REWARDS_ADDRESS environment variable is required")?;
+        let staking_rewards_address = rewards_config.staking_rewards_address()?;
 
         // Create staking rewards contract instance
         let staking_rewards = IStakingRewards::new(staking_rewards_address, &provider);

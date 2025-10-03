@@ -16,19 +16,25 @@ use alloy::primitives::U256;
 use anyhow::Result;
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RequestorConfig};
 
 /// Get the journal and seal for a given request
 #[derive(Args, Clone, Debug)]
 pub struct RequestorGetProof {
     /// The proof request identifier
     pub request_id: U256,
+
+    /// Requestor configuration (RPC URL, private key, deployment)
+    #[clap(flatten)]
+    pub requestor_config: RequestorConfig,
 }
 
 impl RequestorGetProof {
     /// Run the get-proof command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.build_client().await?;
+        let requestor_config = self.requestor_config.clone().load_from_files()?;
+
+        let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
         tracing::info!("Fetching proof for request 0x{:x}", self.request_id);
         let fulfillment = client.boundless_market.get_request_fulfillment(self.request_id).await?;
         tracing::info!("Successfully retrieved proof for request 0x{:x}", self.request_id);

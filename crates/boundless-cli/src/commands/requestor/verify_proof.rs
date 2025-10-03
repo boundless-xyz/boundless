@@ -19,7 +19,7 @@ use clap::Args;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
 use risc0_zkvm::sha::Digest;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RequestorConfig};
 
 /// Verify the proof of the given request against the SetVerifier contract
 #[derive(Args, Clone, Debug)]
@@ -29,13 +29,19 @@ pub struct RequestorVerifyProof {
 
     /// The image id of the original request
     pub image_id: B256,
+
+    /// Requestor configuration (RPC URL, private key, deployment)
+    #[clap(flatten)]
+    pub requestor_config: RequestorConfig,
 }
 
 impl RequestorVerifyProof {
     /// Run the verify-proof command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config
-            .client_builder()?
+        let requestor_config = self.requestor_config.clone().load_from_files()?;
+
+        let client = requestor_config
+            .client_builder(global_config.tx_timeout)?
             .build()
             .await
             .context("Failed to build Boundless Client")?;

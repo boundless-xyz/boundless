@@ -17,7 +17,7 @@ use anyhow::Result;
 use clap::Args;
 use colored::Colorize;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RequestorConfig};
 
 /// Get the status of a given request
 #[derive(Args, Clone, Debug)]
@@ -27,12 +27,18 @@ pub struct RequestorStatus {
 
     /// The time at which the request expires, in seconds since the UNIX epoch
     pub expires_at: Option<u64>,
+
+    /// Requestor configuration (RPC URL, private key, deployment)
+    #[clap(flatten)]
+    pub requestor_config: RequestorConfig,
 }
 
 impl RequestorStatus {
     /// Run the status command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.build_client().await?;
+        let requestor_config = self.requestor_config.clone().load_from_files()?;
+
+        let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
         let status = client.boundless_market.get_status(self.request_id, self.expires_at).await?;
 
         let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);

@@ -17,22 +17,28 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use colored::Colorize;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, ProverConfig};
 
 /// Check the collateral balance of an account in the market
 #[derive(Args, Clone, Debug)]
 pub struct ProverBalanceCollateral {
     /// Address to check the balance of; if not provided, defaults to the wallet address
     pub address: Option<Address>,
+
+    /// Prover configuration options
+    #[clap(flatten, next_help_heading = "Prover")]
+    pub prover_config: ProverConfig,
 }
 
 impl ProverBalanceCollateral {
     /// Run the balance collateral command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        let prover_config = self.prover_config.clone().load_from_files()?;
+
         // If address is provided, use it; otherwise try to get it from configured private key
         let addr = if let Some(addr) = self.address {
             addr
-        } else if let Some(ref pk) = global_config.private_key {
+        } else if let Some(ref pk) = prover_config.private_key {
             pk.address()
         } else {
             bail!(
@@ -42,8 +48,8 @@ impl ProverBalanceCollateral {
             );
         };
 
-        let client = global_config
-            .client_builder()?
+        let client = prover_config
+            .client_builder(global_config.tx_timeout)?
             .build()
             .await
             .context("Failed to build Boundless Client")?;

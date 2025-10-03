@@ -24,7 +24,7 @@ use boundless_zkc::{
 use chrono::DateTime;
 use clap::Args;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Command to get staked amount and withdrawing time for ZKC.
 #[non_exhaustive]
@@ -35,12 +35,18 @@ pub struct ZkcGetStakedAmount {
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
+
+    /// Rewards configuration (RPC URL, private key, etc.)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl ZkcGetStakedAmount {
     /// Run the [ZkcGetStakedAmount] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let rpc_url = global_config.require_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()

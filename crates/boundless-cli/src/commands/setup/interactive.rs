@@ -28,15 +28,15 @@ use crate::config_file::{
 #[derive(Args, Clone, Debug)]
 pub struct SetupInteractive {
     /// Network name (e.g., base-mainnet, base-sepolia, eth-sepolia)
-    #[arg(long)]
+    #[arg(long = "set-network")]
     pub network: Option<String>,
 
     /// RPC URL for the network
-    #[arg(long)]
+    #[arg(long = "set-rpc-url")]
     pub rpc_url: Option<String>,
 
     /// Private key for transactions (will be stored in ~/.boundless/secrets.toml)
-    #[arg(long)]
+    #[arg(long = "set-private-key")]
     pub private_key: Option<String>,
 }
 

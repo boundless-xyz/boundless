@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use url::Url;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RequestorConfig};
 use crate::convert_timestamp;
 
 /// Submit a proof request constructed with the given offer, input, and image
@@ -66,6 +66,9 @@ pub struct RequestorSubmitOffer {
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
     pub storage_config: StorageProviderConfig,
+
+    #[clap(flatten)]
+    pub requestor_config: RequestorConfig,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -109,17 +112,13 @@ pub struct SubmitOfferRequirements {
 impl RequestorSubmitOffer {
     /// Run the submit-offer command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        // Build client with storage provider if needed
-        let client_builder = global_config.client_builder_with_signer()?;
+        let requestor_config = self.requestor_config.clone().load_from_files()?;
 
-        // Configure storage provider if provided
-        // StorageProviderConfig doesn't have a build() method, need to convert it to StandardStorageProvider
-        // This would typically be done through the Client builder
-        // For now, we'll build the client without explicit storage provider configuration
-        // as the client builder can handle the storage config internally
-
-        let client =
-            client_builder.build().await.context("Failed to build Boundless Client with signer")?;
+        let client = requestor_config
+            .client_builder_with_signer(global_config.tx_timeout)?
+            .build()
+            .await
+            .context("Failed to build Boundless Client with signer")?;
 
         let request = client.new_request();
 

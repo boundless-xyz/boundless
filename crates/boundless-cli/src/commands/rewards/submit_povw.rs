@@ -21,7 +21,7 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use std::path::PathBuf;
 
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Submit accumulated PoVW work to earn rewards
 ///
@@ -45,12 +45,17 @@ pub struct RewardsSubmitPovw {
     /// Dry run mode - simulate submission without sending transaction
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Rewards configuration (RPC URL, private key, ZKC contract address)
+    #[clap(flatten)]
+    pub rewards_config: RewardsConfig,
 }
 
 impl RewardsSubmitPovw {
     /// Run the submit-povw command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let rpc_url = global_config.require_rewards_rpc_url()?;
+        let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url()?;
 
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
@@ -72,9 +77,8 @@ impl RewardsSubmitPovw {
         let work_log_private_key = if let Some(key) = &self.povw_private_key {
             key.clone()
         } else {
-            global_config
-                .work_log_private_key()
-                .or_else(|_| global_config.require_prover_private_key())
+            std::env::var("POVW_PRIVATE_KEY")
+                .or_else(|_| std::env::var("PROVER_PRIVATE_KEY"))
                 .context(
                     "No PoVW private key provided. Set POVW_PRIVATE_KEY or PROVER_PRIVATE_KEY",
                 )?
