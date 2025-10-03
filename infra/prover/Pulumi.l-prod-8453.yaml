@@ -8,7 +8,7 @@ config:
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
   base-prover:GH_TOKEN_SECRET:
-    secure: v1:6s1Bn7EWogMLO62b:mkijYAxp9hT+yICykkBvNK2J5rRkRhYfNRulGhhe6N1DGXm4eyRG91DACgl5V7p2GcvWVn9mJpAg5MWJJsWZ6UXGTYNw2XQCzcGqPZBQZhs9UwwWfLlFRbRIAO6IUwLA7Io/qLoN7NGoR79psw==
+    secure: v1:yUVlOXyhiRU3JT9w:pgBGBQJOiAjgawSTTsBVEj73SUJkwhGZXoq8JPm+nnPC5+RH0/6g42N+gkRDKyk8wyugGneuwD7PC0YzByWin/Y+K2iCzU/OK1g++iup+flwg/l4BM4xsq4coRUfsXFbpygUniHIyJsflRWSAg==
   base-prover:ORDER_STREAM_URL: https://base-mainnet.boundless.network
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104

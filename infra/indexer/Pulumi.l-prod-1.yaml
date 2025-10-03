@@ -1,5 +1,3 @@
-secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
-encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGxUaGCL++GQCvX/zLtljzzAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM9k9K+qatJH8EMesJAgEQgDuCOpKHxoA6+LTQnfvVw5a6ELbGojJbAVAA6e5wTaWkMArFNkFiyhHacnJUQnjpAiVWKl2FDz6D4l6NkQ==
 config:
   aws:region: us-west-2
   indexer:DOCKER_DIR: ../../
@@ -12,4 +10,6 @@ config:
   indexer:RUST_LOG: "info"
   indexer:CHAIN_ID: "1"
   indexer:INDEXER_API_DOMAIN: indexer.eth-mainnet.boundless.network
-  
+  indexer:GH_TOKEN_SECRET:
+    secure: v1:ycZdieA5Ym3rfKaM:2PIhdorREAbwugxt/sAdh08Tdd/A2kK+NtHiz1j+JZR1oPCp5020JaIjw411wPQZ3xfAQZx5iKq1UlI/hKZe8cA5RJgv14KVAV6DP9cjlaWJe/905fGIUbwjfM1iHQiVLlGV40+Q46WKvinQLA==
+encryptionsalt: v1:z72nvyQ+CSM=:v1:p2GVuxRO5/eryKql:+4+3TTs93mJ9aH5Xhew65QJk5FWb8Q==
