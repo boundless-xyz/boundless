@@ -1,0 +1,17 @@
+[Unit]
+Description=Boundless Bento Agent Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+EnvironmentFile=/etc/environment
+WorkingDirectory=/opt/boundless
+ExecStart=/usr/local/bin/api --bind-addr ${BENTO_API_LISTEN_ADDR}:${BENTO_API_PORT} --snark-timeout ${SNARK_TIMEOUT}
+Restart=always
+RestartSec=10
+TimeoutStartSec=1800
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target

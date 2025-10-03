@@ -1,0 +1,33 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGA9yGzYmX18KEh3qL46b5UAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM9oZ6wye2fTuMWV0GAgEQgDuEacQklGHw6WJN3N4UIAg9ChU4WeCn02cR3th7uPUpnjOJ6LMK9i1Fl8uP29fyw8O/lxuUeBZZi5E8MQ==
+config:
+  base:BASE_STACK: organization/bootstrap/services-prod
+  prover-cluster:boundlessAmiName: "boundless-nightly-ubuntu-24.04-nvidia-*"
+  prover-cluster:boundlessBentoVersion: "nightly"
+  prover-cluster:boundlessBrokerVersion: "nightly"
+  prover-cluster:environment: nightly
+  prover-cluster:chainId: "8453"
+  prover-cluster:managerInstanceType: t3a.2xlarge
+  prover-cluster:taskDBName: "taskdb"
+  prover-cluster:taskDBUsername:
+    secure: v1:PXujzeEs/12Vgl5g:TLxaGmUg61kWGYVer8vwTY8QkaC0bbs=
+  prover-cluster:taskDBPassword:
+    secure: v1:fDSTtU9J7zXzF+tB:IOF1ZvqsF9cVrXXonMqSFr6MzG9b
+  prover-cluster:minioUsername:
+    secure: v1:P1EhPfZtMpxqXDp1:4msIr+fFlK0O4ixKaDUcJEL92Oh+2NU=
+  prover-cluster:minioPassword:
+    secure: v1:qdMFDop9G60QnG9t:HOT+pX2MyrELiYUt3YgsaHMdxTxWgKEpRAto1jh6pszFNu0=
+  prover-cluster:executionCount: "1"
+  prover-cluster:auxWorkerCount: "1"
+  prover-cluster:proverWorkerCount: "1"
+  prover-cluster:privateKey:
+    secure: v1:bZaP8gZLLn+7PG9z:9u7k5/ch7P3WCrI6oaFzUpsljSw3ZiOBKcrM3mQL9Tg09HdrjDK8kM5FpWJ8nSfTouzr2Ghfiyj+KGcJgXYWFQQXbj2SXGVc8HMl0LbPdkk=
+  prover-cluster:ethRpcUrl:
+    secure: v1:lFT0b4jaqt9DTTz8:QUmzfFkJTx753kerYTsYteef43jKTjRsk4GUjgW2vfV41yRzarZ1YVGFJ3QyXfmC8fsfTezQ7JwcEFdprqmkkTu+NaN9wrkb2aZsEdwahxxEIuLUD+DMR1vSO7IgVbd3MmunrP2Dm7ufmVlbzhsTXQ==
+  prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network/"
+  prover-cluster:verifierAddress: "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+  prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
+  prover-cluster:boundlessMarketAddress: "0x7abb16522f4599481361d318b765af988bfcca8e"
+  prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
+  prover-cluster:taskDBusername:
+    secure: v1:9FrKfdSIsieo1bxD:S8s/9tyJN0U4V2r4PT81CQYWHgR9tbA=

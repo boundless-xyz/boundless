@@ -1,7 +1,182 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import { getServiceNameV1 } from "../util";
+import {
+    SecurityComponent,
+    ManagerComponent,
+    WorkerClusterComponent,
+    BaseComponentConfig
+} from "./components";
 
-const serviceName = getServiceNameV1(pulumi.getStack(), "prover-cluster");
-const bucket = new aws.s3.BucketV2(`${serviceName}-bucket`);
-export const bucketName = bucket.id;
+const stackName = pulumi.getStack();
+const baseConfig = new pulumi.Config("base");
+const baseStackName = baseConfig.require('BASE_STACK');
+const baseStack = new pulumi.StackReference(baseStackName);
+const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
+const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
+
+const config = new pulumi.Config();
+
+// Configuration with proper types
+const environment: string = config.get("environment") || "custom";
+
+// Required configuration
+const privateKey: pulumi.Output<string> = config.requireSecret("privateKey");
+const ethRpcUrl: pulumi.Output<string> = config.requireSecret("ethRpcUrl");
+const managerInstanceType: string = config.require("managerInstanceType");
+const orderStreamUrl: string = config.require("orderStreamUrl");
+const verifierAddress: string = config.require("verifierAddress");
+const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
+const setVerifierAddress: string = config.require("setVerifierAddress");
+const collateralTokenAddress: string = config.require("collateralTokenAddress");
+const chainId: string = config.require("chainId");
+
+// Contract addresses
+const taskDBUsername: string = config.require("taskDBUsername");
+const taskDBPassword: string = config.require("taskDBPassword");
+const taskDBName: string = config.require("taskDBName");
+
+// MinIO configuration
+const minioUsername: string = config.get("minioUsername") || "minioadmin";
+const minioPassword: string = config.get("minioPassword") || "minioadmin123";
+
+// Worker counts
+const executionCount: number = config.getNumber("executionCount") || 1;
+const proverCount: number = config.getNumber("proverWorkerCount") || 1;
+const auxCount: number = config.getNumber("auxWorkerCount") || 1;
+
+// Look up the latest packer-built AMI
+const boundlessBentoVersion: string = config.get("boundlessBentoVersion") || "nightly";
+const boundlessAmiName: string = config.get("boundlessAmiName") || `boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`;
+const boundlessAmi = aws.ec2.getAmi({
+    mostRecent: true,
+    owners: ["self", "968153779208"], // Self and Boundless AWS account
+    filters: [
+        {
+            name: "name",
+            values: [boundlessAmiName]
+        }
+    ]
+});
+
+const imageId = pulumi.output(boundlessAmi).apply(ami => ami.id);
+
+// Base configuration for all components
+const baseComponentConfig: BaseComponentConfig = {
+    stackName,
+    environment,
+    vpcId,
+    privateSubnetIds: privSubNetIds,
+};
+
+// Create security components
+const security = new SecurityComponent(baseComponentConfig);
+
+// Create manager instance
+const manager = new ManagerComponent({
+    ...baseComponentConfig,
+    imageId,
+    instanceType: managerInstanceType,
+    securityGroupId: security.securityGroup.id,
+    iamInstanceProfileName: security.ec2Profile.name,
+    taskDBName,
+    taskDBUsername,
+    taskDBPassword,
+    minioUsername,
+    minioPassword,
+    ethRpcUrl,
+    privateKey,
+    orderStreamUrl,
+    verifierAddress,
+    boundlessMarketAddress,
+    setVerifierAddress,
+    collateralTokenAddress,
+    chainId,
+});
+
+// Create worker clusters
+const workerCluster = new WorkerClusterComponent({
+    ...baseComponentConfig,
+    imageId,
+    securityGroupId: security.securityGroup.id,
+    iamInstanceProfileName: security.ec2Profile.name,
+    managerIp: manager.instance.privateIp,
+    taskDBName,
+    taskDBUsername,
+    taskDBPassword,
+    minioUsername,
+    minioPassword,
+    proverCount,
+    executionCount,
+    auxCount,
+});
+
+// Outputs
+export const managerInstanceId = manager.instance.id;
+export const managerPrivateIp = manager.instance.privateIp;
+export const managerPublicIp = manager.instance.publicIp;
+
+// AMI information
+export const amiId = imageId;
+export const amiName = pulumi.output(boundlessAmi).apply(ami => ami.name);
+export const amiDescription = pulumi.output(boundlessAmi).apply(ami => ami.description);
+export const boundlessVersionUsed = boundlessBentoVersion;
+
+// ASG outputs
+export const proverAsgName = workerCluster.proverAsg.autoScalingGroup.name;
+export const proverAsgArn = workerCluster.proverAsg.autoScalingGroup.arn;
+export const proverDesiredCapacity = workerCluster.proverAsg.autoScalingGroup.desiredCapacity;
+export const proverMinSize = workerCluster.proverAsg.autoScalingGroup.minSize;
+export const proverMaxSize = workerCluster.proverAsg.autoScalingGroup.maxSize;
+
+// Execution ASG outputs
+export const executionAsgName = workerCluster.executionAsg.autoScalingGroup.name;
+export const executionAsgArn = workerCluster.executionAsg.autoScalingGroup.arn;
+export const executionDesiredCapacity = workerCluster.executionAsg.autoScalingGroup.desiredCapacity;
+export const executionMinSize = workerCluster.executionAsg.autoScalingGroup.minSize;
+export const executionMaxSize = workerCluster.executionAsg.autoScalingGroup.maxSize;
+
+// Aux ASG outputs
+export const auxAsgName = workerCluster.auxAsg.autoScalingGroup.name;
+export const auxAsgArn = workerCluster.auxAsg.autoScalingGroup.arn;
+export const auxDesiredCapacity = workerCluster.auxAsg.autoScalingGroup.desiredCapacity;
+export const auxMinSize = workerCluster.auxAsg.autoScalingGroup.minSize;
+export const auxMaxSize = workerCluster.auxAsg.autoScalingGroup.maxSize;
+
+// Redis connection details
+export const redisHost = manager.instance.privateIp;
+export const redisPort = "6379";
+
+// Shared credentials for prover nodes
+export const sharedCredentials = {
+    postgresHost: manager.instance.privateIp,
+    postgresPort: "5432",
+    postgresDb: taskDBName,
+    postgresUser: taskDBUsername,
+    postgresPassword: taskDBPassword,
+    redisHost: manager.instance.privateIp,
+    redisPort: "6379",
+    s3Bucket: "bento",
+    s3Region: "us-west-2",
+};
+
+// Cluster info
+export const clusterInfo = {
+    manager: {
+        instanceId: manager.instance.id,
+        publicIp: manager.instance.publicIp,
+        privateIp: manager.instance.privateIp,
+    },
+    proverAsg: {
+        name: workerCluster.proverAsg.autoScalingGroup.name,
+        arn: workerCluster.proverAsg.autoScalingGroup.arn,
+        desiredCapacity: workerCluster.proverAsg.autoScalingGroup.desiredCapacity,
+        minSize: workerCluster.proverAsg.autoScalingGroup.minSize,
+        maxSize: workerCluster.proverAsg.autoScalingGroup.maxSize,
+        instanceType: "g6.xlarge",
+    },
+    ami: {
+        id: imageId,
+        name: pulumi.output(boundlessAmi).apply(ami => ami.name),
+        version: boundlessBentoVersion,
+    },
+};
