@@ -261,10 +261,38 @@ impl Agent {
                 if !err_str.contains("stopped intentionally due to session limit")
                     && !err_str.contains("Session limit exceeded")
                 {
-                    tracing::error!("Failure during task processing: {err:?}");
+                    tracing::error!("Failure during task processing: {err_str}");
                 }
 
                 if task.max_retries > 0 {
+                    // If the next retry would exceed the limit, set a final error now
+                    if let Some(current_retries) = sqlx::query_scalar::<_, i32>(
+                        "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
+                    )
+                    .bind(task.job_id)
+                    .bind(&task.task_id)
+                    .fetch_optional(&self.db_pool)
+                    .await
+                    .context("Failed to read current retries")?
+                        && current_retries + 1 > task.max_retries {
+                            // Prevent massive errors from being reported to the DB
+                            err_str.truncate(1024);
+                            let final_err = if err_str.is_empty() {
+                                "retry max hit".to_string()
+                            } else {
+                                format!("retry max hit: {}", err_str)
+                            };
+                            taskdb::update_task_failed(
+                                &self.db_pool,
+                                &task.job_id,
+                                &task.task_id,
+                                &final_err,
+                            )
+                            .await
+                            .context("Failed to report task failure")?;
+                            continue;
+                        }
+
                     if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
                         .await
                         .context("Failed to update task retries")?

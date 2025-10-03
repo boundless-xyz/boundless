@@ -136,9 +136,11 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
+          ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
 
       - name: sccache stats
         run: sccache --show-stats
+
 
   rust-pkg-check:
     runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]

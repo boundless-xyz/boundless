@@ -12,7 +12,7 @@ Provers are now ready to run proving workloads with ZK mining enabled; this can 
 
 For each proving job, R0VM will automatically generate work proofs. These work proofs track the total amount of proving work done (in cycles). *Each epoch*, provers will need to submit their accumulated work to the PoVW accounting smart contract. If provers DO NOT submit work each epoch, they will not receive any rewards for that epoch. 
 
-To do this, provers must use the Boundless PoVW CLI and run the following three commands, `prepare`, `submit` and `claim`.
+To do this, provers must use the [Boundless CLI](/zkc/mining/enable#make-sure-to-have-the-boundless-cli-installed) and run the following three commands, `prepare`, `submit` and `claim`.
 
 ## Create and Update the State File
 
@@ -24,11 +24,16 @@ boundless povw prepare --new ${REWARD_ADDRESS} --state ${STATE_FILE_LOCATION} --
 
 where `${STATE_FILE_LOCATION}` is something like: `~/folder/state.bin`. 
 
-`prepare` aggregates all work proofs and stores the combined proof to the state file. This process is entirely local (i.e. it does not send any transaction). This state file keeps track of all work done so far for one reward address. Each reward address should have *exactly* one state file associated with it. 
+`prepare` aggregates all work proofs and stores the combined proof to the state file. This uses Bento to generate the aggregated work proof (see [prepare.rs](https://github.com/boundless-xyz/boundless/blob/040645c9f91bc4804ba63c9b4744a5a21df0c90c/crates/boundless-cli/src/commands/povw/prepare.rs#L137-L178)); therefore, make sure to have Bento running locally or specify a valid Bento API URL endpoint via `--bento-api-url`. This process is entirely local (i.e. it does not send any transaction).  
+
+The resultant state file keeps track of all work done so far for one reward address. Each reward address should have *exactly* one state file associated with it. Submitting work for a rewards address requires all previously submitted receipts to be included in the state file. *The same state file must be used for submitting any additional work done by the associated rewards address.* If two state files have the same rewards address, they will conflict during `submit` because they will have different Merkle tree states.
 
 :::warning
-Please note that this state file is *very important* and it should be kept in a durable location. Loss of this state file *will result* in the loss of all work that is not submitted** for the respective rewards address, meaning rewards for any work done since the last `submit` **will be lost**. In this scenario, a new rewards address must be specified for Bento, and Bento should be restarted to allow further work to be recorded properly against the new rewards address. *To avoid this scenario, it is recommended to store the state file in a durable location.*
+Please note that this state file is *very important* and it should be kept in a durable location. 
 
+Loss of this state file *will result* in the loss of all work that is not submitted for the respective rewards address, meaning rewards for any work done since the last `submit` **will be lost**. 
+
+In this scenario, a new rewards address must be specified for Bento, and Bento should be restarted to allow further work to be recorded properly against the new rewards address. *To avoid this scenario, it is recommended to store the state file in a durable location.*
 :::
 
 Provers only specify the `--new ${REWARD_ADDRESS}` flag once, this is necessary to create the state file for that specific rewards address. Once the state file is created, provers can run `prepare` and use the state file like so:
@@ -42,7 +47,10 @@ boundless povw prepare --state ${STATE_FILE_LOCATION} --from-bento
 After running `prepare`, provers are ready to submit onchain with:
 
 ```bash
-boundless povw submit --state ${STATE_FILE_LOCATION} --rpc-url ${RPC_URL}
+boundless povw submit --state ${STATE_FILE_LOCATION} --rpc-url ${RPC_URL} --private-key ${PRIVATE_KEY} --povw-private-key ${POVW_PRIVATE_KEY}
 ```
 
+where the `PRIVATE_KEY` is a private key for an Ethereum wallet with enough funds to cover gas costs, and `POVW_PRIVATE_KEY` is the private key for the rewards address.
+
+`submit` also requires Bento for proving (see [submit.rs](https://github.com/boundless-xyz/boundless/blob/040645c9f91bc4804ba63c9b4744a5a21df0c90c/crates/boundless-cli/src/commands/povw/submit.rs#L170-L176)). Therefore, make sure to have Bento running locally or specify a valid Bento API URL endpoint via `--bento-api-url`.
 ::::
