@@ -174,6 +174,7 @@ localnet action="up": check-deps
     PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     ADMIN_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     DEPOSIT_AMOUNT="100000000000000000000"
+    CHAIN_ID="31337"
     CI=${CI:-0}
     
     if [ "{{action}}" = "up" ]; then
@@ -287,7 +288,8 @@ localnet action="up": check-deps
             BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
             SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
             VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
-            ./target/debug/boundless account deposit-stake 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
+            CHAIN_ID=$CHAIN_ID \
+            ./target/debug/boundless account deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
             
             echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
             if [ ! -f broker.toml ]; then

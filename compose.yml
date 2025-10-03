@@ -1,4 +1,4 @@
-name: bento
+name: bento-dev
 # Anchors:
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
@@ -189,7 +189,11 @@ services:
     mem_limit: 4G
     cpus: 4
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
-
+    volumes:
+      - type: bind
+        source: ${RISC0_BVM2_SETUP_DIR}
+        target: /.bitvm2
+        read_only: true
     # comment-out if running in CPU proving mode
     deploy:
       resources:

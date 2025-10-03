@@ -141,7 +141,7 @@ pub async fn setup_verifiers<P: Provider + Clone>(
             let mut bn254_control_id = BN254_IDENTITY_CONTROL_ID;
             bn254_control_id.as_mut_bytes().reverse();
             let verifier_parameters_digest = Digest::from_hex(
-                "b72859b60cfe0bb13cbde70859fbc67ef9dbd5410bbe66bdb7be64a3dcf6814e", // TODO(ec2): fixme
+                "f9d5815ff56c30abce3427ca3209302e1f02d51c28067ee41fd5933cad3f5490", // TODO(ec2): fixme
             )
             .unwrap();
             let bvm2_verifier = deploy_bitvm2_verifier(
@@ -155,7 +155,7 @@ pub async fn setup_verifiers<P: Provider + Clone>(
 
             let call =
                 &router_instance.addVerifier(bvm2_selector, bvm2_verifier).from(deployer_address);
-            let _ = call.send().await?;
+            call.send().await?.get_receipt().await?;
         }
     }
 

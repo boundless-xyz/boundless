@@ -35,7 +35,7 @@ sample-guest-common = { path = "crates/sample-guest/common" }
 sample-guest-methods = { path = "crates/sample-guest/methods" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-shrink_bitvm2 = { git = "https://github.com/ec2/shrink_bitvm2.git", rev = "bd2583c4eed80fa17fea2c79669e8a06e829c854", default-features = false }
+shrink_bitvm2 = { git = "https://github.com/ec2/shrink_bitvm2.git", rev = "57b0ff68672d5c0491d7e0a94681c90a00d708b7", default-features = false }
 sqlx = { version = "0.8", default-features = false }
 taskdb = { path = "crates/taskdb" }
 tempfile = "3.10"

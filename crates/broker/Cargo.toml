@@ -79,7 +79,6 @@ risc0-groth16 = { workspace = true, features = ["prove"] }
 test-log = { workspace = true }
 
 [features]
-default = ["cuda"]
 test-utils = ["dep:boundless-test-utils"]
 prove = ["shrink_bitvm2/prove"]
 cuda = ["shrink_bitvm2/cuda"]

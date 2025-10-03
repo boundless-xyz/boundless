@@ -91,4 +91,5 @@ RUN apt-get update -q -y \
 COPY --from=builder /src/agent /app/agent
 COPY --from=builder /usr/local/risc0 /usr/local/risc0
 
+ENV RISC0_BVM2_SETUP_DIR=/.bitvm2
 ENTRYPOINT ["/app/agent"]
