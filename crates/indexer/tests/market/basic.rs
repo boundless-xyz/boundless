@@ -397,9 +397,9 @@ async fn test_monitoring() {
 #[sqlx::test(migrations = "../order-stream/migrations")]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
-    use std::net::{Ipv4Addr, SocketAddr};
     use boundless_market::order_stream_client::OrderStreamClient;
     use order_stream::{run_from_parts, AppState, ConfigBuilder};
+    use std::net::{Ipv4Addr, SocketAddr};
     use url::Url;
 
     let test_db = TestDb::new().await.unwrap();
@@ -408,9 +408,8 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Setup order stream server
-    let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
-        .await
-        .unwrap();
+    let listener =
+        tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await.unwrap();
     let order_stream_address = listener.local_addr().unwrap();
     let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
 
@@ -517,10 +516,11 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     assert_eq!(count, 3, "Expected 3 proof requests to be indexed");
 
     // Verify all orders are marked as offchain
-    let result = sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'offchain'")
-        .fetch_one(&test_db.pool)
-        .await
-        .unwrap();
+    let result =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'offchain'")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
     let offchain_count: i64 = result.get("count");
     assert_eq!(offchain_count, 3, "Expected all 3 requests to have source='offchain'");
 
@@ -540,8 +540,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         .unwrap();
     let tx_hash: String = result.get("tx_hash");
     assert_eq!(
-        tx_hash,
-        "0000000000000000000000000000000000000000000000000000000000000000",
+        tx_hash, "0000000000000000000000000000000000000000000000000000000000000000",
         "Expected tx_hash to be zero for offchain order"
     );
 

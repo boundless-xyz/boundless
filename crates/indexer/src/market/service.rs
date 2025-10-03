@@ -123,9 +123,10 @@ impl IndexerService<ProviderWallet> {
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
         let domain = boundless_market.eip712_domain().await?;
         let cache = HashMap::new();
-        let chain_id = provider.get_chain_id().await.map_err(|e| {
-            ServiceError::Error(anyhow!("Failed to get chain id: {}", e))
-        })?;
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .map_err(|e| ServiceError::Error(anyhow!("Failed to get chain id: {}", e)))?;
         let order_stream_client =
             Some(OrderStreamClient::new(order_stream_url, boundless_market_address, chain_id));
 
@@ -333,14 +334,12 @@ where
                 }
 
                 let request_id = RequestId::from_lossy(request.id);
-                let metadata = TxMetadata::new(
-                    B256::ZERO,
-                    request_id.addr,
-                    current_block,
-                    block_timestamp,
-                );
+                let metadata =
+                    TxMetadata::new(B256::ZERO, request_id.addr, current_block, block_timestamp);
 
-                self.db.add_proof_request(request_digest, request.clone(), &metadata, "offchain").await?;
+                self.db
+                    .add_proof_request(request_digest, request.clone(), &metadata, "offchain")
+                    .await?;
 
                 let created_at = order_data.created_at;
                 if latest_timestamp.is_none() || latest_timestamp.unwrap() < created_at {

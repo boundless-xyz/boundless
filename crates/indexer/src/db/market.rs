@@ -734,9 +734,10 @@ impl IndexerDb for AnyDb {
     async fn get_last_order_stream_timestamp(
         &self,
     ) -> Result<Option<chrono::DateTime<chrono::Utc>>, DbError> {
-        let res = sqlx::query("SELECT last_processed_timestamp FROM order_stream_state WHERE id = TRUE")
-            .fetch_optional(&self.pool)
-            .await?;
+        let res =
+            sqlx::query("SELECT last_processed_timestamp FROM order_stream_state WHERE id = TRUE")
+                .fetch_optional(&self.pool)
+                .await?;
 
         let Some(row) = res else {
             return Ok(None);
@@ -758,12 +759,10 @@ impl IndexerDb for AnyDb {
     ) -> Result<(), DbError> {
         let timestamp_str = timestamp.to_rfc3339();
 
-        sqlx::query(
-            "UPDATE order_stream_state SET last_processed_timestamp = $1 WHERE id = TRUE",
-        )
-        .bind(timestamp_str)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE order_stream_state SET last_processed_timestamp = $1 WHERE id = TRUE")
+            .bind(timestamp_str)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }

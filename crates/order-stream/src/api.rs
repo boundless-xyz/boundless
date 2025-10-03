@@ -101,9 +101,14 @@ pub(crate) async fn list_orders(
             None
         };
 
-        state.db.list_orders_by_creation_desc(after_timestamp, limit).await.context("Failed to query DB")?
+        state
+            .db
+            .list_orders_by_creation_desc(after_timestamp, limit)
+            .await
+            .context("Failed to query DB")?
     } else {
-        let offset = i64::try_from(paging.offset.unwrap_or(0)).map_err(|_| AppError::QueryParamErr("offset"))?;
+        let offset = i64::try_from(paging.offset.unwrap_or(0))
+            .map_err(|_| AppError::QueryParamErr("offset"))?;
         state.db.list_orders(offset, limit).await.context("Failed to query DB")?
     };
 

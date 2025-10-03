@@ -258,23 +258,22 @@ impl OrderDb {
         after_timestamp: Option<DateTime<Utc>>,
         limit: i64,
     ) -> Result<Vec<DbOrder>, OrderDbErr> {
-        let rows: Vec<DbOrder> = match after_timestamp {
-            Some(ts) => {
-                sqlx::query_as(
+        let rows: Vec<DbOrder> =
+            match after_timestamp {
+                Some(ts) => sqlx::query_as(
                     "SELECT * FROM orders WHERE created_at > $1 ORDER BY created_at DESC LIMIT $2",
                 )
                 .bind(ts)
                 .bind(limit)
                 .fetch_all(&self.pool)
-                .await?
-            }
-            None => {
-                sqlx::query_as("SELECT * FROM orders ORDER BY created_at DESC LIMIT $1")
-                    .bind(limit)
-                    .fetch_all(&self.pool)
-                    .await?
-            }
-        };
+                .await?,
+                None => {
+                    sqlx::query_as("SELECT * FROM orders ORDER BY created_at DESC LIMIT $1")
+                        .bind(limit)
+                        .fetch_all(&self.pool)
+                        .await?
+                }
+            };
 
         Ok(rows)
     }
