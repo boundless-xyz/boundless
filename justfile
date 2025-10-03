@@ -384,7 +384,7 @@ bento action="up" env_file="" compose_flags="" detached="true":
         fi
     elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services"
-        if docker compose {{compose_flags}} $ENV_FILE_ARG down; then
+        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down; then
             echo "Docker Compose services have been stopped and removed."
         else
             echo "Error: Failed to stop Docker Compose services."
@@ -392,7 +392,7 @@ bento action="up" env_file="" compose_flags="" detached="true":
         fi
     elif [ "{{action}}" = "clean" ]; then
         echo "Stopping and cleaning Docker Compose services"
-        if docker compose {{compose_flags}} $ENV_FILE_ARG down -v; then
+        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down -v; then
             echo "Docker Compose services have been stopped and volumes have been removed."
         else
             echo "Error: Failed to clean Docker Compose services."
@@ -416,8 +416,39 @@ broker action="up" env_file="" detached="true":
         cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
         echo "broker.toml created successfully."
     fi
-    
+
     just bento "{{action}}" "{{env_file}}" "--profile broker" "{{detached}}"
+
+# Run the mining service with a bento cluster
+mine action="up":
+    #!/usr/bin/env bash
+    if ! command -v docker &> /dev/null; then
+        echo "Error: Docker command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if ! docker compose version &> /dev/null; then
+        echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if [ "{{action}}" = "up" ]; then
+        echo "Starting mining service"
+        docker compose --profile miner up -d --build miner
+        echo "Mining service has been started."
+    elif [ "{{action}}" = "down" ]; then
+        echo "Stopping mining service"
+        if docker compose --profile miner stop miner; then
+            echo "Mining service has been stopped."
+        else
+            echo "Error: Failed to stop mining service."
+            exit 1
+        fi
+    else
+        echo "Unknown action: {{action}}"
+        echo "Available actions: up, down"
+        exit 1
+    fi
 
 # Run the setup script
 bento-setup:

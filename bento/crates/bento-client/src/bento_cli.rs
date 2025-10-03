@@ -40,6 +40,15 @@ pub struct Args {
     /// Bento HTTP API Endpoint
     #[clap(short = 't', long, default_value = "http://localhost:8081")]
     endpoint: String,
+
+    /// Reserved worker count for job processing.
+    ///
+    /// Sets the reserved worker count for task scheduling. Jobs with higher
+    /// reserved values get higher priority in cases where there are more than one task being
+    /// progressed at a time.
+    /// Default: 0
+    #[clap(short, long, default_value_t = 0)]
+    reserved: i32,
 }
 
 #[tokio::main]
@@ -50,8 +59,15 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let client =
-        ProvingClient::from_parts(args.endpoint, String::new(), risc0_zkvm::VERSION).unwrap();
+    // Format API key with reserved value if specified
+    let api_key = if args.reserved != 0 {
+        tracing::info!("Using reserved: {}", args.reserved);
+        format!("v1:reserved:{}", args.reserved)
+    } else {
+        String::new()
+    };
+
+    let client = ProvingClient::from_parts(args.endpoint, api_key, risc0_zkvm::VERSION).unwrap();
 
     let (image, input) = if let Some(elf_file) = args.elf_file {
         let image = std::fs::read(elf_file).context("Failed to read elf file from disk")?;

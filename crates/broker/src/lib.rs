@@ -825,7 +825,7 @@ where
             tracing::info!("Configured to run with Bento backend");
 
             Arc::new(
-                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "")
+                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
             )
         } else {

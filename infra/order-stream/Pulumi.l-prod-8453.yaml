@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFB3smUFiV/wHKyVC
 config:
   aws:region: us-west-2
   order-stream:ALB_DOMAIN: base-mainnet.boundless.network
-  order-stream:DISABLE_CERT: false
+  order-stream:DISABLE_CERT: "false"
   order-stream:BASE_STACK: organization/bootstrap/services-prod
   order-stream:BOUNDLESS_ADDRESS: 0xfd152dadc5183870710fe54f939eae3ab9f0fe82
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
@@ -11,7 +11,7 @@ config:
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
   order-stream:GH_TOKEN_SECRET:
-    secure: v1:67fqJX2uwMwqXWD/:Spq2pFF66lJbcp8bj6F1gbzJnAGI2bAqkkJPY0RJVxm8rd6OuE/rhObSlYcikA9WYTldGft9n40Eci7/af+3CFqOsZQQczfIboIeLNGLRP/SuAdstlPuLN2ILojiTURWyOOa0YfGLfZuTiH9gQ==
+    secure: v1:fvRIY/KbEgT8FPaO:RAV/9Lm4+KyOvqNq9Ow7sV0nekQZbmow4JqEL1qQtTiSqqFu/9GOxwr2tes5br0Q1lSQEQ6B+qKNn3XfmqkwTklb4iJY+2DGbIR5xbdTSIA0/ANqHXx/ZLvkLJkI/Ic3b9YR568RVrt20t5KDQ==
   order-stream:MIN_BALANCE_RAW: "5000000000000000000"
   order-stream:ORDER_STREAM_PING_TIME: "100"
   order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
