@@ -15,6 +15,7 @@
 use alloy::primitives::{B256, U256};
 use anyhow::{Context, Result};
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::GlobalConfig;
 
@@ -37,10 +38,21 @@ pub struct ProverLock {
 impl ProverLock {
     /// Run the lock command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.client_builder_with_signer()?.build().await
+        let client = global_config
+            .client_builder_with_signer()?
+            .build()
+            .await
             .context("Failed to build Boundless Client with signer")?;
 
-        tracing::info!("Locking proof request 0x{:x}", self.request_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+
+        println!(
+            "\n{} [{}]",
+            "Locking Proof Request".bold(),
+            network_name.blue().bold()
+        );
+        println!("  Request ID: {}", format!("{:#x}", self.request_id).cyan().bold());
+        println!("  {} Fetching request details...", "→".dimmed());
 
         let (request, signature) =
             client.fetch_proof_request(self.request_id, self.tx_hash, self.request_digest).await?;
@@ -56,8 +68,14 @@ impl ProverLock {
             )?;
         }
 
+        println!("  {} Locking request...", "→".dimmed());
         client.boundless_market.lock_request(&request, signature, None).await?;
-        tracing::info!("Successfully locked request 0x{:x}", self.request_id);
+
+        println!(
+            "\n{} Successfully locked request {}",
+            "✓".green().bold(),
+            format!("{:#x}", self.request_id).green().bold()
+        );
         Ok(())
     }
 }

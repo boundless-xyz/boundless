@@ -21,12 +21,12 @@ use std::{
 
 use alloy::primitives::U256;
 use anyhow::{ensure, Context, Result};
-use clap::Args;
 use boundless_market::{
     contracts::{FulfillmentData, Offer, Predicate, ProofRequest},
     storage::{fetch_url, StorageProviderConfig},
 };
-use risc0_zkvm::{compute_image_id, default_executor, ExecutorEnv, SessionInfo, sha::Digest};
+use clap::Args;
+use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, SessionInfo};
 
 use crate::{config::GlobalConfig, convert_timestamp};
 
@@ -77,9 +77,7 @@ impl RequestorSubmit {
         if request.offer.rampUpStart == 0 {
             // Adding a delay to bidding start lets provers see and evaluate the request
             // before the price starts to ramp up
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)?
-                .as_secs();
+            let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
             request.offer = Offer { rampUpStart: now + 30, ..request.offer };
         }
         if request.id == U256::ZERO {
@@ -166,8 +164,8 @@ async fn execute(request: &ProofRequest) -> Result<(Digest, SessionInfo)> {
             boundless_market::input::GuestEnv::decode(&request.input.data)?.stdin
         }
         boundless_market::contracts::RequestInputType::Url => {
-            let input_url = std::str::from_utf8(&request.input.data)
-                .context("Input URL is not valid UTF-8")?;
+            let input_url =
+                std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
             tracing::info!("Fetching input from {}", input_url);
             let input_data = fetch_url(input_url).await?;
             boundless_market::input::GuestEnv::decode(&input_data)?.stdin
@@ -177,15 +175,16 @@ async fn execute(request: &ProofRequest) -> Result<(Digest, SessionInfo)> {
 
     tracing::info!("Starting execution");
     let start = SystemTime::now();
-    let env = ExecutorEnv::builder()
-        .write_slice(&input)
-        .build()?;
+    let env = ExecutorEnv::builder().write_slice(&input).build()?;
     let session_info = default_executor().execute(env, &program)?;
     let elapsed = SystemTime::now().duration_since(start)?.as_secs_f64();
 
     tracing::info!("Execution completed in {:.2}s", elapsed);
     tracing::debug!("Journal: {:?}", hex::encode(&session_info.journal.bytes));
-    tracing::info!("Total cycles: {}", session_info.segments.iter().map(|s| s.cycles as usize).sum::<usize>());
+    tracing::info!(
+        "Total cycles: {}",
+        session_info.segments.iter().map(|s| s.cycles as usize).sum::<usize>()
+    );
 
     Ok((image_id, session_info))
 }

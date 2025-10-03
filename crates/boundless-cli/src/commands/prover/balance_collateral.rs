@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{
-    primitives::{utils::format_units, Address},
-};
+use alloy::primitives::{utils::format_units, Address};
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use colored::Colorize;
@@ -44,10 +42,14 @@ impl ProverBalanceCollateral {
             );
         };
 
-        let client = global_config.client_builder()?.build().await
+        let client = global_config
+            .client_builder()?
+            .build()
+            .await
             .context("Failed to build Boundless Client")?;
 
         let symbol = client.boundless_market.collateral_token_symbol().await?;
+        let collateral_title = format!("Collateral ({symbol})");
         let decimals = client.boundless_market.collateral_token_decimals().await?;
 
         // Query both deposited and available balances
@@ -55,18 +57,36 @@ impl ProverBalanceCollateral {
 
         // Get available balance by querying the ERC20 token directly
         let collateral_token_address = client.boundless_market.collateral_token_address().await?;
-        let token = boundless_market::contracts::token::IERC20::new(collateral_token_address, client.provider());
-        let available = token.balanceOf(addr).call().await
+        let token = boundless_market::contracts::token::IERC20::new(
+            collateral_token_address,
+            client.provider(),
+        );
+        let available = token
+            .balanceOf(addr)
+            .call()
+            .await
             .context("Failed to query collateral token balance")?;
 
         let deposited_formatted = crate::format_amount(&format_units(deposited, decimals)?);
         let available_formatted = crate::format_amount(&format_units(available, decimals)?);
         let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 
-        println!("\n{} [{}]", "Collateral Balance".bold(), network_name.blue().bold());
+        println!(
+            "\n{} [{}]",
+            format!("{collateral_title} Balance on Boundless Market").bold(),
+            network_name.blue().bold()
+        );
         println!("  Address:   {}", format!("{:#x}", addr).dimmed());
-        println!("  Deposited: {} {}", deposited_formatted.green().bold(), symbol.green());
-        println!("  Available: {} {}", available_formatted.cyan().bold(), symbol.cyan());
+        println!(
+            "  Deposited: {} {}",
+            deposited_formatted.as_str().green().bold(),
+            symbol.as_str().green()
+        );
+        println!(
+            "  Available: {} {}",
+            available_formatted.as_str().cyan().bold(),
+            symbol.as_str().cyan()
+        );
 
         Ok(())
     }

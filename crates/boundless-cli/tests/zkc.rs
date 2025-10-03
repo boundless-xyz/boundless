@@ -42,7 +42,7 @@ async fn test_balance_zkc() -> anyhow::Result<()> {
         .env("VEZKC_ADDRESS", format!("{:#x}", ctx.deployment.vezkc_address))
         .env("STAKING_REWARDS_ADDRESS", format!("{:#x}", ctx.deployment.staking_rewards_address))
         .env("ETH_MAINNET_RPC_URL", ctx.anvil.lock().await.endpoint_url().as_str())
-        .env("BOUNDLESS_RPC_URL", "http://localhost:8545")  // Dummy for non-rewards operations
+        .env("BOUNDLESS_RPC_URL", "http://localhost:8545") // Dummy for non-rewards operations
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
         .assert()

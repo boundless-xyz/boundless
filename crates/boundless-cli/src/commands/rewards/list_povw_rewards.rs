@@ -13,13 +13,16 @@
 // limitations under the License.
 
 use alloy::{
-    primitives::{Address, utils::format_ether},
+    primitives::{utils::format_ether, Address},
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
 use clap::Args;
 
-use crate::{config::GlobalConfig, indexer_client::{IndexerClient, parse_amount}};
+use crate::{
+    config::GlobalConfig,
+    indexer_client::{parse_amount, IndexerClient},
+};
 
 /// List historical PoVW rewards for an address
 #[derive(Args, Clone, Debug)]
@@ -78,8 +81,10 @@ impl RewardsListPovwRewards {
             // Check if rewards were capped
             if total_actual < total_uncapped {
                 let capped_amount = total_uncapped - total_actual;
-                tracing::warn!("⚠️  Rewards were capped by {} ZKC due to staking limits",
-                    format_ether(capped_amount));
+                tracing::warn!(
+                    "⚠️  Rewards were capped by {} ZKC due to staking limits",
+                    format_ether(capped_amount)
+                );
             }
         }
 
@@ -106,10 +111,7 @@ impl RewardsListPovwRewards {
                     format_ether(cap),
                     format_ether(staked)
                 );
-                tracing::info!(
-                    "  → Uncapped would have been: {} ZKC",
-                    format_ether(uncapped)
-                );
+                tracing::info!("  → Uncapped would have been: {} ZKC", format_ether(uncapped));
             }
         }
 

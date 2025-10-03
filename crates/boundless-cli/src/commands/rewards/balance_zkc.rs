@@ -17,8 +17,8 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{bail, Context, Result};
-use clap::Args;
 use boundless_market::contracts::token::IERC20;
+use clap::Args;
 
 use crate::config::GlobalConfig;
 
@@ -33,7 +33,8 @@ impl RewardsBalanceZkc {
     /// Run the balance-zkc command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // For rewards commands, we need ETH_MAINNET_RPC_URL (chain ID 1)
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
         // Connect to provider
@@ -43,16 +44,15 @@ impl RewardsBalanceZkc {
             .context("Failed to connect to Ethereum provider")?;
 
         // Verify we're on mainnet (chain ID 1)
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
         }
 
         // Get ZKC contract address
-        let zkc_address = global_config.zkc_address()
-            .context("ZKC_ADDRESS environment variable is required")?;
+        let zkc_address =
+            global_config.zkc_address().context("ZKC_ADDRESS environment variable is required")?;
 
         tracing::debug!("Using ZKC address: {:#x}", zkc_address);
 
@@ -60,15 +60,16 @@ impl RewardsBalanceZkc {
         let zkc_token = IERC20::new(zkc_address, &provider);
 
         // Query balance
-        let balance = zkc_token.balanceOf(self.address).call().await
+        let balance = zkc_token
+            .balanceOf(self.address)
+            .call()
+            .await
             .context("Failed to query ZKC balance")?;
 
         // Query token metadata
-        let symbol = zkc_token.symbol().call().await
-            .context("Failed to query ZKC symbol")?;
+        let symbol = zkc_token.symbol().call().await.context("Failed to query ZKC symbol")?;
 
-        let decimals = zkc_token.decimals().call().await
-            .context("Failed to query ZKC decimals")?;
+        let decimals = zkc_token.decimals().call().await.context("Failed to query ZKC decimals")?;
 
         // Display balance
         tracing::info!("ZKC balance for {:#x}:", self.address);

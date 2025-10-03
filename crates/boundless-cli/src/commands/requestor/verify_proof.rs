@@ -34,7 +34,10 @@ pub struct RequestorVerifyProof {
 impl RequestorVerifyProof {
     /// Run the verify-proof command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.client_builder()?.build().await
+        let client = global_config
+            .client_builder()?
+            .build()
+            .await
             .context("Failed to build Boundless Client")?;
 
         tracing::info!("Verifying proof for request 0x{:x}", self.request_id);

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use alloy::primitives::{utils::format_ether, Address};
+use alloy::providers::Provider;
 use anyhow::{bail, Result};
 use clap::Args;
 use colored::Colorize;
@@ -43,13 +44,22 @@ impl RequestorBalance {
         };
 
         let client = global_config.build_client().await?;
-        let balance = client.boundless_market.balance_of(addr).await?;
-        let formatted = crate::format_amount(&format_ether(balance));
+        let deposited = client.boundless_market.balance_of(addr).await?;
+        let deposited_formatted = crate::format_amount(&format_ether(deposited));
         let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 
-        println!("\n{} [{}]", "Balance deposited to Boundless Market".bold(), network_name.blue().bold());
-        println!("  Address: {}", format!("{:#x}", addr).dimmed());
-        println!("  Amount:  {} {}", formatted.green().bold(), "ETH".green());
+        // Get wallet's actual ETH balance
+        let available = client.provider().get_balance(addr).await?;
+        let available_formatted = crate::format_amount(&format_ether(available));
+
+        println!(
+            "\n{} [{}]",
+            "Balance (ETH) on Boundless Market".bold(),
+            network_name.blue().bold()
+        );
+        println!("  Address:   {}", format!("{:#x}", addr).dimmed());
+        println!("  Deposited: {} {}", deposited_formatted.green().bold(), "ETH".green());
+        println!("  Available: {} {}", available_formatted.cyan().bold(), "ETH".cyan());
         Ok(())
     }
 }

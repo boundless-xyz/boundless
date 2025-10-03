@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
 use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
@@ -20,6 +19,7 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use clap::Args;
+use std::path::PathBuf;
 
 use crate::config::GlobalConfig;
 
@@ -51,7 +51,8 @@ impl RewardsSubmitPovw {
     /// Run the submit-povw command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // Get RPC URL and verify chain
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
         let provider = ProviderBuilder::new()
@@ -59,8 +60,7 @@ impl RewardsSubmitPovw {
             .await
             .context("Failed to connect to Ethereum provider")?;
 
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("PoVW submission requires connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
@@ -75,13 +75,16 @@ impl RewardsSubmitPovw {
         let work_log_private_key = if let Some(key) = &self.povw_private_key {
             key.clone()
         } else {
-            global_config.work_log_private_key()
+            global_config
+                .work_log_private_key()
                 .or_else(|_| global_config.require_prover_private_key())
-                .context("No PoVW private key provided. Set POVW_PRIVATE_KEY or PROVER_PRIVATE_KEY")?
+                .context(
+                    "No PoVW private key provided. Set POVW_PRIVATE_KEY or PROVER_PRIVATE_KEY",
+                )?
         };
 
-        let work_log_signer: PrivateKeySigner = work_log_private_key.parse()
-            .context("Failed to parse work log private key")?;
+        let work_log_signer: PrivateKeySigner =
+            work_log_private_key.parse().context("Failed to parse work log private key")?;
 
         // Get recipient address (defaults to work log owner)
         let recipient = self.recipient.unwrap_or(work_log_signer.address());

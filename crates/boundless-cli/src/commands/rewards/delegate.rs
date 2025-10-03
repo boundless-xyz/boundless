@@ -33,31 +33,31 @@ impl RewardsDelegate {
     /// Run the delegate command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // Get RPC URL and private key for signing
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
-        let private_key = global_config.require_prover_private_key()
+        let private_key = global_config
+            .require_prover_private_key()
             .context("PROVER_PRIVATE_KEY is required for delegation")?;
 
         // Create signer from private key
-        let signer: PrivateKeySigner = private_key.parse()
-            .context("Failed to parse private key")?;
+        let signer: PrivateKeySigner =
+            private_key.parse().context("Failed to parse private key")?;
 
         // Connect to provider with signer
-        let provider = ProviderBuilder::new()
-            .wallet(signer.clone())
-            .on_http(rpc_url);
+        let provider = ProviderBuilder::new().wallet(signer.clone()).on_http(rpc_url);
 
         // Verify we're on mainnet (chain ID 1)
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
         }
 
         // Get veZKC (staking) contract address
-        let vezkc_address = global_config.vezkc_address()
+        let vezkc_address = global_config
+            .vezkc_address()
             .context("VEZKC_ADDRESS environment variable is required")?;
 
         // Define ERC721Votes interface inline for veZKC
@@ -73,7 +73,10 @@ impl RewardsDelegate {
         let vezkc = IERC721Votes::new(vezkc_address, &provider);
 
         // Check current delegation
-        let current_delegate = vezkc.delegates(signer.address()).call().await
+        let current_delegate = vezkc
+            .delegates(signer.address())
+            .call()
+            .await
             .context("Failed to query current delegate")?;
 
         if current_delegate == self.delegatee {
@@ -85,7 +88,8 @@ impl RewardsDelegate {
         tracing::info!("Delegating voting power to {:#x}...", self.delegatee);
 
         // Execute delegation transaction
-        let tx = vezkc.delegate(self.delegatee)
+        let tx = vezkc
+            .delegate(self.delegatee)
             .send()
             .await
             .context("Failed to send delegation transaction")?;
@@ -94,9 +98,7 @@ impl RewardsDelegate {
         tracing::info!("Waiting for confirmation...");
 
         // Wait for transaction confirmation
-        let tx_hash = tx.watch()
-            .await
-            .context("Failed to wait for transaction confirmation")?;
+        let tx_hash = tx.watch().await.context("Failed to wait for transaction confirmation")?;
 
         tracing::info!("Successfully delegated voting power to {:#x}!", self.delegatee);
         tracing::info!("Transaction: {:#x}", tx_hash);

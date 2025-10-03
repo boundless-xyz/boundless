@@ -14,8 +14,8 @@
 
 use alloy::providers::{Provider, ProviderBuilder};
 use anyhow::{bail, Context, Result};
-use clap::Args;
 use chrono::{DateTime, Utc};
+use clap::Args;
 
 use crate::config::GlobalConfig;
 use crate::indexer_client::IndexerClient;
@@ -28,7 +28,8 @@ impl RewardsGetCurrentEpoch {
     /// Run the get-current-epoch command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // Get RPC URL and chain ID
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
         let provider = ProviderBuilder::new()
@@ -36,8 +37,7 @@ impl RewardsGetCurrentEpoch {
             .await
             .context("Failed to connect to Ethereum provider")?;
 
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
@@ -47,7 +47,9 @@ impl RewardsGetCurrentEpoch {
         let indexer = IndexerClient::new_from_chain_id(chain_id)?;
 
         // Query current epoch info from indexer
-        let epoch_info = indexer.get_current_epoch_info().await
+        let epoch_info = indexer
+            .get_current_epoch_info()
+            .await
             .context("Failed to query current epoch info from indexer")?;
 
         // Display epoch information
@@ -80,7 +82,12 @@ impl RewardsGetCurrentEpoch {
                 let days = remaining / 86400;
                 let hours = (remaining % 86400) / 3600;
                 let minutes = (remaining % 3600) / 60;
-                tracing::info!("  Time remaining: {} days, {} hours, {} minutes", days, hours, minutes);
+                tracing::info!(
+                    "  Time remaining: {} days, {} hours, {} minutes",
+                    days,
+                    hours,
+                    minutes
+                );
             }
         }
 

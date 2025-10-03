@@ -14,10 +14,12 @@
 
 //! Commands for CLI setup and configuration.
 
+mod clear;
 mod completions;
 mod config;
 mod interactive;
 
+pub use clear::SetupClear;
 pub use completions::SetupCompletions;
 pub use config::SetupConfig;
 pub use interactive::SetupInteractive;
@@ -41,6 +43,8 @@ pub enum SetupCommands {
     Config(SetupConfig),
     /// Print shell completions to stdout
     Completions(SetupCompletions),
+    /// Clear all CLI configuration
+    Clear(SetupClear),
 }
 
 impl SetupCommands {
@@ -53,6 +57,7 @@ impl SetupCommands {
             Self::Rewards(cmd) => cmd.run_module(global_config, "rewards").await,
             Self::Config(cmd) => cmd.run(global_config).await,
             Self::Completions(cmd) => cmd.run(),
+            Self::Clear(cmd) => cmd.run(global_config).await,
         }
     }
 }

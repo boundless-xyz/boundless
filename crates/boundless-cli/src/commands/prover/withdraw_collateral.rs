@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{
-    primitives::{utils::{format_units, parse_units}, U256},
+use alloy::primitives::{
+    utils::{format_units, parse_units},
+    U256,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Args;
@@ -31,14 +32,20 @@ pub struct ProverWithdrawCollateral {
 impl ProverWithdrawCollateral {
     /// Run the withdraw collateral command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.client_builder_with_signer()?.build().await
+        let client = global_config
+            .client_builder_with_signer()?
+            .build()
+            .await
             .context("Failed to build Boundless Client with signer")?;
 
         // Parse the amount based on the collateral token's decimals
         let symbol = client.boundless_market.collateral_token_symbol().await?;
+        let collateral_label = format!("collateral ({symbol})");
+        let collateral_title = format!("Collateral ({symbol})");
         let decimals = client.boundless_market.collateral_token_decimals().await?;
         let parsed_amount = parse_units(&self.amount, decimals)
-            .map_err(|e| anyhow!("Failed to parse amount: {}", e))?.into();
+            .map_err(|e| anyhow!("Failed to parse amount: {}", e))?
+            .into();
 
         if parsed_amount == U256::from(0) {
             bail!("Amount is below the denomination minimum: {}", self.amount);
@@ -47,12 +54,51 @@ impl ProverWithdrawCollateral {
         let formatted_amount = crate::format_amount(&format_units(parsed_amount, decimals)?);
         let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 
-        println!("\n{} [{}]", "Withdrawing collateral from Boundless Market".bold(), network_name.blue().bold());
-        println!("  Amount: {} {}", formatted_amount.cyan().bold(), symbol.cyan());
+        println!(
+            "\n{} [{}]",
+            format!("Withdrawing {collateral_label} from Boundless Market").bold(),
+            network_name.blue().bold()
+        );
+        println!(
+            "  Amount: {} {}",
+            formatted_amount.as_str().cyan().bold(),
+            symbol.as_str().cyan()
+        );
 
         client.boundless_market.withdraw_collateral(parsed_amount).await?;
 
-        println!("\n{} Successfully withdrew {} {}", "✓".green().bold(), formatted_amount.green().bold(), symbol.green());
+        println!(
+            "\n{} Successfully withdrew {}: {} {}",
+            "✓".green().bold(),
+            collateral_label.as_str().green().bold(),
+            formatted_amount.as_str().green().bold(),
+            symbol.as_str().green()
+        );
+
+        // Display updated balance
+        let addr = client.boundless_market.caller();
+        let deposited = client.boundless_market.balance_of_collateral(addr).await?;
+        let collateral_token_address = client.boundless_market.collateral_token_address().await?;
+        let token = boundless_market::contracts::token::IERC20::new(
+            collateral_token_address,
+            client.provider(),
+        );
+        let available = token.balanceOf(addr).call().await?;
+
+        let deposited_formatted = crate::format_amount(&format_units(deposited, decimals)?);
+        let available_formatted = crate::format_amount(&format_units(available, decimals)?);
+
+        println!("  Address:   {}", format!("{:#x}", addr).dimmed());
+        println!(
+            "  Deposited: {} {}",
+            deposited_formatted.as_str().green().bold(),
+            symbol.as_str().green()
+        );
+        println!(
+            "  Available: {} {}",
+            available_formatted.as_str().cyan().bold(),
+            symbol.as_str().cyan()
+        );
 
         Ok(())
     }

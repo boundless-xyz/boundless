@@ -14,14 +14,11 @@
 
 use alloy::primitives::U256;
 use anyhow::{bail, Context, Result};
-use clap::Args;
-use risc0_zkvm::compute_image_id;
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_market::{
-    contracts::RequestInputType,
-    input::GuestEnv,
-    storage::fetch_url,
-};
+use boundless_market::{contracts::RequestInputType, input::GuestEnv, storage::fetch_url};
+use clap::Args;
+use colored::Colorize;
+use risc0_zkvm::compute_image_id;
 use sqlx::{postgres::PgPool, postgres::PgPoolOptions};
 
 use crate::config::{GlobalConfig, ProverConfig};
@@ -42,8 +39,15 @@ impl ProverBenchmark {
     /// Run the benchmark command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let client = global_config.client_builder()?.build().await?;
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 
-        tracing::info!("Starting benchmark for {} requests", self.request_ids.len());
+        println!(
+            "\n{} [{}]",
+            "Benchmarking Proof Requests".bold(),
+            network_name.blue().bold()
+        );
+        println!("  Total requests: {}", format!("{}", self.request_ids.len()).cyan().bold());
+
         if self.request_ids.is_empty() {
             bail!("No request IDs provided");
         }
@@ -51,6 +55,8 @@ impl ProverBenchmark {
         if self.prover_config.use_default_prover {
             bail!("benchmark command does not support using the default prover");
         }
+
+        println!("  {} Configuring prover backend...", "→".dimmed());
         self.prover_config.configure_proving_backend();
         let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
 
@@ -63,33 +69,32 @@ impl ProverBenchmark {
         // Check if we can connect to PostgreSQL using environment variables
         let pg_pool = match create_pg_pool().await {
             Ok(pool) => {
-                tracing::info!("Successfully connected to PostgreSQL database");
+                println!("  {} Connected to PostgreSQL database", "✓".green());
                 Some(pool)
             }
             Err(e) => {
-                tracing::warn!("Failed to connect to PostgreSQL database: {}", e);
+                tracing::debug!("Failed to connect to PostgreSQL database: {}", e);
                 None
             }
         };
 
+        println!();
         for (idx, request_id) in self.request_ids.iter().enumerate() {
-            tracing::info!(
-                "Benchmarking request {}/{}: 0x{:x}",
+            println!(
+                "{} Request {}/{}: {}",
+                "→".cyan().bold(),
                 idx + 1,
                 self.request_ids.len(),
-                request_id
+                format!("{:#x}", request_id).cyan()
             );
 
+            println!("  {} Fetching request details...", "→".dimmed());
             let (request, _signature) = client.fetch_proof_request(*request_id, None, None).await?;
-            // TODO: We should check the signature here. If the signature is invalid, this might lead
-            // to wasted time on an invalid request. This is acceptable for now because the purpose of
-            // this command is benchmarking.
 
             tracing::debug!("Fetched request 0x{:x}", request_id);
             tracing::debug!("Image URL: {}", request.imageUrl);
 
-            // Fetch ELF and input
-            tracing::debug!("Fetching ELF from {}", request.imageUrl);
+            println!("  {} Fetching program and input...", "→".dimmed());
             let elf = fetch_url(&request.imageUrl).await?;
 
             tracing::debug!("Processing input");
@@ -104,21 +109,19 @@ impl ProverBenchmark {
                 _ => bail!("Unsupported input type"),
             };
 
-            // Upload ELF
+            println!("  {} Uploading to prover...", "→".dimmed());
             let image_id = compute_image_id(&elf)?.to_string();
             prover.upload_img(&image_id, elf).await.unwrap();
             tracing::debug!("Uploaded ELF to {}", image_id);
 
-            // Upload input
             let input_id =
                 prover.upload_input(input).await.context("Failed to upload set-builder input")?;
             tracing::debug!("Uploaded input to {}", input_id);
 
             let assumptions = vec![];
-
-            // Start timing
             let start_time = std::time::Instant::now();
 
+            println!("  {} Generating proof...", "→".dimmed());
             let proof_id =
                 prover.create_session(image_id, input_id, assumptions.clone(), false).await?;
             tracing::debug!("Created session {}", proof_id.uuid);
@@ -170,7 +173,11 @@ impl ProverBenchmark {
 
                 match (cycles_result, elapsed_result) {
                     (Ok(Some(cycles)), Ok(Some(elapsed))) => {
-                        tracing::debug!("Retrieved from PostgreSQL: {} cycles in {} seconds", cycles, elapsed);
+                        tracing::debug!(
+                            "Retrieved from PostgreSQL: {} cycles in {} seconds",
+                            cycles,
+                            elapsed
+                        );
                         (cycles, elapsed)
                     }
                     _ => {
@@ -189,13 +196,10 @@ impl ProverBenchmark {
 
             let effective_khz = total_cycles / elapsed_secs / 1000.0;
 
-            tracing::info!(
-                "Request 0x{:x} - Cycles: {:.0}, Time: {:.2}s, Effective: {:.2} KHz",
-                request_id,
-                total_cycles,
-                elapsed_secs,
-                effective_khz
-            );
+            println!("  {} Proof completed", "✓".green());
+            println!("    Cycles:    {}", format!("{:.0}", total_cycles).cyan());
+            println!("    Time:      {}", format!("{:.2}s", elapsed_secs).cyan());
+            println!("    Effective: {}", format!("{:.2} KHz", effective_khz).cyan().bold());
 
             if let Some(time) = elapsed_time {
                 tracing::debug!("Server side time: {:?}", time);
@@ -211,16 +215,14 @@ impl ProverBenchmark {
         }
 
         // Print summary
-        tracing::info!("===== Benchmark Summary =====");
-        tracing::info!("Total requests benchmarked: {}", self.request_ids.len());
+        println!("\n{}", "Benchmark Summary".bold());
+        println!("  Total requests: {}", format!("{}", self.request_ids.len()).cyan().bold());
         if !self.request_ids.is_empty() {
-            tracing::info!(
-                "Worst performance: Request 0x{:x} - {:.2} KHz ({:.0} cycles in {:.2}s)",
-                worst_request_id,
-                worst_khz,
-                worst_cycles,
-                worst_time
-            );
+            println!("  {} Worst performance:", "→".yellow());
+            println!("    Request ID: {}", format!("{:#x}", worst_request_id).yellow());
+            println!("    Effective:  {}", format!("{:.2} KHz", worst_khz).yellow().bold());
+            println!("    Cycles:     {}", format!("{:.0}", worst_cycles).yellow());
+            println!("    Time:       {}", format!("{:.2}s", worst_time).yellow());
         }
 
         Ok(())
@@ -229,8 +231,8 @@ impl ProverBenchmark {
 
 /// Create a PostgreSQL connection pool from environment variables
 async fn create_pg_pool() -> Result<PgPool> {
-    let database_url = std::env::var("DATABASE_URL")
-        .context("DATABASE_URL environment variable not set")?;
+    let database_url =
+        std::env::var("DATABASE_URL").context("DATABASE_URL environment variable not set")?;
 
     let pool = PgPoolOptions::new()
         .max_connections(5)

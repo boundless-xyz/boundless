@@ -32,10 +32,7 @@ async fn test_deposit_without_amount() {
     let account = ctx.account(0);
 
     // Should fail without amount
-    ctx.cmd("requestor", "deposit")
-        .with_account(&account)
-        .assert()
-        .failure();
+    ctx.cmd("requestor", "deposit").with_account(&account).assert().failure();
 }
 
 #[tokio::test]

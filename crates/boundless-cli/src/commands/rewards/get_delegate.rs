@@ -32,7 +32,8 @@ impl RewardsGetDelegate {
     /// Run the get-delegate command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // Get RPC URL
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
         // Connect to provider
@@ -42,15 +43,15 @@ impl RewardsGetDelegate {
             .context("Failed to connect to Ethereum provider")?;
 
         // Verify we're on mainnet (chain ID 1)
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
         }
 
         // Get veZKC (staking) contract address
-        let vezkc_address = global_config.vezkc_address()
+        let vezkc_address = global_config
+            .vezkc_address()
             .context("VEZKC_ADDRESS environment variable is required")?;
 
         // Define ERC721Votes interface inline for veZKC
@@ -67,8 +68,8 @@ impl RewardsGetDelegate {
         let vezkc = IERC721Votes::new(vezkc_address, &provider);
 
         // Query current delegate
-        let delegate = vezkc.delegates(self.address).call().await
-            .context("Failed to query delegate")?;
+        let delegate =
+            vezkc.delegates(self.address).call().await.context("Failed to query delegate")?;
 
         // Check if self-delegated or delegated to another address
         if delegate == self.address {
@@ -76,15 +77,19 @@ impl RewardsGetDelegate {
         } else if delegate == Address::ZERO {
             tracing::info!("Address {:#x} has not delegated voting power", self.address);
         } else {
-            tracing::info!("Address {:#x} has delegated voting power to {:#x}", self.address, delegate);
+            tracing::info!(
+                "Address {:#x} has delegated voting power to {:#x}",
+                self.address,
+                delegate
+            );
         }
 
         // Also query voting power to provide complete info
-        let voting_power = vezkc.getVotes(self.address).call().await
-            .context("Failed to query voting power")?;
+        let voting_power =
+            vezkc.getVotes(self.address).call().await.context("Failed to query voting power")?;
 
-        let balance = vezkc.balanceOf(self.address).call().await
-            .context("Failed to query staked balance")?;
+        let balance =
+            vezkc.balanceOf(self.address).call().await.context("Failed to query staked balance")?;
 
         if voting_power != balance {
             if voting_power > balance {

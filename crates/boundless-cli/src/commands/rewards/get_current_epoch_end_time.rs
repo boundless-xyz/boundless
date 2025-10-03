@@ -14,8 +14,8 @@
 
 use alloy::providers::{Provider, ProviderBuilder};
 use anyhow::{bail, Context, Result};
-use clap::Args;
 use chrono::{DateTime, Utc};
+use clap::Args;
 
 use crate::config::GlobalConfig;
 use crate::indexer_client::IndexerClient;
@@ -28,7 +28,8 @@ impl RewardsGetCurrentEpochEndTime {
     /// Run the get-current-epoch-end-time command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // Get RPC URL and chain ID
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
         let provider = ProviderBuilder::new()
@@ -36,8 +37,7 @@ impl RewardsGetCurrentEpochEndTime {
             .await
             .context("Failed to connect to Ethereum provider")?;
 
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
@@ -47,7 +47,9 @@ impl RewardsGetCurrentEpochEndTime {
         let indexer = IndexerClient::new_from_chain_id(chain_id)?;
 
         // Query current epoch info from indexer
-        let epoch_info = indexer.get_current_epoch_info().await
+        let epoch_info = indexer
+            .get_current_epoch_info()
+            .await
             .context("Failed to query current epoch info from indexer")?;
 
         // Convert end timestamp to human-readable date
@@ -67,9 +69,19 @@ impl RewardsGetCurrentEpochEndTime {
             let seconds = remaining % 60;
 
             if days > 0 {
-                tracing::info!("Time remaining: {} days, {} hours, {} minutes", days, hours, minutes);
+                tracing::info!(
+                    "Time remaining: {} days, {} hours, {} minutes",
+                    days,
+                    hours,
+                    minutes
+                );
             } else if hours > 0 {
-                tracing::info!("Time remaining: {} hours, {} minutes, {} seconds", hours, minutes, seconds);
+                tracing::info!(
+                    "Time remaining: {} hours, {} minutes, {} seconds",
+                    hours,
+                    minutes,
+                    seconds
+                );
             } else if minutes > 0 {
                 tracing::info!("Time remaining: {} minutes, {} seconds", minutes, seconds);
             } else {

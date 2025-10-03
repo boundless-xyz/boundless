@@ -106,7 +106,11 @@ pub fn format_amount(amount_str: &str) -> String {
             let first_nonzero = decimal_chars.iter().position(|&c| c != '0');
             if let Some(pos) = first_nonzero {
                 let precision = (pos + 2).min(decimal_chars.len());
-                let trimmed = decimal_chars[..precision].iter().collect::<String>().trim_end_matches('0').to_string();
+                let trimmed = decimal_chars[..precision]
+                    .iter()
+                    .collect::<String>()
+                    .trim_end_matches('0')
+                    .to_string();
                 if trimmed.is_empty() {
                     whole.to_string()
                 } else {
@@ -117,7 +121,11 @@ pub fn format_amount(amount_str: &str) -> String {
             }
         } else {
             let precision = 4.min(decimal_chars.len());
-            let trimmed = decimal_chars[..precision].iter().collect::<String>().trim_end_matches('0').to_string();
+            let trimmed = decimal_chars[..precision]
+                .iter()
+                .collect::<String>()
+                .trim_end_matches('0')
+                .to_string();
             if trimmed.is_empty() {
                 whole.to_string()
             } else {

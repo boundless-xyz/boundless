@@ -34,5 +34,5 @@ async fn test_order_details_invalid_id() {
     ctx.cmd("requestor", "order-details")
         .arg("0x0000000000000000000000000000000000000000000000000000000000000000")
         .assert()
-        .success();  // Command should succeed even if order doesn't exist
+        .success(); // Command should succeed even if order doesn't exist
 }

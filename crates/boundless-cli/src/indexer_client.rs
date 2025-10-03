@@ -39,10 +39,13 @@ impl IndexerClient {
         } else {
             // Use hardcoded URLs based on chain ID
             let url_str = match zkc_chain_id {
-                1 => "https://api.boundless.market/",  // Ethereum mainnet
-                11155111 => "https://api-sepolia.boundless.market/",  // Sepolia testnet
+                1 => "https://api.boundless.market/", // Ethereum mainnet
+                11155111 => "https://api-sepolia.boundless.market/", // Sepolia testnet
                 _ => {
-                    tracing::warn!("Unknown chain ID {}, defaulting to mainnet indexer", zkc_chain_id);
+                    tracing::warn!(
+                        "Unknown chain ID {}, defaulting to mainnet indexer",
+                        zkc_chain_id
+                    );
                     "https://api.boundless.market/"
                 }
             };
@@ -70,21 +73,14 @@ impl IndexerClient {
             .join(&format!("v1/staking/addresses/{:#x}", address))
             .context("Failed to build URL")?;
 
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .context("Failed to fetch staking history")?;
+        let response =
+            self.client.get(url).send().await.context("Failed to fetch staking history")?;
 
         if !response.status().is_success() {
             anyhow::bail!("API error: {}", response.status());
         }
 
-        response
-            .json()
-            .await
-            .context("Failed to parse staking history response")
+        response.json().await.context("Failed to parse staking history response")
     }
 
     /// Get staking data for current epoch
@@ -94,21 +90,14 @@ impl IndexerClient {
             .join(&format!("v1/staking/epochs/{}", epoch))
             .context("Failed to build URL")?;
 
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .context("Failed to fetch epoch staking data")?;
+        let response =
+            self.client.get(url).send().await.context("Failed to fetch epoch staking data")?;
 
         if !response.status().is_success() {
             anyhow::bail!("API error: {}", response.status());
         }
 
-        response
-            .json()
-            .await
-            .context("Failed to parse epoch staking response")
+        response.json().await.context("Failed to parse epoch staking response")
     }
 
     /// Get PoVW history for a specific address
@@ -118,21 +107,13 @@ impl IndexerClient {
             .join(&format!("v1/povw/addresses/{:#x}", address))
             .context("Failed to build URL")?;
 
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .context("Failed to fetch PoVW history")?;
+        let response = self.client.get(url).send().await.context("Failed to fetch PoVW history")?;
 
         if !response.status().is_success() {
             anyhow::bail!("API error: {}", response.status());
         }
 
-        response
-            .json()
-            .await
-            .context("Failed to parse PoVW history response")
+        response.json().await.context("Failed to parse PoVW history response")
     }
 
     /// Get PoVW data for current epoch
@@ -142,21 +123,14 @@ impl IndexerClient {
             .join(&format!("v1/povw/epochs/{}", epoch))
             .context("Failed to build URL")?;
 
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .context("Failed to fetch epoch PoVW data")?;
+        let response =
+            self.client.get(url).send().await.context("Failed to fetch epoch PoVW data")?;
 
         if !response.status().is_success() {
             anyhow::bail!("API error: {}", response.status());
         }
 
-        response
-            .json()
-            .await
-            .context("Failed to parse epoch PoVW response")
+        response.json().await.context("Failed to parse epoch PoVW response")
     }
 }
 
@@ -284,17 +258,15 @@ impl IndexerClient {
     pub async fn get_claimable_povw_rewards(&self, address: Address) -> Result<ClaimableRewards> {
         let url = self.base_url.join(&format!("api/v1/povw/claimable/{:#x}", address))?;
 
-        let response = self.client
-            .get(url)
-            .send()
-            .await
-            .context("Failed to query claimable PoVW rewards")?;
+        let response =
+            self.client.get(url).send().await.context("Failed to query claimable PoVW rewards")?;
 
         if !response.status().is_success() {
             bail!("Failed to get claimable rewards: HTTP {}", response.status());
         }
 
-        response.json::<ClaimableRewards>()
+        response
+            .json::<ClaimableRewards>()
             .await
             .context("Failed to parse claimable rewards response")
     }
@@ -303,19 +275,14 @@ impl IndexerClient {
     pub async fn get_current_epoch_info(&self) -> Result<EpochInfo> {
         let url = self.base_url.join("api/v1/epochs/current")?;
 
-        let response = self.client
-            .get(url)
-            .send()
-            .await
-            .context("Failed to query current epoch info")?;
+        let response =
+            self.client.get(url).send().await.context("Failed to query current epoch info")?;
 
         if !response.status().is_success() {
             bail!("Failed to get epoch info: HTTP {}", response.status());
         }
 
-        response.json::<EpochInfo>()
-            .await
-            .context("Failed to parse epoch info response")
+        response.json::<EpochInfo>().await.context("Failed to parse epoch info response")
     }
 }
 

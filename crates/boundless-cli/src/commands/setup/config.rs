@@ -38,8 +38,8 @@ impl SetupConfig {
         }
 
         // Check BOUNDLESS_RPC_URL
-        let boundless_configured = std::env::var("BOUNDLESS_RPC_URL").is_ok() ||
-                                    std::env::var("RPC_URL").is_ok();
+        let boundless_configured =
+            std::env::var("BOUNDLESS_RPC_URL").is_ok() || std::env::var("RPC_URL").is_ok();
         if boundless_configured {
             tracing::info!("✓ BOUNDLESS_RPC_URL: Configured");
             tracing::info!("  → Requestor module: READY");
@@ -67,12 +67,14 @@ impl SetupConfig {
         }
 
         // Check POVW work log configuration
-        let work_log_configured = std::env::var("WORK_LOG_ID").is_ok() ||
-                                   std::env::var("POVW_PRIVATE_KEY").is_ok();
+        let work_log_configured =
+            std::env::var("WORK_LOG_ID").is_ok() || std::env::var("POVW_PRIVATE_KEY").is_ok();
         if work_log_configured {
             tracing::info!("✓ Work Log (WORK_LOG_ID/POVW_PRIVATE_KEY): Configured");
         } else {
-            tracing::info!("○ Work Log configuration: Not configured (required for PoVW operations)");
+            tracing::info!(
+                "○ Work Log configuration: Not configured (required for PoVW operations)"
+            );
         }
 
         // Check Indexer API
@@ -87,7 +89,9 @@ impl SetupConfig {
                 // Try to detect chain and show which indexer will be used
                 tracing::info!("  → Will auto-select indexer based on chain ID:");
                 tracing::info!("    • Chain 1 (mainnet): https://api.boundless.market/");
-                tracing::info!("    • Chain 11155111 (Sepolia): https://api-sepolia.boundless.market/");
+                tracing::info!(
+                    "    • Chain 11155111 (Sepolia): https://api-sepolia.boundless.market/"
+                );
             }
         } else {
             tracing::info!("○ INDEXER_API_URL: Not configured (optional, enables reward history)");

@@ -32,7 +32,8 @@ impl RewardsStakedBalanceZkc {
     /// Run the staked-balance-zkc command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // For rewards commands, we need ETH_MAINNET_RPC_URL (chain ID 1)
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
         // Connect to provider
@@ -42,15 +43,15 @@ impl RewardsStakedBalanceZkc {
             .context("Failed to connect to Ethereum provider")?;
 
         // Verify we're on mainnet (chain ID 1)
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
         }
 
         // Get veZKC (staking) contract address
-        let vezkc_address = global_config.vezkc_address()
+        let vezkc_address = global_config
+            .vezkc_address()
             .context("VEZKC_ADDRESS environment variable is required")?;
 
         // Define ERC721Votes interface inline for veZKC
@@ -67,12 +68,15 @@ impl RewardsStakedBalanceZkc {
         let vezkc = IERC721Votes::new(vezkc_address, &provider);
 
         // Query staked balance
-        let staked_balance = vezkc.balanceOf(self.address).call().await
+        let staked_balance = vezkc
+            .balanceOf(self.address)
+            .call()
+            .await
             .context("Failed to query staked ZKC balance")?;
 
         // Query voting power (which may differ from balance due to delegation)
-        let voting_power = vezkc.getVotes(self.address).call().await
-            .context("Failed to query voting power")?;
+        let voting_power =
+            vezkc.getVotes(self.address).call().await.context("Failed to query voting power")?;
 
         // Display staked balance
         tracing::info!("Staked ZKC (veZKC) for {:#x}:", self.address);
@@ -82,11 +86,15 @@ impl RewardsStakedBalanceZkc {
         // Show if there's a delegation difference
         if staked_balance != voting_power {
             if voting_power > staked_balance {
-                tracing::info!("  Note: Address has received {} veZKC in delegated voting power",
-                    format_ether(voting_power - staked_balance));
+                tracing::info!(
+                    "  Note: Address has received {} veZKC in delegated voting power",
+                    format_ether(voting_power - staked_balance)
+                );
             } else {
-                tracing::info!("  Note: Address has delegated {} veZKC voting power to another address",
-                    format_ether(staked_balance - voting_power));
+                tracing::info!(
+                    "  Note: Address has delegated {} veZKC voting power to another address",
+                    format_ether(staked_balance - voting_power)
+                );
             }
         }
 

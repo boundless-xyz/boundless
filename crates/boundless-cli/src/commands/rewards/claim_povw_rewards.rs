@@ -33,7 +33,8 @@ impl RewardsClaimPovwRewards {
     /// Run the claim-povw-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // Get RPC URL and chain ID
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
         let provider = ProviderBuilder::new()
@@ -41,8 +42,7 @@ impl RewardsClaimPovwRewards {
             .await
             .context("Failed to connect to Ethereum provider")?;
 
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
@@ -52,8 +52,9 @@ impl RewardsClaimPovwRewards {
         let prover_address = if let Some(addr) = self.prover_address {
             addr
         } else {
-            global_config.prover_address()
-                .context("No prover address provided and PROVER_ADDRESS environment variable not set")?
+            global_config.prover_address().context(
+                "No prover address provided and PROVER_ADDRESS environment variable not set",
+            )?
         };
 
         // Create indexer client based on chain ID
@@ -62,7 +63,9 @@ impl RewardsClaimPovwRewards {
         // Query claimable rewards from indexer
         tracing::info!("Checking claimable PoVW rewards for prover {:#x}...", prover_address);
 
-        let claimable_rewards = indexer.get_claimable_povw_rewards(prover_address).await
+        let claimable_rewards = indexer
+            .get_claimable_povw_rewards(prover_address)
+            .await
             .context("Failed to query claimable PoVW rewards from indexer")?;
 
         if claimable_rewards.claimable_amount == 0 {
@@ -82,8 +85,12 @@ impl RewardsClaimPovwRewards {
         // 2. Calling the PoVW mint contract with the proof
         // 3. Waiting for transaction confirmation
 
-        tracing::warn!("Note: Claiming functionality not yet implemented - PoVW contracts pending deployment");
-        tracing::info!("For now, rewards accumulate and will be claimable once contracts are deployed");
+        tracing::warn!(
+            "Note: Claiming functionality not yet implemented - PoVW contracts pending deployment"
+        );
+        tracing::info!(
+            "For now, rewards accumulate and will be claimable once contracts are deployed"
+        );
 
         Ok(())
     }

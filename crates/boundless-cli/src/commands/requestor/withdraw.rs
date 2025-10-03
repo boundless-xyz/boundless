@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{utils::{format_ether, parse_ether}, U256};
+use alloy::primitives::{
+    utils::{format_ether, parse_ether},
+    U256,
+};
 use anyhow::Result;
 use clap::Args;
 use colored::Colorize;
@@ -34,12 +37,21 @@ impl RequestorWithdraw {
         let formatted = crate::format_amount(&format_ether(self.amount));
         let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
 
-        println!("\n{} [{}]", "Withdrawing funds from Boundless Market".bold(), network_name.blue().bold());
+        println!(
+            "\n{} [{}]",
+            "Withdrawing funds (ETH) from Boundless Market".bold(),
+            network_name.blue().bold()
+        );
         println!("  Amount: {} {}", formatted.cyan().bold(), "ETH".cyan());
 
         client.boundless_market.withdraw(self.amount).await?;
 
-        println!("\n{} Successfully withdrew {} {}", "✓".green().bold(), formatted.green().bold(), "ETH".green());
+        println!(
+            "\n{} Successfully withdrew {} {}",
+            "✓".green().bold(),
+            formatted.green().bold(),
+            "ETH".green()
+        );
         Ok(())
     }
 }

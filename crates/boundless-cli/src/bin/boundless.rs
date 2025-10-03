@@ -64,17 +64,15 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{
     commands::{
+        povw::PovwCommands, // Legacy - to be removed
         prover::ProverCommands,
         requestor::RequestorCommands,
         rewards::RewardsCommands,
         setup::SetupCommands,
-        zkc::ZKCCommands,  // Legacy - to be removed
-        povw::PovwCommands,  // Legacy - to be removed
+        zkc::ZKCCommands, // Legacy - to be removed
     },
     config::ProverConfig,
-    convert_timestamp,
-    DefaultProver,
-    OrderFulfilled,
+    convert_timestamp, DefaultProver, OrderFulfilled,
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
@@ -82,7 +80,8 @@ use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::{set_verifier::SetVerifierService, IRiscZeroVerifier};
 use risc0_zkvm::{
     compute_image_id, default_executor,
-    sha::{Digest, Digestible}, SessionInfo,
+    sha::{Digest, Digestible},
+    SessionInfo,
 };
 use shadow_rs::shadow;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -422,19 +421,6 @@ struct MainArgs {
     config: GlobalConfig,
 }
 
-const LOGO: &str = r#"
-     .MMMMMMMMMM,
-  ,MMMMO     cMMMMMc
- WMMMMx       .MMMMMM
-0MMMMM'        ;MMMMM0
-:MMMMM.           :MMM
-      0MMMMM;        .MMMMMK
-       MMMMMM.       dMMMMM
-        lMMMMM;     dMMMMc
-           lMMMMMMMMMM:
-               lMM;
-"#;
-
 fn obscure_url(url: &str) -> String {
     use url::Url;
 
@@ -477,11 +463,7 @@ fn obscure_url(url: &str) -> String {
 fn address_from_private_key(private_key: &str) -> Option<String> {
     use alloy::signers::local::PrivateKeySigner;
 
-    let key_str = if private_key.starts_with("0x") {
-        &private_key[2..]
-    } else {
-        private_key
-    };
+    let key_str = if private_key.starts_with("0x") { &private_key[2..] } else { private_key };
 
     if let Ok(signer) = key_str.parse::<PrivateKeySigner>() {
         Some(format!("{:?}", signer.address()))
@@ -494,7 +476,20 @@ fn show_welcome_screen() -> Result<()> {
     use boundless_cli::config_file::{Config, Secrets};
     use colored::Colorize;
 
-    println!("{}", LOGO);
+    println!();
+    // Cyan gradient logo
+    println!("{}", "     .MMMMMMMMMM,".bright_cyan().bold());
+    println!("  {}", ",MMMMO     cMMMMMc".cyan().bold());
+    println!(" {}", "WMMMMx       .MMMMMM".bright_cyan().bold());
+    println!("{}", "0MMMMM'        ;MMMMM0".cyan().bold());
+    println!("{}", ":MMMMM.           :MMM".bright_cyan().bold());
+    println!("      {}", "0MMMMM;        .MMMMMK".cyan().bold());
+    println!("       {}", "MMMMMM.       dMMMMM".bright_cyan().bold());
+    println!("        {}", "lMMMMM;     dMMMMc".cyan().bold());
+    println!("           {}", "lMMMMMMMMMM:".bright_cyan().bold());
+    println!("               {}", "lMM;".cyan().bold());
+    println!();
+
     println!("{}\n", "Boundless CLI - Universal ZK Protocol".bold());
 
     let config = Config::load().ok();
@@ -514,7 +509,8 @@ fn show_welcome_screen() -> Result<()> {
             custom => custom,
         };
 
-        println!("{} Requestor/Prover Module [{}]",
+        println!(
+            "{} Requestor/Prover Module [{}]",
             "✓".green().bold(),
             display_network.blue().bold()
         );
@@ -532,10 +528,7 @@ fn show_welcome_screen() -> Result<()> {
             println!("  Status: {} (no credentials)", "Read-only".yellow());
         }
     } else {
-        println!("{} Requestor/Prover Module: {}",
-            "✗".red().bold(),
-            "Not configured".red()
-        );
+        println!("{} Requestor/Prover Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run: boundless setup requestor".cyan());
     }
 
@@ -551,10 +544,7 @@ fn show_welcome_screen() -> Result<()> {
             custom => custom,
         };
 
-        println!("{} Rewards Module [{}]",
-            "✓".green().bold(),
-            display_network.blue().bold()
-        );
+        println!("{} Rewards Module [{}]", "✓".green().bold(), display_network.blue().bold());
 
         if let Some(rewards_sec) = rewards_secrets {
             if let Some(ref pk) = rewards_sec.private_key {
@@ -569,10 +559,7 @@ fn show_welcome_screen() -> Result<()> {
             println!("  Status: {} (no credentials)", "Read-only".yellow());
         }
     } else {
-        println!("{} Rewards Module: {}",
-            "✗".red().bold(),
-            "Not configured".red()
-        );
+        println!("{} Rewards Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run: boundless setup rewards".cyan());
     }
 
@@ -620,7 +607,11 @@ fn show_requestor_status() -> Result<()> {
                         }
                         println!("{} {}", "Private Key:".bold(), "Configured".green());
                     } else {
-                        println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
+                        println!(
+                            "{} {}",
+                            "Private Key:".bold(),
+                            "Not configured (read-only)".yellow()
+                        );
                     }
                 }
             }
@@ -642,7 +633,11 @@ fn show_requestor_status() -> Result<()> {
     println!("  {} - Get proof for a fulfilled request", "get-proof".cyan());
     println!("  {} - Verify a proof", "verify-proof".cyan());
 
-    println!("\n💡 {} {}", "Tip:".bold(), "Try 'boundless requestor submit-offer --help' to get started".dimmed());
+    println!(
+        "\n💡 {} {}",
+        "Tip:".bold(),
+        "Try 'boundless requestor submit-offer --help' to get started".dimmed()
+    );
 
     Ok(())
 }
@@ -678,7 +673,11 @@ fn show_prover_status() -> Result<()> {
                         }
                         println!("{} {}", "Private Key:".bold(), "Configured".green());
                     } else {
-                        println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
+                        println!(
+                            "{} {}",
+                            "Private Key:".bold(),
+                            "Not configured (read-only)".yellow()
+                        );
                     }
                 }
             }
@@ -687,7 +686,11 @@ fn show_prover_status() -> Result<()> {
             if let Ok(prover_addr) = std::env::var("PROVER_ADDRESS") {
                 println!("{} {}", "Prover Address:".bold(), prover_addr.green());
             } else {
-                println!("{} {}", "Prover Address:".bold(), "Not set (use PROVER_ADDRESS env var)".yellow());
+                println!(
+                    "{} {}",
+                    "Prover Address:".bold(),
+                    "Not set (use PROVER_ADDRESS env var)".yellow()
+                );
             }
         } else {
             println!("{}", "Not configured - run 'boundless setup all'".red());
@@ -707,7 +710,11 @@ fn show_prover_status() -> Result<()> {
     println!("  {} - Fulfill and submit proofs", "fulfill".cyan());
     println!("  {} - Benchmark proof requests", "benchmark".cyan());
 
-    println!("\n💡 {} {}", "Tip:".bold(), "Try 'boundless prover execute --help' to test proving locally".dimmed());
+    println!(
+        "\n💡 {} {}",
+        "Tip:".bold(),
+        "Try 'boundless prover execute --help' to test proving locally".dimmed()
+    );
 
     Ok(())
 }
@@ -742,7 +749,11 @@ fn show_rewards_status() -> Result<()> {
                         }
                         println!("{} {}", "Private Key:".bold(), "Configured".green());
                     } else {
-                        println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
+                        println!(
+                            "{} {}",
+                            "Private Key:".bold(),
+                            "Not configured (read-only)".yellow()
+                        );
                     }
                 }
             }
@@ -767,7 +778,11 @@ fn show_rewards_status() -> Result<()> {
     println!("  {} - Delegate rewards to another address", "delegate".cyan());
     println!("  {} - Get current epoch information", "get-current-epoch".cyan());
 
-    println!("\n💡 {} {}", "Tip:".bold(), "Try 'boundless rewards balance-zkc --help' to check your ZKC balance".dimmed());
+    println!(
+        "\n💡 {} {}",
+        "Tip:".bold(),
+        "Try 'boundless rewards balance-zkc --help' to check your ZKC balance".dimmed()
+    );
 
     Ok(())
 }

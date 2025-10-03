@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-use std::borrow::Cow;
-use std::time::Duration;
 use alloy::primitives::{Address, U256};
 use anyhow::{anyhow, bail, Context, Result};
-use clap::Args;
-use url::Url;
 use boundless_market::{
     contracts::Selector,
     input::GuestEnvBuilder,
@@ -26,7 +21,12 @@ use boundless_market::{
     selector::ProofType,
     storage::StorageProviderConfig,
 };
+use clap::Args;
 use serde_json;
+use std::borrow::Cow;
+use std::path::PathBuf;
+use std::time::Duration;
+use url::Url;
 
 use crate::config::GlobalConfig;
 use crate::convert_timestamp;
@@ -118,8 +118,8 @@ impl RequestorSubmitOffer {
         // For now, we'll build the client without explicit storage provider configuration
         // as the client builder can handle the storage config internally
 
-        let client = client_builder.build().await
-            .context("Failed to build Boundless Client with signer")?;
+        let client =
+            client_builder.build().await.context("Failed to build Boundless Client with signer")?;
 
         let request = client.new_request();
 
@@ -134,7 +134,9 @@ impl RequestorSubmitOffer {
                     .into();
                 request.with_program(program)
             }
-            (None, Some(url)) => request.with_program_url(url.clone()).map_err(|e| anyhow!("{}", e))?,
+            (None, Some(url)) => {
+                request.with_program_url(url.clone()).map_err(|e| anyhow!("{}", e))?
+            }
             _ => bail!("Exactly one of program path and program-url args must be provided"),
         };
 
@@ -174,7 +176,8 @@ impl RequestorSubmitOffer {
         // Apply offer parameters
         let request = request.with_offer(self.offer_params.clone());
 
-        let request = client.build_request(request).await.context("failed to build proof request")?;
+        let request =
+            client.build_request(request).await.context("failed to build proof request")?;
         tracing::debug!("Request details: {}", serde_yaml::to_string(&request)?);
 
         // Submit the request

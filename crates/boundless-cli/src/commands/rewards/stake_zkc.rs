@@ -28,7 +28,7 @@ use clap::Args;
 
 use crate::{
     config::GlobalConfig,
-    indexer_client::{IndexerClient, parse_amount},
+    indexer_client::{parse_amount, IndexerClient},
 };
 
 /// Stake ZKC tokens with optional dry-run to estimate rewards
@@ -76,7 +76,9 @@ impl RewardsStakeZkc {
         let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
             .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
 
-        let token_id = get_active_token_id(provider.clone(), deployment.vezkc_address, tx_signer.address()).await?;
+        let token_id =
+            get_active_token_id(provider.clone(), deployment.vezkc_address, tx_signer.address())
+                .await?;
         let add = !token_id.is_zero();
 
         let pending_tx = match self.no_permit {
@@ -175,14 +177,17 @@ impl RewardsStakeZkc {
 
             // Rough reward estimate (would need actual emission rates)
             // This is a placeholder calculation
-            let estimated_epoch_rewards = U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
+            let estimated_epoch_rewards =
+                U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
             let your_estimated_rewards = estimated_epoch_rewards * your_stake / new_total;
 
             tracing::info!("\n=== Estimated Rewards (Per Epoch) ===");
             tracing::info!("Estimated Rewards: ~{} ZKC", format_ether(your_estimated_rewards));
             // Calculate APY as a rough estimate
             let apy = if your_stake > U256::ZERO {
-                let reward_ratio = (your_estimated_rewards * U256::from(10000) / your_stake).to::<u64>() as f64 / 10000.0;
+                let reward_ratio = (your_estimated_rewards * U256::from(10000) / your_stake)
+                    .to::<u64>() as f64
+                    / 10000.0;
                 reward_ratio * 52.0 * 100.0
             } else {
                 0.0
@@ -219,9 +224,8 @@ impl RewardsStakeZkc {
         let token = IERC20Permit::new(deployment.zkc_address, provider.clone());
 
         let nonce = token.nonces(signer.address()).call().await?;
-        let deadline = deadline + std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+        let deadline = deadline
+            + std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
 
         let permit = Permit {
             owner: signer.address(),

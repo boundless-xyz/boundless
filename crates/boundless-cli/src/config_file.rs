@@ -14,10 +14,7 @@
 
 //! Configuration file management for the Boundless CLI.
 
-use std::{
-    fs,
-    path::PathBuf,
-};
+use std::{fs, path::PathBuf};
 
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
@@ -169,8 +166,7 @@ impl Config {
         let dir = ensure_config_dir()?;
         let path = dir.join("config.toml");
 
-        let contents = toml::to_string_pretty(self)
-            .context("Failed to serialize config")?;
+        let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
         fs::write(&path, contents)
             .with_context(|| format!("Failed to write config file: {}", path.display()))?;
@@ -203,8 +199,7 @@ impl Secrets {
         let dir = ensure_config_dir()?;
         let path = dir.join("secrets.toml");
 
-        let contents = toml::to_string_pretty(self)
-            .context("Failed to serialize secrets")?;
+        let contents = toml::to_string_pretty(self).context("Failed to serialize secrets")?;
 
         fs::write(&path, contents)
             .with_context(|| format!("Failed to write secrets file: {}", path.display()))?;

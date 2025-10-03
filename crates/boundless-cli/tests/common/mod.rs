@@ -81,11 +81,7 @@ impl TestContext {
         let anvil = alloy_node_bindings::Anvil::new().fork(url).spawn();
         let endpoint = anvil.endpoint().to_string();
 
-        Self {
-            anvil,
-            endpoint,
-            chain: Chain::Base,
-        }
+        Self { anvil, endpoint, chain: Chain::Base }
     }
 
     pub async fn ethereum() -> Self {
@@ -94,27 +90,18 @@ impl TestContext {
         let anvil = alloy_node_bindings::Anvil::new().fork(url).spawn();
         let endpoint = anvil.endpoint().to_string();
 
-        Self {
-            anvil,
-            endpoint,
-            chain: Chain::Ethereum,
-        }
+        Self { anvil, endpoint, chain: Chain::Ethereum }
     }
 
     // Get an Anvil account with private key
     pub fn account(&self, index: usize) -> TestAccount {
         let (addr, key) = ANVIL_ACCOUNTS[index];
-        TestAccount {
-            address: addr.to_string(),
-            private_key: key.to_string(),
-            index,
-        }
+        TestAccount { address: addr.to_string(), private_key: key.to_string(), index }
     }
 
     // Impersonate any address for transfers
     pub async fn impersonate(&self, address: &str) -> anyhow::Result<()> {
-        let provider = ProviderBuilder::new()
-            .connect_http(self.endpoint.parse()?);
+        let provider = ProviderBuilder::new().connect_http(self.endpoint.parse()?);
 
         provider
             .raw_request::<_, ()>(Cow::Borrowed("anvil_impersonateAccount"), vec![address])
@@ -123,8 +110,7 @@ impl TestContext {
     }
 
     pub async fn stop_impersonating(&self, address: &str) -> anyhow::Result<()> {
-        let provider = ProviderBuilder::new()
-            .connect_http(self.endpoint.parse()?);
+        let provider = ProviderBuilder::new().connect_http(self.endpoint.parse()?);
 
         provider
             .raw_request::<_, ()>(Cow::Borrowed("anvil_stopImpersonatingAccount"), vec![address])
@@ -151,10 +137,7 @@ pub struct BoundlessCmd {
 
 impl BoundlessCmd {
     pub fn new(group: &str, command: &str) -> Self {
-        Self {
-            args: vec![group.to_string(), command.to_string()],
-            env_vars: HashMap::new(),
-        }
+        Self { args: vec![group.to_string(), command.to_string()], env_vars: HashMap::new() }
     }
 
     pub fn arg(mut self, arg: &str) -> Self {
@@ -187,27 +170,19 @@ impl BoundlessCmd {
     }
 
     pub fn with_base_config(self, ctx: &TestContext) -> Self {
-        self.env("RPC_URL", &ctx.endpoint)  // CLI uses RPC_URL for the main blockchain connection
-            .env("BOUNDLESS_MARKET_RPC_URL", &ctx.endpoint)  // Also set this for commands that might need it
-            .env(
-                "BOUNDLESS_MARKET_ADDRESS",
-                "0xfd152dadc5183870710fe54f939eae3ab9f0fe82",
-            ) // Base mainnet
-            .env(
-                "SET_VERIFIER_ADDRESS",
-                "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104",
-            ) // Base mainnet set verifier
+        self.env("RPC_URL", &ctx.endpoint) // CLI uses RPC_URL for the main blockchain connection
+            .env("BOUNDLESS_MARKET_RPC_URL", &ctx.endpoint) // Also set this for commands that might need it
+            .env("BOUNDLESS_MARKET_ADDRESS", "0xfd152dadc5183870710fe54f939eae3ab9f0fe82") // Base mainnet
+            .env("SET_VERIFIER_ADDRESS", "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104")
+        // Base mainnet set verifier
     }
 
     pub fn with_ethereum_config(self, ctx: &TestContext) -> Self {
-        self.env("RPC_URL", &ctx.endpoint)  // CLI uses RPC_URL
+        self.env("RPC_URL", &ctx.endpoint) // CLI uses RPC_URL
             .env("ETH_MAINNET_RPC_URL", &ctx.endpoint)
             .env("ZKC_ADDRESS", "0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555")
             .env("VEZKC_ADDRESS", "0xe8ae8ee8ffa57f6a79b6cbe06bafc0b05f3ffbf4")
-            .env(
-                "STAKING_REWARDS_ADDRESS",
-                "0x459d87d54808fac136ddcf439fcc1d8a238311c7",
-            )
+            .env("STAKING_REWARDS_ADDRESS", "0x459d87d54808fac136ddcf439fcc1d8a238311c7")
     }
 
     pub fn with_account(self, account: &TestAccount) -> Self {

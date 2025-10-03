@@ -18,8 +18,8 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::{bail, Context, Result};
-use clap::Args;
 use boundless_zkc::contracts::IStakingRewards;
+use clap::Args;
 
 use crate::config::GlobalConfig;
 
@@ -34,31 +34,31 @@ impl RewardsClaimStakingRewards {
     /// Run the claim-staking-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         // Get RPC URL and private key for signing
-        let rpc_url = global_config.require_rpc_url()
+        let rpc_url = global_config
+            .require_rpc_url()
             .context("ETH_MAINNET_RPC_URL is required for rewards commands")?;
 
-        let private_key = global_config.require_prover_private_key()
+        let private_key = global_config
+            .require_prover_private_key()
             .context("PROVER_PRIVATE_KEY is required for claiming rewards")?;
 
         // Create signer from private key
-        let signer: PrivateKeySigner = private_key.parse()
-            .context("Failed to parse private key")?;
+        let signer: PrivateKeySigner =
+            private_key.parse().context("Failed to parse private key")?;
 
         // Connect to provider with signer
-        let provider = ProviderBuilder::new()
-            .wallet(signer.clone())
-            .on_http(rpc_url);
+        let provider = ProviderBuilder::new().wallet(signer.clone()).on_http(rpc_url);
 
         // Verify we're on mainnet (chain ID 1)
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         if chain_id != 1 {
             bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
         }
 
         // Get staking rewards contract address
-        let staking_rewards_address = global_config.staking_rewards_address()
+        let staking_rewards_address = global_config
+            .staking_rewards_address()
             .context("STAKING_REWARDS_ADDRESS environment variable is required")?;
 
         // Create staking rewards contract instance
@@ -68,7 +68,10 @@ impl RewardsClaimStakingRewards {
         let claim_address = self.address.unwrap_or(signer.address());
 
         // Get current epoch to check for claimable rewards
-        let current_epoch = staking_rewards.getCurrentEpoch().call().await
+        let current_epoch = staking_rewards
+            .getCurrentEpoch()
+            .call()
+            .await
             .context("Failed to query current epoch")?;
 
         // Check unclaimed rewards for recent epochs (last 10 epochs)
@@ -83,7 +86,10 @@ impl RewardsClaimStakingRewards {
             .filter(|&e| e > alloy::primitives::U256::ZERO)
             .collect();
 
-        let unclaimed = staking_rewards.calculateUnclaimedRewards(claim_address, epochs_to_check.clone()).call().await
+        let unclaimed = staking_rewards
+            .calculateUnclaimedRewards(claim_address, epochs_to_check.clone())
+            .call()
+            .await
             .context("Failed to query unclaimed staking rewards")?;
 
         let total_unclaimed: alloy::primitives::U256 = unclaimed.iter().sum();
@@ -103,13 +109,15 @@ impl RewardsClaimStakingRewards {
         tracing::info!("Claiming staking rewards...");
 
         // Claim rewards for the epochs with unclaimed rewards
-        let epochs_to_claim: Vec<alloy::primitives::U256> = epochs_to_check.into_iter()
+        let epochs_to_claim: Vec<alloy::primitives::U256> = epochs_to_check
+            .into_iter()
             .zip(unclaimed.iter())
             .filter(|(_, reward)| **reward > alloy::primitives::U256::ZERO)
             .map(|(epoch, _)| epoch)
             .collect();
 
-        let tx = staking_rewards.claimRewards(epochs_to_claim)
+        let tx = staking_rewards
+            .claimRewards(epochs_to_claim)
             .send()
             .await
             .context("Failed to send claim transaction")?;
@@ -118,9 +126,7 @@ impl RewardsClaimStakingRewards {
         tracing::info!("Waiting for confirmation...");
 
         // Wait for transaction confirmation
-        let tx_hash = tx.watch()
-            .await
-            .context("Failed to wait for transaction confirmation")?;
+        let tx_hash = tx.watch().await.context("Failed to wait for transaction confirmation")?;
 
         tracing::info!("Successfully claimed staking rewards!");
         tracing::info!("Transaction: {:#x}", tx_hash);

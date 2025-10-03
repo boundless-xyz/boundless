@@ -40,11 +40,20 @@ impl RequestorStatus {
         println!("\n{} [{}]", "Request Status".bold(), network_name.blue().bold());
         println!("  Request ID: {}", format!("{:#x}", self.request_id).dimmed());
 
-        let (status_text, status_color): (String, fn(&str) -> colored::ColoredString) = match status {
-            boundless_market::contracts::RequestStatus::Fulfilled => ("✓ Fulfilled".to_string(), |s| s.green().bold()),
-            boundless_market::contracts::RequestStatus::Locked => ("⏳ Locked".to_string(), |s| s.yellow().bold()),
-            boundless_market::contracts::RequestStatus::Expired => ("✗ Expired".to_string(), |s| s.red().bold()),
-            boundless_market::contracts::RequestStatus::Unknown => ("? Unknown".to_string(), |s| s.dimmed()),
+        let (status_text, status_color): (String, fn(&str) -> colored::ColoredString) = match status
+        {
+            boundless_market::contracts::RequestStatus::Fulfilled => {
+                ("✓ Fulfilled".to_string(), |s| s.green().bold())
+            }
+            boundless_market::contracts::RequestStatus::Locked => {
+                ("⏳ Locked".to_string(), |s| s.yellow().bold())
+            }
+            boundless_market::contracts::RequestStatus::Expired => {
+                ("✗ Expired".to_string(), |s| s.red().bold())
+            }
+            boundless_market::contracts::RequestStatus::Unknown => {
+                ("? Unknown".to_string(), |s| s.dimmed())
+            }
         };
 
         println!("  Status:     {}", status_color(&status_text));

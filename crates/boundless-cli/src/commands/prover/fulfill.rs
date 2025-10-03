@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{DefaultProver, OrderFulfilled};
 use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
-use clap::Args;
 use boundless_market::{
     contracts::boundless_market::{FulfillmentTx, UnlockedRequest},
     storage::fetch_url,
 };
-use crate::{DefaultProver, OrderFulfilled};
+use clap::Args;
+use colored::Colorize;
 
 use crate::config::{GlobalConfig, ProverConfig};
 
@@ -50,7 +51,10 @@ pub struct ProverFulfill {
 impl ProverFulfill {
     /// Run the fulfill command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let client = global_config.client_builder_with_signer()?.build().await
+        let client = global_config
+            .client_builder_with_signer()?
+            .build()
+            .await
             .context("Failed to build Boundless Client with signer")?;
 
         if self.request_digests.is_some()
@@ -58,17 +62,28 @@ impl ProverFulfill {
         {
             bail!("request_ids and request_digests must have the same length");
         }
-        if self.tx_hashes.is_some() && self.request_ids.len() != self.tx_hashes.as_ref().unwrap().len() {
+        if self.tx_hashes.is_some()
+            && self.request_ids.len() != self.tx_hashes.as_ref().unwrap().len()
+        {
             bail!("request_ids and tx_hashes must have the same length");
         }
 
+        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
         let request_ids_string =
-            self.request_ids.iter().map(|id| format!("0x{id:x}")).collect::<Vec<_>>().join(", ");
-        tracing::info!("Fulfilling proof requests {}", request_ids_string);
+            self.request_ids.iter().map(|id| format!("{:#x}", id)).collect::<Vec<_>>().join(", ");
+
+        println!(
+            "\n{} [{}]",
+            "Fulfilling Proof Requests".bold(),
+            network_name.blue().bold()
+        );
+        println!("  Request IDs: {}", request_ids_string.cyan());
+        println!("  {} Configuring prover...", "→".dimmed());
 
         // Configure proving backend (defaults to bento like benchmark command)
         self.prover_config.configure_proving_backend_with_health_check().await?;
 
+        println!("  {} Fetching programs...", "→".dimmed());
         let (_, market_url) = client.boundless_market.image_info().await?;
         tracing::debug!("Fetching Assessor program from {}", market_url);
         let assessor_program = fetch_url(&market_url).await?;
@@ -116,21 +131,20 @@ impl ProverFulfill {
             }
         });
 
+        println!("  {} Fetching request details...", "→".dimmed());
         let results = futures::future::join_all(fetch_order_jobs).await;
         let mut orders = Vec::new();
         let mut unlocked_requests = Vec::new();
 
         for result in results {
             let (req, sig, is_locked) = result?;
-            // If the request is not locked in, we need to "price" which checks the requirements
-            // and assigns a price. Otherwise, we don't. This vec will be a singleton if not locked
-            // and empty if the request is locked.
             if !is_locked {
                 unlocked_requests.push(UnlockedRequest::new(req.clone(), sig.clone()));
             }
             orders.push((req, sig));
         }
 
+        println!("  {} Generating proofs...", "→".dimmed());
         let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
         let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
         let boundless_market = client.boundless_market.clone();
@@ -144,13 +158,26 @@ impl ProverFulfill {
                 )
                 .with_unlocked_requests(unlocked_requests)
                 .with_withdraw(self.withdraw);
+
+        println!("  {} Submitting fulfillment...", "→".dimmed());
         match boundless_market.fulfill(fulfillment_tx).await {
             Ok(_) => {
-                tracing::info!("Successfully fulfilled requests {}", request_ids_string);
+                println!(
+                    "\n{} Successfully fulfilled requests: {}",
+                    "✓".green().bold(),
+                    request_ids_string.green()
+                );
+                if self.withdraw {
+                    println!("  {} Funds withdrawn", "✓".green());
+                }
                 Ok(())
             }
             Err(e) => {
-                tracing::error!("Failed to fulfill requests {}: {}", request_ids_string, e);
+                println!(
+                    "\n{} Failed to fulfill requests: {}",
+                    "✗".red().bold(),
+                    request_ids_string.red()
+                );
                 bail!("Failed to fulfill request: {}", e)
             }
         }

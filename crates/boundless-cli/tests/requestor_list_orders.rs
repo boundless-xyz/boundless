@@ -32,10 +32,7 @@ async fn test_list_orders_with_address() {
     let account = ctx.account(0);
 
     // Should list orders for the given address
-    ctx.cmd("requestor", "list-orders")
-        .arg(&account.address)
-        .assert()
-        .success();
+    ctx.cmd("requestor", "list-orders").arg(&account.address).assert().success();
 }
 
 #[tokio::test]

@@ -18,10 +18,7 @@ use predicates::prelude::*;
 #[test]
 fn test_help_command() {
     let mut cmd = Command::cargo_bin("boundless").unwrap();
-    cmd.arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Commands:"));
+    cmd.arg("--help").assert().success().stdout(predicate::str::contains("Commands:"));
 }
 
 #[test]
@@ -64,11 +61,7 @@ fn test_rewards_commands_available() {
 #[test]
 fn test_setup_commands_available() {
     let mut cmd = Command::cargo_bin("boundless").unwrap();
-    cmd.arg("setup")
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("config"));
+    cmd.arg("setup").arg("--help").assert().success().stdout(predicate::str::contains("config"));
 }
 
 #[test]
@@ -85,8 +78,5 @@ fn test_balance_without_rpc_fails() {
 #[test]
 fn test_version_command() {
     let mut cmd = Command::cargo_bin("boundless").unwrap();
-    cmd.arg("--version")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("boundless"));
+    cmd.arg("--version").assert().success().stdout(predicate::str::contains("boundless"));
 }

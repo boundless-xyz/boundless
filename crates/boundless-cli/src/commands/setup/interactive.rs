@@ -152,7 +152,9 @@ impl SetupInteractive {
         } else {
             Confirm::new("Do you want to store a private key?")
                 .with_default(false)
-                .with_help_message("Required for write operations (submitting requests, depositing funds, etc.)")
+                .with_help_message(
+                    "Required for write operations (submitting requests, depositing funds, etc.)",
+                )
                 .prompt()?
         };
 
@@ -184,10 +186,7 @@ impl SetupInteractive {
             None
         };
 
-        secrets.market = Some(MarketSecrets {
-            rpc_url: Some(rpc_url),
-            private_key,
-        });
+        secrets.market = Some(MarketSecrets { rpc_url: Some(rpc_url), private_key });
 
         Ok(())
     }
@@ -196,7 +195,7 @@ impl SetupInteractive {
         if secret.len() <= 8 {
             "****".to_string()
         } else {
-            format!("{}...{}", &secret[..4], &secret[secret.len()-4..])
+            format!("{}...{}", &secret[..4], &secret[secret.len() - 4..])
         }
     }
 
@@ -218,9 +217,10 @@ impl SetupInteractive {
             .parse()
             .context("Invalid address")?;
 
-        let verifier_router_address_str = Text::new("RiscZeroVerifierRouter address (optional, press Enter to skip):")
-            .with_default("")
-            .prompt()?;
+        let verifier_router_address_str =
+            Text::new("RiscZeroVerifierRouter address (optional, press Enter to skip):")
+                .with_default("")
+                .prompt()?;
 
         let verifier_router_address = if verifier_router_address_str.is_empty() {
             None
@@ -233,9 +233,10 @@ impl SetupInteractive {
             .parse()
             .context("Invalid address")?;
 
-        let collateral_token_address_str = Text::new("Collateral token address (optional, press Enter to skip):")
-            .with_default("")
-            .prompt()?;
+        let collateral_token_address_str =
+            Text::new("Collateral token address (optional, press Enter to skip):")
+                .with_default("")
+                .prompt()?;
 
         let collateral_token_address = if collateral_token_address_str.is_empty() {
             None
@@ -247,11 +248,8 @@ impl SetupInteractive {
             .with_default("")
             .prompt()?;
 
-        let order_stream_url = if order_stream_url_str.is_empty() {
-            None
-        } else {
-            Some(order_stream_url_str)
-        };
+        let order_stream_url =
+            if order_stream_url_str.is_empty() { None } else { Some(order_stream_url_str) };
 
         Ok(CustomMarketDeployment {
             name,
@@ -346,10 +344,7 @@ impl SetupInteractive {
             None
         };
 
-        secrets.rewards = Some(RewardsSecrets {
-            rpc_url: Some(rpc_url),
-            private_key,
-        });
+        secrets.rewards = Some(RewardsSecrets { rpc_url: Some(rpc_url), private_key });
 
         Ok(())
     }
@@ -372,10 +367,8 @@ impl SetupInteractive {
             .parse()
             .context("Invalid address")?;
 
-        let vezkc_address = Text::new("veZKC contract address:")
-            .prompt()?
-            .parse()
-            .context("Invalid address")?;
+        let vezkc_address =
+            Text::new("veZKC contract address:").prompt()?.parse().context("Invalid address")?;
 
         let staking_rewards_address = Text::new("Staking rewards contract address:")
             .prompt()?

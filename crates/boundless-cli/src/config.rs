@@ -32,7 +32,12 @@ use boundless_zkc;
 #[derive(Args, Debug, Clone)]
 pub struct GlobalConfig {
     /// URL of the RPC endpoint for Boundless network
-    #[clap(long = "boundless-rpc-url", env = "BOUNDLESS_RPC_URL", alias = "rpc-url", global = true)]
+    #[clap(
+        long = "boundless-rpc-url",
+        env = "BOUNDLESS_RPC_URL",
+        alias = "rpc-url",
+        global = true
+    )]
     #[clap(help = "Also supports RPC_URL env var for backwards compatibility")]
     pub rpc_url: Option<Url>,
 
@@ -109,27 +114,25 @@ impl GlobalConfig {
                         "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
                         "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
                         custom => {
-                            config.custom_markets.iter()
-                                .find(|m| m.name == custom)
-                                .map(|m| {
-                                    let mut builder = boundless_market::Deployment::builder();
-                                    builder
-                                        .chain_id(m.chain_id)
-                                        .boundless_market_address(m.boundless_market_address)
-                                        .set_verifier_address(m.set_verifier_address);
+                            config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
+                                let mut builder = boundless_market::Deployment::builder();
+                                builder
+                                    .chain_id(m.chain_id)
+                                    .boundless_market_address(m.boundless_market_address)
+                                    .set_verifier_address(m.set_verifier_address);
 
-                                    if let Some(addr) = m.verifier_router_address {
-                                        builder.verifier_router_address(addr);
-                                    }
-                                    if let Some(addr) = m.collateral_token_address {
-                                        builder.collateral_token_address(addr);
-                                    }
-                                    if let Some(url) = m.order_stream_url.as_ref() {
-                                        builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
-                                    }
+                                if let Some(addr) = m.verifier_router_address {
+                                    builder.verifier_router_address(addr);
+                                }
+                                if let Some(addr) = m.collateral_token_address {
+                                    builder.collateral_token_address(addr);
+                                }
+                                if let Some(url) = m.order_stream_url.as_ref() {
+                                    builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
+                                }
 
-                                    builder.build().expect("Failed to build custom deployment")
-                                })
+                                builder.build().expect("Failed to build custom deployment")
+                            })
                         }
                     };
                 }
@@ -165,37 +168,34 @@ impl GlobalConfig {
     pub fn zkc_address(&self) -> Result<alloy::primitives::Address> {
         // Check environment variable first (takes precedence)
         if let Ok(addr_str) = std::env::var("ZKC_ADDRESS") {
-            return addr_str.parse()
-                .context("Failed to parse ZKC_ADDRESS environment variable");
+            return addr_str.parse().context("Failed to parse ZKC_ADDRESS environment variable");
         }
 
         // Fall back to deployment configuration
-        self.zkc_deployment
-            .as_ref()
-            .map(|d| d.zkc_address)
-            .context("ZKC address not provided; please set --zkc-address or the ZKC_ADDRESS env var")
+        self.zkc_deployment.as_ref().map(|d| d.zkc_address).context(
+            "ZKC address not provided; please set --zkc-address or the ZKC_ADDRESS env var",
+        )
     }
 
     /// Get the veZKC (staking) contract address from deployment or environment variable.
     pub fn vezkc_address(&self) -> Result<alloy::primitives::Address> {
         // Check environment variable first (takes precedence)
         if let Ok(addr_str) = std::env::var("VEZKC_ADDRESS") {
-            return addr_str.parse()
-                .context("Failed to parse VEZKC_ADDRESS environment variable");
+            return addr_str.parse().context("Failed to parse VEZKC_ADDRESS environment variable");
         }
 
         // Fall back to deployment configuration
-        self.zkc_deployment
-            .as_ref()
-            .map(|d| d.vezkc_address)
-            .context("veZKC address not provided; please set --vezkc-address or the VEZKC_ADDRESS env var")
+        self.zkc_deployment.as_ref().map(|d| d.vezkc_address).context(
+            "veZKC address not provided; please set --vezkc-address or the VEZKC_ADDRESS env var",
+        )
     }
 
     /// Get the staking rewards contract address from deployment or environment variable.
     pub fn staking_rewards_address(&self) -> Result<alloy::primitives::Address> {
         // Check environment variable first (takes precedence)
         if let Ok(addr_str) = std::env::var("STAKING_REWARDS_ADDRESS") {
-            return addr_str.parse()
+            return addr_str
+                .parse()
                 .context("Failed to parse STAKING_REWARDS_ADDRESS environment variable");
         }
 
