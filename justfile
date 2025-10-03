@@ -391,6 +391,13 @@ bento action="up" env_file="" compose_flags="" detached="true":
             exit 1
         fi
     elif [ "{{action}}" = "clean" ]; then
+        echo "WARNING: This will stop Docker Compose services and remove all volumes (including data)."
+        echo "If you have not run boundless povw prepare, you will lose the work you have done."
+        read -p "Are you sure you want to continue? (y/N): " -r
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Clean operation cancelled."
+            exit 0
+        fi
         echo "Stopping and cleaning Docker Compose services"
         if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down -v; then
             echo "Docker Compose services have been stopped and volumes have been removed."
