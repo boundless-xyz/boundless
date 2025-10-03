@@ -57,6 +57,7 @@ pub trait IndexerDb {
         request_digest: B256,
         request: ProofRequest,
         metadata: &TxMetadata,
+        source: &str,
     ) -> Result<(), DbError>;
 
     async fn has_proof_request(&self, request_digest: B256) -> Result<bool, DbError>;
@@ -146,6 +147,15 @@ pub trait IndexerDb {
         callback_address: Address,
         error_data: Vec<u8>,
         metadata: &TxMetadata,
+    ) -> Result<(), DbError>;
+
+    async fn get_last_order_stream_timestamp(
+        &self,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, DbError>;
+
+    async fn set_last_order_stream_timestamp(
+        &self,
+        timestamp: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), DbError>;
 }
 
@@ -274,6 +284,7 @@ impl IndexerDb for AnyDb {
         request_digest: B256,
         request: ProofRequest,
         metadata: &TxMetadata,
+        source: &str,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
         let predicate_type = match request.requirements.predicate.predicateType {
@@ -291,7 +302,7 @@ impl IndexerDb for AnyDb {
         sqlx::query(
             "INSERT INTO proof_requests (
                 request_digest,
-                request_id, 
+                request_id,
                 client_address,
                 predicate_type,
                 predicate_data,
@@ -309,8 +320,9 @@ impl IndexerDb for AnyDb {
                 ramp_up_period,
                 tx_hash,
                 block_number,
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                block_timestamp,
+                source
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             ON CONFLICT (request_digest) DO NOTHING",
         )
         .bind(format!("{request_digest:x}"))
@@ -333,6 +345,7 @@ impl IndexerDb for AnyDb {
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
+        .bind(source)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -717,6 +730,43 @@ impl IndexerDb for AnyDb {
 
         Ok(())
     }
+
+    async fn get_last_order_stream_timestamp(
+        &self,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, DbError> {
+        let res = sqlx::query("SELECT last_processed_timestamp FROM order_stream_state WHERE id = TRUE")
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let Some(row) = res else {
+            return Ok(None);
+        };
+
+        let timestamp_str: Option<String> = row.try_get("last_processed_timestamp")?;
+
+        let timestamp = timestamp_str
+            .map(|s| s.parse::<chrono::DateTime<chrono::Utc>>())
+            .transpose()
+            .map_err(|e| DbError::BadTransaction(format!("Failed to parse timestamp: {}", e)))?;
+
+        Ok(timestamp)
+    }
+
+    async fn set_last_order_stream_timestamp(
+        &self,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), DbError> {
+        let timestamp_str = timestamp.to_rfc3339();
+
+        sqlx::query(
+            "UPDATE order_stream_state SET last_processed_timestamp = $1 WHERE id = TRUE",
+        )
+        .bind(timestamp_str)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -793,7 +843,7 @@ mod tests {
         let request_digest = B256::ZERO;
         let request = generate_request(0, &Address::ZERO);
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
-        db.add_proof_request(request_digest, request.clone(), &metadata).await.unwrap();
+        db.add_proof_request(request_digest, request.clone(), &metadata, "onchain").await.unwrap();
 
         // Verify proof request was added
         let result = sqlx::query("SELECT * FROM proof_requests WHERE request_digest = $1")
@@ -818,7 +868,7 @@ mod tests {
         assert!(!db.has_proof_request(non_existent_digest).await.unwrap());
 
         // Add a proof request
-        db.add_proof_request(request_digest, request, &metadata).await.unwrap();
+        db.add_proof_request(request_digest, request, &metadata, "onchain").await.unwrap();
 
         // Now the added request should exist, but the non-existent one should not
         assert!(db.has_proof_request(request_digest).await.unwrap());

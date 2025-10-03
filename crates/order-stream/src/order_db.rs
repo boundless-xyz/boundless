@@ -245,6 +245,36 @@ impl OrderDb {
         Ok(rows)
     }
 
+    /// List orders sorted by creation time descending
+    ///
+    /// Lists orders sorted by creation time descending (most recent first) with pagination.
+    /// Returns orders created after the given timestamp, up to the specified limit.
+    pub async fn list_orders_by_creation_desc(
+        &self,
+        after_timestamp: Option<DateTime<Utc>>,
+        limit: i64,
+    ) -> Result<Vec<DbOrder>, OrderDbErr> {
+        let rows: Vec<DbOrder> = match after_timestamp {
+            Some(ts) => {
+                sqlx::query_as(
+                    "SELECT * FROM orders WHERE created_at > $1 ORDER BY created_at DESC LIMIT $2",
+                )
+                .bind(ts)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_as("SELECT * FROM orders ORDER BY created_at DESC LIMIT $1")
+                    .bind(limit)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+        };
+
+        Ok(rows)
+    }
+
     /// Returns a stream of new orders from the DB
     ///
     /// listens to the new orders and emits them as a async Stream
@@ -406,6 +436,40 @@ mod tests {
         let orders = db.list_orders(order_id_2, 1).await.unwrap();
         assert_eq!(orders.len(), 1);
         assert_eq!(orders[0].id, order_id_2);
+    }
+
+    #[sqlx::test]
+    async fn list_orders_by_creation_desc_test(pool: PgPool) {
+        let db = OrderDb::from_pool(pool).await.unwrap();
+
+        let order1 = create_order(U256::from(1)).await;
+        let id1 = db.add_order(order1).await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let order2 = create_order(U256::from(2)).await;
+        let id2 = db.add_order(order2).await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let order3 = create_order(U256::from(3)).await;
+        let id3 = db.add_order(order3).await.unwrap();
+
+        let orders = db.list_orders_by_creation_desc(None, 10).await.unwrap();
+        assert_eq!(orders.len(), 3);
+        assert_eq!(orders[0].id, id3);
+        assert_eq!(orders[1].id, id2);
+        assert_eq!(orders[2].id, id1);
+
+        let orders_limited = db.list_orders_by_creation_desc(None, 2).await.unwrap();
+        assert_eq!(orders_limited.len(), 2);
+        assert_eq!(orders_limited[0].id, id3);
+        assert_eq!(orders_limited[1].id, id2);
+
+        let after_timestamp = orders[1].created_at;
+        let filtered = db.list_orders_by_creation_desc(after_timestamp, 10).await.unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, id3);
     }
 
     #[sqlx::test]

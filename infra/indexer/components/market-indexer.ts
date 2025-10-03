@@ -18,6 +18,7 @@ export interface MarketIndexerArgs {
   serviceMetricsNamespace: string;
   boundlessAlertsTopicArns?: string[];
   dockerRemoteBuilder?: string;
+  orderStreamUrl?: pulumi.Output<string>;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -37,6 +38,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       serviceMetricsNamespace,
       boundlessAlertsTopicArns,
       dockerRemoteBuilder,
+      orderStreamUrl,
     } = args;
 
     const serviceName = name;
@@ -144,6 +146,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
             '--start-block',
             startBlock,
             '--log-json',
+            ...(orderStreamUrl ? ['--order-stream-url', orderStreamUrl] : []),
           ],
           secrets: [
             {

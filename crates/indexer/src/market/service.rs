@@ -17,8 +17,9 @@ use std::{cmp::min, collections::HashMap, sync::Arc};
 use crate::db::{AnyDb, DbError, DbObj, TxMetadata};
 use ::boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
-    EIP712DomainSaltless,
+    EIP712DomainSaltless, RequestId,
 };
+use ::boundless_market::order_stream_client::OrderStreamClient;
 use alloy::{
     eips::BlockNumberOrTag,
     network::{Ethereum, TransactionResponse},
@@ -72,6 +73,8 @@ pub struct IndexerService<P> {
     pub config: IndexerServiceConfig,
     // Mapping from transaction hash to TxMetadata
     pub cache: HashMap<B256, TxMetadata>,
+    // Optional order stream client for fetching off-chain orders
+    pub order_stream_client: Option<OrderStreamClient>,
 }
 
 #[derive(Clone)]
@@ -99,7 +102,34 @@ impl IndexerService<ProviderWallet> {
         let domain = boundless_market.eip712_domain().await?;
         let cache = HashMap::new();
 
-        Ok(Self { boundless_market, db, domain, config, cache })
+        Ok(Self { boundless_market, db, domain, config, cache, order_stream_client: None })
+    }
+
+    pub async fn new_with_order_stream(
+        rpc_url: Url,
+        private_key: &PrivateKeySigner,
+        boundless_market_address: Address,
+        db_conn: &str,
+        config: IndexerServiceConfig,
+        order_stream_url: Url,
+    ) -> Result<Self, ServiceError> {
+        let caller = private_key.address();
+        let provider = ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .filler(ChainIdFiller::default())
+            .connect_http(rpc_url.clone());
+        let boundless_market =
+            BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
+        let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
+        let domain = boundless_market.eip712_domain().await?;
+        let cache = HashMap::new();
+        let chain_id = provider.get_chain_id().await.map_err(|e| {
+            ServiceError::Error(anyhow!("Failed to get chain id: {}", e))
+        })?;
+        let order_stream_client =
+            Some(OrderStreamClient::new(order_stream_url, boundless_market_address, chain_id));
+
+        Ok(Self { boundless_market, db, domain, config, cache, order_stream_client })
     }
 }
 
@@ -186,6 +216,7 @@ where
 
     async fn process_blocks(&mut self, from: u64, to: u64) -> Result<(), ServiceError> {
         self.process_request_submitted_events(from, to).await?;
+        self.process_request_submitted_offchain().await?;
         self.process_locked_events(from, to).await?;
         self.process_proof_delivered_events(from, to).await?;
         self.process_fulfilled_events(from, to).await?;
@@ -250,8 +281,88 @@ where
                     event.requestId
                 ))?;
 
-            self.db.add_proof_request(request_digest, request, &metadata).await?;
+            self.db.add_proof_request(request_digest, request, &metadata, "onchain").await?;
             self.db.add_request_submitted_event(request_digest, event.requestId, &metadata).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn process_request_submitted_offchain(&mut self) -> Result<(), ServiceError> {
+        let Some(order_stream_client) = &self.order_stream_client else {
+            return Ok(());
+        };
+
+        let last_processed = self.db.get_last_order_stream_timestamp().await?;
+
+        let current_block = self.current_block().await?;
+        let block_timestamp = self.block_timestamp(current_block).await?;
+
+        tracing::debug!(
+            "Processing offchain orders. Last processed timestamp: {:?}",
+            last_processed
+        );
+
+        const MAX_ORDERS_PER_BATCH: u64 = 100;
+        let mut after = last_processed;
+        let mut latest_timestamp = last_processed;
+        let mut total_orders = 0;
+
+        loop {
+            let orders = order_stream_client
+                .list_orders_by_creation(after, MAX_ORDERS_PER_BATCH)
+                .await
+                .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch orders: {}", e)))?;
+
+            if orders.is_empty() {
+                break;
+            }
+
+            tracing::debug!("Fetched {} orders from order stream", orders.len());
+
+            for order_data in &orders {
+                let request = &order_data.order.request;
+                let request_digest = order_data.order.request_digest;
+
+                if self.db.has_proof_request(request_digest).await? {
+                    tracing::debug!(
+                        "Skipping order 0x{:x} - already exists in database",
+                        request.id
+                    );
+                    continue;
+                }
+
+                let request_id = RequestId::from_lossy(request.id);
+                let metadata = TxMetadata::new(
+                    B256::ZERO,
+                    request_id.addr,
+                    current_block,
+                    block_timestamp,
+                );
+
+                self.db.add_proof_request(request_digest, request.clone(), &metadata, "offchain").await?;
+
+                let created_at = order_data.created_at;
+                if latest_timestamp.is_none() || latest_timestamp.unwrap() < created_at {
+                    latest_timestamp = Some(created_at);
+                }
+
+                total_orders += 1;
+            }
+
+            if (orders.len() as u64) < MAX_ORDERS_PER_BATCH {
+                break;
+            }
+
+            after = orders.last().map(|o| o.created_at);
+        }
+
+        if total_orders > 0 {
+            tracing::info!("Processed {} offchain orders from order stream", total_orders);
+        }
+
+        if let Some(ts) = latest_timestamp {
+            self.db.set_last_order_stream_timestamp(ts).await?;
         }
 
         Ok(())
@@ -301,7 +412,7 @@ where
             let request_exists = self.db.has_proof_request(request_digest).await?;
             if !request_exists {
                 tracing::debug!("Detected request locked for unseen request. Likely submitted off-chain: 0x{:x}", event.requestId);
-                self.db.add_proof_request(request_digest, request, &metadata).await?;
+                self.db.add_proof_request(request_digest, request, &metadata, "offchain").await?;
             }
             self.db
                 .add_request_locked_event(request_digest, event.requestId, event.prover, &metadata)
