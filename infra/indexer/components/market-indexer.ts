@@ -100,7 +100,16 @@ export class MarketIndexer extends pulumi.ComponentResource {
       ],
     }, { parent: this });
 
-    const serviceLogGroup = `${serviceName}-service`;
+    const serviceLogGroupName = `${serviceName}-service`;
+    const serviceLogGroup = pulumi.output(aws.cloudwatch.getLogGroup({
+      name: serviceLogGroupName,
+    }, { async: true }).catch(() => {
+      return new aws.cloudwatch.LogGroup(serviceLogGroupName, {
+        name: serviceLogGroupName,
+        retentionInDays: 0,
+        skipDestroy: true,
+      }, { parent: this });
+    }));
 
     const marketService = new awsx.ecs.FargateService(`${serviceName}-market-service`, {
       name: `${serviceName}-market-service`,
@@ -119,11 +128,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       enableExecuteCommand: true,
       taskDefinitionArgs: {
         logGroup: {
-          args: {
-            name: serviceLogGroup,
-            retentionInDays: 0,
-            skipDestroy: true,
-          },
+          existing: serviceLogGroup,
         },
         executionRole: { roleArn: infra.executionRole.arn },
         taskRole: { roleArn: infra.taskRole.arn },
@@ -180,7 +185,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
     // Grant execution role permission to write to this service's specific log group
     const region = aws.getRegionOutput().name;
     const accountId = aws.getCallerIdentityOutput().accountId;
-    const logGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${serviceLogGroup}:*`;
+    const logGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${serviceLogGroupName}:*`;
 
     new aws.iam.RolePolicy(`${serviceName}-market-logs-policy`, {
       role: infra.executionRole.id,
@@ -200,7 +205,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-err-filter`, {
       name: `${serviceName}-market-log-err-filter`,
-      logGroupName: serviceLogGroup,
+      logGroupName: serviceLogGroupName,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
         name: `${serviceName}-market-log-err`,
@@ -236,7 +241,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-fatal-filter`, {
       name: `${serviceName}-market-log-fatal-filter`,
-      logGroupName: serviceLogGroup,
+      logGroupName: serviceLogGroupName,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
         name: `${serviceName}-market-log-fatal`,
