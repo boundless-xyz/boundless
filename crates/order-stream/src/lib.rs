@@ -32,6 +32,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
+#[cfg(test)]
+use boundless_market::order_stream_client::OrderData;
 use boundless_market::order_stream_client::{
     AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
     ORDER_SUBMISSION_PATH, ORDER_WS_PATH,

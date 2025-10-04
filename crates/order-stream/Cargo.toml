@@ -30,6 +30,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tower-http = { workspace = true, features = ["limit", "timeout", "trace"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+urlencoding = "2.1"
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 
