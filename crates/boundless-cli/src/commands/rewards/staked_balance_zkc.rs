@@ -17,15 +17,17 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{bail, Context, Result};
+use boundless_market::contracts::token::IERC20;
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Check the staked ZKC balance (veZKC) of an address
 #[derive(Args, Clone, Debug)]
 pub struct RewardsStakedBalanceZkc {
-    /// Address to check the staked balance of
-    pub address: Address,
+    /// Address to check the staked balance of (if not provided, uses staking address from config)
+    pub address: Option<Address>,
 
     /// Rewards configuration (RPC URL, private key, ZKC contract address)
     #[clap(flatten)]
@@ -34,9 +36,30 @@ pub struct RewardsStakedBalanceZkc {
 
 impl RewardsStakedBalanceZkc {
     /// Run the staked-balance-zkc command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+    pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
         let rpc_url = rewards_config.require_rpc_url()?;
+
+        // Get address - from argument or from config
+        let address = if let Some(addr) = self.address {
+            addr
+        } else {
+            // Get staking address from config
+            use crate::config_file::Secrets;
+
+            let secrets = Secrets::load().context("Failed to load secrets - no addresses configured")?;
+            let rewards_secrets = secrets.rewards.context("Rewards module not configured")?;
+
+            let staking_addr_str = rewards_secrets.staking_address.or_else(|| {
+                rewards_secrets.staking_private_key.as_ref().and_then(|pk| {
+                    pk.parse::<alloy::signers::local::PrivateKeySigner>()
+                        .ok()
+                        .map(|s| format!("{:#x}", s.address()))
+                })
+            }).context("No staking address configured. Please run 'boundless setup rewards' or provide an address")?;
+
+            staking_addr_str.parse().context("Invalid staking address")?
+        };
 
         // Connect to provider
         let provider = ProviderBuilder::new()
@@ -44,58 +67,82 @@ impl RewardsStakedBalanceZkc {
             .await
             .context("Failed to connect to Ethereum provider")?;
 
-        // Verify we're on mainnet (chain ID 1)
+        // Get chain ID to determine deployment
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-
-        if chain_id != 1 {
-            bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
-        }
+        let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
         // Get veZKC (staking) contract address
         let vezkc_address = rewards_config.vezkc_address()?;
 
-        // Define ERC721Votes interface inline for veZKC
+        // Get ZKC contract address
+        let zkc_address = rewards_config.zkc_address()?;
+
+        // Define interfaces for veZKC
         alloy::sol! {
             #[sol(rpc)]
             interface IERC721Votes {
                 function balanceOf(address owner) external view returns (uint256);
-                function getVotes(address account) external view returns (uint256);
-                function delegates(address account) external view returns (address);
+            }
+
+            #[sol(rpc)]
+            interface IRewards {
+                function getStakingRewards(address account) external view returns (uint256);
+                function rewardDelegates(address account) external view returns (address);
             }
         }
 
-        // Create veZKC contract instance with ERC721Votes interface
+        // Create contract instances
         let vezkc = IERC721Votes::new(vezkc_address, &provider);
+        let rewards = IRewards::new(vezkc_address, &provider);
+        let zkc_token = IERC20::new(zkc_address, &provider);
 
         // Query staked balance
         let staked_balance = vezkc
-            .balanceOf(self.address)
+            .balanceOf(address)
             .call()
             .await
             .context("Failed to query staked ZKC balance")?;
 
-        // Query voting power (which may differ from balance due to delegation)
-        let voting_power =
-            vezkc.getVotes(self.address).call().await.context("Failed to query voting power")?;
+        // Query available (unstaked) ZKC balance
+        let available_balance = zkc_token
+            .balanceOf(address)
+            .call()
+            .await
+            .context("Failed to query available ZKC balance")?;
 
-        // Display staked balance
-        tracing::info!("Staked ZKC (veZKC) for {:#x}:", self.address);
-        tracing::info!("  Staked balance: {} veZKC", format_ether(staked_balance));
-        tracing::info!("  Voting power: {} veZKC", format_ether(voting_power));
+        // Query reward power (staking rewards for this address)
+        let reward_power =
+            rewards.getStakingRewards(address).call().await.context("Failed to query reward power")?;
 
-        // Show if there's a delegation difference
-        if staked_balance != voting_power {
-            if voting_power > staked_balance {
-                tracing::info!(
-                    "  Note: Address has received {} veZKC in delegated voting power",
-                    format_ether(voting_power - staked_balance)
-                );
-            } else {
-                tracing::info!(
-                    "  Note: Address has delegated {} veZKC voting power to another address",
-                    format_ether(staked_balance - voting_power)
-                );
-            }
+        // Query reward delegate
+        let reward_delegate =
+            rewards.rewardDelegates(address).call().await.context("Failed to query reward delegate")?;
+
+        // Query token symbol
+        let symbol = zkc_token.symbol().call().await.context("Failed to query ZKC symbol")?;
+
+        // Format balances
+        let staked_formatted = crate::format_amount(&format_ether(staked_balance));
+        let available_formatted = crate::format_amount(&format_ether(available_balance));
+
+        println!("\n{} [{}]", "Staking Address Balance".bold(), network_name.blue().bold());
+        println!("  Address:   {}", format!("{:#x}", address).dimmed());
+        println!("  Staked:    {} {}", staked_formatted.green().bold(), symbol.green());
+        println!("  Available: {} {}", available_formatted.cyan().bold(), symbol.cyan());
+
+        // Show reward power with delegation info
+        if reward_delegate != address {
+            // Rewards are delegated to another address
+            let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
+            println!(
+                "  Reward Power: {} {}",
+                "0".yellow().bold(),
+                format!("[delegated {} to {:#x}]", reward_power_formatted, reward_delegate).dimmed()
+            );
+        } else {
+            // Not delegated, show actual reward power
+            let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
+            println!("  Reward Power: {}", reward_power_formatted.yellow().bold());
         }
 
         Ok(())

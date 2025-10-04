@@ -586,13 +586,37 @@ fn show_welcome_screen() -> Result<()> {
         println!("{} Rewards Module [{}]", "✓".green().bold(), display_network.blue().bold());
 
         if let Some(rewards_sec) = rewards_secrets {
-            if let Some(ref pk) = rewards_sec.private_key {
-                if let Some(addr) = address_from_private_key(pk) {
-                    println!("  Address: {}", addr.green());
+            // Display staking address
+            if let Some(ref staking_pk) = rewards_sec.staking_private_key {
+                if let Some(addr) = address_from_private_key(staking_pk) {
+                    println!("  Staking Address: {} (PK: {})", addr.green(), "✓".green());
                 }
-                println!("  Status: {}", "Ready".green());
-            } else {
-                println!("  Status: {} (no credentials)", "Read-only".yellow());
+            } else if let Some(ref staking_addr) = rewards_sec.staking_address {
+                println!("  Staking Address: {} (PK: {})", staking_addr.green(), "✗".yellow());
+            }
+
+            // Display reward address
+            if let Some(ref reward_pk) = rewards_sec.reward_private_key {
+                if let Some(addr) = address_from_private_key(reward_pk) {
+                    println!("  Reward Address:  {} (PK: {})", addr.green(), "✓".green());
+                }
+            } else if let Some(ref reward_addr) = rewards_sec.reward_address {
+                println!("  Reward Address:  {} (PK: {})", reward_addr.green(), "✗".yellow());
+            }
+
+            // Backwards compatibility: show deprecated private_key field
+            if rewards_sec.staking_private_key.is_none()
+                && rewards_sec.staking_address.is_none()
+                && rewards_sec.reward_private_key.is_none()
+                && rewards_sec.reward_address.is_none() {
+                if let Some(ref pk) = rewards_sec.private_key {
+                    if let Some(addr) = address_from_private_key(pk) {
+                        println!("  Address (deprecated): {}", addr.green());
+                    }
+                    println!("  Status: {}", "Ready".green());
+                } else {
+                    println!("  Status: {} (no credentials)", "Read-only".yellow());
+                }
             }
         } else {
             println!("  Status: {} (no credentials)", "Read-only".yellow());
@@ -766,17 +790,46 @@ fn show_rewards_status() -> Result<()> {
                     if let Some(ref rpc) = rewards_sec.rpc_url {
                         println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
                     }
-                    if let Some(ref pk) = rewards_sec.private_key {
-                        if let Some(addr) = address_from_private_key(pk) {
-                            println!("{} {}", "Address:".bold(), addr.green());
+
+                    // Display staking address
+                    if let Some(ref staking_pk) = rewards_sec.staking_private_key {
+                        if let Some(addr) = address_from_private_key(staking_pk) {
+                            println!("{} {}", "Staking Address:".bold(), addr.green());
                         }
-                        println!("{} {}", "Private Key:".bold(), "Configured".green());
-                    } else {
-                        println!(
-                            "{} {}",
-                            "Private Key:".bold(),
-                            "Not configured (read-only)".yellow()
-                        );
+                        println!("  {} {}", "Private Key:".bold(), "Configured".green());
+                    } else if let Some(ref staking_addr) = rewards_sec.staking_address {
+                        println!("{} {}", "Staking Address:".bold(), staking_addr.green());
+                        println!("  {} {}", "Private Key:".bold(), "Not configured".yellow());
+                    }
+
+                    // Display reward address
+                    if let Some(ref reward_pk) = rewards_sec.reward_private_key {
+                        if let Some(addr) = address_from_private_key(reward_pk) {
+                            println!("{} {}", "Reward Address:".bold(), addr.green());
+                        }
+                        println!("  {} {}", "Private Key:".bold(), "Configured".green());
+                    } else if let Some(ref reward_addr) = rewards_sec.reward_address {
+                        println!("{} {}", "Reward Address:".bold(), reward_addr.green());
+                        println!("  {} {}", "Private Key:".bold(), "Not configured".yellow());
+                    }
+
+                    // Backwards compatibility: show deprecated private_key field if present
+                    if rewards_sec.staking_private_key.is_none()
+                        && rewards_sec.staking_address.is_none()
+                        && rewards_sec.reward_private_key.is_none()
+                        && rewards_sec.reward_address.is_none() {
+                        if let Some(ref pk) = rewards_sec.private_key {
+                            if let Some(addr) = address_from_private_key(pk) {
+                                println!("{} {}", "Address (deprecated):".bold(), addr.green());
+                            }
+                            println!("{} {}", "Private Key:".bold(), "Configured".green());
+                        } else {
+                            println!(
+                                "{} {}",
+                                "Private Key:".bold(),
+                                "Not configured (read-only)".yellow()
+                            );
+                        }
                     }
                 }
             }

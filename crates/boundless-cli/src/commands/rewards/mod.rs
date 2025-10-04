@@ -19,7 +19,6 @@ mod claim_povw_rewards;
 mod claim_staking_rewards;
 mod delegate;
 mod get_current_epoch;
-mod get_current_epoch_end_time;
 mod get_delegate;
 mod list_povw_rewards;
 mod list_staking_rewards;
@@ -32,7 +31,6 @@ pub use claim_povw_rewards::RewardsClaimPovwRewards;
 pub use claim_staking_rewards::RewardsClaimStakingRewards;
 pub use delegate::RewardsDelegate;
 pub use get_current_epoch::RewardsGetCurrentEpoch;
-pub use get_current_epoch_end_time::RewardsGetCurrentEpochEndTime;
 pub use get_delegate::RewardsGetDelegate;
 pub use list_povw_rewards::RewardsListPovwRewards;
 pub use list_staking_rewards::RewardsListStakingRewards;
@@ -76,12 +74,9 @@ pub enum RewardsCommands {
     /// Get rewards delegates for a specified address
     #[command(name = "get-delegate")]
     GetDelegate(RewardsGetDelegate),
-    /// Get current epoch
+    /// Get current epoch information
     #[command(name = "get-current-epoch")]
     GetCurrentEpoch(RewardsGetCurrentEpoch),
-    /// Get current epoch end time
-    #[command(name = "get-current-epoch-end-time")]
-    GetCurrentEpochEndTime(RewardsGetCurrentEpochEndTime),
 }
 
 impl RewardsCommands {
@@ -99,7 +94,6 @@ impl RewardsCommands {
             Self::Delegate(cmd) => cmd.run(global_config).await,
             Self::GetDelegate(cmd) => cmd.run(global_config).await,
             Self::GetCurrentEpoch(cmd) => cmd.run(global_config).await,
-            Self::GetCurrentEpochEndTime(cmd) => cmd.run(global_config).await,
         }
     }
 }

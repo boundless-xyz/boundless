@@ -16,7 +16,7 @@ use alloy::{
     primitives::{utils::format_ether, Address},
     providers::{Provider, ProviderBuilder},
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
@@ -44,11 +44,8 @@ impl RewardsClaimPovwRewards {
             .await
             .context("Failed to connect to Ethereum provider")?;
 
+        // Get chain ID to determine deployment
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-
-        if chain_id != 1 {
-            bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
-        }
 
         // Get prover address (use provided address or wallet address)
         let prover_address = if let Some(addr) = self.prover_address {

@@ -19,14 +19,15 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::token::IERC20;
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Check the ZKC token balance of an address
 #[derive(Args, Clone, Debug)]
 pub struct RewardsBalanceZkc {
-    /// Address to check the balance of
-    pub address: Address,
+    /// Address to check the balance of (if not provided, checks staking and reward addresses from config)
+    pub address: Option<Address>,
 
     /// Rewards configuration (RPC URL, private key, ZKC contract address)
     #[clap(flatten)]
@@ -35,7 +36,7 @@ pub struct RewardsBalanceZkc {
 
 impl RewardsBalanceZkc {
     /// Run the balance-zkc command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+    pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
         let rpc_url = rewards_config.require_rpc_url()?;
 
@@ -45,40 +46,92 @@ impl RewardsBalanceZkc {
             .await
             .context("Failed to connect to Ethereum provider")?;
 
-        // Verify we're on mainnet (chain ID 1)
+        // Get chain ID to determine deployment
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
-        if chain_id != 1 {
-            bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
-        }
-
-        // Get ZKC contract address
+        // Get ZKC contract address (supports mainnet and Sepolia deployments)
         let zkc_address = rewards_config.zkc_address()?;
 
-        tracing::debug!("Using ZKC address: {:#x}", zkc_address);
-
-        // Create ERC20 instance for the ZKC token (IZKC doesn't have standard ERC20 methods)
+        // Create ERC20 instance for the ZKC token
         let zkc_token = IERC20::new(zkc_address, &provider);
 
-        // Query balance
-        let balance = zkc_token
-            .balanceOf(self.address)
-            .call()
-            .await
-            .context("Failed to query ZKC balance")?;
-
-        // Query token metadata
+        // Query token metadata once
         let symbol = zkc_token.symbol().call().await.context("Failed to query ZKC symbol")?;
 
-        let decimals = zkc_token.decimals().call().await.context("Failed to query ZKC decimals")?;
+        // If address is provided, just check that one
+        if let Some(address) = self.address {
+            let balance = zkc_token
+                .balanceOf(address)
+                .call()
+                .await
+                .context("Failed to query ZKC balance")?;
 
-        // Display balance
-        tracing::info!("ZKC balance for {:#x}:", self.address);
-        tracing::info!("  {} {}", format_ether(balance), symbol);
+            let balance_formatted = crate::format_amount(&format_ether(balance));
 
-        // Also show raw value for precision
-        if balance > alloy::primitives::U256::ZERO {
-            tracing::debug!("  Raw: {} (decimals: {})", balance, decimals);
+            println!("\n{} [{}]", "ZKC Balance".bold(), network_name.blue().bold());
+            println!("  Address: {}", format!("{:#x}", address).dimmed());
+            println!("  Balance: {} {}", balance_formatted.green().bold(), symbol.green());
+        } else {
+            // No address provided - check both staking and reward addresses from config
+            use crate::config_file::Secrets;
+
+            let secrets = Secrets::load().context("Failed to load secrets - no addresses configured")?;
+            let rewards_secrets = secrets.rewards.context("Rewards module not configured")?;
+
+            let mut checked_addresses = Vec::new();
+
+            // Get staking address
+            let staking_addr_opt = rewards_secrets.staking_address.or_else(|| {
+                rewards_secrets.staking_private_key.as_ref().and_then(|pk| {
+                    pk.parse::<alloy::signers::local::PrivateKeySigner>()
+                        .ok()
+                        .map(|s| format!("{:#x}", s.address()))
+                })
+            });
+
+            // Get reward address
+            let reward_addr_opt = rewards_secrets.reward_address.or_else(|| {
+                rewards_secrets.reward_private_key.as_ref().and_then(|pk| {
+                    pk.parse::<alloy::signers::local::PrivateKeySigner>()
+                        .ok()
+                        .map(|s| format!("{:#x}", s.address()))
+                })
+            });
+
+            // Always show both staking and reward addresses separately
+            if let Some(staking_addr_str) = staking_addr_opt {
+                let staking_addr: Address = staking_addr_str.parse().context("Invalid staking address")?;
+                checked_addresses.push(("Staking", staking_addr));
+            }
+
+            if let Some(reward_addr_str) = reward_addr_opt {
+                let reward_addr: Address = reward_addr_str.parse().context("Invalid reward address")?;
+                checked_addresses.push(("Reward", reward_addr));
+            }
+
+            if checked_addresses.is_empty() {
+                bail!("No addresses configured in rewards module. Please run 'boundless setup rewards' or provide an address");
+            }
+
+            println!("\n{} [{}]", "ZKC Balance".bold(), network_name.blue().bold());
+
+            // Query and display balance for each address
+            for (i, (label, address)) in checked_addresses.iter().enumerate() {
+                let balance = zkc_token
+                    .balanceOf(*address)
+                    .call()
+                    .await
+                    .with_context(|| format!("Failed to query ZKC balance for {} address", label))?;
+
+                let balance_formatted = crate::format_amount(&format_ether(balance));
+
+                if i > 0 {
+                    println!();
+                }
+                println!("  {} Address: {}", label.bold(), format!("{:#x}", address).dimmed());
+                println!("  Balance:        {} {}", balance_formatted.green().bold(), symbol.green());
+            }
         }
 
         Ok(())

@@ -62,11 +62,8 @@ impl RewardsSubmitPovw {
             .await
             .context("Failed to connect to Ethereum provider")?;
 
+        // Get chain ID to determine deployment
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-
-        if chain_id != 1 {
-            bail!("PoVW submission requires connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
-        }
 
         // Verify state file exists
         if !self.state_path.exists() {

@@ -16,7 +16,7 @@ use alloy::{
     primitives::Address,
     providers::{Provider, ProviderBuilder},
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
@@ -43,12 +43,8 @@ impl RewardsDelegate {
         // Connect to provider with signer
         let provider = ProviderBuilder::new().wallet(signer.clone()).on_http(rpc_url);
 
-        // Verify we're on mainnet (chain ID 1)
+        // Get chain ID to determine deployment
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-
-        if chain_id != 1 {
-            bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
-        }
 
         // Get veZKC (staking) contract address
         let vezkc_address = rewards_config.vezkc_address()?;

@@ -196,7 +196,23 @@ pub struct RewardsSecrets {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc_url: Option<String>,
 
-    /// Private key for transactions
+    /// Private key for staking address
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub staking_private_key: Option<String>,
+
+    /// Public staking address (if no private key)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub staking_address: Option<String>,
+
+    /// Private key for reward address
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reward_private_key: Option<String>,
+
+    /// Public reward address (if no private key)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reward_address: Option<String>,
+
+    /// Deprecated: Private key for transactions (for backwards compatibility)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_key: Option<String>,
 }

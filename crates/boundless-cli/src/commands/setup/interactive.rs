@@ -14,6 +14,8 @@
 
 //! Interactive setup command for the Boundless CLI.
 
+use std::io::Write;
+
 use anyhow::{Context, Result};
 use clap::Args;
 use inquire::{Confirm, Select, Text};
@@ -385,7 +387,7 @@ impl SetupInteractive {
             println!("✓ Using network: {}", network);
             network.clone()
         } else {
-            let mut network_options = vec!["Mainnet", "Testnet (Sepolia)"];
+            let mut network_options = vec!["Eth Mainnet", "Eth Testnet (Sepolia)"];
 
             for custom_rewards in &config.custom_rewards {
                 network_options.push(&custom_rewards.name);
@@ -395,8 +397,8 @@ impl SetupInteractive {
             let network = Select::new("Select rewards network:", network_options).prompt()?;
 
             match network {
-                "Mainnet" => "mainnet".to_string(),
-                "Testnet (Sepolia)" => "sepolia".to_string(),
+                "Eth Mainnet" => "mainnet".to_string(),
+                "Eth Testnet (Sepolia)" => "sepolia".to_string(),
                 "Custom (add new)" => {
                     let custom = Self::setup_custom_rewards()?;
                     let name = custom.name.clone();
@@ -407,7 +409,7 @@ impl SetupInteractive {
             }
         };
 
-        config.rewards = Some(RewardsConfig { network: network_name });
+        config.rewards = Some(RewardsConfig { network: network_name.clone() });
 
         let rpc_url = if let Some(ref url) = self.rpc_url {
             println!("✓ Using RPC URL: {}", url);
@@ -423,44 +425,161 @@ impl SetupInteractive {
             rpc_url_prompt.prompt()?
         };
 
-        let private_key = if let Some(ref pk) = self.private_key {
+        // Ask for staking address
+        println!("\n--- Staking Address Configuration ---");
+        println!("The staking address is the wallet used to stake ZKC tokens\n");
+
+        let (staking_private_key, staking_address) = if let Some(ref pk) = self.private_key {
             let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-            println!("✓ Using provided private key");
-            Some(pk)
+            println!("✓ Using provided private key for staking address");
+            let addr = Self::address_from_private_key(&pk);
+            (Some(pk), addr.map(|a| format!("{:#x}", a)))
         } else {
-            let has_existing_key = existing_rewards.and_then(|r| r.private_key.as_ref()).is_some();
-            let private_key_prompt = if has_existing_key {
-                let help_msg = format!("Current: {}", Self::obscure_secret("existing_key"));
-                Confirm::new("Do you want to update the stored private key?")
+            let has_existing_staking_key = existing_rewards.and_then(|r| r.staking_private_key.as_ref()).is_some();
+            let staking_key_prompt = if has_existing_staking_key {
+                Confirm::new("Do you want to update the stored staking private key?")
                     .with_default(false)
-                    .with_help_message(&help_msg)
                     .prompt()?
             } else {
-                Confirm::new("Do you want to store a private key?")
-                    .with_default(false)
-                    .with_help_message(
-                        "Required for write operations. If no, you can set REWARDS_PRIVATE_KEY env variable instead.",
-                    )
+                Confirm::new("Do you want to store a private key for the staking address?")
+                    .with_default(true)
+                    .with_help_message("Skip if using a hardware wallet, smart contract wallet, or don't need to stake ZKC or delegate rewards")
                     .prompt()?
             };
 
-            if private_key_prompt {
-                let pk = Text::new("Enter private key:")
+            if staking_key_prompt {
+                let pk = Text::new("Enter staking private key:")
                     .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
                     .prompt()?;
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
-                Some(pk)
-            } else if has_existing_key {
-                existing_rewards.and_then(|r| r.private_key.clone())
+                let addr = Self::address_from_private_key(&pk);
+                (Some(pk), addr.map(|a| format!("{:#x}", a)))
             } else {
-                println!("\n✓ You can set REWARDS_PRIVATE_KEY environment variable later for write operations");
-                None
+                // Ask for public staking address
+                let addr = Text::new("Enter staking address:")
+                    .with_help_message("Public Ethereum address that holds your staked ZKC")
+                    .prompt()?;
+                (None, Some(addr))
             }
         };
 
-        secrets.rewards = Some(RewardsSecrets { rpc_url: Some(rpc_url), private_key });
+        // Query on-chain for reward delegation if we have a staking address
+        let (reward_private_key, reward_address) = if let Some(ref staking_addr) = staking_address {
+            println!("\n--- Reward Address Configuration ---");
+            println!("The reward address is the address with reward power (can receive delegated rewards)\n");
+
+            // Try to query delegation on-chain
+            print!("Checking if you've delegated rewards... ");
+            std::io::stdout().flush()?;
+            let delegated_address = Self::query_reward_delegation(&rpc_url, &network_name, staking_addr).await.ok().flatten();
+
+            if let Some(ref delegated) = delegated_address {
+                if delegated.to_lowercase() != staking_addr.to_lowercase() {
+                    println!("{}", delegated);
+                    let use_delegated = Confirm::new("Would you like to use this delegated address as your reward address?")
+                        .with_default(true)
+                        .prompt()?;
+
+                    if use_delegated {
+                        println!("✓ Using delegated address as reward address");
+                        (None, Some(delegated.clone()))
+                    } else {
+                        Self::ask_for_reward_address(staking_addr, &staking_private_key).await?
+                    }
+                } else {
+                    println!("No delegatee");
+                    Self::ask_for_reward_address(staking_addr, &staking_private_key).await?
+                }
+            } else {
+                println!("No delegatee");
+                Self::ask_for_reward_address(staking_addr, &staking_private_key).await?
+            }
+        } else {
+            println!("\n⚠️  No staking address provided - reward address configuration skipped");
+            (None, None)
+        };
+
+        secrets.rewards = Some(RewardsSecrets {
+            rpc_url: Some(rpc_url),
+            staking_private_key,
+            staking_address,
+            reward_private_key,
+            reward_address,
+            private_key: None, // deprecated field
+        });
+
+        println!("\n✓ Rewards module configured successfully");
 
         Ok(())
+    }
+
+    async fn ask_for_reward_address(staking_addr: &str, staking_private_key: &Option<String>) -> Result<(Option<String>, Option<String>)> {
+        let same_as_staking = Confirm::new("Is the reward address the same as the staking address?")
+            .with_default(true)
+            .with_help_message("The reward address is the address with reward power (e.g., if staking address has delegated to another address)")
+            .prompt()?;
+
+        if same_as_staking {
+            println!("\n⚠️  WARN: Using the same address for reward and staking address is not recommended");
+            println!("   See: https://docs.boundless.network/zkc/mining/wallet-setup\n");
+            // If we have a staking private key, use it for reward address too
+            Ok((staking_private_key.clone(), Some(staking_addr.to_string())))
+        } else {
+            let has_reward_key = Confirm::new("Do you want to store a private key for the reward address?")
+                .with_default(false)
+                .with_help_message("Skip if using a hardware wallet, smart contract wallet, or don't need to stake ZKC or delegate rewards")
+                .prompt()?;
+
+            if has_reward_key {
+                let pk = Text::new("Enter reward private key:")
+                    .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
+                    .prompt()?;
+                let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
+                let addr = Self::address_from_private_key(&pk);
+                Ok((Some(pk), addr.map(|a| format!("{:#x}", a))))
+            } else {
+                let addr = Text::new("Enter reward address:")
+                    .with_help_message("Public Ethereum address with reward power")
+                    .prompt()?;
+                Ok((None, Some(addr)))
+            }
+        }
+    }
+
+    async fn query_reward_delegation(rpc_url: &str, network: &str, address: &str) -> Result<Option<String>> {
+        use alloy::primitives::Address;
+        use alloy::providers::ProviderBuilder;
+
+        // Determine veZKC address based on network
+        let vezkc_address = match network {
+            "mainnet" => "0xe8ae8ee8ffa57f6a79b6cbe06bafc0b05f3ffbf4",
+            "sepolia" => "0xc23340732038ca6C5765763180E81B395d2e9cCA",
+            _ => return Ok(None), // Can't query custom networks without deployment info
+        };
+
+        let addr: Address = address.parse().context("Invalid staking address")?;
+        let vezkc_addr: Address = vezkc_address.parse()?;
+
+        // Connect to provider
+        let provider = ProviderBuilder::new().connect(rpc_url).await.context("Failed to connect to provider")?;
+
+        // Define IRewards interface
+        alloy::sol! {
+            #[sol(rpc)]
+            interface IRewards {
+                function rewardDelegates(address account) external view returns (address);
+            }
+        }
+
+        let rewards_contract = IRewards::new(vezkc_addr, &provider);
+        let delegate = rewards_contract.rewardDelegates(addr).call().await.context("Failed to query reward delegation")?;
+
+        Ok(Some(format!("{:#x}", delegate)))
+    }
+
+    fn address_from_private_key(pk: &str) -> Option<alloy::primitives::Address> {
+        use alloy::signers::local::PrivateKeySigner;
+        pk.parse::<PrivateKeySigner>().ok().map(|signer| signer.address())
     }
 
     fn setup_custom_rewards() -> Result<CustomRewardsDeployment> {

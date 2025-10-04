@@ -16,7 +16,7 @@ use alloy::{
     primitives::{utils::format_ether, Address},
     providers::{Provider, ProviderBuilder},
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use boundless_zkc::contracts::IStakingRewards;
 use clap::Args;
 use colored::Colorize;
@@ -51,12 +51,8 @@ impl RewardsClaimStakingRewards {
         // Connect to provider with signer
         let provider = ProviderBuilder::new().wallet(signer.clone()).on_http(rpc_url);
 
-        // Verify we're on mainnet (chain ID 1)
+        // Get chain ID to determine deployment
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-
-        if chain_id != 1 {
-            bail!("Rewards commands require connection to Ethereum mainnet (chain ID 1), got chain ID {}", chain_id);
-        }
 
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
