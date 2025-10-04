@@ -2,11 +2,6 @@
 -- KEYS: none
 -- ARGV[1]: worker_type, ARGV[2]: reserved, ARGV[3]: be_mult, ARGV[4]: user_id
 -- Returns: stream_id (UUID)
--- Declare Redis globals for linter
----@diagnostic disable-next-line: undefined-global
-ARGV = ARGV or {}
----@diagnostic disable-next-line: undefined-global
-redis = redis or {}
 
 local stream_id = redis.call('GET', 'uuid_counter')
 if not stream_id then

@@ -2,11 +2,6 @@
 -- KEYS: none
 -- ARGV[1]: job_id, ARGV[2]: task_id, ARGV[3]: error
 
--- Declare Redis globals for linter
----@diagnostic disable-next-line: undefined-global
-ARGV = ARGV or {}
----@diagnostic disable-next-line: undefined-global
-redis = redis or {}
 
 local job_id = ARGV[1]
 local task_id = ARGV[2]

@@ -2,11 +2,6 @@
 -- KEYS: none
 -- ARGV[1]: job_id, ARGV[2]: task_id, ARGV[3]: stream_id, ARGV[4]: task_def,
 -- ARGV[5]: prerequisites (JSON array), ARGV[6]: max_retries, ARGV[7]: timeout_secs
--- Declare Redis globals for linter
----@diagnostic disable-next-line: undefined-global
-ARGV = ARGV or {}
----@diagnostic disable-next-line: undefined-global
-redis = redis or {}
 
 local job_id = ARGV[1]
 local task_id = ARGV[2]

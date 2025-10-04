@@ -4,12 +4,6 @@
 -- ARGV[4]: timeout_secs, ARGV[5]: user_id
 -- Returns: job_id
 
--- Declare Redis globals for linter
----@diagnostic disable-next-line: undefined-global
-ARGV = ARGV or {}
----@diagnostic disable-next-line: undefined-global
-redis = redis or {}
-
 local stream_id = ARGV[1]
 local task_def = ARGV[2]
 local max_retries = tonumber(ARGV[3])

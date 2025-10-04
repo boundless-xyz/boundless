@@ -2,11 +2,6 @@
 -- KEYS: none
 -- ARGV[1]: worker_type
 -- Returns: {job_id, task_id, task_def, prerequisites, max_retries} or nil
--- Declare Redis globals for linter
----@diagnostic disable-next-line: undefined-global
-ARGV = ARGV or {}
----@diagnostic disable-next-line: undefined-global
-redis = redis or {}
 
 local worker_type = ARGV[1]
 
