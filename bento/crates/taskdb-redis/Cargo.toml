@@ -19,6 +19,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
 sqlx = { workspace = true, features = [
   "runtime-tokio",
   "postgres",
@@ -30,14 +32,8 @@ sqlx = { workspace = true, features = [
   "json",
   "tls-rustls",
 ] }
-
-[dev-dependencies]
 clap = { workspace = true, features = ["derive"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
 rand = "0.9.1"
 tracing = { workspace = true, features = ["log"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
-
-[[bench]]
-name = "taskdb-redis"
-harness = false
