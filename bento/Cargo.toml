@@ -6,6 +6,7 @@ members = [
     "crates/sample-guest/common",
     "crates/sample-guest/methods",
     "crates/taskdb",
+    "crates/taskdb-redis",
     "crates/workflow",
     "crates/workflow-common",
 ]
@@ -37,6 +38,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sqlx = { version = "0.8", default-features = false }
 taskdb = { path = "crates/taskdb" }
+taskdb-redis = { path = "crates/taskdb-redis" }
 tempfile = "3.10"
 thiserror = "1.0"
 tokio = "1.44"

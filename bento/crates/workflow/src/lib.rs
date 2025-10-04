@@ -11,7 +11,6 @@ use crate::redis::RedisPool;
 use anyhow::{Context, Result};
 use clap::Parser;
 use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
-use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
     rc::Rc,
     str::FromStr,
@@ -20,7 +19,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use taskdb::ReadyTask;
+use taskdb_redis::{ReadyTask, RedisTaskDB};
 use tokio::time;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
 
@@ -50,21 +49,13 @@ pub struct Args {
     #[arg(env, short, long, default_value_t = 1)]
     pub poll_time: u64,
 
-    /// taskdb postgres DATABASE_URL
-    #[clap(env)]
-    pub database_url: String,
-
-    /// redis connection URL
+    /// redis connection URL (used for both TaskDB and Redis pool)
     #[clap(env)]
     pub redis_url: String,
 
     /// risc0 segment po2 arg
     #[clap(env, short, long, default_value_t = 20)]
     pub segment_po2: u32,
-
-    /// max connections to SQL db in connection pool
-    #[clap(env, long, default_value_t = 1)]
-    pub db_max_connections: u32,
 
     /// Redis TTL, seconds before objects expire automatically
     ///
@@ -146,8 +137,8 @@ pub struct Args {
 
 /// Core agent context to hold all optional clients / pools and state
 pub struct Agent {
-    /// Postgresql database connection pool
-    pub db_pool: PgPool,
+    /// Redis TaskDB instance
+    pub taskdb: RedisTaskDB,
     /// segment po2 config
     pub segment_po2: u32,
     /// redis connection pool
@@ -181,11 +172,9 @@ impl Agent {
             tracing::debug!("POVW disabled");
         }
 
-        let db_pool = PgPoolOptions::new()
-            .max_connections(args.db_max_connections)
-            .connect(&args.database_url)
-            .await
-            .context("Failed to initialize postgresql pool")?;
+        // Initialize Redis TaskDB
+        let taskdb =
+            RedisTaskDB::new(&args.redis_url).await.context("Failed to initialize Redis TaskDB")?;
         let redis_pool = crate::redis::create_pool(&args.redis_url)?;
         let s3_client = S3Client::from_minio(
             &args.s3_url,
@@ -210,7 +199,7 @@ impl Agent {
         };
 
         Ok(Self {
-            db_pool,
+            taskdb,
             segment_po2: args.segment_po2,
             redis_pool,
             s3_client,
@@ -241,14 +230,17 @@ impl Agent {
         // cluster
         if self.args.monitor_requeue {
             let term_sig_copy = term_sig.clone();
-            let db_pool_copy = self.db_pool.clone();
+            let mut taskdb_copy =
+                self.taskdb.get_connection().context("Failed to get TaskDB connection")?;
             tokio::spawn(async move {
-                Self::poll_for_requeue(term_sig_copy, db_pool_copy).await.expect("Requeue failed")
+                Self::poll_for_requeue(term_sig_copy, taskdb_copy).await.expect("Requeue failed")
             });
         }
 
         while !term_sig.load(Ordering::Relaxed) {
-            let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
+            let task = self
+                .taskdb
+                .request_work(&self.args.task_stream)
                 .await
                 .context("Failed to request_work")?;
             let Some(task) = task else {
@@ -265,35 +257,11 @@ impl Agent {
                 }
 
                 if task.max_retries > 0 {
-                    // If the next retry would exceed the limit, set a final error now
-                    if let Some(current_retries) = sqlx::query_scalar::<_, i32>(
-                        "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
-                    )
-                    .bind(task.job_id)
-                    .bind(&task.task_id)
-                    .fetch_optional(&self.db_pool)
-                    .await
-                    .context("Failed to read current retries")?
-                        && current_retries + 1 > task.max_retries {
-                            // Prevent massive errors from being reported to the DB
-                            err_str.truncate(1024);
-                            let final_err = if err_str.is_empty() {
-                                "retry max hit".to_string()
-                            } else {
-                                format!("retry max hit: {}", err_str)
-                            };
-                            taskdb::update_task_failed(
-                                &self.db_pool,
-                                &task.job_id,
-                                &task.task_id,
-                                &final_err,
-                            )
-                            .await
-                            .context("Failed to report task failure")?;
-                            continue;
-                        }
-
-                    if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
+                    // Check if retry limit would be exceeded
+                    // Note: Redis TaskDB handles retry logic internally
+                    if !self
+                        .taskdb
+                        .update_task_retry(&task.job_id, &task.task_id)
                         .await
                         .context("Failed to update task retries")?
                     {
@@ -302,14 +270,10 @@ impl Agent {
                 } else {
                     // Prevent massive errors from being reported to the DB
                     err_str.truncate(1024);
-                    taskdb::update_task_failed(
-                        &self.db_pool,
-                        &task.job_id,
-                        &task.task_id,
-                        &err_str,
-                    )
-                    .await
-                    .context("Failed to report task failure")?;
+                    self.taskdb
+                        .update_task_failed(&task.job_id, &task.task_id, &err_str)
+                        .await
+                        .context("Failed to report task failure")?;
                 }
                 continue;
             }
@@ -396,7 +360,8 @@ impl Agent {
             .context("failed to serialize union response")?,
         };
 
-        taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, res)
+        self.taskdb
+            .update_task_done(&task.job_id, &task.task_id, res)
             .await
             .context("Failed to report task done")?;
 
@@ -407,10 +372,10 @@ impl Agent {
     ///
     /// Scan the queue looking for tasks that need to be retried and update them
     /// the agent will catch and fail max retries.
-    async fn poll_for_requeue(term_sig: Arc<AtomicBool>, db_pool: PgPool) -> Result<()> {
+    async fn poll_for_requeue(term_sig: Arc<AtomicBool>, mut taskdb: RedisTaskDB) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
             tracing::debug!("Triggering a requeue job...");
-            let retry_tasks = taskdb::requeue_tasks(&db_pool, 100).await?;
+            let retry_tasks = taskdb.requeue_tasks(100).await?;
             if retry_tasks > 0 {
                 tracing::info!("Found {retry_tasks} tasks that needed to be retried");
             }

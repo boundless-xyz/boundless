@@ -14,10 +14,10 @@ use risc0_zkvm::{
     CoprocessorCallback, ExecutorEnv, ExecutorImpl, InnerReceipt, Journal, NullSegmentRef,
     ProveKeccakRequest, Receipt, Segment, compute_image_id, sha::Digestible,
 };
-use sqlx::postgres::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
-use taskdb::planner::{
+use taskdb_redis::RedisTaskDB;
+use taskdb_redis::planner::{
     Planner,
     task::{Command as TaskCmd, Task},
 };
@@ -43,7 +43,7 @@ const CONCURRENT_SEGMENTS: usize = 50; // This peaks around ~4GB
 #[allow(clippy::too_many_arguments)]
 async fn process_task(
     args: &Args,
-    pool: &PgPool,
+    taskdb: &mut RedisTaskDB,
     prove_stream: &Uuid,
     join_stream: &Uuid,
     union_stream: &Uuid,
@@ -63,18 +63,18 @@ async fn process_task(
             let task_def = serde_json::to_value(TaskType::Keccak(keccak_req))
                 .expect("Failed to serialize coproc (keccak) task-type");
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                &task_id,
-                prove_stream,
-                &task_def,
-                &prereqs,
-                args.prove_retries,
-                args.prove_timeout,
-            )
-            .await
-            .expect("create_task failure during keccak task creation");
+            taskdb
+                .create_task(
+                    job_id,
+                    &task_id,
+                    prove_stream,
+                    &task_def,
+                    &prereqs,
+                    args.prove_retries,
+                    args.prove_timeout,
+                )
+                .await
+                .expect("create_task failure during keccak task creation");
         }
         TaskCmd::Segment => {
             let task_def = serde_json::to_value(TaskType::Prove(ProveReq {
@@ -96,18 +96,18 @@ async fn process_task(
             let prereqs = serde_json::json!([]);
             let task_name = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                &task_name,
-                prove_stream,
-                &task_def,
-                &prereqs,
-                args.prove_retries,
-                args.prove_timeout,
-            )
-            .await
-            .context("create_task failure during segment creation")?;
+            taskdb
+                .create_task(
+                    job_id,
+                    &task_name,
+                    prove_stream,
+                    &task_def,
+                    &prereqs,
+                    args.prove_retries,
+                    args.prove_timeout,
+                )
+                .await
+                .context("create_task failure during segment creation")?;
         }
         TaskCmd::Join => {
             let task_def = serde_json::to_value(TaskType::Join(JoinReq {
@@ -122,18 +122,18 @@ async fn process_task(
             ]);
             let task_name = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                &task_name,
-                join_stream,
-                &task_def,
-                &prereqs,
-                args.join_retries,
-                args.join_timeout,
-            )
-            .await
-            .context("create_task failure during join creation")?;
+            taskdb
+                .create_task(
+                    job_id,
+                    &task_name,
+                    join_stream,
+                    &task_def,
+                    &prereqs,
+                    args.join_retries,
+                    args.join_timeout,
+                )
+                .await
+                .context("create_task failure during join creation")?;
         }
         TaskCmd::Union => {
             let task_def = serde_json::to_value(TaskType::Union(UnionReq {
@@ -148,18 +148,18 @@ async fn process_task(
             ]);
             let task_id = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                &task_id,
-                union_stream,
-                &task_def,
-                &prereqs,
-                args.join_retries,
-                args.join_timeout,
-            )
-            .await
-            .context("create_task failure during Union creation")?;
+            taskdb
+                .create_task(
+                    job_id,
+                    &task_id,
+                    union_stream,
+                    &task_def,
+                    &prereqs,
+                    args.join_retries,
+                    args.join_timeout,
+                )
+                .await
+                .context("create_task failure during Union creation")?;
         }
         TaskCmd::Finalize => {
             let keccak_count = u64::from(!tree_task.keccak_depends_on.is_empty());
@@ -182,18 +182,18 @@ async fn process_task(
             .context("Failed to serialize resolve req")?;
             let task_id = "resolve";
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                task_id,
-                join_stream,
-                &task_def,
-                &serde_json::json!(prereqs),
-                args.resolve_retries,
-                args.resolve_timeout * assumption_count,
-            )
-            .await
-            .context("create_task (resolve) failure during resolve creation")?;
+            taskdb
+                .create_task(
+                    job_id,
+                    task_id,
+                    join_stream,
+                    &task_def,
+                    &serde_json::json!(prereqs),
+                    args.resolve_retries,
+                    args.resolve_timeout * assumption_count,
+                )
+                .await
+                .context("create_task (resolve) failure during resolve creation")?;
 
             let task_def = serde_json::to_value(TaskType::Finalize(FinalizeReq {
                 max_idx: tree_task.depends_on[0],
@@ -202,18 +202,18 @@ async fn process_task(
             let prereqs = serde_json::json!([task_id]);
 
             let finalize_name = "finalize";
-            taskdb::create_task(
-                pool,
-                job_id,
-                finalize_name,
-                aux_stream,
-                &task_def,
-                &prereqs,
-                args.finalize_retries,
-                args.finalize_timeout,
-            )
-            .await
-            .context("create_task failure during finalize creation")?;
+            taskdb
+                .create_task(
+                    job_id,
+                    finalize_name,
+                    aux_stream,
+                    &task_def,
+                    &prereqs,
+                    args.finalize_retries,
+                    args.finalize_timeout,
+                )
+                .await
+                .context("create_task failure during finalize creation")?;
 
             if compress_type != CompressType::None {
                 let task_def = serde_json::to_value(TaskType::Snark(SnarkReq {
@@ -222,18 +222,19 @@ async fn process_task(
                 }))
                 .context("Failed to serialize snark task-type")?;
 
-                taskdb::create_task(
-                    pool,
-                    job_id,
-                    "snark",
-                    prove_stream,
-                    &task_def,
-                    &serde_json::json!([finalize_name]),
-                    args.snark_retries,
-                    args.snark_timeout,
-                )
-                .await
-                .context("create_task for snark compression failed")?;
+                taskdb
+                    .create_task(
+                        pool,
+                        job_id,
+                        "snark",
+                        prove_stream,
+                        &task_def,
+                        &serde_json::json!([finalize_name]),
+                        args.snark_retries,
+                        args.snark_timeout,
+                    )
+                    .await
+                    .context("create_task for snark compression failed")?;
             }
         }
     }
@@ -424,18 +425,24 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         drop(task_tx);
     });
 
-    let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, AUX_WORK_TYPE)
+    let aux_stream = agent
+        .taskdb
+        .get_stream(&request.user_id, AUX_WORK_TYPE)
         .await
         .context("Failed to get AUX stream")?
         .with_context(|| format!("Customer {} missing aux stream", request.user_id))?;
 
-    let prove_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, PROVE_WORK_TYPE)
+    let prove_stream = agent
+        .taskdb
+        .get_stream(&request.user_id, PROVE_WORK_TYPE)
         .await
         .context("Failed to get GPU Prove stream")?
         .with_context(|| format!("Customer {} missing gpu prove stream", request.user_id))?;
 
     let join_stream = if std::env::var("JOIN_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+        agent
+            .taskdb
+            .get_stream(&request.user_id, JOIN_WORK_TYPE)
             .await
             .context("Failed to get GPU Join stream")?
             .with_context(|| format!("Customer {} missing gpu join stream", request.user_id))?
@@ -444,7 +451,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let union_stream = if std::env::var("UNION_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+        agent
+            .taskdb
+            .get_stream(&request.user_id, JOIN_WORK_TYPE)
             .await
             .context("Failed to get GPU Union stream")?
             .with_context(|| format!("Customer {} missing gpu union stream", request.user_id))?
@@ -453,7 +462,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, COPROC_WORK_TYPE)
+        agent
+            .taskdb
+            .get_stream(&request.user_id, COPROC_WORK_TYPE)
             .await
             .context("Failed to get GPU Coproc stream")?
             .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?
@@ -462,7 +473,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let job_id_copy = *job_id;
-    let pool_copy = agent.db_pool.clone();
     let assumptions = request.assumptions.clone();
     let assumption_count = assumptions.len();
     let args_copy = agent.args.clone();
@@ -489,7 +499,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     while let Some(tree_task) = planner.next_task() {
                         process_task(
                             &args_copy,
-                            &pool_copy,
+                            &mut agent.taskdb,
                             &prove_stream,
                             &join_stream,
                             &union_stream,
@@ -529,7 +539,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
                         process_task(
                             &args_copy,
-                            &pool_copy,
+                            &mut agent.taskdb,
                             &coproc_stream,
                             &join_stream,
                             &union_stream,
@@ -557,7 +567,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             while let Some(tree_task) = planner.next_task() {
                 process_task(
                     &args_copy,
-                    &pool_copy,
+                    &mut agent.taskdb,
                     &prove_stream,
                     &join_stream,
                     &union_stream,
