@@ -19,9 +19,8 @@ use bonsai_sdk::responses::{
 use clap::Parser;
 use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::sync::Arc;
-use taskdb::{JobState, TaskDbErr};
+use taskdb_redis::{JobState, RedisTaskDB, TaskDbErr};
 use thiserror::Error;
 use uuid::Uuid;
 use workflow_common::{
@@ -171,13 +170,9 @@ pub struct Args {
     #[clap(long, default_value = "0.0.0.0:8080")]
     bind_addr: String,
 
-    /// SQL DB Connection pool connections
-    #[clap(long, default_value_t = 10)]
-    db_max_connections: u32,
-
-    /// taskdb postgres DATABASE_URL
+    /// Redis connection URL
     #[clap(env)]
-    database_url: String,
+    redis_url: String,
 
     /// S3 / Minio bucket
     #[clap(env)]
@@ -217,7 +212,7 @@ pub struct Args {
 }
 
 pub struct AppState {
-    db_pool: PgPool,
+    redis_url: String,
     s3_client: S3Client,
     exec_timeout: i32,
     exec_retries: i32,
@@ -227,12 +222,6 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(args: &Args) -> Result<Arc<Self>> {
-        let db_pool = PgPoolOptions::new()
-            .max_connections(args.db_max_connections)
-            .connect(&args.database_url)
-            .await
-            .context("Failed to initialize postgresql pool")?;
-
         let s3_client = S3Client::from_minio(
             &args.s3_url,
             &args.s3_bucket,
@@ -244,7 +233,7 @@ impl AppState {
         .context("Failed to initialize s3 client / bucket")?;
 
         Ok(Arc::new(Self {
-            db_pool,
+            redis_url: args.redis_url.clone(),
             s3_client,
             exec_timeout: args.exec_timeout,
             exec_retries: args.exec_retries,
@@ -420,11 +409,6 @@ async fn prove_stark(
     ExtractApiKey(api_key): ExtractApiKey,
     Json(start_req): Json<ProofReq>,
 ) -> Result<Json<CreateSessRes>, AppError> {
-    let (_aux_stream, exec_stream, _gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
-        helpers::get_or_create_streams(&state.db_pool, &api_key)
-            .await
-            .context("Failed to get / create steams")?;
-
     let task_def = serde_json::to_value(TaskType::Executor(ExecutorReq {
         image: start_req.img,
         input: start_req.input,
@@ -436,16 +420,20 @@ async fn prove_stark(
     }))
     .context("Failed to serialize ExecutorReq")?;
 
-    let job_id = taskdb::create_job(
-        &state.db_pool,
-        &exec_stream,
-        &task_def,
-        state.exec_retries,
-        state.exec_timeout,
-        &api_key,
-    )
-    .await
-    .context("Failed to create exec / init task")?;
+    let job_id = {
+        let mut taskdb = RedisTaskDB::new(&state.redis_url)
+            .await
+            .context("Failed to create TaskDB connection")?;
+        let (_aux_stream, exec_stream, _gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
+            helpers::get_or_create_streams(&mut taskdb, &api_key)
+                .await
+                .context("Failed to get / create steams")?;
+
+        taskdb
+            .create_job(&exec_stream, &task_def, state.exec_retries, state.exec_timeout, &api_key)
+            .await
+            .context("Failed to create exec / init task")?
+    };
 
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
@@ -457,14 +445,34 @@ async fn stark_status(
     Path(job_id): Path<Uuid>,
     ExtractApiKey(api_key): ExtractApiKey,
 ) -> Result<Json<SessionStatusRes>, AppError> {
-    let job_state = taskdb::get_job_state(&state.db_pool, &job_id, &api_key)
-        .await
-        .context("Failed to get job state")?;
+    let (job_state, exec_stats, error_msg) = {
+        let mut taskdb = RedisTaskDB::new(&state.redis_url)
+            .await
+            .context("Failed to create TaskDB connection")?;
+        let job_state =
+            taskdb.get_job_state(&job_id, &api_key).await.context("Failed to get job state")?;
+
+        let exec_stats = if job_state == JobState::Done {
+            Some(
+                helpers::get_exec_stats(&mut taskdb, &job_id)
+                    .await
+                    .context("Failed to get exec stats")?,
+            )
+        } else {
+            None
+        };
+
+        let error_msg = if job_state == JobState::Failed {
+            Some(taskdb.get_job_failure(&job_id).await.context("Failed to get job error message")?)
+        } else {
+            None
+        };
+
+        (job_state, exec_stats, error_msg)
+    };
 
     let (exec_stats, receipt_url) = if job_state == JobState::Done {
-        let exec_stats = helpers::get_exec_stats(&state.db_pool, &job_id)
-            .await
-            .context("Failed to get exec stats")?;
+        let exec_stats = exec_stats.unwrap();
         (
             Some(SessionStats {
                 cycles: exec_stats.user_cycles,
@@ -475,16 +483,6 @@ async fn stark_status(
         )
     } else {
         (None, None)
-    };
-
-    let error_msg = if job_state == JobState::Failed {
-        Some(
-            taskdb::get_job_failure(&state.db_pool, &job_id)
-                .await
-                .context("Failed to get job error message")?,
-        )
-    } else {
-        None
     };
 
     Ok(Json(SessionStatusRes {
@@ -573,27 +571,32 @@ async fn prove_groth16(
     ExtractApiKey(api_key): ExtractApiKey,
     Json(start_req): Json<SnarkReq>,
 ) -> Result<Json<CreateSessRes>, AppError> {
-    let (_aux_stream, _exec_stream, gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
-        helpers::get_or_create_streams(&state.db_pool, &api_key)
-            .await
-            .context("Failed to get / create steams")?;
-
     let task_def = serde_json::to_value(TaskType::Snark(WorkflowSnarkReq {
         receipt: start_req.session_id,
         compress_type: CompressType::Groth16,
     }))
     .context("Failed to serialize ExecutorReq")?;
 
-    let job_id = taskdb::create_job(
-        &state.db_pool,
-        &gpu_prove_stream,
-        &task_def,
-        state.snark_retries,
-        state.snark_timeout,
-        &api_key,
-    )
-    .await
-    .context("Failed to create exec / init task")?;
+    let job_id = {
+        let mut taskdb = RedisTaskDB::new(&state.redis_url)
+            .await
+            .context("Failed to create TaskDB connection")?;
+        let (_aux_stream, _exec_stream, gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
+            helpers::get_or_create_streams(&mut taskdb, &api_key)
+                .await
+                .context("Failed to get / create steams")?;
+
+        taskdb
+            .create_job(
+                &gpu_prove_stream,
+                &task_def,
+                state.snark_retries,
+                state.snark_timeout,
+                &api_key,
+            )
+            .await
+            .context("Failed to create exec / init task")?
+    };
 
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
@@ -605,22 +608,30 @@ async fn groth16_status(
     Path(job_id): Path<Uuid>,
     Host(hostname): Host,
 ) -> Result<Json<SnarkStatusRes>, AppError> {
-    let job_state = taskdb::get_job_state(&state.db_pool, &job_id, &api_key)
-        .await
-        .context("Failed to get job state")?;
-    let (error_msg, output) = match job_state {
-        JobState::Running => (None, None),
-        JobState::Done => {
-            (None, Some(format!("http://{hostname}/receipts/groth16/receipt/{job_id}")))
-        }
-        JobState::Failed => (
-            Some(
-                taskdb::get_job_failure(&state.db_pool, &job_id)
-                    .await
-                    .context("Failed to get job error message")?,
+    let (job_state, error_msg, output) = {
+        let mut taskdb = RedisTaskDB::new(&state.redis_url)
+            .await
+            .context("Failed to create TaskDB connection")?;
+        let job_state =
+            taskdb.get_job_state(&job_id, &api_key).await.context("Failed to get job state")?;
+
+        let (error_msg, output) = match job_state {
+            JobState::Running => (None, None),
+            JobState::Done => {
+                (None, Some(format!("http://{hostname}/receipts/groth16/receipt/{job_id}")))
+            }
+            JobState::Failed => (
+                Some(
+                    taskdb
+                        .get_job_failure(&job_id)
+                        .await
+                        .context("Failed to get job error message")?,
+                ),
+                None,
             ),
-            None,
-        ),
+        };
+
+        (job_state, error_msg, output)
     };
     Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
 }
