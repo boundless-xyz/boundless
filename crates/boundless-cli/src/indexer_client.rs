@@ -147,6 +147,34 @@ impl IndexerClient {
             .await
             .with_context(|| format!("Failed to parse epoch PoVW response from {}", url))
     }
+
+    /// Get PoVW data for a specific address in a specific epoch
+    pub async fn get_epoch_povw_for_address(
+        &self,
+        epoch: u64,
+        address: Address,
+    ) -> Result<EpochPovwAddressData> {
+        let url = self
+            .base_url
+            .join(&format!("v1/povw/epochs/{}/addresses/{:#x}", epoch, address))
+            .context("Failed to build URL")?;
+
+        let response = self
+            .client
+            .get(url.clone())
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch epoch PoVW address data from {}", url))?;
+
+        if !response.status().is_success() {
+            bail!("API error from {}: {}", url, response.status());
+        }
+
+        response
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse epoch PoVW address response from {}", url))
+    }
 }
 
 // Data Models
@@ -275,6 +303,20 @@ pub struct EpochPovwResponse {
     pub entries: Vec<PovwEntry>,
     pub pagination: PaginationInfo,
     pub summary: Option<EpochPovwSummary>,
+}
+
+///Data for a specific address in a specific epoch
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EpochPovwAddressData {
+    pub work_log_id: String,
+    pub epoch: u64,
+    pub work_submitted: String,
+    pub reward_cap: String,
+    pub actual_rewards: String,
+    pub uncapped_rewards: String,
+    pub is_capped: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub staked_amount: Option<String>,
 }
 
 /// Parse a string amount to U256

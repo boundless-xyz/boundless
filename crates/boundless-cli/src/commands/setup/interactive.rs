@@ -577,13 +577,22 @@ impl SetupInteractive {
 
                 if has_existing {
                     let path = Text::new("Enter path to existing state file:")
+                        .with_help_message("Enter full path (supports ~)")
                         .prompt()?;
+
+                    // Expand ~ to home directory
+                    let expanded_path = if path.starts_with("~/") {
+                        let home = dirs::home_dir().context("Failed to get home directory")?;
+                        home.join(path.strip_prefix("~/").unwrap()).display().to_string()
+                    } else {
+                        path
+                    };
 
                     // Validate that the state file's log_id matches the reward address
                     print!("Validating state file... ");
                     std::io::stdout().flush()?;
 
-                    match State::load(&path).await {
+                    match State::load(&expanded_path).await {
                         Ok(state) => {
                             // Parse reward address as PovwLogId for comparison
                             let reward_log_id = reward_addr.parse::<PovwLogId>()
@@ -611,19 +620,36 @@ impl SetupInteractive {
                         }
                     }
 
-                    Some(path)
+                    Some(expanded_path)
                 } else {
                     let default_filename = format!("povw_state_{}.bin",
                         reward_addr.strip_prefix("0x").unwrap_or(reward_addr));
 
                     let path = Text::new("Enter path for new state file:")
                         .with_default(&default_filename)
-                        .with_help_message("Default: current directory")
+                        .with_help_message("Enter filename (current dir) or full path (supports ~)")
                         .prompt()?;
 
-                    println!("\n✓ State file will be created at: {}", path.cyan());
+                    // Expand ~ to home directory
+                    let expanded_path = if path.starts_with("~/") {
+                        let home = dirs::home_dir().context("Failed to get home directory")?;
+                        home.join(path.strip_prefix("~/").unwrap()).display().to_string()
+                    } else {
+                        path
+                    };
+
+                    // Get absolute path for display
+                    let abs_path = std::fs::canonicalize(&expanded_path)
+                        .unwrap_or_else(|_| {
+                            // If file doesn't exist yet, resolve relative to current dir
+                            std::env::current_dir()
+                                .map(|cwd| cwd.join(&expanded_path))
+                                .unwrap_or_else(|_| std::path::PathBuf::from(&expanded_path))
+                        });
+
+                    println!("\n✓ State file will be created at: {}", abs_path.display().to_string().cyan());
                     println!("  Remember to back this up regularly!");
-                    Some(path)
+                    Some(expanded_path)
                 }
             } else {
                 None

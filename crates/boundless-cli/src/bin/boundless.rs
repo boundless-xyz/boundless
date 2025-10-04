@@ -664,8 +664,18 @@ async fn show_welcome_screen() -> Result<()> {
         };
 
         if let Some(state_path) = povw_state {
+            // Get absolute path for display
+            let display_path = std::fs::canonicalize(state_path)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| {
+                    // If canonicalize fails, try to resolve relative to current dir
+                    std::env::current_dir()
+                        .map(|cwd| cwd.join(state_path).display().to_string())
+                        .unwrap_or_else(|_| state_path.to_string())
+                });
+
             println!("  PoVW State:      {} {}",
-                state_path.green(),
+                display_path.green(),
                 format!("[{}]", povw_source).dimmed());
 
             // Try to load and display state statistics
@@ -705,8 +715,14 @@ async fn show_welcome_screen() -> Result<()> {
                         println!("    Last submitted on-chain: {}", "Never submitted".yellow());
                     }
                 }
-                Err(_) => {
-                    println!("    Status:        {} (file not found or invalid)", "⚠".yellow());
+                Err(e) => {
+                    // Distinguish between file not found vs invalid file
+                    if e.to_string().contains("No such file or directory") ||
+                       e.to_string().contains("Failed to read work log state file") {
+                        println!("    Status:        {} File not found: verify path or run prepare-povw to initialize", "⚠".yellow());
+                    } else {
+                        println!("    Status:        {} Invalid file: cannot decode state", "⚠".yellow());
+                    }
                 }
             }
         } else {
@@ -933,7 +949,17 @@ async fn show_rewards_status() -> Result<()> {
                     };
 
                     if let Some(state_path) = povw_state_path {
-                        println!("{} {}", "PoVW State File:".bold(), state_path.green());
+                        // Get absolute path for display
+                        let display_path = std::fs::canonicalize(state_path)
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|_| {
+                                // If canonicalize fails, try to resolve relative to current dir
+                                std::env::current_dir()
+                                    .map(|cwd| cwd.join(state_path).display().to_string())
+                                    .unwrap_or_else(|_| state_path.to_string())
+                            });
+
+                        println!("{} {}", "PoVW State File:".bold(), display_path.green());
 
                         // Try to load and display state statistics
                         match State::load(state_path).await {
@@ -974,8 +1000,14 @@ async fn show_rewards_status() -> Result<()> {
                                     println!("  {} {}", "Last submitted on-chain:".bold(), "Never submitted".yellow());
                                 }
                             }
-                            Err(_) => {
-                                println!("  {} {} (file not found or invalid)", "Status:".bold(), "⚠".yellow());
+                            Err(e) => {
+                                // Distinguish between file not found vs invalid file
+                                if e.to_string().contains("No such file or directory") ||
+                                   e.to_string().contains("Failed to read work log state file") {
+                                    println!("  {} {} File not found: verify path or run prepare-povw to initialize", "Status:".bold(), "⚠".yellow());
+                                } else {
+                                    println!("  {} {} Invalid file: cannot decode state", "Status:".bold(), "⚠".yellow());
+                                }
                             }
                         }
                     } else {
