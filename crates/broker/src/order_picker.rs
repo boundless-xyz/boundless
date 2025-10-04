@@ -19,9 +19,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(test)]
+use crate::config::MarketConf;
 use crate::{
     chain_monitor::ChainMonitorService,
-    config::{ConfigLock, MarketConf},
+    config::ConfigLock,
     db::DbObj,
     errors::CodedError,
     provers::{ProverError, ProverObj},
