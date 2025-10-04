@@ -14,12 +14,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let task_stream = args.task_stream.clone();
-    let agent = Agent::new(args).await.context("Failed to initialize Agent")?;
-
-    sqlx::migrate!("../taskdb/migrations")
-        .run(&agent.db_pool)
-        .await
-        .context("Failed to run migrations")?;
+    let mut agent = Agent::new(args).await.context("Failed to initialize Agent")?;
 
     tracing::info!("Successful agent startup! Worker type: {task_stream}");
 

@@ -223,15 +223,16 @@ impl Agent {
     /// This function will poll for work and dispatch to the [Self::process_work] function until
     /// the process is terminated. It also handles retries / failures depending on the
     /// [Self::process_work] result
-    pub async fn poll_work(&self) -> Result<()> {
+    pub async fn poll_work(&mut self) -> Result<()> {
         let term_sig = Self::create_sig_monitor().context("Failed to create signal hook")?;
 
         // Enables task retry management background thread, good for 1-2 aux workers to run in the
         // cluster
         if self.args.monitor_requeue {
             let term_sig_copy = term_sig.clone();
-            let mut taskdb_copy =
-                self.taskdb.get_connection().context("Failed to get TaskDB connection")?;
+            let taskdb_copy = RedisTaskDB::new(&self.args.redis_url)
+                .await
+                .context("Failed to create TaskDB connection")?;
             tokio::spawn(async move {
                 Self::poll_for_requeue(term_sig_copy, taskdb_copy).await.expect("Requeue failed")
             });
@@ -284,7 +285,7 @@ impl Agent {
     }
 
     /// Process a task and dispatch based on the task type
-    pub async fn process_work(&self, task: &ReadyTask) -> Result<()> {
+    pub async fn process_work(&mut self, task: &ReadyTask) -> Result<()> {
         let task_type: TaskType = serde_json::from_value(task.task_def.clone())
             .with_context(|| format!("Invalid task_def: {}:{}", task.job_id, task.task_id))?;
 

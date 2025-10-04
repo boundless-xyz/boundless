@@ -224,7 +224,6 @@ async fn process_task(
 
                 taskdb
                     .create_task(
-                        pool,
                         job_id,
                         "snark",
                         prove_stream,
@@ -276,9 +275,18 @@ enum SenderType {
 ///
 /// Writes out all segments async using tokio tasks then waits for all
 /// tasks to complete before exiting.
-pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Result<ExecutorResp> {
+pub async fn executor(
+    agent: &mut Agent,
+    job_id: &Uuid,
+    request: &ExecutorReq,
+) -> Result<ExecutorResp> {
     let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
+
+    // Create a new TaskDB connection for this executor
+    let mut taskdb = RedisTaskDB::new(&agent.args.redis_url)
+        .await
+        .context("Failed to create TaskDB connection")?;
 
     // Fetch ELF binary data
     let elf_key = format!("{ELF_BUCKET_DIR}/{}", request.image);
@@ -425,23 +433,20 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         drop(task_tx);
     });
 
-    let aux_stream = agent
-        .taskdb
+    let aux_stream = taskdb
         .get_stream(&request.user_id, AUX_WORK_TYPE)
         .await
         .context("Failed to get AUX stream")?
         .with_context(|| format!("Customer {} missing aux stream", request.user_id))?;
 
-    let prove_stream = agent
-        .taskdb
+    let prove_stream = taskdb
         .get_stream(&request.user_id, PROVE_WORK_TYPE)
         .await
         .context("Failed to get GPU Prove stream")?
         .with_context(|| format!("Customer {} missing gpu prove stream", request.user_id))?;
 
     let join_stream = if std::env::var("JOIN_STREAM").is_ok() {
-        agent
-            .taskdb
+        taskdb
             .get_stream(&request.user_id, JOIN_WORK_TYPE)
             .await
             .context("Failed to get GPU Join stream")?
@@ -451,8 +456,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let union_stream = if std::env::var("UNION_STREAM").is_ok() {
-        agent
-            .taskdb
+        taskdb
             .get_stream(&request.user_id, JOIN_WORK_TYPE)
             .await
             .context("Failed to get GPU Union stream")?
@@ -462,8 +466,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
-        agent
-            .taskdb
+        taskdb
             .get_stream(&request.user_id, COPROC_WORK_TYPE)
             .await
             .context("Failed to get GPU Coproc stream")?
@@ -499,7 +502,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     while let Some(tree_task) = planner.next_task() {
                         process_task(
                             &args_copy,
-                            &mut agent.taskdb,
+                            &mut taskdb,
                             &prove_stream,
                             &join_stream,
                             &union_stream,
@@ -539,7 +542,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
                         process_task(
                             &args_copy,
-                            &mut agent.taskdb,
+                            &mut taskdb,
                             &coproc_stream,
                             &join_stream,
                             &union_stream,
@@ -567,7 +570,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             while let Some(tree_task) = planner.next_task() {
                 process_task(
                     &args_copy,
-                    &mut agent.taskdb,
+                    &mut taskdb,
                     &prove_stream,
                     &join_stream,
                     &union_stream,

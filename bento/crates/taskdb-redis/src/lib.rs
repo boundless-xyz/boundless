@@ -3,10 +3,9 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-use redis::{Client, Commands, Connection, Pipeline, RedisResult};
+use redis::{Client, Commands, Connection};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -26,10 +25,17 @@ pub enum TaskDbErr {
     TaskNotFound,
     #[error("Stream not found")]
     StreamNotFound,
+    #[error("UUID error: {0}")]
+    UuidError(uuid::Error),
 }
 
-#[derive(sqlx::Type, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[sqlx(type_name = "job_state", rename_all = "snake_case")]
+impl From<uuid::Error> for TaskDbErr {
+    fn from(err: uuid::Error) -> Self {
+        TaskDbErr::UuidError(err)
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub enum JobState {
     Running,
     Done,
@@ -58,8 +64,7 @@ pub struct ReadyTask {
 /// Initial taskid in a job, defined in the SQL schema from create_job()
 pub const INIT_TASK: &str = "init";
 
-#[derive(sqlx::Type, Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[sqlx(type_name = "task_state", rename_all = "snake_case")]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum TaskState {
     Pending,
     Ready,
@@ -169,21 +174,21 @@ impl RedisTaskDB {
         let stream_key = format!("stream:{}", stream_id);
 
         // Store stream data
-        self.connection.hset(&stream_key, "data", stream_data)?;
+        let _: () = self.connection.hset(&stream_key, "data", stream_data)?;
 
         // Add to worker type index
         let worker_streams_key = format!("worker_streams:{}", worker_type);
-        self.connection.sadd(worker_streams_key, stream_id.to_string())?;
+        let _: () = self.connection.sadd(worker_streams_key, stream_id.to_string())?;
 
         // Add to priority queue
         let priority_key = format!("streams_by_priority:{}", worker_type);
-        self.connection.zadd(priority_key, stream_id.to_string(), priority)?;
+        let _: () = self.connection.zadd(priority_key, stream_id.to_string(), priority)?;
 
         // Initialize stream counters
         let counters_key = format!("stream:{}:counters", stream_id);
-        self.connection.hset(&counters_key, "running", 0)?;
-        self.connection.hset(&counters_key, "ready", 0)?;
-        self.connection.hset(&counters_key, "pending", 0)?;
+        let _: () = self.connection.hset(&counters_key, "running", 0)?;
+        let _: () = self.connection.hset(&counters_key, "ready", 0)?;
+        let _: () = self.connection.hset(&counters_key, "pending", 0)?;
 
         Ok(stream_id)
     }
@@ -210,7 +215,7 @@ impl RedisTaskDB {
         let job_key = format!("job:{}", job_id);
 
         // Store job data
-        self.connection.hset(&job_key, "data", job_data)?;
+        let _: () = self.connection.hset(&job_key, "data", job_data)?;
 
         // Create init task
         let init_task = Task {
@@ -278,7 +283,7 @@ impl RedisTaskDB {
         // Store dependencies
         for prereq in prereqs_list {
             let dep_key = format!("deps:{}:{}", job_id, task_id);
-            self.connection.sadd(dep_key, prereq)?;
+            let _: () = self.connection.sadd(dep_key, prereq)?;
         }
 
         if waiting_on == 0 {
@@ -308,7 +313,7 @@ impl RedisTaskDB {
         let ready_key = format!("stream:{}:ready", stream_id);
 
         // Atomically pop task from ready queue
-        let task_key: Option<String> = self.connection.rpop(ready_key)?;
+        let task_key: Option<String> = self.connection.rpop(ready_key, None)?;
         if task_key.is_none() {
             return Ok(None);
         }
@@ -324,7 +329,7 @@ impl RedisTaskDB {
         task.started_at = Some(chrono::Utc::now().timestamp());
 
         let updated_data = serde_json::to_string(&task)?;
-        self.connection.hset(&task_key, "data", updated_data)?;
+        let _: () = self.connection.hset(&task_key, "data", updated_data)?;
 
         // Update stream counters
         self.update_stream_counters(&stream_id, "running", 1)?;
@@ -370,7 +375,7 @@ impl RedisTaskDB {
         task.progress = 1.0;
 
         let updated_data = serde_json::to_string(&task)?;
-        self.connection.hset(&task_key, "data", updated_data)?;
+        let _: () = self.connection.hset(&task_key, "data", updated_data)?;
 
         // Update stream counters
         self.update_stream_counters(&task.stream_id, "running", -1)?;
@@ -379,7 +384,7 @@ impl RedisTaskDB {
         self.check_dependent_tasks(job_id, task_id)?;
 
         // Check if job is complete
-        self.check_job_completion(job_id)?;
+        self.check_job_completion(job_id).await?;
 
         Ok(true)
     }
@@ -415,7 +420,7 @@ impl RedisTaskDB {
         task.progress = 1.0;
 
         let updated_data = serde_json::to_string(&task)?;
-        self.connection.hset(&task_key, "data", updated_data)?;
+        let _: () = self.connection.hset(&task_key, "data", updated_data)?;
 
         // Update stream counters
         if task.state == TaskState::Running {
@@ -459,7 +464,7 @@ impl RedisTaskDB {
             task.updated_at = Some(chrono::Utc::now().timestamp());
 
             let updated_data = serde_json::to_string(&task)?;
-            self.connection.hset(&task_key, "data", updated_data)?;
+            let _: () = self.connection.hset(&task_key, "data", updated_data)?;
         }
 
         Ok(true)
@@ -501,7 +506,7 @@ impl RedisTaskDB {
         task.worker_id = None;
 
         let updated_data = serde_json::to_string(&task)?;
-        self.connection.hset(&task_key, "data", updated_data)?;
+        let _: () = self.connection.hset(&task_key, "data", updated_data)?;
 
         // Update stream counters
         self.update_stream_counters(&task.stream_id, "running", -1)?;
@@ -691,14 +696,14 @@ impl RedisTaskDB {
     pub async fn delete_job(&mut self, job_id: &Uuid) -> Result<(), TaskDbErr> {
         // Delete job
         let job_key = format!("job:{}", job_id);
-        self.connection.del(&job_key)?;
+        let _: () = self.connection.del(&job_key)?;
 
         // Delete all tasks for this job
         let pattern = format!("task:{}:*", job_id);
         let keys: Vec<String> = self.connection.keys(pattern)?;
 
         if !keys.is_empty() {
-            self.connection.del(keys)?;
+            let _: () = self.connection.del(keys)?;
         }
 
         // Delete dependencies
@@ -706,7 +711,7 @@ impl RedisTaskDB {
         let dep_keys: Vec<String> = self.connection.keys(dep_pattern)?;
 
         if !dep_keys.is_empty() {
-            self.connection.del(dep_keys)?;
+            let _: () = self.connection.del(dep_keys)?;
         }
 
         Ok(())
@@ -716,21 +721,21 @@ impl RedisTaskDB {
     fn store_task(&mut self, task: &Task) -> Result<(), TaskDbErr> {
         let task_key = format!("task:{}:{}", task.job_id, task.task_id);
         let task_data = serde_json::to_string(task)?;
-        self.connection.hset(&task_key, "data", task_data)?;
+        let _: () = self.connection.hset(&task_key, "data", task_data)?;
         Ok(())
     }
 
     fn add_task_to_ready_queue(&mut self, task: &Task) -> Result<(), TaskDbErr> {
         let ready_key = format!("stream:{}:ready", task.stream_id);
         let task_key = format!("task:{}:{}", task.job_id, task.task_id);
-        self.connection.lpush(ready_key, task_key)?;
+        let _: () = self.connection.lpush(ready_key, task_key)?;
         Ok(())
     }
 
     fn add_task_to_pending_queue(&mut self, task: &Task) -> Result<(), TaskDbErr> {
         let pending_key = format!("stream:{}:pending", task.stream_id);
         let task_key = format!("task:{}:{}", task.job_id, task.task_id);
-        self.connection.lpush(pending_key, task_key)?;
+        let _: () = self.connection.lpush(pending_key, task_key)?;
         Ok(())
     }
 
@@ -741,7 +746,7 @@ impl RedisTaskDB {
         delta: i32,
     ) -> Result<(), TaskDbErr> {
         let counters_key = format!("stream:{}:counters", stream_id);
-        self.connection.hincr(&counters_key, counter, delta)?;
+        let _: () = self.connection.hincr(&counters_key, counter, delta)?;
 
         // Update stream data
         let stream_key = format!("stream:{}", stream_id);
@@ -765,11 +770,11 @@ impl RedisTaskDB {
         };
 
         let updated_data = serde_json::to_string(&stream)?;
-        self.connection.hset(&stream_key, "data", updated_data)?;
+        let _: () = self.connection.hset(&stream_key, "data", updated_data)?;
 
         // Update priority queue
         let priority_key = format!("streams_by_priority:{}", stream.worker_type);
-        self.connection.zadd(priority_key, stream_id.to_string(), stream.priority)?;
+        let _: () = self.connection.zadd(priority_key, stream_id.to_string(), stream.priority)?;
 
         Ok(())
     }
@@ -797,11 +802,11 @@ impl RedisTaskDB {
         };
 
         let updated_data = serde_json::to_string(&stream)?;
-        self.connection.hset(&stream_key, "data", updated_data)?;
+        let _: () = self.connection.hset(&stream_key, "data", updated_data)?;
 
         // Update priority queue
         let priority_key = format!("streams_by_priority:{}", stream.worker_type);
-        self.connection.zadd(priority_key, stream_id.to_string(), stream.priority)?;
+        let _: () = self.connection.zadd(priority_key, stream_id.to_string(), stream.priority)?;
 
         Ok(())
     }
@@ -820,7 +825,7 @@ impl RedisTaskDB {
             let exists: bool = self.connection.sismember(&dep_key, completed_task_id)?;
             if exists {
                 // Remove the dependency
-                self.connection.srem(&dep_key, completed_task_id)?;
+                let _: () = self.connection.srem(&dep_key, completed_task_id)?;
 
                 // Get the dependent task
                 let task_id = dep_key.split(':').nth(2).unwrap();
@@ -836,16 +841,16 @@ impl RedisTaskDB {
                     task.state = TaskState::Ready;
 
                     let updated_data = serde_json::to_string(&task)?;
-                    self.connection.hset(&task_key, "data", updated_data)?;
+                    let _: () = self.connection.hset(&task_key, "data", updated_data)?;
 
                     // Move from pending to ready queue
                     let pending_key = format!("stream:{}:pending", task.stream_id);
                     let ready_key = format!("stream:{}:ready", task.stream_id);
 
                     // Remove from pending
-                    self.connection.lrem(&pending_key, 1, &task_key)?;
+                    let _: () = self.connection.lrem(&pending_key, 1, &task_key)?;
                     // Add to ready
-                    self.connection.lpush(ready_key, &task_key)?;
+                    let _: () = self.connection.lpush(ready_key, &task_key)?;
 
                     // Update counters
                     self.update_stream_counters(&task.stream_id, "pending", -1)?;
@@ -853,7 +858,7 @@ impl RedisTaskDB {
                 } else {
                     // Just update the waiting_on count
                     let updated_data = serde_json::to_string(&task)?;
-                    self.connection.hset(&task_key, "data", updated_data)?;
+                    let _: () = self.connection.hset(&task_key, "data", updated_data)?;
                 }
             }
         }
@@ -861,8 +866,8 @@ impl RedisTaskDB {
         Ok(())
     }
 
-    fn check_job_completion(&mut self, job_id: &Uuid) -> Result<(), TaskDbErr> {
-        let unresolved = self.get_job_unresolved(job_id)?;
+    async fn check_job_completion(&mut self, job_id: &Uuid) -> Result<(), TaskDbErr> {
+        let unresolved = self.get_job_unresolved(job_id).await?;
 
         if unresolved == 0 {
             // All tasks are done, update job state
@@ -886,7 +891,7 @@ impl RedisTaskDB {
         job.error = error;
 
         let updated_data = serde_json::to_string(&job)?;
-        self.connection.hset(&job_key, "data", updated_data)?;
+        let _: () = self.connection.hset(&job_key, "data", updated_data)?;
 
         Ok(())
     }
@@ -901,7 +906,7 @@ pub mod test_helpers {
         let pattern = "*";
         let keys: Vec<String> = db.connection.keys(pattern)?;
         if !keys.is_empty() {
-            db.connection.del(keys)?;
+            let _: () = db.connection.del(keys)?;
         }
         Ok(())
     }
