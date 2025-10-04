@@ -17,3 +17,4 @@ config:
   indexer:START_BLOCK: "35060420"
   indexer:ETH_RPC_URL:
     secure: v1:mP1K5kqTOS8KXDCl:TV3yrYo1uW5nETisWmbfy6/ZGp+s1y4CvuE7NMSpCfHoTAB1I/BFrZlta034EtitrAK6y37r/OfKCv5ebjxIuaJ9JMcHS9Og/zrt
+  indexer:ORDER_STREAM_URL: https://base-mainnet.boundless.network

@@ -45,6 +45,9 @@ struct MainArgs {
     /// Whether to log in JSON format.
     #[clap(long, env, default_value_t = false)]
     log_json: bool,
+    /// Optional URL of the order stream API for off-chain order indexing.
+    #[clap(long, env)]
+    order_stream_url: Option<Url>,
 }
 
 #[tokio::main]
@@ -65,17 +68,33 @@ async fn main() -> Result<()> {
 
     let args = MainArgs::parse();
 
-    let mut indexer_service = IndexerService::new(
-        args.rpc_url.clone(),
-        &PrivateKeySigner::random(),
-        args.boundless_market_address,
-        &args.db,
-        IndexerServiceConfig {
-            interval: Duration::from_secs(args.interval),
-            retries: args.retries,
-        },
-    )
-    .await?;
+    let config = IndexerServiceConfig {
+        interval: Duration::from_secs(args.interval),
+        retries: args.retries,
+    };
+
+    let mut indexer_service = if let Some(order_stream_url) = args.order_stream_url {
+        tracing::info!("Initializing market indexer with order stream at: {}", order_stream_url);
+        IndexerService::new_with_order_stream(
+            args.rpc_url.clone(),
+            &PrivateKeySigner::random(),
+            args.boundless_market_address,
+            &args.db,
+            config,
+            order_stream_url,
+        )
+        .await?
+    } else {
+        tracing::info!("Initializing market indexer without order stream");
+        IndexerService::new(
+            args.rpc_url.clone(),
+            &PrivateKeySigner::random(),
+            args.boundless_market_address,
+            &args.db,
+            config,
+        )
+        .await?
+    };
 
     if let Err(err) = indexer_service.run(args.start_block).await {
         bail!("FATAL: Error running the indexer: {err}");

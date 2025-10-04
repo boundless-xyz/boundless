@@ -393,3 +393,157 @@ async fn test_monitoring() {
 
     cli_process.kill().unwrap();
 }
+
+#[sqlx::test(migrations = "../order-stream/migrations")]
+#[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
+async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
+    use boundless_market::order_stream_client::OrderStreamClient;
+    use order_stream::{run_from_parts, AppState, ConfigBuilder};
+    use std::net::{Ipv4Addr, SocketAddr};
+    use url::Url;
+
+    let test_db = TestDb::new().await.unwrap();
+    let anvil = Anvil::new().spawn();
+    let rpc_url = anvil.endpoint_url();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Setup order stream server
+    let listener =
+        tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await.unwrap();
+    let order_stream_address = listener.local_addr().unwrap();
+    let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
+
+    let order_stream_config = ConfigBuilder::default()
+        .rpc_url(anvil.endpoint_url())
+        .market_address(ctx.deployment.boundless_market_address)
+        .domain(order_stream_address.to_string())
+        .build()
+        .unwrap();
+
+    let order_stream = AppState::new(&order_stream_config, Some(pool)).await.unwrap();
+    let order_stream_clone = order_stream.clone();
+    let order_stream_handle = tokio::spawn(async move {
+        run_from_parts(order_stream_clone, listener).await.unwrap();
+    });
+
+    // Create order stream client and submit test orders
+    let order_stream_client = OrderStreamClient::new(
+        order_stream_url.clone(),
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+    );
+
+    let now = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+
+    // Submit 3 orders to order stream with delays
+    let (req1, _) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        1,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    order_stream_client.submit_request(&req1, &ctx.customer_signer).await.unwrap();
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let (req2, _) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        2,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    order_stream_client.submit_request(&req2, &ctx.customer_signer).await.unwrap();
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let (req3, _) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        3,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    order_stream_client.submit_request(&req3, &ctx.customer_signer).await.unwrap();
+
+    // Start market indexer with order stream URL
+    let cmd = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
+    let args = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &test_db.db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "1",
+        "--order-stream-url",
+        order_stream_url.as_str(),
+    ];
+
+    println!("{exe_path} {args:?}");
+
+    #[allow(clippy::zombie_processes)]
+    let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
+
+    // Wait for the indexer to process orders
+    tokio::time::sleep(Duration::from_secs(4)).await;
+
+    // Verify all 3 orders were indexed
+    let result = sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+    let count: i64 = result.get("count");
+    assert_eq!(count, 3, "Expected 3 proof requests to be indexed");
+
+    // Verify all orders are marked as offchain
+    let result =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'offchain'")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+    let offchain_count: i64 = result.get("count");
+    assert_eq!(offchain_count, 3, "Expected all 3 requests to have source='offchain'");
+
+    // Verify order stream state is tracked
+    let result = sqlx::query("SELECT last_processed_timestamp FROM order_stream_state")
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+    let timestamp: Option<String> = result.get("last_processed_timestamp");
+    assert!(timestamp.is_some(), "Expected last_processed_timestamp to be set");
+
+    // Verify tx_hash is zero for offchain orders
+    let result = sqlx::query("SELECT tx_hash FROM proof_requests WHERE request_id = $1")
+        .bind(format!("{:x}", req1.id))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+    let tx_hash: String = result.get("tx_hash");
+    assert_eq!(
+        tx_hash, "0000000000000000000000000000000000000000000000000000000000000000",
+        "Expected tx_hash to be zero for offchain order"
+    );
+
+    cli_process.kill().unwrap();
+    order_stream_handle.abort();
+}

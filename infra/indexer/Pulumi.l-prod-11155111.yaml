@@ -21,3 +21,4 @@ config:
   indexer:ETH_RPC_URL:
     secure: v1:9tN91A1uwvQ5nwuo:gCEg8168h9WizyuxgTEFHWN4xr6yRrLs4uD4BJcun1LMQ+YghSaDAqOxnQCYGRs4E76W41iQHolE3rZBuqftG0WDH/eIRNTI1gY=
   indexer:INDEXER_API_DOMAIN: indexer.eth-sepolia.boundless.network
+  indexer:ORDER_STREAM_URL: https://eth-sepolia.boundless.network

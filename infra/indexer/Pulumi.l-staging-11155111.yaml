@@ -1,3 +1,5 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFIpCALI/QCNNWmPcLuTxX9AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMnK86ocERMhqNKwPmAgEQgDvHWap3b3OE6kGKbObtaWi0/DRXcKml5Es7irokJKf1ZEu0qSEXwXsQjf0R3Le4n13PeRbyaRHpCg4f8w==
 config:
   aws:region: us-west-2
   indexer:DOCKER_DIR: ../../

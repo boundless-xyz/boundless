@@ -43,6 +43,7 @@ export = () => {
 
   const boundlessAddress = config.get('BOUNDLESS_ADDRESS');
   const startBlock = boundlessAddress ? config.require('START_BLOCK') : undefined;
+  const orderStreamUrl = config.getSecret('ORDER_STREAM_URL');
 
   const vezkcAddress = config.get('VEZKC_ADDRESS');
   const zkcAddress = config.get('ZKC_ADDRESS');
@@ -78,6 +79,7 @@ export = () => {
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
+      orderStreamUrl,
     }, { parent: infra });
   }
 
