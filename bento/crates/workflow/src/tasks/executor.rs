@@ -283,11 +283,6 @@ pub async fn executor(
     let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
 
-    // Create a new TaskDB connection for this executor
-    let mut taskdb = RedisTaskDB::new(&agent.args.redis_url)
-        .await
-        .context("Failed to create TaskDB connection")?;
-
     // Fetch ELF binary data
     let elf_key = format!("{ELF_BUCKET_DIR}/{}", request.image);
     tracing::debug!("Downloading - {}", elf_key);
@@ -432,6 +427,11 @@ pub async fn executor(
         // task
         drop(task_tx);
     });
+
+    // Create a separate TaskDB connection for this executor
+    let mut taskdb = RedisTaskDB::new(&agent.args.redis_url)
+        .await
+        .context("Failed to create TaskDB connection")?;
 
     let aux_stream = taskdb
         .get_stream(&request.user_id, AUX_WORK_TYPE)
