@@ -14,10 +14,9 @@ use risc0_zkvm::{
     CoprocessorCallback, ExecutorEnv, ExecutorImpl, InnerReceipt, Journal, NullSegmentRef,
     ProveKeccakRequest, Receipt, Segment, compute_image_id, sha::Digestible,
 };
-use sqlx::postgres::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
-use taskdb::planner::{
+use tdb::planner::{
     Planner,
     task::{Command as TaskCmd, Task},
 };
@@ -43,7 +42,6 @@ const CONCURRENT_SEGMENTS: usize = 50; // This peaks around ~4GB
 #[allow(clippy::too_many_arguments)]
 async fn process_task(
     args: &Args,
-    pool: &PgPool,
     prove_stream: &Uuid,
     join_stream: &Uuid,
     union_stream: &Uuid,
@@ -63,8 +61,7 @@ async fn process_task(
             let task_def = serde_json::to_value(TaskType::Keccak(keccak_req))
                 .expect("Failed to serialize coproc (keccak) task-type");
 
-            taskdb::create_task(
-                pool,
+            tdb::create_task(
                 job_id,
                 &task_id,
                 prove_stream,
@@ -96,8 +93,7 @@ async fn process_task(
             let prereqs = serde_json::json!([]);
             let task_name = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
+            tdb::create_task(
                 job_id,
                 &task_name,
                 prove_stream,
@@ -122,8 +118,7 @@ async fn process_task(
             ]);
             let task_name = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
+            tdb::create_task(
                 job_id,
                 &task_name,
                 join_stream,
@@ -148,8 +143,7 @@ async fn process_task(
             ]);
             let task_id = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
+            tdb::create_task(
                 job_id,
                 &task_id,
                 union_stream,
@@ -182,8 +176,7 @@ async fn process_task(
             .context("Failed to serialize resolve req")?;
             let task_id = "resolve";
 
-            taskdb::create_task(
-                pool,
+            tdb::create_task(
                 job_id,
                 task_id,
                 join_stream,
@@ -202,8 +195,7 @@ async fn process_task(
             let prereqs = serde_json::json!([task_id]);
 
             let finalize_name = "finalize";
-            taskdb::create_task(
-                pool,
+            tdb::create_task(
                 job_id,
                 finalize_name,
                 aux_stream,
@@ -222,8 +214,7 @@ async fn process_task(
                 }))
                 .context("Failed to serialize snark task-type")?;
 
-                taskdb::create_task(
-                    pool,
+                tdb::create_task(
                     job_id,
                     "snark",
                     prove_stream,
@@ -424,18 +415,18 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         drop(task_tx);
     });
 
-    let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, AUX_WORK_TYPE)
+    let aux_stream = tdb::get_stream(&request.user_id, AUX_WORK_TYPE)
         .await
         .context("Failed to get AUX stream")?
         .with_context(|| format!("Customer {} missing aux stream", request.user_id))?;
 
-    let prove_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, PROVE_WORK_TYPE)
+    let prove_stream = tdb::get_stream(&request.user_id, PROVE_WORK_TYPE)
         .await
         .context("Failed to get GPU Prove stream")?
         .with_context(|| format!("Customer {} missing gpu prove stream", request.user_id))?;
 
     let join_stream = if std::env::var("JOIN_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+        tdb::get_stream(&request.user_id, JOIN_WORK_TYPE)
             .await
             .context("Failed to get GPU Join stream")?
             .with_context(|| format!("Customer {} missing gpu join stream", request.user_id))?
@@ -444,7 +435,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let union_stream = if std::env::var("UNION_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+        tdb::get_stream(&request.user_id, JOIN_WORK_TYPE)
             .await
             .context("Failed to get GPU Union stream")?
             .with_context(|| format!("Customer {} missing gpu union stream", request.user_id))?
@@ -453,7 +444,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, COPROC_WORK_TYPE)
+        tdb::get_stream(&request.user_id, COPROC_WORK_TYPE)
             .await
             .context("Failed to get GPU Coproc stream")?
             .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?
@@ -462,7 +453,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let job_id_copy = *job_id;
-    let pool_copy = agent.db_pool.clone();
     let assumptions = request.assumptions.clone();
     let assumption_count = assumptions.len();
     let args_copy = agent.args.clone();
@@ -477,7 +467,15 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
     // Generate tasks
     writer_tasks.spawn(async move {
-        let mut planner = Planner::default();
+        let mut planner = Planner::new_with_stream(
+            "redis://127.0.0.1:6379",
+            "executor",
+            1,
+            1.0,
+            "executor_user".to_string(),
+        )
+        .await
+        .unwrap();
         while let Some(task_type) = task_rx.recv().await {
             if exec_only {
                 continue;
@@ -485,11 +483,10 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
             match task_type {
                 SenderType::Segment(segment_index) => {
-                    planner.enqueue_segment().expect("Failed to enqueue segment");
+                    planner.enqueue_segment().await.expect("Failed to enqueue segment");
                     while let Some(tree_task) = planner.next_task() {
                         process_task(
                             &args_copy,
-                            &pool_copy,
                             &prove_stream,
                             &join_stream,
                             &union_stream,
@@ -519,7 +516,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     keccak_req.input.clear();
                     tracing::debug!("Wrote keccak input to redis");
 
-                    planner.enqueue_keccak().expect("Failed to enqueue keccak");
+                    planner.enqueue_keccak().await.expect("Failed to enqueue keccak");
                     while let Some(tree_task) = planner.next_task() {
                         let req = KeccakReq {
                             claim_digest: keccak_req.claim_digest,
@@ -529,7 +526,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
                         process_task(
                             &args_copy,
-                            &pool_copy,
                             &coproc_stream,
                             &join_stream,
                             &union_stream,
@@ -553,11 +549,10 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         }
 
         if !exec_only && !guest_fault {
-            planner.finish().expect("Planner failed to finish()");
+            planner.finish().await.expect("Planner failed to finish()");
             while let Some(tree_task) = planner.next_task() {
                 process_task(
                     &args_copy,
-                    &pool_copy,
                     &prove_stream,
                     &join_stream,
                     &union_stream,
