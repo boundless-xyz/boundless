@@ -27,6 +27,7 @@ chrono = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
 colored = "2.1"
+dirs = "5.0"
 futures = { version = "0.3" }
 hex = { workspace = true }
 inquire = "0.7"

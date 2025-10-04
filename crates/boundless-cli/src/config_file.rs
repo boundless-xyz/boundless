@@ -14,7 +14,7 @@
 
 //! Configuration file management for the Boundless CLI.
 
-use std::{fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
@@ -136,21 +136,17 @@ pub struct CustomRewardsDeployment {
 /// Secrets file (secrets.toml)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Secrets {
-    /// Requestor secrets
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requestor: Option<RequestorSecrets>,
+    /// Network-specific requestor secrets (network name -> secrets)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub requestor_networks: HashMap<String, RequestorSecrets>,
 
-    /// Prover secrets
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prover: Option<ProverSecrets>,
+    /// Network-specific prover secrets (network name -> secrets)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub prover_networks: HashMap<String, ProverSecrets>,
 
-    /// Market secrets (deprecated, for backwards compatibility)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub market: Option<MarketSecrets>,
-
-    /// Rewards secrets
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rewards: Option<RewardsSecrets>,
+    /// Network-specific rewards secrets (network name -> secrets)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub rewards_networks: HashMap<String, RewardsSecrets>,
 }
 
 /// Requestor secrets
@@ -169,18 +165,6 @@ pub struct RequestorSecrets {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProverSecrets {
     /// RPC URL for prover network
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rpc_url: Option<String>,
-
-    /// Private key for transactions
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub private_key: Option<String>,
-}
-
-/// Market secrets (deprecated)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarketSecrets {
-    /// RPC URL for market network
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc_url: Option<String>,
 
@@ -211,6 +195,14 @@ pub struct RewardsSecrets {
     /// Public reward address (if no private key)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reward_address: Option<String>,
+
+    /// Path to PoVW state file (optional - only needed if generating PoVW)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub povw_state_file: Option<String>,
+
+    /// Beacon API URL for claiming PoVW rewards
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beacon_api_url: Option<String>,
 
     /// Deprecated: Private key for transactions (for backwards compatibility)
     #[serde(skip_serializing_if = "Option::is_none")]

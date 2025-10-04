@@ -18,10 +18,12 @@ mod balance_zkc;
 mod claim_povw_rewards;
 mod claim_staking_rewards;
 mod delegate;
-mod get_current_epoch;
+mod epoch;
 mod get_delegate;
 mod list_povw_rewards;
 mod list_staking_rewards;
+mod power;
+mod prepare_povw;
 mod stake_zkc;
 mod staked_balance_zkc;
 mod submit_povw;
@@ -30,10 +32,12 @@ pub use balance_zkc::RewardsBalanceZkc;
 pub use claim_povw_rewards::RewardsClaimPovwRewards;
 pub use claim_staking_rewards::RewardsClaimStakingRewards;
 pub use delegate::RewardsDelegate;
-pub use get_current_epoch::RewardsGetCurrentEpoch;
+pub use epoch::RewardsEpoch;
 pub use get_delegate::RewardsGetDelegate;
 pub use list_povw_rewards::RewardsListPovwRewards;
 pub use list_staking_rewards::RewardsListStakingRewards;
+pub use power::RewardsPower;
+pub use prepare_povw::RewardsPreparePoVW;
 pub use stake_zkc::RewardsStakeZkc;
 pub use staked_balance_zkc::RewardsStakedBalanceZkc;
 pub use submit_povw::RewardsSubmitPovw;
@@ -48,35 +52,39 @@ pub enum RewardsCommands {
     /// Stake ZKC tokens
     #[command(name = "stake-zkc")]
     StakeZkc(RewardsStakeZkc),
-    /// Get ZKC balance for a specified address
+    /// Check ZKC balance
     #[command(name = "balance-zkc")]
     BalanceZkc(RewardsBalanceZkc),
-    /// Get staked ZKC balance for a specified address
+    /// Check staked ZKC balance
     #[command(name = "staked-balance-zkc")]
     StakedBalanceZkc(RewardsStakedBalanceZkc),
-    /// List historical staking rewards for an address
+    /// List staking rewards by epoch
     #[command(name = "list-staking-rewards")]
     ListStakingRewards(RewardsListStakingRewards),
-    /// List historical PoVW rewards for an address
+    /// List PoVW rewards by epoch
     #[command(name = "list-povw-rewards")]
     ListPovwRewards(RewardsListPovwRewards),
-    /// Submit a work log update to the PoVW accounting contract
+    /// Prepare PoVW work log update
+    #[command(name = "prepare-povw")]
+    PreparePoVW(RewardsPreparePoVW),
+    /// Submit PoVW work updates
     #[command(name = "submit-povw")]
     SubmitPovw(RewardsSubmitPovw),
-    /// Claim PoVW rewards associated with submitted work log updates
+    /// Claim PoVW rewards
     #[command(name = "claim-povw-rewards")]
     ClaimPovwRewards(RewardsClaimPovwRewards),
-    /// Claim staking rewards for a specified address
+    /// Claim staking rewards
     #[command(name = "claim-staking-rewards")]
     ClaimStakingRewards(RewardsClaimStakingRewards),
-    /// Delegate rewards to a specified address
+    /// Delegate rewards to another address
     Delegate(RewardsDelegate),
-    /// Get rewards delegates for a specified address
+    /// Get rewards delegate
     #[command(name = "get-delegate")]
     GetDelegate(RewardsGetDelegate),
     /// Get current epoch information
-    #[command(name = "get-current-epoch")]
-    GetCurrentEpoch(RewardsGetCurrentEpoch),
+    Epoch(RewardsEpoch),
+    /// Check reward power and earning potential
+    Power(RewardsPower),
 }
 
 impl RewardsCommands {
@@ -88,12 +96,14 @@ impl RewardsCommands {
             Self::StakedBalanceZkc(cmd) => cmd.run(global_config).await,
             Self::ListStakingRewards(cmd) => cmd.run(global_config).await,
             Self::ListPovwRewards(cmd) => cmd.run(global_config).await,
+            Self::PreparePoVW(cmd) => cmd.run(global_config).await,
             Self::SubmitPovw(cmd) => cmd.run(global_config).await,
             Self::ClaimPovwRewards(cmd) => cmd.run(global_config).await,
             Self::ClaimStakingRewards(cmd) => cmd.run(global_config).await,
             Self::Delegate(cmd) => cmd.run(global_config).await,
             Self::GetDelegate(cmd) => cmd.run(global_config).await,
-            Self::GetCurrentEpoch(cmd) => cmd.run(global_config).await,
+            Self::Epoch(cmd) => cmd.run(global_config).await,
+            Self::Power(cmd) => cmd.run(global_config).await,
         }
     }
 }

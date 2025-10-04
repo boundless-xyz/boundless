@@ -23,7 +23,6 @@ use crate::config::{GlobalConfig, ProverConfig};
 #[derive(Args, Clone, Debug)]
 pub struct ProverLock {
     /// The proof request identifier
-    #[arg(long)]
     pub request_id: U256,
 
     /// The request digest

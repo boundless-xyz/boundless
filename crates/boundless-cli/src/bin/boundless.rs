@@ -472,8 +472,22 @@ fn address_from_private_key(private_key: &str) -> Option<String> {
     }
 }
 
-fn show_welcome_screen() -> Result<()> {
+fn format_duration(duration: std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    if secs < 60 {
+        format!("{}s ago", secs)
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
+}
+
+async fn show_welcome_screen() -> Result<()> {
     use boundless_cli::config_file::{Config, Secrets};
+    use boundless_cli::commands::povw::State;
     use colored::Colorize;
 
     println!();
@@ -502,7 +516,7 @@ fn show_welcome_screen() -> Result<()> {
     // Show Requestor Module
     if requestor_configured {
         let network = config.as_ref().unwrap().requestor.as_ref().unwrap().network.clone();
-        let requestor_secrets = secrets.as_ref().and_then(|s| s.requestor.as_ref());
+        let requestor_secrets = secrets.as_ref().and_then(|s| s.requestor_networks.get(&network));
 
         let display_network = match network.as_str() {
             "base-mainnet" => "Base Mainnet",
@@ -520,18 +534,14 @@ fn show_welcome_screen() -> Result<()> {
         if let Some(req_sec) = requestor_secrets {
             if let Some(ref pk) = req_sec.private_key {
                 if let Some(addr) = address_from_private_key(pk) {
-                    println!("  Requestor Address: {}", addr.green());
+                    println!("  Requestor Address: {} (PK: {})", addr.green(), "✓".green());
                 }
-                println!("  Status: {}", "Ready".green());
-            } else {
-                println!("  Status: {} (no credentials)", "Read-only".yellow());
             }
-        } else {
-            println!("  Status: {} (no credentials)", "Read-only".yellow());
         }
+        println!("  {} {}", "→".cyan(), "Run 'boundless requestor' to see available commands".dimmed());
     } else {
         println!("{} Requestor Module: {}", "✗".red().bold(), "Not configured".red());
-        println!("  {} {}", "→".cyan(), "Run: boundless setup requestor".cyan());
+        println!("  {} {}", "→".cyan(), "Run 'boundless setup requestor'".cyan());
     }
 
     println!();
@@ -539,7 +549,7 @@ fn show_welcome_screen() -> Result<()> {
     // Show Prover Module
     if prover_configured {
         let network = config.as_ref().unwrap().prover.as_ref().unwrap().network.clone();
-        let prover_secrets = secrets.as_ref().and_then(|s| s.prover.as_ref());
+        let prover_secrets = secrets.as_ref().and_then(|s| s.prover_networks.get(&network));
 
         let display_network = match network.as_str() {
             "base-mainnet" => "Base Mainnet",
@@ -557,25 +567,21 @@ fn show_welcome_screen() -> Result<()> {
         if let Some(prov_sec) = prover_secrets {
             if let Some(ref pk) = prov_sec.private_key {
                 if let Some(addr) = address_from_private_key(pk) {
-                    println!("  Prover Address: {}", addr.green());
+                    println!("  Prover Address: {} (PK: {})", addr.green(), "✓".green());
                 }
-                println!("  Status: {}", "Ready".green());
-            } else {
-                println!("  Status: {} (no credentials)", "Read-only".yellow());
             }
-        } else {
-            println!("  Status: {} (no credentials)", "Read-only".yellow());
         }
+        println!("  {} {}", "→".cyan(), "Run 'boundless prover' to see available commands".dimmed());
     } else {
         println!("{} Prover Module: {}", "✗".red().bold(), "Not configured".red());
-        println!("  {} {}", "→".cyan(), "Run: boundless setup prover".cyan());
+        println!("  {} {}", "→".cyan(), "Run 'boundless setup prover'".cyan());
     }
 
     println!();
 
     if rewards_configured {
         let network = config.as_ref().unwrap().rewards.as_ref().unwrap().network.clone();
-        let rewards_secrets = secrets.as_ref().and_then(|s| s.rewards.as_ref());
+        let rewards_secrets = secrets.as_ref().and_then(|s| s.rewards_networks.get(&network));
 
         let display_network = match network.as_str() {
             "mainnet" => "Ethereum Mainnet",
@@ -585,30 +591,132 @@ fn show_welcome_screen() -> Result<()> {
 
         println!("{} Rewards Module [{}]", "✓".green().bold(), display_network.blue().bold());
 
-        if let Some(rewards_sec) = rewards_secrets {
-            // Display staking address
-            if let Some(ref staking_pk) = rewards_sec.staking_private_key {
-                if let Some(addr) = address_from_private_key(staking_pk) {
-                    println!("  Staking Address: {} (PK: {})", addr.green(), "✓".green());
-                }
-            } else if let Some(ref staking_addr) = rewards_sec.staking_address {
-                println!("  Staking Address: {} (PK: {})", staking_addr.green(), "✗".yellow());
-            }
+        // Check env vars for staking credentials
+        let env_staking_pk = std::env::var("STAKING_PRIVATE_KEY").ok();
+        let env_staking_addr = std::env::var("STAKING_ADDRESS").ok();
+        let env_reward_pk = std::env::var("REWARD_PRIVATE_KEY").ok();
+        let env_reward_addr = std::env::var("REWARD_ADDRESS").ok();
 
-            // Display reward address
-            if let Some(ref reward_pk) = rewards_sec.reward_private_key {
-                if let Some(addr) = address_from_private_key(reward_pk) {
-                    println!("  Reward Address:  {} (PK: {})", addr.green(), "✓".green());
-                }
-            } else if let Some(ref reward_addr) = rewards_sec.reward_address {
-                println!("  Reward Address:  {} (PK: {})", reward_addr.green(), "✗".yellow());
-            }
+        // Resolve staking credentials (env takes precedence)
+        let (staking_pk, staking_pk_source) = if let Some(ref pk) = env_staking_pk {
+            (Some(pk.as_str()), "env")
+        } else {
+            (rewards_secrets.and_then(|s| s.staking_private_key.as_deref()), "config")
+        };
 
-            // Backwards compatibility: show deprecated private_key field
-            if rewards_sec.staking_private_key.is_none()
-                && rewards_sec.staking_address.is_none()
-                && rewards_sec.reward_private_key.is_none()
-                && rewards_sec.reward_address.is_none() {
+        let (staking_addr, staking_addr_source) = if let Some(ref addr) = env_staking_addr {
+            (Some(addr.as_str()), "env")
+        } else {
+            (rewards_secrets.and_then(|s| s.staking_address.as_deref()), "config")
+        };
+
+        // Resolve reward credentials (env takes precedence)
+        let (reward_pk, reward_pk_source) = if let Some(ref pk) = env_reward_pk {
+            (Some(pk.as_str()), "env")
+        } else {
+            (rewards_secrets.and_then(|s| s.reward_private_key.as_deref()), "config")
+        };
+
+        let (reward_addr, reward_addr_source) = if let Some(ref addr) = env_reward_addr {
+            (Some(addr.as_str()), "env")
+        } else {
+            (rewards_secrets.and_then(|s| s.reward_address.as_deref()), "config")
+        };
+
+        // Display staking address
+        if let Some(pk) = staking_pk {
+            if let Some(addr) = address_from_private_key(pk) {
+                println!("  Staking Address: {} (PK: {} {})", addr.green(), "✓".green(), format!("[{}]", staking_pk_source).dimmed());
+            }
+        } else if let Some(addr) = staking_addr {
+            println!("  Staking Address: {} (PK: {} {})", addr.green(), "✗".yellow(), format!("[{}]", staking_addr_source).dimmed());
+        }
+
+        // Display reward address
+        if let Some(pk) = reward_pk {
+            if let Some(addr) = address_from_private_key(pk) {
+                println!("  Reward Address:  {} (PK: {} {})", addr.green(), "✓".green(), format!("[{}]", reward_pk_source).dimmed());
+            }
+        } else if let Some(addr) = reward_addr {
+            // Check if reward address is same as staking address
+            let staking_addr_resolved = staking_pk
+                .and_then(|pk| address_from_private_key(pk))
+                .map(|a| a.to_lowercase())
+                .or_else(|| staking_addr.map(|s| s.to_lowercase()));
+
+            let same_as_staking = staking_addr_resolved
+                .map(|s| s == addr.to_lowercase())
+                .unwrap_or(false);
+
+            // If same address and we have staking PK, show ✓ for reward too
+            let has_pk = same_as_staking && staking_pk.is_some();
+            let pk_indicator = if has_pk { "✓".green() } else { "✗".yellow() };
+
+            println!("  Reward Address:  {} (PK: {} {})", addr.green(), pk_indicator, format!("[{}]", reward_addr_source).dimmed());
+        }
+
+        // Display PoVW state file if configured
+        let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
+        let (povw_state, povw_source) = if let Some(ref state) = env_povw_state {
+            (Some(state.as_str()), "env")
+        } else {
+            (rewards_secrets.and_then(|s| s.povw_state_file.as_deref()), "config")
+        };
+
+        if let Some(state_path) = povw_state {
+            println!("  PoVW State:      {} {}",
+                state_path.green(),
+                format!("[{}]", povw_source).dimmed());
+
+            // Try to load and display state statistics
+            match State::load(state_path).await {
+                Ok(state) => {
+                    // Display last updated time
+                    if let Ok(elapsed) = state.updated_at.elapsed() {
+                        let duration_str = format_duration(elapsed);
+                        println!("    Last updated:  {}", duration_str.dimmed());
+                    }
+
+                    // Display work log stats
+                    if !state.work_log.is_empty() {
+                        println!("    Jobs in log:   {}",
+                            state.work_log.jobs.len().to_string().cyan());
+                    } else {
+                        println!("    Jobs in log:   {}", "0 (empty)".yellow());
+                    }
+
+                    // Display number of receipts prepared
+                    println!("    Receipts:      {}",
+                        state.log_builder_receipts.len().to_string().cyan());
+
+                    // Display last on-chain submission from update_transactions
+                    if !state.update_transactions.is_empty() {
+                        // Find any transaction (they're all in the same timeframe based on updated_at)
+                        if let Some((tx_hash, _)) = state.update_transactions.iter().next() {
+                            let time_str = state.updated_at.elapsed()
+                                .map(format_duration)
+                                .unwrap_or_else(|_| "unknown".to_string());
+                            let tx_short = format!("{:#x}", tx_hash).chars().take(10).collect::<String>();
+                            println!("    Last submitted on-chain: {} (tx: {})",
+                                time_str.dimmed(),
+                                tx_short.cyan());
+                        }
+                    } else {
+                        println!("    Last submitted on-chain: {}", "Never submitted".yellow());
+                    }
+                }
+                Err(_) => {
+                    println!("    Status:        {} (file not found or invalid)", "⚠".yellow());
+                }
+            }
+        } else {
+            println!("  PoVW State:      {} (PoVW disabled)", "✗".yellow());
+        }
+
+        // Backwards compatibility: show deprecated private_key field if nothing else is set
+        let has_modern_config = staking_pk.is_some() || staking_addr.is_some() || reward_pk.is_some() || reward_addr.is_some();
+        if !has_modern_config {
+            if let Some(rewards_sec) = rewards_secrets {
                 if let Some(ref pk) = rewards_sec.private_key {
                     if let Some(addr) = address_from_private_key(pk) {
                         println!("  Address (deprecated): {}", addr.green());
@@ -617,13 +725,14 @@ fn show_welcome_screen() -> Result<()> {
                 } else {
                     println!("  Status: {} (no credentials)", "Read-only".yellow());
                 }
+            } else {
+                println!("  Status: {} (no credentials)", "Read-only".yellow());
             }
-        } else {
-            println!("  Status: {} (no credentials)", "Read-only".yellow());
         }
+        println!("  {} {}", "→".cyan(), "Run 'boundless rewards' to see available commands".dimmed());
     } else {
         println!("{} Rewards Module: {}", "✗".red().bold(), "Not configured".red());
-        println!("  {} {}", "→".cyan(), "Run: boundless setup rewards".cyan());
+        println!("  {} {}", "→".cyan(), "Run 'boundless setup rewards'".cyan());
     }
 
     println!();
@@ -659,7 +768,7 @@ fn show_requestor_status() -> Result<()> {
             println!("{} {}", "Network:".bold(), display_network.blue());
 
             if let Some(ref sec) = secrets {
-                if let Some(ref requestor_sec) = sec.requestor {
+                if let Some(requestor_sec) = sec.requestor_networks.get(&requestor.network) {
                     if let Some(ref rpc) = requestor_sec.rpc_url {
                         println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
                     }
@@ -723,7 +832,7 @@ fn show_prover_status() -> Result<()> {
             println!("{} {}", "Network:".bold(), display_network.blue());
 
             if let Some(ref sec) = secrets {
-                if let Some(ref prover_sec) = sec.prover {
+                if let Some(prover_sec) = sec.prover_networks.get(&prover.network) {
                     if let Some(ref rpc) = prover_sec.rpc_url {
                         println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
                     }
@@ -766,8 +875,9 @@ fn show_prover_status() -> Result<()> {
     Ok(())
 }
 
-fn show_rewards_status() -> Result<()> {
+async fn show_rewards_status() -> Result<()> {
     use boundless_cli::config_file::{Config, Secrets};
+    use boundless_cli::commands::povw::State;
     use colored::Colorize;
 
     println!("\n{}\n", "Rewards Module".bold().underline());
@@ -786,7 +896,7 @@ fn show_rewards_status() -> Result<()> {
             println!("{} {}", "Network:".bold(), display_network.blue());
 
             if let Some(ref sec) = secrets {
-                if let Some(ref rewards_sec) = sec.rewards {
+                if let Some(rewards_sec) = sec.rewards_networks.get(&rewards.network) {
                     if let Some(ref rpc) = rewards_sec.rpc_url {
                         println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
                     }
@@ -813,23 +923,75 @@ fn show_rewards_status() -> Result<()> {
                         println!("  {} {}", "Private Key:".bold(), "Not configured".yellow());
                     }
 
-                    // Backwards compatibility: show deprecated private_key field if present
-                    if rewards_sec.staking_private_key.is_none()
-                        && rewards_sec.staking_address.is_none()
-                        && rewards_sec.reward_private_key.is_none()
-                        && rewards_sec.reward_address.is_none() {
-                        if let Some(ref pk) = rewards_sec.private_key {
-                            if let Some(addr) = address_from_private_key(pk) {
-                                println!("{} {}", "Address (deprecated):".bold(), addr.green());
+                    // Display PoVW state file if configured
+                    println!();
+                    let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
+                    let povw_state_path = if let Some(ref state) = env_povw_state {
+                        Some(state.as_str())
+                    } else {
+                        rewards_sec.povw_state_file.as_deref()
+                    };
+
+                    if let Some(state_path) = povw_state_path {
+                        println!("{} {}", "PoVW State File:".bold(), state_path.green());
+
+                        // Try to load and display state statistics
+                        match State::load(state_path).await {
+                            Ok(state) => {
+                                // Display last updated time
+                                if let Ok(elapsed) = state.updated_at.elapsed() {
+                                    let duration_str = format_duration(elapsed);
+                                    println!("  {} {}", "Last updated:".bold(), duration_str.dimmed());
+                                }
+
+                                // Display work log stats
+                                if !state.work_log.is_empty() {
+                                    println!("  {} {}",
+                                        "Jobs in log:".bold(),
+                                        state.work_log.jobs.len().to_string().cyan());
+                                } else {
+                                    println!("  {} {}", "Jobs in log:".bold(), "0 (empty)".yellow());
+                                }
+
+                                // Display number of receipts prepared
+                                println!("  {} {}",
+                                    "Receipts:".bold(),
+                                    state.log_builder_receipts.len().to_string().cyan());
+
+                                // Display last on-chain submission from update_transactions
+                                if !state.update_transactions.is_empty() {
+                                    if let Some((tx_hash, _)) = state.update_transactions.iter().next() {
+                                        let time_str = state.updated_at.elapsed()
+                                            .map(format_duration)
+                                            .unwrap_or_else(|_| "unknown".to_string());
+                                        let tx_short = format!("{:#x}", tx_hash).chars().take(10).collect::<String>();
+                                        println!("  {} {} (tx: {})",
+                                            "Last submitted on-chain:".bold(),
+                                            time_str.dimmed(),
+                                            tx_short.cyan());
+                                    }
+                                } else {
+                                    println!("  {} {}", "Last submitted on-chain:".bold(), "Never submitted".yellow());
+                                }
                             }
-                            println!("{} {}", "Private Key:".bold(), "Configured".green());
-                        } else {
-                            println!(
-                                "{} {}",
-                                "Private Key:".bold(),
-                                "Not configured (read-only)".yellow()
-                            );
+                            Err(_) => {
+                                println!("  {} {} (file not found or invalid)", "Status:".bold(), "⚠".yellow());
+                            }
                         }
+                    } else {
+                        println!("{} {}", "PoVW State:".bold(), "Not configured (PoVW disabled)".yellow());
+                    }
+
+                    // Display Beacon API URL if configured
+                    let env_beacon_api = std::env::var("BEACON_API_URL").ok();
+                    if let Some(ref url) = env_beacon_api {
+                        if rewards_sec.beacon_api_url.is_some() {
+                            println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[env]".dimmed());
+                        } else {
+                            println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[env]".dimmed());
+                        }
+                    } else if let Some(ref url) = rewards_sec.beacon_api_url {
+                        println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[config]".dimmed());
                     }
                 }
             }
@@ -847,10 +1009,11 @@ fn show_rewards_status() -> Result<()> {
     println!("  {} - Submit PoVW work updates", "submit-povw".cyan());
     println!("  {} - Claim PoVW rewards", "claim-povw-rewards".cyan());
     println!("  {} - Claim staking rewards", "claim-staking-rewards".cyan());
-    println!("  {} - List historical staking rewards", "list-staking-rewards".cyan());
-    println!("  {} - List historical PoVW rewards", "list-povw-rewards".cyan());
+    println!("  {} - List staking rewards by epoch", "list-staking-rewards".cyan());
+    println!("  {} - List PoVW rewards by epoch", "list-povw-rewards".cyan());
     println!("  {} - Delegate rewards to another address", "delegate".cyan());
-    println!("  {} - Get current epoch information", "get-current-epoch".cyan());
+    println!("  {} - Get current epoch information", "epoch".cyan());
+    println!("  {} - Check reward power and earning potential", "power".cyan());
 
     println!(
         "\n💡 {} {}",
@@ -876,7 +1039,7 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
             "rewards" => {
-                show_rewards_status()?;
+                show_rewards_status().await?;
                 return Ok(());
             }
             _ => {}
@@ -898,7 +1061,7 @@ async fn main() -> Result<()> {
             }
             // If no subcommand provided, show welcome screen
             if err.kind() == clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
-                show_welcome_screen()?;
+                show_welcome_screen().await?;
                 return Ok(());
             }
             // Print error directly to avoid double "Error:" prefix

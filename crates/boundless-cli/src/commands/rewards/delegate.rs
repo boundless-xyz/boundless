@@ -38,7 +38,7 @@ impl RewardsDelegate {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
         let rpc_url = rewards_config.require_rpc_url()?;
 
-        let signer = rewards_config.require_private_key()?;
+        let signer = rewards_config.require_staking_private_key()?;
 
         // Connect to provider with signer
         let provider = ProviderBuilder::new().wallet(signer.clone()).on_http(rpc_url);

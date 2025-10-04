@@ -26,10 +26,7 @@ use crate::config::{GlobalConfig, RewardsConfig};
 /// Claim accumulated staking rewards
 #[derive(Args, Clone, Debug)]
 pub struct RewardsClaimStakingRewards {
-    /// Address to claim rewards for (defaults to wallet address)
-    pub address: Option<Address>,
-
-    /// Address to receive the claimed rewards (defaults to claimer address)
+    /// Address to receive the claimed rewards (defaults to signer address)
     #[arg(long)]
     pub recipient: Option<Address>,
 
@@ -40,16 +37,20 @@ pub struct RewardsClaimStakingRewards {
 
 impl RewardsClaimStakingRewards {
     /// Run the claim-staking-rewards command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+    pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
         // Get RPC URL and private key for signing
         let rpc_url = rewards_config.require_rpc_url()?;
 
-        let signer = rewards_config.require_private_key()?;
+        let signer = rewards_config.require_reward_private_key()?;
 
         // Connect to provider with signer
-        let provider = ProviderBuilder::new().wallet(signer.clone()).on_http(rpc_url);
+        let provider = ProviderBuilder::new()
+            .wallet(signer.clone())
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
         // Get chain ID to determine deployment
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
@@ -62,8 +63,8 @@ impl RewardsClaimStakingRewards {
         // Create staking rewards contract instance
         let staking_rewards = IStakingRewards::new(staking_rewards_address, &provider);
 
-        // Get address to claim for (defaults to signer address)
-        let claim_address = self.address.unwrap_or(signer.address());
+        // Always use signer address as claim address
+        let claim_address = signer.address();
 
         // Get recipient address (defaults to claim address)
         let recipient_address = self.recipient.unwrap_or(claim_address);
@@ -73,7 +74,7 @@ impl RewardsClaimStakingRewards {
             "Claiming Staking Rewards".bold(),
             network_name.blue().bold()
         );
-        println!("  Claim Address: {}", format!("{:#x}", claim_address).cyan());
+        println!("  Reward Address: {}", format!("{:#x}", claim_address).cyan());
         if self.recipient.is_some() {
             println!("  Recipient Address: {}", format!("{:#x}", recipient_address).cyan());
         }
@@ -86,16 +87,9 @@ impl RewardsClaimStakingRewards {
             .await
             .context("Failed to query current epoch")?;
 
-        // Check unclaimed rewards for recent epochs (last 10 epochs)
-        let epochs_to_check: Vec<alloy::primitives::U256> = (0..10)
-            .map(|i| {
-                if current_epoch > alloy::primitives::U256::from(i) {
-                    current_epoch - alloy::primitives::U256::from(i)
-                } else {
-                    alloy::primitives::U256::ZERO
-                }
-            })
-            .filter(|&e| e > alloy::primitives::U256::ZERO)
+        // Check all epochs from 0 to current
+        let epochs_to_check: Vec<alloy::primitives::U256> = (0..=current_epoch.to::<u64>())
+            .map(alloy::primitives::U256::from)
             .collect();
 
         let unclaimed = staking_rewards

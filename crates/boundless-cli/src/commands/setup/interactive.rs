@@ -16,10 +16,13 @@
 
 use std::io::Write;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Args;
+use colored::Colorize;
 use inquire::{Confirm, Select, Text};
+use risc0_povw::PovwLogId;
 
+use crate::commands::povw::State;
 use crate::config::GlobalConfig;
 use crate::config_file::{
     Config, CustomMarketDeployment, CustomRewardsDeployment, ProverConfig, ProverSecrets,
@@ -29,8 +32,8 @@ use crate::config_file::{
 /// Interactive setup command
 #[derive(Args, Clone, Debug)]
 pub struct SetupInteractive {
-    /// Network name (e.g., base-mainnet, base-sepolia, eth-sepolia)
-    #[arg(long = "set-network")]
+    /// Switch network and load any previously saved configuration for that network
+    #[arg(long = "change-network")]
     pub network: Option<String>,
 
     /// RPC URL for the network
@@ -77,7 +80,10 @@ impl SetupInteractive {
         config.save()?;
         println!("\n✓ Configuration saved to {}", Config::path()?.display());
 
-        if secrets.requestor.is_some() || secrets.prover.is_some() || secrets.rewards.is_some() {
+        if !secrets.requestor_networks.is_empty()
+            || !secrets.prover_networks.is_empty()
+            || !secrets.rewards_networks.is_empty()
+        {
             secrets.save()?;
             println!("✓ Secrets saved to {} (permissions: 600)", Secrets::path()?.display());
             println!("\n⚠️  Warning: Secrets are stored in plaintext. Consider using environment variables instead.");
@@ -111,7 +117,10 @@ impl SetupInteractive {
         config.save()?;
         println!("\n✓ Configuration saved to {}", Config::path()?.display());
 
-        if secrets.requestor.is_some() || secrets.prover.is_some() || secrets.rewards.is_some() {
+        if !secrets.requestor_networks.is_empty()
+            || !secrets.prover_networks.is_empty()
+            || !secrets.rewards_networks.is_empty()
+        {
             secrets.save()?;
             println!("✓ Secrets saved to {} (permissions: 600)", Secrets::path()?.display());
             println!("\n⚠️  Warning: Secrets are stored in plaintext. Consider using environment variables instead.");
@@ -125,11 +134,6 @@ impl SetupInteractive {
     async fn setup_requestor(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
         println!("\n--- Requestor Module Setup ---\n");
 
-        let existing_requestor = secrets.requestor.as_ref();
-        if existing_requestor.is_some() && self.network.is_none() && self.rpc_url.is_none() && self.private_key.is_none() {
-            println!("📝 Existing configuration detected - current values will be shown\n");
-        }
-
         let network_name = if let Some(ref network) = self.network {
             println!("✓ Using network: {}", network);
             network.clone()
@@ -157,20 +161,34 @@ impl SetupInteractive {
             }
         };
 
-        config.requestor = Some(RequestorConfig { network: network_name });
+        config.requestor = Some(RequestorConfig { network: network_name.clone() });
+
+        // Check if we have previous configuration for this network
+        if let Some(existing) = secrets.requestor_networks.get(&network_name) {
+            if self.rpc_url.is_none() && self.private_key.is_none() {
+                println!("\n📝 Previous configuration found for {}:", network_name);
+                if let Some(ref rpc) = existing.rpc_url {
+                    println!("  RPC URL: {}", Self::obscure_url(rpc));
+                }
+
+                let use_previous = Confirm::new("Use previous configuration?")
+                    .with_default(true)
+                    .prompt()?;
+
+                if use_previous {
+                    println!("\n✓ Using previous configuration");
+                    return Ok(());
+                }
+            }
+        }
 
         let rpc_url = if let Some(ref url) = self.rpc_url {
             println!("✓ Using RPC URL: {}", url);
             url.clone()
         } else {
-            let mut rpc_url_prompt = Text::new("Enter RPC URL for this network:")
-                .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
-
-            if let Some(existing_rpc) = existing_requestor.and_then(|m| m.rpc_url.as_ref()) {
-                rpc_url_prompt = rpc_url_prompt.with_default(existing_rpc);
-            }
-
-            rpc_url_prompt.prompt()?
+            Text::new("Enter RPC URL for this network:")
+                .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY")
+                .prompt()?
         };
 
         let private_key = if let Some(ref pk) = self.private_key {
@@ -178,21 +196,12 @@ impl SetupInteractive {
             println!("✓ Using provided private key");
             Some(pk)
         } else {
-            let has_existing_key = existing_requestor.and_then(|m| m.private_key.as_ref()).is_some();
-            let private_key_prompt = if has_existing_key {
-                let help_msg = format!("Current: {}", Self::obscure_secret("existing_key"));
-                Confirm::new("Do you want to update the stored private key?")
-                    .with_default(false)
-                    .with_help_message(&help_msg)
-                    .prompt()?
-            } else {
-                Confirm::new("Do you want to store a private key?")
-                    .with_default(false)
-                    .with_help_message(
-                        "Required for write operations. If no, you can set REQUESTOR_PRIVATE_KEY env variable instead.",
-                    )
-                    .prompt()?
-            };
+            let private_key_prompt = Confirm::new("Do you want to store a private key?")
+                .with_default(false)
+                .with_help_message(
+                    "Required for write operations. If no, you can set REQUESTOR_PRIVATE_KEY env variable instead.",
+                )
+                .prompt()?;
 
             if private_key_prompt {
                 let pk = Text::new("Enter private key:")
@@ -200,15 +209,19 @@ impl SetupInteractive {
                     .prompt()?;
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
                 Some(pk)
-            } else if has_existing_key {
-                existing_requestor.and_then(|m| m.private_key.clone())
             } else {
                 println!("\n✓ You can set REQUESTOR_PRIVATE_KEY environment variable later for write operations");
                 None
             }
         };
 
-        secrets.requestor = Some(RequestorSecrets { rpc_url: Some(rpc_url), private_key });
+        secrets.requestor_networks.insert(
+            network_name,
+            RequestorSecrets {
+                rpc_url: Some(rpc_url),
+                private_key,
+            },
+        );
 
         Ok(())
     }
@@ -216,11 +229,6 @@ impl SetupInteractive {
     async fn setup_prover(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
         println!("\n--- Prover Module Setup ---\n");
 
-        let existing_prover = secrets.prover.as_ref();
-        if existing_prover.is_some() && self.network.is_none() && self.rpc_url.is_none() && self.private_key.is_none() {
-            println!("📝 Existing configuration detected - current values will be shown\n");
-        }
-
         let network_name = if let Some(ref network) = self.network {
             println!("✓ Using network: {}", network);
             network.clone()
@@ -248,20 +256,34 @@ impl SetupInteractive {
             }
         };
 
-        config.prover = Some(ProverConfig { network: network_name });
+        config.prover = Some(ProverConfig { network: network_name.clone() });
+
+        // Check if we have previous configuration for this network
+        if let Some(existing) = secrets.prover_networks.get(&network_name) {
+            if self.rpc_url.is_none() && self.private_key.is_none() {
+                println!("\n📝 Previous configuration found for {}:", network_name);
+                if let Some(ref rpc) = existing.rpc_url {
+                    println!("  RPC URL: {}", Self::obscure_url(rpc));
+                }
+
+                let use_previous = Confirm::new("Use previous configuration?")
+                    .with_default(true)
+                    .prompt()?;
+
+                if use_previous {
+                    println!("\n✓ Using previous configuration");
+                    return Ok(());
+                }
+            }
+        }
 
         let rpc_url = if let Some(ref url) = self.rpc_url {
             println!("✓ Using RPC URL: {}", url);
             url.clone()
         } else {
-            let mut rpc_url_prompt = Text::new("Enter RPC URL for this network:")
-                .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
-
-            if let Some(existing_rpc) = existing_prover.and_then(|m| m.rpc_url.as_ref()) {
-                rpc_url_prompt = rpc_url_prompt.with_default(existing_rpc);
-            }
-
-            rpc_url_prompt.prompt()?
+            Text::new("Enter RPC URL for this network:")
+                .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY")
+                .prompt()?
         };
 
         let private_key = if let Some(ref pk) = self.private_key {
@@ -269,21 +291,12 @@ impl SetupInteractive {
             println!("✓ Using provided private key");
             Some(pk)
         } else {
-            let has_existing_key = existing_prover.and_then(|m| m.private_key.as_ref()).is_some();
-            let private_key_prompt = if has_existing_key {
-                let help_msg = format!("Current: {}", Self::obscure_secret("existing_key"));
-                Confirm::new("Do you want to update the stored private key?")
-                    .with_default(false)
-                    .with_help_message(&help_msg)
-                    .prompt()?
-            } else {
-                Confirm::new("Do you want to store a private key?")
-                    .with_default(false)
-                    .with_help_message(
-                        "Required for write operations. If no, you can set PROVER_PRIVATE_KEY env variable instead.",
-                    )
-                    .prompt()?
-            };
+            let private_key_prompt = Confirm::new("Do you want to store a private key?")
+                .with_default(false)
+                .with_help_message(
+                    "Required for write operations. If no, you can set PROVER_PRIVATE_KEY env variable instead.",
+                )
+                .prompt()?;
 
             if private_key_prompt {
                 let pk = Text::new("Enter private key:")
@@ -291,15 +304,19 @@ impl SetupInteractive {
                     .prompt()?;
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
                 Some(pk)
-            } else if has_existing_key {
-                existing_prover.and_then(|m| m.private_key.clone())
             } else {
                 println!("\n✓ You can set PROVER_PRIVATE_KEY environment variable later for write operations");
                 None
             }
         };
 
-        secrets.prover = Some(ProverSecrets { rpc_url: Some(rpc_url), private_key });
+        secrets.prover_networks.insert(
+            network_name,
+            ProverSecrets {
+                rpc_url: Some(rpc_url),
+                private_key,
+            },
+        );
 
         Ok(())
     }
@@ -310,6 +327,20 @@ impl SetupInteractive {
         } else {
             format!("{}...{}", &secret[..4], &secret[secret.len() - 4..])
         }
+    }
+
+    fn obscure_url(url: &str) -> String {
+        url.split('/')
+            .enumerate()
+            .map(|(i, part)| {
+                if i >= 3 && part.len() > 10 {
+                    format!("{}...", &part[..6])
+                } else {
+                    part.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     fn setup_custom_market() -> Result<CustomMarketDeployment> {
@@ -378,11 +409,6 @@ impl SetupInteractive {
     async fn setup_rewards(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
         println!("\n--- Rewards Module Setup ---\n");
 
-        let existing_rewards = secrets.rewards.as_ref();
-        if existing_rewards.is_some() && self.network.is_none() && self.rpc_url.is_none() && self.private_key.is_none() {
-            println!("📝 Existing configuration detected - current values will be shown\n");
-        }
-
         let network_name = if let Some(ref network) = self.network {
             println!("✓ Using network: {}", network);
             network.clone()
@@ -411,18 +437,38 @@ impl SetupInteractive {
 
         config.rewards = Some(RewardsConfig { network: network_name.clone() });
 
+        // Check if we have previous configuration for this network
+        if let Some(existing) = secrets.rewards_networks.get(&network_name) {
+            if self.rpc_url.is_none() && self.private_key.is_none() {
+                println!("\n📝 Previous configuration found for {}:", network_name);
+                if let Some(ref rpc) = existing.rpc_url {
+                    println!("  RPC URL: {}", Self::obscure_url(rpc));
+                }
+                if let Some(ref addr) = existing.staking_address {
+                    println!("  Staking Address: {}", addr);
+                }
+                if let Some(ref addr) = existing.reward_address {
+                    println!("  Reward Address: {}", addr);
+                }
+
+                let use_previous = Confirm::new("Use previous configuration?")
+                    .with_default(true)
+                    .prompt()?;
+
+                if use_previous {
+                    println!("\n✓ Using previous configuration");
+                    return Ok(());
+                }
+            }
+        }
+
         let rpc_url = if let Some(ref url) = self.rpc_url {
             println!("✓ Using RPC URL: {}", url);
             url.clone()
         } else {
-            let mut rpc_url_prompt = Text::new("Enter RPC URL for this network:")
-                .with_help_message("e.g., https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
-
-            if let Some(existing_rpc) = existing_rewards.and_then(|r| r.rpc_url.as_ref()) {
-                rpc_url_prompt = rpc_url_prompt.with_default(existing_rpc);
-            }
-
-            rpc_url_prompt.prompt()?
+            Text::new("Enter RPC URL for this network:")
+                .with_help_message("e.g., https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY")
+                .prompt()?
         };
 
         // Ask for staking address
@@ -435,17 +481,10 @@ impl SetupInteractive {
             let addr = Self::address_from_private_key(&pk);
             (Some(pk), addr.map(|a| format!("{:#x}", a)))
         } else {
-            let has_existing_staking_key = existing_rewards.and_then(|r| r.staking_private_key.as_ref()).is_some();
-            let staking_key_prompt = if has_existing_staking_key {
-                Confirm::new("Do you want to update the stored staking private key?")
-                    .with_default(false)
-                    .prompt()?
-            } else {
-                Confirm::new("Do you want to store a private key for the staking address?")
-                    .with_default(true)
-                    .with_help_message("Skip if using a hardware wallet, smart contract wallet, or don't need to stake ZKC or delegate rewards")
-                    .prompt()?
-            };
+            let staking_key_prompt = Confirm::new("Do you want to store a private key for the staking address?")
+                .with_default(true)
+                .with_help_message("Skip if using a hardware wallet, smart contract wallet, or don't need to stake ZKC or delegate rewards")
+                .prompt()?;
 
             if staking_key_prompt {
                 let pk = Text::new("Enter staking private key:")
@@ -455,7 +494,6 @@ impl SetupInteractive {
                 let addr = Self::address_from_private_key(&pk);
                 (Some(pk), addr.map(|a| format!("{:#x}", a)))
             } else {
-                // Ask for public staking address
                 let addr = Text::new("Enter staking address:")
                     .with_help_message("Public Ethereum address that holds your staked ZKC")
                     .prompt()?;
@@ -499,14 +537,136 @@ impl SetupInteractive {
             (None, None)
         };
 
-        secrets.rewards = Some(RewardsSecrets {
-            rpc_url: Some(rpc_url),
-            staking_private_key,
-            staking_address,
-            reward_private_key,
-            reward_address,
-            private_key: None, // deprecated field
-        });
+        // If reward address is the same as staking address, copy the staking private key
+        let (final_reward_pk, final_reward_addr) = if let (Some(ref reward_addr), Some(ref staking_pk)) = (&reward_address, &staking_private_key) {
+            let staking_addr_derived = Self::address_from_private_key(staking_pk)
+                .map(|a| format!("{:#x}", a).to_lowercase());
+
+            if staking_addr_derived.as_ref().map(|s| s == &reward_addr.to_lowercase()).unwrap_or(false) {
+                // Same address - copy staking PK to reward PK
+                (staking_private_key.clone(), reward_address)
+            } else {
+                (reward_private_key, reward_address)
+            }
+        } else {
+            (reward_private_key, reward_address)
+        };
+
+        // PoVW State File Configuration
+        let povw_state_file = if let Some(ref reward_addr) = final_reward_addr {
+            println!("\n--- PoVW (Proof of Verifiable Work) Configuration ---");
+
+            let generate_povw = Confirm::new("Do you plan to generate PoVW?")
+                .with_default(false)
+                .with_help_message("PoVW allows you to earn ZKC rewards for proving work")
+                .prompt()?;
+
+            if generate_povw {
+                use colored::Colorize;
+
+                // Show critical warnings
+                println!("\n{}", "⚠️  CRITICAL: PoVW State File Information".yellow().bold());
+                println!("  • Loss of this state file WILL result in loss of all unsubmitted work");
+                println!("  • Each reward address should have ONLY ONE state file");
+                println!("  • Keep this file backed up in a durable location");
+                println!("  • See: https://docs.boundless.network/zkc/mining/walkthrough\n");
+
+                let has_existing = Confirm::new(&format!("Do you have an existing PoVW state file for {}?", reward_addr))
+                    .with_default(false)
+                    .prompt()?;
+
+                if has_existing {
+                    let path = Text::new("Enter path to existing state file:")
+                        .prompt()?;
+
+                    // Validate that the state file's log_id matches the reward address
+                    print!("Validating state file... ");
+                    std::io::stdout().flush()?;
+
+                    match State::load(&path).await {
+                        Ok(state) => {
+                            // Parse reward address as PovwLogId for comparison
+                            let reward_log_id = reward_addr.parse::<PovwLogId>()
+                                .context("Failed to parse reward address as PoVW log ID")?;
+
+                            if state.log_id != reward_log_id {
+                                println!("{}", "✗".red());
+                                bail!(
+                                    "PoVW state file log ID mismatch!\n\n\
+                                    State file log ID: {:x}\n\
+                                    Reward address:    {}\n\n\
+                                    Each reward address must have its own unique state file.\n\
+                                    Either use the correct state file for this reward address,\n\
+                                    or create a new state file.",
+                                    state.log_id,
+                                    reward_addr
+                                );
+                            }
+                            println!("{}", "✓".green());
+                            println!("  Log ID matches reward address: {:x}", state.log_id);
+                        }
+                        Err(e) => {
+                            println!("{}", "✗".red());
+                            bail!("Failed to load state file: {}\n\nPlease check the path and try again.", e);
+                        }
+                    }
+
+                    Some(path)
+                } else {
+                    let default_filename = format!("povw_state_{}.bin",
+                        reward_addr.strip_prefix("0x").unwrap_or(reward_addr));
+
+                    let path = Text::new("Enter path for new state file:")
+                        .with_default(&default_filename)
+                        .with_help_message("Default: current directory")
+                        .prompt()?;
+
+                    println!("\n✓ State file will be created at: {}", path.cyan());
+                    println!("  Remember to back this up regularly!");
+                    Some(path)
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Beacon API URL Configuration (needed for claiming PoVW rewards)
+        let beacon_api_url = if povw_state_file.is_some() {
+            println!("\n--- Beacon API Configuration ---");
+            println!("A Beacon API URL is required to claim PoVW rewards on Ethereum");
+            println!("Providers like Quicknode offer Beacon API access\n");
+
+            let configure_beacon = Confirm::new("Configure Beacon API URL now?")
+                .with_default(true)
+                .with_help_message("You can set this later via BEACON_API_URL env var")
+                .prompt()?;
+
+            if configure_beacon {
+                Some(Text::new("Enter Beacon API URL:")
+                    .with_help_message("e.g., https://YOUR_PROVIDER/beacon")
+                    .prompt()?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        secrets.rewards_networks.insert(
+            network_name,
+            RewardsSecrets {
+                rpc_url: Some(rpc_url),
+                staking_private_key,
+                staking_address,
+                reward_private_key: final_reward_pk,
+                reward_address: final_reward_addr,
+                povw_state_file,
+                beacon_api_url,
+                private_key: None,
+            },
+        );
 
         println!("\n✓ Rewards module configured successfully");
 

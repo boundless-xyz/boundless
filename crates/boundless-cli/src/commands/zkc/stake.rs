@@ -15,7 +15,7 @@
 use alloy::{
     eips::BlockId,
     network::Ethereum,
-    primitives::{utils::format_ether, B256, U256},
+    primitives::{utils::{format_ether, parse_ether}, B256, U256},
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
     sol_types::SolCall,
@@ -34,9 +34,8 @@ use crate::{commands::zkc::get_active_token_id, config::{GlobalConfig, RewardsCo
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct ZkcStake {
-    // TODO(zkc): what units should we use here?
-    /// Amount of ZKC to stake, in wei.
-    #[clap(long)]
+    /// Amount of ZKC to stake
+    #[clap(long, value_parser = parse_ether)]
     pub amount: U256,
     /// Do not use ERC20 permit to authorize the staking. You will need to send a separate
     /// transaction to set an ERC20 allowance instead.

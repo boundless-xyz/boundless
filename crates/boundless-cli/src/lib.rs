@@ -140,6 +140,7 @@ pub fn format_amount(amount_str: &str) -> String {
 /// Get the network name from a chain ID.
 pub fn network_name_from_chain_id(chain_id: Option<u64>) -> &'static str {
     match chain_id {
+        Some(1) => "Ethereum Mainnet",
         Some(8453) => "Base Mainnet",
         Some(84532) => "Base Sepolia",
         Some(11155111) => "Ethereum Sepolia",

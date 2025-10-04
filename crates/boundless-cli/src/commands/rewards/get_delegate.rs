@@ -13,19 +13,25 @@
 // limitations under the License.
 
 use alloy::{
-    primitives::Address,
+    primitives::{utils::format_ether, Address},
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
+use boundless_zkc::{contracts::IRewards, deployments::Deployment};
 use clap::Args;
+use colored::Colorize;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 
-/// Get the current delegate for an address
+/// Get the current reward delegate for an address
 #[derive(Args, Clone, Debug)]
 pub struct RewardsGetDelegate {
-    /// Address to check delegation for
+    /// Address to check reward delegation for
     pub address: Address,
+
+    /// Configuration for the ZKC deployment to use.
+    #[clap(flatten, next_help_heading = "ZKC Deployment")]
+    pub deployment: Option<Deployment>,
 
     /// Rewards configuration (RPC URL, private key, ZKC contract address)
     #[clap(flatten)]
@@ -34,7 +40,7 @@ pub struct RewardsGetDelegate {
 
 impl RewardsGetDelegate {
     /// Run the get-delegate command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+    pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
         let rpc_url = rewards_config.require_rpc_url()?;
 
@@ -47,61 +53,39 @@ impl RewardsGetDelegate {
         // Get chain ID to determine deployment
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
-        // Get veZKC (staking) contract address
-        let vezkc_address = rewards_config.vezkc_address()?;
+        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
 
-        // Define ERC721Votes interface inline for veZKC
-        alloy::sol! {
-            #[sol(rpc)]
-            interface IERC721Votes {
-                function delegates(address account) external view returns (address);
-                function getVotes(address account) external view returns (uint256);
-                function balanceOf(address owner) external view returns (uint256);
-            }
-        }
+        // Create IRewards contract instance
+        let rewards = IRewards::new(deployment.vezkc_address, &provider);
 
-        // Create veZKC contract instance
-        let vezkc = IERC721Votes::new(vezkc_address, &provider);
+        // Query reward delegate and reward power
+        let reward_delegate = rewards
+            .rewardDelegates(self.address)
+            .call()
+            .await
+            .context("Failed to query reward delegate")?;
 
-        // Query current delegate
-        let delegate =
-            vezkc.delegates(self.address).call().await.context("Failed to query delegate")?;
+        let reward_power = rewards
+            .getStakingRewards(self.address)
+            .call()
+            .await
+            .context("Failed to query reward power")?;
+
+        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+
+        println!("\n{} [{}]", "Reward Delegation Status".bold(), network_name.blue().bold());
+        println!("  Address: {}", format!("{:#x}", self.address).dimmed());
 
         // Check if self-delegated or delegated to another address
-        if delegate == self.address {
-            tracing::info!("Address {:#x} is self-delegated (no delegation)", self.address);
-        } else if delegate == Address::ZERO {
-            tracing::info!("Address {:#x} has not delegated voting power", self.address);
+        if reward_delegate == self.address {
+            println!("  Reward Delegate: {} {}", format!("{:#x}", reward_delegate).green(), "(self)".dimmed());
         } else {
-            tracing::info!(
-                "Address {:#x} has delegated voting power to {:#x}",
-                self.address,
-                delegate
-            );
+            println!("  Reward Delegate: {}", format!("{:#x}", reward_delegate).yellow());
         }
 
-        // Also query voting power to provide complete info
-        let voting_power =
-            vezkc.getVotes(self.address).call().await.context("Failed to query voting power")?;
-
-        let balance =
-            vezkc.balanceOf(self.address).call().await.context("Failed to query staked balance")?;
-
-        if voting_power != balance {
-            if voting_power > balance {
-                tracing::info!(
-                    "Note: Address has {} veZKC staked balance and {} veZKC voting power (received delegation)",
-                    alloy::primitives::utils::format_ether(balance),
-                    alloy::primitives::utils::format_ether(voting_power)
-                );
-            } else {
-                tracing::info!(
-                    "Note: Address has {} veZKC staked balance but only {} veZKC voting power (delegated away)",
-                    alloy::primitives::utils::format_ether(balance),
-                    alloy::primitives::utils::format_ether(voting_power)
-                );
-            }
-        }
+        let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
+        println!("  Reward Power: {} {}", reward_power_formatted.cyan().bold(), "ZKC".cyan());
 
         Ok(())
     }

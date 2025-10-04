@@ -127,22 +127,20 @@ impl RewardsListPovwRewards {
             // TODO: Query actual current epoch from contract
             let current_epoch = 5; // Placeholder
 
-            match client.get_current_epoch_povw(current_epoch).await {
-                Ok(epoch_data) => {
-                    if let Some(summary) = &epoch_data.summary {
-                        let total_work = parse_amount(&summary.total_work)?;
-                        let total_emissions = parse_amount(&summary.total_emissions)?;
+            match client.get_epoch_povw(current_epoch).await {
+                Ok(epoch_summary) => {
+                    let total_work = parse_amount(&epoch_summary.total_work)?;
+                    let total_emissions = parse_amount(&epoch_summary.total_emissions)?;
 
-                        tracing::info!("Current Epoch {}: ", current_epoch);
-                        tracing::info!("  Total Work Submitted: {}", format_ether(total_work));
-                        tracing::info!("  Total Emissions: {} ZKC", format_ether(total_emissions));
-                        tracing::info!("  Participants: {}", summary.num_participants);
+                    tracing::info!("Current Epoch {}: ", current_epoch);
+                    tracing::info!("  Total Work Submitted: {}", format_ether(total_work));
+                    tracing::info!("  Total Emissions: {} ZKC", format_ether(total_emissions));
+                    tracing::info!("  Participants: {}", epoch_summary.num_participants);
 
-                        tracing::info!("\n💡 To maximize rewards:");
-                        tracing::info!("  - Submit work early in the epoch");
-                        tracing::info!("  - Ensure adequate ZKC staking to avoid caps");
-                        tracing::info!("  - Monitor your reward cap: 2.5x your staked amount");
-                    }
+                    tracing::info!("\n💡 To maximize rewards:");
+                    tracing::info!("  - Submit work early in the epoch");
+                    tracing::info!("  - Ensure adequate ZKC staking to avoid caps");
+                    tracing::info!("  - Monitor your reward cap: 2.5x your staked amount");
                 }
                 Err(e) => {
                     tracing::warn!("Unable to fetch current epoch data: {}", e);

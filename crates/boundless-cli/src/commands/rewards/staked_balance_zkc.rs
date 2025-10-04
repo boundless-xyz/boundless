@@ -45,12 +45,23 @@ impl RewardsStakedBalanceZkc {
             addr
         } else {
             // Get staking address from config
-            use crate::config_file::Secrets;
+            use crate::config_file::{Config, Secrets};
+
+            let config = Config::load().context("Failed to load config - run 'boundless setup rewards'")?;
+            let network = config
+                .rewards
+                .as_ref()
+                .context("Rewards module not configured - run 'boundless setup rewards'")?
+                .network
+                .clone();
 
             let secrets = Secrets::load().context("Failed to load secrets - no addresses configured")?;
-            let rewards_secrets = secrets.rewards.context("Rewards module not configured")?;
+            let rewards_secrets = secrets
+                .rewards_networks
+                .get(&network)
+                .context("No rewards secrets found for current network - run 'boundless setup rewards'")?;
 
-            let staking_addr_str = rewards_secrets.staking_address.or_else(|| {
+            let staking_addr_str = rewards_secrets.staking_address.as_ref().cloned().or_else(|| {
                 rewards_secrets.staking_private_key.as_ref().and_then(|pk| {
                     pk.parse::<alloy::signers::local::PrivateKeySigner>()
                         .ok()
