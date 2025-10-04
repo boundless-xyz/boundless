@@ -66,6 +66,7 @@ pub(crate) mod prioritization;
 pub(crate) mod provers;
 pub(crate) mod proving;
 pub(crate) mod reaper;
+pub(crate) mod requestor_monitor;
 pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
@@ -455,6 +456,7 @@ pub struct Broker<P> {
     provider: Arc<P>,
     db: DbObj,
     config_watcher: ConfigWatcher,
+    priority_requestors: requestor_monitor::PriorityRequestors,
 }
 
 impl<P> Broker<P>
@@ -484,7 +486,10 @@ where
             tracing::info!("Using default deployment configuration for chain ID {chain_id}");
         }
 
-        Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
+        let priority_requestors =
+            requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
+
+        Ok(Self { args, db, provider: Arc::new(provider), config_watcher, priority_requestors })
     }
 
     pub fn deployment(&self) -> &Deployment {
@@ -855,6 +860,7 @@ where
             pricing_tx,
             collateral_token_decimals,
             order_state_tx.clone(),
+            self.priority_requestors.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -872,6 +878,7 @@ where
                 prover.clone(),
                 config.clone(),
                 order_state_tx.clone(),
+                self.priority_requestors.clone(),
             )
             .await
             .context("Failed to initialize proving service")?,
@@ -956,6 +963,15 @@ where
                 .context("Failed to start reaper service")?;
             Ok(())
         });
+
+        // Start the RequestorMonitor to periodically fetch priority lists
+        let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
+            self.priority_requestors.clone(),
+            non_critical_cancel_token.clone(),
+        ));
+        let monitor_handle = requestor_monitor.clone().spawn();
+        supervisor_tasks
+            .spawn(async move { monitor_handle.await.context("Requestor list monitor panicked")? });
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),

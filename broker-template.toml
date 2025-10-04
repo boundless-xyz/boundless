@@ -17,6 +17,11 @@ priority_requestor_addresses = [
 	"0x48268bE6235A23eb7b67356469362869D5d0293f",
 	"0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd",
 ]
+# Optional URLs to fetch requestor priority lists from.
+#
+# These lists will be periodically refreshed and merged with priority_requestor_addresses.
+# Example: priority_requestor_lists = ["https://example.com/boundless-priority-list.json"]
+#priority_requestor_lists = []
 # Estimated peak performance of the proving cluster, in kHz.
 #
 # Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates

@@ -19,12 +19,15 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(test)]
+use crate::config::MarketConf;
 use crate::{
     chain_monitor::ChainMonitorService,
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
     provers::{ProverError, ProverObj},
+    requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils, FulfillmentType, OrderRequest, OrderStateChange,
@@ -134,6 +137,7 @@ pub struct OrderPicker<P> {
     order_cache: OrderCache,
     preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
+    priority_requestors: PriorityRequestors,
 }
 
 #[derive(Debug)]
@@ -172,6 +176,7 @@ where
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
+        priority_requestors: PriorityRequestors,
     ) -> Self {
         let market = BoundlessMarketService::new(
             market_addr,
@@ -203,6 +208,7 @@ where
                     .build(),
             ),
             order_state_tx,
+            priority_requestors,
         }
     }
 
@@ -511,6 +517,7 @@ where
             let request = order.request.clone();
             let order_id_clone = order_id.clone();
             let cache_key_clone: PreflightCacheKey = cache_key.clone();
+            let priority_requestors = self.priority_requestors.clone();
 
             let cache_cloned = self.preflight_cache.clone();
             let result = tokio::task::spawn(async move {
@@ -529,7 +536,7 @@ where
                             .await
                             .map_err(|e| OrderPickerErr::FetchImageErr(Arc::new(e)))?;
 
-                        let input_id = upload_input_uri(&prover, &request, &config)
+                        let input_id = upload_input_uri(&prover, &request, &config, &priority_requestors)
                             .await
                             .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?;
 
@@ -884,13 +891,7 @@ where
         let request_expiration = order.expiry();
         let lock_expiry = order.request.lock_expires_at();
         let order_expiry = order.request.expires_at();
-        let (
-            max_mcycle_limit,
-            peak_prove_khz,
-            min_mcycle_price,
-            min_mcycle_price_collateral_token,
-            priority_requestor_addresses,
-        ) = {
+        let (max_mcycle_limit, peak_prove_khz, min_mcycle_price, min_mcycle_price_collateral_token) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             (
                 config.market.max_mcycle_limit,
@@ -902,7 +903,6 @@ where
                 )
                 .context("Failed to parse mcycle_price")?
                 .into(),
-                config.market.priority_requestor_addresses.clone(),
             )
         };
 
@@ -967,11 +967,9 @@ where
         let mut max_mcycle_limit = max_mcycle_limit;
         // Check if priority requestor address - skip all exec limit calculations
         let client_addr = order.request.client_address();
-        if let Some(allow_addresses) = &priority_requestor_addresses {
-            if allow_addresses.contains(&client_addr) {
-                max_mcycle_limit = None;
-                tracing::debug!("Order {order_id} exec limit config ignored due to client {} being part of priority_requestor_addresses.", client_addr);
-            }
+        if self.priority_requestors.is_priority_requestor(&client_addr) {
+            max_mcycle_limit = None;
+            tracing::debug!("Order {order_id} exec limit config ignored due to client {} being part of priority requestors.", client_addr);
         }
 
         if let Some(config_mcycle_limit) = max_mcycle_limit {
@@ -1585,6 +1583,9 @@ pub(crate) mod tests {
             let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
             tokio::spawn(chain_monitor.spawn(Default::default()));
 
+            let chain_id = provider.get_chain_id().await.unwrap();
+            let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
+
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
             let (priced_orders_tx, priced_orders_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
@@ -1601,6 +1602,7 @@ pub(crate) mod tests {
                 priced_orders_tx,
                 self.collateral_token_decimals.unwrap_or(6),
                 order_state_tx,
+                priority_requestors,
             );
 
             PickerTestCtx {
@@ -2218,7 +2220,7 @@ pub(crate) mod tests {
 
         // Check logs for the expected message about skipping mcycle limit
         assert!(logs_contain(&format!(
-            "Order {order_id} exec limit config ignored due to client {} being part of priority_requestor_addresses.",
+            "Order {order_id} exec limit config ignored due to client {} being part of priority requestors.",
             ctx.provider.default_signer_address()
         )));
 
@@ -2967,7 +2969,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_eth_higher_than_stake() {
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0.001".to_string(), // 0.01 ETH per mcycle
             mcycle_price_collateral_token: "10".to_string(), // 10 stake tokens per mcycle
             max_mcycle_limit: None,
@@ -3013,7 +3015,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_stake_higher_than_eth_exposes_bug() {
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0.1".to_string(), // 0.1 ETH per mcycle (expensive)
             mcycle_price_collateral_token: "1".to_string(), // 1 stake token per mcycle (cheaper)
             max_mcycle_limit: None,
@@ -3068,7 +3070,7 @@ pub(crate) mod tests {
     #[traced_test]
     #[tokio::test]
     async fn test_calculate_exec_limits_fulfill_after_expire_stake_only() {
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0.0134".to_string(), // Won't be used for FulfillAfterLockExpire
             mcycle_price_collateral_token: "0.1".to_string(), // 0.1 stake per mcycle
             max_mcycle_limit: None,
@@ -3119,7 +3121,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_max_mcycle_cap() {
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0.01".to_string(),
             mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: Some(20), // 20 mcycle limit
@@ -3163,7 +3165,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_priority_requestor_unlimited() {
         let priority_address = address!("1234567890123456789012345678901234567890");
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0.01".to_string(),
             mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: Some(5), // Low limit normally
@@ -3208,7 +3210,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_timing_constraints() {
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0.01".to_string(),
             mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: None,
@@ -3253,7 +3255,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_zero_stake_price_unlimited() {
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0.01".to_string(),
             mcycle_price_collateral_token: "0".to_string(), // Zero stake price
             max_mcycle_limit: None,
@@ -3294,7 +3296,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_very_short_deadline() {
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0.01".to_string(),
             mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: None,
@@ -3337,7 +3339,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_zero_mcycle_price_unlimited() {
-        let market_config = crate::config::MarketConf {
+        let market_config = MarketConf {
             mcycle_price: "0".to_string(), // Zero ETH price
             mcycle_price_collateral_token: "0.1".to_string(),
             max_mcycle_limit: None,
