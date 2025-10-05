@@ -125,65 +125,6 @@ impl RewardsPreparePoVW {
         }
         tracing::info!("Loaded {} work receipts", work_receipts.len());
 
-        // Perform deep validation on all receipts
-        tracing::info!("Performing deep validation on {} receipts", work_receipts.len());
-        let mut valid_count = 0;
-        let mut total_size = 0usize;
-        let mut deep_validation_errors = Vec::new();
-
-        for (idx, receipt) in work_receipts.iter().enumerate() {
-            // Track size by serializing
-            let receipt_size = bincode::serialize(receipt)
-                .map(|bytes| bytes.len())
-                .unwrap_or(0);
-            total_size += receipt_size;
-
-            // Deep validation
-            match check_work_receipt_deep(receipt) {
-                Err(err) => {
-                    tracing::error!("Receipt {idx} failed deep validation: {err:?}");
-                    deep_validation_errors.push((idx, err));
-                }
-                Ok(_) => {
-                    valid_count += 1;
-                    tracing::debug!("Receipt {idx} passed deep validation ({receipt_size} bytes)");
-                }
-            }
-        }
-
-        // Report validation results
-        let avg_size = if !work_receipts.is_empty() {
-            total_size / work_receipts.len()
-        } else {
-            0
-        };
-        tracing::info!(
-            "Validation complete: {valid_count}/{} receipts valid, avg size: {avg_size} bytes",
-            work_receipts.len()
-        );
-
-        if !deep_validation_errors.is_empty() {
-            tracing::error!("Found {} receipts with validation errors:", deep_validation_errors.len());
-            for (idx, err) in &deep_validation_errors {
-                tracing::error!("  Receipt {idx}: {err}");
-            }
-            bail!(
-                "Deep validation failed for {}/{} receipts. Check Bento Redis memory if receipts are corrupted.",
-                deep_validation_errors.len(),
-                work_receipts.len()
-            );
-        }
-
-        // If --validate-receipts, stop here
-        if self.validate_receipts {
-            println!("\n✓ Validation successful:");
-            println!("  Total receipts: {}", work_receipts.len());
-            println!("  Valid receipts: {valid_count}");
-            println!("  Average size:   {avg_size} bytes");
-            println!("  Total size:     {total_size} bytes");
-            return Ok(());
-        }
-
         // Set up the work log update prover
         self.prover_config.configure_proving_backend_with_health_check().await?;
         let prover_builder = WorkLogUpdateProver::builder()
@@ -341,40 +282,6 @@ fn check_work_receipt<T: Borrow<WorkReceipt>>(
     Ok(work_receipt)
 }
 
-/// Deep validation of work receipt - checks nested data can be accessed
-fn check_work_receipt_deep(work_receipt: &WorkReceipt) -> anyhow::Result<()> {
-    // Try to access the work claim through check_work_receipt logic
-    // This validates claim structure and work claim accessibility
-    let work_claim = work_receipt
-        .claim()
-        .as_value()
-        .context("Receipt has a pruned claim")?
-        .work
-        .as_value()
-        .context("Receipt has a pruned work claim")?
-        .clone();
-
-    // Validate nonce data is accessible and non-zero
-    ensure!(
-        work_claim.nonce_min.log != risc0_povw::PovwLogId::ZERO,
-        "Receipt has invalid nonce_min log ID (ZERO)"
-    );
-
-    ensure!(
-        work_claim.nonce_max.log == work_claim.nonce_min.log,
-        "Receipt has mismatched log IDs in nonce_min/nonce_max"
-    );
-
-    // Verify we can re-serialize the receipt (this is what gets sent to Bento)
-    // If Redis corrupted the data, serialization might succeed but the bytes would be different
-    let _receipt_bytes = bincode::serialize(work_receipt)
-        .context("Failed to re-serialize receipt (may indicate internal corruption)")?;
-
-    tracing::trace!("Deep validation passed for receipt");
-
-    Ok(())
-}
-
 /// Work receipt info matching Bento API format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkReceiptInfo {
@@ -489,38 +396,10 @@ async fn fetch_work_receipt(bento_url: &Url, key: &str) -> anyhow::Result<WorkRe
         .error_for_status()
         .with_context(|| format!("Failed to fetch work receipt with key {key}"))?;
 
-    // Check Content-Length header for Redis OOM detection
-    let expected_size = response.headers()
-        .get(reqwest::header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<usize>().ok());
-
     let receipt_bytes = response
         .bytes()
         .await
         .with_context(|| format!("Failed to read work receipt bytes for key {key}"))?;
-
-    let actual_size = receipt_bytes.len();
-    tracing::debug!("Fetched receipt {key}: {} bytes", actual_size);
-
-    // Detect potential Redis OOM or truncation
-    if let Some(expected) = expected_size {
-        if actual_size != expected {
-            tracing::warn!(
-                "Receipt size mismatch for {key}: expected {expected} bytes, got {actual_size} bytes. \
-                This may indicate Redis memory issues or network problems."
-            );
-        }
-    }
-
-    // Warn if receipt seems suspiciously small
-    if actual_size < 100 {
-        tracing::warn!(
-            "Receipt {key} is very small ({actual_size} bytes). \
-            This may indicate corruption or incomplete data. Check Bento Redis memory."
-        );
-    }
-
     bincode::deserialize(&receipt_bytes)
-        .with_context(|| format!("Failed to deserialize receipt with key {key} ({actual_size} bytes)"))
+        .with_context(|| format!("Failed to deserialize receipt with key {key}"))
 }
