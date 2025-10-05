@@ -24,12 +24,12 @@ pub use alloy_chains::NamedChain;
 // NOTE: See https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717 about clap usage.
 #[non_exhaustive]
 #[derive(Clone, Debug, Builder, Args)]
-#[group(requires = "boundless_market_address", requires = "set_verifier_address")]
+#[group(id = "market_deployment", requires = "boundless_market_address", requires = "set_verifier_address")]
 pub struct Deployment {
     /// EIP-155 chain ID of the network.
-    #[clap(long, env)]
+    #[clap(long = "market-chain-id", env = "MARKET_CHAIN_ID")]
     #[builder(setter(into, strip_option), default)]
-    pub chain_id: Option<u64>,
+    pub market_chain_id: Option<u64>,
 
     /// Address of the [BoundlessMarket] contract.
     ///
@@ -100,14 +100,14 @@ impl Deployment {
     /// Check if the collateral token supports permit.
     /// Some chain's bridged tokens do not support permit, for example Base.
     pub fn collateral_token_supports_permit(&self) -> bool {
-        collateral_token_supports_permit(self.chain_id.unwrap())
+        collateral_token_supports_permit(self.market_chain_id.unwrap())
     }
 }
 
 // TODO(#654): Ensure consistency with deployment.toml and with docs
 /// [Deployment] for the Sepolia testnet.
 pub const SEPOLIA: Deployment = Deployment {
-    chain_id: Some(NamedChain::Sepolia as u64),
+    market_chain_id: Some(NamedChain::Sepolia as u64),
     boundless_market_address: address!("0xc211b581cb62e3a6d396a592bab34979e1bbba7d"),
     verifier_router_address: Some(address!("0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187")),
     set_verifier_address: address!("0xcb9D14347b1e816831ECeE46EC199144F360B55c"),
@@ -117,7 +117,7 @@ pub const SEPOLIA: Deployment = Deployment {
 
 /// [Deployment] for the Base mainnet.
 pub const BASE: Deployment = Deployment {
-    chain_id: Some(NamedChain::Base as u64),
+    market_chain_id: Some(NamedChain::Base as u64),
     boundless_market_address: address!("0xfd152dadc5183870710fe54f939eae3ab9f0fe82"),
     verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
@@ -127,7 +127,7 @@ pub const BASE: Deployment = Deployment {
 
 /// [Deployment] for the Base Sepolia.
 pub const BASE_SEPOLIA: Deployment = Deployment {
-    chain_id: Some(NamedChain::BaseSepolia as u64),
+    market_chain_id: Some(NamedChain::BaseSepolia as u64),
     boundless_market_address: address!("0x56da3786061c82214d18e634d2817e86ad42d7ce"),
     verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),

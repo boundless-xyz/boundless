@@ -14,12 +14,12 @@ pub use alloy_chains::NamedChain;
 /// Configuration for a deployment of PoVW and ZKC contracts.
 #[non_exhaustive]
 #[derive(Clone, Debug, Builder, Args)]
-#[group(requires = "povw_accounting_address")]
+#[group(id = "povw_deployment", requires = "povw_accounting_address")]
 pub struct Deployment {
     /// EIP-155 chain ID of the network.
-    #[clap(long, env)]
+    #[clap(long = "povw-chain-id", env = "POVW_CHAIN_ID")]
     #[builder(setter(into, strip_option), default)]
-    pub chain_id: Option<u64>,
+    pub povw_chain_id: Option<u64>,
 
     /// Address of the PoVW accounting contract.
     #[clap(long, env = "POVW_ACCOUNTING_ADDRESS", required = false)]
@@ -66,7 +66,7 @@ impl Deployment {
 
 /// [Deployment] for the Sepolia testnet.
 pub const SEPOLIA: Deployment = Deployment {
-    chain_id: Some(NamedChain::Sepolia as u64),
+    povw_chain_id: Some(NamedChain::Sepolia as u64),
     povw_accounting_address: address!("0xC5E956732F4bA6B1973a859Cf382244db6e84D0b"),
     povw_mint_address: address!("0xc98218AafE225035a34795Bf4f6777b7d541E326"),
     zkc_address: address!("0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"),
@@ -75,7 +75,7 @@ pub const SEPOLIA: Deployment = Deployment {
 
 /// [Deployment] for the Ethereum mainnet.
 pub const MAINNET: Deployment = Deployment {
-    chain_id: Some(NamedChain::Mainnet as u64),
+    povw_chain_id: Some(NamedChain::Mainnet as u64),
     povw_accounting_address: address!("0xF4a9Dd1aE7904a6031C35348C921fcDb605d3d1b"),
     povw_mint_address: address!("0x14D7E7a4f240FFEa740431AC3Ca16CCaEB7f41de"),
     zkc_address: address!("0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555"),

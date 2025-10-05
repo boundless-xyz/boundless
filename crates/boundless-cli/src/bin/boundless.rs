@@ -1403,7 +1403,7 @@ async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) ->
 async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) -> Result<()> {
     use boundless_cli::config::ProverConfig as ProverClientConfig;
     let prover_client_config = ProverClientConfig {
-        rpc_url: None,
+        prover_rpc_url: None,
         private_key: None,
         deployment: None,
         bento_api_url: "http://localhost:8081".to_string(),
@@ -2043,7 +2043,7 @@ async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
     println!("Log Level: {:?}", config.log_level);
     if let Some(ref deployment) = requestor_config.deployment {
         println!("Using custom Boundless deployment");
-        println!("Chain ID: {:?}", deployment.chain_id);
+        println!("Chain ID: {:?}", deployment.market_chain_id);
         println!("Boundless Market Address: {}", deployment.boundless_market_address);
         println!("Verifier Address: {:?}", deployment.verifier_router_address);
         println!("Set Verifier Address: {}", deployment.set_verifier_address);

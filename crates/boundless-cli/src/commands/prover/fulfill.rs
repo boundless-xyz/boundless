@@ -69,7 +69,7 @@ impl ProverFulfill {
             bail!("request_ids and tx_hashes must have the same length");
         }
 
-        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
         let request_ids_string =
             self.request_ids.iter().map(|id| format!("{:#x}", id)).collect::<Vec<_>>().join(", ");
 

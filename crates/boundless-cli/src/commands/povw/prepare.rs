@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Borrow, collections::HashSet, path::PathBuf, str::FromStr};
+use std::{borrow::Borrow, collections::HashSet, env, path::PathBuf, str::FromStr};
 
 use anyhow::{bail, ensure, Context, Result};
 use clap::Args;

@@ -61,7 +61,7 @@ pub struct RequestorConfig {
 pub struct RewardsConfig {
     /// RPC URL for the rewards network
     #[clap(long = "reward-rpc-url", env = "REWARD_RPC_URL")]
-    pub rpc_url: Option<Url>,
+    pub reward_rpc_url: Option<Url>,
 
     /// Private key for rewards transactions (deprecated, use staking/reward specific keys)
     #[clap(skip)]
@@ -150,7 +150,7 @@ impl RequestorConfig {
                         custom => config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
                             let mut builder = boundless_market::Deployment::builder();
                             builder
-                                .chain_id(m.chain_id)
+                                .market_chain_id(m.chain_id)
                                 .boundless_market_address(m.boundless_market_address)
                                 .set_verifier_address(m.set_verifier_address);
 
@@ -253,14 +253,14 @@ impl RewardsConfig {
             .and_then(|r| r.beacon_api_url.as_ref());
 
         // Load RPC URL (env var takes precedence)
-        if self.rpc_url.is_none() {
+        if self.reward_rpc_url.is_none() {
             if let Ok(rpc_url) = std::env::var("REWARD_RPC_URL") {
                 if config_rpc_url.is_some() {
                     println!("⚠ Using REWARD_RPC_URL from environment (overriding configured value)");
                 }
-                self.rpc_url = Some(Url::parse(&rpc_url)?);
+                self.reward_rpc_url = Some(Url::parse(&rpc_url)?);
             } else if let Some(ref rpc_url) = config_rpc_url {
-                self.rpc_url = Some(Url::parse(rpc_url)?);
+                self.reward_rpc_url = Some(Url::parse(rpc_url)?);
             }
         }
 
@@ -365,9 +365,9 @@ impl RewardsConfig {
         Ok(self)
     }
 
-    /// Access [Self::rpc_url] or return an error that can be shown to the user.
+    /// Access [Self::reward_rpc_url] or return an error that can be shown to the user.
     pub fn require_rpc_url(&self) -> Result<Url> {
-        self.rpc_url
+        self.reward_rpc_url
             .clone()
             .context("Reward RPC URL not provided.\n\nTo configure: run 'boundless setup rewards'\nOr set REWARD_RPC_URL env var")
     }
@@ -441,7 +441,7 @@ impl RewardsConfig {
 pub struct ProverConfig {
     /// RPC URL for the prover network
     #[clap(long = "prover-rpc-url", env = "PROVER_RPC_URL")]
-    pub rpc_url: Option<Url>,
+    pub prover_rpc_url: Option<Url>,
 
     /// Private key for prover transactions
     #[clap(long = "prover-private-key", env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
@@ -496,13 +496,13 @@ impl ProverConfig {
             .and_then(|c| c.prover.as_ref())
             .map(|p| &p.network);
 
-        if self.rpc_url.is_none() {
+        if self.prover_rpc_url.is_none() {
             if let Ok(rpc_url) = std::env::var("PROVER_RPC_URL") {
-                self.rpc_url = Some(Url::parse(&rpc_url)?);
+                self.prover_rpc_url = Some(Url::parse(&rpc_url)?);
             } else if let (Some(ref secrets), Some(network)) = (&secrets, network) {
                 if let Some(prover_secrets) = secrets.prover_networks.get(network) {
                     if let Some(ref rpc_url) = prover_secrets.rpc_url {
-                        self.rpc_url = Some(Url::parse(rpc_url)?);
+                        self.prover_rpc_url = Some(Url::parse(rpc_url)?);
                     }
                 }
             }
@@ -536,7 +536,7 @@ impl ProverConfig {
                         custom => config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
                             let mut builder = boundless_market::Deployment::builder();
                             builder
-                                .chain_id(m.chain_id)
+                                .market_chain_id(m.chain_id)
                                 .boundless_market_address(m.boundless_market_address)
                                 .set_verifier_address(m.set_verifier_address);
 
@@ -573,9 +573,9 @@ impl ProverConfig {
         Ok(self)
     }
 
-    /// Access [Self::rpc_url] or return an error that can be shown to the user.
+    /// Access [Self::prover_rpc_url] or return an error that can be shown to the user.
     pub fn require_rpc_url(&self) -> Result<Url> {
-        self.rpc_url
+        self.prover_rpc_url
             .clone()
             .context("Prover RPC URL not provided.\n\nTo configure: run 'boundless setup prover'\nOr set PROVER_RPC_URL env var")
     }
@@ -627,6 +627,9 @@ impl ProverConfig {
 
     /// Sets environment variables to configure the prover and runs a health check.
     pub async fn configure_proving_backend_with_health_check(&self) -> anyhow::Result<()> {
+        self.configure_proving_backend();
+        tracing::info!("Configured prover");
+
         if self.use_default_prover || self.skip_health_check || ProverOpts::default().dev_mode() {
             return Ok(());
         }
@@ -636,6 +639,7 @@ impl ProverConfig {
         let bento_url = Url::parse(&self.bento_api_url)
             .with_context(|| format!("Failed to parse Bento API URL: {}", self.bento_api_url))?;
         let health_check_url = bento_url.join("health")?;
+        tracing::info!("Checking health of Bento prover at {}", health_check_url);
         reqwest::get(health_check_url.clone())
             .await
             .with_context(|| match using_default_url {
@@ -644,7 +648,7 @@ impl ProverConfig {
             })?
             .error_for_status()
             .context("Bento health check endpoint returned error status")?;
-
+        tracing::info!("Health check passed");
         Ok(())
     }
 }

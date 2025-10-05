@@ -48,7 +48,7 @@ impl ProverLock {
             .await
             .context("Failed to build Boundless Client with signer")?;
 
-        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
         println!(
             "\n{} [{}]",

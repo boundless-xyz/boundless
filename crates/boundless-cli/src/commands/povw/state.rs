@@ -60,9 +60,9 @@ pub struct State {
 #[non_exhaustive]
 pub struct UpdateTransactionState {
     /// Block number from the receipt for the confirmed transaction. None if pending.
-    block_number: Option<u64>,
+    pub block_number: Option<u64>,
     /// [WorkLogUpdated] event from the confirmed transaction. None if pending.
-    update_event: Option<WorkLogUpdated>,
+    pub update_event: Option<WorkLogUpdated>,
 }
 
 /// A one-byte version number tacked on to the front of the encoded state for cross-version compat.

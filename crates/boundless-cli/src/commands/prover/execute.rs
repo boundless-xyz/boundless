@@ -56,7 +56,7 @@ impl ProverExecute {
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let prover_config = self.prover_config.clone().load_from_files()?;
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
-        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
         println!(
             "\n{} [{}]",

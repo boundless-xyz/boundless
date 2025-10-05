@@ -46,6 +46,10 @@ pub struct RewardsSubmitPovw {
     #[arg(long = "recipient", env = "POVW_RECIPIENT")]
     recipient: Option<Address>,
 
+    /// Deployment configuration for the PoVW and ZKC contracts (defaults to deployment from chain ID)
+    #[clap(flatten, next_help_heading = "Deployment")]
+    deployment: Option<Deployment>,
+
     /// Simulate submission and show projected rewards without sending transaction
     #[arg(long)]
     dry_run: bool,
@@ -110,7 +114,6 @@ impl RewardsSubmitPovw {
             .with_context(|| format!("Failed to get chain ID from {rpc_url}"))?;
 
         let deployment = self
-            .prover_config
             .deployment
             .clone()
             .or_else(|| Deployment::from_chain_id(chain_id))

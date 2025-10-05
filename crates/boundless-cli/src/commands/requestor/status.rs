@@ -41,7 +41,7 @@ impl RequestorStatus {
         let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
         let status = client.boundless_market.get_status(self.request_id, self.expires_at).await?;
 
-        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
         println!("\n{} [{}]", "Request Status".bold(), network_name.blue().bold());
         println!("  Request ID: {}", format!("{:#x}", self.request_id).dimmed());

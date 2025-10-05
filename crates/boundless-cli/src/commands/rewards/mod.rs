@@ -20,6 +20,7 @@ mod claim_staking_rewards;
 mod delegate;
 mod epoch;
 mod get_delegate;
+mod inspect_povw_state;
 mod list_povw_rewards;
 mod list_staking_rewards;
 mod power;
@@ -34,6 +35,7 @@ pub use claim_staking_rewards::RewardsClaimStakingRewards;
 pub use delegate::RewardsDelegate;
 pub use epoch::RewardsEpoch;
 pub use get_delegate::RewardsGetDelegate;
+pub use inspect_povw_state::RewardsInspectPovwState;
 pub use list_povw_rewards::RewardsListPovwRewards;
 pub use list_staking_rewards::RewardsListStakingRewards;
 pub use power::RewardsPower;
@@ -85,6 +87,9 @@ pub enum RewardsCommands {
     Epoch(RewardsEpoch),
     /// Check reward power and earning potential
     Power(RewardsPower),
+    /// Inspect PoVW state file and display detailed statistics
+    #[command(name = "inspect-povw-state")]
+    InspectPovwState(RewardsInspectPovwState),
 }
 
 impl RewardsCommands {
@@ -104,6 +109,7 @@ impl RewardsCommands {
             Self::GetDelegate(cmd) => cmd.run(global_config).await,
             Self::Epoch(cmd) => cmd.run(global_config).await,
             Self::Power(cmd) => cmd.run(global_config).await,
+            Self::InspectPovwState(cmd) => cmd.run(global_config).await,
         }
     }
 }

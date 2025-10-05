@@ -52,7 +52,7 @@ impl RequestorBalance {
         let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
         let deposited = client.boundless_market.balance_of(addr).await?;
         let deposited_formatted = crate::format_amount(&format_ether(deposited));
-        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
         // Get wallet's actual ETH balance
         let available = client.provider().get_balance(addr).await?;

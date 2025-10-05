@@ -41,7 +41,7 @@ impl RequestorDeposit {
 
         let client = requestor_config.client_builder_with_signer(global_config.tx_timeout)?.build().await?;
         let formatted = crate::format_amount(&format_ether(self.amount));
-        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
         println!(
             "\n{} [{}]",

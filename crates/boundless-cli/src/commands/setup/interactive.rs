@@ -647,7 +647,34 @@ impl SetupInteractive {
                                 .unwrap_or_else(|_| std::path::PathBuf::from(&expanded_path))
                         });
 
-                    println!("\n✓ State file will be created at: {}", abs_path.display().to_string().cyan());
+                    // Safety check: NEVER overwrite an existing file
+                    if std::path::Path::new(&expanded_path).exists() {
+                        bail!(
+                            "File already exists at: {}\n\n\
+                            If this is an existing PoVW state file, please choose the 'existing file' option instead.\n\
+                            If you want to create a new state file, please specify a different path.",
+                            abs_path.display()
+                        );
+                    }
+
+                    // Create empty state file
+                    use risc0_povw::PovwLogId;
+                    let log_id = reward_addr.parse::<PovwLogId>()
+                        .context("Failed to parse reward address as PoVW log ID")?;
+
+                    let empty_state = State::new(log_id);
+
+                    // Create parent directory if it doesn't exist
+                    if let Some(parent) = std::path::Path::new(&expanded_path).parent() {
+                        std::fs::create_dir_all(parent)
+                            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+                    }
+
+                    // Save the empty state file
+                    empty_state.save(&expanded_path)
+                        .with_context(|| format!("Failed to create state file: {}", abs_path.display()))?;
+
+                    println!("\n✓ Created empty state file at: {}", abs_path.display().to_string().cyan());
                     println!("  Remember to back this up regularly!");
                     Some(expanded_path)
                 }

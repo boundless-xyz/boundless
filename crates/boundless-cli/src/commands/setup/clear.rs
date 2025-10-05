@@ -38,6 +38,9 @@ impl SetupClear {
         println!("  • Network settings");
         println!("  • Stored RPC URLs");
         println!("  • Private keys (if stored in config)");
+        println!("\n{}", "ℹ️  This will NOT delete:".green());
+        println!("  • PoVW state files (unsubmitted work remains safe)");
+        println!("  • PoVW state file backups (in any directory)");
 
         if !self.force {
             let confirmed = Confirm::new("Are you sure you want to continue?")

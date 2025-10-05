@@ -75,7 +75,7 @@ impl ProverBalanceCollateral {
 
         let deposited_formatted = crate::format_amount(&format_units(deposited, decimals)?);
         let available_formatted = crate::format_amount(&format_units(available, decimals)?);
-        let network_name = crate::network_name_from_chain_id(client.deployment.chain_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
         println!(
             "\n{} [{}]",
