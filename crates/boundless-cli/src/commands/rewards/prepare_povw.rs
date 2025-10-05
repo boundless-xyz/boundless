@@ -53,10 +53,6 @@ pub struct RewardsPreparePoVW {
     #[arg(long)]
     skip_backup: bool,
 
-    /// Validate all work receipts without proving (dry-run)
-    #[arg(long)]
-    validate_receipts: bool,
-
     #[clap(flatten)]
     rewards_config: RewardsConfig,
 
