@@ -24,13 +24,20 @@ if not timeout_secs or timeout_secs <= 0 then
     return { err = 'InvalidTimeoutSecs' }
 end
 
--- Parse prerequisites with error handling
-local prerequisites
-local success, result = pcall(cjson.decode, prerequisites_str)
-if not success then
-    return { err = 'InvalidPrerequisites' }
+-- Parse prerequisites - assume it's a JSON array string
+local prerequisites = {}
+if prerequisites_str and prerequisites_str ~= '[]' and prerequisites_str ~= '' then
+    -- Simple parsing: remove brackets and quotes, split by comma
+    local prereq_str = string.gsub(prerequisites_str, '[%[%]"]', '')
+    if prereq_str ~= '' then
+        for prereq in string.gmatch(prereq_str, '([^,]+)') do
+            local clean_prereq = string.gsub(prereq, '^%s*(.-)%s*$', '%1')
+            if clean_prereq ~= '' then
+                table.insert(prerequisites, clean_prereq)
+            end
+        end
+    end
 end
-prerequisites = result
 
 local now = redis.call('TIME')
 local timestamp = now[1] .. '.' .. now[2]

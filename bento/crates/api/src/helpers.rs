@@ -22,63 +22,26 @@ pub fn extract_reserved(api_key: &str) -> i32 {
     0
 }
 
-pub async fn get_or_create_streams(user_id: &str) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid)> {
-    let reserved = extract_reserved(user_id);
-    let aux_stream = if let Some(res) =
-        tdb::get_stream(user_id, AUX_WORK_TYPE).await.context("Failed to get aux stream")?
-    {
-        res
-    } else {
-        tracing::info!("Creating a new aux stream for key: {user_id}");
-        tdb::create_stream(AUX_WORK_TYPE, reserved, 1.0, user_id)
-            .await
-            .context("Failed to create taskdb aux stream")?
-    };
+pub async fn get_or_create_streams(
+    _user_id: &str,
+) -> Result<(String, String, String, String, String)> {
+    // Create streams for each worker type - they will be reused if they already exist
+    tracing::info!("Creating streams for worker types");
 
-    let exec_stream = if let Some(res) =
-        tdb::get_stream(user_id, EXEC_WORK_TYPE).await.context("Failed to get exec stream")?
-    {
-        res
-    } else {
-        tracing::info!("Creating a new cpu stream for key: {user_id}");
-        tdb::create_stream(EXEC_WORK_TYPE, reserved, 1.0, user_id)
-            .await
-            .context("Failed to create taskdb exec stream")?
-    };
+    let aux_stream =
+        tdb::create_stream(AUX_WORK_TYPE).await.context("Failed to create aux stream")?;
 
-    let gpu_prove_stream = if let Some(res) =
-        tdb::get_stream(user_id, PROVE_WORK_TYPE).await.context("Failed to get gpu prove stream")?
-    {
-        res
-    } else {
-        tracing::info!("Creating a new gpu stream for key: {user_id}");
-        tdb::create_stream(PROVE_WORK_TYPE, reserved, 1.0, user_id)
-            .await
-            .context("Failed to create taskdb gpu prove stream")?
-    };
+    let exec_stream =
+        tdb::create_stream(EXEC_WORK_TYPE).await.context("Failed to create exec stream")?;
 
-    let gpu_coproc_stream = if let Some(res) = tdb::get_stream(user_id, COPROC_WORK_TYPE)
-        .await
-        .context("Failed to get gpu prove stream")?
-    {
-        res
-    } else {
-        tracing::info!("Creating a new gpu stream for key: {user_id}");
-        tdb::create_stream(COPROC_WORK_TYPE, reserved, 1.0, user_id)
-            .await
-            .context("Failed to create taskdb gpu coproc stream")?
-    };
+    let gpu_prove_stream =
+        tdb::create_stream(PROVE_WORK_TYPE).await.context("Failed to create gpu prove stream")?;
 
-    let gpu_join_stream = if let Some(res) =
-        tdb::get_stream(user_id, JOIN_WORK_TYPE).await.context("Failed to get gpu join stream")?
-    {
-        res
-    } else {
-        tracing::info!("Creating a new gpu join stream for key: {user_id}");
-        tdb::create_stream(JOIN_WORK_TYPE, reserved, 1.0, user_id)
-            .await
-            .context("Failed to create taskdb gpu join stream")?
-    };
+    let gpu_coproc_stream =
+        tdb::create_stream(COPROC_WORK_TYPE).await.context("Failed to create gpu coproc stream")?;
+
+    let gpu_join_stream =
+        tdb::create_stream(JOIN_WORK_TYPE).await.context("Failed to create gpu join stream")?;
 
     Ok((aux_stream, exec_stream, gpu_prove_stream, gpu_coproc_stream, gpu_join_stream))
 }

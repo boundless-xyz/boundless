@@ -62,9 +62,9 @@ async fn process_task(
                 .expect("Failed to serialize coproc (keccak) task-type");
 
             tdb::create_task(
-                job_id,
+                &job_id.to_string(),
                 &task_id,
-                prove_stream,
+                &prove_stream.to_string(),
                 &task_def,
                 &prereqs,
                 args.prove_retries,
@@ -94,9 +94,9 @@ async fn process_task(
             let task_name = format!("{}", tree_task.task_number);
 
             tdb::create_task(
-                job_id,
+                &job_id.to_string(),
                 &task_name,
-                prove_stream,
+                &prove_stream.to_string(),
                 &task_def,
                 &prereqs,
                 args.prove_retries,
@@ -119,9 +119,9 @@ async fn process_task(
             let task_name = format!("{}", tree_task.task_number);
 
             tdb::create_task(
-                job_id,
+                &job_id.to_string(),
                 &task_name,
-                join_stream,
+                &join_stream.to_string(),
                 &task_def,
                 &prereqs,
                 args.join_retries,
@@ -144,9 +144,9 @@ async fn process_task(
             let task_id = format!("{}", tree_task.task_number);
 
             tdb::create_task(
-                job_id,
+                &job_id.to_string(),
                 &task_id,
-                union_stream,
+                &union_stream.to_string(),
                 &task_def,
                 &prereqs,
                 args.join_retries,
@@ -177,9 +177,9 @@ async fn process_task(
             let task_id = "resolve";
 
             tdb::create_task(
-                job_id,
+                &job_id.to_string(),
                 task_id,
-                join_stream,
+                &join_stream.to_string(),
                 &task_def,
                 &serde_json::json!(prereqs),
                 args.resolve_retries,
@@ -196,9 +196,9 @@ async fn process_task(
 
             let finalize_name = "finalize";
             tdb::create_task(
-                job_id,
+                &job_id.to_string(),
                 finalize_name,
-                aux_stream,
+                &aux_stream.to_string(),
                 &task_def,
                 &prereqs,
                 args.finalize_retries,
@@ -215,9 +215,9 @@ async fn process_task(
                 .context("Failed to serialize snark task-type")?;
 
                 tdb::create_task(
-                    job_id,
+                    &job_id.to_string(),
                     "snark",
-                    prove_stream,
+                    &prove_stream.to_string(),
                     &task_def,
                     &serde_json::json!([finalize_name]),
                     args.snark_retries,

@@ -21,7 +21,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create a stream
-//!     let stream_id = create_stream("worker_type", 1, 1.0, "user_id").await?;
+//!     let stream_id = create_stream("worker_type").await?;
 //!
 //!     // Create a job
 //!     let job_id = create_job(&stream_id, &Value::Null, 3, 300, "user_id").await?;
@@ -136,53 +136,37 @@ pub async fn init_db() -> Result<(), TaskDbErr> {
     Ok(())
 }
 
-pub async fn create_stream(
-    worker_type: &str,
-    reserved: i32,
-    be_mult: f32,
-    user_id: &str,
-) -> Result<Uuid, TaskDbErr> {
-    if be_mult == 0.0 {
-        return Err(TaskDbErr::InvalidBeMult);
-    }
-
+pub async fn create_stream(worker_type: &str) -> Result<String, TaskDbErr> {
     let client = get_redis_client().await?;
     let mut client_guard = client.lock().await;
 
-    let stream_id =
-        client_guard.create_stream(worker_type, reserved as u32, be_mult as f64, user_id).await?;
-    Uuid::parse_str(&stream_id).map_err(|e| TaskDbErr::InternalErr(format!("Invalid UUID: {}", e)))
+    let stream_id = client_guard.create_stream(worker_type).await?;
+    Ok(stream_id)
 }
 
 pub async fn create_job(
-    stream_id: &Uuid,
+    stream_id: &str,
     task_def: &serde_json::Value,
     max_retries: i32,
     timeout_secs: i32,
     user_id: &str,
-) -> Result<Uuid, TaskDbErr> {
+) -> Result<String, TaskDbErr> {
     let client = get_redis_client().await?;
     let mut client_guard = client.lock().await;
 
     let job_id = client_guard
-        .create_job(
-            &stream_id.to_string(),
-            task_def,
-            max_retries as u32,
-            timeout_secs as u32,
-            user_id,
-        )
+        .create_job(stream_id, task_def, max_retries as u32, timeout_secs as u32, user_id)
         .await?;
 
-    Uuid::parse_str(&job_id).map_err(|e| TaskDbErr::InternalErr(format!("Invalid UUID: {}", e)))
+    Ok(job_id)
 }
 
 // TODO: fix this clippy allow
 #[allow(clippy::too_many_arguments)]
 pub async fn create_task(
-    job_id: &Uuid,
+    job_id: &str,
     task_id: &str,
-    stream_id: &Uuid,
+    stream_id: &str,
     task_def: &serde_json::Value,
     prereqs: &serde_json::Value,
     max_retries: i32,
@@ -195,9 +179,9 @@ pub async fn create_task(
 
     client_guard
         .create_task(
-            &job_id.to_string(),
+            job_id,
             task_id,
-            &stream_id.to_string(),
+            stream_id,
             task_def,
             &prerequisites,
             max_retries as u32,
@@ -221,7 +205,7 @@ pub async fn request_work(worker_type: &str) -> Result<Option<ReadyTask>, TaskDb
                 job_id,
                 task_id: work.task_id,
                 task_def: work.task_def,
-                prereqs: serde_json::Value::from(prereqs),
+                prereqs,
                 max_retries: work.max_retries as i32,
             }))
         }
@@ -251,80 +235,11 @@ pub async fn update_task_failed(
     client_guard.update_task_failed(&job_id.to_string(), task_id, error).await.map_err(Into::into)
 }
 
-pub async fn update_task_progress(
-    job_id: &Uuid,
-    task_id: &str,
-    progress: f32,
-) -> Result<bool, TaskDbErr> {
-    // Redis implementation doesn't support progress updates
-    // Return false to indicate no update was made
-    Ok(false)
-}
-
 pub async fn update_task_retry(job_id: &Uuid, task_id: &str) -> Result<bool, TaskDbErr> {
     let client = get_redis_client().await?;
     let mut client_guard = client.lock().await;
 
     client_guard.update_task_retry(&job_id.to_string(), task_id).await.map_err(Into::into)
-}
-
-// TODO: would be nice to have limit come with a sane default?
-pub async fn requeue_tasks(limit: i64) -> Result<usize, TaskDbErr> {
-    // Redis implementation doesn't support requeue_tasks
-    // Return 0 to indicate no tasks were requeued
-    Ok(0)
-}
-
-pub async fn get_job_state(job_id: &Uuid, user_id: &str) -> Result<JobState, TaskDbErr> {
-    // Redis implementation doesn't support get_job_state
-    // Return Running as default
-    Ok(JobState::Running)
-}
-
-pub async fn get_job_unresolved(job_id: &Uuid) -> Result<i64, TaskDbErr> {
-    // Redis implementation doesn't support get_job_unresolved
-    // Return 1 as default
-    Ok(1)
-}
-
-pub async fn get_concurrent_jobs(user_id: &str) -> Result<i64, TaskDbErr> {
-    // Redis implementation doesn't support get_concurrent_jobs
-    // Return 0 as default
-    Ok(0)
-}
-
-pub async fn get_stream(user_id: &str, worker_type: &str) -> Result<Option<Uuid>, TaskDbErr> {
-    // Redis implementation doesn't support get_stream
-    // Return None as default
-    Ok(None)
-}
-
-pub async fn get_job_time(job_id: &Uuid) -> Result<f64, TaskDbErr> {
-    // Redis implementation doesn't support get_job_time
-    // Return 0.0 as default
-    Ok(0.0)
-}
-
-pub async fn get_job_failure(job_id: &Uuid) -> Result<String, TaskDbErr> {
-    // Redis implementation doesn't support get_job_failure
-    // Return empty string as default
-    Ok(String::new())
-}
-
-pub async fn get_task_output<T>(job_id: &Uuid, task_id: &str) -> Result<T, TaskDbErr>
-where
-    T: serde::de::DeserializeOwned,
-{
-    // Redis implementation doesn't support get_task_output
-    // Return default value
-    Err(TaskDbErr::InternalErr("get_task_output not implemented in Redis version".to_string()))
-}
-
-/// Deletes a job and all its dependant table entries (tasks / task_deps)
-pub async fn delete_job(job_id: &Uuid) -> Result<(), TaskDbErr> {
-    // Redis implementation doesn't support delete_job
-    // Return Ok to indicate success
-    Ok(())
 }
 
 /// Helpers for unit / integration tests
@@ -367,8 +282,6 @@ pub mod test_helpers {
     }
 
     pub async fn get_task(job_id: &Uuid, task_id: &str) -> Result<Task, TaskDbErr> {
-        // Redis implementation doesn't support get_task
-        // Return a default task
         Ok(Task {
             job_id: *job_id,
             task_id: task_id.to_string(),
@@ -390,8 +303,6 @@ pub mod test_helpers {
     }
 
     pub async fn get_tasks() -> Result<Vec<Task>, TaskDbErr> {
-        // Redis implementation doesn't support get_tasks
-        // Return empty vector
         Ok(vec![])
     }
 
@@ -419,27 +330,20 @@ mod tests {
     #[tokio::test]
     async fn test_create_stream() {
         let worker_type = "executor";
-        let stream_id = create_stream(worker_type, 1, 1.0, "user1").await.unwrap();
+        let stream_id = create_stream(worker_type).await.unwrap();
 
-        // Basic test - just verify it returns a UUID
-        assert!(!stream_id.is_nil());
-    }
-
-    #[tokio::test]
-    async fn test_create_stream_invalid() {
-        let worker_type = "executor";
-        let res = create_stream(worker_type, 1, 0.0, "user1").await;
-        assert!(matches!(res, Err(TaskDbErr::InvalidBeMult)));
+        // Basic test - just verify it returns a string
+        assert_eq!(stream_id, "executor");
     }
 
     #[tokio::test]
     async fn test_create_job() {
         let user_id = "user1";
         let task_def = serde_json::json!({"member": "data"});
-        let stream_id = create_stream("CPU", 1, 1.0, user_id).await.unwrap();
+        let stream_id = create_stream("CPU").await.unwrap();
         let job_id = create_job(&stream_id, &task_def, 0, 100, user_id).await.unwrap();
 
-        // Basic test - just verify it returns a UUID
-        assert!(!job_id.is_nil());
+        // Basic test - just verify it returns a string
+        assert!(!job_id.is_empty());
     }
 }

@@ -107,25 +107,14 @@ impl RedisClient {
         Ok(())
     }
 
-    pub async fn create_stream(
-        &mut self,
-        worker_type: &str,
-        reserved: u32,
-        be_mult: f64,
-        user_id: &str,
-    ) -> Result<String, RedisErr> {
+    pub async fn create_stream(&mut self, worker_type: &str) -> Result<String, RedisErr> {
         let script = self
             .scripts
             .get("create_stream")
             .ok_or_else(|| RedisErr::ScriptError("create_stream script not found".to_string()))?;
 
-        let result: RedisResult<String> = script
-            .arg(worker_type)
-            .arg(reserved)
-            .arg(be_mult)
-            .arg(user_id)
-            .invoke_async(&mut self.connection)
-            .await;
+        let result: RedisResult<String> =
+            script.arg(worker_type).invoke_async(&mut self.connection).await;
 
         let response = result?;
         // Try to parse as JSON to check for errors
@@ -134,9 +123,7 @@ impl RedisClient {
             && let Some(err) = obj.get("err").and_then(|v| v.as_str())
         {
             match err {
-                "InvalidBeMult" => return Err(RedisErr::InvalidBeMult),
                 "MissingRequiredFields" => return Err(RedisErr::MissingRequiredFields),
-                "InvalidReserved" => return Err(RedisErr::InvalidReserved),
                 _ => return Err(RedisErr::ScriptError(format!("Script error: {}", err))),
             }
         }

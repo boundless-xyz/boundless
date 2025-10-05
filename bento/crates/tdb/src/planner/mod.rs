@@ -184,15 +184,12 @@ impl Planner {
     pub async fn new_with_stream(
         redis_url: &str,
         worker_type: &str,
-        reserved: u32,
-        be_mult: f64,
         user_id: String,
     ) -> Result<Self, PlannerErr> {
         let mut redis_client = RedisClient::new(redis_url).await?;
 
         // Create a stream first
-        let stream_id =
-            redis_client.create_stream(worker_type, reserved, be_mult, &user_id).await?;
+        let stream_id = redis_client.create_stream(worker_type).await?;
 
         // Create a job for this planning session
         let job_id = redis_client
@@ -529,7 +526,7 @@ mod tests {
         let redis_url = "redis://127.0.0.1:6379";
 
         let mut planner =
-            Planner::new_with_stream(redis_url, "test_worker", 1, 1.0, "test_user".to_string())
+            Planner::new_with_stream(redis_url, "test_worker", "test_user".to_string())
                 .await
                 .unwrap();
 
@@ -568,7 +565,7 @@ mod tests {
         let redis_url = "redis://127.0.0.1:6379";
 
         let mut planner =
-            Planner::new_with_stream(redis_url, "test_worker", 1, 1.0, "test_user".to_string())
+            Planner::new_with_stream(redis_url, "test_worker", "test_user".to_string())
                 .await
                 .unwrap();
 
@@ -634,7 +631,7 @@ mod tests {
         let redis_url = "redis://127.0.0.1:6379";
 
         let mut planner =
-            Planner::new_with_stream(redis_url, "test_worker", 1, 1.0, "test_user".to_string())
+            Planner::new_with_stream(redis_url, "test_worker", "test_user".to_string())
                 .await
                 .unwrap();
 
