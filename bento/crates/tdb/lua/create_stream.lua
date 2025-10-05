@@ -3,8 +3,13 @@
 -- ARGV[1]: worker_type, ARGV[2]: reserved, ARGV[3]: be_mult, ARGV[4]: user_id
 -- Returns: stream_id (UUID)
 
-local stream_id = redis.call('INCR', 'uuid_counter')
-stream_id = string.format('%032x', stream_id)
+-- Generate a random 32-character hex string for UUID
+local stream_id = ''
+local hex_chars = '0123456789abcdef'
+for i = 1, 32 do
+    local rand = math.random(1, 16)
+    stream_id = stream_id .. string.sub(hex_chars, rand, rand)
+end
 
 local worker_type = ARGV[1]
 local reserved = tonumber(ARGV[2])
