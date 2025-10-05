@@ -221,6 +221,7 @@ impl RedisClient {
                 "InvalidMaxRetries" => return Err(RedisErr::InvalidMaxRetries),
                 "InvalidTimeoutSecs" => return Err(RedisErr::InvalidTimeoutSecs),
                 "InvalidPrerequisites" => return Err(RedisErr::InvalidPrerequisites),
+                "StreamNotFound" => return Err(RedisErr::StreamNotFound),
                 _ => return Err(RedisErr::ScriptError(format!("Script error: {}", err))),
             }
         }

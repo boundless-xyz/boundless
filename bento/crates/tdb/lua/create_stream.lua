@@ -3,13 +3,15 @@
 -- ARGV[1]: worker_type, ARGV[2]: reserved, ARGV[3]: be_mult, ARGV[4]: user_id
 -- Returns: stream_id (UUID)
 
--- Generate a random 32-character hex string for UUID
-local stream_id = ''
-local hex_chars = '0123456789abcdef'
-for i = 1, 32 do
-    local rand = math.random(1, 16)
-    stream_id = stream_id .. string.sub(hex_chars, rand, rand)
+-- Generate a simple UUID-like string using counter and timestamp
+local stream_id = redis.call('INCR', 'stream_counter')
+local timestamp = redis.call('TIME')[1]
+local combined = tostring(stream_id) .. tostring(timestamp)
+-- Pad to 32 characters with zeros
+while string.len(combined) < 32 do
+    combined = '0' .. combined
 end
+stream_id = string.sub(combined, 1, 32)
 
 local worker_type = ARGV[1]
 local reserved = tonumber(ARGV[2])

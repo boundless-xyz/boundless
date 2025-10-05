@@ -70,6 +70,9 @@ redis.call('HSET', 'task:' .. task_key,
 -- If ready, add to queue
 if state == 'ready' then
     local worker_type = redis.call('HGET', 'stream:' .. stream_id, 'worker_type')
+    if not worker_type then
+        return { err = 'StreamNotFound' }
+    end
     redis.call('ZADD', 'ready:' .. worker_type .. ':' .. stream_id, timestamp, task_key)
     redis.call('HINCRBY', 'stream:' .. stream_id, 'ready', 1)
 end
