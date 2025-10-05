@@ -3,12 +3,8 @@
 -- ARGV[1]: worker_type, ARGV[2]: reserved, ARGV[3]: be_mult, ARGV[4]: user_id
 -- Returns: stream_id (UUID)
 
-local stream_id = redis.call('GET', 'uuid_counter')
-if not stream_id then
-    stream_id = '00000000-0000-0000-0000-000000000000'
-end
-stream_id = string.format('%036d', tonumber(stream_id) + 1)
-redis.call('SET', 'uuid_counter', stream_id)
+local stream_id = redis.call('INCR', 'uuid_counter')
+stream_id = string.format('%032x', stream_id)
 
 local worker_type = ARGV[1]
 local reserved = tonumber(ARGV[2])
