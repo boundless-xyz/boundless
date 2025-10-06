@@ -15,6 +15,7 @@
 use alloy::{
     primitives::{utils::format_ether, Address, U256},
     providers::{Provider, ProviderBuilder},
+    sol_types::SolCall,
 };
 use anyhow::{ensure, Context};
 use boundless_zkc::{
@@ -29,6 +30,14 @@ use crate::config::GlobalConfig;
 #[non_exhaustive]
 #[derive(Args, Clone, Debug)]
 pub struct ZkcClaimRewards {
+    /// Whether to only print the calldata without sending the transaction.
+    #[clap(long)]
+    pub calldata: bool,
+    /// The account address to claim rewards from.
+    ///
+    /// Only valid when used with `--calldata`.
+    #[clap(long, requires = "calldata")]
+    pub from: Option<Address>,
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
@@ -37,10 +46,27 @@ pub struct ZkcClaimRewards {
 impl ZkcClaimRewards {
     /// Run the [ZkcClaimRewards] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        let tx_signer = global_config.require_private_key()?;
         let rpc_url = global_config.require_rpc_url()?;
 
         // Connect to the chain.
+        let provider = ProviderBuilder::new()
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+        let chain_id = provider.get_chain_id().await?;
+        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
+            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+
+        let account = match &self.from {
+            Some(addr) => *addr,
+            None => global_config.require_private_key()?.address(),
+        };
+
+        if self.calldata {
+            return print_calldata(provider, deployment, account).await;
+        }
+
+        let tx_signer = global_config.require_private_key()?;
         let provider = ProviderBuilder::new()
             .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
@@ -50,17 +76,39 @@ impl ZkcClaimRewards {
         let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
             .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
 
-        let total = claim_rewards(
-            provider,
-            deployment.staking_rewards_address,
-            tx_signer.address(),
-            global_config,
-        )
-        .await?;
+        let total =
+            claim_rewards(provider, deployment.staking_rewards_address, account, global_config)
+                .await?;
         tracing::info!("Claimed rewards: {} ZKC", format_ether(total));
 
         Ok(())
     }
+}
+
+async fn print_calldata(
+    provider: impl Provider + Clone,
+    deployment: Deployment,
+    from: Address,
+) -> anyhow::Result<()> {
+    let staking = IStakingRewards::new(deployment.staking_rewards_address, provider);
+    let current_epoch: u32 = staking.getCurrentEpoch().call().await?.try_into()?;
+    let epochs: Vec<U256> = (0..current_epoch).map(U256::from).collect();
+    let unclaimed_rewards = staking.calculateUnclaimedRewards(from, epochs).call().await?;
+    let mut unclaimed_epochs = vec![];
+    for (i, unclaimed_reward) in unclaimed_rewards.iter().enumerate() {
+        if *unclaimed_reward > U256::ZERO {
+            unclaimed_epochs.push(U256::from(i));
+        }
+    }
+    ensure!(!unclaimed_epochs.is_empty(), "No unclaimed rewards for account {}", from);
+
+    let claim_call = IStakingRewards::claimRewardsCall { epochs: unclaimed_epochs };
+    println!("========= ClaimRewards Call =========");
+    println!("Contract: {}", deployment.staking_rewards_address);
+    println!("From: {}", from);
+    println!("Calldata: 0x{}", hex::encode(claim_call.abi_encode()));
+    println!("=====================================");
+    Ok(())
 }
 
 /// Claim rewards for a specified address.

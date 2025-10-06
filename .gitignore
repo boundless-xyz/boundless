@@ -36,8 +36,10 @@ target/
 .idea
 .aider*
 .claude
-CLAUDE.md
+**/CLAUDE.md
+**/AGENTS.md
 .cursor
+.codex
 
 
 # Ignore generated files

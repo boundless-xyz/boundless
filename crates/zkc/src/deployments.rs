@@ -62,7 +62,6 @@ impl Deployment {
     }
 }
 
-// TODO(#654): Ensure consistency with deployment.toml and with docs
 /// [Deployment] for the Sepolia testnet.
 pub const SEPOLIA: Deployment = Deployment {
     chain_id: Some(NamedChain::Sepolia as u64),
@@ -71,7 +70,7 @@ pub const SEPOLIA: Deployment = Deployment {
     staking_rewards_address: address!("0x8af45ac61f2960a65716711d0cb922b06852a057"),
 };
 
-/// [Deployment] for the Base mainnet.
+/// [Deployment] for the Ethereum mainnet.
 pub const MAINNET: Deployment = Deployment {
     chain_id: Some(NamedChain::Mainnet as u64),
     zkc_address: address!("0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555"),

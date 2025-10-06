@@ -76,7 +76,7 @@ To learn more, please see [IAM Roles](https://docs.aws.amazon.com/IAM/latest/Use
 
 With the bucket created, we need to create an IAM role for prover; this will allow the prover access to the inputs stored in the S3 bucket. To create the role, we will need two things:
 
-- A JSON specifiying the [trust policy](https://aws.amazon.com/blogs/security/how-to-use-trust-policies-with-iam-roles/) for the IAM role.
+- A JSON specifying the [trust policy](https://aws.amazon.com/blogs/security/how-to-use-trust-policies-with-iam-roles/) for the IAM role.
 - The prover's AWS 12-digit account ID.
 
 To create the trust policy JSON, use a text editor and copy the following:
@@ -103,7 +103,7 @@ aws iam create-role \
   --assume-role-policy-document ./prover-trust-policy.json
 ```
 
-The output will be in JSON format; there will be a key specifiying "Arn":
+The output will be in JSON format; there will be a key specifying "Arn":
 
 ```bash
 ...
@@ -155,7 +155,7 @@ A bucket policy is a JSON document attached to an S3 bucket. This JSON specifies
 - what the call asks for (the *Action*)
 - which bucket/resource to give access to (the *Resource*)
 
-The requestor creates this JSON once, stores it with the relevant bucket and S3 will evalaute every request against the rules specified.
+The requestor creates this JSON once, stores it with the relevant bucket and S3 will evaluate every request against the rules specified.
 
 Below is an example bucket policy, copy it and save it to `prover_policy.json`:
 

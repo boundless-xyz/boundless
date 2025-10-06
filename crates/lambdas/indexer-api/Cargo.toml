@@ -1,0 +1,76 @@
+[package]
+name = "indexer-api"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[[bin]]
+name = "local-server"
+path = "src/bin/local-server.rs"
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+# Core dependencies
+alloy = { workspace = true, default-features = false }
+anyhow = { workspace = true }
+aws-config = { version = "1.6", features = ["behavior-version-latest"] }
+
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+
+# Internal dependencies
+boundless-indexer = { path = "../../indexer" }
+lambda_http = "0.13.0"
+
+# Lambda runtime
+lambda_runtime = "0.13.0"
+
+# Fix cross-compilation for Lambda
+openssl = { version = "0.10", features = ["vendored"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+
+# Database
+sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros", "runtime-tokio-rustls"] }
+
+# Async runtime
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = [
+    "fmt",
+    "env-filter",
+] }
+
+# OpenAPI generation
+utoipa = { version = "5", features = ["axum_extras", "chrono"] }
+utoipa-axum = "0.1"
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
+
+[dev-dependencies]
+# Command assertion for integration tests
+assert_cmd = "2.0"
+# Random number generation for tests
+rand = "0.8"
+# HTTP client for integration tests
+reqwest = { version = "0.12", features = ["json"] }
+# Temporary file handling for tests
+tempfile = "3.8"
+# Test logging
+test-log = { version = "0.2", default-features = false, features = ["trace"] }
+# Async runtime for tests
+tokio = { workspace = true, features = ["test-util", "process"] }
+# Logging for tests
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
