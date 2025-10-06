@@ -965,9 +965,8 @@ where
         });
 
         // Start the RequestorMonitor to periodically fetch priority lists
-        let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
-            self.priority_requestors.clone(),
-        ));
+        let requestor_monitor =
+            Arc::new(requestor_monitor::RequestorMonitor::new(self.priority_requestors.clone()));
         let config_clone = config.clone();
         let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
         supervisor_tasks.spawn(async move {
