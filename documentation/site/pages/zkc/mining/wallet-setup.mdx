@@ -33,7 +33,7 @@ The rewards address can now [claim the staking rewards](/zkc/mining/claiming-rew
 
 ### Mint ZKC Rewards
 
-After claiming staking + mining rewards, the *$ZKC* rewards contract will carry out the necessary checks, and if successful, mint the rewards to the rewards address.
+After claiming staking + mining rewards, the *$ZKC* rewards contract will carry out the necessary checks, and if successful, mint the rewards to the rewards address. For compounding gains, the prover can now transfer these *$ZKC* rewards, from the rewards address to the staking address, and stake them to increase the total reward power for the rewards address.
 
 ::::
 
@@ -56,12 +56,7 @@ It is recommended to separate the staking wallet from the rewards address. The r
 
 #### Enable ZK Mining
 
-When [enabling ZK mining](/zkc/mining/enable), provers specify the following environment variables:
-
-```bash
-export REWARD_ADDRESS="0x0000...0000"
-export REWARD_ADDRESS_PRIVATE_KEY="..."
-```
+Please see [Enabling ZK Mining](/zkc/mining/enable).
 
 #### Stake $ZKC
 

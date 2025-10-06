@@ -1,0 +1,15 @@
+config:
+  aws:region: us-west-2
+  indexer:DOCKER_DIR: ../../
+  indexer:DOCKER_TAG: latest
+  indexer:START_BLOCK: "23250070"
+  indexer:BASE_STACK: organization/bootstrap/services-prod
+  indexer:POVW_ACCOUNTING_ADDRESS: 0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF8
+  indexer:VEZKC_ADDRESS: 0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4
+  indexer:ZKC_ADDRESS: 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555
+  indexer:RUST_LOG: "info"
+  indexer:CHAIN_ID: "1"
+  indexer:INDEXER_API_DOMAIN: indexer.eth-mainnet.boundless.network
+  indexer:GH_TOKEN_SECRET:
+    secure: v1:ycZdieA5Ym3rfKaM:2PIhdorREAbwugxt/sAdh08Tdd/A2kK+NtHiz1j+JZR1oPCp5020JaIjw411wPQZ3xfAQZx5iKq1UlI/hKZe8cA5RJgv14KVAV6DP9cjlaWJe/905fGIUbwjfM1iHQiVLlGV40+Q46WKvinQLA==
+encryptionsalt: v1:z72nvyQ+CSM=:v1:p2GVuxRO5/eryKql:+4+3TTs93mJ9aH5Xhew65QJk5FWb8Q==

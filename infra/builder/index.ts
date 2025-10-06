@@ -8,12 +8,12 @@ const publicKey = config.requireSecret('PUBLIC_KEY');
 const { bucket, keyAlias } = createPulumiState();
 
 // Generate an SSH key pair
-const sshKey = new aws.ec2.KeyPair("ssh-key", {
+const sshKey = new aws.ec2.KeyPair("ssh-key-v2", {
     publicKey: publicKey,
 });
 
 // Create a new security group for our server
-const securityGroup = new aws.ec2.SecurityGroup("builder-sec", {
+const securityGroup = new aws.ec2.SecurityGroup("builder-sec-v2", {
     description: "Enable SSH access and outbound access",
     ingress: [
         {
@@ -34,13 +34,13 @@ const securityGroup = new aws.ec2.SecurityGroup("builder-sec", {
 });
 
 // Create a new EC2 instance with instance store
-const serverLocal = new aws.ec2.Instance("builder-local", {
+const serverLocal = new aws.ec2.Instance("builder-local-v2", {
     instanceType: "c6id.2xlarge", // Using c6id.2xlarge which has 16GB RAM and 237GB NVMe SSD
     keyName: sshKey.keyName,
     ami: "ami-087f352c165340ea1", // Amazon Linux 2 AMI
     vpcSecurityGroupIds: [securityGroup.id],
     tags: {
-        Name: "builder-local",
+        Name: "builder-local-v2",
     },
     userDataReplaceOnChange: true,
     userData:

@@ -33,6 +33,11 @@ alloy::sol!(
     "src/contracts/artifacts/IStakingRewards.sol"
 );
 
+alloy::sol!(
+    #![sol(rpc, all_derives)]
+    "src/contracts/artifacts/IVotes.sol"
+);
+
 pub fn extract_tx_log<E: SolEvent + Debug + Clone>(
     receipt: &TransactionReceipt,
 ) -> Result<Log<E>, anyhow::Error> {
