@@ -19,10 +19,16 @@ Each request specifies a set of request parameters; these parameters determine h
 | Collateral     | `lockCollateral`  | $ZKC     | Provers have to deposit *$ZKC* as [proving collateral](/zkc/collateral). This parameter specifies the exact amount of *$ZKC* a prover will lock as collateral when locking the order. If the prover does not fulfill the request before the primary prover deadline (the lock timeout), this collateral is slashed and 50% of the collateral becomes a bounty for secondary provers to claim upon successful proof fulfillment.                                            |
 
 
-## Latency Sensitive Parameters
+## Latency Sensitive Parameters [WIP]
 
-Each requestor will have a different latency tolerance; some might be fine with receiving a proof on the scale of hours, whereas others have more time-critical applications and need it on the scale of minutes. These latency requirements should dictate how requestors set the time-specific request parameters:
+Each requestor will have a different latency tolerance; some might be fine with receiving a proof on the scale of hours, whereas others will have more time-critical applications and require proof fulfillment on the scale of minutes. These latency requirements should dictate how requestors set the time-specific request parameters:
 
+| Parameter      | Units   | Recommendation                       | Notes                                                                                                                                 |
+|----------------|---------|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| Ramp Up Start  | blocks  | `(Cycle Count / 25 MHz) + 10`         | Use 10 blocks if you want to more aggressively prioritize latency with the potential of adding more costs in the short to medium term |
+| Ramp Up Period | blocks  | NA                                   | Example : With 1¢ increments per block, divide  Max Price  by $0.01 to determine period length.                                       |
+| Lock Timeout   | seconds | Cycle Count / Expected Effective MHz | Start with 1 MHz assumption. As network stability increases, increase in 5 MHz increments till your requests are at 30 MHz            |
+| Timeout        | seconds | NA                                   |                                                                                                                                       |
 
 
 ## Price Sensitive Parameters
