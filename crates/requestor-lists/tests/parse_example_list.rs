@@ -22,7 +22,7 @@ fn test_parse_boundless_recommended_list() {
     assert_eq!(list.name, "Boundless Recommended Priority List");
     assert_eq!(
         list.description,
-        "List of recommended priority requestors for provers. The requestors here should be suitable for most provers."
+        "List of recommended priority requestors for provers. The request sizes here should be suitable for most provers."
     );
     assert_eq!(list.schema_version.major, 1);
     assert_eq!(list.schema_version.minor, 0);
