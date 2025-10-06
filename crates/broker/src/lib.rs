@@ -703,12 +703,38 @@ where
         Ok(bytes)
     }
 
+    fn handle_join_result(
+        res: std::result::Result<Result<()>, tokio::task::JoinError>,
+    ) -> Result<bool> {
+        match res {
+            Err(join_err) if join_err.is_cancelled() => {
+                tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
+                Ok(true)
+            }
+            Err(join_err) => {
+                tracing::error!("Tokio task exited with error status: {join_err:?}");
+                anyhow::bail!("Task exited with error status: {join_err:?}")
+            }
+            Ok(status) => match status {
+                Err(err) => {
+                    tracing::error!("Task exited with error status: {err:?}");
+                    anyhow::bail!("Task exited with error status: {err:?}")
+                }
+                Ok(()) => {
+                    tracing::info!("Task exited with ok status");
+                    Ok(false)
+                }
+            },
+        }
+    }
+
     pub async fn start_service(&self) -> Result<()> {
-        let mut supervisor_tasks: JoinSet<Result<()>> = JoinSet::new();
+        let mut non_critical_tasks: JoinSet<Result<()>> = JoinSet::new();
+        let mut critical_tasks: JoinSet<Result<()>> = JoinSet::new();
 
         let config = self.config_watcher.config.clone();
 
-        let loopback_blocks = {
+        let lookback_blocks = {
             let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
@@ -732,7 +758,7 @@ where
         let cloned_config = config.clone();
         // Critical task, as is relied on to query current chain state
         let cancel_token = critical_cancel_token.clone();
-        supervisor_tasks.spawn(async move {
+        critical_tasks.spawn(async move {
             Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
@@ -763,7 +789,8 @@ where
 
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
-            loopback_blocks,
+            lookback_blocks,
+            self.args.rpc_retry_backoff,
             self.deployment().boundless_market_address,
             self.provider.clone(),
             self.db.clone(),
@@ -781,7 +808,7 @@ where
 
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
-        supervisor_tasks.spawn(async move {
+        non_critical_tasks.spawn(async move {
             Supervisor::new(market_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
@@ -799,7 +826,7 @@ where
                 ));
             let cloned_config = config.clone();
             let cancel_token = non_critical_cancel_token.clone();
-            supervisor_tasks.spawn(async move {
+            non_critical_tasks.spawn(async move {
                 Supervisor::new(offchain_market_monitor, cloned_config, cancel_token)
                     .spawn()
                     .await
@@ -858,7 +885,7 @@ where
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
-        supervisor_tasks.spawn(async move {
+        non_critical_tasks.spawn(async move {
             Supervisor::new(order_picker, cloned_config, cancel_token)
                 .spawn()
                 .await
@@ -879,7 +906,7 @@ where
 
         let cloned_config = config.clone();
         let cancel_token = critical_cancel_token.clone();
-        supervisor_tasks.spawn(async move {
+        critical_tasks.spawn(async move {
             Supervisor::new(proving_service, cloned_config, cancel_token)
                 .spawn()
                 .await
@@ -906,7 +933,7 @@ where
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
-        supervisor_tasks.spawn(async move {
+        non_critical_tasks.spawn(async move {
             Supervisor::new(order_monitor, cloned_config, cancel_token)
                 .spawn()
                 .await
@@ -934,7 +961,7 @@ where
 
         let cloned_config = config.clone();
         let cancel_token = critical_cancel_token.clone();
-        supervisor_tasks.spawn(async move {
+        critical_tasks.spawn(async move {
             Supervisor::new(aggregator, cloned_config, cancel_token)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
                 .spawn()
@@ -949,7 +976,7 @@ where
         let cloned_config = config.clone();
         // Using critical cancel token to ensure no stuck expired jobs on shutdown
         let cancel_token = critical_cancel_token.clone();
-        supervisor_tasks.spawn(async move {
+        critical_tasks.spawn(async move {
             Supervisor::new(reaper, cloned_config, cancel_token)
                 .spawn()
                 .await
@@ -968,7 +995,7 @@ where
         )?);
         let cloned_config = config.clone();
         let cancel_token = critical_cancel_token.clone();
-        supervisor_tasks.spawn(async move {
+        critical_tasks.spawn(async move {
             Supervisor::new(submitter, cloned_config, cancel_token)
                 .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
                 .spawn()
@@ -985,28 +1012,13 @@ where
         loop {
             tracing::info!("Waiting for supervisor tasks to complete...");
             tokio::select! {
-                // Handle supervisor task results
-                Some(res) = supervisor_tasks.join_next() => {
-                    let status = match res {
-                        Err(join_err) if join_err.is_cancelled() => {
-                            tracing::info!("Tokio task exited with cancellation status: {join_err:?}");
-                            continue;
-                        }
-                        Err(join_err) => {
-                            tracing::error!("Tokio task exited with error status: {join_err:?}");
-                            anyhow::bail!("Task exited with error status: {join_err:?}")
-                        }
-                        Ok(status) => status,
-                    };
-                    match status {
-                        Err(err) => {
-                            tracing::error!("Task exited with error status: {err:?}");
-                            anyhow::bail!("Task exited with error status: {err:?}")
-                        }
-                        Ok(()) => {
-                            tracing::info!("Task exited with ok status");
-                        }
-                    }
+                // Handle non-critical supervisor task results
+                Some(res) = non_critical_tasks.join_next() => {
+                    if Self::handle_join_result(res)? { continue; }
+                }
+                // Handle critical supervisor task results
+                Some(res) = critical_tasks.join_next() => {
+                    if Self::handle_join_result(res)? { continue; }
                 }
                 // Handle shutdown signals
                 _ = tokio::signal::ctrl_c() => {
@@ -1027,6 +1039,17 @@ where
         // Phase 1: Cancel non-critical tasks immediately to stop taking new work
         tracing::info!("Cancelling non-critical tasks (order discovery, picking, monitoring)...");
         non_critical_cancel_token.cancel();
+
+        tracing::info!("Waiting for non-critical tasks to exit...");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while non_critical_tasks.join_next().await.is_some() {}
+        })
+        .await
+        .map_err(|_| {
+            tracing::warn!(
+                "Timed out waiting for non-critical tasks to exit; proceeding with critical shutdown"
+            );
+        });
 
         // Phase 2: Wait for committed orders to complete, then cancel critical tasks
         self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
