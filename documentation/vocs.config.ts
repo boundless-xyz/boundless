@@ -30,15 +30,15 @@ const SIDEBAR_ITEMS = [
         text: "Core Concepts",
         items: [
           {
-            text: "Build a Program",
-            link: "/developers/tutorials/build",
-          },
-          {
             text: "Proof Lifecycle",
             link: "/developers/proof-lifecycle",
           },
           {
-            text: "Pricing a Request",
+            text: "Build a Program",
+            link: "/developers/tutorials/build",
+          },
+          {
+            text: "Configuring a Request",
             link: "/developers/tutorials/pricing",
           },
           {
