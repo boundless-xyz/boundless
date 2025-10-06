@@ -19,6 +19,10 @@ Each request specifies a set of request parameters; these parameters determine h
 | Collateral     | `lockCollateral`  | $ZKC     | Provers have to deposit *$ZKC* as [proving collateral](/zkc/collateral). This parameter specifies the exact amount of *$ZKC* a prover will lock as collateral when locking the order. If the prover does not fulfill the request before the primary prover deadline (the lock timeout), this collateral is slashed and 50% of the collateral becomes a bounty for secondary provers to claim upon successful proof fulfillment.                                            |
 
 
+## Configuration Guidelines
+
+The following two sections detail some recommended guidelines when setting the request parameters. These guidelines are formulas, and they are to be taken with a pinch of salt. Please remember to start conservatively when tuning each parameter. Provers have to respond and some may set their pricing strategy based on each requestor's standard request profile. Therefore, it is recommended to change request parameters slowly during testing, and *only* once proof fulfillment becomes stable, to push closer to the desired end goal. 
+
 ## Latency Sensitive Parameters [WIP]
 
 Each requestor will have a different latency tolerance; some might be fine with receiving a proof on the scale of hours, whereas others will have more time-critical applications and require proof fulfillment on the scale of minutes. These latency requirements should dictate how requestors set the time-specific request parameters:
