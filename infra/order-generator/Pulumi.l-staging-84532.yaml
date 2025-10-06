@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFtDEwEd4DokgsE4M
 config:
   aws:region: us-west-2
   order-generator-base:BASE_STACK: organization/bootstrap/services-staging
-  order-generator-base:BOUNDLESS_MARKET_ADDR: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
+  order-generator-base:BOUNDLESS_MARKET_ADDR: 0x7abb16522f4599481361d318b765af988bfcca8e
   order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0xCBA5Fd30105984125395c18B6E6b1bf603408629
   order-generator-base:CHAIN_ID: "84532"
   order-generator-base:DOCKER_DIR: ../../

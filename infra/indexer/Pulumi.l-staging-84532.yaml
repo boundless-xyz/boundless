@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFhGPorkVKVmIzT59
 config:
   aws:region: us-west-2
   indexer:BASE_STACK: organization/bootstrap/services-staging
-  indexer:BOUNDLESS_ADDRESS: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
+  indexer:BOUNDLESS_ADDRESS: 0x7abb16522f4599481361d318b765af988bfcca8e
   indexer:CHAIN_ID: "84532"
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
