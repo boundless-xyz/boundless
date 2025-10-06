@@ -36,6 +36,7 @@ boundless-market = { version = "1.0.0", path = "crates/boundless-market" }
 boundless-test-utils = { path = "crates/test-utils", default-features = false }
 boundless-zkc = { version = "1.0.0", path = "crates/zkc" }
 boundless-povw = { path = "crates/povw" }
+boundless-rewards = { path = "crates/rewards" }
 distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
