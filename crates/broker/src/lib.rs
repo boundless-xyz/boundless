@@ -967,11 +967,16 @@ where
         // Start the RequestorMonitor to periodically fetch priority lists
         let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
             self.priority_requestors.clone(),
-            non_critical_cancel_token.clone(),
         ));
-        let monitor_handle = requestor_monitor.clone().spawn();
-        supervisor_tasks
-            .spawn(async move { monitor_handle.await.context("Requestor list monitor panicked")? });
+        let config_clone = config.clone();
+        let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
+        supervisor_tasks.spawn(async move {
+            Supervisor::new(requestor_monitor, config_clone, non_critical_cancel_token_clone)
+                .spawn()
+                .await
+                .context("Requestor list monitor panicked")?;
+            Ok(())
+        });
 
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),

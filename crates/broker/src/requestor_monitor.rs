@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{config::ConfigLock, errors::CodedError, impl_coded_debug};
+use crate::{
+    config::ConfigLock,
+    errors::CodedError,
+    impl_coded_debug,
+    task::{RetryRes, RetryTask},
+};
 use alloy::primitives::Address;
 use anyhow::Result;
 use requestor_lists::{Extensions, RequestorEntry, RequestorList};
@@ -21,7 +26,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use thiserror::Error;
-use tokio::{task::JoinHandle, time::Duration};
+use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(3600); // 1 hour
@@ -135,12 +140,11 @@ impl PriorityRequestors {
 /// Service for periodically monitoring and refreshing requestor priority lists
 pub struct RequestorMonitor {
     priority_requestors: PriorityRequestors,
-    cancel_token: CancellationToken,
 }
 
 impl RequestorMonitor {
-    pub fn new(priority_requestors: PriorityRequestors, cancel_token: CancellationToken) -> Self {
-        Self { priority_requestors, cancel_token }
+    pub fn new(priority_requestors: PriorityRequestors) -> Self {
+        Self { priority_requestors }
     }
 
     /// Refresh all configured requestor lists
@@ -189,33 +193,43 @@ impl RequestorMonitor {
         Ok(())
     }
 
-    /// Start the monitor service
-    pub fn spawn(self: Arc<Self>) -> JoinHandle<Result<()>> {
-        tokio::spawn(async move {
-            tracing::info!("Starting requestor list monitor service");
+    /// Monitor loop for refreshing requestor lists
+    async fn monitor_loop(&self, cancel_token: CancellationToken) {
+        tracing::info!("Starting requestor list monitor service");
 
-            // Initial refresh
-            if let Err(e) = self.refresh_lists().await {
-                tracing::error!("Initial requestor list refresh failed: {}", e);
-            }
+        // Initial refresh
+        if let Err(e) = self.refresh_lists().await {
+            tracing::error!("Initial requestor list refresh failed: {}", e);
+        }
 
-            let mut interval = tokio::time::interval(REFRESH_INTERVAL);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut interval = tokio::time::interval(REFRESH_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        if let Err(e) = self.refresh_lists().await {
-                            tracing::error!("Failed to refresh requestor lists: {}", e);
-                        }
-                    }
-                    _ = self.cancel_token.cancelled() => {
-                        tracing::info!("Requestor list monitor shutting down");
-                        break;
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(e) = self.refresh_lists().await {
+                        tracing::error!("Failed to refresh requestor lists: {}", e);
                     }
                 }
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Requestor list monitor shutting down");
+                    break;
+                }
             }
+        }
+    }
+}
 
+impl RetryTask for RequestorMonitor {
+    type Error = MonitorError;
+
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
+        let priority_requestors = self.priority_requestors.clone();
+        let monitor = Self { priority_requestors };
+
+        Box::pin(async move {
+            monitor.monitor_loop(cancel_token).await;
             Ok(())
         })
     }
