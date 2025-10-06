@@ -153,7 +153,7 @@ pub async fn claim_rewards(
     );
 
     let logs = extract_tx_logs::<IZKC::StakingRewardsClaimed>(&tx_receipt)?;
-    let total = logs.into_iter().map(|log| (U256::from(log.data().amount))).sum::<U256>();
+    let total = logs.into_iter().map(|log| U256::from(log.data().amount)).sum::<U256>();
 
     Ok(total)
 }
