@@ -617,7 +617,7 @@ reboot
             role: role.name,
         }, { parent: this });
 
-        this.instance = new aws.ec2.Instance(`${name}-instance`, {
+        this.instance = new aws.ec2.Instance(`${name}-instance-x`, {
             instanceType: "g4dn.2xlarge", // 1 GPU, 1 x 225 NVMe SSD
             ami: "ami-016d360a89daa11ba", // Ubuntu 22.04 LTS amd64 AMI us-west-2
             subnetId: subnetId,

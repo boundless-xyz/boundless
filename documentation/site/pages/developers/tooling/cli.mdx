@@ -149,7 +149,7 @@ boundless account balance
 
 #### deposit-collateral
 
-Deposits USDC into the market as collateral (USDC is used for collateral in Boundless):
+Deposits ZKC into the market as collateral (ZKC is used for collateral in Boundless):
 
 ```
 account deposit-collateral <amount>
@@ -161,12 +161,12 @@ account deposit-collateral <amount>
 boundless account deposit-collateral 100
 ```
 
-This deposits 100 USDC into your collateral balance.
+This deposits 100 ZKC into your collateral balance.
 
 
 #### withdraw-collateral
 
-Withdraws collateral USDC from the market:
+Withdraws collateral ZKC from the market:
 
 ```
 account withdraw-collateral <amount>
@@ -180,7 +180,7 @@ boundless account withdraw-collateral 50
 
 #### collateral-balance
 
-Checks the current collateral USDC balance for a given address (defaults to your address if none given):
+Checks the current collateral ZKC balance for a given address (defaults to your address if none given):
 
 ```
 account collateral-balance [address]
@@ -481,7 +481,7 @@ offer:
     rampUpPeriod: 300
     timeout: 3600 # 1 hor
     lockTimeout: 2700 # 45 minutes
-    lockCollateral: 5000000 # 5 USDC tokens
+    lockCollateral: 5000000000000000000 # 5 ZKC tokens
 ```
 
 To submit a request, export or create a `.env` file with the following environment variables:

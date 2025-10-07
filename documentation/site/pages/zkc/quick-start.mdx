@@ -1,0 +1,166 @@
+# Quick Start ($ZKC)
+
+## It all starts with *Staking* 
+
+:::success
+*$ZKC* is the native token of Boundless and the gateway to participation in the protocol. 
+:::
+
+By staking *$ZKC*, token holders signal their commitment to the long term success of the Boundless protocol. The protocol rewards stakers with staking rewards, governance voting power, and *most importantly* eligibility for mining rewards. 
+
+### Staking *$ZKC* to earn Mining Rewards 
+
+Proof-of-Verifiable-Work (PoVW), a novel invention within Boundless, is a permissionless incentive mechanism which enables provers to be rewarded in *$ZKC* in exchange for their proving work on the Boundless marketplace or elsewhere. This process is known as *ZK Mining*; mining rewards are ONLY available to those who stake *$ZKC*. 
+
+To learn about ZK Mining, see the [ZK Mining Overview](/zkc/mining/overview).
+
+## How to stake *$ZKC*?
+
+:::note
+- *$ZKC* is staked on Ethereum Mainnet ONLY. 
+- The only official staking portal is [https://staking.boundless.network](https://staking.boundless.network).
+- The official contract address is [0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555](https://etherscan.io/address/0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555). 
+:::
+
+### Via the Browser (recommended)
+
+Staking is available via the [Boundless Staking Portal](https://staking.boundless.network). After connecting a wallet, specify an amount to stake and press "Stake". 
+
+To claim available staking rewards, click "Claim" in the Rewards section of the staking portal. Rewards are unlocked at the start of the next epoch. 
+
+### Via the CLI
+
+The [Boundless CLI](/developers/tooling/cli#installation) has a suite of commands that deal with staking; to see a full list run:
+
+```bash
+boundless zkc --help
+```
+
+To stake $ZKC using the Boundless CLI (make sure to have [Foundry](https://getfoundry.sh/introduction/installation/) installed for `cast`), first make sure to export the corresponding `PRIVATE_KEY` variable, and a valid `RPC_URL` endpoint for Ethereum mainnet:
+
+```bash
+export PRIVATE_KEY=[PRIVATE_KEY]
+export RPC_URL=[RPC_URL]
+```
+
+To stake *$ZKC*, run:
+
+```bash
+boundless zkc stake --amount $(cast parse-units 100 18)
+```
+
+To claim staking rewards, run:
+
+```bash
+boundless zkc claim --private-key <PRIVATE_KEY> --rpc-url <RPC_URL>
+```
+
+where `<PRIVATE_KEY>` is the private key for the *reward address*.
+
+## How do *$ZKC* rewards work?
+
+### Overview
+
+*$ZKC* rewards are earned by token holders who have staked $ZKC. Rewards are distributed every reward epoch. Each epoch lasts ~2 days, resulting in ~182.5 epochs per year. 
+
+There are two types of *$ZKC* rewards:
+
+- Staking Rewards
+  - 25% of each epoch's total *$ZKC* rewards are distributed as *Staking Rewards* to each active staker.
+- Mining Rewards 
+  - 75% of each epoch's total *$ZKC* rewards are distributed as *Mining Rewards* to each active staker that ALSO submits valid work during the epoch.
+
+Each reward epoch has a set amount of rewards to distribute. This can be easily calculated:
+
+* The initial supply of *$ZKC* is 1 billion. 
+* The first year’s emission rate is 7% (see [Emission Rate](https://github.com/boundless-xyz/zkc?tab=readme-ov-file#zkc-1)). 
+* Therefore, up to 70 million *$ZKC* will be emitted as rewards in the first year.
+* Annual *$ZKC* reward emission is split evenly across all the reward epochs (each epoch is ~2 days). Therefore, each epoch has a set reward emission.
+* Roughly: ~182 epochs a year => 70M *$ZKC*/182 => ~385k reward *$ZKC* available every epoch in the first year.
+
+### Staking Rewards
+
+The easiest way to understand staking rewards is to walk through a concrete example and a relevant reward calculation:
+
+* 25% of an epoch's total reward *$ZKC* is distributed to stakers as *staking rewards*. 
+* This 25% is split proportionately to each staker based on *their percentage of the total staked $ZKC* in the given epoch.
+* For example, if an epoch has a total of 1M staked *$ZKC*, a staker with 5000 *$ZKC* staked represents 0.5% of the total stake. Therefore, this staker will receive 0.5% of all staking rewards. 
+  * Specifically, the staker will receive 0.5% of 25% of the epoch's reward $ZKC; this is equal to 0.125% of the total reward $ZKC available for the epoch.
+  * Therefore, the staker will receive 0.125% of ~385k $ZKC; this is approximately ~480 $ZKC.
+
+### Mining Rewards
+
+:::tip
+If you're interested in earning mining rewards, after reading the section below, please head over to [ZK Mining Quick Start](/zkc/mining/overview).
+:::
+
+For the purposes of this section, "miner" will be used to refer to somebody who stakes *$ZKC* and submits valid work regularly. This term could be used interchangeably with prover, which is used commonly throughout the Boundless docs.
+
+The easiest way to understand mining rewards is to walk through a concrete example and a relevant reward calculation:
+
+* 75% of an epoch's total reward *$ZKC* is distributed to eligible miners as *Mining Rewards*. 
+* To be eligible for mining rewards, a miner must *both* stake $ZKC during a given epoch *AND* submit valid work before the end of the epoch.
+* This 75% is split proportionately to each miner based on *their percentage of the total work submitted* during the given epoch.
+* Each miner has a *mining reward cap* every epoch. This is equal to:
+
+```bash
+mining_reward_cap = staked_amount / 15
+```
+
+*  Therefore, if a miner stakes 5000 $ZKC, they will have a mining reward cap of `5000 / 15 = 333.33 $ZKC`[^1] each epoch. 
+* Miners carry out work using [Bento](/provers/proving-stack#what-is-bento). Each proving job in Bento will generate a work proof. These cryptographically verify the amount of work done for each job. 
+* These work proofs are submitted onchain; each miner MUST submit their work proofs onchain at least once every epoch IF they want to be eligible for that epoch's rewards. Miners are free to submit previous work done during any later epochs; this will just delay any reward eligibility, for the work done, to the submission epoch. 
+* If there are 1 trillion cycles[^2] of work submitted for the current epoch, and a miner submits 1 billion cycles worth of work proofs, their work represent 0.1% of the total work in the epoch. 
+* Therefore, the miner will receive 0.1% of 75% of the total reward *$ZKC* for the epoch.
+  - Specifically, the miner will receive `0.075% of ~385k` *$ZKC* which equals ~289 `$ZKC`. 
+  - The miner has a reward cap of ~333 $ZKC. Since the miner has already submitted enough work for ~289 *$ZKC*, they have ~45 $ZKC worth of reward cap left. If they submit enough work before the end of the epoch to cover the ~45 *$ZKC* remaining, they will receive the full amount their stake position entitles them to. 
+  
+## How does delegating rewards work?
+
+:::tip
+Multiple stake positions, across different wallets, can delegate their rewards to the same delegatee address. 
+:::
+
+A crucial part of *$ZKC* is the ability to delegate rewards, which delegates BOTH staking and mining rewards, to another address (known as the *delegatee*). In practice, this means that *only* the delegatee is able to claim staking and mining rewards on behalf of the total of all active stake positions delegated to that address. 
+
+For mining rewards, delegation is a recommended practice as it allows for separation between the wallet that stakes *$ZKC* and the wallet specified in Bento in work proofs as the `REWARD_ADDRESS`. For more information, please see [ZK Mining Wallet Setup](/zkc/mining/wallet-setup).
+
+To delegate rewards, the only recommended way is to use the Boundless CLI, specifically:
+
+```bash
+boundless zkc delegate-rewards <DELEGATEE> --rpc-url <RPC_URL> --private-key <PRIVATE_KEY>
+```
+
+For mining rewards, it is recommended to set `<DELEGATEE>` as the address set to `REWARD_ADDRESS` in Bento. The private key should denote the address that you want to delegate *from* i.e. the wallet with an active stake position. 
+
+## How does governance work?
+
+:::note[Governance Contract Deployments]
+The Boundless governance contracts have been deployed by Aragon: [Boundless DAO](https://app.aragon.org/dao/ethereum-mainnet/boundless.dao.eth).
+:::
+
+### Voting Power
+
+To be eligible to vote in the Boundless DAO, token holders must stake *$ZKC*; voting power is relative to the percentage of total staked *$ZKC* i.e. an address that stakes 1% of the total staked *$ZKC* will possess 1% of the total voting power.
+
+### What does Governance control?
+
+With the launch of *$ZKC*, the DAO is going through a set of test proposals to ensure that each governance process is fully functional. Once these are successful, the DAO will be given full ownership of the protocol.
+
+Initially, governance will control five main processes:
+
+- *Market upgrades*: Upgrades to the logic of the Boundless market and adjacent onchain infrastructure such as verifier contracts.
+- *Token upgrades*: Upgrades to core token variables such as emission schedules and permissions to distribute mining rewards.
+- *Governance upgrades*: Upgrades to the governance processes themselves.
+- *Grants*: Proposals for $ZKC token grants to community members, ecosystem partners and any other parties deemed to be contributing to the success of Boundless.
+- *Emergency upgrades*: Upgrades to address time sensitive issues that impact the safety of funds or the safety of protocols using Boundless.
+
+You can find more details on how the DAO is structured at Aragon’s portal for [Boundless Governance](https://app.aragon.org/dao/ethereum-mainnet/boundless.dao.eth).
+
+
+[^1]: Concretely, this is set via the [POVW_REWARD_CAP_SCALAR](https://github.com/boundless-xyz/zkc/blob/933570f2e23ef33e9d60a1e33cdaeb62eac4ce38/src/libraries/Constants.sol#L22-L23) in the token contracts. See the interface for [getPoVWRewardCap](https://github.com/boundless-xyz/zkc/blob/933570f2e23ef33e9d60a1e33cdaeb62eac4ce38/src/interfaces/IRewards.sol#L39-L43) for further information.
+
+[^2]: Proofs are measured in cycles; concretely, the length of a proof is directly measured the length of the program that is being proven. That program's length can be measured in *cycles*, where each *cycle* correlates to one RISC-V instruction in the zkVM. For more information, please see this page on the [RISC Zero](https://dev.risczero.com/terminology#clock-cycles) docs. 
+
+
+
