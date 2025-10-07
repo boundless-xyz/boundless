@@ -42,7 +42,7 @@ function calculateSuggestion(
   const rampUpStartDelay = Math.ceil(programMegaCycles / 30) * 2; // assuming 30 Mhz execution trace gen and 2 second Base blocktime
 
   // assume 1000 MCycles = $10 USD lock collateral
-  const lockInCollateralUSDC = Math.max(5, ( programMegaCycles / 1000 ) * 10);
+  const lockInCollateralZKC = Math.max(5, ( programMegaCycles / 1000 ) * 10);
 
   return {
     minPrice: 0,
@@ -50,7 +50,7 @@ function calculateSuggestion(
     rampUpStartDelay,
     rampUpBlocks: Math.min(100, Math.ceil(proofDeliveryTime * 0.5 * networkConfig.blocksPerMinute)),
     lockTimeoutBlocks: Math.ceil(proofDeliveryTime * networkConfig.blocksPerMinute),
-    lockInCollateral: lockInCollateralUSDC,
+    lockInCollateral: lockInCollateralZKC,
   };
 }
 
@@ -76,7 +76,7 @@ export default function PricingCalculator() {
     rampUpPeriod: ${suggestion.rampUpBlocks} # blocks
     timeout: 2700 # seconds
     lockTimeout: ${suggestion.lockTimeoutBlocks} # blocks
-    lockCollateral: ${suggestion.lockInCollateral * 1e6} # ZKC`;
+    lockCollateral: ${suggestion.lockInCollateral * 1e18} # ZKC`;
 
   const handleCopy = async () => {
     try {
@@ -217,11 +217,11 @@ export default function PricingCalculator() {
                   <NumberFlow
                     format={{
                       minimumFractionDigits: 6,
-                      maximumFractionDigits: 6,
+                      maximumFractionDigits: 18,
                     }}
                     className="font-mono"
                     value={suggestion.lockInCollateral}
-                    suffix=" USDC"
+                    suffix=" ZKC"
                   />
                 </dd>
               </div>

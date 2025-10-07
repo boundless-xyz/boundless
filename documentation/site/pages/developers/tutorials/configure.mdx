@@ -40,20 +40,23 @@ Let's take an example request with the following offer parameters specified in t
 offer:
     minPrice: 1000000000000000 # 0.001 ETH
     maxPrice: 2000000000000000 # 0.002 ETH
-    lockCollateral: 10000000000000000000 # 10 ZKC
-    rampUpStart: 1000 
-    rampUpPeriod: 50
+    lockCollateral: 300000000000000000000 # 300 ZKC
+    rampUpStart: 1000 # seconds
+    rampUpPeriod: 50 # blocks
     lockTimeout: 2700 # 45 minutes
     timeout: 3600 # 1 hour 
 ```
 
+#### Auction Settings
+
 - During the "ramp up start" period, the price is set to the minimum price of 0.001 $ETH.
 - During the "ramp up period" (which immediately follows the ramp up start period), the price grows linearly from the minimum price to the maximum price of 0.002 ETH.
 - After the "ramp up period", the price remains at the maximum price until the primary prover deadline (the "lock timeout" of 45 minutes).
-- After the "lock timeout", a race amongst secondary provers begins. They have until the "timeout" to fulfill the request; otherwise the order expires.
+- After the "lock timeout", a race amongst secondary provers begins. They have until the "timeout" (1 hour from request creation, 15 minutes from the primary prover deadline) to fulfill the request; otherwise the order expires.
 
+#### Prover Specifics
 
-Provers can lock a request at any time before the "lock timeout". When a prover locks a request, they are agreeing to be paid the price set at the time of their bid. They are also agreeing to be slashed if they do not fulfill the request before the "lock timeout". In this case, if the request was locked but not fulfilled in time, the order is slashed and the prover loses their "lock collateral". 50%[^1] of the "lock collateral" is burned and 50% is allocated to the first prover who fulfills the proof, after the "lock timeout" but before the "timeout"; this prover is known as the secondary prover.
+Provers can lock a request at any time before the "lock timeout". When a prover locks a request, they are agreeing to be paid the price set at the time of their bid. They are also agreeing to be slashed if they do not fulfill the request before the "lock timeout". In this case, if the request was locked but not fulfilled in time, the order is slashed and the prover loses their "lock collateral". Concretely, 50%[^1] of the "lock collateral" is burned and 50% is allocated to the first prover who fulfills the proof, after the "lock timeout" but before the "timeout"; this prover is known as the secondary prover.
 
 ## Offer Parameter Recommendations
 
@@ -72,7 +75,7 @@ Each requestor will have a different latency tolerance; some might be fine with 
 
 | Parameter      | Units   | Recommendation                       | Notes                                                                                                                                 |
 |----------------|---------|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| Ramp Up Start  | blocks  | TODO | Use 10 blocks if you want to more aggressively prioritize latency with the potential of adding more costs in the short to medium term |
+| Ramp Up Start  | seconds  | TODO | Use 10 blocks if you want to more aggressively prioritize latency with the potential of adding more costs in the short to medium term |
 | Ramp Up Period | blocks  | TODO| Example : With 1¢ increments per block, divide  Max Price  by $0.01 to determine period length.|
 | Lock Timeout   | seconds | TODO | Start with 1 MHz assumption. As network stability increases, increase in 5 MHz increments till your requests are at 30 MHz|
 | Timeout        | seconds |TODO|TODO|

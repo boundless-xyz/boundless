@@ -39,7 +39,7 @@ const SIDEBAR_ITEMS = [
           },
           {
             text: "Configuring a Request",
-            link: "/developers/tutorials/pricing",
+            link: "/developers/tutorials/configure",
           },
           {
             text: "Request a Proof",
