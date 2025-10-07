@@ -261,10 +261,21 @@ impl Agent {
             let term_sig_copy = term_sig.clone();
             let db_pool_copy = self.db_pool.clone();
             let requeue_interval = self.args.requeue_poll_interval;
+            loop {
+                match Self::poll_for_requeue(term_sig_copy, db_pool_copy, requeue_interval).await {
+                    Ok(_) => {
+                        time::sleep(time::Duration::from_secs(requeue_interval)).await;
+                    }
+                    Err(e) => {
+                        tracing::error!("Requeue failed: {:#}", e);
+                        time::sleep(time::Duration::from_secs(60)).await;
+                    }
+                }
+            }
             tokio::spawn(async move {
                 Self::poll_for_requeue(term_sig_copy, db_pool_copy, requeue_interval)
                     .await
-                    .context("Requeue failed")
+                    .expect("Requeue failed")
             });
         }
 
@@ -273,10 +284,16 @@ impl Agent {
             let term_sig_copy = term_sig.clone();
             let db_pool_copy = self.db_pool.clone();
             let stuck_tasks_interval = self.args.stuck_tasks_poll_interval;
-            tokio::spawn(async move {
-                Self::poll_for_stuck_tasks(term_sig_copy, db_pool_copy, stuck_tasks_interval)
-                    .await
-                    .expect("Stuck task maintenance failed")
+            loop {
+                match Self::poll_for_stuck_tasks(term_sig_copy, db_pool_copy, stuck_tasks_interval).await {
+                    Ok(_) => {
+                        time::sleep(time::Duration::from_secs(stuck_tasks_interval)).await;
+                    }
+                    Err(e) => {
+                        tracing::error!("Stuck task maintenance failed: {:#}", e);
+                        time::sleep(time::Duration::from_secs(60)).await;
+                    }
+                }
             });
 
             // Enable completed job cleanup for aux workers
@@ -284,9 +301,17 @@ impl Agent {
             let db_pool_copy = self.db_pool.clone();
             let cleanup_interval = self.args.cleanup_poll_interval;
             tokio::spawn(async move {
-                Self::poll_for_completed_job_cleanup(term_sig_copy, db_pool_copy, cleanup_interval)
-                    .await
-                    .expect("Completed job cleanup failed")
+                loop {
+                    match Self::poll_for_completed_job_cleanup(term_sig_copy, db_pool_copy, cleanup_interval).await {
+                        Ok(_) => {
+                            time::sleep(time::Duration::from_secs(cleanup_interval)).await;
+                        }
+                        Err(e) => {
+                            tracing::error!("Completed job cleanup failed: {:#}", e);
+                            time::sleep(time::Duration::from_secs(60)).await;
+                        }
+                    }
+                }
             });
         }
 
