@@ -274,7 +274,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
       const { clients: clientAlarms } = chainStageAlarmConfig;
       // Create alarms for each client
       clientAlarms.forEach((client) => {
-        const { submissionRate, successRate, name, address } = client;
+        const { submissionRate, successRate, expiredRequests, name, address } = client;
         if (submissionRate != null) {
           submissionRate.forEach((cfg) => {
             const { severity, description, metricConfig, alarmConfig } = cfg;
@@ -294,6 +294,20 @@ export class MonitorLambda extends pulumi.ComponentResource {
             const { severity, description, metricConfig, alarmConfig } = cfg;
             createSuccessRateAlarm({ name, address }, severity, description, metricConfig, alarmConfig);
           });
+        };
+
+        if (expiredRequests != null) {
+          expiredRequests.forEach((cfg) => {
+            const { severity, description, metricConfig, alarmConfig } = cfg;
+            createMetricAlarm({
+              metricName: "expired_requests_number_from",
+              severity,
+              target: { name, address },
+              description,
+              metricConfig,
+              alarmConfig,
+            });
+          })
         };
 
       });

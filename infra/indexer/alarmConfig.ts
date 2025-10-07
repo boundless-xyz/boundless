@@ -28,6 +28,7 @@ type ChainStageAlarmConfig = {
     address: string;
     submissionRate: Array<AlarmConfig>;
     successRate: Array<AlarmConfig>;
+    expiredRequests: Array<AlarmConfig>;
   }[];
   provers: Array<{
     name: string;
@@ -86,7 +87,20 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: [{
+            description: "greater than or equal to 3 expired orders in 60 minutes from og_offchain",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 3,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
         },
         {
           name: "og_onchain",
@@ -124,7 +138,20 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: [{
+            description: "greater than or equal to 3 expired orders in 60 minutes from og_onchain",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 3,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }]
         }
       ],
       provers: [
@@ -258,7 +285,8 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "og_onchain",
@@ -307,7 +335,8 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "signal_requestor",
@@ -342,7 +371,8 @@ export const alarmConfig: ChainStageAlarms = {
               }
             }
           ],
-          successRate: [] // Signal rarely gets fulfilled on testnet.
+          successRate: [], // Signal rarely gets fulfilled on testnet.
+          expiredRequests: []
         }
       ],
       provers: [
@@ -512,7 +542,8 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "og_onchain",
@@ -564,17 +595,18 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "signal_requestor",
           address: "0x734df7809c4ef94da037449c287166d114503198",
           submissionRate: [
             {
-              description: "no submitted orders in 2 hours from signal_requestor",
+              description: "no submitted orders in 1 hour from signal_requestor",
               severity: Severity.SEV1,
               metricConfig: {
-                period: 7200
+                period: 3600
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -599,21 +631,33 @@ export const alarmConfig: ChainStageAlarms = {
               }
             }
           ],
-          successRate: [
-            {
-              description: "less than 90% success rate for two consecutive hours from signal_requestor",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 2,
-                datapointsToAlarm: 2,
-                comparisonOperator: "LessThanThreshold"
-              }
+          successRate: [],
+          expiredRequests: [{
+            description: "greater than or equal to 1 expired orders in 60 minutes from signal_requestor",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 1,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
             }
-          ]
+          },
+          {
+            description: "greater than or equal to 3 expired orders in 60 minutes from signal_requestor",
+            severity: Severity.SEV1,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 3,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
         },
         {
           name: "kailua_og_offchain",
@@ -662,7 +706,40 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
+        },
+        {
+          name: "cranberries",
+          address: "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+          submissionRate: [],
+          successRate: [],
+          expiredRequests: [{
+            description: "greater than or equal to 1 expired orders in 60 minutes from Cranberries",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 1,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          },
+          {
+            description: "greater than or equal to 3 expired orders in 60 minutes from Cranberries",
+            severity: Severity.SEV1,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 3,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
         }
       ],
       provers: [
@@ -806,7 +883,8 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "og_onchain",
@@ -844,7 +922,8 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         }
       ],
       provers: [
