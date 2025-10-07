@@ -451,7 +451,7 @@ impl Agent {
             // First check if there are any stuck tasks
             let stuck_tasks = taskdb::check_stuck_pending_tasks(&db_pool).await?;
             if !stuck_tasks.is_empty() {
-                tracing::info!("Found {} stuck pending tasks", stuck_tasks.len());
+                tracing::warn!("Found {} stuck pending tasks", stuck_tasks.len());
 
                 // Log details about stuck tasks
                 for task in &stuck_tasks {
