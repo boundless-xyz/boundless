@@ -247,6 +247,26 @@ impl Agent {
             });
         }
 
+        // Enable stuck task maintenance for aux workers
+        if self.args.task_stream == AUX_WORK_TYPE {
+            let term_sig_copy = term_sig.clone();
+            let db_pool_copy = self.db_pool.clone();
+            tokio::spawn(async move {
+                Self::poll_for_stuck_tasks(term_sig_copy, db_pool_copy)
+                    .await
+                    .expect("Stuck task maintenance failed")
+            });
+
+            // Enable completed job cleanup for aux workers
+            let term_sig_copy = term_sig.clone();
+            let db_pool_copy = self.db_pool.clone();
+            tokio::spawn(async move {
+                Self::poll_for_completed_job_cleanup(term_sig_copy, db_pool_copy)
+                    .await
+                    .expect("Completed job cleanup failed")
+            });
+        }
+
         while !term_sig.load(Ordering::Relaxed) {
             let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
                 .await
@@ -415,6 +435,68 @@ impl Agent {
                 tracing::info!("Found {retry_tasks} tasks that needed to be retried");
             }
             time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
+
+        Ok(())
+    }
+
+    /// background task to poll for stuck pending tasks and fix them
+    ///
+    /// Check for tasks that are stuck in pending state but should be ready
+    /// because all their dependencies are complete, and fix them.
+    async fn poll_for_stuck_tasks(term_sig: Arc<AtomicBool>, db_pool: PgPool) -> Result<()> {
+        while !term_sig.load(Ordering::Relaxed) {
+            tracing::debug!("Checking for stuck pending tasks...");
+
+            // First check if there are any stuck tasks
+            let stuck_tasks = taskdb::check_stuck_pending_tasks(&db_pool).await?;
+            if !stuck_tasks.is_empty() {
+                tracing::info!("Found {} stuck pending tasks", stuck_tasks.len());
+
+                // Log details about stuck tasks
+                for task in &stuck_tasks {
+                    tracing::info!(
+                        "Stuck task: job_id={}, task_id={}, waiting_on={}, actual_deps={}, completed_deps={}",
+                        task.job_id,
+                        task.task_id,
+                        task.waiting_on,
+                        task.actual_deps,
+                        task.completed_deps
+                    );
+                }
+
+                // Fix the stuck tasks
+                let fixed_count = taskdb::fix_stuck_pending_tasks(&db_pool).await?;
+                if fixed_count > 0 {
+                    tracing::info!("Fixed {} stuck pending tasks", fixed_count);
+                }
+            }
+
+            // Sleep for 1 minute before next check
+            time::sleep(tokio::time::Duration::from_secs(60)).await;
+        }
+
+        Ok(())
+    }
+
+    /// background task to clean up completed jobs
+    ///
+    /// Remove completed jobs and their associated tasks and dependencies
+    /// to prevent database bloat over time.
+    async fn poll_for_completed_job_cleanup(
+        term_sig: Arc<AtomicBool>,
+        db_pool: PgPool,
+    ) -> Result<()> {
+        while !term_sig.load(Ordering::Relaxed) {
+            tracing::debug!("Cleaning up completed jobs...");
+
+            let cleared_count = taskdb::clear_completed_jobs(&db_pool).await?;
+            if cleared_count > 0 {
+                tracing::info!("Cleared {} completed jobs", cleared_count);
+            }
+
+            // Sleep for 1 hour before next cleanup
+            time::sleep(tokio::time::Duration::from_secs(60 * 60)).await;
         }
 
         Ok(())
