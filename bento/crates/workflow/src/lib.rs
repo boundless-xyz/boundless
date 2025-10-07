@@ -264,7 +264,7 @@ impl Agent {
             tokio::spawn(async move {
                 Self::poll_for_requeue(term_sig_copy, db_pool_copy, requeue_interval)
                     .await
-                    .expect("Requeue failed")
+                    .context("Requeue failed")
             });
         }
 
