@@ -31,7 +31,7 @@ offer:
     minPrice: 1000000000000000 # 0.001 ETH
     maxPrice: 2000000000000000 # 0.002 ETH
     lockCollateral: 300000000000000000000 # 300 ZKC
-    rampUpStart: 1000 # seconds
-    rampUpPeriod: 50 # blocks
-    lockTimeout: 2700 # 45 minutes
-    timeout: 3600 # 1 hour 
+    rampUpStart: 60 # seconds
+    rampUpPeriod: 100 # blocks
+    lockTimeout: 600 # 10 minutes
+    timeout: 1200 # 20 minutes

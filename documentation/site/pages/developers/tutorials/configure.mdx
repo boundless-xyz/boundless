@@ -23,12 +23,12 @@ The Boundless monorepo has a template [request.yaml](https://github.com/boundles
 
 | Parameter      | request.yaml name | Units   | Description                                                                                                                                                                                     |
 |----------------|-------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Ramp Up Start  | `rampUpStart`     | seconds  | An alloted period of time before the auction price begins to increase, allowing provers to analyze jobs before the price increases. Provers can still lock during this period. This is specified in blocks.|
+| Ramp Up Start  | `rampUpStart`     | seconds  | An alloted period of time before the auction price begins to increase, allowing provers to analyze jobs before the price increases. Provers can still lock during this period. |
 | Ramp Up Period | `rampUpPeriod`    | blocks  | The duration of time period where the auction price increases linearly. Concretely, it is the number of blocks it takes for the price to increase from the minimum price (`min_price`) to the maximum price (`max_price`).|
 | Lock Timeout   | `lockTimeout`     | seconds | The maximum time a prover has to submit once the ramp up period has begun. Regardless of when the prover locks, they must submit the job onchain prior to this time, otherwise they will be slashed. |
 | Timeout        | `timeout`         | seconds | The total time after which the proof expires. After this time, if no provers have fulfilled the request, the request will stay *unfulfilled*.|
 | Min Price      | `min_price`       | wei     | The floor price of the auction; this can be set to 0.|
-| Max Price      | `max_price`       | wei     | The ceiling of the auction; the maximum absolute price you are willing to pay.|
+| Max Price      | `max_price`       | wei     | The ceiling price of the auction; the absolute maximum price the auction will reach. |
 | Collateral     | `lockCollateral`  | $ZKC     | Provers have to deposit *$ZKC* as [proving collateral](/zkc/collateral). This parameter specifies the exact amount of *$ZKC* a prover will lock as collateral when locking the order. If the prover does not fulfill the request before the primary prover deadline (the lock timeout), this collateral is slashed and 50% of the collateral becomes a bounty for secondary provers to claim upon successful proof fulfillment.                                            |
 
 
@@ -75,10 +75,10 @@ Each requestor will have a different latency tolerance; some might be fine with 
 
 | Parameter      | Units   | Recommendation                       | Notes                                                                                                                                 |
 |----------------|---------|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| Ramp Up Start  | seconds  | TODO | Use 10 blocks if you want to more aggressively prioritize latency with the potential of adding more costs in the short to medium term |
-| Ramp Up Period | blocks  | TODO| Example : With 1¢ increments per block, divide  Max Price  by $0.01 to determine period length.|
-| Lock Timeout   | seconds | TODO | Start with 1 MHz assumption. As network stability increases, increase in 5 MHz increments till your requests are at 30 MHz|
-| Timeout        | seconds |TODO|TODO|
+| Ramp Up Start  | seconds  | `(cycle_count / 30 000 000) + 10` | This time period allows provers to preflight the request; the duration of the preflight depends on the size of the program. This recommendation assumes an executor speed of 30 MHz, but in practice this can be tuned up or down depending on the maturity of provers and their setups on the protocol.  |
+| Ramp Up Period | blocks  | 100 | On Base mainnet, 100 blocks is ~200 seconds or 3min20s. If you require lower latency, experiment with dropping this figure. |
+| Lock Timeout   | seconds | 600 |  |
+| Timeout        | seconds | 1200|TODO|
 
 
 ### Price Sensitive Parameters
