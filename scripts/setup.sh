@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =============================================================================
-# Script Name: setup.sh
+# Sc ipt Name: setup.sh
 # Description:
 #   - Updates the system packages.
 #   - Installs essential boundless packages.

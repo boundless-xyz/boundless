@@ -359,7 +359,7 @@ impl AppState {
             .connect_client(client);
 
         let db = if let Some(db_pool) = db_pool_opt {
-            OrderDb::from_pool_no_migrate(db_pool)
+            OrderDb::from_pool(db_pool).await.context("Failed to apply DB migrations")?
         } else {
             OrderDb::from_env().await.context("Failed to connect to DB")?
         };
