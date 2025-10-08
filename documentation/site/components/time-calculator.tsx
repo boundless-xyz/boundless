@@ -30,10 +30,10 @@ export default function TimeCalculator() {
 
     const totalCycles = cycleCount * multiplier;
 
-    const execMhzNum = parseFloat(executionMhz);
-    const provMhzNum = parseFloat(provingMhz);
+    const execMhzNum = Number.parseFloat(executionMhz);
+    const provMhzNum = Number.parseFloat(provingMhz);
 
-    if (totalCycles <= 0 || isNaN(execMhzNum) || execMhzNum <= 0 || isNaN(provMhzNum) || provMhzNum <= 0) {
+    if (totalCycles <= 0 || Number.isNaN(execMhzNum) || execMhzNum <= 0 || Number.isNaN(provMhzNum) || provMhzNum <= 0) {
       return { estimatedExecutionTime: 0, estimatedProvingTime: 0 };
     }
     const executionTime = totalCycles / (execMhzNum * 1_000_000);
@@ -87,8 +87,9 @@ export default function TimeCalculator() {
         {/* Advanced Settings */}
         <div>
           <button
+            type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1"
+            className="flex items-center gap-1 text-gray-600 text-sm hover:text-gray-800"
           >
             {showAdvanced ? (
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" /></svg>
@@ -98,9 +99,9 @@ export default function TimeCalculator() {
             Advanced Settings
           </button>
           {showAdvanced && (
-            <div className="mt-2 space-y-4 p-4 rounded border border-[var(--vocs-color_border)] bg-gray-50">
+            <div className="mt-2 space-y-4 rounded border border-[var(--vocs-color_border)] bg-gray-50 p-4">
                <div>
-                <label htmlFor="executionMhz" className="mb-1 block text-sm font-medium">Execution MHz</label>
+                <label htmlFor="executionMhz" className="mb-1 block font-medium text-sm">Execution MHz</label>
                 <input
                   id="executionMhz"
                   value={executionMhz}
@@ -109,7 +110,7 @@ export default function TimeCalculator() {
                 />
               </div>
               <div>
-                <label htmlFor="provingMhz" className="mb-1 block text-sm font-medium">Proving MHz</label>
+                <label htmlFor="provingMhz" className="mb-1 block font-medium text-sm">Proving MHz</label>
                 <input
                   id="provingMhz"
                   value={provingMhz}
@@ -126,13 +127,13 @@ export default function TimeCalculator() {
             <h4 className="mb-2 font-medium">Estimations</h4>
             <div className="rounded border border-[var(--vocs-color_border)] bg-gray-50 p-4">
                 <dl className="space-y-2 text-sm">
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <dt>Estimated Execution Time:</dt>
                     <dd className="font-mono">
                     {estimatedExecutionTime.toFixed(4)} seconds
                     </dd>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <dt>Estimated Proving Time:</dt>
                     <dd className="font-mono">
                     {estimatedProvingTime.toFixed(4)} seconds
