@@ -283,7 +283,7 @@ services:
     environment:
       <<: *base-environment
       RUST_LOG: ${RUST_LOG:-info}
-    entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 10000; done"
+    entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 1000000; done"
 
 volumes:
   redis-data:
