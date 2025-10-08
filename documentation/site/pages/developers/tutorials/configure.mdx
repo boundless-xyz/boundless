@@ -1,4 +1,5 @@
 import PricingCalculator from "../../../components/pricing-calculator";
+import TimeCalculator from "../../../components/time-calculator";
 
 # Configuring A Request
 
@@ -41,7 +42,7 @@ offer:
     minPrice: 1000000000000000 # 0.001 ETH
     maxPrice: 2000000000000000 # 0.002 ETH
     lockCollateral: 300000000000000000000 # 300 ZKC
-    rampUpStart: 1000 # seconds
+    rampUpStart: 10 # seconds
     rampUpPeriod: 50 # blocks
     lockTimeout: 2700 # 45 minutes
     timeout: 3600 # 1 hour 
@@ -49,8 +50,9 @@ offer:
 
 #### Auction Settings
 
-- During the "ramp up start" period, the price is set to the minimum price of 0.001 $ETH.
-- During the "ramp up period" (which immediately follows the ramp up start period), the price grows linearly from the minimum price to the maximum price of 0.002 ETH.
+- After order creation and before the ramp up start time i.e. 10 seconds, the order is surfaced to the market; provers can not lock until the 10 seconds (i.e. `rampUpStart` time) is over. In theory, setting this value into the future should minimize the advantage for provers who run execution vs provers who skip it[^1]. It also prevents provers from locking proofs in the same block as the request.
+- At 10 seconds, the price is set to the minimum price of 0.001 $ETH and the bidding officially starts.
+- During the "ramp up period" (which immediately follows the ramp up start period), the price grows linearly from the minimum price to the maximum price of 0.002 ETH, over the span of 50 blocks (~100 seconds on Base mainnet).
 - After the "ramp up period", the price remains at the maximum price until the primary prover deadline (the "lock timeout" of 45 minutes).
 - After the "lock timeout", a race amongst secondary provers begins. They have until the "timeout" (1 hour from request creation, 15 minutes from the primary prover deadline) to fulfill the request; otherwise the order expires.
 
@@ -60,26 +62,28 @@ Provers can lock a request at any time before the "lock timeout". When a prover 
 
 ## Offer Parameter Recommendations
 
-### Calculator
+### Estimate the Execution/Proving Time of a Request
 
-Use this interactive calculator to get suggested offer parameters based on cycle count and desired fulfillment latency:
+Based on current average execution and proving MHz, this calculator will estimate the execution and proving time of a request:
 
-<PricingCalculator />
+<TimeCalculator />
+
+For the following recommendations, the estimated execution and proving times will be labelled as `estimated_execution_time` and `estimated_proving_time` respectively.
 
 The following two sections detail some recommended guidelines when setting the offer parameters. These guidelines are formulas, and they are to be taken with a pinch of salt. Please remember to start conservatively when tuning each parameter. Provers have to respond and some may set their pricing strategy based on each requestor's standard request profile. Therefore, it is recommended to change offer parameters in small increments during testing, and *only* change offer parameters again once proof fulfillment becomes stable.
 
-
 ### Latency Sensitive Parameters
 
-Each requestor will have a different latency tolerance; some might be fine with receiving a proof on the scale of hours, whereas others will have more time-critical applications and require proof fulfillment on the scale of minutes. These latency requirements should dictate how requestors set the following time-specific offer parameters:
+Each requestor will have a different latency tolerance; some might be fine with receiving a proof on the scale of hours, whereas others will have more time-critical applications and require proof fulfillment on the scale of minutes. These latency requirements should dictate how requestors set the time-based offer parameters. 
+
+
 
 | Parameter      | Units   | Recommendation                       | Notes                                                                                                                                 |
 |----------------|---------|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| Ramp Up Start  | seconds  | `(cycle_count / 30 000 000) + 10` | This time period allows provers to preflight the request; the duration of the preflight depends on the size of the program. This recommendation assumes an executor speed of 30 MHz, but in practice this can be tuned up or down depending on the maturity of provers and their setups on the protocol.  |
-| Ramp Up Period | blocks  | 100 | On Base mainnet, 100 blocks is ~200 seconds or 3min20s. If you require lower latency, experiment with dropping this figure. |
-| Lock Timeout   | seconds | 600 |  |
-| Timeout        | seconds | 1200|TODO|
-
+| Ramp Up Start  | seconds  | 10 | This parameter is important, as the lock timeout and timeout are specified in seconds *after* the ramp up start timestamp. Therefore, setting it equal to 10 specifies 10 seconds in the future after order creation. If it is set to 0, the current UNIX timestamp, at order creation, will be used. |
+| Ramp Up Period | blocks  | 10 x `estimated_execution_time`| See [calculator](/developers/tutorials/configure#estimate-the-executionproving-time-of-a-request).  |
+| Lock Timeout   | seconds | 1.25 x `estimated_proving _time` | See [calculator](/developers/tutorials/configure#estimate-the-executionproving-time-of-a-request). |
+| Timeout        | seconds | 3 x `estimated_proving_time` | See [calculator](/developers/tutorials/configure#estimate-the-executionproving-time-of-a-request). |
 
 ### Price Sensitive Parameters
 
@@ -88,7 +92,8 @@ The price of a request determines how competitively provers bid on the request, 
 | Parameter     | Units | Recommendation | Notes |
 |---------------|-------|----------------|-------|
 | Minimum Price | wei   | Initially, set the minimum price to 0[^1]. To guarantee the lowest latency in both locking and fulfillment, set the minimum price as non-zero.    | As market demand and supply normalizes, competition will stabilize prices at non-zero.|
-| Maximum Price | wei   | `TODO`[^1]     | Setting a substantial price ensures requests are visible and attractive to provers. For testing purposes, the recommended absolute minimum is $0.25 worth of $ETH. |
+| Maximum Price | wei   | It is recommended to test the `maxPrice` parameter by starting low, and bumping the value up only when requests are not locked whatsoever. | Setting a substantial price ensures requests are visible and attractive to provers. For testing purposes, the recommended lowest amount for maximum price is $0.25 worth of $ETH.[^1] |
+
 
 [^1]: This is accurate for October 2025.
 
