@@ -47,11 +47,18 @@ impl CodedError for MonitorError {
     }
 }
 
+/// Cached entry that tracks both the requestor data and its source URL
+#[derive(Clone, Debug)]
+struct CachedEntry {
+    entry: RequestorEntry,
+    source_url: String,
+}
+
 /// Tracks priority requestors from both static config and remote lists
 #[derive(Clone, Debug)]
 pub struct PriorityRequestors {
-    /// Map of requestor addresses to their full entry data (from remote lists)
-    requestors: Arc<RwLock<HashMap<Address, RequestorEntry>>>,
+    /// Map of requestor addresses to their cached entries (from remote lists)
+    requestors: Arc<RwLock<HashMap<Address, CachedEntry>>>,
     /// Config lock for reading latest static addresses
     config: ConfigLock,
     /// Chain ID for this broker instance
@@ -67,8 +74,8 @@ impl PriorityRequestors {
     pub fn get_requestor_entry(&self, address: &Address) -> Option<RequestorEntry> {
         // First check cached remote list entries
         if let Ok(requestors) = self.requestors.read() {
-            if let Some(entry) = requestors.get(address) {
-                return Some(entry.clone());
+            if let Some(cached) = requestors.get(address) {
+                return Some(cached.entry.clone());
             }
         }
 
@@ -98,7 +105,7 @@ impl PriorityRequestors {
     }
 
     /// Update the priority requestors from a list
-    fn update_from_list(&self, list: &RequestorList) {
+    fn update_from_list(&self, list: &RequestorList, source_url: &str) {
         let mut requestors = match self.requestors.write() {
             Ok(r) => r,
             Err(e) => {
@@ -111,7 +118,10 @@ impl PriorityRequestors {
         for entry in &list.requestors {
             // Only add requestors for the chain we're operating on
             if entry.chain_id == self.chain_id {
-                requestors.insert(entry.address, entry.clone());
+                requestors.insert(
+                    entry.address,
+                    CachedEntry { entry: entry.clone(), source_url: source_url.to_string() },
+                );
                 added_count += 1;
             }
         }
@@ -129,10 +139,10 @@ impl PriorityRequestors {
         );
     }
 
-    /// Clear all cached priority requestors from remote lists
-    fn clear(&self) {
+    /// Clear cached priority requestors from a specific URL
+    fn clear_from_url(&self, url: &str) {
         if let Ok(mut requestors) = self.requestors.write() {
-            requestors.clear();
+            requestors.retain(|_, cached| cached.source_url != url);
         }
     }
 }
@@ -165,9 +175,6 @@ impl RequestorMonitor {
 
         tracing::debug!("Refreshing {} requestor priority lists", urls.len());
 
-        // Clear existing entries before refreshing
-        self.priority_requestors.clear();
-
         // Iterate in reverse order so the first list takes precedence
         // (last URL processed overwrites entries from earlier URLs)
         for url in urls.iter().rev() {
@@ -182,10 +189,13 @@ impl RequestorMonitor {
                         list.schema_version.minor,
                         url
                     );
-                    self.priority_requestors.update_from_list(&list);
+                    // Clear entries from this URL before adding new ones
+                    self.priority_requestors.clear_from_url(url);
+                    self.priority_requestors.update_from_list(&list, url);
                 }
                 Err(e) => {
                     tracing::error!("Failed to fetch requestor list from {}: {}", url, e);
+                    // Keep existing cached entries from this URL on failure
                 }
             }
         }
@@ -303,7 +313,7 @@ mod tests {
             ],
         );
 
-        priority_requestors.update_from_list(&list);
+        priority_requestors.update_from_list(&list, "https://test.example.com/list.json");
 
         // Should only have entries from chain_id 1
         let mainnet_addr1: alloy::primitives::Address =
@@ -338,7 +348,7 @@ mod tests {
             )],
         );
 
-        priority_requestors.update_from_list(&list);
+        priority_requestors.update_from_list(&list, "https://test.example.com/list.json");
 
         let entry = priority_requestors.get_requestor_entry(&addr);
         assert!(entry.is_some());
@@ -412,13 +422,13 @@ mod tests {
         );
 
         // Process first list
-        priority_requestors.update_from_list(&list1);
+        priority_requestors.update_from_list(&list1, "https://test.example.com/list.json");
         let entry = priority_requestors.get_requestor_entry(&addr).unwrap();
         assert_eq!(entry.name, "First Entry");
         assert_eq!(entry.extensions.priority.unwrap().level, 50);
 
         // Process second list - should overwrite
-        priority_requestors.update_from_list(&list2);
+        priority_requestors.update_from_list(&list2, "https://test.example.com/list.json");
         let entry = priority_requestors.get_requestor_entry(&addr).unwrap();
         assert_eq!(entry.name, "Second Entry");
         assert_eq!(entry.extensions.priority.unwrap().level, 75);
@@ -462,7 +472,7 @@ mod tests {
 
         // Process in reverse order (as refresh_lists does)
         for list in lists.iter().rev() {
-            priority_requestors.update_from_list(list);
+            priority_requestors.update_from_list(list, "https://test.example.com/list.json");
         }
 
         // The first list should win
