@@ -2995,6 +2995,7 @@ dependencies = [
  "alloy-chains",
  "anyhow",
  "async-channel 2.5.0",
+ "async-stream",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
