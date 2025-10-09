@@ -23,14 +23,15 @@ interface OrderGeneratorArgs {
   minPricePerMCycle: string;
   maxPricePerMCycle: string;
   secondsPerMCycle?: string;
+  rampUpSecondsPerMCycle?: string;
   inputMaxMCycles?: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
   boundlessAlertsTopicArns?: string[];
   offchainConfig?: {
-    autoDeposit: string;
     orderStreamUrl: pulumi.Output<string>;
   };
+  autoDeposit?: string;
   warnBalanceBelow?: string;
   errorBalanceBelow?: string;
   txTimeout: string;
@@ -145,11 +146,14 @@ export class OrderGenerator extends pulumi.ComponentResource {
       },
     ];
 
-    if (offchainConfig) {
+    if (args.autoDeposit) {
       environment.push({
         name: 'AUTO_DEPOSIT',
-        value: offchainConfig.autoDeposit,
+        value: args.autoDeposit,
       });
+    }
+
+    if (offchainConfig) {
       secrets.push({
         name: 'ORDER_STREAM_URL',
         valueFrom: orderStreamUrlSecret.arn,
@@ -190,6 +194,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.rampUp) {
       ogArgs.push(`--ramp-up ${args.rampUp}`);
+    }
+    if (args.rampUpSecondsPerMCycle) {
+      ogArgs.push(`--ramp-up-seconds-per-mcycle ${args.rampUpSecondsPerMCycle}`);
     }
     if (args.secondsPerMCycle) {
       ogArgs.push(`--seconds-per-mcycle ${args.secondsPerMCycle}`);

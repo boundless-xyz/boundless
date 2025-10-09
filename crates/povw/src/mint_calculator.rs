@@ -556,6 +556,22 @@ pub mod host {
             let completeness_check_block_number = latest_epoch_finalization_block - 1;
             let completeness_check_env =
                 envs.get_or_insert(completeness_check_block_number).await?;
+
+            // In the guest, we query events across all environments, so if this one was not
+            // previously included, we must preflight the query as well.
+            if !block_numbers.contains(&completeness_check_block_number) {
+                Event::preflight::<IPovwAccounting::EpochFinalized>(completeness_check_env)
+                    .address(povw_accounting_address)
+                    .query()
+                    .await
+                    .context("failed to query EpochFinalized events")?;
+                Event::preflight::<IPovwAccounting::WorkLogUpdated>(completeness_check_env)
+                    .address(povw_accounting_address)
+                    .query()
+                    .await
+                    .context("failed to query WorkLogUpdated events")?;
+            }
+
             let mut povw_accounting_contract =
                 Contract::preflight(povw_accounting_address, completeness_check_env);
             for work_log_id in work_logs {

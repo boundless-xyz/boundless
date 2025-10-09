@@ -5,6 +5,7 @@ import { defineConfig } from "vocs";
 const SIDEBAR_ITEMS = [
   {
     text: "Introduction",
+    collapsed: true,
     items: [
       {
         text: "What is Boundless?",
@@ -19,6 +20,7 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "Build",
+    collapsed: true,
     items: [
       {
         text: "Quick Start",
@@ -26,7 +28,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Core Concepts",
-        collapsed: true,
         items: [
           {
             text: "Build a Program",
@@ -37,16 +38,16 @@ const SIDEBAR_ITEMS = [
             link: "/developers/proof-lifecycle",
           },
           {
+            text: "Pricing a Request",
+            link: "/developers/tutorials/pricing",
+          },
+          {
             text: "Request a Proof",
             link: "/developers/tutorials/request",
           },
           {
-            text: "Tracking your Request",
+            text: "Tracking a Request",
             link: "/developers/tutorials/tracking",
-          },
-          {
-            text: "Pricing a Request",
-            link: "/developers/tutorials/pricing",
           },
           {
             text: "Use a Proof",
@@ -60,7 +61,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Tutorials",
-        collapsed: true,
         items: [
           {
             text: "Callbacks",
@@ -89,22 +89,7 @@ const SIDEBAR_ITEMS = [
         ],
       },
       {
-        text: "Dev Tooling",
-        collapsed: true,
-        items: [
-          {
-            text: "Boundless SDK",
-            link: "/developers/tooling/sdk",
-          },
-          {
-            text: "Boundless CLI",
-            link: "/developers/tooling/cli",
-          },
-        ],
-      },
-      {
         text: "Smart Contracts",
-        collapsed: true,
         items: [
           {
             text: "Boundless Contracts",
@@ -121,8 +106,23 @@ const SIDEBAR_ITEMS = [
         ],
       },
       {
+        text: "Dev Tooling",
+        collapsed: true,
+        items: [
+          {
+            text: "Boundless SDK",
+            link: "/developers/tooling/sdk",
+          },
+          {
+            text: "Boundless CLI",
+            link: "/developers/tooling/cli",
+          },
+        ],
+      },
+      {
         text: "Steel",
         collapsed: true,
+        link: "/developers/steel/quick-start",
         items: [
           {
             text: "Quick Start",
@@ -157,10 +157,11 @@ const SIDEBAR_ITEMS = [
       {
         text: "Kailua",
         collapsed: true,
+        link: "/developers/kailua/intro",
         items: [
           {
             text: "Introducing Kailua",
-            link: "/developers/kailua/how",
+            link: "/developers/kailua/intro",
           },
           {
             text: "The Kailua Book",
@@ -172,6 +173,7 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "Prove",
+    collapsed: true,
     items: [
       {
         text: "Quick Start",
@@ -179,7 +181,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Core Concepts",
-        collapsed: true,
         items: [
           {
             text: "The Boundless Proving Stack",
@@ -201,7 +202,6 @@ const SIDEBAR_ITEMS = [
       },
       {
         text: "Technical Reference",
-        collapsed: true,
         items: [
           {
             text: "Bento Technical Design",
@@ -213,32 +213,44 @@ const SIDEBAR_ITEMS = [
   },
   {
     text: "$ZKC",
+    collapsed: true,
     items: [
       {
-        text: "Introduction",
-        link: "/zkc/introduction"
+        text: "Quick Start",
+        link: "/zkc/quick-start"
       },
       {
-        text: "Staking $ZKC",
-        link: "/zkc/staking"
-      },
-      {
-        text: "Bridging $ZKC",
-        link: "/zkc/bridging"
-      },
-      {
-        text: "Governance",
-        link: "/zkc/governance"
-      },
-      {
-        text: "Proof of Verifiable Work",
-        collapsed: false,
+        text: "ZK Mining",
         items: [
           {
+            text: "Overview",
+            link: "/zkc/mining/overview",
+          },
+          {
+            text: "Wallet Setup",
+            link: "/zkc/mining/wallet-setup",
+          },
+          {
+            text: "Enabling ZK Mining",
+            link: "/zkc/mining/enable",
+          },
+          {
+            text: "Mining Walkthrough",
+            link: "/zkc/mining/walkthrough",
+          },
+          {
             text: "Claiming Rewards",
-            link: "/zkc/povw-claiming-rewards",
+            link: "/zkc/mining/claiming-rewards",
           }
         ],
+      },
+      {
+        text: "$ZKC as Proving Collateral",
+        link: "/zkc/collateral"
+      },
+      {
+        text: "Token Source Code & Docs",
+        link: "https://github.com/boundless-xyz/zkc?tab=readme-ov-file#zkc"
       },
     ],
   },
@@ -274,7 +286,7 @@ export default defineConfig({
   logoUrl: "/logo.svg",
   topNav: [
     { text: "Explorer", link: "https://explorer.boundless.network/orders" },
-    { text: "Discord", link: "https://discord.gg/aXRuD6spez" }
+    { text: "Support Forum", link: "https://github.com/boundless-xyz/boundless/discussions" }
   ],
   font: {
     mono: {
@@ -294,6 +306,10 @@ export default defineConfig({
       icon: "x",
       link: "https://x.com/boundless_xyz",
     },
+    {
+      icon: "discord",
+      link: "https://discord.com/invite/boundlessxyz",
+    }
   ],
   rootDir: "site",
   title: "Boundless Docs",
