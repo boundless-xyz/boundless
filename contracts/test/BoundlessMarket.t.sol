@@ -3920,6 +3920,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.snapshotBalance();
         testProver.snapshotBalance();
 
+        // Withdraw some funds so we only have funds to cover for the first offer
+        // and we have a deficit for the second offer to test the partial payment path
+        vm.prank(client.addr());
+        boundlessMarket.withdraw(DEFAULT_BALANCE - 2 ether);
+
         // Lock request A
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(requestA, clientSignatureA);
@@ -3944,16 +3949,27 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(requestB.requirements.predicate.data);
         emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, fill.seal);
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        bytes[] memory errors = boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        // Verify that the second request was partially payed
+        assertEq(errors.length, 1, "Expected one error");
+        assertEq(
+            errors[0],
+            abi.encodeWithSelector(IBoundlessMarket.PartialPayment.selector, 3 ether, 2 ether),
+            "Unexpected error"
+        );
 
         // Verify only the second request's callback was called
         assertEq(mockCallback.getCallCount(), 0, "First request's callback should not be called");
         assertEq(mockHighGasCallback.getCallCount(), 1, "Second request's callback should be called once");
 
+        // Deposit back original funds so that the Market original balance is restored
+        vm.prank(client.addr());
+        boundlessMarket.deposit{value: DEFAULT_BALANCE - 2 ether}();
+
         // Verify request state and balances
         expectRequestFulfilled(fill.id);
-        client.expectBalanceChange(-3 ether);
-        testProver.expectBalanceChange(3 ether);
+        client.expectBalanceChange(-2 ether);
+        testProver.expectBalanceChange(2 ether);
         testProver.expectCollateralBalanceChange(-1 ether); // Lost stake from lock
         expectMarketBalanceUnchanged();
     }

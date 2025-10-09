@@ -562,10 +562,17 @@ contract BoundlessMarket is
         // If the price is higher, we charge the client the difference.
         // If the price is lower, we refund the client the difference.
         uint96 lockPrice = lock.price;
+        bool partialPayment = false;
+        uint96 finalPrice = price;
+
         if (price > lockPrice) {
             uint96 clientOwes = price - lockPrice;
             if (clientAccount.balance < clientOwes) {
-                return abi.encodeWithSelector(InsufficientBalance.selector, client);
+                // If the client does not have enough balance to cover the full amount owed,
+                // we will only charge them what they have available.
+                clientOwes = clientAccount.balance;
+                finalPrice = lockPrice + clientOwes;
+                partialPayment = true;
             }
             unchecked {
                 clientAccount.balance -= clientOwes;
@@ -577,9 +584,12 @@ contract BoundlessMarket is
 
         requestLocks[id].setProverPaidAfterLockDeadline(assessorProver);
         if (MARKET_FEE_BPS > 0) {
-            price = _applyMarketFee(price);
+            finalPrice = _applyMarketFee(finalPrice);
         }
-        accounts[assessorProver].balance += price;
+        accounts[assessorProver].balance += finalPrice;
+        if (partialPayment) {
+            return abi.encodeWithSelector(PartialPayment.selector, price, finalPrice);
+        }
     }
 
     /// @notice For a request that has never been locked. Marks the request as fulfilled, and transfers payment if eligible.
