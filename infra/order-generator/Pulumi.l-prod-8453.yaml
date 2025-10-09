@@ -16,8 +16,8 @@ config:
   order-generator-base:DOCKER_DIR: ../../
   order-generator-base:DOCKER_TAG: latest
   order-generator-base:GH_TOKEN_SECRET:
-    secure: v1:W8jLVMFnXDFMfl+5:dejyGpk4g1zqvpGOdX1GMMS7ustfapAgSCdlhKIQkIlwQcZ1o7W7y3jUQ6jO8UoKvjWxgV2m2eMmRG0t2a5/uAeX/8/HUaaED1ngR1akFDpETJU5JrdQb2vpEX7lBS6x9RNz78wY+xgoSlYjww==
-  order-generator-base:INTERVAL: "32"
+    secure: v1:pfTxhEjN74NTG5Zk:uqeqk81UF6asWxgfbxYTzL+yhrMfY32xWCvGx+rauPVc/z1jbMHGcHMKVIWhdKuNQx3sgIL7p9C3XrFXxb9IjSv01f02I3aRsPV+OQgUQy5+AsNT9CKGUz2p3vLre+pueTXjNpDcWXzvV3YIdg==
+  order-generator-base:INTERVAL: "22"
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
   order-generator-base:LOCK_COLLATERAL_RAW: "7500000000000000000" # $7.5 ZKC
   order-generator-base:LOCK_TIMEOUT: "900"
@@ -28,7 +28,7 @@ config:
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:PINATA_JWT:
     secure: v1:wOJUhapOWpVScxx5:9ws7QAOS62UNKJmhQP9tdl1aQosT+BRovdoYv9HYNLApYkx6dzGguK9o/IdNdjzfd2rspTpVyvHX7MlP4LYoPgOf9j3L048G8vTxNZ5g0MqZDS5Rhx+gdmRqj3SRglfOIkD/AEcpCba3GNBmAi5+9x3QXEQerKAKJ4EpLpnez1sJs9WOdTG40YbM54qZlzwbdU/EOsWxAuWKIFnPKwm7CPlNZ2lzmA0PzEgGbG77mhHrafNnuGXHc16iy/lvhEh6Qe13sXHJg+p4U29KAL8HWR+dkNytQLnU3UsPZQcx6QQLSJRFg0PLLlEZ/DEsAAXuqMbRPzAexF2qX65/52JGiv9ite2+zOL8zhfhjbbpVHVrcwcSVB87vpPEiOLIRPrZD8OjjtKBxw9mcBID6ysPZDjCsgXjjAn/WqilS4/m0aUMUnRcC2z+upAByCrWDXoTz5XrTy2wDFvHhtK5v2j/ETv/dXWZcFBpUK7o/5JhJ5NKuiOgNhPaPVo1/HJqQMY8lYArgyRs/8cDd5jbcQZ+dbI/sBYXkCI3Jdtgghk7ZOr22RxSOQZhiptr4fzgX/C6Mp3V2ln/90uY0+BOZUfC+Dqd4nFjWBeaY8NtAfJacAbI83eC9yH+HL0LphRhtjmWgfE2NXjSRv8g1bSsrVUrKh44RsSUjOSMMGJyd7ydXRT4gOUAt3whc01WtTlVzCgEx9OlUYx1IaLXh9kUdotNGGzE6IdUVk+JBlIzQbHwwPCSQ+2oLTMdbRiz/56HvUNFf0ENysCy+17uIpjlKT1i9yJCrEyRPAcBpIl7MPboTwG3a65/yGiqvoMSZrEhKXl8e/HHRPSNQsEhtphEJVNj7MyI17Q0UuIXsd1jjYUEGWBT2GutmHbActlH4As0cRB4HTcBoaJJhtfCzL0Izs04tsqgcKkCyBHh
-  order-generator-base:SET_VERIFIER_ADDR: 0x8C5a8b5cC272Fe2b74D18843CF9C3aCBc952a760
+  order-generator-base:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
   order-generator-base:TX_TIMEOUT: "90"
   order-generator-offchain:AUTO_DEPOSIT: "0.015"
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
@@ -36,11 +36,12 @@ config:
   order-generator-offchain:INPUT_MAX_MCYCLES: "2000"
   order-generator-offchain:LOCK_TIMEOUT: "1500"
   order-generator-offchain:RAMP_UP: "600"
-  order-generator-offchain:INTERVAL: "20"
+  order-generator-offchain:INTERVAL: "14"
   order-generator-offchain:RAMP_UP_SECONDS_PER_MCYCLE: "2"
   order-generator-offchain:SECONDS_PER_MCYCLE: "7"
   order-generator-offchain:TIMEOUT: "1500"
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
+  order-generator-onchain:AUTO_DEPOSIT: "0.015"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "1000"
   order-generator-onchain:INPUT_MAX_MCYCLES: "4000"

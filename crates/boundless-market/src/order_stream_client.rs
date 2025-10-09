@@ -17,7 +17,6 @@ use alloy::{
     signers::{Error as SignerErr, Signer},
 };
 use alloy_primitives::B256;
-use alloy_sol_types::SolStruct;
 use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::{DateTime, Utc};
@@ -35,7 +34,7 @@ use tokio_tungstenite::{
 };
 use utoipa::ToSchema;
 
-use crate::contracts::{eip712_domain, ProofRequest, RequestError};
+use crate::contracts::{ProofRequest, RequestError};
 
 /// Order stream submission API path.
 pub const ORDER_SUBMISSION_PATH: &str = "/api/v1/submit_order";
@@ -135,8 +134,7 @@ impl Order {
     /// Validate the Order
     pub fn validate(&self, market_address: Address, chain_id: u64) -> Result<(), OrderError> {
         self.request.validate()?;
-        let domain = eip712_domain(market_address, chain_id);
-        let hash = self.request.eip712_signing_hash(&domain.alloy_struct());
+        let hash = self.request.signing_hash(market_address, chain_id)?;
         if hash != self.request_digest {
             return Err(OrderError::RequestError(RequestError::DigestMismatch));
         }
@@ -224,8 +222,7 @@ impl OrderStreamClient {
         let url = self.base_url.join(ORDER_SUBMISSION_PATH)?;
         let signature =
             request.sign_request(signer, self.boundless_market_address, self.chain_id).await?;
-        let domain = eip712_domain(self.boundless_market_address, self.chain_id);
-        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
+        let request_digest = request.signing_hash(self.boundless_market_address, self.chain_id)?;
         let order = Order { request: request.clone(), request_digest, signature };
         order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;

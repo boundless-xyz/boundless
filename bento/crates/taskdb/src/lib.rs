@@ -280,6 +280,41 @@ pub async fn requeue_tasks(pool: &PgPool, limit: i64) -> Result<usize, TaskDbErr
     Ok(timed_out.len())
 }
 
+/// Check for stuck pending tasks without updating them
+pub async fn check_stuck_pending_tasks(pool: &PgPool) -> Result<Vec<StuckTaskInfo>, TaskDbErr> {
+    let results = sqlx::query_as::<_, StuckTaskInfo>("SELECT * FROM check_stuck_pending_tasks()")
+        .fetch_all(pool)
+        .await?;
+
+    Ok(results)
+}
+
+/// Fix stuck pending tasks by setting them to ready if all dependencies are complete
+pub async fn fix_stuck_pending_tasks(pool: &PgPool) -> Result<i32, TaskDbErr> {
+    let result =
+        sqlx::query_scalar::<_, i32>("SELECT fix_stuck_pending_tasks()").fetch_one(pool).await?;
+
+    Ok(result)
+}
+
+/// Clear completed jobs and their associated tasks and dependencies
+pub async fn clear_completed_jobs(pool: &PgPool) -> Result<i32, TaskDbErr> {
+    let result =
+        sqlx::query_scalar::<_, i32>("SELECT clear_completed_jobs()").fetch_one(pool).await?;
+
+    Ok(result)
+}
+
+#[derive(FromRow, Debug)]
+pub struct StuckTaskInfo {
+    pub job_id: Uuid,
+    pub task_id: String,
+    pub waiting_on: i32,
+    pub actual_deps: i32,
+    pub completed_deps: i32,
+    pub should_be_ready: bool,
+}
+
 pub async fn get_job_state(
     pool: &PgPool,
     job_id: &Uuid,
@@ -1297,5 +1332,11 @@ async fn delete_job_test(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
     assert_eq!(count_jobs, 0);
 
+    Ok(())
+}
+
+/// Run AUX maintenance to recalculate stream priorities and counters
+pub async fn maint_streams(pool: &PgPool) -> Result<(), TaskDbErr> {
+    sqlx::query("SELECT maint_streams()").execute(pool).await?;
     Ok(())
 }
