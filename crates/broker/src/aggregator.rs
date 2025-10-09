@@ -95,27 +95,60 @@ impl AggregatorService {
         })
     }
 
+    async fn validate_and_extract_claim(&self, proof_id: &str) -> Result<ReceiptClaim> {
+        let receipt = self
+            .prover
+            .get_receipt(proof_id)
+            .await
+            .with_context(|| format!("Failed to fetch receipt for {proof_id}"))?
+            .with_context(|| format!("Receipt not found for {proof_id}"))?;
+
+        receipt
+            .verify(self.set_builder_guest_id)
+            .with_context(|| format!("Receipt verification failed for {proof_id}"))?;
+
+        let claim = receipt
+            .claim()
+            .with_context(|| format!("Failed to get claim for {proof_id}"))?
+            .value()
+            .with_context(|| format!("Failed to extract claim value for {proof_id}"))?;
+
+        Ok(claim)
+    }
+
     async fn prove_set_builder(
         &self,
         aggregation_state: Option<&AggregationState>,
         proofs: &[String],
         finalize: bool,
     ) -> Result<AggregationState> {
-        // TODO(#268): Handle failure to get an individual order.
         let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
+        let mut valid_proof_ids = Vec::<String>::with_capacity(proofs.len());
+
+        // Verify each proof and collect only valid ones
         for proof_id in proofs {
-            let receipt = self
-                .prover
-                .get_receipt(proof_id)
-                .await
-                .with_context(|| format!("Failed to get proof receipt for {proof_id}"))?
-                .with_context(|| format!("Proof receipt not found for {proof_id}"))?;
-            let claim = receipt
-                .claim()
-                .with_context(|| format!("Receipt for {proof_id} missing claim"))?
-                .value()
-                .with_context(|| format!("Receipt for {proof_id} claims pruned"))?;
-            claims.push(claim);
+            match self.validate_and_extract_claim(proof_id).await {
+                Ok(claim) => {
+                    claims.push(claim);
+                    valid_proof_ids.push(proof_id.clone());
+                }
+                Err(e) => {
+                    tracing::error!("Error fetching proof from batch: {e:?}, excluding");
+                }
+            }
+        }
+
+        if claims.is_empty() {
+            anyhow::bail!("No valid proofs found in batch");
+        }
+
+        if valid_proof_ids.len() < proofs.len() {
+            tracing::warn!(
+                "Excluded {} invalid proofs from batch. Valid: {}/{}",
+                proofs.len() - valid_proof_ids.len(),
+                valid_proof_ids.len(),
+                proofs.len()
+            );
         }
 
         let input = aggregation_state
@@ -128,7 +161,7 @@ impl AggregatorService {
         let assumption_ids: Vec<String> = aggregation_state
             .map(|s| s.proof_id.clone())
             .into_iter()
-            .chain(proofs.iter().cloned())
+            .chain(valid_proof_ids.iter().cloned())
             .collect();
 
         let input_data =
@@ -616,8 +649,35 @@ impl AggregatorService {
             let compress_proof_id = match retry(
                 retry_count,
                 sleep_ms,
-                || async { self.prover.compress(&aggregation_proof_id).await },
-                "compress",
+                || async {
+                    let proof_id = self.prover.compress(&aggregation_proof_id).await?;
+
+                    // Sanity check that the receipt is valid.
+                    tracing::trace!("Verifying Groth16 receipt locally for proof_id: {proof_id}");
+                    let receipt_bytes =
+                        self.prover.get_compressed_receipt(&proof_id).await?.ok_or_else(|| {
+                            provers::ProverError::NotFound(format!(
+                                "Groth16 receipt not found: {proof_id}"
+                            ))
+                        })?;
+
+                    let receipt: risc0_zkvm::Receipt = bincode::deserialize(&receipt_bytes)
+                        .map_err(|e| {
+                            provers::ProverError::ProverInternalError(format!(
+                                "Failed to deserialize receipt: {e}"
+                            ))
+                        })?;
+
+                    receipt.verify(self.set_builder_guest_id).map_err(|e| {
+                        provers::ProverError::ProverInternalError(format!(
+                            "Groth16 verification failed: {e}"
+                        ))
+                    })?;
+
+                    tracing::debug!("Groth16 verification passed for proof_id: {proof_id}");
+                    Ok::<String, provers::ProverError>(proof_id)
+                },
+                "compress_and_verify",
             )
             .await
             {
