@@ -22,11 +22,8 @@ pub struct Planner {
     /// All of the tasks in this plan
     tasks: Vec<Task>,
 
-    /// List of current "peaks." Sorted in order of decreasing height.
-    ///
-    /// A task is a "peak" if (1) it is either a Segment or Join command AND (2) no other join
-    /// tasks depend on it.
-    peaks: Vec<usize>,
+    /// List of segments to be joined. These will be organized into a balanced binary tree.
+    segments: Vec<usize>,
 
     /// List of current "keccak_peaks." Sorted in order of decreasing height.
     ///
@@ -96,21 +93,8 @@ impl Planner {
         let task_number = self.next_task_number();
         self.tasks.push(Task::new_segment(task_number));
 
-        let mut new_peak = task_number;
-        while let Some(smallest_peak) = self.peaks.last().copied() {
-            let new_height = self.get_task(new_peak).task_height;
-            let smallest_peak_height = self.get_task(smallest_peak).task_height;
-
-            match new_height.cmp(&smallest_peak_height) {
-                Ordering::Less => break,
-                Ordering::Equal => {
-                    self.peaks.pop();
-                    new_peak = self.enqueue_join(smallest_peak, new_peak);
-                }
-                Ordering::Greater => unreachable!(),
-            }
-        }
-        self.peaks.push(new_peak);
+        // Simply add to segments list - tree construction happens in finish()
+        self.segments.push(task_number);
 
         Ok(task_number)
     }
@@ -162,7 +146,7 @@ impl Planner {
 
     pub fn finish(&mut self) -> Result<usize, PlannerErr> {
         // Return error if plan has not yet started
-        if self.peaks.is_empty() {
+        if self.segments.is_empty() {
             return Err(PlannerErr::PlanNotStartedString);
         }
 
@@ -171,17 +155,11 @@ impl Planner {
 
         // Finish the plan (if it's not yet finished)
         if self.last_task.is_none() {
-            // Join remaining peaks
-            while 2 <= self.peaks.len() {
-                let peak_0 = self.peaks.pop().unwrap();
-                let peak_1 = self.peaks.pop().unwrap();
-
-                let peak_3 = self.enqueue_join(peak_1, peak_0);
-                self.peaks.push(peak_3);
-            }
+            // Build balanced binary tree from segments
+            let root = self.build_balanced_tree();
 
             // Add the Finalize task
-            self.last_task = Some(self.enqueue_finalize(self.peaks[0], keccak_depends_on));
+            self.last_task = Some(self.enqueue_finalize(root, keccak_depends_on));
         }
 
         Ok(self.last_task.unwrap())
@@ -232,10 +210,10 @@ impl Planner {
     ) -> usize {
         let task_number = self.next_task_number();
         let mut task_height = 1 + self.get_task(depends_on).task_height;
-        if let Some(val) = &keccak_depends_on {
-            if let Some(highest_peak) = val.iter().max().copied() {
-                task_height = task_height.max(1 + self.get_task(highest_peak).task_height);
-            }
+        if let Some(val) = &keccak_depends_on
+            && let Some(highest_peak) = val.iter().max().copied()
+        {
+            task_height = task_height.max(1 + self.get_task(highest_peak).task_height);
         }
         self.tasks.push(Task::new_finalize(
             task_number,
@@ -248,6 +226,45 @@ impl Planner {
 
     fn next_task_number(&self) -> usize {
         self.task_count()
+    }
+
+    /// Build a balanced binary tree from the segments.
+    /// This creates a proper balanced tree structure instead of the previous unbalanced approach.
+    fn build_balanced_tree(&mut self) -> usize {
+        if self.segments.is_empty() {
+            panic!("Cannot build tree from empty segments");
+        }
+
+        if self.segments.len() == 1 {
+            return self.segments[0];
+        }
+
+        // Start with a copy of segments to avoid borrowing issues
+        let mut current_level = self.segments.clone();
+
+        // Build tree level by level
+        while current_level.len() > 1 {
+            let mut next_level = Vec::new();
+
+            // Process pairs of nodes at current level
+            for i in (0..current_level.len()).step_by(2) {
+                if i + 1 < current_level.len() {
+                    // Join two nodes
+                    let left = current_level[i];
+                    let right = current_level[i + 1];
+                    let joined = self.enqueue_join(left, right);
+                    next_level.push(joined);
+                } else {
+                    // Odd node, promote to next level
+                    next_level.push(current_level[i]);
+                }
+            }
+
+            current_level = next_level;
+        }
+
+        // Return the root of the tree
+        current_level[0]
     }
 }
 
