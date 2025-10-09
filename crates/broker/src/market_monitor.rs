@@ -24,6 +24,7 @@ use alloy::{
 };
 
 use anyhow::{Context, Result};
+use async_stream::stream;
 use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService, IBoundlessMarket, RequestId, RequestStatus,
@@ -75,6 +76,7 @@ impl_coded_debug!(MarketMonitorErr);
 
 pub struct MarketMonitor<P> {
     lookback_blocks: u64,
+    poll_interval_ms: u64,
     market_addr: Address,
     provider: Arc<P>,
     db: DbObj,
@@ -101,6 +103,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         lookback_blocks: u64,
+        poll_interval_ms: u64,
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
@@ -112,6 +115,7 @@ where
     ) -> Self {
         Self {
             lookback_blocks,
+            poll_interval_ms,
             market_addr,
             provider,
             db,
@@ -239,54 +243,118 @@ where
         Ok(order_count)
     }
 
+    /// Creates a stream that polls for market events in chunks
+    /// Handles all the polling logic: intervals, block tracking, chunking, and querying
+    ///
+    /// The `filter_fn` closure receives (market, from_block, to_block) and returns a future that queries the logs
+    fn poll_market_events<T, FilterFn, FilterFut>(
+        chain_monitor: Arc<ChainMonitorService<P>>,
+        market: BoundlessMarketService<Arc<P>>,
+        lookback_blocks: u64,
+        poll_interval_ms: u64,
+        filter_fn: FilterFn,
+    ) -> impl futures_util::Stream<Item = Result<(T, alloy::rpc::types::Log), MarketMonitorErr>>
+    where
+        T: Send + 'static,
+        FilterFn: Fn(BoundlessMarketService<Arc<P>>, u64, u64) -> FilterFut + Send + 'static,
+        FilterFut: std::future::Future<Output = Result<Vec<(T, alloy::rpc::types::Log)>, anyhow::Error>>
+            + Send,
+    {
+        stream! {
+            let current_block = chain_monitor
+                .current_block_number()
+                .await
+                .context("Failed to get current block number")
+                .map_err(MarketMonitorErr::EventPollingErr)?;
+
+            let mut from_block = current_block.saturating_sub(lookback_blocks);
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(poll_interval_ms));
+
+            tracing::debug!("Polling events starting at block {}", from_block);
+
+            loop {
+                interval.tick().await;
+
+                let to_block = chain_monitor
+                    .current_block_number()
+                    .await
+                    .context("Failed to get current block")
+                    .map_err(MarketMonitorErr::EventPollingErr)?;
+
+                if to_block < from_block {
+                    continue;
+                }
+
+                while from_block <= to_block {
+                    let chunk_end = std::cmp::min(
+                        from_block.saturating_add(lookback_blocks - 1),
+                        to_block
+                    );
+
+                    let logs = filter_fn(market.clone(), from_block, chunk_end)
+                        .await
+                        .map_err(MarketMonitorErr::EventPollingErr)?;
+
+                    for log in logs {
+                        yield Ok(log);
+                    }
+
+                    from_block = chunk_end.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn monitor_orders(
         market_addr: Address,
         provider: Arc<P>,
+        chain_monitor: Arc<ChainMonitorService<P>>,
+        lookback_blocks: u64,
+        poll_interval_ms: u64,
         new_order_tx: mpsc::Sender<Box<OrderRequest>>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
 
-        let create_filter = || async {
-            let event = market
-                .instance()
-                .RequestSubmitted_filter()
-                .watch()
-                .await
-                .context("Failed to subscribe to RequestSubmitted event")?;
-            Ok::<_, anyhow::Error>(event.into_stream())
-        };
-
-        let mut stream = create_filter().await?;
-        tracing::info!("Subscribed to RequestSubmitted event");
+        let stream = Self::poll_market_events(
+            chain_monitor,
+            market.clone(),
+            lookback_blocks,
+            poll_interval_ms,
+            |market, from_block, to_block| async move {
+                market
+                    .instance()
+                    .RequestSubmitted_filter()
+                    .from_block(from_block)
+                    .to_block(to_block)
+                    .query()
+                    .await
+                    .context("Failed to query RequestSubmitted logs")
+            },
+        );
+        tokio::pin!(stream);
 
         loop {
             tokio::select! {
-                log_res = stream.next() => {
-                    match log_res {
-                        Some(Ok((event, _))) => {
+                Some(log_result) = stream.next() => {
+                    match log_result {
+                        Ok((event, _)) => {
                             if let Err(err) = Self::process_event(
                                 event,
                                 provider.clone(),
                                 market_addr,
                                 chain_id,
                                 &new_order_tx,
-                            )
-                            .await
-                            {
+                            ).await {
                                 let event_err = MarketMonitorErr::LogProcessingFailed(err);
-                                tracing::error!("Failed to process event log: {event_err:?}");
+                                tracing::error!("Failed to process event: {event_err:?}");
                             }
                         }
-                        Some(Err(err)) => {
+                        Err(err) => {
                             let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
-                            tracing::warn!("Failed to fetch event log: {event_err:?}");
-                        }
-                        None => {
-                            tracing::warn!("Event stream ended unexpectedly. Recreating subscription...");
-                            stream = create_filter().await?;
-                            tracing::info!("Recreated RequestSubmitted event subscription");
+                            tracing::error!("Event stream error: {event_err:?}");
                         }
                     }
                 }
@@ -303,7 +371,10 @@ where
         market_addr: Address,
         prover_addr: Address,
         provider: Arc<P>,
+        chain_monitor: Arc<ChainMonitorService<P>>,
         db: DbObj,
+        lookback_blocks: u64,
+        poll_interval_ms: u64,
         new_order_tx: mpsc::Sender<Box<OrderRequest>>,
         order_stream: Option<OrderStreamClient>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
@@ -312,24 +383,29 @@ where
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
 
-        let create_filter = || async {
-            let event = market
-                .instance()
-                .RequestLocked_filter()
-                .watch()
-                .await
-                .context("Failed to subscribe to RequestLocked event")?;
-            Ok::<_, anyhow::Error>(event.into_stream())
-        };
-
-        let mut stream = create_filter().await?;
-        tracing::info!("Subscribed to RequestLocked event");
+        let stream = Self::poll_market_events(
+            chain_monitor,
+            market.clone(),
+            lookback_blocks,
+            poll_interval_ms,
+            |market, from_block, to_block| async move {
+                market
+                    .instance()
+                    .RequestLocked_filter()
+                    .from_block(from_block)
+                    .to_block(to_block)
+                    .query()
+                    .await
+                    .context("Failed to query RequestLocked logs")
+            },
+        );
+        tokio::pin!(stream);
 
         loop {
             tokio::select! {
-                log_res = stream.next() => {
-                    match log_res {
-                        Some(Ok((event, log))) => {
+                Some(log_result) = stream.next() => {
+                    match log_result {
+                        Ok((event, log)) => {
                             tracing::debug!(
                                 "Detected request 0x{:x} locked by 0x{:x}",
                                 event.requestId,
@@ -399,15 +475,11 @@ where
                                 }
                             }
                         }
-                        Some(Err(err)) => {
+                        Err(err) => {
                             let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
                             tracing::warn!("Failed to fetch RequestLocked event log: {event_err:?}");
                         }
-                        None => {
-                            tracing::warn!("Event stream ended unexpectedly. Recreating subscription...");
-                            stream = create_filter().await?;
-                            tracing::info!("Recreated event subscription");
-                        }
+
                     }
                 }
                 _ = cancel_token.cancelled() => {
@@ -418,33 +490,42 @@ where
     }
 
     /// Monitors the RequestFulfilled events and updates the database accordingly.
+    #[allow(clippy::too_many_arguments)]
     async fn monitor_order_fulfillments(
         market_addr: Address,
         provider: Arc<P>,
+        chain_monitor: Arc<ChainMonitorService<P>>,
         db: DbObj,
+        lookback_blocks: u64,
+        poll_interval_ms: u64,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
         let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
 
-        let create_filter = || async {
-            let event = market
-                .instance()
-                .RequestFulfilled_filter()
-                .watch()
-                .await
-                .context("Failed to subscribe to RequestFulfilled event")?;
-            Ok::<_, anyhow::Error>(event.into_stream())
-        };
-
-        let mut stream = create_filter().await?;
-        tracing::info!("Subscribed to RequestFulfilled event");
+        let stream = Self::poll_market_events(
+            chain_monitor,
+            market.clone(),
+            lookback_blocks,
+            poll_interval_ms,
+            |market, from_block, to_block| async move {
+                market
+                    .instance()
+                    .RequestFulfilled_filter()
+                    .from_block(from_block)
+                    .to_block(to_block)
+                    .query()
+                    .await
+                    .context("Failed to query RequestFulfilled logs")
+            },
+        );
+        tokio::pin!(stream);
 
         loop {
             tokio::select! {
-                log_res = stream.next() => {
-                    match log_res {
-                        Some(Ok((event, log))) => {
+                Some(log_result) = stream.next() => {
+                    match log_result {
+                        Ok((event, log)) => {
                             tracing::debug!("Detected request fulfilled 0x{:x}", event.requestId);
                             if let Err(e) = db
                                 .set_request_fulfilled(
@@ -474,14 +555,9 @@ where
                                 tracing::warn!("Failed to send order state change message for fulfilled request {:x}: {e:?}", event.requestId);
                             }
                         }
-                        Some(Err(err)) => {
+                        Err(err) => {
                             let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
                             tracing::warn!("Failed to fetch RequestFulfilled event log: {event_err:?}");
-                        }
-                        None => {
-                            tracing::warn!("Event stream ended unexpectedly. Recreating subscription...");
-                            stream = create_filter().await?;
-                            tracing::info!("Recreated event subscription");
                         }
                     }
                 }
@@ -558,6 +634,7 @@ where
     type Error = MarketMonitorErr;
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let lookback_blocks = self.lookback_blocks;
+        let poll_interval_ms = self.poll_interval_ms;
         let market_addr = self.market_addr;
         let provider = self.provider.clone();
         let prover_addr = self.prover_addr;
@@ -574,7 +651,7 @@ where
                 lookback_blocks,
                 market_addr,
                 provider.clone(),
-                chain_monitor,
+                chain_monitor.clone(),
                 &new_order_tx,
             )
             .await
@@ -587,13 +664,19 @@ where
                 Self::monitor_orders(
                     market_addr,
                     provider.clone(),
+                    chain_monitor.clone(),
+                    lookback_blocks,
+                    poll_interval_ms,
                     new_order_tx.clone(),
                     cancel_token.clone()
                 ),
                 Self::monitor_order_fulfillments(
                     market_addr,
                     provider.clone(),
+                    chain_monitor.clone(),
                     db.clone(),
+                    lookback_blocks,
+                    poll_interval_ms,
                     order_state_tx.clone(),
                     cancel_token.clone()
                 ),
@@ -601,7 +684,10 @@ where
                     market_addr,
                     prover_addr,
                     provider.clone(),
+                    chain_monitor,
                     db,
+                    lookback_blocks,
+                    poll_interval_ms,
                     new_order_tx,
                     order_stream,
                     order_state_tx,
@@ -734,6 +820,7 @@ mod tests {
         let (order_state_tx, _) = broadcast::channel(16);
         let market_monitor = MarketMonitor::new(
             1,
+            1000,
             Address::ZERO,
             provider,
             db,

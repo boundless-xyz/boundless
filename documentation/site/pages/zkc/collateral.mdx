@@ -1,0 +1,63 @@
+# $ZKC as Proving Collateral
+
+:::note
+- *$ZKC* is deployed on Ethereum Mainnet and Base Mainnet. 
+- To use *$ZKC* in the Boundless market as [Proving Collateral](/provers/quick-start#deposit-collateral) on Base mainnet, *$ZKC* must be [bridged](/zkc/collateral#bridging-zkc) from Ethereum mainnet to Base mainnet.
+:::
+
+Before accepting a proof request, provers must lock *$ZKC* as collateral in the market, typically *at least* ~10x the request’s maximum fee. If the proof is not fulfilled on time, the prover is slashed; 50% of the collateral is burned permanently, and the remaining 50% is reassigned onchain as a bounty for another prover to complete the work. This system provides a stronger economic guarantee of proof delivery. At the same time, as the request volume grows, the total amount of *$ZKC* locked increases by a multiple of ~10x, reducing the total circulating supply.  
+
+![Multi Chain Proving](/multi_chain_proving.png)
+
+## Bridging $ZKC
+
+:::note[Official $ZKC Deployments]
+- Ethereum Mainnet: `0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555`
+- (Bridged) Base: `0xAA61bB7777bD01B684347961918f1E07fBbCe7CF`
+:::
+
+### Bridging using Base's Native Bridges
+
+To bridge *$ZKC* from Ethereum mainnet to Base mainnet, see the [Base documentation for bridging assets to Base](https://docs.base.org/base-chain/network-information/bridges-mainnet).
+
+### Manual Bridging using `cast`
+
+To start, make sure to have `cast` installed. This will require [installing Foundry](https://getfoundry.sh/introduction/installation/). Next, export the `PRIVATE_KEY` for the address holding the *$ZKC* tokens:
+
+```bash
+export PRIVATE_KEY=0x1234...5678
+```
+
+Set the `AMOUNT` and `ETH_MAINNET_RPC_URL` environment variables:
+
+```bash
+export AMOUNT=10000000000000000000 # 10 ZKC
+ETH_MAINNET_RPC_URL="https://"
+```
+
+with the amount to be bridged, and a valid RPC URL for Ethereum mainnet respectively.
+
+Next, approve the Base bridge to spend $AMOUNT tokens:
+
+```bash
+cast send 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555 \
+  "approve(address,uint256)" \
+  0x3154Cf16ccdb4C6d922629664174b904d80F2C35 \
+  $AMOUNT \
+  --private-key $PRIVATE_KEY \
+  --rpc-url $ETH_MAINNET_RPC_URL
+```
+
+Finally, bridge $AMOUNT tokens:
+
+```bash
+cast send 0x3154Cf16ccdb4C6d922629664174b904d80F2C35 \
+  "bridgeERC20(address,address,uint256,uint32,bytes)" \
+  0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555 \
+  0xAA61bB7777bD01B684347961918f1E07fBbCe7CF \
+  $AMOUNT \
+  300000 \
+  0x \
+  --private-key $PRIVATE_KEY \
+  --rpc-url $ETH_MAINNET_RPC_URL
+```

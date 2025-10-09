@@ -3,12 +3,12 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAHOwl7XB0oQkYiM6j
 config:
   aws:region: us-west-2
   base-prover:BASE_STACK: organization/bootstrap/services-staging
-  base-prover:BOUNDLESS_MARKET_ADDR: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
+  base-prover:BOUNDLESS_MARKET_ADDR: 0x7abb16522f4599481361d318b765af988bfcca8e
   base-prover:CHAIN_ID: "84532"
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
   base-prover:GH_TOKEN_SECRET:
-    secure: v1:GKRiUGOQfXxNl7/A:THbb9JBhwVBNW7vS6HG9B6fO4HpVN595HtnetKJsJ/LNWPTmYdY9OUktzLuAyBzkHM/gj9kQsGK9opAZzIZNS5v6+M7y+i7smop/etyMg8vdP43mt/EWLaX6BQS74aThoxiTFuZHmFB3OL0flw==
+    secure: v1:Z1cr6VxwrYI9Yv1/:PYNpf3qUATIcHH9a7+4Yr/tfR0JIsqI//NYXXpsSUHI+mDxPNuvImtCUQjqbmIOQz6kFsvSstbbDrlrC7LWbNTx3uNQIxsVw6tZgpAEBGtSudTAp5dsBLwzEmQwvv9LKZRvDiGaZekwJj0D8GA==
   base-prover:ORDER_STREAM_URL:
     secure: v1:8Ih8Nn6nZSu7Obqt:7RJFDjW1uS9uIMavGMI1DeTed+IrRIXTvGlv8kRGOc/JCEbrFaPP5y90eA1UdwpN8QiG/g/g35IQf0dusnOFNwTqRzeOKLC5hVj1/aZeXyhvIZs7zsMJyCMyiQk=
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
@@ -25,7 +25,7 @@ config:
     secure: v1:1d5kbiW4wf88a2MJ:iQrG7cV1JYemmwbHdgvM7pdkm1er8zjj7UnZBCEqsNr1jSZ5jH8ap+43Svc+ul8eBZRiWKmO1sk2IIf2iFWrPCsxxw1Yr4tVKlLjKJI4QLc=
   bento-prover:PRIVATE_KEY_2:
     secure: v1:bQ7SEGHARAraak8j:/9TMOSHu59noPh5yT7pCWaC2a9Fgl29kdQKxj7NRHPZ3mR+QfCmOZR2+Ni+q8/i2aIglhVktAebBfOWZcbPw0w0LHH3UfFQV14FsLUmmhM8=
-  bento-prover:BRANCH: launch-infra
+  bento-prover:BRANCH: main
   bento-prover:POVW_LOG_ID_1:
     secure: v1:ctARuGe8vFYXQqOF:Rmy7s3sv3sqInmfm20m+gBS1XVFSo8cuuNuLWtkhPW+ad7a/mcGBeSw5U7onRNmn06FkyGcSEyDk7A==
   bento-prover:POVW_LOG_ID_2:
