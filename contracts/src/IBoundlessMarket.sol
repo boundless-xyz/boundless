@@ -218,6 +218,11 @@ interface IBoundlessMarket {
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
     function deposit() external payable;
 
+    /// @notice Deposit Ether into the market to pay for proof.
+    /// @dev Value deposited is msg.value and it is credited to the given account.
+    /// @param to The address to credit the deposit to.
+    function depositTo(address to) external payable;
+
     /// @notice Withdraw Ether from the market.
     /// @dev Value is debited from msg.sender.
     /// @param value The amount to withdraw.
