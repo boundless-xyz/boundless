@@ -148,6 +148,12 @@ interface IBoundlessMarket {
     /// @dev selector 0x897f6c58
     error InsufficientBalance(address account);
 
+    /// @notice Error when a payment is partially settled due to insufficient funds.
+    /// @param fullAmount The full amount that was required.
+    /// @param paidAmount The amount that was actually paid.
+    /// @dev selector 0x6008fdcb
+    error PartialPayment(uint256 fullAmount, uint256 paidAmount);
+
     /// @notice Error when a signature did not pass verification checks.
     /// @dev selector 0x8baa579f
     error InvalidSignature();

@@ -143,11 +143,14 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
 contract UpgradeBoundlessMarket is BoundlessScriptBase {
     function run() external {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
+
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
 
-        address admin = deploymentConfig.admin.required("admin");
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
         address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
         address verifier = deploymentConfig.verifier.required("verifier");
@@ -156,7 +159,7 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
 
         // Get the current assessor image ID and guest URL
         BoundlessMarket market = BoundlessMarket(marketAddress);
-        (bytes32 deprecatedAssessorImageId, string memory deprecatedGuestUrl) = market.imageInfo();
+        (bytes32 deprecatedAssessorImageId,) = market.imageInfo();
 
         // Use the assessor image ID recorded in deployment.toml
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
@@ -180,25 +183,44 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             deprecatedAssessorDuration,
             collateralToken
         );
-        opts.referenceContract = "build-info-reference:BoundlessMarket";
-        opts.referenceBuildInfoDir = "contracts/build-info-reference";
 
-        // Upgrade the proxy contract and update assessor image info if needed.
-        // Otherwise, we don't include it to save gas.
-        vm.startBroadcast(admin);
-        if (
-            assessorImageId != deprecatedAssessorImageId
-                || keccak256(bytes(assessorGuestUrl)) != keccak256(bytes(deprecatedGuestUrl))
-        ) {
-            Upgrades.upgradeProxy(
-                marketAddress,
-                "BoundlessMarket.sol:BoundlessMarket",
-                abi.encodeCall(BoundlessMarket.setImageUrl, (assessorGuestUrl)),
-                opts,
-                admin
-            );
+        if (skipSafetyChecks) {
+            console2.log("WARNING: Skipping all upgrade safety checks and reference build!");
+            opts.unsafeSkipAllChecks = true;
         } else {
-            Upgrades.upgradeProxy(marketAddress, "BoundlessMarket.sol:BoundlessMarket", "", opts, admin);
+            // Only set reference contract when doing safety checks
+            opts.referenceContract = "build-info-reference:BoundlessMarket";
+            opts.referenceBuildInfoDir = "contracts/build-info-reference";
+        }
+
+        address newImpl = address(0);
+        bytes memory initializerData = abi.encodeCall(BoundlessMarket.setImageUrl, (assessorGuestUrl));
+
+        vm.startBroadcast(getDeployer());
+        if (gnosisExecute) {
+            console2.log("GNOSIS_EXECUTE=true: Deploying new implementation for Safe upgrade");
+            console2.log("Target proxy address: ", marketAddress);
+            console2.log("Current implementation: ", currentImplementation);
+
+            // Use prepareUpgrade for validation + deployment
+            newImpl = Upgrades.prepareUpgrade("BoundlessMarket.sol:BoundlessMarket", opts);
+            console2.log("New implementation deployed: ", newImpl);
+
+            // Print Gnosis Safe transaction info
+            _printGnosisSafeInfo(marketAddress, newImpl, initializerData);
+        } else {
+            console2.log("Upgrading Boundless Market at: ", marketAddress);
+            console2.log("Current implementation: ", currentImplementation);
+
+            // Perform upgrade with optional initializer
+            if (initializerData.length > 0) {
+                Upgrades.upgradeProxy(marketAddress, "BoundlessMarket.sol:BoundlessMarket", initializerData, opts);
+            } else {
+                Upgrades.upgradeProxy(marketAddress, "BoundlessMarket.sol:BoundlessMarket", "", opts);
+            }
+
+            newImpl = Upgrades.getImplementationAddress(marketAddress);
+            console2.log("Upgraded Boundless Market implementation to: ", newImpl);
         }
         vm.stopBroadcast();
 
@@ -219,7 +241,7 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             "upgraded market stake token does not match"
         );
         require(
-            upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin),
+            upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin2),
             "upgraded market admin does not match the admin"
         );
 
