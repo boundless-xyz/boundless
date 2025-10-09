@@ -13,7 +13,6 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
-import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {
@@ -165,7 +164,7 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
+        (bytes32 requestHash,) = _verifyClientSignature(request, client, clientSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, clientSignature, requestHash, client, idx, msg.sender, lockDeadline, deadline);
@@ -178,8 +177,11 @@ contract BoundlessMarket is
         bytes calldata proverSignature
     ) external {
         (address client, uint32 idx) = request.id.clientAndIndex();
-        (bytes32 requestHash, address prover) =
-            _verifyClientSignatureAndExtractProverAddress(request, client, clientSignature, proverSignature);
+        (bytes32 requestHash, bytes32 proofRequestEip712Digest) =
+            _verifyClientSignature(request, client, clientSignature);
+        bytes32 lockRequestHash =
+            _hashTypedDataV4(LockRequestLibrary.eip712DigestFromPrecomputedDigest(proofRequestEip712Digest));
+        address prover = ECDSA.recover(lockRequestHash, proverSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
 
         _lockRequest(request, clientSignature, requestHash, client, idx, prover, lockDeadline, deadline);
@@ -247,7 +249,7 @@ contract BoundlessMarket is
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
         address client = request.id.client();
 
-        bytes32 requestHash = _verifyClientSignature(request, client, clientSignature);
+        (bytes32 requestHash,) = _verifyClientSignature(request, client, clientSignature);
 
         (, uint64 deadline) = request.validate();
         bool expired = deadline < block.timestamp;
@@ -749,7 +751,8 @@ contract BoundlessMarket is
             accounts[client].balance += lock.price;
         }
 
-        ERC20Burnable(COLLATERAL_TOKEN_CONTRACT).burn(burnValue);
+        ERC20(COLLATERAL_TOKEN_CONTRACT).transfer(address(0xdEaD), burnValue);
+        (burnValue);
         emit ProverSlashed(requestId, burnValue, transferValue, collateralRecipient);
     }
 
@@ -895,9 +898,10 @@ contract BoundlessMarket is
     function _verifyClientSignature(ProofRequest calldata request, address addr, bytes calldata clientSignature)
         internal
         view
-        returns (bytes32)
+        returns (bytes32, bytes32)
     {
-        bytes32 requestHash = _hashTypedDataV4(request.eip712Digest());
+        bytes32 eip712Digest = request.eip712Digest();
+        bytes32 requestHash = _hashTypedDataV4(eip712Digest);
         if (request.id.isSmartContractSigned()) {
             if (
                 IERC1271(addr).isValidSignature{gas: ERC1271_MAX_GAS_FOR_CHECK}(requestHash, clientSignature)
@@ -910,35 +914,7 @@ contract BoundlessMarket is
                 revert IBoundlessMarket.InvalidSignature();
             }
         }
-        return requestHash;
-    }
-
-    function _verifyClientSignatureAndExtractProverAddress(
-        ProofRequest calldata request,
-        address clientAddr,
-        bytes calldata clientSignature,
-        bytes calldata proverSignature
-    ) internal view returns (bytes32 requestHash, address proverAddress) {
-        bytes32 proofRequestEip712Digest = request.eip712Digest();
-        requestHash = _hashTypedDataV4(proofRequestEip712Digest);
-        if (request.id.isSmartContractSigned()) {
-            if (
-                IERC1271(clientAddr).isValidSignature(requestHash, clientSignature)
-                    != IERC1271.isValidSignature.selector
-            ) {
-                revert IBoundlessMarket.InvalidSignature();
-            }
-        } else {
-            if (ECDSA.recover(requestHash, clientSignature) != clientAddr) {
-                revert IBoundlessMarket.InvalidSignature();
-            }
-        }
-
-        bytes32 lockRequestHash =
-            _hashTypedDataV4(LockRequestLibrary.eip712DigestFromPrecomputedDigest(proofRequestEip712Digest));
-        proverAddress = ECDSA.recover(lockRequestHash, proverSignature);
-
-        return (requestHash, proverAddress);
+        return (requestHash, eip712Digest);
     }
 
     /// @inheritdoc IBoundlessMarket

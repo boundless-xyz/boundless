@@ -3214,9 +3214,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         snapshotMarketStakeTreasuryBalance();
 
         // Slash the request
-        // Burning = sending tokens to address 0, expect a transfer event to be emitted to address 0
+        // Burning = sending tokens to address 0xdEaD, expect a transfer event to be emitted to address 0xdEaD
         vm.expectEmit(true, true, true, false);
-        emit IERC20.Transfer(address(proxy), address(0), request.offer.lockCollateral);
+        emit IERC20.Transfer(address(proxy), address(0xdEaD), request.offer.lockCollateral);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.ProverSlashed(
             request.id,
@@ -3445,9 +3445,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         otherProver.snapshotCollateralBalance();
 
         // We expect the prover that ultimately fulfilled the request to receive stake.
-        // Burning = sending tokens to address 0, expect a transfer event to be emitted to address 0
+        // Burning = sending tokens to address 0xdEaD, expect a transfer event to be emitted to address 0xdEaD
         vm.expectEmit(true, true, true, false);
-        emit IERC20.Transfer(address(proxy), address(0), request.offer.lockCollateral);
+        emit IERC20.Transfer(address(proxy), address(0xdEaD), request.offer.lockCollateral);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.ProverSlashed(
             request.id,
@@ -3521,9 +3521,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.warp(request.offer.deadline() + 1);
 
         // We expect the prover that ultimately fulfilled the request to receive stake.
-        // Burning = sending tokens to address 0, expect a transfer event to be emitted to address 0
+        // Burning = sending tokens to address 0xdEaD, expect a transfer event to be emitted to address 0xdEaD
         vm.expectEmit(true, true, true, false);
-        emit IERC20.Transfer(address(proxy), address(0), request.offer.lockCollateral);
+        emit IERC20.Transfer(address(proxy), address(0xdEaD), request.offer.lockCollateral);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.ProverSlashed(
             request.id,

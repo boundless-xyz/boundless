@@ -119,6 +119,10 @@ async fn main() -> Result<()> {
         .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
     let signature =
         Signature::try_from(Bytes::from_hex(args.signature.trim_start_matches("0x"))?.as_ref())?;
+    // Check if the signature is non-canonical.
+    if signature.normalize_s().is_some() {
+        bail!("invalid signature: not normalized s-value");
+    }
     let (fills, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request, signature.as_bytes().into())]).await?;
     let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
