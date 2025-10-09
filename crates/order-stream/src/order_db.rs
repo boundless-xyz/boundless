@@ -301,10 +301,9 @@ mod tests {
     use alloy::{
         primitives::{Bytes, U256},
         signers::local::LocalSigner,
-        sol_types::SolStruct,
     };
     use boundless_market::contracts::{
-        eip712_domain, Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
+        Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
     use futures_util::StreamExt;
     use risc0_zkvm::sha::Digest;
@@ -334,8 +333,7 @@ mod tests {
             },
         };
         let signature = req.sign_request(&signer, Address::ZERO, 31337).await.unwrap();
-        let domain = eip712_domain(Address::ZERO, 31337);
-        let request_digest = req.eip712_signing_hash(&domain.alloy_struct());
+        let request_digest = req.signing_hash(Address::ZERO, 31337).unwrap();
 
         Order::new(req, request_digest, signature)
     }

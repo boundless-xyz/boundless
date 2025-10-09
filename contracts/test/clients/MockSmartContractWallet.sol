@@ -2,7 +2,7 @@
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.26;
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IBoundlessMarket} from "../../src/IBoundlessMarket.sol";
