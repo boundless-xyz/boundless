@@ -282,7 +282,7 @@ pub enum RequestError {
     SignatureError(#[from] alloy::signers::Error),
 
     /// Signature is non-canonical.
-    #[error("invalid signature: non-canonical s value")]
+    #[error("invalid signature: not normalized s-value")]
     SignatureNonCanonicalError,
 
     /// The image URL is empty.

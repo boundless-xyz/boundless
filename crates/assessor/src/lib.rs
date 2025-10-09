@@ -42,7 +42,7 @@ pub enum Error {
     },
 
     /// Signature is non-canonical.
-    #[error("invalid signature: non-canonical s value")]
+    #[error("invalid signature: not normalized s-value")]
     SignatureNonCanonicalError,
 
     /// Predicate evaluation failure from [ProofRequest] [Requirements]

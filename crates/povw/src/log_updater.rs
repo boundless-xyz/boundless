@@ -80,7 +80,7 @@ impl WorkLogUpdate {
         let sig = Signature::try_from(signature.as_ref())?;
         // Check if the signature is non-canonical.
         if sig.normalize_s().is_some() {
-            bail!("invalid signature: non-canonical s value");
+            bail!("invalid signature: not normalized s-value");
         }
         let addr = sig.recover_address_from_prehash(&self.signing_hash(contract_addr, chain_id))?;
         if addr == signer {
