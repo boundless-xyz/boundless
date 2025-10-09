@@ -11,7 +11,6 @@ Each request specifies a set of request parameters (see [request.yaml](https://g
 
 The offer parameters determine how the auction is executed, and therefore how provers respond to the request. They specify the parameters of the [reverse Dutch auction](https://en.wikipedia.org/wiki/Reverse_auction#Dutch_reverse_auctions) (see [proof lifecycle](/developers/proof-lifecycle) for a general overview). This is the mechanism by which the requestor and prover can agree upon a price, and ensures the requestor will get the best price available from any prover on the market.
 
-
 Requestors, who understand these offer parameters, will be able to more effectively tailor requests to current market conditions. This is essential for getting timely and cost-effective proofs. 
 
 ### Offer Parameters
@@ -24,10 +23,10 @@ The Boundless monorepo has a template [request.yaml](https://github.com/boundles
 
 | Parameter      | request.yaml name | Units   | Description                                                                                                                                                                                     |
 |----------------|-------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Ramp Up Start  | `rampUpStart`     | seconds  | An alloted period of time before the auction price begins to increase, allowing provers to analyze jobs before the price increases. Provers can still lock during this period. |
+| Ramp Up Start  | `rampUpStart`     | seconds  | This parameter is a timestamp; concretely, it dictates exactly when the auction begins after order creation. TODO   |
 | Ramp Up Period | `rampUpPeriod`    | blocks  | The duration of time period where the auction price increases linearly. Concretely, it is the number of blocks it takes for the price to increase from the minimum price (`min_price`) to the maximum price (`max_price`).|
-| Lock Timeout   | `lockTimeout`     | seconds | The maximum time a prover has to submit once the ramp up period has begun. Regardless of when the prover locks, they must submit the job onchain prior to this time, otherwise they will be slashed. |
-| Timeout        | `timeout`         | seconds | The total time after which the proof expires. After this time, if no provers have fulfilled the request, the request will stay *unfulfilled*.|
+| Lock Timeout   | `lockTimeout`     | seconds | This timestamp is specified as an offset from `rampUpStart`. The maximum time a prover has to submit once the ramp up period has begun. Regardless of when the prover locks, they must submit the job onchain prior to this time (i.e. `rampUpStart` + `lockTimeout` after order creation), otherwise they will be slashed. |
+| Timeout        | `timeout`         | seconds | This timestamp is specified as an offset from `rampUpStart`. The total time after which the proof expires. After this time, if no provers have fulfilled the request, the request will stay *unfulfilled*.|
 | Min Price      | `min_price`       | wei     | The floor price of the auction; this can be set to 0.|
 | Max Price      | `max_price`       | wei     | The ceiling price of the auction; the absolute maximum price the auction will reach. |
 | Collateral     | `lockCollateral`  | $ZKC     | Provers have to deposit *$ZKC* as [proving collateral](/zkc/collateral). This parameter specifies the exact amount of *$ZKC* a prover will lock as collateral when locking the order. If the prover does not fulfill the request before the primary prover deadline (the lock timeout), this collateral is slashed and 50% of the collateral becomes a bounty for secondary provers to claim upon successful proof fulfillment.                                            |
@@ -48,13 +47,13 @@ offer:
     timeout: 3600 # 1 hour 
 ```
 
-#### Auction Settings
+#### Auction
 
 - After order creation and before the ramp up start time i.e. 10 seconds, the order is surfaced to the market; provers can not lock until the 10 seconds (i.e. `rampUpStart` time) is over. In theory, setting this value into the future should minimize the advantage for provers who run execution vs provers who skip it[^1]. It also prevents provers from locking proofs in the same block as the request.
 - At 10 seconds, the price is set to the minimum price of 0.001 $ETH and the bidding officially starts.
 - During the "ramp up period" (which immediately follows the ramp up start period), the price grows linearly from the minimum price to the maximum price of 0.002 ETH, over the span of 50 blocks (~100 seconds on Base mainnet).
-- After the "ramp up period", the price remains at the maximum price until the primary prover deadline (the "lock timeout" of 45 minutes).
-- After the "lock timeout", a race amongst secondary provers begins. They have until the "timeout" (1 hour from request creation, 15 minutes from the primary prover deadline) to fulfill the request; otherwise the order expires.
+- After the "ramp up period", the price remains at the maximum price until the primary prover deadline (the "lock timeout" of 45 minutes). If the prover who locked the order (the primary prover) does not fulfill by this deadline, they will be slashed. This means that they will lose their proving collateral for this order; 50% of it will be burned and 50% of it will go to a secondary prover (more on this below). 
+- After the "lock timeout", a race amongst secondary provers begins. They have until the "timeout" (1 hour from request creation, 15 minutes from the primary prover deadline) to fulfill the request otherwise the order expires. The first prover to win this race will receive 50% of the order's proving collateral as a reward.
 
 #### Prover Specifics
 
@@ -77,10 +76,9 @@ The following two sections detail some recommended guidelines when setting the o
 Each requestor will have a different latency tolerance; some might be fine with receiving a proof on the scale of hours, whereas others will have more time-critical applications and require proof fulfillment on the scale of minutes. These latency requirements should dictate how requestors set the time-based offer parameters. 
 
 
-
 | Parameter      | Units   | Recommendation                       | Notes                                                                                                                                 |
 |----------------|---------|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| Ramp Up Start  | seconds  | 10 | This parameter is important, as the lock timeout and timeout are specified in seconds *after* the ramp up start timestamp. Therefore, setting it equal to 10 specifies 10 seconds in the future after order creation. If it is set to 0, the current UNIX timestamp, at order creation, will be used. |
+| Ramp Up Start  | seconds  | 5 x `estimated_execution_time` | This recommended time allows provers to see the order in the market, and increase the chances of provers having a free executor agent to preflight the order. If this is set lower, there is a chance that the request will be locked at a higher price as provers will only be able to bid after the auction has already started. This parameter is important, as the lock timeout and timeout are specified in seconds *after* the ramp up start timestamp. For example, setting it equal to 10 specifies 10 seconds in the future after order creation. If it is set to 0, the current UNIX timestamp, at order creation, will be used. |
 | Ramp Up Period | blocks  | 10 x `estimated_execution_time`| See [calculator](/developers/tutorials/configure#estimate-the-executionproving-time-of-a-request).  |
 | Lock Timeout   | seconds | 1.25 x `estimated_proving _time` | See [calculator](/developers/tutorials/configure#estimate-the-executionproving-time-of-a-request). |
 | Timeout        | seconds | 3 x `estimated_proving_time` | See [calculator](/developers/tutorials/configure#estimate-the-executionproving-time-of-a-request). |
@@ -92,7 +90,7 @@ The price of a request determines how competitively provers bid on the request, 
 | Parameter     | Units | Recommendation | Notes |
 |---------------|-------|----------------|-------|
 | Minimum Price | wei   | Initially, set the minimum price to 0[^1]. To guarantee the lowest latency in both locking and fulfillment, set the minimum price as non-zero.    | As market demand and supply normalizes, competition will stabilize prices at non-zero.|
-| Maximum Price | wei   | It is recommended to test the `maxPrice` parameter by starting low, and bumping the value up only when requests are not locked whatsoever. | Setting a substantial price ensures requests are visible and attractive to provers. For testing purposes, the recommended lowest amount for maximum price is $0.25 worth of $ETH.[^1] |
+| Maximum Price | wei   | It is recommended to test the `maxPrice` parameter by starting low, and bumping the value up only when requests are not locked whatsoever. | Setting a substantial price ensures requests are visible and attractive to provers. For testing purposes, the recommended lowest amount for the maximum price is $0.1 of ETH per GCycle (1 billion cycles).[^1] |
 
 
 [^1]: This is accurate for October 2025.
