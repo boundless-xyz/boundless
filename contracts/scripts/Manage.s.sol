@@ -3,7 +3,7 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.26;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
