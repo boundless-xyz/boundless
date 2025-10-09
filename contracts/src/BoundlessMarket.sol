@@ -781,6 +781,12 @@ contract BoundlessMarket is
         emit Deposit(msg.sender, msg.value);
     }
 
+    /// @inheritdoc IBoundlessMarket
+    function depositTo(address to) public payable {
+        accounts[to].balance += msg.value.toUint96();
+        emit Deposit(to, msg.value);
+    }
+
     function _withdraw(address account, uint256 value) internal {
         if (accounts[account].balance < value.toUint96()) {
             revert InsufficientBalance(account);

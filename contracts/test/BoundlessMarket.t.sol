@@ -623,6 +623,34 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.snapshotGasLastCall("deposit: second deposit");
     }
 
+    function testDepositTo() public {
+        vm.deal(testProverAddress, 1 ether);
+        // Deposit funds into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(testProverAddress, 1 ether);
+        vm.prank(testProverAddress);
+        boundlessMarket.depositTo{value: 1 ether}(testProverAddress);
+        testProver.expectBalanceChange(1 ether);
+    }
+
+    function testDepositsTo() public {
+        address newUser = address(uint160(3));
+        vm.deal(newUser, 2 ether);
+
+        // Deposit funds into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(newUser, 1 ether);
+        vm.prank(newUser);
+        boundlessMarket.depositTo{value: 1 ether}(newUser);
+        vm.snapshotGasLastCall("depositTo: first ever deposit");
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(newUser, 1 ether);
+        vm.prank(newUser);
+        boundlessMarket.depositTo{value: 1 ether}(newUser);
+        vm.snapshotGasLastCall("depositTo: second deposit");
+    }
+
     function testAdminRoleSetup() public view {
         assertTrue(
             boundlessMarket.hasRole(boundlessMarket.ADMIN_ROLE(), ownerWallet.addr), "Owner should have admin role"
