@@ -1,97 +1,182 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import { setupNetwork } from "./components/network";
-import { setupDatabase } from "./components/database";
-import { setupStorage } from "./components/storage";
-import { setupCache } from "./components/cache";
-import { setupEcsCluster } from "./components/ecs-cluster";
-import { setupExecAgents } from "./components/exec-agents";
-import { setupSnarkAgent } from "./components/snark-agent";
-import { setupGpuProvers } from "./components/gpu-provers";
-import { setupAuxAgent } from "./components/aux-agent";
-import { setupEC2Broker } from "./components/ec2-broker";
-import { setupBentoAPI } from "./components/bento-api";
-import { setupSecrets } from "./components/secrets";
-import { setupMonitoring } from "./components/monitoring";
+import {
+    SecurityComponent,
+    ManagerComponent,
+    WorkerClusterComponent,
+    BaseComponentConfig
+} from "./components";
+
+const stackName = pulumi.getStack();
+const baseConfig = new pulumi.Config("base");
+const baseStackName = baseConfig.require('BASE_STACK');
+const baseStack = new pulumi.StackReference(baseStackName);
+const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
+const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
 
 const config = new pulumi.Config();
-const environment = config.get("environment") || "custom";
-const region = aws.getRegion().then(r => r.name);
-const rdsPassword = config.requireSecret("rdsPassword");
 
-// Use stack name as project name for consistent naming
-const projectName = pulumi.getStack();
+// Configuration with proper types
+const environment: string = config.get("environment") || "custom";
 
-// Create tags for all resources
-const commonTags = {
-    Environment: environment,
-    Project: projectName,
-    ManagedBy: "pulumi",
+// Required configuration
+const privateKey: pulumi.Output<string> = config.requireSecret("privateKey");
+const ethRpcUrl: pulumi.Output<string> = config.requireSecret("ethRpcUrl");
+const managerInstanceType: string = config.require("managerInstanceType");
+const orderStreamUrl: string = config.require("orderStreamUrl");
+const verifierAddress: string = config.require("verifierAddress");
+const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
+const setVerifierAddress: string = config.require("setVerifierAddress");
+const collateralTokenAddress: string = config.require("collateralTokenAddress");
+const chainId: string = config.require("chainId");
+
+// Contract addresses
+const taskDBUsername: string = config.require("taskDBUsername");
+const taskDBPassword: string = config.require("taskDBPassword");
+const taskDBName: string = config.require("taskDBName");
+
+// MinIO configuration
+const minioUsername: string = config.get("minioUsername") || "minioadmin";
+const minioPassword: string = config.get("minioPassword") || "minioadmin123";
+
+// Worker counts
+const executionCount: number = config.getNumber("executionCount") || 1;
+const proverCount: number = config.getNumber("proverWorkerCount") || 1;
+const auxCount: number = config.getNumber("auxWorkerCount") || 1;
+
+// Look up the latest packer-built AMI
+const boundlessBentoVersion: string = config.get("boundlessBentoVersion") || "nightly";
+const boundlessAmiName: string = config.get("boundlessAmiName") || `boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`;
+const boundlessAmi = aws.ec2.getAmi({
+    mostRecent: true,
+    owners: ["self", "968153779208"], // Self and Boundless AWS account
+    filters: [
+        {
+            name: "name",
+            values: [boundlessAmiName]
+        }
+    ]
+});
+
+const imageId = pulumi.output(boundlessAmi).apply(ami => ami.id);
+
+// Base configuration for all components
+const baseComponentConfig: BaseComponentConfig = {
+    stackName,
+    environment,
+    vpcId,
+    privateSubnetIds: privSubNetIds,
 };
 
-// Main infrastructure setup
-async function main() {
-    const [network, secrets, storage] = await Promise.all([
-        setupNetwork(projectName, commonTags),
-        setupSecrets(projectName, commonTags),
-        setupStorage(projectName, commonTags),
-    ]);
+// Create security components
+const security = new SecurityComponent(baseComponentConfig);
 
-    const [database, cluster] = await Promise.all([
-        setupDatabase(projectName, network, commonTags, rdsPassword),
-        // Main ECS cluster for exec/gpu/snark workers
-        setupEcsCluster(projectName, network, commonTags),
-    ]);
+// Create manager instance
+const manager = new ManagerComponent({
+    ...baseComponentConfig,
+    imageId,
+    instanceType: managerInstanceType,
+    securityGroupId: security.securityGroup.id,
+    iamInstanceProfileName: security.ec2Profile.name,
+    taskDBName,
+    taskDBUsername,
+    taskDBPassword,
+    minioUsername,
+    minioPassword,
+    ethRpcUrl,
+    privateKey,
+    orderStreamUrl,
+    verifierAddress,
+    boundlessMarketAddress,
+    setVerifierAddress,
+    collateralTokenAddress,
+    chainId,
+});
 
-    // Setup cache with GPU-compatible subnets for co-location
-    const cache = await setupCache(projectName, network, commonTags, cluster.gpuCompatibleSubnets);
+// Create worker clusters
+const workerCluster = new WorkerClusterComponent({
+    ...baseComponentConfig,
+    imageId,
+    securityGroupId: security.securityGroup.id,
+    iamInstanceProfileName: security.ec2Profile.name,
+    managerIp: manager.instance.privateIp,
+    taskDBName,
+    taskDBUsername,
+    taskDBPassword,
+    minioUsername,
+    minioPassword,
+    proverCount,
+    executionCount,
+    auxCount,
+});
 
-    const [execAgents, snarkAgent, gpuProvers, auxAgent] = await Promise.all([
-        setupExecAgents(projectName, network, cluster, database, cache, storage, secrets, commonTags),
-        setupSnarkAgent(projectName, network, cluster, database, cache, storage, secrets, commonTags),
-        setupGpuProvers(projectName, network, cluster, database, cache, storage, secrets, commonTags),
-        setupAuxAgent(projectName, network, cluster, database, cache, storage, secrets, commonTags),
-    ]);
+// Outputs
+export const managerInstanceId = manager.instance.id;
+export const managerPrivateIp = manager.instance.privateIp;
+export const managerPublicIp = manager.instance.publicIp;
 
-    const bentoAPI = await setupBentoAPI(projectName, network, cluster, database, cache, storage, secrets, commonTags);
+// AMI information
+export const amiId = imageId;
+export const amiName = pulumi.output(boundlessAmi).apply(ami => ami.name);
+export const amiDescription = pulumi.output(boundlessAmi).apply(ami => ami.description);
+export const boundlessVersionUsed = boundlessBentoVersion;
 
-    const ec2Broker = await setupEC2Broker(projectName, network, storage, secrets, commonTags, bentoAPI.bentoApiUrl);
+// ASG outputs
+export const proverAsgName = workerCluster.proverAsg.autoScalingGroup.name;
+export const proverAsgArn = workerCluster.proverAsg.autoScalingGroup.arn;
+export const proverDesiredCapacity = workerCluster.proverAsg.autoScalingGroup.desiredCapacity;
+export const proverMinSize = workerCluster.proverAsg.autoScalingGroup.minSize;
+export const proverMaxSize = workerCluster.proverAsg.autoScalingGroup.maxSize;
 
-    // Setup monitoring and alerts
-    const monitoring = await setupMonitoring(
-        projectName,
-        { execAgents, snarkAgent, gpuProvers, auxAgent, ec2Broker, bentoAPI },
-        database,
-        cache,
-        cluster,
-        commonTags
-    );
+// Execution ASG outputs
+export const executionAsgName = workerCluster.executionAsg.autoScalingGroup.name;
+export const executionAsgArn = workerCluster.executionAsg.autoScalingGroup.arn;
+export const executionDesiredCapacity = workerCluster.executionAsg.autoScalingGroup.desiredCapacity;
+export const executionMinSize = workerCluster.executionAsg.autoScalingGroup.minSize;
+export const executionMaxSize = workerCluster.executionAsg.autoScalingGroup.maxSize;
 
-    // Export important values
-    return {
-        vpcId: network.vpc.vpcId,
-        // ECS cluster
-        ecsClusterName: cluster.cluster.name,
-        ecsClusterArn: cluster.cluster.arn,
-        // ECS services
-        execAgentsServiceArn: execAgents.service.id,
-        snarkAgentServiceArn: snarkAgent.service.id,
-        gpuProversServiceArn: gpuProvers.service.id,
-        brokerInstanceArn: ec2Broker.instance.arn,
-        bentoAPIServiceArn: bentoAPI.service.id,
-        bentoAPIUrl: bentoAPI.bentoApiUrl,
-        auxAgentServiceArn: auxAgent.service.id,
-        // Database endpoints (private)
-        databaseEndpoint: database.instance.endpoint,
-        databaseProxyEndpoint: database.proxy.endpoint,
-        redisEndpoint: cache.connectionUrl,
-        s3BucketName: storage.bucket.id,
-        dockerTokenArn: secrets.dockerToken,
-        // Monitoring
-        alertsTopicArn: monitoring.alertsTopicArn,
-        dashboardUrl: pulumi.interpolate`https://console.aws.amazon.com/cloudwatch/home?region=${region}#dashboards:name=${monitoring.dashboard.dashboardName}`,
-    };
-}
+// Aux ASG outputs
+export const auxAsgName = workerCluster.auxAsg.autoScalingGroup.name;
+export const auxAsgArn = workerCluster.auxAsg.autoScalingGroup.arn;
+export const auxDesiredCapacity = workerCluster.auxAsg.autoScalingGroup.desiredCapacity;
+export const auxMinSize = workerCluster.auxAsg.autoScalingGroup.minSize;
+export const auxMaxSize = workerCluster.auxAsg.autoScalingGroup.maxSize;
 
-// Export the main outputs
-export default main();
+// Redis connection details
+export const redisHost = manager.instance.privateIp;
+export const redisPort = "6379";
+
+// Shared credentials for prover nodes
+export const sharedCredentials = {
+    postgresHost: manager.instance.privateIp,
+    postgresPort: "5432",
+    postgresDb: taskDBName,
+    postgresUser: taskDBUsername,
+    postgresPassword: taskDBPassword,
+    redisHost: manager.instance.privateIp,
+    redisPort: "6379",
+    s3Bucket: "bento",
+    s3Region: "us-west-2",
+};
+
+// Cluster info
+export const clusterInfo = {
+    manager: {
+        instanceId: manager.instance.id,
+        publicIp: manager.instance.publicIp,
+        privateIp: manager.instance.privateIp,
+    },
+    proverAsg: {
+        name: workerCluster.proverAsg.autoScalingGroup.name,
+        arn: workerCluster.proverAsg.autoScalingGroup.arn,
+        desiredCapacity: workerCluster.proverAsg.autoScalingGroup.desiredCapacity,
+        minSize: workerCluster.proverAsg.autoScalingGroup.minSize,
+        maxSize: workerCluster.proverAsg.autoScalingGroup.maxSize,
+        instanceType: "g6.xlarge",
+    },
+    ami: {
+        id: imageId,
+        name: pulumi.output(boundlessAmi).apply(ami => ami.name),
+        version: boundlessBentoVersion,
+    },
+};

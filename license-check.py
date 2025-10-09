@@ -69,6 +69,8 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/crates/test-utils",
     str(Path.cwd()) + "/documentation",
     str(Path.cwd()) + "/examples",
+    str(Path.cwd()) + "/crates/lambdas",
+    str(Path.cwd()) + "/crates/rewards",
 ]
 
 def check_header(file, expected_year, lines_actual):
