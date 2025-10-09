@@ -2782,6 +2782,7 @@ dependencies = [
  "futures-util",
  "hex",
  "indexer-monitor",
+ "order-stream",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -7202,6 +7203,7 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber 0.3.20",
+ "urlencoding",
  "utoipa",
  "utoipa-swagger-ui 9.0.2",
 ]
