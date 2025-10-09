@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 /// @title StakingRewards
 /// @notice Contract for distributing staking rewards based on veZKC staking positions

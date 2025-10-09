@@ -4,7 +4,7 @@
 // as found in the LICENSE-BSL file.
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.26;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -119,6 +119,14 @@ contract BoundlessMarket is
         uint32 deprecatedAssessorDuration,
         address collateralTokenContract
     ) {
+        // Validate non-zero critical params
+        require(address(verifier) != address(0), "Invalid verifier");
+        require(assessorId != bytes32(0), "Invalid assessor image");
+        require(collateralTokenContract != address(0), "Invalid collateral token");
+        if (deprecatedAssessorDuration > 0) {
+            require(deprecatedAssessorId != bytes32(0), "Invalid deprecated assessor image");
+        }
+
         VERIFIER = verifier;
         ASSESSOR_ID = assessorId;
         COLLATERAL_TOKEN_CONTRACT = collateralTokenContract;
@@ -129,6 +137,7 @@ contract BoundlessMarket is
     }
 
     function initialize(address initialOwner, string calldata _imageUrl) external initializer {
+        require(initialOwner != address(0), "Invalid initial owner");
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
@@ -553,10 +562,17 @@ contract BoundlessMarket is
         // If the price is higher, we charge the client the difference.
         // If the price is lower, we refund the client the difference.
         uint96 lockPrice = lock.price;
+        bool partialPayment = false;
+        uint96 finalPrice = price;
+
         if (price > lockPrice) {
             uint96 clientOwes = price - lockPrice;
             if (clientAccount.balance < clientOwes) {
-                return abi.encodeWithSelector(InsufficientBalance.selector, client);
+                // If the client does not have enough balance to cover the full amount owed,
+                // we will only charge them what they have available.
+                clientOwes = clientAccount.balance;
+                finalPrice = lockPrice + clientOwes;
+                partialPayment = true;
             }
             unchecked {
                 clientAccount.balance -= clientOwes;
@@ -568,9 +584,12 @@ contract BoundlessMarket is
 
         requestLocks[id].setProverPaidAfterLockDeadline(assessorProver);
         if (MARKET_FEE_BPS > 0) {
-            price = _applyMarketFee(price);
+            finalPrice = _applyMarketFee(finalPrice);
         }
-        accounts[assessorProver].balance += price;
+        accounts[assessorProver].balance += finalPrice;
+        if (partialPayment) {
+            return abi.encodeWithSelector(PartialPayment.selector, price, finalPrice);
+        }
     }
 
     /// @notice For a request that has never been locked. Marks the request as fulfilled, and transfers payment if eligible.

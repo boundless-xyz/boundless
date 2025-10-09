@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
@@ -147,6 +147,12 @@ interface IBoundlessMarket {
     /// @param account The account with insufficient balance.
     /// @dev selector 0x897f6c58
     error InsufficientBalance(address account);
+
+    /// @notice Error when a payment is partially settled due to insufficient funds.
+    /// @param fullAmount The full amount that was required.
+    /// @param paidAmount The amount that was actually paid.
+    /// @dev selector 0x6008fdcb
+    error PartialPayment(uint256 fullAmount, uint256 paidAmount);
 
     /// @notice Error when a signature did not pass verification checks.
     /// @dev selector 0x8baa579f

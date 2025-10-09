@@ -4,7 +4,7 @@
 // as found in the LICENSE-BSL file.
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
