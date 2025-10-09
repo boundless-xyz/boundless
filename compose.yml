@@ -101,7 +101,7 @@ services:
 
   postgres:
     hostname: ${POSTGRES_HOST:-postgres}
-    image: ${POSTGRES_IMG:-postgres:postgres:16.3-bullseye}
+    image: ${POSTGRES_IMG:-postgres:16.3-bullseye}
     restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-taskdb}
