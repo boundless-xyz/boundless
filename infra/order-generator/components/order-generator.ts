@@ -29,9 +29,9 @@ interface OrderGeneratorArgs {
   privateSubnetIds: pulumi.Output<string[]>;
   boundlessAlertsTopicArns?: string[];
   offchainConfig?: {
-    autoDeposit: string;
     orderStreamUrl: pulumi.Output<string>;
   };
+  autoDeposit?: string;
   warnBalanceBelow?: string;
   errorBalanceBelow?: string;
   txTimeout: string;
@@ -146,11 +146,14 @@ export class OrderGenerator extends pulumi.ComponentResource {
       },
     ];
 
-    if (offchainConfig) {
+    if (args.autoDeposit) {
       environment.push({
         name: 'AUTO_DEPOSIT',
-        value: offchainConfig.autoDeposit,
+        value: args.autoDeposit,
       });
+    }
+
+    if (offchainConfig) {
       secrets.push({
         name: 'ORDER_STREAM_URL',
         valueFrom: orderStreamUrlSecret.arn,

@@ -1,0 +1,13 @@
+config:
+  aws:region: us-west-2
+  indexer:DOCKER_DIR: ../../
+  indexer:DOCKER_TAG: latest
+  indexer:BASE_STACK: organization/bootstrap/services-staging
+  indexer:POVW_ACCOUNTING_ADDRESS: 0x129aEAB812d77c102ff1AD9D76DfB55FaAE4b8D3
+  indexer:VEZKC_ADDRESS: 0xB7c63161DA06eC56840465308e24C70dF65ABC56
+  indexer:ZKC_ADDRESS: 0x99A52662b576f4b2D4FFBc4504331A624a7b2846
+  indexer:RUST_LOG: "info"
+  indexer:CHAIN_ID: "11155111"
+  indexer:GH_TOKEN_SECRET:
+    secure: v1:J4xZ56NwrwjtY0Jp:dpbSAQPuDpFfsHo+QhKLK4C+C0iaSyT2mIAvrpRN7wXXCija5tBhn+yoX84ral2eER24LxQQj3QB1bXaZs0c6NYQwvRo589I4/01I4kw+UgntN7hr64TUDdXZeVisR7wYjfmLwjSIo2frxzW1A==
+encryptionsalt: v1:HL2bLYFQivc=:v1:KcERsQ2cFYC6O0+/:S4QR92sqLTBU8qboGwF219jAZ0zD6Q==

@@ -16,7 +16,6 @@ pragma solidity ^0.8.20;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -24,7 +23,7 @@ import {IHitPoints} from "./IHitPoints.sol";
 
 /// @title HitPoints ERC20
 /// @notice Implementation of a restricted transfer token using ERC20
-contract HitPoints is ERC20, ERC20Burnable, ERC20Permit, IHitPoints, AccessControl, Ownable {
+contract HitPoints is ERC20, ERC20Permit, IHitPoints, AccessControl, Ownable {
     // Maximum allowed balance (uint96 max value)
     uint256 constant MAX_BALANCE = type(uint96).max;
     // Role identifier for minting operation

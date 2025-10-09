@@ -7,7 +7,8 @@ mod build_contracts {
     use std::{env, fs, path::Path};
 
     // Contract interface files to copy to the artifacts folder
-    const ZKC_INTERFACE_FILES: [&str; 3] = ["IStaking.sol", "IRewards.sol", "IZKC.sol"];
+    const ZKC_INTERFACE_FILES: [&str; 4] =
+        ["IStaking.sol", "IRewards.sol", "IZKC.sol", "IVotes.sol"];
     const INTERFACE_FILES: [&str; 1] = ["IStakingRewards.sol"];
 
     /// Copy contract interface files from contracts/src/povw to src/contracts/artifacts

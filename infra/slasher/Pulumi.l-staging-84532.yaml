@@ -2,13 +2,13 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGl3Ck3jN3J70YiJ1ZaXCv8AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMkleamCTL5LfTIu5fAgEQgDtjGNFCmX9m3SwXQDDk1Ws/PFbJ7Cvhy3HnL5TM7982DBG8W/fW5d+ujqzyfOEX+MRMQAQr1jFhSFQwrw==
 config:
   slasher:BASE_STACK: organization/bootstrap/services-staging
-  slasher:BOUNDLESS_MARKET_ADDR: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
+  slasher:BOUNDLESS_MARKET_ADDR: 0x7abb16522f4599481361d318b765af988bfcca8e
   slasher:CHAIN_ID: "84532"
   slasher:DOCKER_DIR: ../../
   slasher:DOCKER_TAG: latest
   slasher:ERROR_BALANCE_BELOW: "0.005"
   slasher:GH_TOKEN_SECRET:
-    secure: v1:gBwVc9zYaf+42gmb:klcmoTNsc4nk6aMRUCFtaPqh0RTtdmdIU2GI7CS+ey9hEgFGTk+NFf2u6KNXjOEhhpUF2Wi6Rmuwf/VtKbCR2zR3z9Z9xlm4eCN8n750qiFGe+0kyH1sTPS/YJec75ZntlH4G4XaFqmCBmqorg==
+    secure: v1:BB6R1nFfMpeLMnrL:fMrR2FyIP6KRHOIEOpRYWG4dQIQ90X4ZHtQLap+c46u12BbtKxk/rD0h7MjdULiCFv2nrvzH8je5aZd5uTeOec7RTnVfIg4uFSoJXBHMsooLT3zrpiMBBVBrPUM8Mfa3r28+Nb0YX+dD84DdwA==
   slasher:INTERVAL: "60"
   slasher:LOG_LEVEL: boundless_slasher=trace,boundless_market=debug
   slasher:MAX_BLOCK_RANGE: "500"
