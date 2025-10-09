@@ -1550,7 +1550,7 @@ pub(crate) mod tests {
             let market_address = deploy_boundless_market(
                 signer.address(),
                 provider.clone(),
-                Address::ZERO,
+                address!("0x0000000000000000000000000000000000000001"),
                 hp_contract,
                 Digest::from(ASSESSOR_GUEST_ID),
                 format!("file://{ASSESSOR_GUEST_PATH}"),

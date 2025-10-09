@@ -969,7 +969,7 @@ pub(crate) mod tests {
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
     use alloy::node_bindings::AnvilInstance;
-    use alloy::primitives::Bytes;
+    use alloy::primitives::{address, Bytes};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -1088,7 +1088,7 @@ pub(crate) mod tests {
         let market_address = deploy_boundless_market(
             signer.address(),
             provider.clone(),
-            Address::ZERO,
+            address!("0x0000000000000000000000000000000000000001"),
             hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
             format!("file://{ASSESSOR_GUEST_PATH}"),
