@@ -2,6 +2,7 @@
 set -eou pipefail
 
 # Install bento from source
+source ~/.cargo/env
 echo "Installing Bento from source..."
 git clone https://github.com/boundless-xyz/boundless.git
 cd boundless/bento
