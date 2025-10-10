@@ -139,7 +139,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         }
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            let url = "https://gateway.pinata.cloud/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi";
+            let url = "https://dweb.link/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi";
             (fetch_http(&Url::parse(url)?).await?, Url::parse(url)?)
         }
     };
