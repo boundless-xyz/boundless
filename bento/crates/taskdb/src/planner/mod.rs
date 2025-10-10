@@ -235,36 +235,22 @@ impl Planner {
             panic!("Cannot build tree from empty segments");
         }
 
-        if self.segments.len() == 1 {
-            return self.segments[0];
-        }
-
-        // Start with a copy of segments to avoid borrowing issues
         let mut current_level = self.segments.clone();
 
-        // Build tree level by level
         while current_level.len() > 1 {
-            let mut next_level = Vec::new();
-
-            // Process pairs of nodes at current level
-            for i in (0..current_level.len()).step_by(2) {
-                if i + 1 < current_level.len() {
-                    // Join two nodes
-                    let left = current_level[i];
-                    let right = current_level[i + 1];
-                    let joined = self.enqueue_join(left, right);
-                    next_level.push(joined);
-                } else {
-                    // Odd node, promote to next level
-                    next_level.push(current_level[i]);
-                }
-            }
-
-            current_level = next_level;
+            current_level = current_level
+                .chunks(2)
+                .map(|chunk| match chunk {
+                    [left, right] => self.enqueue_join(*left, *right),
+                    [single] => *single,
+                    _ => unreachable!(),
+                })
+                .collect();
         }
 
-        // Return the root of the tree
-        current_level[0]
+        debug_assert_eq!(current_level.len(), 1);
+
+        current_level.pop().expect("Segments length must be 1")
     }
 }
 
