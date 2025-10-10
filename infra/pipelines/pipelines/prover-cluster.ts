@@ -111,6 +111,9 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
         };
 
         const stagingBuildBaseSepoliaNightly = createCodeBuildProject("staging", stagingAccountId, "staging-nightly-84532");
+        const stagingBuildBaseSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-84532");
+        const stagingBuildEthSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-11155111");
+
         const productionBuildBaseMainnetNightly = createCodeBuildProject("production", productionAccountId, "prod-nightly-8453");
         const productionBuildBaseMainnetRelease = createCodeBuildProject("production", productionAccountId, "prod-release-8453");
 
@@ -152,7 +155,31 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                             configuration: {
                                 ProjectName: stagingBuildBaseSepoliaNightly.name
                             },
+                            outputArtifacts: ["staging_output_base_sepolia_nightly"],
+                            inputArtifacts: ["source_output"],
+                        },
+                        {
+                            name: "DeployStagingBaseSepolia",
+                            category: "Build",
+                            owner: "AWS",
+                            provider: "CodeBuild",
+                            version: "1",
+                            configuration: {
+                                ProjectName: stagingBuildBaseSepolia.name
+                            },
                             outputArtifacts: ["staging_output_base_sepolia"],
+                            inputArtifacts: ["source_output"],
+                        },
+                        {
+                            name: "DeployStagingEthSepolia",
+                            category: "Build",
+                            owner: "AWS",
+                            provider: "CodeBuild",
+                            version: "1",
+                            configuration: {
+                                ProjectName: stagingBuildEthSepolia.name
+                            },
+                            outputArtifacts: ["staging_output_eth_sepolia"],
                             inputArtifacts: ["source_output"],
                         }
                     ],

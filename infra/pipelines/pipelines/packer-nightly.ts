@@ -28,8 +28,8 @@ phases:
     commands:
       - echo "Starting nightly build process..."
       - echo "Build started on $(date)"
-      - echo "Building from branch: $CODEBUILD_WEBHOOK_HEAD_REF"
-      - echo "Commit: $CODEBUILD_RESOLVED_SOURCE_VERSION"
+      - echo "Building from branch $CODEBUILD_WEBHOOK_HEAD_REF"
+      - echo "Commit $CODEBUILD_RESOLVED_SOURCE_VERSION"
       - sudo yum install -y git wget unzip jq
       - wget https://releases.hashicorp.com/packer/1.14.2/packer_1.14.2_linux_amd64.zip
       - unzip packer_1.14.2_linux_amd64.zip
@@ -53,7 +53,7 @@ phases:
   post_build:
     commands:
       - echo "Nightly build completed successfully"
-      - echo "Build artifacts:"
+      - echo "Build artifacts"
       - ls -la build-artifacts/
       - cat build-artifacts/build-summary.json
       - echo "Build completed on $(date)"
