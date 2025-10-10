@@ -1,0 +1,29 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFaRhyFHjBH4h7za4QR/PoxAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMwaTY/FRw6mApkTgWAgEQgDtVQ0eo7i+0qyEM+3rFhHURB9JjvpBlBgWPksPD1IYEqQSIVRTJMDTYBEXEXCnN0+F7ikGMzuo7i/WyLA==
+config:
+  prover-cluster:boundlessAmiName: "boundless-nightly-ubuntu-24.04-nvidia-*"
+  base:BASE_STACK: organization/bootstrap/services-staging
+  prover-cluster:environment: staging
+  prover-cluster:chainId: "84532"
+  prover-cluster:managerInstanceType: t3a.2xlarge
+  prover-cluster:taskDBName: "taskdb"
+  prover-cluster:taskDBUsername:
+    secure: v1:2tksPjYtGc38YO9E:sWGMaK4DYdXmwDkeP8+YaEoRrcZv
+  prover-cluster:taskDBPassword:
+    secure: v1:mqLLM5iMJZaJJasR:g3BNYsc6WDES1PI9y8ouyYxALdccZWR9AAXNkHyX1vuYdk4=
+  prover-cluster:minioUsername:
+    secure: v1:fG+flsXMV8rE2/Et:RgAA9BO1/7uEvP+8S3XvZGiYZBhfYVM=
+  prover-cluster:minioPassword:
+    secure: v1:jpzG/t++YZTxf+Hs:WAoLNUqVwtsHv3GTnPGHZ86A8/kiSOmNuTpPpd49UcQCrrE=
+  prover-cluster:executionCount: "1"
+  prover-cluster:auxWorkerCount: "1"
+  prover-cluster:proverWorkerCount: "1"
+  prover-cluster:privateKey:
+    secure: v1:bZaP8gZLLn+7PG9z:9u7k5/ch7P3WCrI6oaFzUpsljSw3ZiOBKcrM3mQL9Tg09HdrjDK8kM5FpWJ8nSfTouzr2Ghfiyj+KGcJgXYWFQQXbj2SXGVc8HMl0LbPdkk=
+  prover-cluster:ethRpcUrl:
+    secure: v1:lFT0b4jaqt9DTTz8:QUmzfFkJTx753kerYTsYteef43jKTjRsk4GUjgW2vfV41yRzarZ1YVGFJ3QyXfmC8fsfTezQ7JwcEFdprqmkkTu+NaN9wrkb2aZsEdwahxxEIuLUD+DMR1vSO7IgVbd3MmunrP2Dm7ufmVlbzhsTXQ==
+  prover-cluster:orderStreamUrl: "https://testnet.boundless.network/"
+  prover-cluster:verifierAddress: "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+  prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
+  prover-cluster:boundlessMarketAddress: "0x7abb16522f4599481361d318b765af988bfcca8e"
+  prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
