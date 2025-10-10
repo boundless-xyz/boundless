@@ -178,29 +178,66 @@ impl AggregatorService {
         // TODO: Need to set a timeout here to handle stuck or even just alert on delayed proving if
         // the proving cluster is overloaded
 
-        tracing::debug!("Starting proving of set-builder");
-        let proof_res = self
-            .prover
-            .prove_and_monitor_stark(
-                &self.set_builder_guest_id.to_string(),
-                &input_id,
-                assumption_ids,
-            )
-            .await
-            .context("Failed to prove set-builder")?;
-        tracing::debug!(
-            "Set-builder proof complete, proof id: {} cycles: {} time: {}",
-            proof_res.id,
-            proof_res.stats.total_cycles,
-            proof_res.elapsed_time
-        );
+        let (retry_count, sleep_ms) = {
+            let config = self.config.lock_all().context("Failed to lock config")?;
+            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+        };
 
-        let journal = self
-            .prover
-            .get_journal(&proof_res.id)
-            .await
-            .with_context(|| format!("Failed to get set-builder journal from {}", proof_res.id))?
-            .with_context(|| format!("set-builder journal missing from {}", proof_res.id))?;
+        tracing::debug!("Starting proving of set-builder");
+        let (proof_res, journal) = retry(
+            retry_count,
+            sleep_ms,
+            || async {
+                let proof_res = self
+                    .prover
+                    .prove_and_monitor_stark(
+                        &self.set_builder_guest_id.to_string(),
+                        &input_id,
+                        assumption_ids.clone(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        provers::ProverError::ProverInternalError(format!(
+                            "Failed to prove set-builder: {e}"
+                        ))
+                    })?;
+
+                tracing::debug!(
+                    "Set-builder proof complete, proof id: {} cycles: {} time: {}",
+                    proof_res.id,
+                    proof_res.stats.total_cycles,
+                    proof_res.elapsed_time
+                );
+
+                let receipt = self
+                    .prover
+                    .get_receipt(&proof_res.id)
+                    .await
+                    .map_err(|e| {
+                        provers::ProverError::ProverInternalError(format!(
+                            "Failed to get receipt for set-builder: {e}"
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        provers::ProverError::NotFound(format!(
+                            "Receipt missing for set-builder: {}",
+                            proof_res.id
+                        ))
+                    })?;
+
+                receipt.verify(self.set_builder_guest_id).map_err(|e| {
+                    provers::ProverError::ProverInternalError(format!(
+                        "Set builder proof produced invalid receipt: {e}"
+                    ))
+                })?;
+
+                let journal = receipt.journal.bytes;
+
+                Ok::<_, provers::ProverError>((proof_res, journal))
+            },
+            "set_builder_prove_and_get_journal",
+        )
+        .await?;
 
         let guest_state = GuestState::decode(&journal).context("Failed to decode guest output")?;
         let claim_digests = aggregation_state
