@@ -1,5 +1,3 @@
-secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
-encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAHOwl7XB0oQkYiM6jtt84kYAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM9jPbOXcPq+/NVpmWAgEQgDvI5xC/Coe957AOGOktU20zS8AhjTnMf0DQZ30xFYJVKORriLIx61T9rNDsmYQtUGOVRufwej3PyLOtJQ==
 config:
   aws:region: us-west-2
   base-prover:BASE_STACK: organization/bootstrap/services-staging
@@ -8,9 +6,9 @@ config:
   base-prover:DOCKER_DIR: ../../
   base-prover:DOCKER_TAG: latest
   base-prover:GH_TOKEN_SECRET:
-    secure: v1:Z1cr6VxwrYI9Yv1/:PYNpf3qUATIcHH9a7+4Yr/tfR0JIsqI//NYXXpsSUHI+mDxPNuvImtCUQjqbmIOQz6kFsvSstbbDrlrC7LWbNTx3uNQIxsVw6tZgpAEBGtSudTAp5dsBLwzEmQwvv9LKZRvDiGaZekwJj0D8GA==
+    secure: v1:g+sVxP7+QecQyHzA:zRtgTHdIW9hcj3ihad8AwdSvPnF8jN7CWnQj/ExrhsZsPZnh0n6K+5KfsRxcHyMK/ysOyfVDUeFmMUL3vbNmfcX+4IlctznGKLXDgdY/+WaH6Pt1EGp7xTqR1usiWQ8z7cKS6Fo0DWms6tLUUA==
   base-prover:ORDER_STREAM_URL:
-    secure: v1:8Ih8Nn6nZSu7Obqt:7RJFDjW1uS9uIMavGMI1DeTed+IrRIXTvGlv8kRGOc/JCEbrFaPP5y90eA1UdwpN8QiG/g/g35IQf0dusnOFNwTqRzeOKLC5hVj1/aZeXyhvIZs7zsMJyCMyiQk=
+    secure: v1:rR9eC9Ek5GQAfLd+:rPoNXX63D+U9NcxWhI865zwwoam07s+OMaxx8pJG/kFRCfgZbAEQwZJeb2sBJdPEVJ1Oud2zZzbbbtkI+YvIxEAXHuFIKF2eUe6RQDcCVszjEQQKf9f67eo8zq8=
   base-prover:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   base-prover:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
   base-prover:COLLATERAL_TOKEN_ADDRESS: 0xCBA5Fd30105984125395c18B6E6b1bf603408629
@@ -20,13 +18,15 @@ config:
   bento-prover:SEGMENT_SIZE: "19"
   bento-prover:SNARK_TIMEOUT: "240"
   base-prover:ETH_RPC_URL:
-    secure: v1:esz91sP38E6I6Wyx:fWH5PH0CEZveeZY7x3yP/uA0/7eiko1yShrAz0UJE86aJGbq+qiLlq8Abg3nzeR+sb6K80VZXzF/WSZ+dfj0TxAGMgH0v8RbMVhl
+    secure: v1:50aHb1nN5P+xF3y9:ApyIvi1thPXTbINCtSeeeJbKnlEMNcthhN62NIThgGihljYmUizalpceGl/UBKKi/pcTpTw6Kb//5YwpIDc45w8t6/Yu5y0ngG5P
   bento-prover:PRIVATE_KEY_1:
-    secure: v1:1d5kbiW4wf88a2MJ:iQrG7cV1JYemmwbHdgvM7pdkm1er8zjj7UnZBCEqsNr1jSZ5jH8ap+43Svc+ul8eBZRiWKmO1sk2IIf2iFWrPCsxxw1Yr4tVKlLjKJI4QLc=
+    secure: v1:neNgD6o1PDMuAaoB:R0QfJOYSskn5wlqJmzS1qu5VWueIZYehKMajqy6fuEB/FPB/7D1uli5IJjvXaXlrG6TnxlOfmW3LXwoAIhFq97/VqgcqGQHl/ZBezU4+6CU=
   bento-prover:PRIVATE_KEY_2:
-    secure: v1:bQ7SEGHARAraak8j:/9TMOSHu59noPh5yT7pCWaC2a9Fgl29kdQKxj7NRHPZ3mR+QfCmOZR2+Ni+q8/i2aIglhVktAebBfOWZcbPw0w0LHH3UfFQV14FsLUmmhM8=
+    secure: v1:Lwzj5EI1qL2EP0nQ:cUAITs5lYcw0LbyWUlXsPmphAvMNO1941ykhgNUK3jv28oR4ffCy+43V7NonWuHnSb+mDqyytJvTss/S+dM93LnxXcu2cQ6TOQbCLl7aCms=
   bento-prover:BRANCH: main
   bento-prover:POVW_LOG_ID_1:
-    secure: v1:ctARuGe8vFYXQqOF:Rmy7s3sv3sqInmfm20m+gBS1XVFSo8cuuNuLWtkhPW+ad7a/mcGBeSw5U7onRNmn06FkyGcSEyDk7A==
+    secure: v1:1lQVN+nVLrmkGB1R:DZXfJFHh38pitoWWQKfgIZxm5WauDuITCjxA/dI/ScdsjGWcTkXN/4w/O2CcnrjMrzNKrfZpWNCdGQ==
   bento-prover:POVW_LOG_ID_2:
-    secure: v1:2djXlmzE7uLDfFCt:Htdn14iyjTGWu84rG/TOm604XoUehN0EUdBRG/SNzLCYeCJzdf9DMMWDiyVjLvL+DNDd8zJOyxKBGg==
+    secure: v1:3vgyaIHUMVAaEGMD:PnpU0bBVMZv8kP8qHurcJmpIyM/XIZ5hzOoYpubUPA+XezzpTIz225ckzQUSu5ecg2kNmKd0I0TGzQ==
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGDMFzAwM24x2rddho4Hvk0AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMbUDWfFjkYqahQOgdAgEQgDtODkDHrLQ9qL2Vf/Lel/IE9IunMXhWayYkSWsuYcYqCd0YyY2+bjlBBewirws1+qk+KKJAa3+k79ZWhA==

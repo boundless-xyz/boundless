@@ -7,6 +7,7 @@ import { LIndexerPipeline } from "./pipelines/l-indexer";
 import { LOrderGeneratorPipeline } from "./pipelines/l-order-generator";
 import { LOrderStreamPipeline } from "./pipelines/l-order-stream";
 import { LProverPipeline } from "./pipelines/l-prover";
+import { LRequestorListsPipeline } from "./pipelines/l-requestor-lists";
 import { LSlasherPipeline } from "./pipelines/l-slasher";
 import { PackerPipeline } from "./pipelines/packer";
 import { ProverClusterPipeline } from "./pipelines/prover-cluster";
@@ -165,6 +166,16 @@ const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
 })
 
 const lSlasherPipeline = new LSlasherPipeline("lSlasherPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
+const lRequestorListsPipeline = new LRequestorListsPipeline("lRequestorListsPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
