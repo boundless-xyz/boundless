@@ -48,16 +48,7 @@ phases:
       - echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" > build-artifacts/commit.txt
       - echo "$CODEBUILD_WEBHOOK_HEAD_REF" > build-artifacts/branch.txt
       - echo "Creating build summary..."
-      - cat > build-artifacts/build-summary.json << EOF
-      {
-        "version": "nightly-$(date +%Y%m%d-%H%M%S)",
-        "commit": "$CODEBUILD_RESOLVED_SOURCE_VERSION",
-        "branch": "$CODEBUILD_WEBHOOK_HEAD_REF",
-        "buildTime": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-        "buildId": "$CODEBUILD_BUILD_ID",
-        "status": "success"
-      }
-      EOF
+      - jq -n --arg version "nightly-$(date +%Y%m%d-%H%M%S)" --arg commit "$CODEBUILD_RESOLVED_SOURCE_VERSION" --arg branch "$CODEBUILD_WEBHOOK_HEAD_REF" --arg buildTime "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg buildId "$CODEBUILD_BUILD_ID" '{version:$version, commit:$commit, branch:$branch, buildTime:$buildTime, buildId:$buildId, status:"success"}' > build-artifacts/build-summary.json
 
   post_build:
     commands:
@@ -126,7 +117,7 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
         }, { parent: this });
 
         // Create the main pipeline
-        const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-packer-nightly-pipeline`, {
+        const pipeline = new aws.codepipeline.Pipeline(`packer-nightly-pipeline`, {
             roleArn: args.role.arn,
             pipelineType: "V2",
             artifactStores: [{
