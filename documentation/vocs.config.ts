@@ -27,18 +27,18 @@ const SIDEBAR_ITEMS = [
         link: "/developers/quick-start",
       },
       {
+        text: "Proof Lifecycle",
+        link: "/developers/proof-lifecycle",
+      },
+      {
         text: "Core Concepts",
         items: [
-          {
-            text: "Proof Lifecycle",
-            link: "/developers/proof-lifecycle",
-          },
           {
             text: "Build a Program",
             link: "/developers/tutorials/build",
           },
           {
-            text: "Configuring a Request",
+            text: "Set up the Auction",
             link: "/developers/tutorials/configure",
           },
           {
@@ -46,7 +46,7 @@ const SIDEBAR_ITEMS = [
             link: "/developers/tutorials/request",
           },
           {
-            text: "Tracking a Request",
+            text: "Track the Request",
             link: "/developers/tutorials/tracking",
           },
           {
