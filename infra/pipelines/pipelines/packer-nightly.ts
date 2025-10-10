@@ -69,6 +69,7 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
         const nightlyBuildProject = new aws.codebuild.Project("packer-nightly-build-project", {
             name: `${APP_NAME}-packer-nightly-build`,
             serviceRole: role.arn,
+            buildTimeout: 480, // 8 hours (480 minutes)
             artifacts: {
                 type: "CODEPIPELINE",
             },
