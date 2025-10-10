@@ -107,17 +107,10 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     buildspec: PROVER_CLUSTER_BUILD_SPEC,
                 },
                 sourceVersion: "CODEPIPELINE",
-                tags: {
-                    Project: "boundless",
-                    Component: "prover-cluster",
-                    Environment: environment,
-                },
             }, { parent: this });
         };
 
-        const stagingBuildBaseSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-84532");
-        const stagingBuildEthSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-11155111");
-        const productionBuildBaseMainnet = createCodeBuildProject("production", productionAccountId, "prod-8453");
+        const stagingBuildBaseSepoliaNightly = createCodeBuildProject("staging", stagingAccountId, "staging-nightly-84532");
         const productionBuildBaseMainnetNightly = createCodeBuildProject("production", productionAccountId, "prod-nightly-8453");
         const productionBuildBaseMainnetRelease = createCodeBuildProject("production", productionAccountId, "prod-release-8453");
 
@@ -151,27 +144,15 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     name: "DeployStaging",
                     actions: [
                         {
-                            name: "DeployStagingBaseSepolia",
+                            name: "DeployStagingBaseSepoliaNightly",
                             category: "Build",
                             owner: "AWS",
                             provider: "CodeBuild",
                             version: "1",
                             configuration: {
-                                ProjectName: stagingBuildBaseSepolia.name
+                                ProjectName: stagingBuildBaseSepoliaNightly.name
                             },
                             outputArtifacts: ["staging_output_base_sepolia"],
-                            inputArtifacts: ["source_output"],
-                        },
-                        {
-                            name: "DeployStagingEthSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            configuration: {
-                                ProjectName: stagingBuildEthSepolia.name
-                            },
-                            outputArtifacts: ["staging_output_eth_sepolia"],
                             inputArtifacts: ["source_output"],
                         }
                     ],
@@ -217,24 +198,75 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     ]
                 }
             ],
-            tags: {
-                Project: "boundless",
-                Component: "prover-cluster",
-                Environment: "multi",
-            },
+            triggers: [
+                {
+                    providerType: "CodeStarSourceConnection",
+                    gitConfiguration: {
+                        sourceActionName: "Github",
+                        pushes: [
+                            {
+                                branches: {
+                                    includes: [BRANCH_NAME],
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        }, { parent: this });
+
+        // Create IAM role for EventBridge to execute the pipeline
+        const eventBridgeRole = new aws.iam.Role(`${APP_NAME}-eventbridge-role`, {
+            assumeRolePolicy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [{
+                    Effect: "Allow",
+                    Principal: {
+                        Service: "events.amazonaws.com"
+                    },
+                    Action: "sts:AssumeRole"
+                }]
+            }),
+        }, { parent: this });
+
+        // Grant EventBridge permission to start pipeline execution
+        new aws.iam.RolePolicy(`${APP_NAME}-eventbridge-policy`, {
+            role: eventBridgeRole.id,
+            policy: pulumi.all([pipeline.arn]).apply(([pipelineArn]: [string]) =>
+                JSON.stringify({
+                    Version: "2012-10-17",
+                    Statement: [{
+                        Effect: "Allow",
+                        Action: "codepipeline:StartPipelineExecution",
+                        Resource: pipelineArn
+                    }]
+                })
+            )
+        }, { parent: this });
+
+        // Create EventBridge rule for daily 5am Central Time trigger
+        // 10:00 UTC = 5am CDT (Central Daylight Time, UTC-5) / 4am CST (Central Standard Time, UTC-6)
+        const dailyTrigger = new aws.cloudwatch.EventRule(`${APP_NAME}-daily-trigger`, {
+            description: "Trigger prover-cluster pipeline daily at 5am Central Time (10:00 UTC)",
+            scheduleExpression: "cron(0 10 * * ? *)",
+        }, { parent: this });
+
+        // Add pipeline as target for the EventBridge rule
+        new aws.cloudwatch.EventTarget(`${APP_NAME}-daily-trigger-target`, {
+            rule: dailyTrigger.name,
+            arn: pipeline.arn,
+            roleArn: eventBridgeRole.arn,
         }, { parent: this });
 
         // Outputs
         this.pipelineName = pipeline.name;
-        this.stagingBuildProjectName = stagingBuildBaseSepolia.name;
-        this.stagingBuildProject2Name = stagingBuildEthSepolia.name;
+        this.stagingBuildProjectName = stagingBuildBaseSepoliaNightly.name;
         this.productionBuildReleaseName = productionBuildBaseMainnetRelease.name;
         this.productionBuildNightlyName = productionBuildBaseMainnetNightly.name;
     }
 
     public readonly pipelineName!: pulumi.Output<string>;
     public readonly stagingBuildProjectName!: pulumi.Output<string>;
-    public readonly stagingBuildProject2Name!: pulumi.Output<string>;
     public readonly productionBuildReleaseName!: pulumi.Output<string>;
     public readonly productionBuildNightlyName!: pulumi.Output<string>;
 }
