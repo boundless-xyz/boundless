@@ -104,7 +104,7 @@ impl AggregatorService {
             .with_context(|| format!("Receipt not found for {proof_id}"))?;
 
         receipt
-            .verify(self.set_builder_guest_id)
+            .verify_integrity_with_context(&Default::default())
             .with_context(|| format!("Receipt verification failed for {proof_id}"))?;
 
         let claim = receipt
@@ -668,7 +668,7 @@ impl AggregatorService {
                             ))
                         })?;
 
-                    receipt.verify(self.set_builder_guest_id).map_err(|e| {
+                    receipt.verify_integrity_with_context(&Default::default()).map_err(|e| {
                         provers::ProverError::ProverInternalError(format!(
                             "Groth16 verification failed: {e}"
                         ))
