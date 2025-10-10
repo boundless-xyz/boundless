@@ -6,7 +6,7 @@ source ~/.cargo/env
 echo "Installing Bento from source..."
 git clone https://github.com/boundless-xyz/boundless.git
 cd boundless/bento
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64
 export NVCC_APPEND_FLAGS="--generate-code arch=compute_75,code=sm_75 --generate-code arch=compute_86,code=sm_86 --generate-code arch=compute_89,code=sm_89 --generate-code arch=compute_120,code=sm_120"
 export PATH=/usr/local/cuda/bin:$PATH
 cargo build --release -F cuda --bin agent
