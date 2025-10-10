@@ -19,7 +19,7 @@ interface ProverClusterPipelineArgs extends BasePipelineArgs {
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "prover-cluster";
 // The branch that we should deploy from on push.
-const BRANCH_NAME = "main";
+const BRANCH_NAME = "willpote/indexer-and-requestor-list-pipelines";
 // Buildspec for prover cluster deployment
 const PROVER_CLUSTER_BUILD_SPEC = `version: 0.2
 
@@ -179,7 +179,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                             configuration: {
                                 ProjectName: productionBuildBaseMainnetNightly.name
                             },
-                            outputArtifacts: ["production_output_base_mainnet"],
+                            outputArtifacts: ["production_output_base_mainnet_nightly"],
                             inputArtifacts: ["source_output"],
                         },
                         {
@@ -192,7 +192,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                             configuration: {
                                 ProjectName: productionBuildBaseMainnetRelease.name
                             },
-                            outputArtifacts: ["production_output_base_mainnet"],
+                            outputArtifacts: ["production_output_base_mainnet_release"],
                             inputArtifacts: ["source_output"],
                         }
                     ]
@@ -232,7 +232,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
         // Grant EventBridge permission to start pipeline execution
         new aws.iam.RolePolicy(`${APP_NAME}-eventbridge-policy`, {
             role: eventBridgeRole.id,
-            policy: pulumi.all([pipeline.arn]).apply(([pipelineArn]: [string]) =>
+            policy: pulumi.all([pipeline.arn]).apply(([pipelineArn]) =>
                 JSON.stringify({
                     Version: "2012-10-17",
                     Statement: [{

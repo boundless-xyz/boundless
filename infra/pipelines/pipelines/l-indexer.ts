@@ -15,7 +15,8 @@ const config: LaunchPipelineConfig = {
     'curl -fsSL https://cargo-lambda.info/install.sh | sh -s -- -y',
     '. "$HOME/.cargo/env"',
     'npm install -g @ziglang/cli'
-  ]
+  ],
+  branchName: "willpote/indexer-and-requestor-list-pipelines",
 };
 
 export class LIndexerPipeline extends LaunchDefaultPipeline {
