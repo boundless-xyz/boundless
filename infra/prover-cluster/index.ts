@@ -169,10 +169,11 @@ export const sharedCredentials = {
     s3Region: "us-west-2",
 };
 
-// API Gateway outputs
-export const apiGatewayUrl = apiGateway.stage.invokeUrl;
-export const apiKey = apiGateway.apiKey.value;
-export const apiGatewayId = apiGateway.api.id;
+// ALB outputs
+export const albUrl = apiGateway.albUrl;
+export const albDnsName = apiGateway.alb.dnsName;
+export const targetGroupArn = apiGateway.targetGroup.arn;
+export const apiKey = apiGateway.apiKey;
 
 // Cluster info
 export const clusterInfo = {
@@ -195,8 +196,9 @@ export const clusterInfo = {
         version: boundlessBentoVersion,
     },
     apiGateway: {
-        apiKey: apiGateway.apiKey.value,
-        id: apiGateway.api.id,
-        url: apiGateway.stage.invokeUrl,
+        albUrl: apiGateway.albUrl,
+        albDnsName: apiGateway.alb.dnsName,
+        targetGroupArn: apiGateway.targetGroup.arn,
+        apiKey: apiGateway.apiKey,
     },
 };

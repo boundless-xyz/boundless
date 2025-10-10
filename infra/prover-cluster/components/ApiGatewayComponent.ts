@@ -8,60 +8,35 @@ export interface ApiGatewayComponentConfig extends BaseComponentConfig {
 }
 
 export class ApiGatewayComponent extends BaseComponent {
-    public readonly api: aws.apigateway.RestApi;
-    public readonly apiKey: aws.apigateway.ApiKey;
-    public readonly stage: aws.apigateway.Stage;
-    public readonly nlb: aws.lb.LoadBalancer;
+    public readonly alb: aws.lb.LoadBalancer;
+    public readonly targetGroup: aws.lb.TargetGroup;
+    public readonly albUrl: pulumi.Output<string>;
+    public readonly wafWebAcl: aws.wafv2.WebAcl;
+    public readonly apiKey: string;
 
     constructor(config: ApiGatewayComponentConfig) {
         super(config, "api-gateway");
 
-        // Create simple REST API
-        this.api = new aws.apigateway.RestApi("boundless-api", {
-            name: `${this.config.stackName}-boundless-api`,
-            description: "Boundless Bento API",
-            endpointConfiguration: { types: "REGIONAL" },
-        });
-
-        // Create API Key
-        this.apiKey = new aws.apigateway.ApiKey("boundless-api-key", {
-            name: `${this.config.stackName}-boundless-api-key`,
-            enabled: true,
-        });
-
-        // Create proxy resource
-        const proxy = new aws.apigateway.Resource("proxy", {
-            restApi: this.api.id,
-            parentId: this.api.rootResourceId,
-            pathPart: "{proxy+}",
-        });
-
-        // Create ANY method with API key requirement
-        const method = new aws.apigateway.Method("proxy-method", {
-            restApi: this.api.id,
-            resourceId: proxy.id,
-            httpMethod: "ANY",
-            authorization: "NONE",
-            apiKeyRequired: true,
-            requestParameters: {
-                "method.request.path.proxy": true
-            },
-        });
-
-        // Create Network Load Balancer
-        this.nlb = new aws.lb.LoadBalancer("boundless-nlb", {
-            name: `${this.config.stackName}-boundless-nlb`,
-            internal: true,
-            loadBalancerType: "network",
-            subnets: config.privateSubnetIds,
+        // Create public Application Load Balancer
+        this.alb = new aws.lb.LoadBalancer("boundless-alb", {
+            name: `${this.config.stackName}-boundless-alb`,
+            internal: false, // Public ALB
+            loadBalancerType: "application",
+            subnets: config.publicSubnetIds, // Use public subnets
             enableDeletionProtection: false,
+            securityGroups: [config.securityGroupId],
+            tags: {
+                Name: `${this.config.stackName}-boundless-alb`,
+                Environment: this.config.stackName,
+                Component: "api-gateway"
+            }
         });
 
         // Create target group for the manager instance
-        const targetGroup = new aws.lb.TargetGroup("boundless-tg-v2", {
-            name: `${this.config.stackName}-boundless-tg-v2`,
+        this.targetGroup = new aws.lb.TargetGroup("boundless-tg", {
+            name: `${this.config.stackName}-boundless-tg`,
             port: 8081,
-            protocol: "TCP",
+            protocol: "HTTP",
             vpcId: config.vpcId,
             targetType: "ip",
             healthCheck: {
@@ -69,75 +44,134 @@ export class ApiGatewayComponent extends BaseComponent {
                 healthyThreshold: 2,
                 interval: 30,
                 port: "traffic-port",
-                protocol: "TCP",
+                protocol: "HTTP",
+                path: "/health",
                 timeout: 5,
                 unhealthyThreshold: 2,
             },
+            tags: {
+                Name: `${this.config.stackName}-boundless-tg`,
+                Environment: this.config.stackName,
+                Component: "api-gateway"
+            }
         });
 
         // Register the manager instance as a target
-        new aws.lb.TargetGroupAttachment("boundless-tg-attachment-v2", {
-            targetGroupArn: targetGroup.arn,
+        new aws.lb.TargetGroupAttachment("boundless-tg-attachment", {
+            targetGroupArn: this.targetGroup.arn,
             targetId: config.managerPrivateIp,
             port: 8081,
         });
 
-        // Create NLB listener
-        new aws.lb.Listener("boundless-nlb-listener", {
-            loadBalancerArn: this.nlb.arn,
-            port: 8081,
-            protocol: "TCP",
+        // Create ALB listener for HTTP (port 80)
+        new aws.lb.Listener("boundless-alb-listener", {
+            loadBalancerArn: this.alb.arn,
+            port: 80,
+            protocol: "HTTP",
             defaultActions: [{
                 type: "forward",
-                targetGroupArn: targetGroup.arn,
+                targetGroupArn: this.targetGroup.arn,
             }],
         });
 
-        // Create VPC Link
-        const vpcLink = new aws.apigateway.VpcLink("boundless-vpc-link", {
-            name: `${this.config.stackName}-boundless-vpc-link`,
-            targetArn: this.nlb.arn,
-        });
+        // Generate a random API key
+        this.apiKey = this.generateApiKey();
 
-        // Create integration using VPC Link
-        const integration = new aws.apigateway.Integration("proxy-integration", {
-            restApi: this.api.id,
-            resourceId: proxy.id,
-            httpMethod: method.httpMethod,
-            integrationHttpMethod: "ANY",
-            type: "HTTP_PROXY",
-            uri: pulumi.interpolate`http://${this.nlb.dnsName}:8081/{proxy}`,
-            connectionType: "VPC_LINK",
-            connectionId: vpcLink.id,
-            passthroughBehavior: "WHEN_NO_MATCH",
-            requestParameters: {
-                "integration.request.path.proxy": "method.request.path.proxy"
+        // Create WAF Web ACL with API key enforcement
+        this.wafWebAcl = new aws.wafv2.WebAcl("boundless-waf", {
+            name: `${this.config.stackName}-boundless-waf`,
+            description: "WAF for Boundless Bento API with API key enforcement",
+            scope: "REGIONAL",
+            defaultAction: {
+                block: {}
             },
+            rules: [
+                {
+                    name: "ApiKeyRule",
+                    priority: 1,
+                    action: {
+                        allow: {}
+                    },
+                    statement: {
+                        byteMatchStatement: {
+                            searchString: this.apiKey,
+                            fieldToMatch: {
+                                singleHeader: {
+                                    name: "x-api-key"
+                                }
+                            },
+                            textTransformations: [
+                                {
+                                    priority: 0,
+                                    type: "NONE"
+                                }
+                            ],
+                            positionalConstraint: "EXACTLY"
+                        }
+                    },
+                    visibilityConfig: {
+                        cloudwatchMetricsEnabled: true,
+                        metricName: "ApiKeyRule",
+                        sampledRequestsEnabled: true
+                    }
+                },
+                {
+                    name: "HealthCheckRule",
+                    priority: 2,
+                    action: {
+                        allow: {}
+                    },
+                    statement: {
+                        byteMatchStatement: {
+                            searchString: "/health",
+                            fieldToMatch: {
+                                uriPath: {}
+                            },
+                            textTransformations: [
+                                {
+                                    priority: 0,
+                                    type: "LOWERCASE"
+                                }
+                            ],
+                            positionalConstraint: "STARTS_WITH"
+                        }
+                    },
+                    visibilityConfig: {
+                        cloudwatchMetricsEnabled: true,
+                        metricName: "HealthCheckRule",
+                        sampledRequestsEnabled: true
+                    }
+                }
+            ],
+            visibilityConfig: {
+                cloudwatchMetricsEnabled: true,
+                metricName: "BoundlessWaf",
+                sampledRequestsEnabled: true
+            },
+            tags: {
+                Name: `${this.config.stackName}-boundless-waf`,
+                Environment: this.config.stackName,
+                Component: "api-gateway"
+            }
         });
 
-        // Create deployment
-        const deployment = new aws.apigateway.Deployment("boundless-deployment", {
-            restApi: this.api.id,
-        }, {
-            dependsOn: [integration],
+        // Associate WAF with ALB
+        new aws.wafv2.WebAclAssociation("boundless-waf-association", {
+            resourceArn: this.alb.arn,
+            webAclArn: this.wafWebAcl.arn
         });
 
-        // Create stage
-        this.stage = new aws.apigateway.Stage("boundless-stage", {
-            deployment: deployment.id,
-            restApi: this.api.id,
-            stageName: "prod",
-        });
+        // Set the ALB URL for external access
+        this.albUrl = this.alb.dnsName.apply(dnsName => `http://${dnsName}`);
+    }
 
-        // Create usage plan and link API key
-        const usagePlan = new aws.apigateway.UsagePlan("boundless-usage-plan", {
-            apiStages: [{ apiId: this.api.id, stage: this.stage.stageName }],
-        });
-
-        new aws.apigateway.UsagePlanKey("boundless-usage-plan-key", {
-            keyId: this.apiKey.id,
-            keyType: "API_KEY",
-            usagePlanId: usagePlan.id,
-        });
+    private generateApiKey(): string {
+        // Generate a random 32-character API key
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < 32; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
     }
 }

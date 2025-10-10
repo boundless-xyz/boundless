@@ -93,6 +93,13 @@ export class SecurityComponent extends BaseComponent {
                 },
                 {
                     protocol: "tcp",
+                    fromPort: 80,
+                    toPort: 80,
+                    cidrBlocks: ["0.0.0.0/0"],
+                    description: "HTTP access for ALB"
+                },
+                {
+                    protocol: "tcp",
                     fromPort: 8081,
                     toPort: 8081,
                     cidrBlocks: ["0.0.0.0/0"],
