@@ -41,7 +41,7 @@ phases:
       - echo "Building nightly artifacts..."
       - cd infra/packer
       - packer init bento.pkr.hcl
-      - packer build -var "aws_region=us-west-2" -var "boundless_bento_version=nightly" -var "boundless_broker_version=nightly" bento_nightly.pkr.hcl
+      - packer build bento_nightly.pkr.hcl
       - echo "Generating build artifacts..."
       - mkdir -p build-artifacts
       - echo "nightly-$(date +%Y%m%d-%H%M%S)" > build-artifacts/version.txt
