@@ -4,6 +4,7 @@ import {
     SecurityComponent,
     ManagerComponent,
     WorkerClusterComponent,
+    ApiGatewayComponent,
     BaseComponentConfig
 } from "./components";
 
@@ -13,6 +14,7 @@ const baseStackName = baseConfig.require('BASE_STACK');
 const baseStack = new pulumi.StackReference(baseStackName);
 const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
 const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
+const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS') as pulumi.Output<string[]>;
 
 const config = new pulumi.Config();
 
@@ -66,6 +68,7 @@ const baseComponentConfig: BaseComponentConfig = {
     environment,
     vpcId,
     privateSubnetIds: privSubNetIds,
+    publicSubnetIds: pubSubNetIds,
 };
 
 // Create security components
@@ -108,6 +111,13 @@ const workerCluster = new WorkerClusterComponent({
     proverCount,
     executionCount,
     auxCount,
+});
+
+// Create API Gateway with NLB
+const apiGateway = new ApiGatewayComponent({
+    ...baseComponentConfig,
+    managerPrivateIp: manager.instance.privateIp,
+    securityGroupId: security.securityGroup.id,
 });
 
 // Outputs
@@ -159,6 +169,11 @@ export const sharedCredentials = {
     s3Region: "us-west-2",
 };
 
+// API Gateway outputs
+export const apiGatewayUrl = apiGateway.stage.invokeUrl;
+export const apiKey = apiGateway.apiKey.value;
+export const apiGatewayId = apiGateway.api.id;
+
 // Cluster info
 export const clusterInfo = {
     manager: {
@@ -178,5 +193,10 @@ export const clusterInfo = {
         id: imageId,
         name: pulumi.output(boundlessAmi).apply(ami => ami.name),
         version: boundlessBentoVersion,
+    },
+    apiGateway: {
+        apiKey: apiGateway.apiKey.value,
+        id: apiGateway.api.id,
+        url: apiGateway.stage.invokeUrl,
     },
 };

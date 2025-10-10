@@ -93,17 +93,31 @@ export class SecurityComponent extends BaseComponent {
                 },
                 {
                     protocol: "tcp",
-                    fromPort: 8080,
-                    toPort: 8080,
+                    fromPort: 8081,
+                    toPort: 8081,
                     cidrBlocks: ["0.0.0.0/0"],
                     description: "Bento API access"
                 },
                 {
                     protocol: "tcp",
+                    fromPort: 8081,
+                    toPort: 8081,
+                    cidrBlocks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+                    description: "VPC Link access to Bento API"
+                },
+                {
+                    protocol: "tcp",
+                    fromPort: 8081,
+                    toPort: 8081,
+                    cidrBlocks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+                    description: "VPC Link access to Bento API"
+                },
+                {
+                    protocol: "tcp",
                     fromPort: 9000,
                     toPort: 9000,
-                    self: true,
-                    description: "MinIO S3 API access from same security group"
+                    cidrBlocks: ["0.0.0.0/0"],
+                    description: "MinIO S3 API access"
                 },
                 {
                     protocol: "tcp",
