@@ -237,11 +237,14 @@ impl Planner {
 
         let mut current_level = self.segments.clone();
 
+        // Build tree level by level
         while current_level.len() > 1 {
             current_level = current_level
                 .chunks(2)
                 .map(|chunk| match chunk {
+                    // Join pairs of nodes
                     [left, right] => self.enqueue_join(*left, *right),
+                    // Odd node, promote to next level
                     [single] => *single,
                     _ => unreachable!(),
                 })
@@ -250,6 +253,7 @@ impl Planner {
 
         debug_assert_eq!(current_level.len(), 1);
 
+        // Return the root of the tree
         current_level.pop().expect("Segments length must be 1")
     }
 }
