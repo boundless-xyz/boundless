@@ -15,9 +15,10 @@
 use alloy::primitives::{B256, U256};
 use anyhow::{Context, Result};
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, ProverConfig};
+use crate::config_ext::ProverConfigExt;
+use crate::display::DisplayManager;
 
 /// Lock a request in the market
 #[derive(Args, Clone, Debug)]
@@ -41,7 +42,7 @@ pub struct ProverLock {
 impl ProverLock {
     /// Run the lock command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let prover_config = self.prover_config.clone().load_from_files()?;
+        let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config
             .client_builder_with_signer(global_config.tx_timeout)?
             .build()
@@ -49,14 +50,11 @@ impl ProverLock {
             .context("Failed to build Boundless Client with signer")?;
 
         let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let display = DisplayManager::with_network(network_name);
 
-        println!(
-            "\n{} [{}]",
-            "Locking Proof Request".bold(),
-            network_name.blue().bold()
-        );
-        println!("  Request ID: {}", format!("{:#x}", self.request_id).cyan().bold());
-        println!("  {} Fetching request details...", "→".dimmed());
+        display.header("Locking Proof Request");
+        display.item_colored("Request ID", format!("{:#x}", self.request_id), "cyan");
+        display.status("Status", "Fetching request details", "yellow");
 
         let (request, signature) =
             client.fetch_proof_request(self.request_id, self.tx_hash, self.request_digest).await?;
@@ -72,14 +70,10 @@ impl ProverLock {
             )?;
         }
 
-        println!("  {} Locking request...", "→".dimmed());
+        display.status("Status", "Locking request", "yellow");
         client.boundless_market.lock_request(&request, signature, None).await?;
 
-        println!(
-            "\n{} Successfully locked request {}",
-            "✓".green().bold(),
-            format!("{:#x}", self.request_id).green().bold()
-        );
+        display.success(&format!("Successfully locked request {:#x}", self.request_id));
         Ok(())
     }
 }

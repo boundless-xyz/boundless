@@ -18,22 +18,28 @@ use alloy::{
     eips::BlockId,
     network::Ethereum,
     primitives::{
-        utils::{format_ether, parse_ether, parse_units},
+        utils::{format_ether, parse_ether},
         Address, B256, U256,
     },
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
     sol_types::SolCall,
 };
-use anyhow::{anyhow, bail, ensure, Context};
+use anyhow::{anyhow, bail, Context};
 use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
-    contracts::{extract_tx_log, DecodeRevert, IStaking},
+    contracts::{DecodeRevert, IStaking},
     deployments::Deployment,
 };
 use clap::Args;
 
-use crate::{commands::zkc::get_active_token_id, config::{GlobalConfig, RewardsConfig}};
+use crate::{
+    commands::zkc::get_active_token_id,
+    config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    contracts::{confirm_transaction, extract_event},
+    display::{format_eth, DisplayManager},
+};
 
 /// Command to stake ZKC.
 #[non_exhaustive]
@@ -70,30 +76,24 @@ impl ZkcStake {
     /// Run the [ZKCStake] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
+        let tx_signer = rewards_config.require_staking_key_with_help()?;
 
-        let tx_signer = rewards_config.require_private_key()?;
-        let rpc_url = rewards_config.require_rpc_url()?;
-
-        // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
         let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = rewards_config.get_zkc_deployment(chain_id)?;
 
-        let account = match &self.from {
-            Some(addr) => *addr,
-            None => rewards_config.require_private_key()?.address(),
-        };
+        let account = self.from.unwrap_or_else(|| tx_signer.address());
 
         let token_id =
             get_active_token_id(provider.clone(), deployment.vezkc_address, account).await?;
         let add = !token_id.is_zero();
 
         let parsed_amount = self.amount;
-        if parsed_amount == U256::from(0) {
+        if parsed_amount == U256::ZERO {
             bail!("Amount is below the denomination minimum: {}", self.amount);
         }
 
@@ -101,8 +101,7 @@ impl ZkcStake {
             return self.approve_then_stake(deployment, parsed_amount, add).await;
         }
 
-        let tx_signer = rewards_config.require_private_key()?;
-        let provider = ProviderBuilder::new()
+        let provider_with_wallet = ProviderBuilder::new()
             .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
@@ -111,7 +110,7 @@ impl ZkcStake {
         if !add {
             println!(
                 "You're creating a new ZKC stake position. This will lock {} ZKC for 30 days.",
-                format_ether(parsed_amount)
+                format_eth(parsed_amount)
             );
             print!("Type 'yes' to confirm and continue: ");
             io::stdout().flush().ok();
@@ -124,11 +123,13 @@ impl ZkcStake {
             }
         }
 
+        let display = DisplayManager::new();
+
         let pending_tx = match self.no_permit {
             false => {
                 self.stake_with_permit(
-                    provider,
-                    deployment,
+                    provider_with_wallet.clone(),
+                    deployment.clone(),
                     parsed_amount,
                     &tx_signer,
                     self.permit_deadline,
@@ -137,57 +138,32 @@ impl ZkcStake {
                 .await?
             }
             true => self
-                .stake(provider, deployment, parsed_amount, add)
+                .stake(provider_with_wallet.clone(), deployment.clone(), parsed_amount, add)
                 .await
                 .context("Sending stake transaction failed")?,
         };
-        tracing::debug!("Broadcasting stake deposit tx {}", pending_tx.tx_hash());
-        let tx_hash = pending_tx.tx_hash();
-        tracing::info!(%tx_hash, "Sent transaction for staking");
 
-        let timeout = global_config.tx_timeout.or(pending_tx.timeout());
+        let tx_hash = *pending_tx.tx_hash();
+        display.tx_hash(tx_hash);
+        display.status("Status", "Waiting for confirmation", "yellow");
 
-        tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
-        let tx_receipt = pending_tx
-            .with_timeout(timeout)
-            .get_receipt()
-            .await
-            .context("Failed to receive receipt staking transaction")?;
-
-        ensure!(
-            tx_receipt.status(),
-            "Staking transaction failed: tx_hash = {}",
-            tx_receipt.transaction_hash
-        );
+        let tx_receipt = confirm_transaction(pending_tx, global_config.tx_timeout, 1).await?;
 
         if add {
-            let (token_id, owner, amount_added, new_total) =
-                match extract_tx_log::<IStaking::StakeAdded>(&tx_receipt) {
-                    Ok(log) => (
-                        U256::from(log.data().tokenId),
-                        log.data().owner,
-                        log.data().addedAmount,
-                        log.data().newTotal,
-                    ),
-                    Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
-                };
-            tracing::info!(
-                "Staking completed: token_id = {token_id}, owner = {owner}, amount added = {} ZKC, new total = {} ZKC",
-                format_ether(amount_added),
-                format_ether(new_total)
-            );
+            let event = extract_event::<IStaking::StakeAdded>(&tx_receipt)?;
+            display.success("Stake added successfully");
+            display.header("Stake Details");
+            display.item("Token ID", event.tokenId);
+            display.address("Owner", event.owner);
+            display.balance("Amount Added", &format_eth(event.addedAmount), "ZKC", "cyan");
+            display.balance("New Total", &format_eth(event.newTotal), "ZKC", "green");
         } else {
-            let (token_id, owner, amount) =
-                match extract_tx_log::<IStaking::StakeCreated>(&tx_receipt) {
-                    Ok(log) => {
-                        (U256::from(log.data().tokenId), log.data().owner, log.data().amount)
-                    }
-                    Err(e) => anyhow::bail!("Failed to extract stake created log: {}", e),
-                };
-            tracing::info!(
-                "Staking completed: token_id = {token_id}, owner = {owner}, amount = {} ZKC",
-                format_ether(amount)
-            );
+            let event = extract_event::<IStaking::StakeCreated>(&tx_receipt)?;
+            display.success("Stake created successfully");
+            display.header("Stake Details");
+            display.item("Token ID", event.tokenId);
+            display.address("Owner", event.owner);
+            display.balance("Amount", &format_eth(event.amount), "ZKC", "green");
         }
         Ok(())
     }

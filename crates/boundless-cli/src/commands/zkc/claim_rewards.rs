@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use alloy::{
-    primitives::{utils::format_ether, Address, U256},
+    primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
     sol_types::SolCall,
 };
@@ -24,7 +24,12 @@ use boundless_zkc::{
 };
 use clap::Args;
 
-use crate::config::{GlobalConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    contracts::confirm_transaction,
+    display::{format_eth, DisplayManager},
+};
 
 /// Command to claim rewards for ZKC.
 #[non_exhaustive]
@@ -51,42 +56,36 @@ impl ZkcClaimRewards {
     /// Run the [ZkcClaimRewards] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
+        let tx_signer = rewards_config.require_staking_key_with_help()?;
 
-        let tx_signer = rewards_config.require_private_key()?;
-        let rpc_url = rewards_config.require_rpc_url()?;
-
-        // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
         let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = rewards_config.get_zkc_deployment(chain_id)?;
 
-        let account = match &self.from {
-            Some(addr) => *addr,
-            None => rewards_config.require_private_key()?.address(),
-        };
+        let account = self.from.unwrap_or_else(|| tx_signer.address());
 
         if self.calldata {
-            return print_calldata(provider, deployment, account).await;
+            return print_calldata(provider, deployment.clone(), account).await;
         }
 
-        let tx_signer = rewards_config.require_private_key()?;
-        let provider = ProviderBuilder::new()
+        let provider_with_wallet = ProviderBuilder::new()
             .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
-        let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
 
+        let display = DisplayManager::new();
         let total =
-            claim_rewards(provider, deployment.staking_rewards_address, account, global_config)
+            claim_rewards(provider_with_wallet, deployment.staking_rewards_address, account, global_config, &display)
                 .await?;
-        tracing::info!("Claimed rewards: {} ZKC", format_ether(total));
+
+        display.success("Rewards claimed successfully");
+        display.header("Claim Details");
+        display.balance("Total Claimed", &format_eth(total), "ZKC", "green");
 
         Ok(())
     }
@@ -124,6 +123,7 @@ pub async fn claim_rewards(
     staking_rewards_address: Address,
     account: Address,
     global_config: &GlobalConfig,
+    display: &DisplayManager,
 ) -> anyhow::Result<U256> {
     let staking = IStakingRewards::new(staking_rewards_address, provider);
     let current_epoch: u32 = staking.getCurrentEpoch().call().await?.try_into()?;
@@ -136,28 +136,18 @@ pub async fn claim_rewards(
         }
     }
     ensure!(!unclaimed_epochs.is_empty(), "No unclaimed rewards for account {}", account);
-    let tx_result = staking
+
+    let pending_tx = staking
         .claimRewards(unclaimed_epochs)
         .send()
         .await
         .context("Failed to send claimRewards transaction")?;
 
-    let tx_hash = tx_result.tx_hash();
-    tracing::info!(%tx_hash, "Sent transaction for claimRewards");
+    let tx_hash = *pending_tx.tx_hash();
+    display.tx_hash(tx_hash);
+    display.status("Status", "Waiting for confirmation", "yellow");
 
-    let timeout = global_config.tx_timeout.or(tx_result.timeout());
-    tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
-    let tx_receipt = tx_result
-        .with_timeout(timeout)
-        .get_receipt()
-        .await
-        .context("Failed to receive receipt claimRewards transaction")?;
-
-    ensure!(
-        tx_receipt.status(),
-        "claimRewards transaction failed: tx_hash = {}",
-        tx_receipt.transaction_hash
-    );
+    let tx_receipt = confirm_transaction(pending_tx, global_config.tx_timeout, 1).await?;
 
     let logs = extract_tx_logs::<IZKC::StakingRewardsClaimed>(&tx_receipt)?;
     let total = logs.into_iter().map(|log| (U256::from(log.data().amount))).sum::<U256>();

@@ -35,7 +35,12 @@ use risc0_povw::PovwLogId;
 use risc0_zkvm::{default_prover, Digest, ProverOpts};
 use url::Url;
 
-use crate::config::{GlobalConfig, ProverConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, ProverConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    contracts::confirm_transaction,
+    display::{DisplayManager, format_eth},
+};
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
 
@@ -97,14 +102,15 @@ pub struct PovwClaim {
 impl PovwClaim {
     /// Run the [PovwClaim] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
+        let display = DisplayManager::new();
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
         if self.beacon_api_url.is_none() {
-            tracing::warn!("No Beacon API URL provided; claiming rewards may fail the multi-block continuity check.");
-            tracing::warn!("You can provide it using the --beacon-api-url flag.");
+            display.warning("No Beacon API URL provided; claiming rewards may fail the multi-block continuity check.");
+            display.note("You can provide it using the --beacon-api-url flag.");
         }
-        let tx_signer = rewards_config.require_private_key()?;
-        let rpc_url = rewards_config.require_rpc_url()?;
+        let tx_signer = rewards_config.require_povw_key_with_help()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
@@ -121,9 +127,17 @@ impl PovwClaim {
             .deployment
             .clone()
             .or_else(|| Deployment::from_chain_id(chain_id))
-            .context(
-            "could not determine deployment from chain ID; please specify deployment explicitly",
-        )?;
+            .with_context(|| {
+                format!(
+                    "Could not determine PoVW deployment for chain ID {}.\n\
+                    Please specify deployment explicitly with environment variables or flags",
+                    chain_id
+                )
+            })?;
+
+        display.header("PoVW Rewards Claim");
+        display.item("Work Log ID", format!("{:x}", self.log_id));
+        display.item("Chain ID", chain_id);
 
         // Determine the limits on the blocks that will be searched for events.
         let latest_block_number =
@@ -166,12 +180,12 @@ impl PovwClaim {
         tracing::debug!(%initial_commit, %final_commit, "Commit range for mint");
 
         if initial_commit == final_commit {
-            tracing::info!("All rewards for submitted work log updates have been claimed");
+            display.success("All rewards for submitted work log updates have been claimed");
             return Ok(());
         }
 
-        // Search for the WorkLogUpdated events, and the the EpochFinalized events.
-        tracing::info!("Searching for work log update events in the past {} days", self.days);
+        display.status("Status", "Searching for work log update events", "yellow");
+        display.note(&format!("Searching past {} days", self.days));
         let update_events = search_work_log_updated(
             &povw_accounting,
             self.log_id,
@@ -183,7 +197,7 @@ impl PovwClaim {
         )
         .await
         .context("Search for work log update events failed")?;
-        tracing::info!("Found {} work log update events", update_events.len());
+        display.item("Update Events", update_events.len());
 
         // Check to see what the current pending epoch is on the PoVW accounting contract. Filter
         // out update events with an epoch that has not finalized (with a warning).
@@ -227,9 +241,9 @@ impl PovwClaim {
         let first_epoch = epochs.iter().next().unwrap();
         let last_epoch = epochs.iter().last().unwrap();
         if first_epoch == last_epoch {
-            tracing::info!("Searching for epoch finalization event for epoch {first_epoch}");
+            display.status("Status", &format!("Searching for epoch {} finalization", first_epoch), "yellow");
         } else {
-            tracing::info!("Searching for epoch finalization events, from epoch {first_epoch} to epoch {last_epoch}");
+            display.status("Status", &format!("Searching for epochs {}-{} finalization", first_epoch, last_epoch), "yellow");
         }
         let epoch_events = search_epoch_finalized(
             &povw_accounting,
@@ -240,7 +254,7 @@ impl PovwClaim {
         )
         .await
         .context("Search for epoch finalized events failed")?;
-        tracing::info!("Found {} epoch finalization events", epoch_events.len());
+        display.item("Epoch Events", epoch_events.len());
 
         let event_block_numbers = BTreeSet::from_iter(
             finalized_update_events
@@ -261,44 +275,36 @@ impl PovwClaim {
             .prover_opts(ProverOpts::groth16())
             .build()?;
 
-        tracing::info!("Building input data for Mint Calculator guest");
+        display.status("Status", "Building proof input data", "yellow");
         let mint_input = mint_calculator_prover
             .build_input(event_block_numbers, [self.log_id])
             .await
             .context("Failed to build input for Mint Calculator Guest")?;
 
-        tracing::info!("Proving Mint Calculator guest");
+        display.status("Status", "Generating ZK proof for rewards calculation", "yellow");
         let mint_prove_info = mint_calculator_prover
             .prove_mint(&mint_input)
             .await
             .context("Failed to prove Mint Calculator guest")?;
 
-        tracing::info!("Sending reward claim transaction");
+        display.separator();
+        display.status("Status", "Submitting claim transaction", "yellow");
         let tx_result = povw_mint
             .mint_with_receipt(&mint_prove_info.receipt)
             .context("Failed to construct reward claim transaction")?
             .send()
             .await
             .context("Failed to send reward claim transaction")?;
-        let tx_hash = tx_result.tx_hash();
-        tracing::info!(%tx_hash, "Sent transaction for reward claim");
+        let tx_hash = *tx_result.tx_hash();
+        display.tx_hash(tx_hash);
 
         let timeout = global_config.tx_timeout.or(tx_result.timeout());
         tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
-        let tx_receipt = tx_result
-            .with_timeout(timeout)
-            .get_receipt()
+        let tx_receipt = confirm_transaction(tx_result, timeout, 1)
             .await
-            .context("Failed to receive receipt reward claim transaction")?;
+            .context("Failed to confirm reward claim transaction")?;
 
-        ensure!(
-            tx_receipt.status(),
-            "Reward claim transaction failed: tx_hash = {}",
-            tx_receipt.transaction_hash
-        );
-
-        // TODO(povw): Display some info, like how much of a reward was created.
-        tracing::info!("Reward claim completed");
+        display.success("Reward claim completed successfully");
         Ok(())
     }
 }

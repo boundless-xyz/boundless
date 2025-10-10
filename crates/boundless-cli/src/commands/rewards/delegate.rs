@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{
-    primitives::Address,
-    providers::{Provider, ProviderBuilder},
-};
+use alloy::{primitives::Address, providers::{Provider, ProviderBuilder}};
 use anyhow::{Context, Result};
 use boundless_zkc::contracts::IRewards;
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, RewardsConfig};
+use crate::config_ext::RewardsConfigExt;
+use crate::display::DisplayManager;
 
 /// Delegate reward power to another address
 #[derive(Args, Clone, Debug)]
@@ -36,25 +34,23 @@ pub struct RewardsDelegate {
 
 impl RewardsDelegate {
     /// Run the delegate command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let rewards_config = self.rewards_config.clone().load_from_files()?;
-        let rpc_url = rewards_config.require_rpc_url()?;
+    pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
+        let rewards_config = self.rewards_config.load_and_validate()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
+        let signer = rewards_config.require_staking_key_with_help()?;
 
-        let signer = rewards_config.require_staking_private_key()?;
+        let provider = ProviderBuilder::new()
+            .wallet(signer.clone())
+            .on_http(rpc_url.parse().context("Invalid RPC URL")?);
 
-        // Connect to provider with signer
-        let provider = ProviderBuilder::new().wallet(signer.clone()).on_http(rpc_url);
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .context("Failed to get chain ID")?;
 
-        // Get chain ID to determine deployment
-        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-
-        // Get veZKC (staking) contract address
         let vezkc_address = rewards_config.vezkc_address()?;
-
-        // Create rewards contract instance
         let rewards = IRewards::new(vezkc_address, &provider);
 
-        // Check current reward delegation
         let current_delegate = rewards
             .rewardDelegates(signer.address())
             .call()
@@ -62,48 +58,54 @@ impl RewardsDelegate {
             .context("Failed to query current reward delegate")?;
 
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let display = DisplayManager::with_network(network_name);
 
-        println!("\n{} [{}]", "Delegating Reward Power".bold(), network_name.blue().bold());
+        display.header("Delegating Reward Power");
 
         let from_label = if Some(signer.address()) == rewards_config.staking_address {
-            format!("{} {}", format!("{:#x}", signer.address()).dimmed(), "(Staking Address)".dimmed())
+            format!("{:#x} (Staking Address)", signer.address())
         } else {
-            format!("{:#x}", signer.address()).dimmed().to_string()
+            format!("{:#x}", signer.address())
         };
 
-        println!("  From:          {}", from_label);
-        println!("  Current:       {}", format!("{:#x}", current_delegate).cyan());
+        display.item("From", from_label);
+        display.item_colored("Current", format!("{:#x}", current_delegate), "cyan");
 
         if current_delegate == self.delegatee {
-            println!("  Status:        {} {}", "Already delegated".green().bold(), "(no action needed)".dimmed());
-            println!("\n{} {}", "✓".green(), "Reward power is already delegated to this address".green());
+            display.status(
+                "Status",
+                "Already delegated (no action needed)",
+                "green",
+            );
+            display.success("Reward power is already delegated to this address");
             return Ok(());
         }
 
         let delegatee_label = if Some(self.delegatee) == rewards_config.reward_address {
-            format!("{} {}", format!("{:#x}", self.delegatee).yellow(), "(Reward Address)".dimmed())
+            format!("{:#x} (Reward Address)", self.delegatee)
         } else {
-            format!("{:#x}", self.delegatee).yellow().to_string()
+            format!("{:#x}", self.delegatee)
         };
 
-        println!("  Delegating to: {}", delegatee_label);
+        display.item_colored("Delegating to", delegatee_label, "yellow");
 
-        // Execute delegation transaction
         let tx = rewards
             .delegateRewards(self.delegatee)
             .send()
             .await
             .context("Failed to send reward delegation transaction")?;
 
-        println!("\n  Transaction:   {}", format!("{:#x}", tx.tx_hash()).dimmed());
-        println!("  Status:        {}", "Waiting for confirmation...".yellow());
+        display.tx_hash(*tx.tx_hash());
+        display.status("Status", "Waiting for confirmation...", "yellow");
 
-        // Wait for transaction confirmation
-        let tx_hash = tx.watch().await.context("Failed to wait for transaction confirmation")?;
+        let tx_hash = tx
+            .watch()
+            .await
+            .context("Failed to wait for transaction confirmation")?;
 
-        println!("\n{} {}", "✓".green().bold(), "Successfully delegated!".green().bold());
-        println!("  New Delegate:  {}", format!("{:#x}", self.delegatee).cyan());
-        println!("  Transaction:   {}", format!("{:#x}", tx_hash).cyan());
+        display.success("Successfully delegated!");
+        display.item_colored("New Delegate", format!("{:#x}", self.delegatee), "cyan");
+        display.item_colored("Transaction", format!("{:#x}", tx_hash), "cyan");
 
         Ok(())
     }

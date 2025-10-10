@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use alloy::{
-    primitives::{utils::format_ether, Address, U256},
+    primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::Context;
@@ -24,7 +24,11 @@ use boundless_zkc::{
 use chrono::DateTime;
 use clap::Args;
 
-use crate::config::{GlobalConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    display::{format_eth, DisplayManager},
+};
 
 /// Command to get staked amount and withdrawing time for ZKC.
 #[non_exhaustive]
@@ -45,29 +49,30 @@ impl ZkcGetStakedAmount {
     /// Run the [ZkcGetStakedAmount] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
-        let rpc_url = rewards_config.require_rpc_url()?;
-
-        // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
         let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = rewards_config.get_zkc_deployment(chain_id)?;
 
         let (amount, withdrawable_at) =
             get_staked_amount(provider, deployment.vezkc_address, self.account).await?;
 
-        let withdrawable_at: u64 = withdrawable_at.try_into()?;
-        tracing::info!("Staked amount: {} ZKC", format_ether(amount));
-        if withdrawable_at == 0 {
-            tracing::info!("Not withdrawable");
+        let display = DisplayManager::new();
+        display.header("Staked Amount");
+        display.address("Account", self.account);
+        display.balance("Staked", &format_eth(amount), "ZKC", "green");
+
+        let withdrawable_at_u64: u64 = withdrawable_at.try_into()?;
+        if withdrawable_at_u64 == 0 {
+            display.item("Status", "Active (not withdrawable)");
         } else {
-            let datetime = DateTime::from_timestamp(withdrawable_at as i64, 0)
+            let datetime = DateTime::from_timestamp(withdrawable_at_u64 as i64, 0)
                 .context("failed to create DateTime")?;
-            tracing::info!("Withdrawable from UTC: {}", datetime.format("%Y-%m-%d %H:%M:%S"));
+            display.item("Withdrawable", datetime.format("%Y-%m-%d %H:%M:%S UTC"));
         }
 
         Ok(())

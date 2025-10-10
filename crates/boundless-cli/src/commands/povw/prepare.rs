@@ -21,7 +21,7 @@ use risc0_zkvm::{default_prover, ProverOpts};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::config::ProverConfig;
+use crate::{config::ProverConfig, display::DisplayManager};
 
 use super::{State, WorkReceipt};
 
@@ -73,18 +73,22 @@ pub struct PovwPrepare {
 impl PovwPrepare {
     /// Run the [PovwPrepare] command.
     pub async fn run(&self) -> Result<()> {
+        let display = DisplayManager::new();
+
         // Load the existing state, if provided.
         let mut state = if let Some(log_id) = self.new_log_id {
             if self.state.exists() {
                 bail!("File already exists at the state path; refusing to overwrite");
             }
-            tracing::info!("Initializing a new work log with ID {log_id:x}");
+            display.header("PoVW Prepare - New Work Log");
+            display.item("Work Log ID", format!("{log_id:x}"));
             State::new(log_id)
         } else {
             let state = State::load(&self.state).await.context("Failed to load state file")?;
-            tracing::info!("Loaded work log state from {}", self.state.display(),);
+            display.header("PoVW Prepare - Update Work Log");
+            display.item("Work Log ID", format!("{:x}", state.log_id));
+            display.item("State File", self.state.display());
             tracing::debug!(commit = %state.work_log.commit(), "Loaded work log commit");
-            tracing::info!("Preparing work log update for log ID: {:x}", state.log_id);
             state
         };
 
@@ -127,12 +131,12 @@ impl PovwPrepare {
         }
 
         if work_receipts.is_empty() {
-            tracing::info!("No work receipts to process");
+            display.warning("No work receipts to process");
             // Save the state file anyway, to create an empty one if it does not yet exist.
             state.save(&self.state).context("Failed to save state")?;
             return Ok(());
         }
-        tracing::info!("Loaded {} work receipts", work_receipts.len());
+        display.item("Receipts Loaded", work_receipts.len());
 
         // Set up the work log update prover
         self.prover_config.configure_proving_backend_with_health_check().await?;
@@ -157,6 +161,8 @@ impl PovwPrepare {
 
         let mut prover = prover_builder.build().context("Failed to build WorkLogUpdateProver")?;
 
+        display.separator();
+        display.status("Status", "Generating ZK proof for work log update", "yellow");
         // Prove the work log update
         // NOTE: We use tokio block_in_place here to mitigate two issues. One is that when using
         // the Bonsai version of the default prover, tokio may panic with an error about the
@@ -173,7 +179,8 @@ impl PovwPrepare {
             .save(&self.state)
             .context("Failed to save state")?;
 
-        tracing::info!("Updated work log and prepared an update proof");
+        display.success("Work log update prepared successfully");
+        display.note(&format!("State saved to: {}", self.state.display()));
         Ok(())
     }
 }

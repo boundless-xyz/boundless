@@ -29,7 +29,9 @@ use std::time::Duration;
 use url::Url;
 
 use crate::config::{GlobalConfig, RequestorConfig};
+use crate::config_ext::RequestorConfigExt;
 use crate::convert_timestamp;
+use crate::display::DisplayManager;
 
 /// Submit a proof request constructed with the given offer, input, and image
 #[derive(Args, Clone, Debug)]
@@ -112,13 +114,16 @@ pub struct SubmitOfferRequirements {
 impl RequestorSubmitOffer {
     /// Run the submit-offer command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let requestor_config = self.requestor_config.clone().load_from_files()?;
+        let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
             .build()
             .await
             .context("Failed to build Boundless Client with signer")?;
+
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let display = DisplayManager::with_network(network_name);
 
         let request = client.new_request();
 
@@ -179,23 +184,27 @@ impl RequestorSubmitOffer {
             client.build_request(request).await.context("failed to build proof request")?;
         tracing::debug!("Request details: {}", serde_yaml::to_string(&request)?);
 
+        display.header("Submitting Proof Request");
+
         // Submit the request
         let (request_id, expires_at) = if self.offchain {
-            tracing::info!("Submitting request offchain");
+            display.item("Submission", "Offchain via Order Stream");
             client.submit_request_offchain(&request).await?
         } else {
-            tracing::info!("Submitting request onchain");
+            display.item("Submission", "Onchain to Boundless Market");
             client.submit_request_onchain(&request).await?
         };
 
-        tracing::info!(
-            "Submitted request 0x{request_id:x}, bidding starts at {}",
+        display.item("Request ID", format!("{:#x}", request_id));
+        display.item(
+            "Bidding Starts",
             convert_timestamp(request.offer.rampUpStart)
         );
+        display.success("Request submitted successfully");
 
         // Wait for fulfillment if requested
         if self.wait {
-            tracing::info!("Waiting for request fulfillment...");
+            display.info("Waiting for request fulfillment...");
             let fulfillment = client
                 .boundless_market
                 .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
@@ -203,12 +212,9 @@ impl RequestorSubmitOffer {
             let fulfillment_data = fulfillment.data()?;
             let seal = fulfillment.seal;
 
-            tracing::info!("Request fulfilled!");
-            tracing::info!(
-                "Fulfillment Data: {} - Seal: {}",
-                serde_json::to_string_pretty(&fulfillment_data)?,
-                serde_json::to_string_pretty(&seal)?
-            );
+            display.success("Request fulfilled!");
+            println!("\nFulfillment Data:\n{}", serde_json::to_string_pretty(&fulfillment_data)?);
+            println!("\nSeal:\n{}", serde_json::to_string_pretty(&seal)?);
         }
 
         Ok(())

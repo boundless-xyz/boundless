@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{utils::format_ether, Address};
+use alloy::primitives::Address;
 use alloy::providers::Provider;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, RequestorConfig};
+use crate::config_ext::{RequestorConfigExt, validate_address_input};
+use crate::display::{DisplayManager, format_eth};
 
 /// Command to check balance in the market
 #[derive(Args, Clone, Debug)]
@@ -34,38 +35,33 @@ pub struct RequestorBalance {
 impl RequestorBalance {
     /// Run the balance command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let requestor_config = self.requestor_config.clone().load_from_files()?;
+        // Load and validate config
+        let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
-        // If address is provided, use it; otherwise try to get it from configured private key
-        let addr = if let Some(addr) = self.address {
-            addr
-        } else if let Some(ref pk) = requestor_config.private_key {
-            pk.address()
-        } else {
-            bail!(
-                "No address specified for balance query.\n\n\
-                To configure a default address: run 'boundless setup requestor'\n\
-                Or provide an address: boundless requestor balance <ADDRESS>"
-            );
-        };
+        // Validate address input with helpful error message
+        let addr = validate_address_input(
+            self.address,
+            requestor_config.private_key.as_ref(),
+            "balance query"
+        )?;
 
+        // Build client with standard configuration
         let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
-        let deposited = client.boundless_market.balance_of(addr).await?;
-        let deposited_formatted = crate::format_amount(&format_ether(deposited));
         let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
-        // Get wallet's actual ETH balance
-        let available = client.provider().get_balance(addr).await?;
-        let available_formatted = crate::format_amount(&format_ether(available));
+        // Create display manager with network context
+        let display = DisplayManager::with_network(network_name);
 
-        println!(
-            "\n{} [{}]",
-            "Balance (ETH) on Boundless Market".bold(),
-            network_name.blue().bold()
-        );
-        println!("  Address:   {}", format!("{:#x}", addr).dimmed());
-        println!("  Deposited: {} {}", deposited_formatted.green().bold(), "ETH".green());
-        println!("  Available: {} {}", available_formatted.cyan().bold(), "ETH".cyan());
+        // Query balances
+        let deposited = client.boundless_market.balance_of(addr).await?;
+        let available = client.provider().get_balance(addr).await?;
+
+        // Display results using standardized formatting
+        display.header("Balance (ETH) on Boundless Market");
+        display.address("Address", addr);
+        display.balance("Deposited", &format_eth(deposited), "ETH", "green");
+        display.balance("Available", &format_eth(available), "ETH", "cyan");
+
         Ok(())
     }
 }

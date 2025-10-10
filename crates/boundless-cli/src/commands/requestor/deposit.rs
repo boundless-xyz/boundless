@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{
-    utils::{format_ether, parse_ether},
-    U256,
-};
+use alloy::primitives::{utils::parse_ether, U256};
 use anyhow::Result;
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, RequestorConfig};
+use crate::config_ext::RequestorConfigExt;
+use crate::display::{DisplayManager, format_eth};
 
 /// Command to deposit funds into the market
 #[derive(Args, Clone, Debug)]
@@ -37,27 +35,20 @@ pub struct RequestorDeposit {
 impl RequestorDeposit {
     /// Run the deposit command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let requestor_config = self.requestor_config.clone().load_from_files()?;
+        let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config.client_builder_with_signer(global_config.tx_timeout)?.build().await?;
-        let formatted = crate::format_amount(&format_ether(self.amount));
         let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
-        println!(
-            "\n{} [{}]",
-            "Depositing funds (ETH) to Boundless Market".bold(),
-            network_name.blue().bold()
-        );
-        println!("  Amount: {} {}", formatted.cyan().bold(), "ETH".cyan());
+        let display = DisplayManager::with_network(network_name);
+        let formatted = format_eth(self.amount);
+
+        display.header("Depositing funds (ETH) to Boundless Market");
+        display.balance("Amount", &formatted, "ETH", "cyan");
 
         client.boundless_market.deposit(self.amount).await?;
 
-        println!(
-            "\n{} Successfully deposited {} {}",
-            "✓".green().bold(),
-            formatted.green().bold(),
-            "ETH".green()
-        );
+        display.success(&format!("Successfully deposited {} ETH", formatted));
         Ok(())
     }
 }

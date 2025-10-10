@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{
-    utils::{format_units, parse_units},
-    U256,
-};
+use alloy::primitives::{utils::parse_units, U256};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, ProverConfig};
+use crate::config_ext::ProverConfigExt;
+use crate::contracts::{get_token_balance, get_token_info};
+use crate::display::{DisplayManager, format_token};
 
 /// Deposit collateral funds into the market
 #[derive(Args, Clone, Debug)]
@@ -36,19 +35,23 @@ pub struct ProverDepositCollateral {
 impl ProverDepositCollateral {
     /// Run the deposit collateral command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let prover_config = self.prover_config.clone().load_from_files()?;
+        let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config
             .client_builder_with_signer(global_config.tx_timeout)?
             .build()
             .await
             .context("Failed to build Boundless Client with signer")?;
 
-        // Parse the amount based on the collateral token's decimals
-        let symbol = client.boundless_market.collateral_token_symbol().await?;
-        let collateral_label = format!("collateral ({symbol})");
-        let collateral_title = format!("Collateral ({symbol})");
-        let decimals = client.boundless_market.collateral_token_decimals().await?;
-        let parsed_amount = parse_units(&self.amount, decimals)
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let display = DisplayManager::with_network(network_name);
+
+        // Get collateral token information
+        let collateral_token_address = client.boundless_market.collateral_token_address().await?;
+        let token_info = get_token_info(client.provider(), collateral_token_address).await?;
+        let collateral_label = format!("collateral ({})", token_info.symbol);
+
+        // Parse and validate amount
+        let parsed_amount = parse_units(&self.amount, token_info.decimals)
             .map_err(|e| anyhow!("Failed to parse amount: {}", e))?
             .into();
 
@@ -56,68 +59,28 @@ impl ProverDepositCollateral {
             bail!("Amount is below the denomination minimum: {}", self.amount);
         }
 
-        let formatted_amount = crate::format_amount(&format_units(parsed_amount, decimals)?);
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let formatted_amount = format_token(parsed_amount, token_info.decimals)?;
 
-        println!(
-            "\n{} [{}]",
-            format!("Depositing {collateral_label} to Boundless Market").bold(),
-            network_name.blue().bold()
-        );
-        println!(
-            "  Amount: {} {}",
-            formatted_amount.as_str().cyan().bold(),
-            symbol.as_str().cyan()
-        );
+        display.header(&format!("Depositing {} to Boundless Market", collateral_label));
+        display.balance("Amount", &formatted_amount, &token_info.symbol, "cyan");
 
         // Check if collateral token supports permit (EIP-2612)
         if !client.deployment.collateral_token_supports_permit() {
-            println!("  {} Approving token...", "→".dimmed());
+            display.status("Step 1", "Approving token", "yellow");
             client.boundless_market.approve_deposit_collateral(parsed_amount).await?;
 
-            println!("  {} Depositing {}...", "→".dimmed(), collateral_label.as_str());
+            display.status("Step 2", &format!("Depositing {}", collateral_label), "yellow");
             match client.boundless_market.deposit_collateral(parsed_amount).await {
                 Ok(_) => {
-                    println!(
-                        "\n{} Successfully deposited {}: {} {}",
-                        "✓".green().bold(),
-                        collateral_label.as_str().green().bold(),
-                        formatted_amount.as_str().green().bold(),
-                        symbol.as_str().green()
-                    );
-
-                    // Display updated balance
-                    let addr = client.boundless_market.caller();
-                    let deposited = client.boundless_market.balance_of_collateral(addr).await?;
-                    let collateral_token_address = client.boundless_market.collateral_token_address().await?;
-                    let token = boundless_market::contracts::token::IERC20::new(
-                        collateral_token_address,
-                        client.provider(),
-                    );
-                    let available = token.balanceOf(addr).call().await?;
-
-                    let deposited_formatted = crate::format_amount(&format_units(deposited, decimals)?);
-                    let available_formatted = crate::format_amount(&format_units(available, decimals)?);
-
-                    println!("  Address:   {}", format!("{:#x}", addr).dimmed());
-                    println!(
-                        "  Deposited: {} {}",
-                        deposited_formatted.as_str().green().bold(),
-                        symbol.as_str().green()
-                    );
-                    println!(
-                        "  Available: {} {}",
-                        available_formatted.as_str().cyan().bold(),
-                        symbol.as_str().cyan()
-                    );
-
+                    self.display_success(&display, &client, &token_info, &formatted_amount, &collateral_label).await?;
                     Ok(())
                 }
                 Err(e) => {
                     if e.to_string().contains("TRANSFER_FROM_FAILED") {
                         let addr = client.boundless_market.caller();
                         Err(anyhow!(
-                            "Failed to deposit {collateral_label}: Ensure your address ({addr}) has funds on the {symbol} contract"
+                            "Failed to deposit {collateral_label}: Ensure your address ({addr}) has funds on the {} contract",
+                            token_info.symbol
                         ))
                     } else {
                         Err(anyhow!("Failed to deposit {collateral_label}: {e}"))
@@ -125,7 +88,7 @@ impl ProverDepositCollateral {
                 }
             }
         } else {
-            println!("  {} Depositing {} with permit...", "→".dimmed(), collateral_label.as_str());
+            display.status("Status", &format!("Depositing {} with permit", collateral_label), "yellow");
             let signer = client.signer.as_ref().unwrap();
             match client
                 .boundless_market
@@ -133,46 +96,15 @@ impl ProverDepositCollateral {
                 .await
             {
                 Ok(_) => {
-                    println!(
-                        "\n{} Successfully deposited {}: {} {}",
-                        "✓".green().bold(),
-                        collateral_label.as_str().green().bold(),
-                        formatted_amount.as_str().green().bold(),
-                        symbol.as_str().green()
-                    );
-
-                    // Display updated balance
-                    let addr = client.boundless_market.caller();
-                    let deposited = client.boundless_market.balance_of_collateral(addr).await?;
-                    let collateral_token_address = client.boundless_market.collateral_token_address().await?;
-                    let token = boundless_market::contracts::token::IERC20::new(
-                        collateral_token_address,
-                        client.provider(),
-                    );
-                    let available = token.balanceOf(addr).call().await?;
-
-                    let deposited_formatted = crate::format_amount(&format_units(deposited, decimals)?);
-                    let available_formatted = crate::format_amount(&format_units(available, decimals)?);
-
-                    println!("  Address:   {}", format!("{:#x}", addr).dimmed());
-                    println!(
-                        "  Deposited: {} {}",
-                        deposited_formatted.as_str().green().bold(),
-                        symbol.as_str().green()
-                    );
-                    println!(
-                        "  Available: {} {}",
-                        available_formatted.as_str().cyan().bold(),
-                        symbol.as_str().cyan()
-                    );
-
+                    self.display_success(&display, &client, &token_info, &formatted_amount, &collateral_label).await?;
                     Ok(())
                 }
                 Err(e) => {
                     if e.to_string().contains("TRANSFER_FROM_FAILED") {
                         let addr = client.boundless_market.caller();
                         Err(anyhow!(
-                            "Failed to deposit {collateral_label}: Ensure your address ({addr}) has funds on the {symbol} contract"
+                            "Failed to deposit {collateral_label}: Ensure your address ({addr}) has funds on the {} contract",
+                            token_info.symbol
                         ))
                     } else {
                         Err(anyhow!("Failed to deposit {collateral_label}: {e}"))
@@ -180,5 +112,36 @@ impl ProverDepositCollateral {
                 }
             }
         }
+    }
+
+    async fn display_success<P, St, Rb, Si>(
+        &self,
+        display: &DisplayManager,
+        client: &boundless_market::Client<P, St, Rb, Si>,
+        token_info: &crate::contracts::TokenInfo,
+        formatted_amount: &str,
+        collateral_label: &str,
+    ) -> Result<()>
+    where
+        P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
+    {
+        display.success(&format!(
+            "Successfully deposited {}: {} {}",
+            collateral_label, formatted_amount, token_info.symbol
+        ));
+
+        // Display updated balance
+        let addr = client.boundless_market.caller();
+        let deposited = client.boundless_market.balance_of_collateral(addr).await?;
+        let available = get_token_balance(client.provider(), token_info.address, addr).await?;
+
+        let deposited_formatted = format_token(deposited, token_info.decimals)?;
+        let available_formatted = format_token(available, token_info.decimals)?;
+
+        display.address("Address", addr);
+        display.balance("Deposited", &deposited_formatted, &token_info.symbol, "green");
+        display.balance("Available", &available_formatted, &token_info.symbol, "cyan");
+
+        Ok(())
     }
 }

@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{
-    primitives::{utils::format_ether, Address},
-    providers::{Provider, ProviderBuilder},
-};
+use alloy::primitives::Address;
+use alloy::providers::{Provider, ProviderBuilder};
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::token::IERC20;
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, RewardsConfig};
+use crate::config_ext::RewardsConfigExt;
+use crate::display::{DisplayManager, format_eth};
 
 /// Check the ZKC token balance of an address
 #[derive(Args, Clone, Debug)]
@@ -37,41 +36,40 @@ pub struct RewardsBalanceZkc {
 impl RewardsBalanceZkc {
     /// Run the balance-zkc command
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
-        let rewards_config = self.rewards_config.clone().load_from_files()?;
-        let rpc_url = rewards_config.require_rpc_url()?;
+        // Load and validate configuration
+        let rewards_config = self.rewards_config.clone().load_and_validate()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
-        // Connect to provider
+        // Connect to provider directly without abstraction
         let provider = ProviderBuilder::new()
-            .connect(rpc_url.as_str())
+            .connect(&rpc_url)
             .await
-            .context("Failed to connect to Ethereum provider")?;
+            .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        // Get chain ID to determine deployment
-        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await
+            .context("Failed to get chain ID")?;
+
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
+
+        // Create display manager with network context
+        let display = DisplayManager::with_network(network_name);
 
         // Get ZKC contract address (supports mainnet and Sepolia deployments)
         let zkc_address = rewards_config.zkc_address()?;
 
-        // Create ERC20 instance for the ZKC token
+        // Get token metadata
         let zkc_token = IERC20::new(zkc_address, &provider);
-
-        // Query token metadata once
         let symbol = zkc_token.symbol().call().await.context("Failed to query ZKC symbol")?;
 
         // If address is provided, just check that one
         if let Some(address) = self.address {
-            let balance = zkc_token
-                .balanceOf(address)
-                .call()
-                .await
-                .context("Failed to query ZKC balance")?;
+            let zkc_token_balance = IERC20::new(zkc_address, &provider);
+            let balance = zkc_token_balance.balanceOf(address).call().await
+                .context("Failed to get token balance")?;
 
-            let balance_formatted = crate::format_amount(&format_ether(balance));
-
-            println!("\n{} [{}]", "ZKC Balance".bold(), network_name.blue().bold());
-            println!("  Address: {}", format!("{:#x}", address).dimmed());
-            println!("  Balance: {} {}", balance_formatted.green().bold(), symbol.green());
+            display.header("ZKC Balance");
+            display.address("Address", address);
+            display.balance("Balance", &format_eth(balance), &symbol, "green");
         } else {
             // No address provided - check both staking and reward addresses from config
             use crate::config_file::{Config, Secrets};
@@ -125,23 +123,19 @@ impl RewardsBalanceZkc {
                 bail!("No addresses configured in rewards module. Please run 'boundless setup rewards' or provide an address");
             }
 
-            println!("\n{} [{}]", "ZKC Balance".bold(), network_name.blue().bold());
+            display.header("ZKC Balance");
 
             // Query and display balance for each address
             for (i, (label, address)) in checked_addresses.iter().enumerate() {
-                let balance = zkc_token
-                    .balanceOf(*address)
-                    .call()
-                    .await
+                let zkc_token_bal = IERC20::new(zkc_address, &provider);
+                let balance = zkc_token_bal.balanceOf(*address).call().await
                     .with_context(|| format!("Failed to query ZKC balance for {} address", label))?;
-
-                let balance_formatted = crate::format_amount(&format_ether(balance));
 
                 if i > 0 {
                     println!();
                 }
-                println!("  {} Address: {}", label.bold(), format!("{:#x}", address).dimmed());
-                println!("  Balance:        {} {}", balance_formatted.green().bold(), symbol.green());
+                display.item(&format!("{} Address", label), format!("{:#x}", address));
+                display.balance("Balance", &format_eth(balance), &symbol, "green");
             }
         }
 

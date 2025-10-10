@@ -17,11 +17,12 @@ use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_market::{contracts::RequestInputType, input::GuestEnv, storage::fetch_url};
 use clap::Args;
-use colored::Colorize;
 use risc0_zkvm::compute_image_id;
 use sqlx::{postgres::PgPool, postgres::PgPoolOptions};
 
 use crate::config::{GlobalConfig, ProverConfig};
+use crate::config_ext::ProverConfigExt;
+use crate::display::DisplayManager;
 
 /// Benchmark proof requests
 #[derive(Args, Clone, Debug)]
@@ -38,22 +39,19 @@ pub struct ProverBenchmark {
 impl ProverBenchmark {
     /// Run the benchmark command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let prover_config = self.prover_config.clone().load_from_files()?;
+        let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let display = DisplayManager::with_network(network_name);
 
-        println!(
-            "\n{} [{}]",
-            "Benchmarking Proof Requests".bold(),
-            network_name.blue().bold()
-        );
-        println!("  Total requests: {}", format!("{}", self.request_ids.len()).cyan().bold());
+        display.header("Benchmarking Proof Requests");
+        display.item_colored("Total requests", self.request_ids.len(), "cyan");
 
         if self.prover_config.use_default_prover {
             bail!("benchmark command does not support using the default prover");
         }
 
-        println!("  {} Configuring prover backend...", "→".dimmed());
+        display.status("Status", "Configuring prover backend", "yellow");
         self.prover_config.configure_proving_backend();
         let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
 
@@ -66,7 +64,7 @@ impl ProverBenchmark {
         // Check if we can connect to PostgreSQL using environment variables
         let pg_pool = match create_pg_pool().await {
             Ok(pool) => {
-                println!("  {} Connected to PostgreSQL database", "✓".green());
+                display.item_colored("Database", "Connected to PostgreSQL", "green");
                 Some(pool)
             }
             Err(e) => {
@@ -75,23 +73,17 @@ impl ProverBenchmark {
             }
         };
 
-        println!();
+        display.separator();
         for (idx, request_id) in self.request_ids.iter().enumerate() {
-            println!(
-                "{} Request {}/{}: {}",
-                "→".cyan().bold(),
-                idx + 1,
-                self.request_ids.len(),
-                format!("{:#x}", request_id).cyan()
-            );
+            display.step(idx + 1, self.request_ids.len(), &format!("Request {:#x}", request_id));
 
-            println!("  {} Fetching request details...", "→".dimmed());
+            display.status("Status", "Fetching request details", "yellow");
             let (request, _signature) = client.fetch_proof_request(*request_id, None, None).await?;
 
             tracing::debug!("Fetched request 0x{:x}", request_id);
             tracing::debug!("Image URL: {}", request.imageUrl);
 
-            println!("  {} Fetching program and input...", "→".dimmed());
+            display.status("Status", "Fetching program and input", "yellow");
             let elf = fetch_url(&request.imageUrl).await?;
 
             tracing::debug!("Processing input");
@@ -106,7 +98,7 @@ impl ProverBenchmark {
                 _ => bail!("Unsupported input type"),
             };
 
-            println!("  {} Uploading to prover...", "→".dimmed());
+            display.status("Status", "Uploading to prover", "yellow");
             let image_id = compute_image_id(&elf)?.to_string();
             prover.upload_img(&image_id, elf).await.unwrap();
             tracing::debug!("Uploaded ELF to {}", image_id);
@@ -118,7 +110,7 @@ impl ProverBenchmark {
             let assumptions = vec![];
             let start_time = std::time::Instant::now();
 
-            println!("  {} Generating proof...", "→".dimmed());
+            display.status("Status", "Generating proof", "yellow");
             let proof_id =
                 prover.create_session(image_id, input_id, assumptions.clone(), false).await?;
             tracing::debug!("Created session {}", proof_id.uuid);
@@ -194,10 +186,10 @@ impl ProverBenchmark {
 
             let effective_khz = total_cycles / elapsed_secs / 1000.0;
 
-            println!("  {} Proof completed", "✓".green());
-            println!("    Cycles:    {}", format!("{:.0}", total_cycles).cyan());
-            println!("    Time:      {}", format!("{:.2}s", elapsed_secs).cyan());
-            println!("    Effective: {}", format!("{:.2} KHz", effective_khz).cyan().bold());
+            display.item_colored("Status", "Proof completed", "green");
+            display.item_colored("Cycles", format!("{:.0}", total_cycles), "cyan");
+            display.item_colored("Time", format!("{:.2}s", elapsed_secs), "cyan");
+            display.item_colored("Effective", format!("{:.2} KHz", effective_khz), "cyan");
 
             if let Some(time) = elapsed_time {
                 tracing::debug!("Server side time: {:?}", time);
@@ -213,14 +205,15 @@ impl ProverBenchmark {
         }
 
         // Print summary
-        println!("\n{}", "Benchmark Summary".bold());
-        println!("  Total requests: {}", format!("{}", self.request_ids.len()).cyan().bold());
+        display.separator();
+        display.header("Benchmark Summary");
+        display.item_colored("Total requests", self.request_ids.len(), "cyan");
         if !self.request_ids.is_empty() {
-            println!("  {} Worst performance:", "→".yellow());
-            println!("    Request ID: {}", format!("{:#x}", worst_request_id).yellow());
-            println!("    Effective:  {}", format!("{:.2} KHz", worst_khz).yellow().bold());
-            println!("    Cycles:     {}", format!("{:.0}", worst_cycles).yellow());
-            println!("    Time:       {}", format!("{:.2}s", worst_time).yellow());
+            display.note("Worst performance:");
+            display.item_colored("Request ID", format!("{:#x}", worst_request_id), "yellow");
+            display.item_colored("Effective", format!("{:.2} KHz", worst_khz), "yellow");
+            display.item_colored("Cycles", format!("{:.0}", worst_cycles), "yellow");
+            display.item_colored("Time", format!("{:.2}s", worst_time), "yellow");
         }
 
         Ok(())

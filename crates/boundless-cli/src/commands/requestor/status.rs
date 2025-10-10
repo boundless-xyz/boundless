@@ -15,9 +15,10 @@
 use alloy::primitives::U256;
 use anyhow::Result;
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, RequestorConfig};
+use crate::config_ext::RequestorConfigExt;
+use crate::display::DisplayManager;
 
 /// Get the status of a given request
 #[derive(Args, Clone, Debug)]
@@ -36,33 +37,25 @@ pub struct RequestorStatus {
 impl RequestorStatus {
     /// Run the status command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let requestor_config = self.requestor_config.clone().load_from_files()?;
+        let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
         let status = client.boundless_market.get_status(self.request_id, self.expires_at).await?;
 
         let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let display = DisplayManager::with_network(network_name);
 
-        println!("\n{} [{}]", "Request Status".bold(), network_name.blue().bold());
-        println!("  Request ID: {}", format!("{:#x}", self.request_id).dimmed());
+        display.header("Request Status");
+        display.item_colored("Request ID", format!("{:#x}", self.request_id), "dimmed");
 
-        let (status_text, status_color): (String, fn(&str) -> colored::ColoredString) = match status
-        {
-            boundless_market::contracts::RequestStatus::Fulfilled => {
-                ("✓ Fulfilled".to_string(), |s| s.green().bold())
-            }
-            boundless_market::contracts::RequestStatus::Locked => {
-                ("⏳ Locked".to_string(), |s| s.yellow().bold())
-            }
-            boundless_market::contracts::RequestStatus::Expired => {
-                ("✗ Expired".to_string(), |s| s.red().bold())
-            }
-            boundless_market::contracts::RequestStatus::Unknown => {
-                ("? Unknown".to_string(), |s| s.dimmed())
-            }
+        let (status_text, status_color) = match status {
+            boundless_market::contracts::RequestStatus::Fulfilled => ("✓ Fulfilled", "green"),
+            boundless_market::contracts::RequestStatus::Locked => ("⏳ Locked", "yellow"),
+            boundless_market::contracts::RequestStatus::Expired => ("✗ Expired", "yellow"),
+            boundless_market::contracts::RequestStatus::Unknown => ("? Unknown", "dimmed"),
         };
 
-        println!("  Status:     {}", status_color(&status_text));
+        display.status("Status", status_text, status_color);
         Ok(())
     }
 }

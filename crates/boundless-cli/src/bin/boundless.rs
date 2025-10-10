@@ -1466,6 +1466,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
     let prover_client_config = ProverClientConfig {
         prover_rpc_url: None,
         private_key: None,
+        prover_address: None,
         deployment: None,
         bento_api_url: "http://localhost:8081".to_string(),
         bento_api_key: None,

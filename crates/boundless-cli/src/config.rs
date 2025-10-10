@@ -457,6 +457,10 @@ pub struct ProverConfig {
     #[clap(long = "prover-private-key", env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
     pub private_key: Option<PrivateKeySigner>,
 
+    /// Prover address (for read-only mode when no private key is configured)
+    #[clap(skip)]
+    pub prover_address: Option<alloy::primitives::Address>,
+
     /// Configuration for the Boundless deployment to use.
     #[clap(flatten, next_help_heading = "Boundless Deployment")]
     pub deployment: Option<Deployment>,
@@ -525,6 +529,19 @@ impl ProverConfig {
                 if let Some(prover_secrets) = secrets.prover_networks.get(network) {
                     if let Some(ref pk) = prover_secrets.private_key {
                         self.private_key = Some(parse_private_key(pk)?);
+                    }
+                }
+            }
+        }
+
+        // Load prover address (for read-only mode)
+        if self.prover_address.is_none() {
+            if let Ok(addr) = std::env::var("PROVER_ADDRESS") {
+                self.prover_address = Some(addr.parse()?);
+            } else if let (Some(ref secrets), Some(network)) = (&secrets, network) {
+                if let Some(prover_secrets) = secrets.prover_networks.get(network) {
+                    if let Some(ref addr) = prover_secrets.address {
+                        self.prover_address = Some(addr.parse()?);
                     }
                 }
             }

@@ -20,9 +20,10 @@ use boundless_market::{
     storage::fetch_url,
 };
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, ProverConfig};
+use crate::config_ext::ProverConfigExt;
+use crate::display::DisplayManager;
 
 /// Fulfill one or more proof requests
 #[derive(Args, Clone, Debug)]
@@ -51,7 +52,7 @@ pub struct ProverFulfill {
 impl ProverFulfill {
     /// Run the fulfill command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let prover_config = self.prover_config.clone().load_from_files()?;
+        let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config
             .client_builder_with_signer(global_config.tx_timeout)?
             .build()
@@ -70,21 +71,18 @@ impl ProverFulfill {
         }
 
         let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let display = DisplayManager::with_network(network_name);
         let request_ids_string =
             self.request_ids.iter().map(|id| format!("{:#x}", id)).collect::<Vec<_>>().join(", ");
 
-        println!(
-            "\n{} [{}]",
-            "Fulfilling Proof Requests".bold(),
-            network_name.blue().bold()
-        );
-        println!("  Request IDs: {}", request_ids_string.cyan());
-        println!("  {} Configuring prover...", "→".dimmed());
+        display.header("Fulfilling Proof Requests");
+        display.item_colored("Request IDs", &request_ids_string, "cyan");
+        display.status("Status", "Configuring prover", "yellow");
 
         // Configure proving backend (defaults to bento like benchmark command)
         self.prover_config.configure_proving_backend_with_health_check().await?;
 
-        println!("  {} Fetching programs...", "→".dimmed());
+        display.status("Status", "Fetching programs", "yellow");
         let (_, market_url) = client.boundless_market.image_info().await?;
         tracing::debug!("Fetching Assessor program from {}", market_url);
         let assessor_program = fetch_url(&market_url).await?;
@@ -132,7 +130,7 @@ impl ProverFulfill {
             }
         });
 
-        println!("  {} Fetching request details...", "→".dimmed());
+        display.status("Status", "Fetching request details", "yellow");
         let results = futures::future::join_all(fetch_order_jobs).await;
         let mut orders = Vec::new();
         let mut unlocked_requests = Vec::new();
@@ -145,7 +143,7 @@ impl ProverFulfill {
             orders.push((req, sig));
         }
 
-        println!("  {} Generating proofs...", "→".dimmed());
+        display.status("Status", "Generating proofs", "yellow");
         let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
         let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
         let boundless_market = client.boundless_market.clone();
@@ -160,25 +158,17 @@ impl ProverFulfill {
                 .with_unlocked_requests(unlocked_requests)
                 .with_withdraw(self.withdraw);
 
-        println!("  {} Submitting fulfillment...", "→".dimmed());
+        display.status("Status", "Submitting fulfillment", "yellow");
         match boundless_market.fulfill(fulfillment_tx).await {
             Ok(_) => {
-                println!(
-                    "\n{} Successfully fulfilled requests: {}",
-                    "✓".green().bold(),
-                    request_ids_string.green()
-                );
+                display.success(&format!("Successfully fulfilled requests: {}", request_ids_string));
                 if self.withdraw {
-                    println!("  {} Funds withdrawn", "✓".green());
+                    display.item_colored("Funds", "withdrawn", "green");
                 }
                 Ok(())
             }
             Err(e) => {
-                println!(
-                    "\n{} Failed to fulfill requests: {}",
-                    "✗".red().bold(),
-                    request_ids_string.red()
-                );
+                display.error(&format!("Failed to fulfill requests: {}", request_ids_string));
                 bail!("Failed to fulfill request: {}", e)
             }
         }

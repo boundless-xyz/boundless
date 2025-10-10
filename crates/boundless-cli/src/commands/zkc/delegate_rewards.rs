@@ -17,11 +17,16 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
     sol_types::SolCall,
 };
-use anyhow::{ensure, Context};
+use anyhow::Context;
 use boundless_zkc::{contracts::IRewards, deployments::Deployment};
 use clap::Args;
 
-use crate::config::{GlobalConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    contracts::confirm_transaction,
+    display::DisplayManager,
+};
 
 /// Command to delegate rewards for ZKC.
 #[non_exhaustive]
@@ -45,57 +50,45 @@ impl ZkcDelegateRewards {
     /// Run the [DelegateRewards] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
+        let tx_signer = rewards_config.require_staking_key_with_help()?;
 
-        let tx_signer = rewards_config.require_private_key()?;
-        let rpc_url = rewards_config.require_rpc_url()?;
-
-        // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
         let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = rewards_config.get_zkc_deployment(chain_id)?;
 
         if self.calldata {
             print_calldata(&deployment, self.to);
             return Ok(());
         }
 
-        let tx_signer = rewards_config.require_private_key()?;
-        let provider = ProviderBuilder::new()
+        let provider_with_wallet = ProviderBuilder::new()
             .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
-        let rewards = IRewards::new(deployment.vezkc_address, provider.clone());
+        let display = DisplayManager::new();
+        let rewards = IRewards::new(deployment.vezkc_address, provider_with_wallet);
 
-        let tx_result = rewards
+        let pending_tx = rewards
             .delegateRewards(self.to)
             .send()
             .await
             .context("Failed to send delegateRewards transaction")?;
-        let tx_hash = tx_result.tx_hash();
-        tracing::info!(%tx_hash, "Sent transaction for delegating rewards");
 
-        let timeout = global_config.tx_timeout.or(tx_result.timeout());
-        tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
-        let tx_receipt = tx_result
-            .with_timeout(timeout)
-            .get_receipt()
-            .await
-            .context("Failed to receive receipt staking transaction")?;
+        let tx_hash = *pending_tx.tx_hash();
+        display.tx_hash(tx_hash);
+        display.status("Status", "Waiting for confirmation", "yellow");
 
-        ensure!(
-            tx_receipt.status(),
-            "Delegating rewards transaction failed: tx_hash = {}",
-            tx_receipt.transaction_hash
-        );
+        confirm_transaction(pending_tx, global_config.tx_timeout, 1).await?;
 
-        // TODO(povw): Display some info
-        tracing::info!("Delegating rewards completed");
+        display.success("Rewards delegation completed");
+        display.header("Delegation Details");
+        display.address("Delegated to", self.to);
         Ok(())
     }
 }

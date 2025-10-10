@@ -17,9 +17,10 @@ use anyhow::{Context, Result};
 use boundless_zkc::{contracts::IZKC, deployments::Deployment};
 use chrono::{DateTime, Utc};
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, RewardsConfig};
+use crate::config_ext::RewardsConfigExt;
+use crate::display::DisplayManager;
 use crate::indexer_client::IndexerClient;
 
 /// Get information about the current epoch
@@ -37,59 +38,57 @@ pub struct RewardsEpoch {
 impl RewardsEpoch {
     /// Run the epoch command
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
-        let rewards_config = self.rewards_config.clone().load_from_files()?;
-        let rpc_url = rewards_config.require_rpc_url()?;
+        let rewards_config = self.rewards_config.load_and_validate()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
         let provider = ProviderBuilder::new()
-            .connect(rpc_url.as_str())
+            .connect(&rpc_url)
             .await
-            .context("Failed to connect to Ethereum provider")?;
+            .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .context("Failed to get chain ID")?;
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
-        // Get deployment
         let deployment = self
             .deployment
             .clone()
             .or_else(|| Deployment::from_chain_id(chain_id))
             .context("Could not determine ZKC deployment from chain ID")?;
 
-        // Get current epoch from on-chain ZKC contract
         let zkc = IZKC::new(deployment.zkc_address, &provider);
         let current_epoch = zkc.getCurrentEpoch().call().await?;
         let epoch_number = current_epoch.to::<u64>();
 
-        // Create indexer client
         let indexer = IndexerClient::new_from_chain_id(chain_id)?;
 
-        // Fetch metadata for last updated timestamps
         let staking_metadata = indexer.get_staking_metadata().await.ok();
         let povw_metadata = indexer.get_povw_metadata().await.ok();
 
-        // Fetch staking and PoVW data from indexer
         let staking_result = indexer.get_epoch_staking(epoch_number).await;
         let povw_result = indexer.get_epoch_povw(epoch_number).await;
 
-        println!("\n{} [{}]", "Epoch Details".bold(), network_name.blue().bold());
+        let display = DisplayManager::with_network(network_name);
+        display.header("Epoch Details");
 
         if let Some(ref meta) = staking_metadata {
             let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
-            println!("Staking data last updated: {}", formatted_time.dimmed());
+            display.note(&format!("Staking data last updated: {}", formatted_time));
         }
 
         if let Some(ref meta) = povw_metadata {
             let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
-            println!("PoVW data last updated: {}", formatted_time.dimmed());
+            display.note(&format!("PoVW data last updated: {}", formatted_time));
         }
 
-        println!("Current Epoch: {}", epoch_number.to_string().cyan().bold());
+        display.item_colored("Current Epoch", epoch_number, "cyan");
 
-        // Handle errors gracefully
         let staking_data = match staking_result {
             Ok(data) => Some(data),
             Err(e) => {
-                println!("{} Failed to fetch staking data: {}", "⚠".yellow(), e);
+                display.warning(&format!("Failed to fetch staking data: {}", e));
                 None
             }
         };
@@ -97,12 +96,11 @@ impl RewardsEpoch {
         let povw_data = match povw_result {
             Ok(data) => Some(data),
             Err(e) => {
-                println!("{} Failed to fetch PoVW data: {}", "⚠".yellow(), e);
+                display.warning(&format!("Failed to fetch PoVW data: {}", e));
                 None
             }
         };
 
-        // Use epoch timestamps from PoVW or staking data
         if let Some(ref povw) = povw_data {
             let start_time = DateTime::<Utc>::from_timestamp(povw.epoch_start_time as i64, 0)
                 .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
@@ -112,10 +110,9 @@ impl RewardsEpoch {
                 .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
                 .unwrap_or_else(|| "Invalid timestamp".to_string());
 
-            println!("Epoch Start: {}", start_time.dimmed());
-            println!("Epoch End: {}", end_time.dimmed());
+            display.item("Epoch Start", start_time);
+            display.item("Epoch End", end_time);
 
-            // Calculate and display time remaining
             let now = chrono::Utc::now().timestamp() as u64;
             if now < povw.epoch_end_time {
                 let remaining = povw.epoch_end_time - now;
@@ -123,30 +120,30 @@ impl RewardsEpoch {
                 let hours = (remaining % 86400) / 3600;
                 let minutes = (remaining % 3600) / 60;
 
-                println!(
-                    "Time Remaining: {} days, {} hours, {} minutes",
-                    days,
-                    hours,
-                    minutes
+                display.item(
+                    "Time Remaining",
+                    format!("{} days, {} hours, {} minutes", days, hours, minutes),
                 );
             } else {
-                println!("Time Remaining: {}", "Epoch has ended".yellow());
+                display.item_colored("Time Remaining", "Epoch has ended", "yellow");
             }
         }
 
         if let Some(ref povw) = povw_data {
-            println!("Number of Miners: {}", povw.num_participants.to_string().cyan());
-            println!(
-                "Amount of Submitted Work: {}",
-                povw.total_work_formatted.yellow()
+            display.item_colored("Number of Miners", povw.num_participants, "cyan");
+            display.item_colored(
+                "Submitted Work",
+                &povw.total_work_formatted,
+                "yellow",
             );
         }
 
         if let Some(ref staking) = staking_data {
-            println!("Number of Stakers: {}", staking.num_stakers.to_string().cyan());
-            println!(
-                "Amount of Staked ZKC: {}",
-                staking.total_staking_power_formatted.green()
+            display.item_colored("Number of Stakers", staking.num_stakers, "cyan");
+            display.item_colored(
+                "Staked ZKC",
+                &staking.total_staking_power_formatted,
+                "green",
             );
         }
 

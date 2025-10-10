@@ -29,7 +29,12 @@ use risc0_povw::guest::Journal as LogBuilderJournal;
 use risc0_zkvm::{default_prover, ProverOpts};
 
 use super::State;
-use crate::config::{GlobalConfig, ProverConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, ProverConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    contracts::{confirm_transaction, extract_event},
+    display::DisplayManager,
+};
 
 /// Submit a work log update to the PoVW accounting contract.
 ///
@@ -68,17 +73,20 @@ pub struct PovwSubmit {
 impl PovwSubmit {
     /// Run the [PovwSubmit] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
+        let display = DisplayManager::new();
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
-        let tx_signer = rewards_config.require_private_key()?;
+        let tx_signer = rewards_config.require_povw_key_with_help()?;
         let work_log_signer = self.povw_private_key.as_ref().unwrap_or(&tx_signer);
-        let rpc_url = rewards_config.require_rpc_url()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
         // Load the state and check to make sure the private key matches.
         let mut state = State::load(&self.state)
             .await
             .with_context(|| format!("Failed to load state from {}", self.state.display()))?;
-        tracing::info!("Submitting work log update for log ID: {:x}", state.log_id);
+
+        display.header("PoVW Work Log Submission");
+        display.item("Work Log ID", format!("{:x}", state.log_id));
 
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
@@ -102,11 +110,18 @@ impl PovwSubmit {
             .deployment
             .clone()
             .or_else(|| Deployment::from_chain_id(chain_id))
-            .context(
-            "could not determine deployment from chain ID; please specify deployment explicitly",
-        )?;
+            .with_context(|| {
+                format!(
+                    "Could not determine PoVW deployment for chain ID {}.\n\
+                    Please specify deployment explicitly with environment variables or flags",
+                    chain_id
+                )
+            })?;
         let povw_accounting =
             IPovwAccounting::new(deployment.povw_accounting_address, provider.clone());
+
+        display.item("Chain ID", chain_id);
+        display.address("Contract", deployment.povw_accounting_address);
 
         // Get the current work log commit, to determine which update(s) should be applied.
         let onchain_commit =
@@ -125,7 +140,7 @@ impl PovwSubmit {
         let latest_receipt_journal = LogBuilderJournal::decode(&latest_receipt.journal.bytes)
             .context("Failed to decode journal from latest receipt")?;
         if bytemuck::cast::<_, [u8; 32]>(latest_receipt_journal.updated_commit) == *onchain_commit {
-            tracing::info!("Onchain PoVW accounting contract is already up to date with the latest commit in state");
+            display.success("Onchain PoVW accounting contract is already up to date");
             return Ok(());
         }
 
@@ -156,16 +171,14 @@ impl PovwSubmit {
         // built a work log update but it failed to send (e.g. network instability or high gas
         // fees caused the transaction not to go through).
         let receipts_for_update = state.log_builder_receipts[matching_receipt_index..].to_vec();
-        if receipts_for_update.len() > 1 {
-            tracing::info!(
-                "Updating onchain work log {:x} with {} update receipts",
-                state.log_id,
-                receipts_for_update.len()
-            )
-        }
+        display.item("Updates to Submit", receipts_for_update.len());
 
         self.prover_config.configure_proving_backend_with_health_check().await?;
-        for receipt in receipts_for_update {
+        for (idx, receipt) in receipts_for_update.iter().enumerate() {
+            if receipts_for_update.len() > 1 {
+                display.separator();
+                display.step(idx + 1, receipts_for_update.len(), "Processing update");
+            }
             let prover = LogUpdaterProver::builder()
                 .prover(default_prover())
                 .chain_id(chain_id)
@@ -175,59 +188,45 @@ impl PovwSubmit {
                 .build()
                 .context("Failed to build prover for Log Updater")?;
 
-            // Sign and prove the authorized work log update.
-            tracing::info!("Proving work log update");
+            display.status("Status", "Generating ZK proof for work log update", "yellow");
             let prove_info = prover
-                .prove_update(receipt, work_log_signer)
+                .prove_update(receipt.clone(), work_log_signer)
                 .await
                 .context("Failed to prove authorized log update")?;
 
-            tracing::info!("Sending work log update transaction");
+            display.status("Status", "Submitting work log update transaction", "yellow");
             let tx_result = povw_accounting
                 .update_work_log(&prove_info.receipt)
                 .context("Failed to construct update transaction")?
                 .send()
                 .await
                 .context("Failed to send update transaction")?;
-            let tx_hash = tx_result.tx_hash();
-            tracing::info!(%tx_hash, "Sent transaction for work log update");
+            let tx_hash = *tx_result.tx_hash();
+            display.tx_hash(tx_hash);
 
             // Save the pending transaction to state.
             state
-                .add_pending_update_tx(*tx_hash)?
+                .add_pending_update_tx(tx_hash)?
                 .save(&self.state)
                 .context("Failed to save state")?;
 
             let timeout = global_config.tx_timeout.or(tx_result.timeout());
             tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
-            let tx_receipt = tx_result
-                .with_timeout(timeout)
-                .get_receipt()
+            let tx_receipt = confirm_transaction(tx_result, timeout, 1)
                 .await
-                .context("Failed to receive receipt for update transaction")?;
+                .context("Failed to confirm work log update transaction")?;
 
-            ensure!(
-                tx_receipt.status(),
-                "Work log update transaction failed: tx_hash = {}",
-                tx_receipt.transaction_hash
+            // Extract and display the WorkLogUpdated event
+            let work_log_updated_event: IPovwAccounting::WorkLogUpdated =
+                extract_event(&tx_receipt).context("Failed to extract WorkLogUpdated event")?;
+
+            display.success("Work log update confirmed");
+            display.item("Epoch Number", work_log_updated_event.epochNumber);
+            display.item("Work Value", work_log_updated_event.updateValue.to::<u64>());
+            tracing::debug!(
+                updated_commit = %work_log_updated_event.updatedCommit,
+                "Updated work log commitment"
             );
-
-            // Extract the WorkLogUpdated event
-            let work_log_updated_event = tx_receipt
-                .logs()
-                .iter()
-                .filter_map(|log| log.log_decode::<IPovwAccounting::WorkLogUpdated>().ok())
-                .next();
-
-            if let Some(event) = work_log_updated_event {
-                let data = event.inner.data;
-                tracing::info!(
-                    "Work log update confirmed in epoch {} with work value {}",
-                    data.epochNumber,
-                    data.updateValue.to::<u64>()
-                );
-                tracing::debug!(updated_commit = %data.updatedCommit, "Updated work log commitment")
-            }
 
             // Confirm the transaction in the state.
             state
@@ -236,8 +235,6 @@ impl PovwSubmit {
                 .save(&self.state)
                 .context("Failed to save state")?;
         }
-
-        // TODO: Display to the user the current epoch and when it will end (e.g. in "2h 25m (2025-09-04 16:23:45 PDT)")
 
         Ok(())
     }

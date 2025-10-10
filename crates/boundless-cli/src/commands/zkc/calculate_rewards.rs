@@ -13,14 +13,18 @@
 // limitations under the License.
 
 use alloy::{
-    primitives::{utils::format_ether, Address, U256},
+    primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::Context;
 use boundless_zkc::{contracts::IStakingRewards, deployments::Deployment};
 use clap::Args;
 
-use crate::config::{GlobalConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    display::{format_eth, DisplayManager},
+};
 
 /// Command to calculate rewards for ZKC.
 #[non_exhaustive]
@@ -41,21 +45,22 @@ impl ZkcCalculateRewards {
     /// Run the [ZkcCalculateRewards] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
-        let rpc_url = rewards_config.require_rpc_url()?;
-
-        // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
         let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = rewards_config.get_zkc_deployment(chain_id)?;
 
         let total =
             calculate_rewards(provider, deployment.staking_rewards_address, self.account).await?;
-        tracing::info!("Unclaimed rewards: {} ZKC", format_ether(total));
+
+        let display = DisplayManager::new();
+        display.header("Unclaimed Rewards");
+        display.address("Account", self.account);
+        display.balance("Unclaimed", &format_eth(total), "ZKC", "yellow");
 
         Ok(())
     }

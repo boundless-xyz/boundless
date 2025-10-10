@@ -20,6 +20,8 @@ use risc0_ethereum_contracts::IRiscZeroVerifier;
 use risc0_zkvm::sha::Digest;
 
 use crate::config::{GlobalConfig, RequestorConfig};
+use crate::config_ext::RequestorConfigExt;
+use crate::display::DisplayManager;
 
 /// Verify the proof of the given request against the SetVerifier contract
 #[derive(Args, Clone, Debug)]
@@ -38,7 +40,7 @@ pub struct RequestorVerifyProof {
 impl RequestorVerifyProof {
     /// Run the verify-proof command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let requestor_config = self.requestor_config.clone().load_from_files()?;
+        let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config
             .client_builder(global_config.tx_timeout)?
@@ -46,7 +48,11 @@ impl RequestorVerifyProof {
             .await
             .context("Failed to build Boundless Client")?;
 
-        tracing::info!("Verifying proof for request 0x{:x}", self.request_id);
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let display = DisplayManager::with_network(network_name);
+
+        display.header("Verifying Proof");
+        display.item("Request ID", format!("{:#x}", self.request_id));
 
         // Get verifier contract address
         let verifier_address = client.deployment.verifier_router_address
@@ -96,7 +102,7 @@ impl RequestorVerifyProof {
             }
         }
 
-        tracing::info!("Successfully verified proof for request 0x{:x}", self.request_id);
+        display.success(&format!("Successfully verified proof for request {:#x}", self.request_id));
         Ok(())
     }
 }

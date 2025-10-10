@@ -23,6 +23,12 @@ pub mod config;
 pub mod config_file;
 pub mod indexer_client;
 
+// DRY helper modules
+pub mod chain;
+pub mod config_ext;
+pub mod contracts;
+pub mod display;
+
 use alloy::{
     primitives::{Address, Bytes},
     sol_types::{SolStruct, SolValue},

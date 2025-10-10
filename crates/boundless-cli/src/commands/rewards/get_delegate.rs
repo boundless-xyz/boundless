@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{
-    primitives::{utils::format_ether, Address},
-    providers::{Provider, ProviderBuilder},
-};
+use alloy::{primitives::Address, providers::{Provider, ProviderBuilder}};
 use anyhow::{Context, Result};
 use boundless_zkc::{contracts::IRewards, deployments::Deployment};
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, RewardsConfig};
+use crate::config_ext::RewardsConfigExt;
+use crate::display::{DisplayManager, format_eth};
 
 /// Get the current reward delegate for an address
 #[derive(Args, Clone, Debug)]
@@ -42,30 +40,39 @@ pub struct RewardsGetDelegate {
 impl RewardsGetDelegate {
     /// Run the get-delegate command
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
-        let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rewards_config = self.rewards_config.load_and_validate()?;
 
-        // Use provided address or default to staking address from config
-        let address = self.address.or(rewards_config.staking_address)
-            .context("No address provided.\n\nTo configure: run 'boundless setup rewards'\nOr provide --address <ADDRESS>")?;
+        let address = self
+            .address
+            .or(rewards_config.staking_address)
+            .context(
+                "No address provided.\n\n\
+                To configure: run 'boundless setup rewards'\n\
+                Or provide --address <ADDRESS>",
+            )?;
 
-        let rpc_url = rewards_config.require_rpc_url()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
-        // Connect to provider
         let provider = ProviderBuilder::new()
-            .connect(rpc_url.as_str())
+            .connect(&rpc_url)
             .await
-            .context("Failed to connect to Ethereum provider")?;
+            .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        // Get chain ID to determine deployment
-        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .context("Failed to get chain ID")?;
 
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = self
+            .deployment
+            .clone()
+            .or_else(|| Deployment::from_chain_id(chain_id))
+            .context(
+                "Could not determine ZKC deployment from chain ID; please specify deployment explicitly",
+            )?;
 
-        // Create IRewards contract instance
         let rewards = IRewards::new(deployment.vezkc_address, &provider);
 
-        // Query reward delegate and reward power
         let reward_delegate = rewards
             .rewardDelegates(address)
             .call()
@@ -79,25 +86,23 @@ impl RewardsGetDelegate {
             .context("Failed to query reward power")?;
 
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let display = DisplayManager::with_network(network_name);
 
-        println!("\n{} [{}]", "Reward Delegation Status".bold(), network_name.blue().bold());
+        display.header("Reward Delegation Status");
 
-        // Show which address is being queried and if it's from config
         if self.address.is_some() {
-            println!("  Address: {}", format!("{:#x}", address).cyan());
+            display.address("Address", address);
         } else {
-            println!("  Address: {} {}", format!("{:#x}", address).cyan(), "(from config)".dimmed());
+            display.item("Address", format!("{:#x} (from config)", address));
         }
 
-        // Check if self-delegated or delegated to another address
         if reward_delegate == address {
-            println!("  Reward Delegate: {} {}", format!("{:#x}", reward_delegate).green(), "(self)".dimmed());
+            display.item("Reward Delegate", format!("{:#x} (self)", reward_delegate));
         } else {
-            println!("  Reward Delegate: {}", format!("{:#x}", reward_delegate).yellow());
+            display.item_colored("Reward Delegate", format!("{:#x}", reward_delegate), "yellow");
         }
 
-        let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
-        println!("  Reward Power: {} {}", reward_power_formatted.cyan().bold(), "ZKC".cyan());
+        display.balance("Reward Power", &format_eth(reward_power), "ZKC", "cyan");
 
         Ok(())
     }

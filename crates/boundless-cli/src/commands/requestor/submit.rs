@@ -28,7 +28,12 @@ use boundless_market::{
 use clap::Args;
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, SessionInfo};
 
-use crate::{config::{GlobalConfig, RequestorConfig}, convert_timestamp};
+use crate::{
+    config::{GlobalConfig, RequestorConfig},
+    config_ext::RequestorConfigExt,
+    convert_timestamp,
+    display::DisplayManager,
+};
 
 /// Submit a fully specified proof request
 #[derive(Args, Clone, Debug)]
@@ -60,9 +65,7 @@ pub struct RequestorSubmit {
 impl RequestorSubmit {
     /// Run the submit command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let requestor_config = self.requestor_config.clone().load_from_files()?;
-
-        tracing::info!("Submitting proof request from YAML file");
+        let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
@@ -70,6 +73,11 @@ impl RequestorSubmit {
             .build()
             .await
             .context("Failed to build Boundless Client")?;
+
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let display = DisplayManager::with_network(network_name);
+
+        display.header("Submitting Proof Request from YAML");
 
         // Read the YAML request file
         let file = File::open(&self.yaml_request)
@@ -88,12 +96,12 @@ impl RequestorSubmit {
         }
         if request.id == U256::ZERO {
             request.id = client.boundless_market.request_id_from_rand().await?;
-            tracing::info!("Assigned request ID {:x}", request.id);
+            display.item("Assigned Request ID", format!("{:#x}", request.id));
         };
 
         // Run preflight check if enabled
         if !self.no_preflight {
-            tracing::info!("Running request preflight check");
+            display.info("Running request preflight check");
             let (image_id, session_info) = execute(&request).await?;
             let journal = session_info.journal.bytes;
 
@@ -119,38 +127,37 @@ impl RequestorSubmit {
                 hex::encode(&request.requirements.predicate.data)
             );
 
-            tracing::info!("Preflight check passed");
+            display.success("Preflight check passed");
         } else {
-            tracing::warn!("Skipping preflight check");
+            display.warning("Skipping preflight check");
         }
 
         // Submit the request
         let (request_id, expires_at) = if self.offchain {
-            tracing::info!("Submitting request offchain");
+            display.item("Submission", "Offchain via Order Stream");
             client.submit_request_offchain(&request).await?
         } else {
-            tracing::info!("Submitting request onchain");
+            display.item("Submission", "Onchain to Boundless Market");
             client.submit_request_onchain(&request).await?
         };
 
-        tracing::info!(
-            "Submitted request 0x{request_id:x}, bidding starts at {}",
+        display.item("Request ID", format!("{:#x}", request_id));
+        display.item(
+            "Bidding Starts",
             convert_timestamp(request.offer.rampUpStart)
         );
+        display.success("Request submitted successfully");
 
         // Wait for fulfillment if requested
         if self.wait {
-            tracing::info!("Waiting for request fulfillment...");
+            display.info("Waiting for request fulfillment...");
             let fulfillment = client
                 .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
                 .await?;
 
-            tracing::info!("Request fulfilled!");
-            tracing::info!(
-                "Fulfillment Data: {} - Seal: {}",
-                serde_json::to_string_pretty(&fulfillment.data()?)?,
-                serde_json::to_string_pretty(&fulfillment.seal)?
-            );
+            display.success("Request fulfilled!");
+            println!("\nFulfillment Data:\n{}", serde_json::to_string_pretty(&fulfillment.data()?)?);
+            println!("\nSeal:\n{}", serde_json::to_string_pretty(&fulfillment.seal)?);
         }
 
         Ok(())

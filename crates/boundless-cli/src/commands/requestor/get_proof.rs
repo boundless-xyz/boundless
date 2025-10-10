@@ -13,10 +13,12 @@
 // limitations under the License.
 
 use alloy::primitives::U256;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 
 use crate::config::{GlobalConfig, RequestorConfig};
+use crate::config_ext::RequestorConfigExt;
+use crate::display::DisplayManager;
 
 /// Get the journal and seal for a given request
 #[derive(Args, Clone, Debug)]
@@ -32,17 +34,29 @@ pub struct RequestorGetProof {
 impl RequestorGetProof {
     /// Run the get-proof command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let requestor_config = self.requestor_config.clone().load_from_files()?;
+        let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
-        tracing::info!("Fetching proof for request 0x{:x}", self.request_id);
-        let fulfillment = client.boundless_market.get_request_fulfillment(self.request_id).await?;
-        tracing::info!("Successfully retrieved proof for request 0x{:x}", self.request_id);
-        tracing::info!(
-            "Fulfillment Data: {} - Seal: {}",
-            serde_json::to_string_pretty(&fulfillment.data()?)?,
-            serde_json::to_string_pretty(&fulfillment.seal)?
-        );
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+
+        let display = DisplayManager::with_network(network_name);
+
+        display.header("Fetching Proof");
+        display.item("Request ID", format!("{:#x}", self.request_id));
+
+        let fulfillment = client
+            .boundless_market
+            .get_request_fulfillment(self.request_id)
+            .await
+            .context("Failed to retrieve proof")?;
+
+        let fulfillment_data = fulfillment.data()?;
+        let seal = &fulfillment.seal;
+
+        display.success("Successfully retrieved proof");
+        println!("\nFulfillment Data:\n{}", serde_json::to_string_pretty(&fulfillment_data)?);
+        println!("\nSeal:\n{}", serde_json::to_string_pretty(seal)?);
+
         Ok(())
     }
 }

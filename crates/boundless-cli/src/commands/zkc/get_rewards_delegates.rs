@@ -23,7 +23,11 @@ use boundless_zkc::{
 };
 use clap::Args;
 
-use crate::config::{GlobalConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    display::DisplayManager,
+};
 
 /// Command to get rewards delegates for ZKC.
 #[non_exhaustive]
@@ -44,21 +48,22 @@ impl ZkcGetRewardsDelegates {
     /// Run the [ZkcGetRewardsDelegates] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
-        let rpc_url = rewards_config.require_rpc_url()?;
-
-        // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
         let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = rewards_config.get_zkc_deployment(chain_id)?;
 
         let delegatee =
             get_rewards_delegates(provider, deployment.vezkc_address, self.account).await?;
-        tracing::info!("Rewards delegated to: {:?}", delegatee);
+
+        let display = DisplayManager::new();
+        display.header("Rewards Delegation");
+        display.address("Account", self.account);
+        display.address("Delegated to", delegatee);
 
         Ok(())
     }

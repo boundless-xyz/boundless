@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{utils::format_units, Address};
-use anyhow::{bail, Context, Result};
+use alloy::primitives::Address;
+use anyhow::{Context, Result};
 use clap::Args;
-use colored::Colorize;
 
 use crate::config::{GlobalConfig, ProverConfig};
+use crate::config_ext::{ProverConfigExt, validate_prover_address_input};
+use crate::contracts::{get_token_balance, get_token_info};
+use crate::display::{DisplayManager, format_token};
 
 /// Check the collateral balance of an account in the market
 #[derive(Args, Clone, Debug)]
@@ -33,66 +35,46 @@ pub struct ProverBalanceCollateral {
 impl ProverBalanceCollateral {
     /// Run the balance collateral command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        let prover_config = self.prover_config.clone().load_from_files()?;
+        // Load and validate configuration
+        let prover_config = self.prover_config.clone().load_and_validate()?;
 
-        // If address is provided, use it; otherwise try to get it from configured private key
-        let addr = if let Some(addr) = self.address {
-            addr
-        } else if let Some(ref pk) = prover_config.private_key {
-            pk.address()
-        } else {
-            bail!(
-                "No address specified for collateral balance query.\n\n\
-                To configure a default address: run 'boundless setup prover'\n\
-                Or provide an address: boundless prover balance-collateral <ADDRESS>"
-            );
-        };
+        // Validate address input with helpful error message (supports read-only mode)
+        let addr = validate_prover_address_input(
+            self.address,
+            prover_config.prover_address,
+            prover_config.private_key.as_ref(),
+            "collateral balance query"
+        )?;
 
+        // Build client with standard configuration
         let client = prover_config
             .client_builder(global_config.tx_timeout)?
             .build()
             .await
             .context("Failed to build Boundless Client")?;
 
-        let symbol = client.boundless_market.collateral_token_symbol().await?;
-        let collateral_title = format!("Collateral ({symbol})");
-        let decimals = client.boundless_market.collateral_token_decimals().await?;
+        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+
+        // Create display manager with network context
+        let display = DisplayManager::with_network(network_name);
+
+        // Get collateral token information
+        let collateral_token_address = client.boundless_market.collateral_token_address().await?;
+        let token_info = get_token_info(client.provider(), collateral_token_address).await?;
 
         // Query both deposited and available balances
         let deposited = client.boundless_market.balance_of_collateral(addr).await?;
+        let available = get_token_balance(client.provider(), collateral_token_address, addr).await?;
 
-        // Get available balance by querying the ERC20 token directly
-        let collateral_token_address = client.boundless_market.collateral_token_address().await?;
-        let token = boundless_market::contracts::token::IERC20::new(
-            collateral_token_address,
-            client.provider(),
-        );
-        let available = token
-            .balanceOf(addr)
-            .call()
-            .await
-            .context("Failed to query collateral token balance")?;
+        // Format balances using token decimals
+        let deposited_formatted = format_token(deposited, token_info.decimals)?;
+        let available_formatted = format_token(available, token_info.decimals)?;
 
-        let deposited_formatted = crate::format_amount(&format_units(deposited, decimals)?);
-        let available_formatted = crate::format_amount(&format_units(available, decimals)?);
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
-
-        println!(
-            "\n{} [{}]",
-            format!("{collateral_title} Balance on Boundless Market").bold(),
-            network_name.blue().bold()
-        );
-        println!("  Address:   {}", format!("{:#x}", addr).dimmed());
-        println!(
-            "  Deposited: {} {}",
-            deposited_formatted.as_str().green().bold(),
-            symbol.as_str().green()
-        );
-        println!(
-            "  Available: {} {}",
-            available_formatted.as_str().cyan().bold(),
-            symbol.as_str().cyan()
-        );
+        // Display results using standardized formatting
+        display.header(&format!("Collateral ({}) Balance on Boundless Market", token_info.symbol));
+        display.address("Address", addr);
+        display.balance("Deposited", &deposited_formatted, &token_info.symbol, "green");
+        display.balance("Available", &available_formatted, &token_info.symbol, "cyan");
 
         Ok(())
     }

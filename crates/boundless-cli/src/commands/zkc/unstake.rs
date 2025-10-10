@@ -18,11 +18,11 @@ use alloy::{
     consensus::BlockHeader,
     eips::BlockNumberOrTag,
     network::Ethereum,
-    primitives::{utils::format_ether, Address, U256},
+    primitives::{ Address, U256},
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     sol_types::SolCall,
 };
-use anyhow::{ensure, Context};
+use anyhow::{Context, bail};
 use boundless_zkc::{
     contracts::{DecodeRevert, IStaking},
     deployments::Deployment,
@@ -33,6 +33,9 @@ use clap::Args;
 use crate::{
     commands::zkc::{get_active_token_id, get_staked_amount},
     config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    contracts::confirm_transaction,
+    display::{format_eth, DisplayManager},
 };
 
 /// Command to unstake ZKC.
@@ -60,56 +63,47 @@ impl ZkcUnstake {
     /// Run the [ZkcUnstake] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
+        let tx_signer = rewards_config.require_staking_key_with_help()?;
 
-        let tx_signer = rewards_config.require_private_key()?;
-        let rpc_url = rewards_config.require_rpc_url()?;
-
-        // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
         let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = rewards_config.get_zkc_deployment(chain_id)?;
 
-        let account = match &self.from {
-            Some(addr) => *addr,
-            None => rewards_config.require_private_key()?.address(),
-        };
+        let account = self.from.unwrap_or_else(|| tx_signer.address());
 
         let token_id =
             get_active_token_id(provider.clone(), deployment.vezkc_address, account).await?;
         if token_id.is_zero() {
-            anyhow::bail!("No active staking found");
+            bail!("No active staking found");
         }
 
         let (amount, withdrawable_at) =
             get_staked_amount(provider.clone(), deployment.vezkc_address, account).await?;
 
         if amount.is_zero() {
-            anyhow::bail!("No staked amount found");
+            bail!("No staked amount found");
         }
 
         if self.calldata {
-            return self.print_calldata(provider, deployment, withdrawable_at).await;
+            return self.print_calldata(provider, deployment.clone(), withdrawable_at).await;
         }
 
-        let tx_signer = rewards_config.require_private_key()?;
-        let provider = ProviderBuilder::new()
+        let provider_with_wallet = ProviderBuilder::new()
             .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
-        let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+
+        let display = DisplayManager::new();
 
         let send_result = if withdrawable_at.is_zero() {
-            // Explain what initiating an unstake does and get explicit confirmation.
             println!(
                 "You're about to initiate unstaking of your active ZKC position ({} ZKC).",
-                format_ether(amount)
+                format_eth(amount)
             );
             println!(
                 "- This starts a 30-day cooldown. After it ends, you can complete the unstake process and withdraw your tokens."
@@ -122,44 +116,31 @@ impl ZkcUnstake {
                 .read_line(&mut input)
                 .map_err(|e| anyhow::anyhow!("failed to read confirmation: {}", e))?;
             if input.trim().to_lowercase() != "yes" {
-                anyhow::bail!("Unstake cancelled by user");
+                bail!("Unstake cancelled by user");
             }
-            self.initiate_unstake(provider.clone(), deployment).await
+            self.initiate_unstake(provider_with_wallet.clone(), deployment.clone()).await
         } else {
-            let block_timestamp = get_block_timestamp(provider.clone()).await?;
-            let withdrawable_at = u64::try_from(withdrawable_at)?;
-            if block_timestamp < withdrawable_at {
-                let datetime = DateTime::from_timestamp(withdrawable_at as i64, 0)
+            let block_timestamp = get_block_timestamp(provider_with_wallet.clone()).await?;
+            let withdrawable_at_u64 = u64::try_from(withdrawable_at)?;
+            if block_timestamp < withdrawable_at_u64 {
+                let datetime = DateTime::from_timestamp(withdrawable_at_u64 as i64, 0)
                     .context("failed to create DateTime")?;
-                anyhow::bail!(
+                bail!(
                     "Unstaking initiated. Withdrawal period ends at UTC: {}",
                     datetime.format("%Y-%m-%d %H:%M:%S")
                 );
             }
-            self.complete_unstake(provider.clone(), deployment).await
+            self.complete_unstake(provider_with_wallet.clone(), deployment.clone()).await
         };
         let pending_tx = send_result.maybe_decode_revert::<IStaking::IStakingErrors>()?;
 
-        tracing::debug!("Broadcasting unstake deposit tx {}", pending_tx.tx_hash());
-        let tx_hash = pending_tx.tx_hash();
-        tracing::info!(%tx_hash, "Sent transaction for unstaking");
+        let tx_hash = *pending_tx.tx_hash();
+        display.tx_hash(tx_hash);
+        display.status("Status", "Waiting for confirmation", "yellow");
 
-        let timeout = global_config.tx_timeout.or(pending_tx.timeout());
+        confirm_transaction(pending_tx, global_config.tx_timeout, 1).await?;
 
-        tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
-        let tx_receipt = pending_tx
-            .with_timeout(timeout)
-            .get_receipt()
-            .await
-            .context("Failed to receive receipt unstaking transaction")?;
-
-        ensure!(
-            tx_receipt.status(),
-            "Unstaking transaction failed: tx_hash = {}",
-            tx_receipt.transaction_hash
-        );
-
-        tracing::info!("Unstaking completed");
+        display.success("Unstaking completed");
         Ok(())
     }
 

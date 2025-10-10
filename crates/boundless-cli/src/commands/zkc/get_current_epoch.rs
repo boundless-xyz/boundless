@@ -20,7 +20,11 @@ use anyhow::Context;
 use boundless_zkc::{contracts::IZKC, deployments::Deployment};
 use clap::Args;
 
-use crate::config::{GlobalConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
+    display::DisplayManager,
+};
 
 /// Command to get current epoch for ZKC.
 #[non_exhaustive]
@@ -39,20 +43,20 @@ impl ZkcGetCurrentEpoch {
     /// Run the [ZkcGetCurrentEpoch] command.
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+        let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
-        let rpc_url = rewards_config.require_rpc_url()?;
-
-        // Connect to the chain.
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
         let chain_id = provider.get_chain_id().await?;
-        let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
-            .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
+        let deployment = rewards_config.get_zkc_deployment(chain_id)?;
 
         let current_epoch = get_current_epoch(provider, deployment.zkc_address).await?;
-        tracing::info!("Current epoch: {}", u32::try_from(current_epoch)?);
+
+        let display = DisplayManager::new();
+        display.header("Current Epoch");
+        display.item("Epoch", u32::try_from(current_epoch)?);
 
         Ok(())
     }
