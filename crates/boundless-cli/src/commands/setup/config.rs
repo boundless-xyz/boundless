@@ -88,10 +88,6 @@ impl SetupConfig {
             if let Ok(rpc_url) = std::env::var("ETH_MAINNET_RPC_URL") {
                 // Try to detect chain and show which indexer will be used
                 tracing::info!("  → Will auto-select indexer based on chain ID:");
-                tracing::info!("    • Chain 1 (mainnet): https://api.boundless.market/");
-                tracing::info!(
-                    "    • Chain 11155111 (Sepolia): https://api-sepolia.boundless.market/"
-                );
             }
         } else {
             tracing::info!("○ INDEXER_API_URL: Not configured (optional, enables reward history)");

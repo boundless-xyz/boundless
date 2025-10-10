@@ -28,6 +28,16 @@ use boundless_market::{
 };
 use boundless_zkc;
 
+/// Parse a private key string, adding "0x" prefix if not present
+fn parse_private_key(key: &str) -> Result<PrivateKeySigner> {
+    let key_with_prefix = if key.starts_with("0x") {
+        key.to_string()
+    } else {
+        format!("0x{}", key)
+    };
+    key_with_prefix.parse().context("Failed to parse private key")
+}
+
 /// Common configuration options for all commands
 #[derive(Args, Debug, Clone)]
 pub struct GlobalConfig {
@@ -124,11 +134,11 @@ impl RequestorConfig {
 
         if self.private_key.is_none() {
             if let Ok(pk) = std::env::var("REQUESTOR_PRIVATE_KEY") {
-                self.private_key = Some(pk.parse()?);
+                self.private_key = Some(parse_private_key(&pk)?);
             } else if let (Some(ref secrets), Some(network)) = (&secrets, network) {
                 if let Some(requestor_secrets) = secrets.requestor_networks.get(network) {
                     if let Some(ref pk) = requestor_secrets.private_key {
-                        self.private_key = Some(pk.parse()?);
+                        self.private_key = Some(parse_private_key(pk)?);
                     }
                 }
             }
@@ -267,7 +277,7 @@ impl RewardsConfig {
         // Load deprecated private_key field from config only (for backward compatibility)
         if self.private_key.is_none() {
             if let Some(ref pk) = config_private_key {
-                self.private_key = Some(pk.parse()?);
+                self.private_key = Some(parse_private_key(pk)?);
             }
         }
 
@@ -277,9 +287,9 @@ impl RewardsConfig {
                 if config_staking_private_key.is_some() {
                     println!("⚠ Using STAKING_PRIVATE_KEY from environment (overriding configured value)");
                 }
-                self.staking_private_key = Some(pk.parse()?);
+                self.staking_private_key = Some(parse_private_key(&pk)?);
             } else if let Some(ref pk) = config_staking_private_key {
-                self.staking_private_key = Some(pk.parse()?);
+                self.staking_private_key = Some(parse_private_key(pk)?);
             }
         }
 
@@ -301,9 +311,9 @@ impl RewardsConfig {
                 if config_reward_private_key.is_some() {
                     println!("⚠ Using REWARD_PRIVATE_KEY from environment (overriding configured value)");
                 }
-                self.reward_private_key = Some(pk.parse()?);
+                self.reward_private_key = Some(parse_private_key(&pk)?);
             } else if let Some(ref pk) = config_reward_private_key {
-                self.reward_private_key = Some(pk.parse()?);
+                self.reward_private_key = Some(parse_private_key(pk)?);
             }
         }
 
@@ -510,11 +520,11 @@ impl ProverConfig {
 
         if self.private_key.is_none() {
             if let Ok(pk) = std::env::var("PROVER_PRIVATE_KEY") {
-                self.private_key = Some(pk.parse()?);
+                self.private_key = Some(parse_private_key(&pk)?);
             } else if let (Some(ref secrets), Some(network)) = (&secrets, network) {
                 if let Some(prover_secrets) = secrets.prover_networks.get(network) {
                     if let Some(ref pk) = prover_secrets.private_key {
-                        self.private_key = Some(pk.parse()?);
+                        self.private_key = Some(parse_private_key(pk)?);
                     }
                 }
             }
@@ -614,22 +624,22 @@ impl ProverConfig {
             return;
         }
 
-        println!("Using Bento prover at {}", self.bento_api_url);
         // Set BONSAI_* env vars for risc0 SDK compatibility
         std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
         if let Some(ref api_key) = self.bento_api_key {
             std::env::set_var("BONSAI_API_KEY", api_key);
         } else {
-            tracing::debug!("No API key provided. Setting SDK env var to empty string");
-            std::env::set_var("BONSAI_API_KEY", "");
+            tracing::debug!("No API key provided. Setting BONSAI_API_KEY to reserved:50");
+            std::env::set_var("BONSAI_API_KEY", "v1:reserved:50");
         }
     }
 
     /// Sets environment variables to configure the prover and runs a health check.
     pub async fn configure_proving_backend_with_health_check(&self) -> anyhow::Result<()> {
         self.configure_proving_backend();
-        tracing::info!("Configured prover");
 
+        // No health check is implemented for default prover. If dev mode is set, then we are going
+        // to use the dev mode prover anyway, so don't run the health check.
         if self.use_default_prover || self.skip_health_check || ProverOpts::default().dev_mode() {
             return Ok(());
         }
@@ -639,7 +649,7 @@ impl ProverConfig {
         let bento_url = Url::parse(&self.bento_api_url)
             .with_context(|| format!("Failed to parse Bento API URL: {}", self.bento_api_url))?;
         let health_check_url = bento_url.join("health")?;
-        tracing::info!("Checking health of Bento prover at {}", health_check_url);
+        println!("  Using Bento prover at {}. Checking health...", health_check_url);
         reqwest::get(health_check_url.clone())
             .await
             .with_context(|| match using_default_url {
@@ -648,7 +658,7 @@ impl ProverConfig {
             })?
             .error_for_status()
             .context("Bento health check endpoint returned error status")?;
-        tracing::info!("Health check passed");
+        println!("  Health check passed");
         Ok(())
     }
 }

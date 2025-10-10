@@ -441,3 +441,79 @@ fn is_dev_mode() -> bool {
         .filter(|x| x == "1" || x == "true" || x == "yes")
         .is_some()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{
+        primitives::{FixedBytes, Signature, U256},
+        signers::local::PrivateKeySigner,
+    };
+    use boundless_market::contracts::{
+        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+        UNSPECIFIED_SELECTOR,
+    };
+    use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
+    use risc0_ethereum_contracts::selector::Selector;
+
+    async fn setup_proving_request_and_signature(
+        signer: &PrivateKeySigner,
+        selector: Option<Selector>,
+    ) -> (ProofRequest, Signature) {
+        let request = ProofRequest::new(
+            RequestId::new(signer.address(), 0),
+            Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), vec![1]))
+                .with_selector(match selector {
+                    Some(selector) => FixedBytes::from(selector as u32),
+                    None => UNSPECIFIED_SELECTOR,
+                }),
+            format!("file://{ECHO_PATH}"),
+            RequestInput::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
+            Offer::default()
+                .with_timeout(60)
+                .with_lock_timeout(30)
+                .with_max_price(U256::from(1000))
+                .with_ramp_up_start(10),
+        );
+
+        let signature = request.sign_request(signer, Address::ZERO, 1).await.unwrap();
+        (request, signature)
+    }
+
+    #[tokio::test]
+    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    async fn test_fulfill_with_selector() {
+        let signer = PrivateKeySigner::random();
+        let (request, signature) =
+            setup_proving_request_and_signature(&signer, Some(Selector::groth16_latest())).await;
+
+        let domain = eip712_domain(Address::ZERO, 1);
+        let prover = DefaultProver::new(
+            SET_BUILDER_ELF.to_vec(),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            domain,
+        )
+        .expect("failed to create prover");
+
+        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    async fn test_fulfill() {
+        let signer = PrivateKeySigner::random();
+        let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
+
+        let domain = eip712_domain(Address::ZERO, 1);
+        let prover = DefaultProver::new(
+            SET_BUILDER_ELF.to_vec(),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            Address::ZERO,
+            domain,
+        )
+        .expect("failed to create prover");
+
+        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+    }
+}

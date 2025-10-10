@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::io::{self, Write};
+
 use alloy::{
     eips::BlockId,
     network::Ethereum,
-    primitives::{utils::{format_ether, parse_ether}, B256, U256},
+    primitives::{
+        utils::{format_ether, parse_ether, parse_units},
+        Address, B256, U256,
+    },
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
     sol_types::SolCall,
 };
-use anyhow::{ensure, Context};
+use anyhow::{anyhow, bail, ensure, Context};
 use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
     contracts::{extract_tx_log, DecodeRevert, IStaking},
@@ -47,6 +52,11 @@ pub struct ZkcStake {
     /// Whether to only print the calldata without sending the transaction.
     #[clap(long)]
     pub calldata: bool,
+    /// The account address to stake from.
+    ///
+    /// Only valid when used with `--calldata`.
+    #[clap(long, requires = "calldata")]
+    pub from: Option<Address>,
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
     pub deployment: Option<Deployment>,
@@ -66,7 +76,6 @@ impl ZkcStake {
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
@@ -74,13 +83,45 @@ impl ZkcStake {
         let deployment = self.deployment.clone().or_else(|| Deployment::from_chain_id(chain_id))
             .context("could not determine ZKC deployment from chain ID; please specify deployment explicitly")?;
 
+        let account = match &self.from {
+            Some(addr) => *addr,
+            None => rewards_config.require_private_key()?.address(),
+        };
+
         let token_id =
-            get_active_token_id(provider.clone(), deployment.vezkc_address, tx_signer.address())
-                .await?;
+            get_active_token_id(provider.clone(), deployment.vezkc_address, account).await?;
         let add = !token_id.is_zero();
 
+        let parsed_amount = self.amount;
+        if parsed_amount == U256::from(0) {
+            bail!("Amount is below the denomination minimum: {}", self.amount);
+        }
+
         if self.calldata {
-            return self.approve_then_stake(deployment, self.amount, add).await;
+            return self.approve_then_stake(deployment, parsed_amount, add).await;
+        }
+
+        let tx_signer = rewards_config.require_private_key()?;
+        let provider = ProviderBuilder::new()
+            .wallet(tx_signer.clone())
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+
+        if !add {
+            println!(
+                "You're creating a new ZKC stake position. This will lock {} ZKC for 30 days.",
+                format_ether(parsed_amount)
+            );
+            print!("Type 'yes' to confirm and continue: ");
+            io::stdout().flush().ok();
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .map_err(|e| anyhow!("failed to read confirmation: {}", e))?;
+            if input.trim().to_lowercase() != "yes" {
+                bail!("Stake cancelled by user");
+            }
         }
 
         let pending_tx = match self.no_permit {
@@ -88,7 +129,7 @@ impl ZkcStake {
                 self.stake_with_permit(
                     provider,
                     deployment,
-                    self.amount,
+                    parsed_amount,
                     &tx_signer,
                     self.permit_deadline,
                     add,
@@ -96,7 +137,7 @@ impl ZkcStake {
                 .await?
             }
             true => self
-                .stake(provider, deployment, self.amount, add)
+                .stake(provider, deployment, parsed_amount, add)
                 .await
                 .context("Sending stake transaction failed")?,
         };

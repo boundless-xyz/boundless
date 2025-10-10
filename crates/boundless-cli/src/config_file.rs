@@ -159,6 +159,10 @@ pub struct RequestorSecrets {
     /// Private key for transactions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_key: Option<String>,
+
+    /// Public requestor address (if no private key)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 }
 
 /// Prover secrets
@@ -171,6 +175,10 @@ pub struct ProverSecrets {
     /// Private key for transactions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_key: Option<String>,
+
+    /// Public prover address (if no private key)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 }
 
 /// Rewards secrets

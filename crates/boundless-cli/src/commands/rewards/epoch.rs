@@ -63,11 +63,26 @@ impl RewardsEpoch {
         // Create indexer client
         let indexer = IndexerClient::new_from_chain_id(chain_id)?;
 
+        // Fetch metadata for last updated timestamps
+        let staking_metadata = indexer.get_staking_metadata().await.ok();
+        let povw_metadata = indexer.get_povw_metadata().await.ok();
+
         // Fetch staking and PoVW data from indexer
         let staking_result = indexer.get_epoch_staking(epoch_number).await;
         let povw_result = indexer.get_epoch_povw(epoch_number).await;
 
         println!("\n{} [{}]", "Epoch Details".bold(), network_name.blue().bold());
+
+        if let Some(ref meta) = staking_metadata {
+            let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
+            println!("Staking data last updated: {}", formatted_time.dimmed());
+        }
+
+        if let Some(ref meta) = povw_metadata {
+            let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
+            println!("PoVW data last updated: {}", formatted_time.dimmed());
+        }
+
         println!("Current Epoch: {}", epoch_number.to_string().cyan().bold());
 
         // Handle errors gracefully
@@ -131,7 +146,7 @@ impl RewardsEpoch {
             println!("Number of Stakers: {}", staking.num_stakers.to_string().cyan());
             println!(
                 "Amount of Staked ZKC: {}",
-                staking.total_staked_formatted.green()
+                staking.total_staking_power_formatted.green()
             );
         }
 

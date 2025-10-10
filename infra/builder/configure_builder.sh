@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -xeuo pipefail
 
 # Check if the SSH key is added to the SSH agent
 if ! ssh-add -l | grep -q "id_ed25519_dev_docker_builder"; then
@@ -15,7 +15,7 @@ else
 fi
 
 INSTANCE_ID=$(aws ec2 describe-instances \
-  --filters "Name=tag:Name,Values=builder-local" \
+  --filters "Name=tag:Name,Values=builder-local-v2" \
   --query "Reservations[*].Instances[*].InstanceId" \
   --output text)
 
@@ -32,13 +32,13 @@ if [ -n "$INSTANCE_ID" ]; then
         echo "Instance $INSTANCE_ID is already running."
     fi
 else
-    echo "No instance found with the tag name 'builder-local'."
+    echo "No instance found with the tag name 'builder-local-v2'."
 fi
 
 # Step 1: Get the EC2 instance DNS name
 echo "Fetching EC2 instance DNS..."
 INSTANCE_DNS=$(aws ec2 describe-instances \
-  --filters "Name=tag:Name,Values=builder-local" "Name=instance-state-name,Values=running" \
+  --filters "Name=tag:Name,Values=builder-local-v2" "Name=instance-state-name,Values=running" \
   --query 'Reservations[*].Instances[*].PublicDnsName' \
   --output text)
 
@@ -61,10 +61,10 @@ else
   echo "$INSTANCE_DNS is already in known_hosts"
 fi
 
-# Step 3: Remove any previously registered builder, suppressing errors
+# Step 3: Remove any previously registered builder (errors shown but ignored)
 # Typically there are errors as it tries to ssh into the previous instance, but at this point the instance may not exist.
 echo "Removing any existing Docker builder named 'aws-builder' (if it exists). May take some time..."
-docker buildx rm aws-builder > /dev/null 2>&1 || true
+docker buildx rm aws-builder || true
 
 # Step 4: Register the new builder
 echo "Creating new Docker builder..."

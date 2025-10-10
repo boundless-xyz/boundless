@@ -109,6 +109,16 @@ impl RewardsStakeZkc {
             return self.approve_then_stake(deployment, self.amount, target_token_id).await;
         }
 
+        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let amount_formatted = crate::format_amount(&format_ether(self.amount));
+
+        println!("\n{} [{}]", "Staking ZKC".bold(), network_name.blue().bold());
+        println!("  Amount:      {} {}", amount_formatted.yellow().bold(), "ZKC".yellow());
+        if let Some(ref staking_addr) = self.staking_address {
+            println!("  Staking to:  {}", format!("{:#x}", staking_addr).cyan());
+        }
+        println!();
+
         let pending_tx = match self.no_permit {
             false => {
                 self.stake_with_permit(
@@ -128,11 +138,9 @@ impl RewardsStakeZkc {
         };
 
         let tx_hash = *pending_tx.tx_hash();
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
-        println!("\n{} [{}]", "Staking ZKC".bold(), network_name.blue().bold());
         println!("  Transaction: {}", format!("{:#x}", tx_hash).dimmed());
-        println!("  Waiting for confirmation...");
+        println!("  Status:      {}", "Waiting for confirmation...".yellow());
 
         let receipt = pending_tx
             .with_required_confirmations(1)
@@ -150,8 +158,8 @@ impl RewardsStakeZkc {
         };
 
         let staked_formatted = crate::format_amount(&format_ether(new_total_staked));
-        println!("\n{}", "✓ Staking successful!".green().bold());
-        println!("  Token ID: {}", token_id.to_string().cyan());
+        println!("\n{} {}", "✓".green().bold(), "Staking successful!".green().bold());
+        println!("  Token ID:     {}", token_id.to_string().cyan());
         println!("  Total Staked: {} {}", staked_formatted.green().bold(), "ZKC".green());
 
         // Query and display final balances
@@ -172,11 +180,6 @@ impl RewardsStakeZkc {
         // Define interfaces
         alloy::sol! {
             #[sol(rpc)]
-            interface IERC721Votes {
-                function balanceOf(address owner) external view returns (uint256);
-            }
-
-            #[sol(rpc)]
             interface IRewards {
                 function getStakingRewards(address account) external view returns (uint256);
                 function rewardDelegates(address account) external view returns (address);
@@ -184,18 +187,19 @@ impl RewardsStakeZkc {
         }
 
         // Create contract instances
-        let vezkc = IERC721Votes::new(deployment.vezkc_address, provider.clone());
+        let staking = IStaking::new(deployment.vezkc_address, provider.clone());
         let rewards = IRewards::new(deployment.vezkc_address, provider.clone());
         let zkc_token = IERC20::new(deployment.zkc_address, provider);
 
         // Query balances
-        let staked_balance = vezkc.balanceOf(address).call().await.context("Failed to query staked balance")?;
+        let staked_result = staking.getStakedAmountAndWithdrawalTime(address).call().await.context("Failed to query staked amount")?;
+        let staked_amount = staked_result.amount;
         let available_balance = zkc_token.balanceOf(address).call().await.context("Failed to query available balance")?;
         let reward_power = rewards.getStakingRewards(address).call().await.context("Failed to query reward power")?;
         let reward_delegate = rewards.rewardDelegates(address).call().await.context("Failed to query reward delegate")?;
 
         // Format values
-        let staked_formatted = crate::format_amount(&format_ether(staked_balance));
+        let staked_formatted = crate::format_amount(&format_ether(staked_amount));
         let available_formatted = crate::format_amount(&format_ether(available_balance));
 
         println!("\n{}", "Current Balances".bold());
@@ -222,8 +226,7 @@ impl RewardsStakeZkc {
         let deployment = rewards_config.zkc_deployment.as_ref()
             .context("ZKC deployment not configured")?;
 
-        let chain_id = deployment.chain_id.context("Chain ID not configured in deployment")?;
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let network_name = crate::network_name_from_chain_id(deployment.chain_id);
 
         println!("\n{} [{}]", "DRY RUN: Staking Estimate".bold(), network_name.blue().bold());
 
@@ -233,78 +236,65 @@ impl RewardsStakeZkc {
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
-        // Get user's address - try private key first, then staking address from config
-        let user_address = if let Ok(signer) = rewards_config.require_staking_private_key() {
-            signer.address()
-        } else {
-            use crate::config_file::{Config, Secrets};
-            let config = Config::load().context("Failed to load config")?;
-            let network = config.rewards.as_ref().context("Rewards not configured")?.network.clone();
-            let secrets = Secrets::load().context("Failed to load secrets")?;
-            let rewards_secrets = secrets.rewards_networks.get(&network)
-                .context("No rewards secrets for current network")?;
-
-            if let Some(ref addr_str) = rewards_secrets.staking_address {
-                addr_str.parse().context("Invalid staking address")?
-            } else {
-                bail!("No address configured for dry run. Configure a private key or staking address.");
-            }
-        };
-
-        // Query current staked balance
-        alloy::sol! {
-            #[sol(rpc)]
-            interface IERC721Votes {
-                function balanceOf(address owner) external view returns (uint256);
-            }
-        }
-        let vezkc = IERC721Votes::new(deployment.vezkc_address, provider.clone());
-        let current_stake = vezkc.balanceOf(user_address).call().await
-            .context("Failed to query current staked balance")?;
-
         // Use deployment chain ID instead of querying RPC (avoids wrong indexer if RPC URL misconfigured)
-        let client = IndexerClient::new_from_chain_id(chain_id)?;
+        let client = IndexerClient::new_from_chain_id(deployment.chain_id.unwrap())?;
+
+        // Fetch staking metadata for last updated timestamp
+        let metadata = client.get_staking_metadata().await.ok();
 
         // Get current epoch from contract
         let estimated_epoch = 5; // Placeholder
+
+        if let Some(ref meta) = metadata {
+            let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
+            println!("Data last updated: {}", formatted_time.dimmed());
+        }
 
         println!("Fetching current epoch staking data...");
         let summary = client.get_epoch_staking(estimated_epoch).await?;
 
         let total_staked = parse_amount(&summary.total_staked)?;
-        let amount_to_add = self.amount;
-        let new_stake = current_stake + amount_to_add;
-        let new_total = total_staked + amount_to_add;
+        let your_stake = self.amount;
+        let new_total = total_staked + your_stake;
 
-        // Calculate percentage share with higher precision
-        let share_percentage = if new_total > U256::ZERO {
-            (new_stake * U256::from(1000000) / new_total).to::<u64>() as f64 / 10000.0
+        // Calculate percentage share
+        let your_percentage = if new_total > U256::ZERO {
+            (your_stake * U256::from(10000) / new_total).to::<u64>() as f64 / 100.0
         } else {
             100.0
         };
 
         let total_staked_formatted = crate::format_amount(&format_ether(total_staked));
-        let current_stake_formatted = crate::format_amount(&format_ether(current_stake));
-        let new_stake_formatted = crate::format_amount(&format_ether(new_stake));
+        let your_stake_formatted = crate::format_amount(&format_ether(your_stake));
+        let new_total_formatted = crate::format_amount(&format_ether(new_total));
 
         println!("\n{}", "Current Epoch Statistics".bold());
         println!("  Epoch:         {}", summary.epoch.to_string().cyan());
         println!("  Total Staked:  {} {}", total_staked_formatted.green(), "ZKC".green());
-        println!("  Your Stake:    {} {}", current_stake_formatted.yellow(), "ZKC".yellow());
+        println!("  Stakers:       {}", summary.num_stakers.to_string().cyan());
+        println!("  Your Stake:    {} {}", your_stake_formatted.yellow(), "ZKC".yellow());
 
-        println!("\n{}", "After Staking".bold());
-        println!("  Your Stake:    {} {}", new_stake_formatted.yellow(), "ZKC".yellow());
-        println!("  Share:         {:.4}%", share_percentage);
+        println!("\n{}", "Your Estimated Position".bold());
+        println!("  Share:         {:.2}%", your_percentage);
+        println!("  New Total:     {} {}", new_total_formatted.green(), "ZKC".green());
 
-        // Rough staking reward estimate based on new stake
+        // Calculate PoVW cap (reward power / 15)
+        let max_povw_per_epoch = your_stake / U256::from(15);
+        let max_povw_formatted = crate::format_amount(&format_ether(max_povw_per_epoch));
+
+        println!("\n{}", "Maximum PoVW Rewards".bold());
+        println!("  Reward Power:  {} {}", your_stake_formatted.yellow(), "(equals staked amount)".dimmed());
+        println!("  Max per Epoch: {} {} {}", max_povw_formatted.yellow().bold(), "ZKC".yellow(), "(reward power / 15)".dimmed());
+
+        // Rough staking reward estimate
         let estimated_epoch_rewards =
             U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
-        let your_estimated_rewards = estimated_epoch_rewards * new_stake / new_total;
+        let your_estimated_rewards = estimated_epoch_rewards * your_stake / new_total;
         let estimated_rewards_formatted = crate::format_amount(&format_ether(your_estimated_rewards));
 
         // Calculate APY as a rough estimate
-        let apy = if new_stake > U256::ZERO {
-            let reward_ratio = (your_estimated_rewards * U256::from(10000) / new_stake)
+        let apy = if your_stake > U256::ZERO {
+            let reward_ratio = (your_estimated_rewards * U256::from(10000) / your_stake)
                 .to::<u64>() as f64
                 / 10000.0;
             reward_ratio * 52.0 * 100.0
@@ -312,23 +302,16 @@ impl RewardsStakeZkc {
             0.0
         };
 
-        println!("\n{}", "Estimated Staking Rewards (per epoch)".bold());
+        println!("\n{}", "Estimated Staking Rewards (Per Epoch)".bold());
         println!("  Est. Rewards:  ~{} {}", estimated_rewards_formatted.green(), "ZKC".green());
         println!("  Annual Rate:   ~{:.2}%", apy);
-
-        // Calculate PoVW cap (reward power / 15) based on new stake
-        let max_povw_per_epoch = new_stake / U256::from(15);
-        let max_povw_formatted = crate::format_amount(&format_ether(max_povw_per_epoch));
-
-        println!("\n{}", "Maximum PoVW Rewards".bold());
-        println!("  Reward Power:          {} {}", new_stake_formatted.yellow(), "ZKC".yellow());
-        println!("  Max PoVW per Epoch:    {} {} {}", max_povw_formatted.yellow().bold(), "ZKC".yellow(), "(reward power / 15)".dimmed());
 
         println!("\n{} {}", "⚠".yellow(), "IMPORTANT DISCLAIMERS:".bold());
         println!("  • These estimates assume current epoch conditions remain constant");
         println!("  • Actual rewards vary based on network participation");
-        println!("  • Staking locks your tokens for a minimum period");
-        println!("  • Early withdrawal may incur penalties");
+        println!("  • Staking locks your tokens. To withdraw, you must initiate the withdrawal process and wait 30 days.");
+
+        println!("\n{} To proceed with actual staking, run without --dry-run flag", "ℹ".blue());
 
         Ok(())
     }

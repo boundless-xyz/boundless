@@ -48,10 +48,11 @@ pub enum RequestorCommands {
     DepositedBalance(RequestorBalance),
     /// Check the balance of an account (alias for deposited-balance)
     Balance(RequestorBalance),
-    /// Submit a fully specified proof request
+    /// Submit a fully specified proof request from a YAML file
+    #[command(name = "submit-file")]
     Submit(RequestorSubmit),
     /// Submit a proof request constructed with the given offer, input, and image
-    #[command(name = "submit-offer")]
+    #[command(name = "submit")]
     SubmitOffer(Box<RequestorSubmitOffer>),
     /// Get the status of a given request
     Status(RequestorStatus),

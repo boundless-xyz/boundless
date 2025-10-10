@@ -192,7 +192,7 @@ impl<St, Si> ClientBuilder<St, Si> {
 
         // Check that the chain ID is matches the deployment, to avoid misconfigurations.
         if deployment.market_chain_id.map(|id| id != chain_id).unwrap_or(false) {
-            bail!("provided deployment does not match chain_id reported by RPC provider: {chain_id} != {}", deployment.market_chain_id.unwrap());
+            bail!("RPC url does not match specified Boundless deployment: {chain_id} (RPC) != {} (Boundless)", deployment.market_chain_id.unwrap());
         }
 
         // Build the contract instances.

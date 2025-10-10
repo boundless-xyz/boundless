@@ -64,6 +64,9 @@ impl RewardsListStakingRewards {
         // Create indexer client based on chain ID
         let client = IndexerClient::new_from_chain_id(chain_id)?;
 
+        // Fetch staking metadata for last updated timestamp
+        let metadata = client.get_staking_metadata().await.ok();
+
         // Fetch staking history
         let history = client.get_staking_history(self.address).await?;
 
@@ -133,6 +136,12 @@ impl RewardsListStakingRewards {
         }
 
         println!("\n{} [{}]", "Staking Rewards History".bold(), network_name.blue().bold());
+
+        if let Some(ref meta) = metadata {
+            let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
+            println!("  Data last updated: {}", formatted_time.dimmed());
+        }
+
         println!("  Address: {}", format!("{:#x}", self.address).dimmed());
         println!("  Epoch Range: {}-{}", start_epoch, end_epoch);
 

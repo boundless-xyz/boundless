@@ -26,8 +26,9 @@ use crate::config::{GlobalConfig, RewardsConfig};
 /// Get the current reward delegate for an address
 #[derive(Args, Clone, Debug)]
 pub struct RewardsGetDelegate {
-    /// Address to check reward delegation for
-    pub address: Address,
+    /// Address to check reward delegation for (defaults to configured staking address)
+    #[clap(long)]
+    pub address: Option<Address>,
 
     /// Configuration for the ZKC deployment to use.
     #[clap(flatten, next_help_heading = "ZKC Deployment")]
@@ -42,6 +43,11 @@ impl RewardsGetDelegate {
     /// Run the get-delegate command
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        // Use provided address or default to staking address from config
+        let address = self.address.or(rewards_config.staking_address)
+            .context("No address provided.\n\nTo configure: run 'boundless setup rewards'\nOr provide --address <ADDRESS>")?;
+
         let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to provider
@@ -61,13 +67,13 @@ impl RewardsGetDelegate {
 
         // Query reward delegate and reward power
         let reward_delegate = rewards
-            .rewardDelegates(self.address)
+            .rewardDelegates(address)
             .call()
             .await
             .context("Failed to query reward delegate")?;
 
         let reward_power = rewards
-            .getStakingRewards(self.address)
+            .getStakingRewards(address)
             .call()
             .await
             .context("Failed to query reward power")?;
@@ -75,10 +81,16 @@ impl RewardsGetDelegate {
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
         println!("\n{} [{}]", "Reward Delegation Status".bold(), network_name.blue().bold());
-        println!("  Address: {}", format!("{:#x}", self.address).dimmed());
+
+        // Show which address is being queried and if it's from config
+        if self.address.is_some() {
+            println!("  Address: {}", format!("{:#x}", address).cyan());
+        } else {
+            println!("  Address: {} {}", format!("{:#x}", address).cyan(), "(from config)".dimmed());
+        }
 
         // Check if self-delegated or delegated to another address
-        if reward_delegate == self.address {
+        if reward_delegate == address {
             println!("  Reward Delegate: {} {}", format!("{:#x}", reward_delegate).green(), "(self)".dimmed());
         } else {
             println!("  Reward Delegate: {}", format!("{:#x}", reward_delegate).yellow());

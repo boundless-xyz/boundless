@@ -32,6 +32,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
+#[cfg(test)]
+use boundless_market::order_stream_client::OrderData;
 use boundless_market::order_stream_client::{
     AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
     ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
@@ -357,7 +359,7 @@ impl AppState {
             .connect_client(client);
 
         let db = if let Some(db_pool) = db_pool_opt {
-            OrderDb::from_pool(db_pool).await?
+            OrderDb::from_pool(db_pool).await.context("Failed to apply DB migrations")?
         } else {
             OrderDb::from_env().await.context("Failed to connect to DB")?
         };
@@ -811,5 +813,77 @@ mod tests {
         app_state.remove_pending_connection(&addr).await;
         let pending_connection = app_state.set_pending_connection(addr).await;
         assert!(pending_connection, "Should return true after removing the connection");
+    }
+
+    #[sqlx::test]
+    async fn test_list_orders_with_sort(pool: PgPool) {
+        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 20, Some(&listener)).await;
+
+        let client = OrderStreamClient::new(
+            Url::parse(&format!("http://{addr}")).unwrap(),
+            app_state.config.market_address,
+            app_state.chain_id,
+        );
+
+        let server_handle = tokio::spawn(async move {
+            self::run_from_parts(app_state, listener).await.unwrap();
+        });
+
+        wait_for_server_health(&client, &addr, 5).await;
+
+        let order1 = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let order2 = client
+            .submit_request(&new_request(2, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let order3 = client
+            .submit_request(&new_request(3, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        let url_asc = format!("http://{addr}{ORDER_LIST_PATH}?offset=0&limit=10");
+        let response_asc = client.client.get(&url_asc).send().await.unwrap();
+        assert!(response_asc.status().is_success());
+        let orders_asc: Vec<OrderData> = response_asc.json().await.unwrap();
+        assert_eq!(orders_asc.len(), 3);
+        assert_eq!(orders_asc[0].order.request.id, order1.request.id);
+        assert_eq!(orders_asc[1].order.request.id, order2.request.id);
+        assert_eq!(orders_asc[2].order.request.id, order3.request.id);
+
+        let url_desc = format!("http://{addr}{ORDER_LIST_PATH}?sort=desc&limit=10");
+        let response_desc = client.client.get(&url_desc).send().await.unwrap();
+        assert!(response_desc.status().is_success());
+        let orders_desc: Vec<OrderData> = response_desc.json().await.unwrap();
+        assert_eq!(orders_desc.len(), 3);
+        assert_eq!(orders_desc[0].order.request.id, order3.request.id);
+        assert_eq!(orders_desc[1].order.request.id, order2.request.id);
+        assert_eq!(orders_desc[2].order.request.id, order1.request.id);
+
+        let after_time = orders_desc[1].created_at.to_rfc3339();
+        let url_after = format!(
+            "http://{addr}{ORDER_LIST_PATH}?sort=desc&after={}&limit=10",
+            urlencoding::encode(&after_time)
+        );
+        let response_after = client.client.get(&url_after).send().await.unwrap();
+        assert!(response_after.status().is_success());
+        let orders_after: Vec<OrderData> = response_after.json().await.unwrap();
+        assert_eq!(orders_after.len(), 1);
+        assert_eq!(orders_after[0].order.request.id, order3.request.id);
+
+        server_handle.abort();
     }
 }

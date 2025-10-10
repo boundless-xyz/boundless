@@ -51,7 +51,6 @@ impl ZkcDelegateRewards {
 
         // Connect to the chain.
         let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
@@ -63,6 +62,13 @@ impl ZkcDelegateRewards {
             print_calldata(&deployment, self.to);
             return Ok(());
         }
+
+        let tx_signer = rewards_config.require_private_key()?;
+        let provider = ProviderBuilder::new()
+            .wallet(tx_signer.clone())
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
 
         let rewards = IRewards::new(deployment.vezkc_address, provider.clone());
 

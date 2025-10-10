@@ -175,6 +175,48 @@ impl IndexerClient {
             .await
             .with_context(|| format!("Failed to parse epoch PoVW address response from {}", url))
     }
+
+    /// Get PoVW metadata including last updated timestamp
+    pub async fn get_povw_metadata(&self) -> Result<PovwMetadata> {
+        let url = self.base_url.join("v1/povw").context("Failed to build URL")?;
+
+        let response = self
+            .client
+            .get(url.clone())
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch PoVW metadata from {}", url))?;
+
+        if !response.status().is_success() {
+            bail!("API error from {}: {}", url, response.status());
+        }
+
+        response
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse PoVW metadata response from {}", url))
+    }
+
+    /// Get staking metadata including last updated timestamp
+    pub async fn get_staking_metadata(&self) -> Result<StakingMetadata> {
+        let url = self.base_url.join("v1/staking").context("Failed to build URL")?;
+
+        let response = self
+            .client
+            .get(url.clone())
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch staking metadata from {}", url))?;
+
+        if !response.status().is_success() {
+            bail!("API error from {}: {}", url, response.status());
+        }
+
+        response
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse staking metadata response from {}", url))
+    }
 }
 
 // Data Models
@@ -252,7 +294,8 @@ pub struct EpochStakingResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PovwEntry {
-    pub rank: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank: Option<u32>,
     pub work_log_id: String,
     pub epoch: u64,
     pub work_submitted: String,
@@ -319,7 +362,47 @@ pub struct EpochPovwAddressData {
     pub staked_amount: Option<String>,
 }
 
+/// Metadata for the PoVW indexer
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PovwMetadata {
+    pub total_epochs_with_work: u64,
+    pub total_unique_work_log_ids: u64,
+    pub total_work_all_time: String,
+    pub total_work_all_time_formatted: String,
+    pub total_emissions_all_time: String,
+    pub total_emissions_all_time_formatted: String,
+    pub total_capped_rewards_all_time: String,
+    pub total_capped_rewards_all_time_formatted: String,
+    pub total_uncapped_rewards_all_time: String,
+    pub total_uncapped_rewards_all_time_formatted: String,
+    pub last_updated_at: String,
+}
+
+/// Metadata for the staking indexer
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StakingMetadata {
+    pub current_total_staked: String,
+    pub current_total_staked_formatted: String,
+    pub total_unique_stakers: u64,
+    pub current_active_stakers: u64,
+    pub current_withdrawing: u64,
+    pub total_staking_emissions_all_time: String,
+    pub total_staking_emissions_all_time_formatted: String,
+    pub last_updated_at: String,
+}
+
 /// Parse a string amount to U256
 pub fn parse_amount(amount: &str) -> Result<U256> {
     U256::from_str_radix(amount, 10).context("Failed to parse amount")
+}
+
+/// Format an ISO 8601 timestamp to a human-readable UTC string
+pub fn format_timestamp(iso_timestamp: &str) -> String {
+    use chrono::{DateTime, Utc};
+
+    if let Ok(dt) = DateTime::parse_from_rfc3339(iso_timestamp) {
+        dt.with_timezone(&Utc).format("%Y-%m-%d %H:%M:%S UTC").to_string()
+    } else {
+        iso_timestamp.to_string()
+    }
 }

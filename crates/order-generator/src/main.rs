@@ -50,7 +50,7 @@ struct MainArgs {
     /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
     ///
     /// This parameter can only be set if order_stream_url is provided.
-    #[clap(long, env, value_parser = parse_ether, requires = "submit_offchain")]
+    #[clap(long, env, value_parser = parse_ether)]
     auto_deposit: Option<U256>,
     /// Interval in seconds between requests.
     #[clap(short, long, default_value = "60")]
@@ -87,6 +87,9 @@ struct MainArgs {
     /// Additional time in seconds to add to the timeout for each 1M cycles.
     #[clap(long, default_value = "20")]
     seconds_per_mcycle: u32,
+    /// Additional time in seconds to add to the ramp-up period for each 1M cycles.
+    #[clap(long, default_value = "20")]
+    ramp_up_seconds_per_mcycle: u32,
     /// Execution rate in kHz for calculating bidding start delays.
     /// Default is 2000 kHz (2 MHz).
     #[clap(long, default_value = "2000", env)]
@@ -234,8 +237,21 @@ async fn handle_request(
     // Use the input directly as the estimated cycle count, since we are using a loop program.
     let m_cycles = input >> 20;
     let seconds_for_mcycles = args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-    let ramp_up = args.ramp_up + seconds_for_mcycles;
+    let ramp_up_seconds_for_mcycles =
+        args.ramp_up_seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
+    let ramp_up = args.ramp_up + ramp_up_seconds_for_mcycles;
     let lock_timeout = args.lock_timeout + seconds_for_mcycles;
+    tracing::debug!(
+        "m_cycles: {}, seconds_for_mcycles: {}, ramp_up [{} + {}]: {}, lock_timeout [{} + {}]: {}",
+        m_cycles,
+        seconds_for_mcycles,
+        args.ramp_up,
+        ramp_up_seconds_for_mcycles,
+        ramp_up,
+        args.lock_timeout,
+        seconds_for_mcycles,
+        lock_timeout
+    );
     // Give equal time for provers that are fulfilling after lock expiry to prove.
     let timeout: u32 = args.timeout + lock_timeout + seconds_for_mcycles;
 
@@ -294,36 +310,33 @@ async fn handle_request(
 
     let submit_offchain = args.submit_offchain;
 
-    // Check balance and auto-deposit if needed. Only necessary if submitting offchain, since onchain submission automatically deposits
-    // in the submitRequest call.
-    if submit_offchain {
-        if let Some(auto_deposit) = args.auto_deposit {
-            let market = client.boundless_market.clone();
-            let caller = client.caller();
-            let balance = market.balance_of(caller).await?;
+    // Check balance and auto-deposit if needed for both onchain and offchain submissions
+    if let Some(auto_deposit) = args.auto_deposit {
+        let market = client.boundless_market.clone();
+        let caller = client.caller();
+        let balance = market.balance_of(caller).await?;
+        tracing::info!(
+            "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
+            caller,
+            format_units(balance, "ether")?,
+            client.deployment.boundless_market_address,
+            format_units(auto_deposit, "ether")?
+        );
+        if balance < auto_deposit {
             tracing::info!(
-                "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
-                caller,
+                "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
                 format_units(balance, "ether")?,
-                client.deployment.boundless_market_address,
                 format_units(auto_deposit, "ether")?
             );
-            if balance < auto_deposit {
-                tracing::info!(
-                    "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
-                    format_units(balance, "ether")?,
-                    format_units(auto_deposit, "ether")?
-                );
-                match market.deposit(auto_deposit).await {
-                    Ok(_) => {
-                        tracing::info!(
-                            "Successfully deposited {} ETH",
-                            format_units(auto_deposit, "ether")?
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to auto deposit ETH: {e:?}");
-                    }
+            match market.deposit(auto_deposit).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Successfully deposited {} ETH",
+                        format_units(auto_deposit, "ether")?
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to auto deposit ETH: {e:?}");
                 }
             }
         }
@@ -381,6 +394,7 @@ mod tests {
             timeout: 1000,
             lock_timeout: 1000,
             seconds_per_mcycle: 60,
+            ramp_up_seconds_per_mcycle: 60,
             exec_rate_khz: 5000,
             program: Some(LOOP_PATH.parse().unwrap()),
             input: None,

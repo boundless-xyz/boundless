@@ -68,7 +68,7 @@ async fn test_legacy_balance_of() -> anyhow::Result<()> {
 
     // Run balance-of with legacy command
     let mut cmd = Command::cargo_bin("boundless")?;
-    cmd.args(["zkc", "balance-of", &format!("{:#x}", user.address())])
+    cmd.args(["zkc", "balance", &format!("{:#x}", user.address())])
         .env("ZKC_ADDRESS", format!("{:#x}", ctx.deployment.zkc_address))
         .env("VEZKC_ADDRESS", format!("{:#x}", ctx.deployment.vezkc_address))
         .env("STAKING_REWARDS_ADDRESS", format!("{:#x}", ctx.deployment.staking_rewards_address))
@@ -90,6 +90,7 @@ fn test_stake_zkc_dry_run() {
     cmd.args(["rewards", "stake-zkc", "--amount", "1000000000000000000", "--dry-run"])
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
+        .write_stdin("yes\n")
         .assert()
         .success()
         .stdout(contains("DRY RUN MODE"))
@@ -104,6 +105,7 @@ fn test_list_povw_rewards_help() {
     cmd.args(["rewards", "list-povw-rewards", "--help"])
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
+        .write_stdin("yes\n")
         .assert()
         .success()
         .stdout(contains("Usage:"))

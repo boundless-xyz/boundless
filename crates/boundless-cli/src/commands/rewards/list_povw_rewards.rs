@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use alloy::{
-    primitives::{utils::format_ether, Address},
+    primitives::{utils::format_ether, Address, U256},
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
 use clap::Args;
+use colored::Colorize;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
@@ -27,8 +28,9 @@ use crate::{
 /// List historical PoVW rewards for an address
 #[derive(Args, Clone, Debug)]
 pub struct RewardsListPovwRewards {
-    /// Work log ID (address) to query rewards for
-    pub address: Address,
+    /// Work log ID (address) to query rewards for (defaults to configured reward address)
+    #[clap(long)]
+    pub address: Option<Address>,
 
     /// Start epoch (optional)
     #[clap(long)]
@@ -51,6 +53,11 @@ impl RewardsListPovwRewards {
     /// Run the list-povw-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        // Use provided address or default to reward address from config
+        let address = self.address.or(rewards_config.reward_address)
+            .context("No address provided.\n\nTo configure: run 'boundless setup rewards'\nOr provide --address <ADDRESS>")?;
+
         let rpc_url = rewards_config.require_rpc_url()?;
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
@@ -61,67 +68,102 @@ impl RewardsListPovwRewards {
         // Create indexer client based on chain ID
         let client = IndexerClient::new_from_chain_id(chain_id)?;
 
-        // Fetch PoVW history
-        let history = client.get_povw_history(self.address).await?;
+        // Fetch PoVW metadata for last updated timestamp
+        let metadata = client.get_povw_metadata().await.ok();
 
-        if history.entries.is_empty() {
-            tracing::info!("No PoVW history found for work log ID {}", self.address);
-            return Ok(());
+        // Fetch PoVW history
+        let history = client.get_povw_history(address).await?;
+
+        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+
+        println!("\n{} [{}]", "PoVW Rewards History".bold(), network_name.blue().bold());
+
+        if let Some(ref meta) = metadata {
+            let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
+            println!("  Data last updated: {}", formatted_time.dimmed());
         }
 
-        tracing::info!("=== PoVW Rewards History for {} ===", self.address);
+        if self.address.is_some() {
+            println!("  Address: {}", format!("{:#x}", address).cyan());
+        } else {
+            println!("  Address: {} {}", format!("{:#x}", address).cyan(), "(from config)".dimmed());
+        }
+
+        if history.entries.is_empty() {
+            println!("  Status:  {} {}", "No history".yellow(), "(no PoVW work submitted yet)".dimmed());
+            return Ok(());
+        }
 
         if let Some(summary) = &history.summary {
             let total_work = parse_amount(&summary.total_work_submitted)?;
             let total_actual = parse_amount(&summary.total_actual_rewards)?;
             let total_uncapped = parse_amount(&summary.total_uncapped_rewards)?;
 
-            tracing::info!("\n=== Lifetime Summary ===");
-            tracing::info!("Total Work Submitted: {}", format_ether(total_work));
-            tracing::info!("Total Actual Rewards: {} ZKC", format_ether(total_actual));
-            tracing::info!("Total Uncapped Rewards: {} ZKC", format_ether(total_uncapped));
-            tracing::info!("Epochs Participated: {}", summary.epochs_participated);
+            let total_work_formatted = format_work_cycles(&total_work);
+            let total_actual_formatted = crate::format_amount(&format_ether(total_actual));
+            let total_uncapped_formatted = crate::format_amount(&format_ether(total_uncapped));
+
+            println!("\n{}", "Lifetime Summary".bold().green());
+            println!("  Total Work Submitted:    {}", total_work_formatted.cyan());
+            println!("  Total Actual Rewards:    {} {}", total_actual_formatted.green().bold(), "ZKC".green());
+            println!("  Total Uncapped Rewards:  {} {}", total_uncapped_formatted.cyan(), "ZKC".cyan());
+            println!("  Epochs Participated:     {}", summary.epochs_participated.to_string().cyan());
 
             // Check if rewards were capped
             if total_actual < total_uncapped {
                 let capped_amount = total_uncapped - total_actual;
-                tracing::warn!(
-                    "⚠️  Rewards were capped by {} ZKC due to staking limits",
-                    format_ether(capped_amount)
-                );
+                let capped_formatted = crate::format_amount(&format_ether(capped_amount));
+                println!("  {} {}", "⚠".yellow(), format!("Rewards capped by {} ZKC due to staking limits", capped_formatted).yellow());
             }
         }
 
-        tracing::info!("\n=== Epoch History ===");
+        println!("\n{}", "Epoch History".bold().green());
         for entry in &history.entries {
             let work = parse_amount(&entry.work_submitted)?;
             let actual = parse_amount(&entry.actual_rewards)?;
             let uncapped = parse_amount(&entry.uncapped_rewards)?;
 
-            tracing::info!(
-                "Epoch {}: Work={}, Rewards={} ZKC ({:.1}% of work){}",
-                entry.epoch,
-                format_ether(work),
-                format_ether(actual),
+            let work_formatted = format_work_cycles(&work);
+            let actual_formatted = crate::format_amount(&format_ether(actual));
+
+            let capped_indicator = if entry.is_capped {
+                format!(" {}", "[CAPPED]".red().bold())
+            } else {
+                String::new()
+            };
+
+            println!(
+                "  Epoch {}: Work={}, Rewards={} {} ({:.1}% of work){}",
+                entry.epoch.to_string().cyan(),
+                work_formatted.cyan(),
+                actual_formatted.green().bold(),
+                "ZKC".green(),
                 entry.percentage,
-                if entry.is_capped { " [CAPPED]" } else { "" }
+                capped_indicator
             );
 
             if entry.is_capped {
                 let cap = parse_amount(&entry.reward_cap)?;
                 let staked = parse_amount(&entry.staked_amount)?;
-                tracing::info!(
-                    "  → Capped at {} ZKC (staked: {} ZKC)",
-                    format_ether(cap),
-                    format_ether(staked)
+                let cap_formatted = crate::format_amount(&format_ether(cap));
+                let staked_formatted = crate::format_amount(&format_ether(staked));
+                let uncapped_formatted = crate::format_amount(&format_ether(uncapped));
+
+                println!(
+                    "    {} Capped at {} {} (staked: {} {})",
+                    "→".dimmed(),
+                    cap_formatted.yellow(),
+                    "ZKC".yellow(),
+                    staked_formatted.cyan(),
+                    "ZKC".cyan()
                 );
-                tracing::info!("  → Uncapped would have been: {} ZKC", format_ether(uncapped));
+                println!("    {} Uncapped would have been: {} {}", "→".dimmed(), uncapped_formatted.cyan(), "ZKC".cyan());
             }
         }
 
         if self.dry_run {
-            tracing::info!("\n=== Current Epoch Estimate (DRY RUN) ===");
-            tracing::warn!("⚠️  These are estimates only and actual rewards may vary");
+            println!("\n{}", "Current Epoch Estimate (DRY RUN)".bold().yellow());
+            println!("  {} {}", "⚠".yellow(), "These are estimates only and actual rewards may vary".yellow());
 
             // Get current epoch data
             // TODO: Query actual current epoch from contract
@@ -132,22 +174,50 @@ impl RewardsListPovwRewards {
                     let total_work = parse_amount(&epoch_summary.total_work)?;
                     let total_emissions = parse_amount(&epoch_summary.total_emissions)?;
 
-                    tracing::info!("Current Epoch {}: ", current_epoch);
-                    tracing::info!("  Total Work Submitted: {}", format_ether(total_work));
-                    tracing::info!("  Total Emissions: {} ZKC", format_ether(total_emissions));
-                    tracing::info!("  Participants: {}", epoch_summary.num_participants);
+                    let total_work_formatted = crate::format_amount(&format_ether(total_work));
+                    let total_emissions_formatted = crate::format_amount(&format_ether(total_emissions));
 
-                    tracing::info!("\n💡 To maximize rewards:");
-                    tracing::info!("  - Submit work early in the epoch");
-                    tracing::info!("  - Ensure adequate ZKC staking to avoid caps");
-                    tracing::info!("  - Monitor your reward cap: 2.5x your staked amount");
+                    println!("\n  Current Epoch {}", current_epoch.to_string().cyan());
+                    println!("    Total Work Submitted:  {}", total_work_formatted.cyan());
+                    println!("    Total Emissions:       {} {}", total_emissions_formatted.green(), "ZKC".green());
+                    println!("    Participants:          {}", epoch_summary.num_participants.to_string().cyan());
+
+                    println!("\n  {} {}", "💡".cyan(), "To maximize rewards:".bold());
+                    println!("    - Submit work early in the epoch");
+                    println!("    - Ensure adequate ZKC staking to avoid caps");
+                    println!("    - Monitor your reward cap: 2.5x your staked amount");
                 }
                 Err(e) => {
-                    tracing::warn!("Unable to fetch current epoch data: {}", e);
+                    println!("  {} Unable to fetch current epoch data: {}", "⚠".yellow(), e.to_string().dimmed());
                 }
             }
         }
 
         Ok(())
     }
+}
+
+/// Helper to format work cycles with commas and " cycles" suffix
+fn format_work_cycles(amount: &U256) -> String {
+    let value = amount.to::<u128>();
+    let formatted = format_number_with_commas(value);
+    format!("{} cycles", formatted)
+}
+
+/// Helper to format numbers with comma separators
+fn format_number_with_commas(n: u128) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    let mut count = 0;
+
+    for c in s.chars().rev() {
+        if count == 3 {
+            result.push(',');
+            count = 0;
+        }
+        result.push(c);
+        count += 1;
+    }
+
+    result.chars().rev().collect()
 }

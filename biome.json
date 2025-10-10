@@ -1,15 +1,17 @@
 {
   "extends": ["./documentation/node_modules/@risc0/ui/config/biome.base.jsonc"],
   "files": {
-    "ignore": [
-      "crates",
-      "target",
-      "contracts/out",
-      "generated",
-      "lib",
-      ".turbo",
-      ".sqlx",
-      "documentation/*.ts.timestamp-*.mjs"
+    "includes": [
+      "**",
+      "!**/crates",
+      "!**/target",
+      "!**/contracts/out",
+      "!**/generated",
+      "!**/lib",
+      "!**/.turbo",
+      "!**/.sqlx",
+      "!**/documentation/**/*.ts.timestamp-*.mjs",
+      "!**/site/dist/**"
     ]
   },
   "linter": {

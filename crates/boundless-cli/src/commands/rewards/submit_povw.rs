@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
+use std::{io::Write, path::{Path, PathBuf}};
 
 use alloy::{
-    primitives::{Address, U256},
+    primitives::{utils::{format_ether, parse_ether}, Address, U256},
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{bail, ensure, Context, Result};
@@ -27,6 +27,7 @@ use clap::Args;
 use colored::Colorize;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 use risc0_zkvm::{default_prover, ProverOpts};
+use url::Url;
 
 use crate::commands::povw::State;
 use crate::config::{GlobalConfig, ProverConfig, RewardsConfig};
@@ -50,13 +51,24 @@ pub struct RewardsSubmitPovw {
     #[clap(flatten, next_help_heading = "Deployment")]
     deployment: Option<Deployment>,
 
+    /// Bento API URL to use for proof generation (defaults to prover config bento_api_url)
+    ///
+    /// This is the Bento cluster that will generate proofs for submitting work updates.
+    /// If not specified, the Bento API URL from your prover configuration will be used.
+    #[arg(long = "bento-api-url")]
+    bento_api_url: Option<Url>,
+
     /// Simulate submission and show projected rewards without sending transaction
     #[arg(long)]
     dry_run: bool,
 
     /// Override reward cap for dry-run (only valid with --dry-run)
-    #[arg(long, requires = "dry_run")]
+    #[arg(long, requires = "dry_run", conflicts_with = "dry_run_staked_zkc")]
     dry_run_reward_cap: Option<String>,
+
+    /// Override staked ZKC amount for dry-run (reward cap = staked / 15) (only valid with --dry-run)
+    #[arg(long, requires = "dry_run", conflicts_with = "dry_run_reward_cap")]
+    dry_run_staked_zkc: Option<String>,
 
     /// Override work already submitted for dry-run (only valid with --dry-run)
     #[arg(long, requires = "dry_run")]
@@ -65,6 +77,10 @@ pub struct RewardsSubmitPovw {
     /// Override total epoch work for dry-run (only valid with --dry-run)
     #[arg(long, requires = "dry_run")]
     dry_run_total_work: Option<String>,
+
+    /// Skip creating a backup of the state file before updating
+    #[arg(long)]
+    skip_backup: bool,
 
     #[clap(flatten)]
     rewards_config: RewardsConfig,
@@ -76,12 +92,16 @@ pub struct RewardsSubmitPovw {
 impl RewardsSubmitPovw {
     /// Run the submit-povw command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        println!("\n  {}", "Submitting PoVW Work Log Update".bold().cyan());
+
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
         // Determine state file path (param > config > error)
         let state_path = self.state_file.clone()
             .or_else(|| rewards_config.povw_state_file.clone().map(PathBuf::from))
             .context("No PoVW state file configured.\n\nTo configure: run 'boundless setup rewards' and enable PoVW\nOr set POVW_STATE_FILE env var")?;
+
+        println!("  State file:                            {}", state_path.display().to_string().cyan());
 
         // Get the transaction signer and work log signer (must be the reward private key)
         let tx_signer = rewards_config.require_reward_private_key()?;
@@ -92,7 +112,6 @@ impl RewardsSubmitPovw {
         let mut state = State::load(&state_path)
             .await
             .with_context(|| format!("Failed to load state from {}", state_path.display()))?;
-        tracing::info!("Submitting work log update for log ID: {:x}", state.log_id);
 
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
@@ -124,6 +143,10 @@ impl RewardsSubmitPovw {
         let povw_accounting =
             IPovwAccounting::new(deployment.povw_accounting_address, provider.clone());
 
+        // Get the current epoch from contract
+        let current_epoch = povw_accounting.pendingEpoch().call().await?.number;
+        println!("  Work will be submitted during Epoch:   {}", current_epoch.to_string().cyan().bold());
+
         // Get the current work log commit to determine which update(s) should be applied
         let onchain_commit =
             povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(|| {
@@ -140,13 +163,21 @@ impl RewardsSubmitPovw {
         };
         let latest_receipt_journal = LogBuilderJournal::decode(&latest_receipt.journal.bytes)
             .context("Failed to decode journal from latest receipt")?;
-        if bytemuck::cast::<_, [u8; 32]>(latest_receipt_journal.updated_commit) == *onchain_commit {
-            tracing::info!("Onchain PoVW accounting contract is already up to date with the latest commit in state");
+        let latest_local_commit = bytemuck::cast::<_, [u8; 32]>(latest_receipt_journal.updated_commit);
+
+        if latest_local_commit == *onchain_commit {
+            println!("  Status:                                {} {}", "Already up to date".green().bold(), "(no submission needed)".dimmed());
+            println!("\n  {} {}", "✓".green().bold(), "On-chain state is already current".green());
+            println!();
             return Ok(());
         }
 
+        println!("  Status:                                {} {}", "On-chain work log is not up to date".yellow().bold(), "(submission required)".dimmed());
+
         // Find the index of the receipt in the state that has an initial commit equal to the
         // commit current onchain. We will send all updates after that point.
+        std::io::stdout().flush()?;
+
         let matching_receipt_index = state
             .log_builder_receipts
             .iter()
@@ -172,12 +203,11 @@ impl RewardsSubmitPovw {
         // built a work log update but it failed to send (e.g. network instability or high gas
         // fees caused the transaction not to go through).
         let receipts_for_update = state.log_builder_receipts[matching_receipt_index..].to_vec();
+
+        println!("  There are {} updates to the PoVW state file that need to be submitted on-chain", receipts_for_update.len().to_string().cyan().bold());
+
         if receipts_for_update.len() > 1 {
-            tracing::info!(
-                "Updating onchain work log {:x} with {} update receipts",
-                state.log_id,
-                receipts_for_update.len()
-            )
+            println!("  {}", format!("Note: Multiple PoVW state file updates will be submitted. This happens when prepare-povw was run multiple times before submission. For future submissions, consider running prepare-povw only once before submitting to save gas costs").dimmed());
         }
 
         // Execute dry-run if requested
@@ -208,8 +238,35 @@ impl RewardsSubmitPovw {
         // Determine recipient (param > reward address > error)
         let recipient = self.recipient.or(rewards_config.reward_address);
 
-        self.prover_config.configure_proving_backend_with_health_check().await?;
-        for receipt in receipts_for_update {
+        if let Some(recipient_addr) = recipient {
+            println!("  Recipient:     {}", format!("{:#x}", recipient_addr).cyan());
+        }
+
+        println!("\n{}", "Configuring prover for submitting PoVW work".bold().green());
+
+        // Override Bento API URL if provided
+        let mut prover_config = self.prover_config.clone();
+        if let Some(ref bento_url) = self.bento_api_url {
+            prover_config.bento_api_url = bento_url.to_string();
+        }
+
+        prover_config.configure_proving_backend_with_health_check().await?;
+        println!("  Status:        {}", "Ready".green().bold());
+
+        // Backup the state file before making any modifications
+        println!("\n{}", "Preparing to modify PoVW state file".bold().green());
+        if !self.skip_backup {
+            self.save_state_backup(&state, &state_path)?;
+        } else {
+            println!("  Backup:        {} {}", "Skipped".yellow(), "(--skip-backup)".dimmed());
+        }
+
+        let total_receipts = receipts_for_update.len();
+        for (idx, receipt) in receipts_for_update.into_iter().enumerate() {
+            let receipt_num = idx + 1;
+
+            println!("\n{}", format!("Processing PoVW state file update {}/{}", receipt_num, total_receipts).bold().green());
+
             let prover = LogUpdaterProver::builder()
                 .prover(default_prover())
                 .chain_id(chain_id)
@@ -220,13 +277,17 @@ impl RewardsSubmitPovw {
                 .context("Failed to build prover for Log Updater")?;
 
             // Sign and prove the authorized work log update
-            tracing::info!("Proving work log update");
+            println!("  Step 1/3:      {}", "Generating Groth16 proof...".yellow());
+            println!("{}", "  (This may take several minutes)".dimmed());
+
             let prove_info = prover
                 .prove_update(receipt, work_log_signer)
                 .await
                 .context("Failed to prove authorized log update")?;
 
-            tracing::info!("Sending work log update transaction");
+            println!("  Status:        {}", "Proof complete".green().bold());
+
+            println!("  Step 2/3:      {}", "Submitting transaction...".yellow());
             let tx_result = povw_accounting
                 .update_work_log(&prove_info.receipt)
                 .context("Failed to construct update transaction")?
@@ -234,7 +295,8 @@ impl RewardsSubmitPovw {
                 .await
                 .context("Failed to send update transaction")?;
             let tx_hash = tx_result.tx_hash();
-            tracing::info!(%tx_hash, "Sent transaction for work log update");
+
+            println!("  TX Hash:       {}", format!("{:#x}", tx_hash).cyan());
 
             // Save the pending transaction to state
             state
@@ -242,8 +304,8 @@ impl RewardsSubmitPovw {
                 .save(&state_path)
                 .context("Failed to save state")?;
 
+            println!("  Step 3/3:      {}", "Waiting for confirmation...".yellow());
             let timeout = global_config.tx_timeout.or(tx_result.timeout());
-            tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
             let tx_receipt = tx_result
                 .with_timeout(timeout)
                 .get_receipt()
@@ -252,7 +314,7 @@ impl RewardsSubmitPovw {
 
             ensure!(
                 tx_receipt.status(),
-                "Work log update transaction failed: tx_hash = {}",
+                "Submit PoVW state file update transaction failed: tx_hash = {}",
                 tx_receipt.transaction_hash
             );
 
@@ -265,12 +327,11 @@ impl RewardsSubmitPovw {
 
             if let Some(event) = work_log_updated_event {
                 let data = event.inner.data;
-                tracing::info!(
-                    "Work log update confirmed in epoch {} with work value {}",
-                    data.epochNumber,
-                    data.updateValue.to::<u64>()
-                );
-                tracing::debug!(updated_commit = %data.updatedCommit, "Updated work log commitment")
+                println!("  Status:        {}", "Confirmed".green().bold());
+                println!("  Epoch:         {}", data.epochNumber.to_string().cyan());
+                println!("  Work Value:    {}", data.updateValue.to::<u64>().to_string().cyan().bold());
+            } else {
+                println!("  Status:        {}", "Confirmed".green().bold());
             }
 
             // Confirm the transaction in the state
@@ -280,6 +341,44 @@ impl RewardsSubmitPovw {
                 .save(&state_path)
                 .context("Failed to save state")?;
         }
+
+        println!("\n{}", "═══════════════════════════════════════════════════════".bold());
+        println!("{} {}", "✓".green().bold(), format!("Successfully submitted {} PoVW update(s)", total_receipts).green().bold());
+        println!("{}", "═══════════════════════════════════════════════════════".bold());
+        println!();
+
+        Ok(())
+    }
+
+    /// Save a backup of the state file to ~/.boundless
+    fn save_state_backup(&self, state: &State, original_path: &Path) -> Result<()> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
+        let backup_dir = home_dir.join(".boundless");
+
+        std::fs::create_dir_all(&backup_dir)
+            .with_context(|| format!("Failed to create backup directory: {}", backup_dir.display()))?;
+
+        let original_filename = original_path
+            .file_name()
+            .context("Failed to get filename from state path")?
+            .to_str()
+            .context("State filename is not valid UTF-8")?;
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .context("Failed to get current timestamp")?
+            .as_secs();
+
+        let log_id_hex = format!("{:x}", state.log_id);
+        let backup_filename = format!("{}.{}.{}.bak", original_filename, timestamp, log_id_hex);
+        let backup_path = backup_dir.join(&backup_filename);
+
+        state.save(&backup_path)
+            .with_context(|| format!("Failed to save backup to {}", backup_path.display()))?;
+
+        println!("  Backup saved: {}", backup_path.display().to_string().dimmed());
 
         Ok(())
     }
@@ -303,6 +402,9 @@ impl RewardsSubmitPovw {
 
         // Get indexer client (use chain_id to determine indexer)
         let indexer = IndexerClient::new_from_chain_id(chain_id)?;
+
+        // Fetch PoVW metadata for last updated timestamp
+        let metadata = indexer.get_povw_metadata().await.ok();
 
         // Query indexer APIs (may fail if overrides are provided)
         let epoch_data = indexer.get_epoch_povw(current_epoch.to::<u64>()).await.ok();
@@ -335,11 +437,14 @@ impl RewardsSubmitPovw {
         };
 
         let reward_cap = if let Some(ref override_val) = self.dry_run_reward_cap {
-            parse_amount(override_val).context("Failed to parse --dry-run-reward-cap")?
+            parse_ether(override_val).context("Failed to parse --dry-run-reward-cap")?
+        } else if let Some(ref staked_zkc) = self.dry_run_staked_zkc {
+            let staked = parse_ether(staked_zkc).context("Failed to parse --dry-run-staked-zkc")?;
+            staked / U256::from(15)
         } else if let Some(ref data) = address_data {
             parse_amount(&data.reward_cap)?
         } else {
-            bail!("No reward cap data available and no override provided. Use --dry-run-reward-cap")
+            bail!("No reward cap data available and no override provided. Use --dry-run-reward-cap or --dry-run-staked-zkc")
         };
 
         // Calculate projected work
@@ -356,72 +461,121 @@ impl RewardsSubmitPovw {
         // Apply reward cap
         let capped_rewards = std::cmp::min(uncapped_rewards, reward_cap);
 
-        // Display results
-        println!("\n{}", "=== Dry Run: PoVW Submission Projection ===".bold());
-        println!("\n{}", "Current State:".bold());
-        println!("  Epoch:                     {}", current_epoch);
-        println!("  Reward Address:            {:#x}", reward_address);
-        println!("  Current Work Submitted:    {}", format_amount(&current_work_submitted));
-        println!("  Total Epoch Work:          {}", format_amount(&total_work));
-        println!("  Total Epoch Emissions:     {} ZKC", format_amount(&total_emissions));
+        // Display results (work is in cycles, ZKC amounts are in wei)
+        let current_work_formatted = format_work_cycles(&current_work_submitted);
+        let total_work_formatted = format_work_cycles(&total_work);
+        let new_work_formatted = format_work_cycles(&U256::from(new_work_value));
+        let projected_total_formatted = format_work_cycles(&projected_total_work);
+        let new_total_work_formatted = format_work_cycles(&new_total_work);
 
-        println!("\n{}", "Projected After Submission:".bold());
-        println!("  New Work Value:            {}", new_work_value);
-        println!("  Your Total Work:           {}", format_amount(&projected_total_work));
-        println!("  New Epoch Total Work:      {}", format_amount(&new_total_work));
+        let total_emissions_formatted = crate::format_amount(&format_ether(total_emissions));
+        let uncapped_rewards_formatted = crate::format_amount(&format_ether(uncapped_rewards));
+        let reward_cap_formatted = crate::format_amount(&format_ether(reward_cap));
+        let capped_rewards_formatted = crate::format_amount(&format_ether(capped_rewards));
 
-        println!("\n{}", "Reward Calculations:".bold());
+        println!("\n  {}", "=== Dry Run: PoVW Submission Projection ===".bold().cyan());
+
+        if let Some(ref meta) = metadata {
+            let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
+            println!("  Data last updated:    {}", formatted_time.dimmed());
+        }
+
+        println!("  Dry-run for submitting work during Epoch {}", current_epoch.to_string().cyan().bold());
+        println!("  Reward Address:       {}", format!("{:#x}", reward_address).cyan());
+        println!("  Total Epoch Emissions: {} {}", total_emissions_formatted.cyan(), "ZKC".cyan());
+
+        println!("\n  {}", "Before Work Submission State:".bold().green());
+        println!("    Your total work submitted:                 {}", current_work_formatted.cyan());
+        println!("    Total work submitted by all participants:  {}", total_work_formatted.cyan());
+
+        println!("\n  {}", "Projected After Submission:".bold().green());
+        println!("    Your new work being submitted:             {}", new_work_formatted.yellow());
+        println!("    Your total work submitted:                 {}", projected_total_formatted.cyan());
+        println!("    Total work submitted by all participants:  {}", new_total_work_formatted.cyan());
+
+        println!("\n  {}", "Reward Calculations:".bold().green());
         let percentage = if !new_total_work.is_zero() {
             (projected_total_work * U256::from(10000u64)) / new_total_work
         } else {
             U256::ZERO
         };
+        let percentage_float = percentage.to::<u64>() as f64 / 100.0;
         println!(
-            "  Your Share:                {:.2}%",
-            percentage.to::<u64>() as f64 / 100.0
+            "    Your Share:                          {:.2}% {}",
+            percentage_float,
+            format!("({} / {})", projected_total_formatted, new_total_work_formatted).dimmed()
         );
-        println!("  Uncapped Rewards:          {} ZKC", format_amount(&uncapped_rewards));
-        println!("  Reward Cap:                {} ZKC", format_amount(&reward_cap));
-        println!("  Capped Rewards:            {} ZKC", format_amount(&capped_rewards));
+        println!("    Potential Rewards:                   {} {}", uncapped_rewards_formatted.yellow(), "ZKC".yellow());
+        println!("    Reward Cap:                          {} {}", reward_cap_formatted.yellow(), "ZKC".yellow());
+        println!(
+            "    Actual Rewards:                      {} {} {}",
+            capped_rewards_formatted.green().bold(),
+            "ZKC".green(),
+            format!("(min(reward cap, potential rewards))").dimmed()
+        );
 
         if uncapped_rewards > reward_cap {
-            println!("\n  {}  {}", "⚠️".yellow(), "Your rewards are CAPPED".yellow().bold());
+            println!("\n    {}  {}", "⚠️".yellow(), "Your rewards are CAPPED".yellow().bold());
             let lost = uncapped_rewards - reward_cap;
+            let lost_formatted = crate::format_amount(&format_ether(lost));
             println!(
-                "      You would lose {} ZKC due to reward cap",
-                format_amount(&lost)
+                "        You would lose {} ZKC due to reward cap",
+                lost_formatted
             );
         }
 
         // Display override information if any were used
         if self.dry_run_reward_cap.is_some()
+            || self.dry_run_staked_zkc.is_some()
             || self.dry_run_work_submitted.is_some()
             || self.dry_run_total_work.is_some()
         {
-            println!("\n{}", "Override Parameters Used:".yellow().bold());
+            println!("\n  {}", "Override Parameters Used:".yellow().bold());
             if let Some(ref cap) = self.dry_run_reward_cap {
-                println!("  Reward Cap:                {} ZKC (override)", cap);
+                println!("    Reward Cap:                          {} ZKC (override)", cap);
+            }
+            if let Some(ref staked) = self.dry_run_staked_zkc {
+                println!("    Staked ZKC:                          {} ZKC (override, reward cap = staked / 15)", staked);
             }
             if let Some(ref work) = self.dry_run_work_submitted {
-                println!("  Work Submitted:            {} (override)", work);
+                println!("    Work Submitted:                      {} (override)", work);
             }
             if let Some(ref total) = self.dry_run_total_work {
-                println!("  Total Epoch Work:          {} (override)", total);
+                println!("    Total Epoch Work:                    {} (override)", total);
             }
         }
 
-        println!("\n{}", "Note: This is a projection based on current epoch data.".dimmed());
+        println!("\n  {}", "Note: This is a projection based on current epoch data.".dimmed());
         println!(
-            "{}",
-            "Actual rewards may vary if other participants submit more work.".dimmed()
+            "  {}",
+            "Actual rewards may vary due to other participants submitting more work.".dimmed()
         );
 
         Ok(())
     }
 }
 
-/// Helper to format amounts
-fn format_amount(amount: &U256) -> String {
+/// Helper to format work cycles with commas and " cycles" suffix
+fn format_work_cycles(amount: &U256) -> String {
     let value = amount.to::<u128>();
-    format!("{}", value)
+    let formatted = format_number_with_commas(value);
+    format!("{} cycles", formatted)
+}
+
+/// Helper to format numbers with comma separators
+fn format_number_with_commas(n: u128) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    let mut count = 0;
+
+    for c in s.chars().rev() {
+        if count == 3 {
+            result.push(',');
+            count = 0;
+        }
+        result.push(c);
+        count += 1;
+    }
+
+    result.chars().rev().collect()
 }

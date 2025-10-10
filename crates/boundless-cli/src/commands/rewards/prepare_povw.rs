@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Borrow, collections::HashSet, path::{Path, PathBuf}, str::FromStr};
+use std::{borrow::Borrow, collections::HashSet, io::Write, path::{Path, PathBuf}, str::FromStr};
 
+use alloy::{
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+};
 use anyhow::{bail, ensure, Context, Result};
+use boundless_povw::{deployments::Deployment, log_updater::IPovwAccounting};
 use clap::Args;
-use risc0_povw::{prover::WorkLogUpdateProver, PovwLogId, WorkLog};
+use colored::Colorize;
+use risc0_povw::{guest::Journal as LogBuilderJournal, prover::WorkLogUpdateProver, PovwLogId, WorkLog};
 use risc0_zkvm::{default_prover, GenericReceipt, ProverOpts, ReceiptClaim, WorkClaim};
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -70,7 +76,8 @@ impl RewardsPreparePoVW {
             .or_else(|| rewards_config.povw_state_file.clone().map(PathBuf::from))
             .context("No PoVW state file configured.\n\nTo configure: run 'boundless setup rewards' and enable PoVW\nOr set POVW_STATE_FILE env var")?;
 
-        // Load existing state (MUST exist - no new log ID creation)
+        println!("   Using PoVW state file: {}", state_path.display().to_string().cyan());
+
         let mut state = State::load(&state_path)
             .await
             .with_context(|| {
@@ -80,13 +87,64 @@ impl RewardsPreparePoVW {
                 )
             })?;
 
-        tracing::info!("Loaded work log state from {}", state_path.display());
         tracing::debug!(commit = %state.work_log.commit(), "Loaded work log commit");
-        tracing::info!("Preparing work log update for log ID: {:x}", state.log_id);
+
+        // Check if there's already prepared work that hasn't been submitted on-chain
+        if !state.log_builder_receipts.is_empty() {
+            println!("\n{}", "🔍 Checking On-Chain State".bold().green());
+            print!("  Querying PoVW accounting contract... ");
+            std::io::stdout().flush()?;
+
+            // Get RPC URL and connect to chain
+            let rpc_url = rewards_config.require_rpc_url()?;
+            let provider = ProviderBuilder::new()
+                .connect(rpc_url.as_str())
+                .await
+                .with_context(|| format!("Failed to connect to {rpc_url}"))?;
+
+            let chain_id = provider.get_chain_id().await?;
+            let deployment = Deployment::from_chain_id(chain_id)
+                .context("Could not determine deployment from chain ID")?;
+
+            let povw_accounting = IPovwAccounting::new(deployment.povw_accounting_address, &provider);
+
+            // Query on-chain commit
+            let onchain_commit = povw_accounting
+                .workLogCommit(state.log_id.into())
+                .call()
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to get work log commit for {:x} from {:x}",
+                        state.log_id, deployment.povw_accounting_address
+                    )
+                })?;
+
+            println!("{}", "✓".green());
+
+            // Check latest local receipt
+            let latest_receipt = state.log_builder_receipts.last().unwrap();
+            let latest_journal = LogBuilderJournal::decode(&latest_receipt.journal.bytes)
+                .context("Failed to decode journal from latest receipt")?;
+            let latest_local_commit = bytemuck::cast::<_, [u8; 32]>(latest_journal.updated_commit);
+
+            // If they don't match, warn the user
+            if latest_local_commit != *onchain_commit {
+                println!("\n{}", "⚠️  WARNING".yellow().bold());
+                println!("{}", "  You have previously prepared PoVW work that has not yet been submitted on-chain.".yellow());
+                println!("{}", "  We recommend only preparing once per epoch.".yellow());
+                println!("{}", "  Running prepare multiple times before submitting work on-chain will increase gas costs during submission.".yellow());
+                println!();
+            } else {
+                println!("  Status:        {} {}", "Up to date".green().bold(), "(all prepared work has been submitted)".dimmed());
+            }
+        }
 
         // Determine work receipt source
+        println!("\n{}", "Loading PoVW work receipts".bold().green());
         let work_receipt_results = if !self.work_receipt_files.is_empty() {
             // Load from files
+            println!("  Loading receipts from:        {} files", self.work_receipt_files.len().to_string().cyan());
             load_work_receipts(state.log_id, &state.work_log, &self.work_receipt_files).await
         } else {
             // Fetch from Bento (default behavior)
@@ -96,6 +154,8 @@ impl RewardsPreparePoVW {
                     .context("Failed to parse Bento API URL from prover config")?,
             };
 
+            println!("  Fetching PoVW work receipts from Bento instance:        {}", bento_url.to_string().cyan());
+            println!("  {}", "(This may take several minutes)".dimmed());
             fetch_work_receipts(state.log_id, &state.work_log, &bento_url)
                 .await
                 .context("Failed to fetch work receipts from Bento")?
@@ -107,7 +167,7 @@ impl RewardsPreparePoVW {
         for result in work_receipt_results {
             match result {
                 Err(err) => {
-                    tracing::warn!("{:?}", err.context("Skipping receipt"));
+                    println!("  {} Skipping receipt: {}", "⚠".yellow(), err.to_string().dimmed());
                     warning = true;
                 }
                 Ok(receipt) => work_receipts.push(receipt),
@@ -118,15 +178,18 @@ impl RewardsPreparePoVW {
         }
 
         if work_receipts.is_empty() {
-            tracing::info!("No work receipts to process");
-            // Save the state file anyway, to ensure it exists
-            state.save(&state_path).context("Failed to save state")?;
+            println!("  Status:        {} {}", "No new receipts".yellow(), "(nothing to process)".dimmed());
+            println!("  All work receipts have already been added to the state file. Nothing to do.");
+            println!();
             return Ok(());
         }
-        tracing::info!("Loaded {} work receipts", work_receipts.len());
+
+        println!("  Fetched {} new PoVW work receipts", work_receipts.len().to_string().cyan().bold());
 
         // Set up the work log update prover
+        println!("\n{}", "Setting up prover for aggregating PoVW work receipts".bold().green());
         self.prover_config.configure_proving_backend_with_health_check().await?;
+
         let prover_builder = WorkLogUpdateProver::builder()
             .prover(default_prover())
             .prover_opts(ProverOpts::succinct())
@@ -139,16 +202,25 @@ impl RewardsPreparePoVW {
             let Some(receipt) = state.log_builder_receipts.last() else {
                 bail!("State contains non-empty work log and no log builder receipts")
             };
+            println!("  Initial state: {}", "Existing work log".cyan());
             prover_builder
                 .work_log(state.work_log.clone(), receipt.clone())
                 .context("Failed to build prover with given state")?
         } else {
+            println!("  Initial state: {}", "Empty work log".cyan());
             prover_builder
         };
 
         let mut prover = prover_builder.build().context("Failed to build WorkLogUpdateProver")?;
+        println!("  Status:        {}", "Ready".green().bold());
 
+        let num_receipts = work_receipts.len();
         // Prove the work log update
+        println!("\n{}", "Aggregating PoVW work receipts and generating proof".bold().green());
+        println!("  Receipts:      {}", num_receipts.to_string().cyan());
+        println!("  Status:        {}", "Proving...".yellow());
+        println!("{}", "  (This may take several minutes)".dimmed());
+
         // NOTE: We use tokio block_in_place here to mitigate two issues. One is that when using
         // the Bonsai version of the default prover, tokio may panic with an error about the
         // runtime being dropped. And spawn_blocking cannot be used because VerifierContext,
@@ -157,19 +229,31 @@ impl RewardsPreparePoVW {
             prover.prove_update(work_receipts).context("Failed to prove work log update")
         })?;
 
+        println!("  Status:        {}", "Complete".green().bold());
+
         // Backup before modifying state
+        println!("\n{}", "Saving updated PoVW state file".bold().green());
         if !self.skip_backup {
             save_state_backup(&state, &state_path)?;
+        } else {
+            println!("  Backup:        {} {}", "Skipped".yellow(), "(--skip-backup)".dimmed());
         }
 
         // Update and save the output state
-        state
-            .update_work_log(prover.work_log, prove_info.receipt)
-            .context("Failed to update state")?
-            .save(&state_path)
-            .context("Failed to save state")?;
+        let updated_state = state
+            .update_work_log(prover.work_log.clone(), prove_info.receipt)
+            .context("Failed to update state")?;
 
-        tracing::info!("Updated work log and prepared an update proof");
+        updated_state.save(&state_path).context("Failed to save state")?;
+
+        let new_commit = prover.work_log.commit();
+        println!("  State file:    {}", "Updated".green().bold());
+        println!("  Updated PoVW state file saved to:        {}", state_path.display().to_string().cyan());
+        println!("  New commit:    {}", new_commit.to_string().cyan());
+
+        println!("{} {}", "✓".green().bold(), format!("Successfully prepared PoVW state file update. Added {} new receipts to the work log.", num_receipts).green().bold());
+        println!();
+
         Ok(())
     }
 }
@@ -202,7 +286,7 @@ fn save_state_backup(state: &State, original_path: &Path) -> Result<()> {
     state.save(&backup_path)
         .with_context(|| format!("Failed to save backup to {}", backup_path.display()))?;
 
-    println!("Backup saved to: {}", backup_path.display());
+    println!("  Saved backup of previous state to:        {}", backup_path.display().to_string().dimmed());
 
     Ok(())
 }
@@ -334,9 +418,8 @@ async fn fetch_work_receipts(
         if info_log_id != log_id {
             // Log any unknown log IDs we find, but only once
             if !seen_log_ids.insert(info_log_id) {
-                tracing::warn!("Skipping receipts with log ID {info_log_id:x} in Bento storage");
+                println!("  {} {}", "⚠".yellow(), format!("Skipping receipts associated with Reward Address {info_log_id:x}").dimmed());
             }
-            tracing::debug!("Skipping receipt with key {}; log ID does not match", info.key);
             continue;
         }
 

@@ -17,7 +17,7 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
-use boundless_zkc::{contracts::IRewards, deployments::Deployment};
+use boundless_zkc::{contracts::{IRewards, IZKC}, deployments::Deployment};
 use clap::Args;
 use colored::Colorize;
 
@@ -125,10 +125,16 @@ impl RewardsPower {
         // Query indexer for epoch data
         let client = IndexerClient::new_from_chain_id(chain_id)?;
 
+        // Fetch staking metadata for last updated timestamp
+        let metadata = client.get_staking_metadata().await.ok();
+
+        let zkc = IZKC::new(deployment.zkc_address, &provider);
+        let current_epoch = zkc.getCurrentEpoch().call().await?;
+
         // Get current epoch from indexer (use epoch 0 as fallback to get latest)
         // We just need total staked, not specific epoch data
-        let summary = client.get_epoch_staking(0).await.context(
-            "Failed to fetch epoch data. Try specifying --deployment with chain-id explicitly",
+        let summary = client.get_epoch_staking(current_epoch.to::<u64>()).await.context(
+            "Failed to fetch epoch data.",
         )?;
 
         let total_staked = parse_amount(&summary.total_staked)?;
@@ -140,21 +146,17 @@ impl RewardsPower {
             100.0
         };
 
+        // Get actual staking emissions from the contract for the current epoch
+        let staking_emissions = zkc.getStakingEmissionsForEpoch(current_epoch)
+            .call()
+            .await
+            .context("Failed to fetch staking emissions for current epoch")?;
+
         // Calculate estimates
-        let estimated_epoch_rewards = U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
         let your_estimated_rewards = if total_staked > U256::ZERO {
-            estimated_epoch_rewards * reward_power / total_staked
+            staking_emissions * reward_power / total_staked
         } else {
             U256::ZERO
-        };
-
-        let apy = if reward_power > U256::ZERO {
-            let reward_ratio =
-                (your_estimated_rewards * U256::from(10000) / reward_power).to::<u64>() as f64
-                    / 10000.0;
-            reward_ratio * 52.0 * 100.0
-        } else {
-            0.0
         };
 
         // Calculate PoVW cap
@@ -162,19 +164,31 @@ impl RewardsPower {
 
         // Format values
         let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
+        let total_staked_formatted = crate::format_amount(&format_ether(total_staked));
+        let staking_emissions_formatted = crate::format_amount(&format_ether(staking_emissions));
         let estimated_rewards_formatted = crate::format_amount(&format_ether(your_estimated_rewards));
         let max_povw_formatted = crate::format_amount(&format_ether(max_povw_per_epoch));
 
         // Display results
         println!("\n{} [{}]", "Reward Power".bold(), network_name.blue().bold());
+
+        if let Some(ref meta) = metadata {
+            let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
+            println!("  Data last updated: {}", formatted_time.dimmed());
+        }
+
         println!("  Address: {}", format!("{:#x}", address).dimmed());
         println!();
-        println!("  Reward Power:          {}", reward_power_formatted.yellow().bold());
+        println!("  Your Reward Power:     {}", reward_power_formatted.yellow().bold());
         println!("  Share:                 {:.4}%", share_percentage);
 
-        println!("\n{}", "Estimated Staking Rewards (per epoch)".bold());
+        println!("\n{} (Epoch {})", "Estimated Staking Rewards".bold(), current_epoch);
+        println!("  Total Emissions:       {} ZKC", staking_emissions_formatted.dimmed());
+        println!("  Total Reward Power:    {} ZKC", total_staked_formatted.dimmed());
+        println!("  Your Reward Power:     {} ZKC", reward_power_formatted.dimmed());
+        println!("  × Your Share:          {:.4}%", share_percentage);
+        println!("  ─────────────────────────────────");
         println!("  Est. Rewards:          ~{} {}", estimated_rewards_formatted.green(), "ZKC".green());
-        println!("  Annual Rate:           ~{:.2}%", apy);
 
         println!("\n{}", "Maximum PoVW Rewards".bold());
         println!("  Max PoVW per Epoch:    {} {} {}", max_povw_formatted.yellow().bold(), "ZKC".yellow(), "(reward power / 15)".dimmed());

@@ -177,12 +177,12 @@ enum AccountCommands {
     },
     /// Deposit collateral funds into the market
     DepositCollateral {
-        /// Amount to deposit in HP or USDC based on the chain ID.
+        /// Amount to deposit in ZKC.
         amount: String,
     },
     /// Withdraw collateral funds from the market
     WithdrawCollateral {
-        /// Amount to withdraw in HP or USDC based on the chain ID.
+        /// Amount to withdraw in ZKC.
         amount: String,
     },
     /// Check the collateral balance of an account in the market
@@ -525,18 +525,38 @@ async fn show_welcome_screen() -> Result<()> {
             custom => custom,
         };
 
-        println!(
-            "{} Requestor Module [{}]",
-            "✓".green().bold(),
-            display_network.blue().bold()
-        );
+        // Check env var for requestor private key
+        let env_requestor_pk = std::env::var("REQUESTOR_PRIVATE_KEY").ok();
+        let (requestor_pk, pk_source) = if let Some(ref pk) = env_requestor_pk {
+            (Some(pk.as_str()), "env")
+        } else {
+            (requestor_secrets.and_then(|s| s.private_key.as_deref()), "config")
+        };
 
-        if let Some(req_sec) = requestor_secrets {
-            if let Some(ref pk) = req_sec.private_key {
-                if let Some(addr) = address_from_private_key(pk) {
-                    println!("  Requestor Address: {} (PK: {})", addr.green(), "✓".green());
-                }
+        if let Some(pk) = requestor_pk {
+            println!(
+                "{} Requestor Module [{}]",
+                "✓".green().bold(),
+                display_network.blue().bold()
+            );
+            if let Some(addr) = address_from_private_key(pk) {
+                println!("  Requestor Address: {} (PK: {} {})", addr.green(), "✓".green(), format!("[{}]", pk_source).dimmed());
             }
+        } else if let Some(addr) = requestor_secrets.and_then(|s| s.address.as_deref()) {
+            println!(
+                "{} Requestor Module [{}] {}",
+                "✓".yellow().bold(),
+                display_network.blue().bold(),
+                "(read-only)".yellow()
+            );
+            println!("  Requestor Address: {} (PK: {} {})", addr.green(), "✗".yellow(), "[config]".dimmed());
+        } else {
+            println!(
+                "{} Requestor Module [{}] {}",
+                "✓".yellow().bold(),
+                display_network.blue().bold(),
+                "(read-only)".yellow()
+            );
         }
         println!("  {} {}", "→".cyan(), "Run 'boundless requestor' to see available commands".dimmed());
     } else {
@@ -558,18 +578,38 @@ async fn show_welcome_screen() -> Result<()> {
             custom => custom,
         };
 
-        println!(
-            "{} Prover Module [{}]",
-            "✓".green().bold(),
-            display_network.blue().bold()
-        );
+        // Check env var for prover private key
+        let env_prover_pk = std::env::var("PROVER_PRIVATE_KEY").ok();
+        let (prover_pk, pk_source) = if let Some(ref pk) = env_prover_pk {
+            (Some(pk.as_str()), "env")
+        } else {
+            (prover_secrets.and_then(|s| s.private_key.as_deref()), "config")
+        };
 
-        if let Some(prov_sec) = prover_secrets {
-            if let Some(ref pk) = prov_sec.private_key {
-                if let Some(addr) = address_from_private_key(pk) {
-                    println!("  Prover Address: {} (PK: {})", addr.green(), "✓".green());
-                }
+        if let Some(pk) = prover_pk {
+            println!(
+                "{} Prover Module [{}]",
+                "✓".green().bold(),
+                display_network.blue().bold()
+            );
+            if let Some(addr) = address_from_private_key(pk) {
+                println!("  Prover Address:    {} (PK: {} {})", addr.green(), "✓".green(), format!("[{}]", pk_source).dimmed());
             }
+        } else if let Some(addr) = prover_secrets.and_then(|s| s.address.as_deref()) {
+            println!(
+                "{} Prover Module [{}] {}",
+                "✓".yellow().bold(),
+                display_network.blue().bold(),
+                "(read-only)".yellow()
+            );
+            println!("  Prover Address:    {} (PK: {} {})", addr.green(), "✗".yellow(), "[config]".dimmed());
+        } else {
+            println!(
+                "{} Prover Module [{}] {}",
+                "✓".yellow().bold(),
+                display_network.blue().bold(),
+                "(read-only)".yellow()
+            );
         }
         println!("  {} {}", "→".cyan(), "Run 'boundless prover' to see available commands".dimmed());
     } else {
@@ -689,15 +729,11 @@ async fn show_welcome_screen() -> Result<()> {
 
                     // Display work log stats
                     if !state.work_log.is_empty() {
-                        println!("    Jobs in log:   {}",
+                        println!("    Total PoVW jobs: {}",
                             state.work_log.jobs.len().to_string().cyan());
                     } else {
-                        println!("    Jobs in log:   {}", "0 (empty)".yellow());
+                        println!("    Total PoVW jobs: {}", "0 (empty)".yellow());
                     }
-
-                    // Display number of receipts prepared
-                    println!("    Receipts:      {}",
-                        state.log_builder_receipts.len().to_string().cyan());
 
                     // Display last on-chain submission from update_transactions
                     if !state.update_transactions.is_empty() {
@@ -706,10 +742,9 @@ async fn show_welcome_screen() -> Result<()> {
                             let time_str = state.updated_at.elapsed()
                                 .map(format_duration)
                                 .unwrap_or_else(|_| "unknown".to_string());
-                            let tx_short = format!("{:#x}", tx_hash).chars().take(10).collect::<String>();
                             println!("    Last submitted on-chain: {} (tx: {})",
                                 time_str.dimmed(),
-                                tx_short.cyan());
+                                format!("{:#x}", tx_hash).cyan());
                         }
                     } else {
                         println!("    Last submitted on-chain: {}", "Never submitted".yellow());
@@ -783,24 +818,39 @@ fn show_requestor_status() -> Result<()> {
 
             println!("{} {}", "Network:".bold(), display_network.blue());
 
-            if let Some(ref sec) = secrets {
-                if let Some(requestor_sec) = sec.requestor_networks.get(&requestor.network) {
-                    if let Some(ref rpc) = requestor_sec.rpc_url {
-                        println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
-                    }
-                    if let Some(ref pk) = requestor_sec.private_key {
-                        if let Some(addr) = address_from_private_key(pk) {
-                            println!("{} {}", "Requestor Address:".bold(), addr.green());
-                        }
-                        println!("{} {}", "Private Key:".bold(), "Configured".green());
-                    } else {
-                        println!(
-                            "{} {}",
-                            "Private Key:".bold(),
-                            "Not configured (read-only)".yellow()
-                        );
-                    }
+            // Check env var first, then config
+            let env_requestor_pk = std::env::var("REQUESTOR_PRIVATE_KEY").ok();
+            let requestor_sec = secrets.as_ref().and_then(|s| s.requestor_networks.get(&requestor.network));
+
+            if let Some(ref rpc) = requestor_sec.and_then(|s| s.rpc_url.as_ref()) {
+                println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
+            }
+
+            let (pk, pk_source) = if let Some(ref env_pk) = env_requestor_pk {
+                (Some(env_pk.as_str()), "env")
+            } else {
+                (requestor_sec.and_then(|s| s.private_key.as_deref()), "config")
+            };
+
+            if let Some(pk_str) = pk {
+                if let Some(addr) = address_from_private_key(pk_str) {
+                    println!("{} {}", "Requestor Address:".bold(), addr.green());
                 }
+                println!("{} {} {}", "Private Key:".bold(), "Configured".green(), format!("[{}]", pk_source).dimmed());
+            } else if let Some(addr) = requestor_sec.and_then(|s| s.address.as_deref()) {
+                println!("{} {}", "Requestor Address:".bold(), addr.green());
+                println!(
+                    "{} {} {}",
+                    "Private Key:".bold(),
+                    "Not configured (read-only)".yellow(),
+                    "[config]".dimmed()
+                );
+            } else {
+                println!(
+                    "{} {}",
+                    "Private Key:".bold(),
+                    "Not configured (read-only)".yellow()
+                );
             }
         } else {
             println!("{}", "Not configured - run 'boundless setup requestor'".red());
@@ -813,7 +863,8 @@ fn show_requestor_status() -> Result<()> {
     println!("  {} - Deposit funds into the market", "deposit".cyan());
     println!("  {} - Withdraw funds from the market", "withdraw".cyan());
     println!("  {} - Check your deposited balance", "balance".cyan());
-    println!("  {} - Submit a new proof request", "submit-offer".cyan());
+    println!("  {} - Submit a new proof request", "submit".cyan());
+    println!("  {} - Submit a proof request from a YAML file", "submit-file".cyan());
     println!("  {} - Check status of a request", "status".cyan());
     println!("  {} - Get proof for a fulfilled request", "get-proof".cyan());
     println!("  {} - Verify a proof", "verify-proof".cyan());
@@ -847,24 +898,39 @@ fn show_prover_status() -> Result<()> {
 
             println!("{} {}", "Network:".bold(), display_network.blue());
 
-            if let Some(ref sec) = secrets {
-                if let Some(prover_sec) = sec.prover_networks.get(&prover.network) {
-                    if let Some(ref rpc) = prover_sec.rpc_url {
-                        println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
-                    }
-                    if let Some(ref pk) = prover_sec.private_key {
-                        if let Some(addr) = address_from_private_key(pk) {
-                            println!("{} {}", "Prover Address:".bold(), addr.green());
-                        }
-                        println!("{} {}", "Private Key:".bold(), "Configured".green());
-                    } else {
-                        println!(
-                            "{} {}",
-                            "Private Key:".bold(),
-                            "Not configured (read-only)".yellow()
-                        );
-                    }
+            // Check env var first, then config
+            let env_prover_pk = std::env::var("PROVER_PRIVATE_KEY").ok();
+            let prover_sec = secrets.as_ref().and_then(|s| s.prover_networks.get(&prover.network));
+
+            if let Some(ref rpc) = prover_sec.and_then(|s| s.rpc_url.as_ref()) {
+                println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
+            }
+
+            let (pk, pk_source) = if let Some(ref env_pk) = env_prover_pk {
+                (Some(env_pk.as_str()), "env")
+            } else {
+                (prover_sec.and_then(|s| s.private_key.as_deref()), "config")
+            };
+
+            if let Some(pk_str) = pk {
+                if let Some(addr) = address_from_private_key(pk_str) {
+                    println!("{} {}", "Prover Address:".bold(), addr.green());
                 }
+                println!("{} {} {}", "Private Key:".bold(), "Configured".green(), format!("[{}]", pk_source).dimmed());
+            } else if let Some(addr) = prover_sec.and_then(|s| s.address.as_deref()) {
+                println!("{} {}", "Prover Address:".bold(), addr.green());
+                println!(
+                    "{} {} {}",
+                    "Private Key:".bold(),
+                    "Not configured (read-only)".yellow(),
+                    "[config]".dimmed()
+                );
+            } else {
+                println!(
+                    "{} {}",
+                    "Private Key:".bold(),
+                    "Not configured (read-only)".yellow()
+                );
             }
         } else {
             println!("{}", "Not configured - run 'boundless setup prover'".red());
@@ -973,16 +1039,11 @@ async fn show_rewards_status() -> Result<()> {
                                 // Display work log stats
                                 if !state.work_log.is_empty() {
                                     println!("  {} {}",
-                                        "Jobs in log:".bold(),
+                                        "Total PoVW jobs:".bold(),
                                         state.work_log.jobs.len().to_string().cyan());
                                 } else {
-                                    println!("  {} {}", "Jobs in log:".bold(), "0 (empty)".yellow());
+                                    println!("  {} {}", "Total PoVW jobs:".bold(), "0 (empty)".yellow());
                                 }
-
-                                // Display number of receipts prepared
-                                println!("  {} {}",
-                                    "Receipts:".bold(),
-                                    state.log_builder_receipts.len().to_string().cyan());
 
                                 // Display last on-chain submission from update_transactions
                                 if !state.update_transactions.is_empty() {
@@ -990,11 +1051,10 @@ async fn show_rewards_status() -> Result<()> {
                                         let time_str = state.updated_at.elapsed()
                                             .map(format_duration)
                                             .unwrap_or_else(|_| "unknown".to_string());
-                                        let tx_short = format!("{:#x}", tx_hash).chars().take(10).collect::<String>();
                                         println!("  {} {} (tx: {})",
                                             "Last submitted on-chain:".bold(),
                                             time_str.dimmed(),
-                                            tx_short.cyan());
+                                            format!("{:#x}", tx_hash).cyan());
                                     }
                                 } else {
                                     println!("  {} {}", "Last submitted on-chain:".bold(), "Never submitted".yellow());
@@ -1043,6 +1103,7 @@ async fn show_rewards_status() -> Result<()> {
     println!("  {} - Claim staking rewards", "claim-staking-rewards".cyan());
     println!("  {} - List staking rewards by epoch", "list-staking-rewards".cyan());
     println!("  {} - List PoVW rewards by epoch", "list-povw-rewards".cyan());
+    println!("  {} - Inspect PoVW state file", "inspect-povw-state".cyan());
     println!("  {} - Delegate rewards to another address", "delegate".cyan());
     println!("  {} - Get current epoch information", "epoch".cyan());
     println!("  {} - Check reward power and earning potential", "power".cyan());
@@ -1050,7 +1111,7 @@ async fn show_rewards_status() -> Result<()> {
     println!(
         "\n💡 {} {}",
         "Tip:".bold(),
-        "Try 'boundless rewards balance-zkc --help' to check your ZKC balance".dimmed()
+        "Try 'boundless rewards submit-povw --dry-run' to estimate the rewards you will receive for submitting PoVW work updates".dimmed()
     );
 
     Ok(())
@@ -1283,7 +1344,7 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             let balance = client.boundless_market.balance_of_collateral(addr).await?;
             let balance = format_units(balance, decimals)
                 .map_err(|e| anyhow!("Failed to format collateral balance: {}", e))?;
-            tracing::info!("Stake balance for address {}: {} {}", addr, balance, symbol);
+            tracing::info!("Collateral balance for address {}: {} {}", addr, balance, symbol);
             Ok(())
         }
     }
@@ -2355,7 +2416,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_deposit_withdraw_stake() {
+    async fn test_deposit_withdraw_collateral() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Prover).await;
 
         let mut args = MainArgs {
@@ -2388,7 +2449,7 @@ mod tests {
             ctx.prover_signer.address()
         )));
         assert!(logs_contain(&format!(
-            "Stake balance for address {}: {} HP",
+            "Collateral balance for address {}: {} HP",
             ctx.prover_signer.address(),
             format_units(default_allowance(), "ether").unwrap()
         )));
@@ -2439,7 +2500,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_fail_deposit_withdraw_stake() {
+    async fn test_fail_deposit_withdraw_collateral() {
         let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
 
         let mut args = MainArgs {

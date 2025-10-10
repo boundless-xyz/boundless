@@ -43,6 +43,10 @@ pub struct SetupInteractive {
     /// Private key for transactions (will be stored in ~/.boundless/secrets.toml)
     #[arg(long = "set-private-key")]
     pub private_key: Option<String>,
+
+    /// Update only the PoVW state file path (rewards module only)
+    #[arg(long = "state-file")]
+    pub state_file: Option<String>,
 }
 
 impl SetupInteractive {
@@ -191,10 +195,10 @@ impl SetupInteractive {
                 .prompt()?
         };
 
-        let private_key = if let Some(ref pk) = self.private_key {
+        let (private_key, address) = if let Some(ref pk) = self.private_key {
             let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
             println!("✓ Using provided private key");
-            Some(pk)
+            (Some(pk), None)
         } else {
             let private_key_prompt = Confirm::new("Do you want to store a private key?")
                 .with_default(false)
@@ -208,10 +212,24 @@ impl SetupInteractive {
                     .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
                     .prompt()?;
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
-                Some(pk)
+                (Some(pk), None)
             } else {
                 println!("\n✓ You can set REQUESTOR_PRIVATE_KEY environment variable later for write operations");
-                None
+
+                // Ask if they want to provide an address for read-only mode
+                let address_prompt = Confirm::new("Do you want to store an address for read-only mode?")
+                    .with_default(true)
+                    .with_help_message("Allows you to monitor a requestor address without the private key")
+                    .prompt()?;
+
+                if address_prompt {
+                    let addr = Text::new("Enter requestor address:")
+                        .with_help_message("e.g., 0x1234...")
+                        .prompt()?;
+                    (None, Some(addr))
+                } else {
+                    (None, None)
+                }
             }
         };
 
@@ -220,6 +238,7 @@ impl SetupInteractive {
             RequestorSecrets {
                 rpc_url: Some(rpc_url),
                 private_key,
+                address,
             },
         );
 
@@ -286,10 +305,10 @@ impl SetupInteractive {
                 .prompt()?
         };
 
-        let private_key = if let Some(ref pk) = self.private_key {
+        let (private_key, address) = if let Some(ref pk) = self.private_key {
             let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
             println!("✓ Using provided private key");
-            Some(pk)
+            (Some(pk), None)
         } else {
             let private_key_prompt = Confirm::new("Do you want to store a private key?")
                 .with_default(false)
@@ -303,10 +322,24 @@ impl SetupInteractive {
                     .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
                     .prompt()?;
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
-                Some(pk)
+                (Some(pk), None)
             } else {
                 println!("\n✓ You can set PROVER_PRIVATE_KEY environment variable later for write operations");
-                None
+
+                // Ask if they want to provide an address for read-only mode
+                let address_prompt = Confirm::new("Do you want to store an address for read-only mode?")
+                    .with_default(true)
+                    .with_help_message("Allows you to monitor a prover address without the private key")
+                    .prompt()?;
+
+                if address_prompt {
+                    let addr = Text::new("Enter prover address:")
+                        .with_help_message("e.g., 0x1234...")
+                        .prompt()?;
+                    (None, Some(addr))
+                } else {
+                    (None, None)
+                }
             }
         };
 
@@ -315,6 +348,7 @@ impl SetupInteractive {
             ProverSecrets {
                 rpc_url: Some(rpc_url),
                 private_key,
+                address,
             },
         );
 
@@ -325,7 +359,7 @@ impl SetupInteractive {
         if secret.len() <= 8 {
             "****".to_string()
         } else {
-            format!("{}...{}", &secret[..4], &secret[secret.len() - 4..])
+            format!("{}...{}", &secret[..3], &secret[secret.len() - 3..])
         }
     }
 
@@ -334,13 +368,114 @@ impl SetupInteractive {
             .enumerate()
             .map(|(i, part)| {
                 if i >= 3 && part.len() > 10 {
-                    format!("{}...", &part[..6])
+                    format!("{}...", &part[..3])
                 } else {
                     part.to_string()
                 }
             })
             .collect::<Vec<_>>()
             .join("/")
+    }
+
+    async fn update_state_file_only(
+        &self,
+        secrets: &mut Secrets,
+        network_name: &str,
+        new_state_file_path: &str,
+    ) -> Result<()> {
+        // Get existing rewards config for this network
+        let existing = secrets.rewards_networks.get_mut(network_name)
+            .with_context(|| format!(
+                "No existing rewards configuration found for network: {}\n\n\
+                Please run 'boundless setup rewards' first to configure the rewards module.",
+                network_name
+            ))?;
+
+        // Expand ~ to home directory
+        let expanded_path = if new_state_file_path.starts_with("~/") {
+            let home = dirs::home_dir().context("Failed to get home directory")?;
+            home.join(new_state_file_path.strip_prefix("~/").unwrap()).display().to_string()
+        } else {
+            new_state_file_path.to_string()
+        };
+
+        // Get absolute path for display
+        let abs_path = std::fs::canonicalize(&expanded_path)
+            .unwrap_or_else(|_| {
+                std::env::current_dir()
+                    .map(|cwd| cwd.join(&expanded_path))
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&expanded_path))
+            });
+
+        // Check if state file exists
+        let file_exists = std::path::Path::new(&expanded_path).exists();
+
+        if !file_exists {
+            // Create new state file
+            let reward_addr = existing.reward_address.as_ref()
+                .context("Cannot create state file: no reward address configured.\n\nPlease run 'boundless setup rewards' first.")?;
+
+            let log_id = reward_addr.parse::<PovwLogId>()
+                .context("Failed to parse reward address as PoVW log ID")?;
+
+            // Create parent directory if it doesn't exist
+            if let Some(parent) = std::path::Path::new(&expanded_path).parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+            }
+
+            // Create and save empty state file
+            let empty_state = State::new(log_id);
+            empty_state.save(&expanded_path)
+                .with_context(|| format!("Failed to create state file: {}", abs_path.display()))?;
+
+            println!("\n✓ Created new PoVW state file at: {}", abs_path.display().to_string().cyan());
+            println!("  Log ID: {:x}", log_id);
+            println!("  Remember to back this up regularly!");
+        } else {
+            // Validate existing state file's log_id matches the reward address
+            if let Some(ref reward_addr) = existing.reward_address {
+                print!("Validating state file matches reward address... ");
+                std::io::stdout().flush()?;
+
+                match State::load(&expanded_path).await {
+                    Ok(state) => {
+                        let reward_log_id = reward_addr.parse::<PovwLogId>()
+                            .context("Failed to parse reward address as PoVW log ID")?;
+
+                        if state.log_id != reward_log_id {
+                            println!("{}", "✗".red());
+                            bail!(
+                                "PoVW state file log ID mismatch!\n\n\
+                                State file log ID: {:x}\n\
+                                Reward address:    {}\n\n\
+                                Each reward address must have its own unique state file.",
+                                state.log_id,
+                                reward_addr
+                            );
+                        }
+                        println!("{}", "✓".green());
+                    }
+                    Err(e) => {
+                        println!("{}", "✗".red());
+                        bail!("Failed to load state file: {}\n\nPlease check the file is a valid PoVW state file.", e);
+                    }
+                }
+            }
+
+            println!("\n✓ State file validated successfully");
+        }
+
+        // Update the state file path
+        existing.povw_state_file = Some(expanded_path.clone());
+
+        if !file_exists {
+            // Already printed message about creating new file
+        } else {
+            println!("  Updated PoVW state file path to: {}", expanded_path.cyan());
+        }
+
+        Ok(())
     }
 
     fn setup_custom_market() -> Result<CustomMarketDeployment> {
@@ -437,6 +572,11 @@ impl SetupInteractive {
 
         config.rewards = Some(RewardsConfig { network: network_name.clone() });
 
+        // If --state-file is provided, do a quick update and return
+        if let Some(ref new_state_file) = self.state_file {
+            return self.update_state_file_only(secrets, &network_name, new_state_file).await;
+        }
+
         // Check if we have previous configuration for this network
         if let Some(existing) = secrets.rewards_networks.get(&network_name) {
             if self.rpc_url.is_none() && self.private_key.is_none() {
@@ -449,6 +589,12 @@ impl SetupInteractive {
                 }
                 if let Some(ref addr) = existing.reward_address {
                     println!("  Reward Address: {}", addr);
+                }
+                if let Some(ref path) = existing.povw_state_file {
+                    println!("  PoVW State File: {}", path.cyan());
+                }
+                if let Some(ref beacon) = existing.beacon_api_url {
+                    println!("  Beacon API URL: {}", Self::obscure_url(beacon));
                 }
 
                 let use_previous = Confirm::new("Use previous configuration?")

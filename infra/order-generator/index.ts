@@ -110,7 +110,7 @@ export = () => {
   });
 
   const offchainConfig = new pulumi.Config("order-generator-offchain");
-  const autoDeposit = offchainConfig.require('AUTO_DEPOSIT');
+  const offchainAutoDeposit = offchainConfig.get('AUTO_DEPOSIT');
   const offchainWarnBalanceBelow = offchainConfig.get('WARN_BALANCE_BELOW');
   const offchainErrorBalanceBelow = offchainConfig.get('ERROR_BALANCE_BELOW');
   const offchainPrivateKey = isDev ? pulumi.output(getEnvVar("OFFCHAIN_PRIVATE_KEY")) : offchainConfig.requireSecret('PRIVATE_KEY');
@@ -119,6 +119,7 @@ export = () => {
   const offchainLockTimeout = offchainConfig.get('LOCK_TIMEOUT');
   const offchainTimeout = offchainConfig.get('TIMEOUT');
   const offchainSecondsPerMCycle = offchainConfig.get('SECONDS_PER_MCYCLE');
+  const offchainRampUpSecondsPerMCycle = offchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const offchainInterval = offchainConfig.get('INTERVAL');
   const offchainExecRateKhz = offchainConfig.get('EXEC_RATE_KHZ');
   new OrderGenerator('offchain', {
@@ -127,10 +128,10 @@ export = () => {
     privateKey: offchainPrivateKey,
     pinataJWT,
     ethRpcUrl,
+    autoDeposit: offchainAutoDeposit,
     warnBalanceBelow: offchainWarnBalanceBelow,
     errorBalanceBelow: offchainErrorBalanceBelow,
     offchainConfig: {
-      autoDeposit,
       orderStreamUrl,
     },
     image,
@@ -148,6 +149,7 @@ export = () => {
     txTimeout,
     inputMaxMCycles: offchainInputMaxMCycles,
     rampUp: offchainRampUp,
+    rampUpSecondsPerMCycle: offchainRampUpSecondsPerMCycle,
     lockTimeout: offchainLockTimeout,
     timeout: offchainTimeout,
     secondsPerMCycle: offchainSecondsPerMCycle,
@@ -155,6 +157,7 @@ export = () => {
   });
 
   const onchainConfig = new pulumi.Config("order-generator-onchain");
+  const onchainAutoDeposit = onchainConfig.get('AUTO_DEPOSIT');
   const onchainWarnBalanceBelow = onchainConfig.get('WARN_BALANCE_BELOW');
   const onchainErrorBalanceBelow = onchainConfig.get('ERROR_BALANCE_BELOW');
   const onchainPrivateKey = isDev ? pulumi.output(getEnvVar("ONCHAIN_PRIVATE_KEY")) : onchainConfig.requireSecret('PRIVATE_KEY');
@@ -163,11 +166,13 @@ export = () => {
   const onchainLockTimeout = onchainConfig.get('LOCK_TIMEOUT');
   const onchainTimeout = onchainConfig.get('TIMEOUT');
   const onchainSecondsPerMCycle = onchainConfig.get('SECONDS_PER_MCYCLE');
+  const onchainRampUpSecondsPerMCycle = onchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const onchainInterval = onchainConfig.get('INTERVAL');
   const onchainExecRateKhz = onchainConfig.get('EXEC_RATE_KHZ');
   new OrderGenerator('onchain', {
     chainId,
     stackName,
+    autoDeposit: onchainAutoDeposit,
     warnBalanceBelow: onchainWarnBalanceBelow,
     errorBalanceBelow: onchainErrorBalanceBelow,
     privateKey: onchainPrivateKey,
@@ -185,6 +190,7 @@ export = () => {
     minPricePerMCycle,
     maxPricePerMCycle,
     secondsPerMCycle: onchainSecondsPerMCycle,
+    rampUpSecondsPerMCycle: onchainRampUpSecondsPerMCycle,
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArns: alertsTopicArns,
