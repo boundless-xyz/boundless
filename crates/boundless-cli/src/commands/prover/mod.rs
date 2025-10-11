@@ -32,7 +32,7 @@ pub use withdraw_collateral::ProverWithdrawCollateral;
 
 use clap::Subcommand;
 
-use crate::config::GlobalConfig;
+use crate::{commands::setup::SetupInteractive, config::GlobalConfig};
 
 /// Commands for provers
 #[derive(Subcommand, Clone, Debug)]
@@ -57,6 +57,8 @@ pub enum ProverCommands {
     Execute(ProverExecute),
     /// Benchmark proof requests
     Benchmark(ProverBenchmark),
+    /// Interactive setup wizard for prover configuration
+    Setup(SetupInteractive),
 }
 
 impl ProverCommands {
@@ -72,6 +74,7 @@ impl ProverCommands {
             Self::Fulfill(cmd) => cmd.run(global_config).await,
             Self::Execute(cmd) => cmd.run(global_config).await,
             Self::Benchmark(cmd) => cmd.run(global_config).await,
+            Self::Setup(cmd) => cmd.run_module(global_config, "prover").await,
         }
     }
 }

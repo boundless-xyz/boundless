@@ -446,25 +446,9 @@ impl RewardsConfig {
     }
 }
 
-/// Configuration options for commands that utilize proving.
+/// Configuration for the proving backend (Bento cluster or local prover)
 #[derive(Args, Debug, Clone)]
-pub struct ProverConfig {
-    /// RPC URL for the prover network
-    #[clap(long = "prover-rpc-url", env = "PROVER_RPC_URL")]
-    pub prover_rpc_url: Option<Url>,
-
-    /// Private key for prover transactions
-    #[clap(long = "prover-private-key", env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
-    pub private_key: Option<PrivateKeySigner>,
-
-    /// Prover address (for read-only mode when no private key is configured)
-    #[clap(skip)]
-    pub prover_address: Option<alloy::primitives::Address>,
-
-    /// Configuration for the Boundless deployment to use.
-    #[clap(flatten, next_help_heading = "Boundless Deployment")]
-    pub deployment: Option<Deployment>,
-
+pub struct ProvingBackendConfig {
     /// Bento API URL
     ///
     /// URL at which your Bento cluster is running.
@@ -495,6 +479,77 @@ pub struct ProverConfig {
 }
 
 const DEFAULT_BENTO_API_URL: &str = "http://localhost:8081";
+
+impl ProvingBackendConfig {
+    /// Sets environment variables BONSAI_API_URL and BONSAI_API_KEY that are
+    /// read by `default_prover()` when constructing the prover.
+    pub fn configure_proving_backend(&self) {
+        if self.use_default_prover {
+            tracing::info!(
+                "Using default prover behavior (respects RISC0_PROVER, RISC0_DEV_MODE, etc.)"
+            );
+            return;
+        }
+
+        std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
+        if let Some(ref api_key) = self.bento_api_key {
+            std::env::set_var("BONSAI_API_KEY", api_key);
+        } else {
+            tracing::debug!("No API key provided. Setting BONSAI_API_KEY to reserved:50");
+            std::env::set_var("BONSAI_API_KEY", "v1:reserved:50");
+        }
+    }
+
+    /// Sets environment variables to configure the prover and runs a health check.
+    pub async fn configure_proving_backend_with_health_check(&self) -> Result<()> {
+        self.configure_proving_backend();
+
+        if self.use_default_prover || self.skip_health_check || ProverOpts::default().dev_mode() {
+            return Ok(());
+        }
+
+        let using_default_url = self.bento_api_url == DEFAULT_BENTO_API_URL;
+
+        let bento_url = Url::parse(&self.bento_api_url)
+            .with_context(|| format!("Failed to parse Bento API URL: {}", self.bento_api_url))?;
+        let health_check_url = bento_url.join("health")?;
+        println!("  Using Bento prover at {}. Checking health...", health_check_url);
+        reqwest::get(health_check_url.clone())
+            .await
+            .with_context(|| match using_default_url {
+                true => format!("Failed to send health check request to {health_check_url}; You can set --use-default-prover to use a local prover"),
+                false => format!("Failed to send health check request to {health_check_url}"),
+            })?
+            .error_for_status()
+            .context("Bento health check endpoint returned error status")?;
+        println!("  Health check passed");
+        Ok(())
+    }
+}
+
+/// Configuration options for commands that utilize proving.
+#[derive(Args, Debug, Clone)]
+pub struct ProverConfig {
+    /// RPC URL for the prover network
+    #[clap(long = "prover-rpc-url", env = "PROVER_RPC_URL")]
+    pub prover_rpc_url: Option<Url>,
+
+    /// Private key for prover transactions
+    #[clap(long = "prover-private-key", env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
+    pub private_key: Option<PrivateKeySigner>,
+
+    /// Prover address (for read-only mode when no private key is configured)
+    #[clap(skip)]
+    pub prover_address: Option<alloy::primitives::Address>,
+
+    /// Configuration for the Boundless deployment to use.
+    #[clap(flatten, next_help_heading = "Boundless Deployment")]
+    pub deployment: Option<Deployment>,
+
+    /// Proving backend configuration
+    #[clap(flatten, next_help_heading = "Proving Backend")]
+    pub proving_backend: ProvingBackendConfig,
+}
 
 impl ProverConfig {
     /// Load configuration from prover config files
@@ -585,15 +640,15 @@ impl ProverConfig {
         }
 
         // Backward compatibility: check for BONSAI_* env vars if BENTO_* not set
-        if self.bento_api_url == DEFAULT_BENTO_API_URL {
+        if self.proving_backend.bento_api_url == DEFAULT_BENTO_API_URL {
             if let Ok(bonsai_url) = std::env::var("BONSAI_API_URL") {
-                self.bento_api_url = bonsai_url;
+                self.proving_backend.bento_api_url = bonsai_url;
             }
         }
 
-        if self.bento_api_key.is_none() {
+        if self.proving_backend.bento_api_key.is_none() {
             if let Ok(bonsai_key) = std::env::var("BONSAI_API_KEY") {
-                self.bento_api_key = Some(bonsai_key);
+                self.proving_backend.bento_api_key = Some(bonsai_key);
             }
         }
 
@@ -634,48 +689,11 @@ impl ProverConfig {
     /// Sets environment variables BONSAI_API_URL and BONSAI_API_KEY that are
     /// read by `default_prover()` when constructing the prover.
     pub fn configure_proving_backend(&self) {
-        if self.use_default_prover {
-            tracing::info!(
-                "Using default prover behavior (respects RISC0_PROVER, RISC0_DEV_MODE, etc.)"
-            );
-            return;
-        }
-
-        // Set BONSAI_* env vars for risc0 SDK compatibility
-        std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
-        if let Some(ref api_key) = self.bento_api_key {
-            std::env::set_var("BONSAI_API_KEY", api_key);
-        } else {
-            tracing::debug!("No API key provided. Setting BONSAI_API_KEY to reserved:50");
-            std::env::set_var("BONSAI_API_KEY", "v1:reserved:50");
-        }
+        self.proving_backend.configure_proving_backend()
     }
 
     /// Sets environment variables to configure the prover and runs a health check.
-    pub async fn configure_proving_backend_with_health_check(&self) -> anyhow::Result<()> {
-        self.configure_proving_backend();
-
-        // No health check is implemented for default prover. If dev mode is set, then we are going
-        // to use the dev mode prover anyway, so don't run the health check.
-        if self.use_default_prover || self.skip_health_check || ProverOpts::default().dev_mode() {
-            return Ok(());
-        }
-
-        let using_default_url = self.bento_api_url == DEFAULT_BENTO_API_URL;
-
-        let bento_url = Url::parse(&self.bento_api_url)
-            .with_context(|| format!("Failed to parse Bento API URL: {}", self.bento_api_url))?;
-        let health_check_url = bento_url.join("health")?;
-        println!("  Using Bento prover at {}. Checking health...", health_check_url);
-        reqwest::get(health_check_url.clone())
-            .await
-            .with_context(|| match using_default_url {
-                true => format!("Failed to send health check request to {health_check_url}; You can set --use-default-prover to use a local prover"),
-                false => format!("Failed to send health check request to {health_check_url}"),
-            })?
-            .error_for_status()
-            .context("Bento health check endpoint returned error status")?;
-        println!("  Health check passed");
-        Ok(())
+    pub async fn configure_proving_backend_with_health_check(&self) -> Result<()> {
+        self.proving_backend.configure_proving_backend_with_health_check().await
     }
 }

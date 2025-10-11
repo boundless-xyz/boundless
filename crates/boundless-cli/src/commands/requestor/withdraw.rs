@@ -52,3 +52,45 @@ impl RequestorWithdraw {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[path = "../../../../tests/common/mod.rs"]
+    mod common;
+
+    use common::TestContext;
+    use predicates::str::contains;
+
+    #[tokio::test]
+    async fn test_withdraw_help() {
+        common::BoundlessCmd::new("requestor", "withdraw")
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(contains("Usage:"))
+            .stdout(contains("withdraw"));
+    }
+
+    #[tokio::test]
+    async fn test_withdraw_without_amount() {
+        let ctx = TestContext::base().await;
+        let account = ctx.account(0);
+
+        ctx.cmd("requestor", "withdraw").with_account(&account).assert().failure();
+    }
+
+    #[tokio::test]
+    async fn test_withdraw_dry_run() {
+        let ctx = TestContext::base().await;
+        let account = ctx.account(0);
+
+        ctx.cmd("requestor", "withdraw")
+            .arg("--amount")
+            .arg("0.01")
+            .arg("--dry-run")
+            .with_account(&account)
+            .assert()
+            .success()
+            .stdout(contains("Dry run"));
+    }
+}

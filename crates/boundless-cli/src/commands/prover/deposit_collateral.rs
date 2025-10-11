@@ -145,3 +145,21 @@ impl ProverDepositCollateral {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[path = "../../../../tests/common/mod.rs"]
+    mod common;
+
+    use predicates::str::contains;
+
+    #[tokio::test]
+    async fn test_deposit_collateral_help() {
+        common::BoundlessCmd::new("prover", "deposit-collateral")
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(contains("Usage:"))
+            .stdout(contains("deposit-collateral"));
+    }
+}

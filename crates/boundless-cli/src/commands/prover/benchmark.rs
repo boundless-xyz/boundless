@@ -47,12 +47,12 @@ impl ProverBenchmark {
         display.header("Benchmarking Proof Requests");
         display.item_colored("Total requests", self.request_ids.len(), "cyan");
 
-        if self.prover_config.use_default_prover {
+        if self.prover_config.proving_backend.use_default_prover {
             bail!("benchmark command does not support using the default prover");
         }
 
         display.status("Status", "Configuring prover backend", "yellow");
-        self.prover_config.configure_proving_backend();
+        self.prover_config.proving_backend.configure_proving_backend();
         let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
 
         // Track performance metrics across all runs

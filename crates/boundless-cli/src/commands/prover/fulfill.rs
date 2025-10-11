@@ -80,7 +80,7 @@ impl ProverFulfill {
         display.status("Status", "Configuring prover", "yellow");
 
         // Configure proving backend (defaults to bento like benchmark command)
-        self.prover_config.configure_proving_backend_with_health_check().await?;
+        self.prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
 
         display.status("Status", "Fetching programs", "yellow");
         let (_, market_url) = client.boundless_market.image_info().await?;

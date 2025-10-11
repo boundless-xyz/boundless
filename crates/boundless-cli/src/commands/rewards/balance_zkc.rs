@@ -142,3 +142,45 @@ impl RewardsBalanceZkc {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[path = "../../../../tests/common/mod.rs"]
+    mod common;
+
+    use common::TestContext;
+    use predicates::str::contains;
+
+    #[tokio::test]
+    async fn test_balance_zkc_with_address() {
+        let ctx = TestContext::ethereum().await;
+        let account = ctx.account(0);
+
+        ctx.cmd("rewards", "balance-zkc")
+            .arg(&account.address)
+            .assert()
+            .success()
+            .stdout(contains("ZKC balance"));
+    }
+
+    #[tokio::test]
+    async fn test_balance_zkc_zero_address() {
+        let ctx = TestContext::ethereum().await;
+
+        ctx.cmd("rewards", "balance-zkc")
+            .arg("0x0000000000000000000000000000000000000000")
+            .assert()
+            .success()
+            .stdout(contains("ZKC balance"));
+    }
+
+    #[tokio::test]
+    async fn test_balance_zkc_help() {
+        common::BoundlessCmd::new("rewards", "balance-zkc")
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(contains("Usage:"))
+            .stdout(contains("balance-zkc"));
+    }
+}

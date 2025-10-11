@@ -173,7 +173,7 @@ impl PovwSubmit {
         let receipts_for_update = state.log_builder_receipts[matching_receipt_index..].to_vec();
         display.item("Updates to Submit", receipts_for_update.len());
 
-        self.prover_config.configure_proving_backend_with_health_check().await?;
+        self.prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
         for (idx, receipt) in receipts_for_update.iter().enumerate() {
             if receipts_for_update.len() > 1 {
                 display.separator();

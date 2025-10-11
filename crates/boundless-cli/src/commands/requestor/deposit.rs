@@ -52,3 +52,45 @@ impl RequestorDeposit {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[path = "../../../../tests/common/mod.rs"]
+    mod common;
+
+    use common::TestContext;
+    use predicates::str::contains;
+
+    #[tokio::test]
+    async fn test_deposit_help() {
+        common::BoundlessCmd::new("requestor", "deposit")
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(contains("Usage:"))
+            .stdout(contains("deposit"));
+    }
+
+    #[tokio::test]
+    async fn test_deposit_without_amount() {
+        let ctx = TestContext::base().await;
+        let account = ctx.account(0);
+
+        ctx.cmd("requestor", "deposit").with_account(&account).assert().failure();
+    }
+
+    #[tokio::test]
+    async fn test_deposit_dry_run() {
+        let ctx = TestContext::base().await;
+        let account = ctx.account(0);
+
+        ctx.cmd("requestor", "deposit")
+            .arg("--amount")
+            .arg("0.01")
+            .arg("--dry-run")
+            .with_account(&account)
+            .assert()
+            .success()
+            .stdout(contains("Dry run"));
+    }
+}

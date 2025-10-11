@@ -16,12 +16,10 @@
 
 mod clear;
 mod completions;
-mod config;
 mod interactive;
 
 pub use clear::SetupClear;
 pub use completions::SetupCompletions;
-pub use config::SetupConfig;
 pub use interactive::SetupInteractive;
 
 use clap::Subcommand;
@@ -31,16 +29,6 @@ use crate::config::GlobalConfig;
 /// Commands for setup and configuration
 #[derive(Subcommand, Clone, Debug)]
 pub enum SetupCommands {
-    /// Interactive setup wizard for all modules
-    All(SetupInteractive),
-    /// Configure the Requestor module
-    Requestor(SetupInteractive),
-    /// Configure the Prover module
-    Prover(SetupInteractive),
-    /// Configure the Rewards module
-    Rewards(SetupInteractive),
-    /// Display configuration and environment variables
-    Config(SetupConfig),
     /// Print shell completions to stdout
     Completions(SetupCompletions),
     /// Clear all CLI configuration
@@ -51,11 +39,6 @@ impl SetupCommands {
     /// Run the command
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         match self {
-            Self::All(cmd) => cmd.run(global_config).await,
-            Self::Requestor(cmd) => cmd.run_module(global_config, "requestor").await,
-            Self::Prover(cmd) => cmd.run_module(global_config, "prover").await,
-            Self::Rewards(cmd) => cmd.run_module(global_config, "rewards").await,
-            Self::Config(cmd) => cmd.run(global_config).await,
             Self::Completions(cmd) => cmd.run(),
             Self::Clear(cmd) => cmd.run(global_config).await,
         }

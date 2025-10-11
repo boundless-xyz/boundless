@@ -86,3 +86,21 @@ impl ProverWithdrawCollateral {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[path = "../../../../tests/common/mod.rs"]
+    mod common;
+
+    use predicates::str::contains;
+
+    #[tokio::test]
+    async fn test_withdraw_collateral_help() {
+        common::BoundlessCmd::new("prover", "withdraw-collateral")
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(contains("Usage:"))
+            .stdout(contains("withdraw-collateral"));
+    }
+}

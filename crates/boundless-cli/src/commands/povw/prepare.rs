@@ -96,7 +96,7 @@ impl PovwPrepare {
             // Load the work receipts from Bento.
             let bento_url = match self.from_bento_url.clone() {
                 Some(bento_url) => bento_url,
-                None => Url::parse(&self.prover_config.bento_api_url)
+                None => Url::parse(&self.prover_config.proving_backend.bento_api_url)
                     .context("Failed to parse Bento API URL")?,
             };
             fetch_work_receipts(state.log_id, &state.work_log, &bento_url)
@@ -139,7 +139,7 @@ impl PovwPrepare {
         display.item("Receipts Loaded", work_receipts.len());
 
         // Set up the work log update prover
-        self.prover_config.configure_proving_backend_with_health_check().await?;
+        self.prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
         let prover_builder = WorkLogUpdateProver::builder()
             .prover(default_prover())
             .prover_opts(ProverOpts::succinct())

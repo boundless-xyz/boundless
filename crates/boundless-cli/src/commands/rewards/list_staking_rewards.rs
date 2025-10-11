@@ -24,14 +24,16 @@ use std::collections::HashMap;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
+    display::DisplayManager,
     indexer_client::{parse_amount, IndexerClient},
 };
 
 /// List historical staking rewards for an address
 #[derive(Args, Clone, Debug)]
 pub struct RewardsListStakingRewards {
-    /// Address to query rewards for
-    pub address: Address,
+    /// Address to query rewards for (defaults to configured reward address)
+    #[clap(long)]
+    pub address: Option<Address>,
 
     /// Start epoch (optional)
     #[clap(long)]
@@ -52,8 +54,13 @@ pub struct RewardsListStakingRewards {
 
 impl RewardsListStakingRewards {
     /// Run the list-staking-rewards command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+    pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
+
+        // Use provided address or default to reward address from config
+        let address = self.address.or(rewards_config.reward_address)
+            .context("No address provided.\n\nTo configure: run 'boundless setup rewards'\nOr provide --address <ADDRESS>")?;
+
         let rpc_url = rewards_config.require_rpc_url()?;
         let provider = ProviderBuilder::new()
             .connect(rpc_url.as_str())
@@ -67,15 +74,16 @@ impl RewardsListStakingRewards {
         // Fetch staking metadata for last updated timestamp
         let metadata = client.get_staking_metadata().await.ok();
 
-        // Fetch staking history
-        let history = client.get_staking_history(self.address).await?;
-
-        if history.entries.is_empty() {
-            println!("\n{} No staking history found for address {}", "ℹ".blue().bold(), format!("{:#x}", self.address).dimmed());
-            return Ok(());
-        }
+        // Fetch reward delegation history - shows epochs where this address receives delegated power
+        let delegation_history = client.get_reward_delegation_history(address).await?;
 
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let display = DisplayManager::with_network(network_name);
+
+        if delegation_history.entries.is_empty() {
+            display.info(&format!("No reward delegation history found for address {:#x}", address));
+            return Ok(());
+        }
 
         // Get staking rewards contract for claim status checking
         let staking_rewards_address = rewards_config.staking_rewards_address()?;
@@ -99,113 +107,165 @@ impl RewardsListStakingRewards {
             }
         });
 
-        // Filter entries by epoch range and create lookup map
-        let mut entry_by_epoch: HashMap<u64, &crate::indexer_client::StakingEntry> = HashMap::new();
-        for entry in &history.entries {
-            if entry.epoch >= start_epoch && entry.epoch <= end_epoch {
-                entry_by_epoch.insert(entry.epoch, entry);
+        // Create epoch data structures
+        struct EpochRewardData {
+            power: U256,
+            delegators: Vec<String>,
+            delegator_count: u64,
+        }
+
+        let mut epoch_data: HashMap<u64, EpochRewardData> = HashMap::new();
+
+        // Filter delegation entries by epoch range
+        for entry in &delegation_history.entries {
+            if let Some(epoch) = entry.epoch {
+                if epoch >= start_epoch && epoch <= end_epoch {
+                    let power = parse_amount(&entry.power)?;
+                    epoch_data.insert(
+                        epoch,
+                        EpochRewardData {
+                            power,
+                            delegators: entry.delegators.clone(),
+                            delegator_count: entry.delegator_count,
+                        },
+                    );
+                }
             }
         }
 
-        // Group epochs by claiming address and bulk check claim status
-        let mut epochs_by_claimer: HashMap<Address, Vec<U256>> = HashMap::new();
-        for entry in entry_by_epoch.values() {
-            let claiming_address = if let Some(ref delegate_str) = entry.rewards_delegated_to {
-                delegate_str.parse::<Address>().context("Invalid delegate address")?
-            } else {
-                self.address
-            };
-            epochs_by_claimer
-                .entry(claiming_address)
-                .or_insert_with(Vec::new)
-                .push(U256::from(entry.epoch));
-        }
+        // Fetch epoch staking data for reward calculation and check claim status
+        let epochs_for_claim_check: Vec<U256> = epoch_data.keys().map(|&e| U256::from(e)).collect();
 
-        // Bulk query unclaimed rewards for each claiming address
-        let mut unclaimed_map: HashMap<(Address, u64), U256> = HashMap::new();
-        for (claiming_address, epochs) in epochs_by_claimer {
-            let unclaimed_amounts = staking_rewards
-                .calculateUnclaimedRewards(claiming_address, epochs.clone())
+        // Bulk query unclaimed rewards - rewards go to the address we're querying
+        let unclaimed_amounts = if !epochs_for_claim_check.is_empty() {
+            staking_rewards
+                .calculateUnclaimedRewards(address, epochs_for_claim_check.clone())
                 .call()
                 .await
-                .context("Failed to query unclaimed rewards")?;
+                .context("Failed to query unclaimed rewards")?
+        } else {
+            vec![]
+        };
 
-            for (epoch, unclaimed) in epochs.iter().zip(unclaimed_amounts.iter()) {
-                unclaimed_map.insert((claiming_address, epoch.to::<u64>()), *unclaimed);
-            }
+        let mut unclaimed_map: HashMap<u64, U256> = HashMap::new();
+        for (epoch, unclaimed) in epochs_for_claim_check.iter().zip(unclaimed_amounts.iter()) {
+            unclaimed_map.insert(epoch.to::<u64>(), *unclaimed);
         }
 
-        println!("\n{} [{}]", "Staking Rewards History".bold(), network_name.blue().bold());
+        display.header("Staking Rewards History");
 
         if let Some(ref meta) = metadata {
             let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
-            println!("  Data last updated: {}", formatted_time.dimmed());
+            display.note(&format!("Data last updated: {}", formatted_time));
         }
 
-        println!("  Address: {}", format!("{:#x}", self.address).dimmed());
-        println!("  Epoch Range: {}-{}", start_epoch, end_epoch);
+        if self.address.is_some() {
+            display.address("Address", address);
+        } else {
+            display.item("Address", format!("{} (from config)", format!("{:#x}", address)));
+        }
+        display.item("Epoch Range", format!("{}-{}", start_epoch, end_epoch));
 
-        if let Some(summary) = &history.summary {
-            let total_staked = parse_amount(&summary.total_staked)?;
-            let total_rewards = parse_amount(&summary.total_rewards_generated)?;
-            let total_staked_formatted = crate::format_amount(&format_ether(total_staked));
-            let total_rewards_formatted = crate::format_amount(&format_ether(total_rewards));
+        // Calculate total rewards across all epochs
+        let mut total_rewards = U256::ZERO;
+        let mut epochs_participated = 0u64;
 
-            println!();
-            println!("  Total Staked:             {} {}", total_staked_formatted.yellow().bold(), "ZKC".yellow());
-            println!("  Total Rewards Generated:  {} {}", total_rewards_formatted.green().bold(), "ZKC".green());
-            println!("  Epochs Participated:      {}", summary.epochs_participated);
-            if summary.is_withdrawing {
-                println!("  Status:                   {}", "Withdrawing".red().bold());
+        for epoch in start_epoch..=end_epoch {
+            if let Some(data) = epoch_data.get(&epoch) {
+                // Fetch epoch staking summary to get total emissions and power
+                if let Ok(epoch_summary) = client.get_epoch_staking(epoch).await {
+                    let total_emissions = parse_amount(&epoch_summary.total_staking_emissions)?;
+                    let total_power = parse_amount(&epoch_summary.total_staking_power)?;
+
+                    if !total_power.is_zero() {
+                        let rewards = (data.power * total_emissions) / total_power;
+                        total_rewards += rewards;
+                        epochs_participated += 1;
+                    }
+                }
             }
         }
 
-        println!("\n{}", "Epoch History".bold());
-        for epoch in start_epoch..=end_epoch {
+        println!();
+        display.balance("Total Rewards Received", &crate::format_amount(&format_ether(total_rewards)), "ZKC", "green");
+        display.item("Epochs Participated", epochs_participated);
+
+        display.subsection("Epoch History");
+        for epoch in (start_epoch..=end_epoch).rev() {
             println!();
             println!("  {} {}", "Epoch".dimmed(), epoch.to_string().cyan().bold());
 
-            if let Some(entry) = entry_by_epoch.get(&epoch) {
-                let staked = parse_amount(&entry.staked_amount)?;
-                let rewards = parse_amount(&entry.rewards_generated)?;
-                let staked_formatted = crate::format_amount(&format_ether(staked));
-                let rewards_formatted = crate::format_amount(&format_ether(rewards));
+            if let Some(data) = epoch_data.get(&epoch) {
+                // Fetch epoch staking summary
+                match client.get_epoch_staking(epoch).await {
+                    Ok(epoch_summary) => {
+                        let total_emissions = parse_amount(&epoch_summary.total_staking_emissions)?;
+                        let total_power = parse_amount(&epoch_summary.total_staking_power)?;
 
-                let claiming_address = if let Some(ref delegate_str) = entry.rewards_delegated_to {
-                    delegate_str.parse::<Address>().context("Invalid delegate address")?
-                } else {
-                    self.address
-                };
+                        // Calculate rewards: total_emissions * address_power / total_power
+                        let rewards = if !total_power.is_zero() {
+                            (data.power * total_emissions) / total_power
+                        } else {
+                            U256::ZERO
+                        };
 
-                let is_claimed = unclaimed_map
-                    .get(&(claiming_address, entry.epoch))
-                    .map(|unclaimed| *unclaimed == U256::ZERO)
-                    .unwrap_or(true);
+                        let power_formatted = crate::format_amount(&format_ether(data.power));
+                        let rewards_formatted = crate::format_amount(&format_ether(rewards));
 
-                println!("    Staked:             {} {}", staked_formatted.yellow(), "ZKC".yellow());
-                println!("    Generated Rewards:  {} {}", rewards_formatted.green(), "ZKC".green());
-                if let Some(ref delegate_str) = entry.rewards_delegated_to {
-                    println!("    Delegated To:       {}", delegate_str.dimmed());
-                }
-                println!(
-                    "    Claimed:            {}",
-                    if is_claimed { "✓".green() } else { "✗".red() }
-                );
-                if let Some(rank) = entry.rank {
-                    println!("    Rank:               {}", rank);
-                }
-                if entry.is_withdrawing {
-                    println!("    Status:             {}", "Withdrawing".red());
+                        display.subitem("Reward Power:", &format!("{} {}", power_formatted.yellow(), "ZKC".yellow()));
+                        display.subitem("Rewards:", &format!("{} {}", rewards_formatted.green(), "ZKC".green()));
+
+                        // Show delegators if this is delegated power
+                        if data.delegator_count > 0 {
+                            display.subitem(
+                                "Delegated From:",
+                                &format!("{} staker(s)", data.delegator_count.to_string().cyan())
+                            );
+                            if data.delegators.len() <= 3 {
+                                for delegator in &data.delegators {
+                                    display.subitem("  -", &delegator.dimmed().to_string());
+                                }
+                            } else {
+                                for delegator in data.delegators.iter().take(3) {
+                                    display.subitem("  -", &delegator.dimmed().to_string());
+                                }
+                                display.subitem("  -", &format!("... and {} more", data.delegators.len() - 3).dimmed().to_string());
+                            }
+                        }
+
+                        // Determine claim status based on epoch and unclaimed amount
+                        let claim_status = if epoch >= current_epoch {
+                            // Current or future epoch - can't claim yet
+                            format!("{} {}", "⏳".yellow(), "In Progress".yellow())
+                        } else {
+                            // Past epoch - check if claimed
+                            let is_claimed = unclaimed_map
+                                .get(&epoch)
+                                .map(|unclaimed| *unclaimed == U256::ZERO)
+                                .unwrap_or(true);
+
+                            if is_claimed {
+                                format!("{}", "✓".green())
+                            } else {
+                                format!("{}", "✗".red())
+                            }
+                        };
+
+                        display.subitem("Claimed:", &claim_status);
+                    }
+                    Err(e) => {
+                        display.subitem("Error:", &format!("Failed to fetch epoch data: {}", e).red().to_string());
+                    }
                 }
             } else {
-                println!("    Staked:             {} {}", "0".dimmed(), "ZKC".dimmed());
-                println!("    Generated Rewards:  {} {}", "0".dimmed(), "ZKC".dimmed());
+                display.subitem("Reward Power:", &format!("{} {}", "0".dimmed(), "ZKC".dimmed()));
+                display.subitem("Rewards:", &format!("{} {}", "0".dimmed(), "ZKC".dimmed()));
             }
         }
 
         if self.dry_run {
-            println!("\n{}", "Current Epoch Estimate (DRY RUN)".bold());
-            println!("  {} These are estimates only and actual rewards may vary", "⚠".yellow().bold());
+            display.subsection("Current Epoch Estimate (DRY RUN)");
+            display.warning("These are estimates only and actual rewards may vary");
             // TODO: Fetch current epoch data and estimate rewards
         }
 

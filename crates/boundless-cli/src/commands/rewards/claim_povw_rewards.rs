@@ -36,7 +36,10 @@ use risc0_povw::PovwLogId;
 use risc0_zkvm::{default_prover, Digest, ProverOpts};
 use url::Url;
 
-use crate::config::{GlobalConfig, ProverConfig, RewardsConfig};
+use crate::{
+    config::{GlobalConfig, ProvingBackendConfig, RewardsConfig},
+    display::DisplayManager,
+};
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
 
@@ -73,13 +76,6 @@ pub struct RewardsClaimPovwRewards {
     #[arg(long = "event-query-chunk-size", default_value_t = 10000)]
     event_query_chunk_size: u64,
 
-    /// Bento API URL to use for proof generation (defaults to prover config bento_api_url)
-    ///
-    /// This is the Bento cluster that will generate proofs for claiming rewards.
-    /// If not specified, the Bento API URL from your prover configuration will be used.
-    #[arg(long = "bento-api-url")]
-    bento_api_url: Option<Url>,
-
     /// Deployment configuration for the PoVW and ZKC contracts (defaults to deployment from chain ID)
     #[clap(flatten, next_help_heading = "Deployment")]
     deployment: Option<Deployment>,
@@ -87,15 +83,13 @@ pub struct RewardsClaimPovwRewards {
     #[clap(flatten)]
     rewards_config: RewardsConfig,
 
-    #[clap(flatten, next_help_heading = "Prover")]
-    prover_config: ProverConfig,
+    #[clap(flatten, next_help_heading = "Proving Backend")]
+    proving_backend: ProvingBackendConfig,
 }
 
 impl RewardsClaimPovwRewards {
     /// Run the claim-povw-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
-        println!("\n  {}", "Claiming PoVW Rewards".bold().cyan());
-
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
         // Determine log ID (param > reward address > error)
@@ -107,7 +101,9 @@ impl RewardsClaimPovwRewards {
             bail!("No log ID provided and no reward address configured.\n\nTo configure: run 'boundless setup rewards' and set a reward address\nOr provide --log-id parameter")
         };
 
-        println!("  Log ID:                                {}", format!("{:x}", log_id).cyan());
+        let display = DisplayManager::new();
+        display.header("Claiming PoVW Rewards");
+        display.item_colored("Log ID", format!("{:x}", log_id), "cyan");
 
         // Determine beacon API URL (param > config)
         let beacon_api_url = self.beacon_api_url
@@ -126,7 +122,7 @@ impl RewardsClaimPovwRewards {
 
         let chain_id = provider.get_chain_id().await.context("Failed to query the chain ID")?;
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
-        println!("  Network:                               {}", network_name.blue().bold());
+        display.item_colored("Network", &network_name, "cyan");
         let chain_spec = CHAIN_SPECS.get(&chain_id).with_context(|| {
             format!("No known Steel chain specification for chain ID {chain_id}")
         })?;
@@ -179,14 +175,13 @@ impl RewardsClaimPovwRewards {
         tracing::debug!(%initial_commit, %final_commit, "Commit range for mint");
 
         if initial_commit == final_commit {
-            println!("\n  {} {}", "✓".green().bold(), "All rewards have been claimed".green());
-            println!();
+            display.success("All rewards have been claimed");
             return Ok(());
         }
 
         // Search for the WorkLogUpdated events, and the the EpochFinalized events
-        println!("\n  {}", "Searching for claimable work".bold().green());
-        println!("  Scanning past {} days for work log updates...", self.days.to_string().cyan());
+        display.subsection("Searching for claimable work");
+        display.note(&format!("Scanning past {} days for work log updates...", self.days.to_string().cyan()));
         let update_events = search_work_log_updated(
             &povw_accounting,
             log_id,
@@ -198,7 +193,7 @@ impl RewardsClaimPovwRewards {
         )
         .await
         .context("Search for work log update events failed")?;
-        println!("  Found {} work log update events", update_events.len().to_string().cyan().bold());
+        display.item_colored("Found", format!("{} work log update events", update_events.len()), "cyan");
 
         // Check to see what the current pending epoch is on the PoVW accounting contract. Filter
         // out update events with an epoch that has not finalized (with a warning).
@@ -242,9 +237,9 @@ impl RewardsClaimPovwRewards {
         let first_epoch = epochs.iter().next().unwrap();
         let last_epoch = epochs.iter().last().unwrap();
         if first_epoch == last_epoch {
-            println!("  Searching for epoch {} finalization event...", first_epoch.to_string().cyan());
+            display.note(&format!("Searching for epoch {} finalization event...", first_epoch.to_string().cyan()));
         } else {
-            println!("  Searching for epoch finalization events (epochs {} to {})...", first_epoch.to_string().cyan(), last_epoch.to_string().cyan());
+            display.note(&format!("Searching for epoch finalization events (epochs {} to {})...", first_epoch.to_string().cyan(), last_epoch.to_string().cyan()));
         }
         let epoch_events = search_epoch_finalized(
             &povw_accounting,
@@ -255,7 +250,7 @@ impl RewardsClaimPovwRewards {
         )
         .await
         .context("Search for epoch finalized events failed")?;
-        println!("  Found {} epoch finalization events", epoch_events.len().to_string().cyan().bold());
+        display.item_colored("Found", format!("{} epoch finalization events", epoch_events.len()), "cyan");
 
         let event_block_numbers = BTreeSet::from_iter(
             finalized_update_events
@@ -264,16 +259,10 @@ impl RewardsClaimPovwRewards {
                 .chain(epoch_events.keys().copied()),
         );
 
-        println!("\n  {}", "Generating proof for reward claim".bold().green());
+        display.subsection("Generating proof for reward claim");
 
-        // Override Bento API URL if provided
-        let mut prover_config = self.prover_config.clone();
-        if let Some(ref bento_url) = self.bento_api_url {
-            prover_config.bento_api_url = bento_url.to_string();
-        }
-
-        prover_config.configure_proving_backend_with_health_check().await?;
-        println!("  Prover:                                {}", "Ready".green().bold());
+        self.proving_backend.configure_proving_backend_with_health_check().await?;
+        display.status("Prover", "Ready", "green");
 
         let mint_calculator_prover = MintCalculatorProver::builder()
             .prover(default_prover())
@@ -286,21 +275,21 @@ impl RewardsClaimPovwRewards {
             .prover_opts(ProverOpts::groth16())
             .build()?;
 
-        println!("  Building proof input...");
+        display.note("Building proof input...");
         let mint_input = mint_calculator_prover
             .build_input(event_block_numbers, [log_id])
             .await
             .context("Failed to build input for Mint Calculator Guest")?;
 
-        println!("  Generating Groth16 proof...");
-        println!("{}", "  (This may take several minutes)".dimmed());
+        display.note("Generating Groth16 proof...");
+        display.note("  (This may take several minutes)");
         let mint_prove_info = mint_calculator_prover
             .prove_mint(&mint_input)
             .await
             .context("Failed to prove Mint Calculator guest")?;
-        println!("  Status:                                {}", "Proof complete".green().bold());
+        display.status("Status", "Proof complete", "green");
 
-        println!("\n  {}", "Submitting claim transaction".bold().green());
+        display.subsection("Submitting claim transaction");
         let tx_result = povw_mint
             .mint_with_receipt(&mint_prove_info.receipt)
             .context("Failed to construct reward claim transaction")?
@@ -308,9 +297,9 @@ impl RewardsClaimPovwRewards {
             .await
             .context("Failed to send reward claim transaction")?;
         let tx_hash = tx_result.tx_hash();
-        println!("  TX Hash:                               {}", format!("{:#x}", tx_hash).cyan());
+        display.tx_hash(*tx_hash);
 
-        println!("  Waiting for confirmation...");
+        display.note("Waiting for confirmation...");
         let timeout = global_config.tx_timeout.or(tx_result.timeout());
         tracing::debug!(?timeout, %tx_hash, "Waiting for transaction receipt");
         let tx_receipt = tx_result
@@ -325,9 +314,8 @@ impl RewardsClaimPovwRewards {
             tx_receipt.transaction_hash
         );
 
-        println!("  Status:                                {}", "Confirmed".green().bold());
-        println!("\n  {} {}", "✓".green().bold(), "Reward claim completed successfully".green().bold());
-        println!();
+        display.status("Status", "Confirmed", "green");
+        display.success("Reward claim completed successfully");
         Ok(())
     }
 }

@@ -65,3 +65,58 @@ impl RequestorBalance {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[path = "../../../../tests/common/mod.rs"]
+    mod common;
+
+    use common::TestContext;
+    use predicates::str::contains;
+
+    #[tokio::test]
+    async fn test_balance_with_address() {
+        let ctx = TestContext::base().await;
+        let account = ctx.account(0);
+
+        ctx.cmd("requestor", "balance")
+            .arg(&account.address)
+            .assert()
+            .success()
+            .stdout(contains("Balance for address"));
+    }
+
+    #[tokio::test]
+    async fn test_balance_zero_address_fails() {
+        let ctx = TestContext::base().await;
+
+        ctx.cmd("requestor", "balance")
+            .arg("0x0000000000000000000000000000000000000000")
+            .assert()
+            .failure()
+            .stderr(contains("No address specified"));
+    }
+
+    #[tokio::test]
+    async fn test_balance_with_private_key() {
+        let ctx = TestContext::base().await;
+        let account = ctx.account(1);
+
+        ctx.cmd("requestor", "balance")
+            .arg(&account.address)
+            .with_account(&account)
+            .assert()
+            .success()
+            .stdout(contains(&account.address));
+    }
+
+    #[tokio::test]
+    async fn test_balance_help() {
+        common::BoundlessCmd::new("requestor", "balance")
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(contains("Usage:"))
+            .stdout(contains("balance"));
+    }
+}

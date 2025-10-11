@@ -217,6 +217,34 @@ impl IndexerClient {
             .await
             .with_context(|| format!("Failed to parse staking metadata response from {}", url))
     }
+
+    /// Get reward delegation history for a specific address
+    /// Returns the epochs where this address receives delegated reward power
+    pub async fn get_reward_delegation_history(
+        &self,
+        address: Address,
+    ) -> Result<RewardDelegationHistoryResponse> {
+        let url = self
+            .base_url
+            .join(&format!("v1/delegations/rewards/addresses/{:#x}", address))
+            .context("Failed to build URL")?;
+
+        let response = self
+            .client
+            .get(url.clone())
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch reward delegation history from {}", url))?;
+
+        if !response.status().is_success() {
+            bail!("API error from {}: {}", url, response.status());
+        }
+
+        response
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse reward delegation history response from {}", url))
+    }
 }
 
 // Data Models
@@ -389,6 +417,28 @@ pub struct StakingMetadata {
     pub total_staking_emissions_all_time: String,
     pub total_staking_emissions_all_time_formatted: String,
     pub last_updated_at: String,
+}
+
+/// Delegation power entry for reward or vote delegations
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DelegationPowerEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank: Option<u64>,
+    pub delegate_address: String,
+    pub power: String,
+    pub delegator_count: u64,
+    pub delegators: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub epochs_participated: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<u64>,
+}
+
+/// Response for reward delegation history
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RewardDelegationHistoryResponse {
+    pub entries: Vec<DelegationPowerEntry>,
+    pub pagination: PaginationInfo,
 }
 
 /// Parse a string amount to U256

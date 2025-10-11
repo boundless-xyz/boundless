@@ -134,6 +134,16 @@ impl DisplayManager {
     pub fn note(&self, message: &str) {
         println!("  {}", message.dimmed());
     }
+
+    /// Print a subsection header (bold but not as prominent as main header)
+    pub fn subsection(&self, title: &str) {
+        println!("\n{}", title.bold().green());
+    }
+
+    /// Print a sub-item (extra indented under a main item)
+    pub fn subitem(&self, prefix: &str, message: &str) {
+        println!("    {} {}", prefix.dimmed(), message);
+    }
 }
 
 impl Default for DisplayManager {

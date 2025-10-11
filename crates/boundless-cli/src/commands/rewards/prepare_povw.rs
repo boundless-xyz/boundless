@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::commands::povw::State;
-use crate::config::{GlobalConfig, ProverConfig, RewardsConfig};
+use crate::config::{GlobalConfig, ProvingBackendConfig, RewardsConfig};
 
 /// Private type alias for work receipts
 type WorkReceipt = GenericReceipt<WorkClaim<ReceiptClaim>>;
@@ -62,8 +62,8 @@ pub struct RewardsPreparePoVW {
     #[clap(flatten)]
     rewards_config: RewardsConfig,
 
-    #[clap(flatten, next_help_heading = "Prover")]
-    prover_config: ProverConfig,
+    #[clap(flatten, next_help_heading = "Proving Backend")]
+    proving_backend: ProvingBackendConfig,
 }
 
 impl RewardsPreparePoVW {
@@ -150,8 +150,8 @@ impl RewardsPreparePoVW {
             // Fetch from Bento (default behavior)
             let bento_url = match self.work_receipt_bento_api_url.clone() {
                 Some(url) => url,
-                None => Url::parse(&self.prover_config.bento_api_url)
-                    .context("Failed to parse Bento API URL from prover config")?,
+                None => Url::parse(&self.proving_backend.bento_api_url)
+                    .context("Failed to parse Bento API URL from proving backend config")?,
             };
 
             println!("  Fetching PoVW work receipts from Bento instance:        {}", bento_url.to_string().cyan());
@@ -188,7 +188,7 @@ impl RewardsPreparePoVW {
 
         // Set up the work log update prover
         println!("\n{}", "Setting up prover for aggregating PoVW work receipts".bold().green());
-        self.prover_config.configure_proving_backend_with_health_check().await?;
+        self.proving_backend.configure_proving_backend_with_health_check().await?;
 
         let prover_builder = WorkLogUpdateProver::builder()
             .prover(default_prover())

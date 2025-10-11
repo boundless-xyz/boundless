@@ -263,7 +263,7 @@ impl PovwClaim {
                 .chain(epoch_events.keys().copied()),
         );
 
-        self.prover_config.configure_proving_backend_with_health_check().await?;
+        self.prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
         let mint_calculator_prover = MintCalculatorProver::builder()
             .prover(default_prover())
             .provider(provider.clone())

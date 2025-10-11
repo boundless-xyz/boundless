@@ -853,10 +853,10 @@ fn show_requestor_status() -> Result<()> {
                 );
             }
         } else {
-            println!("{}", "Not configured - run 'boundless setup requestor'".red());
+            println!("{}", "Not configured - run 'boundless requestor setup'".red());
         }
     } else {
-        println!("{}", "Not configured - run 'boundless setup requestor'".red());
+        println!("{}", "Not configured - run 'boundless requestor setup'".red());
     }
 
     println!("\n{}\n", "Available Commands:".bold());
@@ -868,6 +868,7 @@ fn show_requestor_status() -> Result<()> {
     println!("  {} - Check status of a request", "status".cyan());
     println!("  {} - Get proof for a fulfilled request", "get-proof".cyan());
     println!("  {} - Verify a proof", "verify-proof".cyan());
+    println!("  {} - Interactive setup wizard for requestor configuration", "setup".cyan());
 
     println!(
         "\n💡 {} {}",
@@ -933,10 +934,10 @@ fn show_prover_status() -> Result<()> {
                 );
             }
         } else {
-            println!("{}", "Not configured - run 'boundless setup prover'".red());
+            println!("{}", "Not configured - run 'boundless prover setup'".red());
         }
     } else {
-        println!("{}", "Not configured - run 'boundless setup prover'".red());
+        println!("{}", "Not configured - run 'boundless prover setup'".red());
     }
 
     println!("\n{}\n", "Available Commands:".bold());
@@ -947,6 +948,7 @@ fn show_prover_status() -> Result<()> {
     println!("  {} - Execute a request (test without submitting)", "execute".cyan());
     println!("  {} - Fulfill and submit proofs", "fulfill".cyan());
     println!("  {} - Benchmark proof requests", "benchmark".cyan());
+    println!("  {} - Interactive setup wizard for prover configuration", "setup".cyan());
 
     println!(
         "\n💡 {} {}",
@@ -1006,7 +1008,6 @@ async fn show_rewards_status() -> Result<()> {
                     }
 
                     // Display PoVW state file if configured
-                    println!();
                     let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
                     let povw_state_path = if let Some(ref state) = env_povw_state {
                         Some(state.as_str())
@@ -1088,10 +1089,10 @@ async fn show_rewards_status() -> Result<()> {
                 }
             }
         } else {
-            println!("{}", "Not configured - run 'boundless setup all'".red());
+            println!("{}", "Not configured - run 'boundless rewards setup'".red());
         }
     } else {
-        println!("{}", "Not configured - run 'boundless setup all'".red());
+        println!("{}", "Not configured - run 'boundless rewards setup'".red());
     }
 
     println!("\n{}\n", "Available Commands:".bold());
@@ -1107,6 +1108,7 @@ async fn show_rewards_status() -> Result<()> {
     println!("  {} - Delegate rewards to another address", "delegate".cyan());
     println!("  {} - Get current epoch information", "epoch".cyan());
     println!("  {} - Check reward power and earning potential", "power".cyan());
+    println!("  {} - Interactive setup wizard for rewards configuration", "setup".cyan());
 
     println!(
         "\n💡 {} {}",
@@ -1462,16 +1464,18 @@ async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) ->
 
 /// Handle proving-related commands
 async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) -> Result<()> {
-    use boundless_cli::config::ProverConfig as ProverClientConfig;
+    use boundless_cli::config::{ProverConfig as ProverClientConfig, ProvingBackendConfig};
     let prover_client_config = ProverClientConfig {
         prover_rpc_url: None,
         private_key: None,
         prover_address: None,
         deployment: None,
-        bento_api_url: "http://localhost:8081".to_string(),
-        bento_api_key: None,
-        use_default_prover: false,
-        skip_health_check: false,
+        proving_backend: ProvingBackendConfig {
+            bento_api_url: "http://localhost:8081".to_string(),
+            bento_api_key: None,
+            use_default_prover: false,
+            skip_health_check: false,
+        },
     }.load_from_files()?;
 
     match cmd {
@@ -1661,10 +1665,10 @@ async fn benchmark<P: Provider + Clone + 'static>(
         bail!("No request IDs provided");
     }
 
-    if prover_config.use_default_prover {
+    if prover_config.proving_backend.use_default_prover {
         bail!("benchmark command does not support using the default prover");
     }
-    prover_config.configure_proving_backend();
+    prover_config.proving_backend.configure_proving_backend();
     let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
 
     // Track performance metrics across all runs
