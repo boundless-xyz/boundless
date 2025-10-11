@@ -170,15 +170,14 @@ impl BoundlessCmd {
     }
 
     pub fn with_base_config(self, ctx: &TestContext) -> Self {
-        self.env("RPC_URL", &ctx.endpoint) // CLI uses RPC_URL for the main blockchain connection
-            .env("BOUNDLESS_MARKET_RPC_URL", &ctx.endpoint) // Also set this for commands that might need it
+        self.env("REQUESTOR_RPC_URL", &ctx.endpoint)  // For requestor commands
+            .env("PROVER_RPC_URL", &ctx.endpoint)      // For prover commands
             .env("BOUNDLESS_MARKET_ADDRESS", "0xfd152dadc5183870710fe54f939eae3ab9f0fe82") // Base mainnet
             .env("SET_VERIFIER_ADDRESS", "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104")
-        // Base mainnet set verifier
     }
 
     pub fn with_ethereum_config(self, ctx: &TestContext) -> Self {
-        self.env("RPC_URL", &ctx.endpoint) // CLI uses RPC_URL
+        self.env("REWARD_RPC_URL", &ctx.endpoint)  // Rewards commands use REWARD_RPC_URL
             .env("ETH_MAINNET_RPC_URL", &ctx.endpoint)
             .env("ZKC_ADDRESS", "0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555")
             .env("VEZKC_ADDRESS", "0xe8ae8ee8ffa57f6a79b6cbe06bafc0b05f3ffbf4")
@@ -186,11 +185,17 @@ impl BoundlessCmd {
     }
 
     pub fn with_account(self, account: &TestAccount) -> Self {
-        self.env("PRIVATE_KEY", &account.private_key)
+        self.env("REQUESTOR_PRIVATE_KEY", &account.private_key)
+            .env("PROVER_PRIVATE_KEY", &account.private_key)
+            .env("REWARD_PRIVATE_KEY", &account.private_key)
+            .env("STAKING_PRIVATE_KEY", &account.private_key)
     }
 
     pub fn with_private_key(self, key: &str) -> Self {
-        self.env("PRIVATE_KEY", key)
+        self.env("REQUESTOR_PRIVATE_KEY", key)
+            .env("PROVER_PRIVATE_KEY", key)
+            .env("REWARD_PRIVATE_KEY", key)
+            .env("STAKING_PRIVATE_KEY", key)
     }
 
     pub fn assert(self) -> assert_cmd::assert::Assert {

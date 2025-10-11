@@ -28,6 +28,7 @@ use crate::config_file::{
     Config, CustomMarketDeployment, CustomRewardsDeployment, ProverConfig, ProverSecrets,
     RequestorConfig, RequestorSecrets, RewardsConfig, RewardsSecrets, Secrets,
 };
+use crate::display::DisplayManager;
 
 /// Interactive setup command
 #[derive(Args, Clone, Debug)]
@@ -54,9 +55,15 @@ pub struct SetupInteractive {
 }
 
 impl SetupInteractive {
+    /// Print a section header with consistent styling
+    fn print_section_header(title: &str) {
+        println!("\n{}\n", format!("--- {} ---", title).cyan().bold());
+    }
+
     /// Run the interactive setup
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
-        println!("\n🔧 Boundless CLI Interactive Setup\n");
+        let display = DisplayManager::new();
+        println!("\n{}\n", "🔧 Boundless CLI Interactive Setup".green().bold());
 
         let module = Select::new(
             "Which module would you like to configure?",
@@ -86,25 +93,26 @@ impl SetupInteractive {
         }
 
         config.save()?;
-        println!("\n✓ Configuration saved to {}", Config::path()?.display());
+        display.success(&format!("Configuration saved to {}", Config::path()?.display().to_string().cyan()));
 
         if !secrets.requestor_networks.is_empty()
             || !secrets.prover_networks.is_empty()
             || !secrets.rewards_networks.is_empty()
         {
             secrets.save()?;
-            println!("✓ Secrets saved to {} (permissions: 600)", Secrets::path()?.display());
-            println!("\n⚠️  Warning: Secrets are stored in plaintext. Consider using environment variables instead.");
+            display.success(&format!("Secrets saved to {} (permissions: 600)", Secrets::path()?.display().to_string().cyan()));
+            display.warning("Secrets are stored in plaintext. Consider using environment variables instead.");
         }
 
-        println!("\n✨ Setup complete! Run `boundless` to see your configuration.");
+        println!("\n{} {}\n", "✨".green().bold(), "Setup complete! Run `boundless` to see your configuration.".green().bold());
 
         Ok(())
     }
 
     /// Run setup for a specific module
     pub async fn run_module(&self, _global_config: &GlobalConfig, module: &str) -> Result<()> {
-        println!("\n🔧 Boundless CLI Setup\n");
+        let display = DisplayManager::new();
+        println!("\n{}\n", "🔧 Boundless CLI Setup".green().bold());
 
         let mut config = Config::load().unwrap_or_default();
         let mut secrets = Secrets::load().unwrap_or_default();
@@ -123,30 +131,31 @@ impl SetupInteractive {
         }
 
         config.save()?;
-        println!("\n✓ Configuration saved to {}", Config::path()?.display());
+        display.success(&format!("Configuration saved to {}", Config::path()?.display().to_string().cyan()));
 
         if !secrets.requestor_networks.is_empty()
             || !secrets.prover_networks.is_empty()
             || !secrets.rewards_networks.is_empty()
         {
             secrets.save()?;
-            println!("✓ Secrets saved to {} (permissions: 600)", Secrets::path()?.display());
-            println!("\n⚠️  Warning: Secrets are stored in plaintext. Consider using environment variables instead.");
+            display.success(&format!("Secrets saved to {} (permissions: 600)", Secrets::path()?.display().to_string().cyan()));
+            display.warning("Secrets are stored in plaintext. Consider using environment variables instead.");
         }
 
-        println!("\n✨ Setup complete! Run `boundless {}` to see your configuration.", module);
+        println!("\n{} {}\n", "✨".green().bold(), format!("Setup complete! Run `boundless {}` to see your configuration.", module).green().bold());
 
         Ok(())
     }
 
     async fn setup_requestor(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
-        println!("\n--- Requestor Module Setup ---\n");
+        let display = DisplayManager::new();
+        Self::print_section_header("Requestor Module Setup");
 
         // Handle reset mode
         if self.reset {
             config.requestor = None;
             secrets.requestor_networks.clear();
-            println!("✓ Cleared all requestor configuration");
+            display.success("Cleared all requestor configuration");
             return Ok(());
         }
 
@@ -158,7 +167,7 @@ impl SetupInteractive {
             if let Some(ref existing_config) = config.requestor {
                 // Network already selected - update secrets for that network
                 let network_name = &existing_config.network;
-                println!("✓ Updating configuration for network: {}", network_name);
+                display.success(&format!("Updating configuration for network: {}", network_name.cyan().bold()));
 
                 // Get existing secrets or create new entry
                 let existing_secrets = secrets.requestor_networks
@@ -172,7 +181,7 @@ impl SetupInteractive {
 
                 // Merge with provided values (only overwrite if provided)
                 let rpc_url = if let Some(ref url) = self.rpc_url {
-                    println!("✓ Updated RPC URL");
+                    display.success("Updated RPC URL");
                     Some(url.clone())
                 } else {
                     existing_secrets.rpc_url
@@ -181,7 +190,7 @@ impl SetupInteractive {
                 let (private_key, address) = if let Some(ref pk) = self.private_key {
                     let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
                     let addr = Self::address_from_private_key(&pk);
-                    println!("✓ Updated private key");
+                    display.success("Updated private key");
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
                 } else {
                     (existing_secrets.private_key, existing_secrets.address)
@@ -196,15 +205,16 @@ impl SetupInteractive {
                     },
                 );
 
-                println!("\n✓ Updated requestor configuration for network: {}", network_name);
+                display.success(&format!("Updated requestor configuration for network: {}", network_name.cyan().bold()));
                 return Ok(());
             } else {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
                     // Query chain ID from RPC
-                    print!("Querying chain ID from RPC... ");
+                    print!("{} ", "Querying chain ID from RPC...".cyan());
+                    std::io::stdout().flush()?;
                     let chain_id = Self::query_chain_id(rpc_url).await?;
-                    println!("{}", chain_id);
+                    println!("{}", chain_id.to_string().bright_white());
 
                     let network_name = format!("custom-{}", chain_id);
 
@@ -237,11 +247,11 @@ impl SetupInteractive {
                         },
                     );
 
-                    println!("\n✓ Created custom network '{}' (chain ID: {})", network_name, chain_id);
-                    println!("⚠ Contract addresses not configured. Configure them by:");
-                    println!("  • Running 'boundless requestor setup' interactively");
-                    println!("  • Using command-line flags (--boundless-market-address, etc.)");
-                    println!("  • Editing ~/.boundless/config.toml directly");
+                    display.success(&format!("Created custom network '{}' (chain ID: {})", network_name.cyan().bold(), chain_id.to_string().bright_white()));
+                    display.warning("Contract addresses not configured. Configure them by:");
+                    display.note("• Running 'boundless requestor setup' interactively");
+                    display.note("• Using command-line flags (--boundless-market-address, etc.)");
+                    display.note("• Editing ~/.boundless/config.toml directly");
 
                     return Ok(());
                 } else {
@@ -252,7 +262,7 @@ impl SetupInteractive {
 
         // Interactive mode (original logic)
         let network_name = if let Some(ref network) = self.network {
-            println!("✓ Using network: {}", network);
+            display.success(&format!("Using network: {}", network.cyan().bold()));
             network.clone()
         } else {
             let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
@@ -283,9 +293,9 @@ impl SetupInteractive {
         // Check if we have previous configuration for this network
         if let Some(existing) = secrets.requestor_networks.get(&network_name) {
             if self.rpc_url.is_none() && self.private_key.is_none() {
-                println!("\n📝 Previous configuration found for {}:", network_name);
+                display.info(&format!("Previous configuration found for {}", network_name.cyan().bold()));
                 if let Some(ref rpc) = existing.rpc_url {
-                    println!("  RPC URL: {}", Self::obscure_url(rpc));
+                    display.note(&format!("RPC URL: {}", Self::obscure_url(rpc).dimmed()));
                 }
 
                 let use_previous = Confirm::new("Use previous configuration?")
@@ -293,14 +303,14 @@ impl SetupInteractive {
                     .prompt()?;
 
                 if use_previous {
-                    println!("\n✓ Using previous configuration");
+                    display.success("Using previous configuration");
                     return Ok(());
                 }
             }
         }
 
         let rpc_url = if let Some(ref url) = self.rpc_url {
-            println!("✓ Using RPC URL: {}", url);
+            display.success(&format!("Using RPC URL: {}", url.dimmed()));
             url.clone()
         } else {
             Text::new("Enter RPC URL for this network:")
@@ -310,7 +320,7 @@ impl SetupInteractive {
 
         let (private_key, address) = if let Some(ref pk) = self.private_key {
             let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-            println!("✓ Using provided private key");
+            display.success("Using provided private key");
             (Some(pk), None)
         } else {
             let private_key_prompt = Confirm::new("Do you want to store a private key?")
@@ -327,7 +337,7 @@ impl SetupInteractive {
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
                 (Some(pk), None)
             } else {
-                println!("\n✓ You can set REQUESTOR_PRIVATE_KEY environment variable later for write operations");
+                display.success("You can set REQUESTOR_PRIVATE_KEY environment variable later for write operations");
 
                 // Ask if they want to provide an address for read-only mode
                 let address_prompt = Confirm::new("Do you want to store an address for read-only mode?")
@@ -359,13 +369,14 @@ impl SetupInteractive {
     }
 
     async fn setup_prover(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
-        println!("\n--- Prover Module Setup ---\n");
+        let display = DisplayManager::new();
+        Self::print_section_header("Prover Module Setup");
 
         // Handle reset mode
         if self.reset {
             config.prover = None;
             secrets.prover_networks.clear();
-            println!("✓ Cleared all prover configuration");
+            display.success("Cleared all prover configuration");
             return Ok(());
         }
 
@@ -377,7 +388,7 @@ impl SetupInteractive {
             if let Some(ref existing_config) = config.prover {
                 // Network already selected - update secrets for that network
                 let network_name = &existing_config.network;
-                println!("✓ Updating configuration for network: {}", network_name);
+                display.success(&format!("Updating configuration for network: {}", network_name.cyan().bold()));
 
                 // Get existing secrets or create new entry
                 let existing_secrets = secrets.prover_networks
@@ -391,7 +402,7 @@ impl SetupInteractive {
 
                 // Merge with provided values (only overwrite if provided)
                 let rpc_url = if let Some(ref url) = self.rpc_url {
-                    println!("✓ Updated RPC URL");
+                    display.success("Updated RPC URL");
                     Some(url.clone())
                 } else {
                     existing_secrets.rpc_url
@@ -400,7 +411,7 @@ impl SetupInteractive {
                 let (private_key, address) = if let Some(ref pk) = self.private_key {
                     let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
                     let addr = Self::address_from_private_key(&pk);
-                    println!("✓ Updated private key");
+                    display.success("Updated private key");
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
                 } else {
                     (existing_secrets.private_key, existing_secrets.address)
@@ -415,15 +426,16 @@ impl SetupInteractive {
                     },
                 );
 
-                println!("\n✓ Updated prover configuration for network: {}", network_name);
+                display.success(&format!("Updated prover configuration for network: {}", network_name.cyan().bold()));
                 return Ok(());
             } else {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
                     // Query chain ID from RPC
-                    print!("Querying chain ID from RPC... ");
+                    print!("{} ", "Querying chain ID from RPC...".cyan());
+                    std::io::stdout().flush()?;
                     let chain_id = Self::query_chain_id(rpc_url).await?;
-                    println!("{}", chain_id);
+                    println!("{}", chain_id.to_string().bright_white());
 
                     let network_name = format!("custom-{}", chain_id);
 
@@ -456,11 +468,11 @@ impl SetupInteractive {
                         },
                     );
 
-                    println!("\n✓ Created custom network '{}' (chain ID: {})", network_name, chain_id);
-                    println!("⚠ Contract addresses not configured. Configure them by:");
-                    println!("  • Running 'boundless prover setup' interactively");
-                    println!("  • Using command-line flags (--boundless-market-address, etc.)");
-                    println!("  • Editing ~/.boundless/config.toml directly");
+                    display.success(&format!("Created custom network '{}' (chain ID: {})", network_name.cyan().bold(), chain_id.to_string().bright_white()));
+                    display.warning("Contract addresses not configured. Configure them by:");
+                    display.note("• Running 'boundless prover setup' interactively");
+                    display.note("• Using command-line flags (--boundless-market-address, etc.)");
+                    display.note("• Editing ~/.boundless/config.toml directly");
 
                     return Ok(());
                 } else {
@@ -471,7 +483,7 @@ impl SetupInteractive {
 
         // Interactive mode (original logic)
         let network_name = if let Some(ref network) = self.network {
-            println!("✓ Using network: {}", network);
+            display.success(&format!("Using network: {}", network.cyan().bold()));
             network.clone()
         } else {
             let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
@@ -502,9 +514,9 @@ impl SetupInteractive {
         // Check if we have previous configuration for this network
         if let Some(existing) = secrets.prover_networks.get(&network_name) {
             if self.rpc_url.is_none() && self.private_key.is_none() {
-                println!("\n📝 Previous configuration found for {}:", network_name);
+                display.info(&format!("Previous configuration found for {}", network_name.cyan().bold()));
                 if let Some(ref rpc) = existing.rpc_url {
-                    println!("  RPC URL: {}", Self::obscure_url(rpc));
+                    display.note(&format!("RPC URL: {}", Self::obscure_url(rpc).dimmed()));
                 }
 
                 let use_previous = Confirm::new("Use previous configuration?")
@@ -512,14 +524,14 @@ impl SetupInteractive {
                     .prompt()?;
 
                 if use_previous {
-                    println!("\n✓ Using previous configuration");
+                    display.success("Using previous configuration");
                     return Ok(());
                 }
             }
         }
 
         let rpc_url = if let Some(ref url) = self.rpc_url {
-            println!("✓ Using RPC URL: {}", url);
+            display.success(&format!("Using RPC URL: {}", url.dimmed()));
             url.clone()
         } else {
             Text::new("Enter RPC URL for this network:")
@@ -529,7 +541,7 @@ impl SetupInteractive {
 
         let (private_key, address) = if let Some(ref pk) = self.private_key {
             let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-            println!("✓ Using provided private key");
+            display.success("Using provided private key");
             (Some(pk), None)
         } else {
             let private_key_prompt = Confirm::new("Do you want to store a private key?")
@@ -546,7 +558,7 @@ impl SetupInteractive {
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
                 (Some(pk), None)
             } else {
-                println!("\n✓ You can set PROVER_PRIVATE_KEY environment variable later for write operations");
+                display.success("You can set PROVER_PRIVATE_KEY environment variable later for write operations");
 
                 // Ask if they want to provide an address for read-only mode
                 let address_prompt = Confirm::new("Do you want to store an address for read-only mode?")
@@ -701,7 +713,7 @@ impl SetupInteractive {
     }
 
     fn setup_custom_market() -> Result<CustomMarketDeployment> {
-        println!("\n--- Custom Market Deployment ---\n");
+        Self::print_section_header("Custom Market Deployment");
 
         let name = Text::new("Deployment name:")
             .with_help_message("A friendly name for this deployment (e.g., 'my-testnet')")
@@ -764,13 +776,14 @@ impl SetupInteractive {
     }
 
     async fn setup_rewards(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
-        println!("\n--- Rewards Module Setup ---\n");
+        let display = DisplayManager::new();
+        Self::print_section_header("Rewards Module Setup");
 
         // Handle reset mode
         if self.reset {
             config.rewards = None;
             secrets.rewards_networks.clear();
-            println!("✓ Cleared all rewards configuration");
+            display.success("Cleared all rewards configuration");
             return Ok(());
         }
 
@@ -782,7 +795,7 @@ impl SetupInteractive {
             if let Some(ref existing_config) = config.rewards {
                 // Network already selected - update secrets for that network
                 let network_name = &existing_config.network;
-                println!("✓ Updating configuration for network: {}", network_name);
+                display.success(&format!("Updating configuration for network: {}", network_name.cyan().bold()));
 
                 // If --state-file is provided, do a quick update and return
                 if let Some(ref new_state_file) = self.state_file {
@@ -806,7 +819,7 @@ impl SetupInteractive {
 
                 // Merge with provided values (only overwrite if provided)
                 let rpc_url = if let Some(ref url) = self.rpc_url {
-                    println!("✓ Updated RPC URL");
+                    display.success("Updated RPC URL");
                     Some(url.clone())
                 } else {
                     existing_secrets.rpc_url
@@ -815,7 +828,7 @@ impl SetupInteractive {
                 let (staking_private_key, staking_address) = if let Some(ref pk) = self.private_key {
                     let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
                     let addr = Self::address_from_private_key(&pk);
-                    println!("✓ Updated staking private key");
+                    display.success("Updated staking private key");
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
                 } else {
                     (existing_secrets.staking_private_key, existing_secrets.staking_address)
@@ -835,15 +848,16 @@ impl SetupInteractive {
                     },
                 );
 
-                println!("\n✓ Updated rewards configuration for network: {}", network_name);
+                display.success(&format!("Updated rewards configuration for network: {}", network_name.cyan().bold()));
                 return Ok(());
             } else {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
                     // Query chain ID from RPC
-                    print!("Querying chain ID from RPC... ");
+                    print!("{} ", "Querying chain ID from RPC...".cyan());
+                    std::io::stdout().flush()?;
                     let chain_id = Self::query_chain_id(rpc_url).await?;
-                    println!("{}", chain_id);
+                    println!("{}", chain_id.to_string().bright_white());
 
                     let network_name = format!("custom-{}", chain_id);
 
@@ -881,10 +895,10 @@ impl SetupInteractive {
                         },
                     );
 
-                    println!("\n✓ Created custom rewards network '{}' (chain ID: {})", network_name, chain_id);
-                    println!("⚠ Contract addresses not configured. Configure them by:");
-                    println!("  • Running 'boundless rewards setup' interactively");
-                    println!("  • Editing ~/.boundless/config.toml directly");
+                    display.success(&format!("Created custom rewards network '{}' (chain ID: {})", network_name.cyan().bold(), chain_id.to_string().bright_white()));
+                    display.warning("Contract addresses not configured. Configure them by:");
+                    display.note("• Running 'boundless rewards setup' interactively");
+                    display.note("• Editing ~/.boundless/config.toml directly");
 
                     return Ok(());
                 } else {
@@ -895,7 +909,7 @@ impl SetupInteractive {
 
         // Interactive mode (original logic)
         let network_name = if let Some(ref network) = self.network {
-            println!("✓ Using network: {}", network);
+            display.success(&format!("Using network: {}", network.cyan().bold()));
             network.clone()
         } else {
             let mut network_options = vec!["Eth Mainnet", "Eth Testnet (Sepolia)"];
@@ -930,21 +944,21 @@ impl SetupInteractive {
         // Check if we have previous configuration for this network
         if let Some(existing) = secrets.rewards_networks.get(&network_name) {
             if self.rpc_url.is_none() && self.private_key.is_none() {
-                println!("\n📝 Previous configuration found for {}:", network_name);
+                display.info(&format!("Previous configuration found for {}", network_name.cyan().bold()));
                 if let Some(ref rpc) = existing.rpc_url {
-                    println!("  RPC URL: {}", Self::obscure_url(rpc));
+                    display.note(&format!("RPC URL: {}", Self::obscure_url(rpc).dimmed()));
                 }
                 if let Some(ref addr) = existing.staking_address {
-                    println!("  Staking Address: {}", addr);
+                    display.note(&format!("Staking Address: {}", addr.bright_yellow()));
                 }
                 if let Some(ref addr) = existing.reward_address {
-                    println!("  Reward Address: {}", addr);
+                    display.note(&format!("Reward Address: {}", addr.bright_yellow()));
                 }
                 if let Some(ref path) = existing.povw_state_file {
-                    println!("  PoVW State File: {}", path.cyan());
+                    display.note(&format!("PoVW State File: {}", path.cyan()));
                 }
                 if let Some(ref beacon) = existing.beacon_api_url {
-                    println!("  Beacon API URL: {}", Self::obscure_url(beacon));
+                    display.note(&format!("Beacon API URL: {}", Self::obscure_url(beacon).dimmed()));
                 }
 
                 let use_previous = Confirm::new("Use previous configuration?")
@@ -952,14 +966,14 @@ impl SetupInteractive {
                     .prompt()?;
 
                 if use_previous {
-                    println!("\n✓ Using previous configuration");
+                    display.success("Using previous configuration");
                     return Ok(());
                 }
             }
         }
 
         let rpc_url = if let Some(ref url) = self.rpc_url {
-            println!("✓ Using RPC URL: {}", url);
+            display.success(&format!("Using RPC URL: {}", url.dimmed()));
             url.clone()
         } else {
             Text::new("Enter RPC URL for this network:")
@@ -967,13 +981,12 @@ impl SetupInteractive {
                 .prompt()?
         };
 
-        // Ask for staking address
-        println!("\n--- Staking Address Configuration ---");
-        println!("The staking address is the wallet used to stake ZKC tokens\n");
+        Self::print_section_header("Staking Address Configuration");
+        display.note("The staking address is the wallet used to stake ZKC tokens");
 
         let (staking_private_key, staking_address) = if let Some(ref pk) = self.private_key {
             let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-            println!("✓ Using provided private key for staking address");
+            display.success("Using provided private key for staking address");
             let addr = Self::address_from_private_key(&pk);
             (Some(pk), addr.map(|a| format!("{:#x}", a)))
         } else {
@@ -999,37 +1012,37 @@ impl SetupInteractive {
 
         // Query on-chain for reward delegation if we have a staking address
         let (reward_private_key, reward_address) = if let Some(ref staking_addr) = staking_address {
-            println!("\n--- Reward Address Configuration ---");
-            println!("The reward address is the address with reward power (can receive delegated rewards)\n");
+            Self::print_section_header("Reward Address Configuration");
+            display.note("The reward address is the address with reward power (can receive delegated rewards)");
 
             // Try to query delegation on-chain
-            print!("Checking if you've delegated rewards... ");
+            print!("{} ", "Checking if you've delegated rewards...".cyan());
             std::io::stdout().flush()?;
             let delegated_address = Self::query_reward_delegation(&rpc_url, &network_name, staking_addr).await.ok().flatten();
 
             if let Some(ref delegated) = delegated_address {
                 if delegated.to_lowercase() != staking_addr.to_lowercase() {
-                    println!("{}", delegated);
+                    println!("{}", delegated.bright_yellow());
                     let use_delegated = Confirm::new("Would you like to use this delegated address as your reward address?")
                         .with_default(true)
                         .prompt()?;
 
                     if use_delegated {
-                        println!("✓ Using delegated address as reward address");
+                        display.success("Using delegated address as reward address");
                         (None, Some(delegated.clone()))
                     } else {
                         Self::ask_for_reward_address(staking_addr, &staking_private_key).await?
                     }
                 } else {
-                    println!("No delegatee");
+                    println!("{}", "No delegatee".dimmed());
                     Self::ask_for_reward_address(staking_addr, &staking_private_key).await?
                 }
             } else {
-                println!("No delegatee");
+                println!("{}", "No delegatee".dimmed());
                 Self::ask_for_reward_address(staking_addr, &staking_private_key).await?
             }
         } else {
-            println!("\n⚠️  No staking address provided - reward address configuration skipped");
+            display.warning("No staking address provided - reward address configuration skipped");
             (None, None)
         };
 
@@ -1050,7 +1063,7 @@ impl SetupInteractive {
 
         // PoVW State File Configuration
         let povw_state_file = if let Some(ref reward_addr) = final_reward_addr {
-            println!("\n--- PoVW (Proof of Verifiable Work) Configuration ---");
+            Self::print_section_header("PoVW (Proof of Verifiable Work) Configuration");
 
             let generate_povw = Confirm::new("Do you plan to generate PoVW?")
                 .with_default(false)
@@ -1085,7 +1098,7 @@ impl SetupInteractive {
                     };
 
                     // Validate that the state file's log_id matches the reward address
-                    print!("Validating state file... ");
+                    print!("{} ", "Validating state file...".cyan());
                     std::io::stdout().flush()?;
 
                     match State::load(&expanded_path).await {
@@ -1108,7 +1121,7 @@ impl SetupInteractive {
                                 );
                             }
                             println!("{}", "✓".green());
-                            println!("  Log ID matches reward address: {:x}", state.log_id);
+                            display.note(&format!("Log ID matches reward address: {:x}", state.log_id));
                         }
                         Err(e) => {
                             println!("{}", "✗".red());
@@ -1170,8 +1183,8 @@ impl SetupInteractive {
                     empty_state.save(&expanded_path)
                         .with_context(|| format!("Failed to create state file: {}", abs_path.display()))?;
 
-                    println!("\n✓ Created empty state file at: {}", abs_path.display().to_string().cyan());
-                    println!("  Remember to back this up regularly!");
+                    display.success(&format!("Created empty state file at: {}", abs_path.display().to_string().cyan()));
+                    display.note("Remember to back this up regularly!");
                     Some(expanded_path)
                 }
             } else {
@@ -1183,9 +1196,9 @@ impl SetupInteractive {
 
         // Beacon API URL Configuration (needed for claiming PoVW rewards)
         let beacon_api_url = if povw_state_file.is_some() {
-            println!("\n--- Beacon API Configuration ---");
-            println!("A Beacon API URL is required to claim PoVW rewards on Ethereum");
-            println!("Providers like Quicknode offer Beacon API access\n");
+            Self::print_section_header("Beacon API Configuration");
+            display.note("A Beacon API URL is required to claim PoVW rewards on Ethereum");
+            display.note("Providers like Quicknode offer Beacon API access");
 
             let configure_beacon = Confirm::new("Configure Beacon API URL now?")
                 .with_default(true)
@@ -1217,20 +1230,21 @@ impl SetupInteractive {
             },
         );
 
-        println!("\n✓ Rewards module configured successfully");
+        display.success("Rewards module configured successfully");
 
         Ok(())
     }
 
     async fn ask_for_reward_address(staking_addr: &str, staking_private_key: &Option<String>) -> Result<(Option<String>, Option<String>)> {
+        let display = DisplayManager::new();
         let same_as_staking = Confirm::new("Is the reward address the same as the staking address?")
             .with_default(true)
             .with_help_message("The reward address is the address with reward power (e.g., if staking address has delegated to another address)")
             .prompt()?;
 
         if same_as_staking {
-            println!("\n⚠️  WARN: Using the same address for reward and staking address is not recommended");
-            println!("   See: https://docs.boundless.network/zkc/mining/wallet-setup\n");
+            display.warning("Using the same address for reward and staking address is not recommended");
+            display.note("See: https://docs.boundless.network/zkc/mining/wallet-setup");
             // If we have a staking private key, use it for reward address too
             Ok((staking_private_key.clone(), Some(staking_addr.to_string())))
         } else {
@@ -1336,7 +1350,7 @@ impl SetupInteractive {
     }
 
     fn setup_custom_rewards() -> Result<CustomRewardsDeployment> {
-        println!("\n--- Custom Rewards Deployment ---\n");
+        Self::print_section_header("Custom Rewards Deployment");
 
         let name = Text::new("Deployment name:")
             .with_help_message("A friendly name for this deployment (e.g., 'my-testnet')")

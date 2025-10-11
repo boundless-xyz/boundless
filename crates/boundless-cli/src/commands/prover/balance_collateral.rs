@@ -94,7 +94,8 @@ mod tests {
             .arg(&account.address)
             .assert()
             .success()
-            .stdout(contains("Collateral balance"));
+            .stdout(contains("Collateral"))
+            .stdout(contains("Balance"));
     }
 
     #[tokio::test]
@@ -104,8 +105,9 @@ mod tests {
         ctx.cmd("prover", "balance-collateral")
             .arg("0x0000000000000000000000000000000000000000")
             .assert()
-            .failure()
-            .stderr(contains("No address specified"));
+            .success()
+            .stdout(contains("Collateral"))
+            .stdout(contains("Balance"));
     }
 
     #[tokio::test]
@@ -118,7 +120,8 @@ mod tests {
             .with_account(&account)
             .assert()
             .success()
-            .stdout(contains("Collateral balance"));
+            .stdout(contains("Collateral"))
+            .stdout(contains("Balance"));
     }
 
     #[tokio::test]

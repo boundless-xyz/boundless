@@ -157,7 +157,7 @@ mod tests {
             .arg(&account.address)
             .assert()
             .success()
-            .stdout(contains("ZKC balance"));
+            .stdout(contains("ZKC Balance"));
     }
 
     #[tokio::test]
@@ -168,7 +168,7 @@ mod tests {
             .arg("0x0000000000000000000000000000000000000000")
             .assert()
             .success()
-            .stdout(contains("ZKC balance"));
+            .stdout(contains("ZKC Balance"));
     }
 
     #[tokio::test]

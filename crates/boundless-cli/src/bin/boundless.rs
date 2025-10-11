@@ -2282,12 +2282,8 @@ mod tests {
         };
 
         let config = GlobalConfig {
-            rpc_url: Some(anvil.endpoint_url()),
-            private_key: Some(private_key),
-            deployment: Some(ctx.deployment.clone()),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
-            zkc_deployment: None,
         };
 
         (ctx, anvil, config)
@@ -2328,7 +2324,6 @@ mod tests {
 
         // Add the order_stream_url to the deployment config.
         ctx.deployment.order_stream_url = Some(order_stream_url.to_string().into());
-        global_config.deployment = Some(ctx.deployment.clone());
 
         (ctx, anvil, global_config, order_stream_handle)
     }
@@ -2345,7 +2340,7 @@ mod tests {
             })),
         };
 
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Depositing {} ETH",
             format_units(default_allowance(), "ether").unwrap()
@@ -2361,7 +2356,7 @@ mod tests {
         args.command = Command::Account(Box::new(AccountCommands::Balance {
             address: Some(ctx.customer_signer.address()),
         }));
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Checking balance for address {}",
             ctx.customer_signer.address()
@@ -2375,7 +2370,7 @@ mod tests {
         args.command =
             Command::Account(Box::new(AccountCommands::Withdraw { amount: default_allowance() }));
 
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Withdrawing {} ETH",
             format_units(default_allowance(), "ether").unwrap()
@@ -2400,12 +2395,12 @@ mod tests {
             command: Command::Account(Box::new(AccountCommands::Deposit { amount })),
         };
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&args, &args.config).await.unwrap_err();
         assert!(err.to_string().contains("Insufficient funds"));
 
         args.command = Command::Account(Box::new(AccountCommands::Withdraw { amount }));
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&args, &args.config).await.unwrap_err();
         assert!(err.to_string().contains("InsufficientBalance"));
     }
 
@@ -2421,7 +2416,7 @@ mod tests {
             })),
         };
 
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Depositing {} HP as collateral",
             format_ether(default_allowance())
@@ -2438,7 +2433,7 @@ mod tests {
         args.command = Command::Account(Box::new(AccountCommands::CollateralBalance {
             address: Some(ctx.prover_signer.address()),
         }));
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Checking collateral balance for address {}",
             ctx.prover_signer.address()
@@ -2453,7 +2448,7 @@ mod tests {
             amount: format_ether(default_allowance()),
         }));
 
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Withdrawing {} HP from collateral",
             format_ether(default_allowance())
@@ -2487,7 +2482,7 @@ mod tests {
         let parsed_amount: U256 = parse_units(&amount, decimals).unwrap().into();
         assert_eq!(parsed_amount, U256::from(0));
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&args, &args.config).await.unwrap_err();
         assert!(err.to_string().contains("Amount is below the denomination minimum"));
 
         Ok(())
@@ -2505,7 +2500,7 @@ mod tests {
             })),
         };
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&args, &args.config).await.unwrap_err();
         assert!(err.to_string().contains(&format!(
             "Failed to deposit collateral: Ensure your address ({}) has funds on the HP contract",
             ctx.customer_signer.address()
@@ -2515,7 +2510,7 @@ mod tests {
             amount: format_ether(default_allowance()),
         }));
 
-        let err = run(&args).await.unwrap_err();
+        let err = run(&args, &args.config).await.unwrap_err();
         assert!(err.to_string().contains("InsufficientBalance"));
     }
 
@@ -2535,7 +2530,7 @@ mod tests {
                 no_preflight: false,
             })),
         };
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain("Submitting request onchain"));
         assert!(logs_contain("Submitted request"));
     }
@@ -2560,7 +2555,7 @@ mod tests {
                 no_preflight: true,
             })),
         };
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain("Submitting request offchain"));
         assert!(logs_contain("Submitted request"));
 
@@ -2597,7 +2592,7 @@ mod tests {
                 },
             )))),
         };
-        run(&args).await.unwrap();
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain("Submitting request onchain"));
         assert!(logs_contain("Submitted request"));
     }
@@ -2627,7 +2622,7 @@ mod tests {
             })),
         };
 
-        run(&status_args).await.unwrap();
+        run(&status_args, &status_args.config).await.unwrap();
 
         assert!(logs_contain(&format!("Request 0x{:x} status: Unknown", request.id)));
     }
@@ -2673,7 +2668,7 @@ mod tests {
                 expires_at: None,
             })),
         };
-        run(&status_args).await.unwrap();
+        run(&status_args, &status_args.config).await.unwrap();
         assert!(logs_contain(&format!("Request 0x{:x} status: Locked", request.id)));
 
         loop {
@@ -2690,12 +2685,11 @@ mod tests {
         }
 
         // test the Slash command
-        run(&MainArgs {
+        let args = MainArgs {
             config,
             command: Command::Ops(Box::new(OpsCommands::Slash { request_id: request.id })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Successfully slashed prover for request 0x{:x}",
             request.id
@@ -2722,7 +2716,7 @@ mod tests {
         serde_yaml::to_writer(request_file, &request).unwrap();
 
         // send the request onchain
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Box::new(StorageProviderConfig::dev_mode()),
@@ -2731,12 +2725,11 @@ mod tests {
                 offchain: false,
                 no_preflight: true,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         // test the Execute command
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Proving(Box::new(ProvingCommands::Execute {
                 request_path: None,
@@ -2744,48 +2737,41 @@ mod tests {
                 request_digest: None,
                 tx_hash: None,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
         let prover_config = GlobalConfig {
-            rpc_url: Some(anvil.endpoint_url()),
-            private_key: Some(ctx.prover_signer.clone()),
-            deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
-            zkc_deployment: None,
         };
 
         // test the Lock command
-        run(&MainArgs {
+        let args = MainArgs {
             config: prover_config,
             command: Command::Proving(Box::new(ProvingCommands::Lock {
                 request_id,
                 request_digest: None,
                 tx_hash: None,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!("Successfully locked request 0x{:x}", request.id)));
 
         // test the Status command
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Status {
                 request_id,
                 expires_at: None,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!("Request 0x{:x} status: Locked", request.id)));
 
         // test the Fulfill command
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: vec![request_id],
@@ -2793,37 +2779,40 @@ mod tests {
                 tx_hashes: None,
                 withdraw: false,
                 prover_config: ProverConfig {
-                    bento_api_key: None,
-                    bento_api_url: "".to_string(),
-                    use_default_prover: true,
-                    skip_health_check: true,
+                    prover_rpc_url: None,
+                    private_key: None,
+                    prover_address: None,
+                    deployment: None,
+                    proving_backend: boundless_cli::config::ProvingBackendConfig {
+                        bento_api_url: "".to_string(),
+                        bento_api_key: None,
+                        use_default_prover: true,
+                        skip_health_check: true,
+                    },
                 },
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         assert!(logs_contain(&format!("Successfully fulfilled requests 0x{:x}", request.id)));
 
         // test the Status command
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Status {
                 request_id,
                 expires_at: None,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!("Request 0x{:x} status: Fulfilled", request.id)));
 
         // test the GetProof command
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::GetProof { request_id })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Successfully retrieved proof for request 0x{:x}",
             request.id
@@ -2832,15 +2821,14 @@ mod tests {
         let predicate = Predicate::try_from(request.requirements.predicate.clone()).unwrap();
 
         // test the Verify command
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::VerifyProof {
                 request_id,
                 image_id: <[u8; 32]>::from(predicate.image_id().unwrap()).into(),
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
             "Successfully verified proof for request 0x{:x}",
             request.id
@@ -2865,7 +2853,7 @@ mod tests {
         }
 
         // test the Fulfill command
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: request_ids.clone(),
@@ -2873,15 +2861,20 @@ mod tests {
                 tx_hashes: None,
                 withdraw: false,
                 prover_config: ProverConfig {
-                    bento_api_key: None,
-                    bento_api_url: "".to_string(),
-                    use_default_prover: true,
-                    skip_health_check: true,
+                    prover_rpc_url: None,
+                    private_key: None,
+                    prover_address: None,
+                    deployment: None,
+                    proving_backend: boundless_cli::config::ProvingBackendConfig {
+                        bento_api_url: "".to_string(),
+                        bento_api_key: None,
+                        use_default_prover: true,
+                        skip_health_check: true,
+                    },
                 },
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         let request_ids_str =
             request_ids.iter().map(|id| format!("0x{id:x}")).collect::<Vec<_>>().join(", ");
@@ -2889,15 +2882,14 @@ mod tests {
 
         for request_id in request_ids {
             // test the Status command
-            run(&MainArgs {
+            let args = MainArgs {
                 config: config.clone(),
                 command: Command::Request(Box::new(RequestCommands::Status {
                     request_id,
                     expires_at: None,
                 })),
-            })
-            .await
-            .unwrap();
+            };
+            run(&args, &args.config).await.unwrap();
             assert!(logs_contain(&format!("Request 0x{request_id:x} status: Fulfilled")));
         }
     }
@@ -2935,7 +2927,7 @@ mod tests {
         serde_yaml::to_writer(request_file, &request).unwrap();
 
         // send the request onchain
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Box::new(StorageProviderConfig::dev_mode()),
@@ -2944,12 +2936,11 @@ mod tests {
                 offchain: false,
                 no_preflight: true,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         // fulfill the request
-        run(&MainArgs {
+        let args = MainArgs {
             config,
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: vec![request.id],
@@ -2957,15 +2948,20 @@ mod tests {
                 tx_hashes: None,
                 withdraw: false,
                 prover_config: ProverConfig {
-                    bento_api_key: None,
-                    bento_api_url: "".to_string(),
-                    use_default_prover: true,
-                    skip_health_check: true,
+                    prover_rpc_url: None,
+                    private_key: None,
+                    prover_address: None,
+                    deployment: None,
+                    proving_backend: boundless_cli::config::ProvingBackendConfig {
+                        bento_api_url: "".to_string(),
+                        bento_api_key: None,
+                        use_default_prover: true,
+                        skip_health_check: true,
+                    },
                 },
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         // check the callback was called
         let count =
@@ -2995,7 +2991,7 @@ mod tests {
         serde_yaml::to_writer(request_file, &request).unwrap();
 
         // send the request onchain
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Box::new(StorageProviderConfig::dev_mode()),
@@ -3004,12 +3000,11 @@ mod tests {
                 offchain: false,
                 no_preflight: true,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         // fulfill the request
-        run(&MainArgs {
+        let args = MainArgs {
             config,
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: vec![request.id],
@@ -3017,15 +3012,20 @@ mod tests {
                 tx_hashes: None,
                 withdraw: false,
                 prover_config: ProverConfig {
-                    bento_api_key: None,
-                    bento_api_url: "".to_string(),
-                    use_default_prover: true,
-                    skip_health_check: true,
+                    prover_rpc_url: None,
+                    private_key: None,
+                    prover_address: None,
+                    deployment: None,
+                    proving_backend: boundless_cli::config::ProvingBackendConfig {
+                        bento_api_url: "".to_string(),
+                        bento_api_key: None,
+                        use_default_prover: true,
+                        skip_health_check: true,
+                    },
                 },
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         // check the seal is aggregated
         let fulfillment = ctx.customer_market.get_request_fulfillment(request.id).await.unwrap();
@@ -3058,7 +3058,7 @@ mod tests {
         serde_yaml::to_writer(request_file, &request).unwrap();
 
         // send the request offchain
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Request(Box::new(RequestCommands::Submit {
                 storage_config: Box::new(StorageProviderConfig::dev_mode()),
@@ -3067,12 +3067,11 @@ mod tests {
                 offchain: true,
                 no_preflight: true,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         // test the Execute command
-        run(&MainArgs {
+        let args = MainArgs {
             config: config.clone(),
             command: Command::Proving(Box::new(ProvingCommands::Execute {
                 request_path: None,
@@ -3080,36 +3079,30 @@ mod tests {
                 request_digest: None,
                 tx_hash: None,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
         let prover_config = GlobalConfig {
-            rpc_url: Some(anvil.endpoint_url()),
-            private_key: Some(ctx.prover_signer.clone()),
-            deployment: Some(ctx.deployment),
             tx_timeout: None,
             log_level: LevelFilter::INFO,
-            zkc_deployment: None,
         };
 
         // test the Lock command
-        run(&MainArgs {
+        let args = MainArgs {
             config: prover_config,
             command: Command::Proving(Box::new(ProvingCommands::Lock {
                 request_id,
                 request_digest: None,
                 tx_hash: None,
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!("Successfully locked request 0x{:x}", request.id)));
 
         // test the Fulfill command
-        run(&MainArgs {
+        let args = MainArgs {
             config,
             command: Command::Proving(Box::new(ProvingCommands::Fulfill {
                 request_ids: vec![request_id],
@@ -3117,15 +3110,20 @@ mod tests {
                 tx_hashes: None,
                 withdraw: true,
                 prover_config: ProverConfig {
-                    bento_api_key: None,
-                    bento_api_url: "".to_string(),
-                    use_default_prover: true,
-                    skip_health_check: true,
+                    prover_rpc_url: None,
+                    private_key: None,
+                    prover_address: None,
+                    deployment: None,
+                    proving_backend: boundless_cli::config::ProvingBackendConfig {
+                        bento_api_url: "".to_string(),
+                        bento_api_key: None,
+                        use_default_prover: true,
+                        skip_health_check: true,
+                    },
                 },
             })),
-        })
-        .await
-        .unwrap();
+        };
+        run(&args, &args.config).await.unwrap();
 
         assert!(logs_contain(&format!("Successfully fulfilled requests 0x{:x}", request.id)));
 

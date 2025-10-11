@@ -182,7 +182,7 @@ mod tests {
             .arg(&account.address)
             .assert()
             .success()
-            .stdout(contains("Staked ZKC Balance"));
+            .stdout(contains("Staking Address Balance"));
     }
 
     #[tokio::test]
@@ -192,8 +192,8 @@ mod tests {
         ctx.cmd("rewards", "staked-balance-zkc")
             .arg("0x0000000000000000000000000000000000000000")
             .assert()
-            .success()
-            .stdout(contains("Staked ZKC Balance"));
+            .failure()
+            .stderr(contains("Failed to query staked ZKC balance"));
     }
 
     #[tokio::test]

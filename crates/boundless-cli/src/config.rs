@@ -299,9 +299,13 @@ impl RewardsConfig {
                 if config_staking_address.is_some() {
                     println!("⚠ Using STAKING_ADDRESS from environment (overriding configured value)");
                 }
-                self.staking_address = Some(addr.parse()?);
+                if !addr.is_empty() {
+                    self.staking_address = Some(addr.parse()?);
+                }
             } else if let Some(ref addr) = config_staking_address {
-                self.staking_address = Some(addr.parse()?);
+                if !addr.is_empty() {
+                    self.staking_address = Some(addr.parse()?);
+                }
             }
         }
 
@@ -323,9 +327,13 @@ impl RewardsConfig {
                 if config_reward_address.is_some() {
                     println!("⚠ Using REWARD_ADDRESS from environment (overriding configured value)");
                 }
-                self.reward_address = Some(addr.parse()?);
+                if !addr.is_empty() {
+                    self.reward_address = Some(addr.parse()?);
+                }
             } else if let Some(ref addr) = config_reward_address {
-                self.reward_address = Some(addr.parse()?);
+                if !addr.is_empty() {
+                    self.reward_address = Some(addr.parse()?);
+                }
             }
         }
 

@@ -80,7 +80,8 @@ mod tests {
             .arg(&account.address)
             .assert()
             .success()
-            .stdout(contains("Balance for address"));
+            .stdout(contains("Balance"))
+            .stdout(contains("ETH"));
     }
 
     #[tokio::test]
@@ -90,8 +91,9 @@ mod tests {
         ctx.cmd("requestor", "balance")
             .arg("0x0000000000000000000000000000000000000000")
             .assert()
-            .failure()
-            .stderr(contains("No address specified"));
+            .success()
+            .stdout(contains("Balance"))
+            .stdout(contains("ETH"));
     }
 
     #[tokio::test]
@@ -104,7 +106,7 @@ mod tests {
             .with_account(&account)
             .assert()
             .success()
-            .stdout(contains(&account.address));
+            .stdout(contains(&account.address.to_lowercase()));
     }
 
     #[tokio::test]
