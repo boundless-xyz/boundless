@@ -39,10 +39,10 @@ function calculateSuggestion(
   const maxPrice = maxPriceInWei * 1e-18 ;
 
   // allow people to execute before ramp up period starts
-  const rampUpStartDelay = Math.ceil(programMegaCycles / 30); // assuming 30 Mhz execution trace gen
+  const rampUpStartDelay = Math.ceil(programMegaCycles / 30) * 2; // assuming 30 Mhz execution trace gen and 2 second Base blocktime
 
   // assume 1000 MCycles = $10 USD lock collateral
-  const lockInCollateralUSDC = Math.max(5, ( programMegaCycles / 1000 ) * 10);
+  const lockInCollateralZKC = Math.max(5, ( programMegaCycles / 1000 ) * 10);
 
   return {
     minPrice: 0,
@@ -50,7 +50,7 @@ function calculateSuggestion(
     rampUpStartDelay,
     rampUpBlocks: Math.min(100, Math.ceil(proofDeliveryTime * 0.5 * networkConfig.blocksPerMinute)),
     lockTimeoutBlocks: Math.ceil(proofDeliveryTime * networkConfig.blocksPerMinute),
-    lockInCollateral: lockInCollateralUSDC,
+    lockInCollateral: lockInCollateralZKC,
   };
 }
 
@@ -72,11 +72,11 @@ export default function PricingCalculator() {
   const yamlConfig = `offer:
     min_price: ${suggestion.minPrice * 1e18} # wei
     max_price: ${suggestion.maxPrice * 1e18} # wei
-    rampUpStart: ${suggestion.rampUpStartDelay} # blocks
+    rampUpStart: ${suggestion.rampUpStartDelay} # seconds
     rampUpPeriod: ${suggestion.rampUpBlocks} # blocks
     timeout: 2700 # seconds
     lockTimeout: ${suggestion.lockTimeoutBlocks} # blocks
-    lockCollateral: ${suggestion.lockInCollateral * 1e6} # USDC`;
+    lockCollateral: ${suggestion.lockInCollateral * 1e18} # ZKC`;
 
   const handleCopy = async () => {
     try {
@@ -182,17 +182,17 @@ export default function PricingCalculator() {
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt>Ramp-up Start Delay:</dt>
+                <dt>Ramp Up Start:</dt>
                 <dd>
                   <NumberFlow
                     className="font-mono"
                     value={suggestion.rampUpStartDelay}
-                    suffix={suggestion.rampUpStartDelay === 1 ? " block" : " blocks"}
+                    suffix={suggestion.rampUpStartDelay === 1 ? "second" : " seconds"}
                   />
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt>Ramp-up Period:</dt>
+                <dt>Ramp Up Period:</dt>
                 <dd>
                   <NumberFlow
                     className="font-mono"
@@ -217,11 +217,11 @@ export default function PricingCalculator() {
                   <NumberFlow
                     format={{
                       minimumFractionDigits: 6,
-                      maximumFractionDigits: 6,
+                      maximumFractionDigits: 18,
                     }}
                     className="font-mono"
                     value={suggestion.lockInCollateral}
-                    suffix=" USDC"
+                    suffix=" ZKC"
                   />
                 </dd>
               </div>

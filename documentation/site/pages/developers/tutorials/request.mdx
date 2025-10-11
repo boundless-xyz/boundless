@@ -383,7 +383,7 @@ let (request_id, expires_at) = client.submit_offchain(request).await?; // [!code
 
 ### Offer
 
-The [Offer](/developers/tutorials/pricing) specifies how much the requestor will pay for a proof, by setting the auction price, timing, stake requirements, and expiration.
+The [Offer](/developers/tutorials/configure) specifies how much the requestor will pay for a proof, by setting the auction price, timing, stake requirements, and expiration.
 
 The Client helps you build requests and set these parameters. Within the client, the [OfferLayer](https://docs.rs/boundless-market/latest/boundless_market/request_builder/offer_layer/struct.OfferLayer.html) creates the offer. It contains a set of defaults, and logic to assign a price to your request.
 
