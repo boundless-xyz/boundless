@@ -10,5 +10,9 @@ config:
   indexer:CHAIN_ID: "11155111"
   indexer:GH_TOKEN_SECRET:
     secure: v1:Ucve4qB6gUbr6wYA:KkjcpfItdRbofqIwJhViKC+1v/5rq4t81wlqeFsSN/zrklM1yw9o+2tN9iWj0qKbKjZ0nHhBouC+HZkTE9lMyjEMNl9oezsB5kFbxMb3sLDpK2jx4KZT8AZ/S/jHuGSAf7WTRCfEnUJWyu6P8g==
+  indexer:ETH_RPC_URL:
+    secure: v1:aDACh+FhCJte0D8a:x1Qz6hBhdgjHUAhu3m5NBvipn0MFctp5PRSNttCgV+7mPVgUU7+mvkRDwEa+K8Ll1IUToGX/eKBkwBeE+XYrWbuv+5EFsE9SHiY=
+  indexer:RDS_PASSWORD:
+    secure: v1:w4gH1O7RvkOIKDd+:QSjcdDB9Fz4L45pDn/KqazFQ7f3jmVqk6huQozjQ
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFHtwzjU7yLfdQ9logy0MInAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNhj+98DbHRflFcp9AgEQgDvp1BoYvt06/rXZ3L1vMct30E+uQelDoPiY/hIdIIdV2JfqTHKgFfsu73W3Rsy2zG9W0sRQcSl8jrc1tg==
