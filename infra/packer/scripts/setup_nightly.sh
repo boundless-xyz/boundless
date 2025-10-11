@@ -17,7 +17,7 @@ sudo mv target/release/agent /usr/local/bin/agent
 sudo mv target/release/rest_api /usr/local/bin/api
 sudo mv target/release/bento_cli /usr/local/bin/bento_cli
 sudo chmod +x /usr/local/bin/agent /usr/local/bin/api /usr/local/bin/bento_cli
-
+cd ../
 # Install broker from source
 cargo build --release --bin broker
 sudo mv target/release/broker /usr/local/bin/broker
