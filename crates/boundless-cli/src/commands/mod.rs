@@ -14,12 +14,7 @@
 
 //! Commands within the Boundless CLI
 
-// New command structure
 pub mod prover;
 pub mod requestor;
 pub mod rewards;
 pub mod setup;
-
-// Legacy commands (to be removed/migrated)
-pub mod povw;
-pub mod zkc;

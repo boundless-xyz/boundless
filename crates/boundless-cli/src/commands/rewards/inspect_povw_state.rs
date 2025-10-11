@@ -19,7 +19,7 @@ use clap::Args;
 use colored::Colorize;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 
-use crate::commands::povw::State;
+use super::State;
 use crate::config::{GlobalConfig, RewardsConfig};
 
 /// Inspect a PoVW state file and display detailed statistics

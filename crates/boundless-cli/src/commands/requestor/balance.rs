@@ -68,10 +68,7 @@ impl RequestorBalance {
 
 #[cfg(test)]
 mod tests {
-    #[path = "../../../../tests/common/mod.rs"]
-    mod common;
-
-    use common::TestContext;
+    use crate::test_common::TestContext;
     use predicates::str::contains;
 
     #[tokio::test]
@@ -112,7 +109,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_balance_help() {
-        common::BoundlessCmd::new("requestor", "balance")
+        crate::test_common::BoundlessCmd::new("requestor", "balance")
             .arg("--help")
             .assert()
             .success()

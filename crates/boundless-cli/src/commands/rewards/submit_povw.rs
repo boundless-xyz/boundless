@@ -30,7 +30,7 @@ use risc0_zkvm::{default_prover, ProverOpts};
 use url::Url;
 
 use crate::{
-    commands::povw::State,
+    commands::rewards::State,
     config::{GlobalConfig, ProvingBackendConfig, RewardsConfig},
     display::DisplayManager,
     indexer_client::{parse_amount, IndexerClient},

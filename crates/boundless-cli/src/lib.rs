@@ -449,6 +449,11 @@ fn is_dev_mode() -> bool {
 }
 
 #[cfg(test)]
+#[allow(missing_docs)]
+#[path = "../tests/common/mod.rs"]
+pub mod test_common;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use alloy::{

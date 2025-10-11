@@ -15,7 +15,7 @@
 //! Integration tests for PoVW rewards commands.
 
 use alloy::{providers::ext::AnvilApi, signers::local::PrivateKeySigner};
-use boundless_cli::commands::povw::State;
+use boundless_cli::commands::rewards::State;
 use boundless_test_utils::povw::{bento_mock::BentoMockServer, make_work_claim, test_ctx};
 use predicates::str::contains;
 use risc0_povw::PovwLogId;
@@ -99,16 +99,17 @@ async fn test_prepare_povw_basic() -> anyhow::Result<()> {
     let receipt1_path = temp_path.join("receipt1.bin");
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt1_path)?;
 
-    // 3. Run the prepare-povw command to create a new work log with that receipt
+    // 3. Create state file and run the prepare-povw command to add the receipt
     let state_path = temp_path.join("state.bin");
+    State::new(log_id).save(&state_path)?;
+
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
         "prepare-povw",
-        "--new",
-        &format!("{:#x}", log_id),
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
+        "--work-receipt-files",
         receipt1_path.to_str().unwrap(),
     ])
     .env("NO_COLOR", "1")
@@ -132,8 +133,9 @@ async fn test_prepare_povw_basic() -> anyhow::Result<()> {
     cmd.args([
         "rewards",
         "prepare-povw",
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
+        "--work-receipt-files",
         receipt2_path.to_str().unwrap(),
     ])
     .env("NO_COLOR", "1")
@@ -166,14 +168,15 @@ async fn test_inspect_povw_state() -> anyhow::Result<()> {
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt_path)?;
 
     // Create state file
+    State::new(log_id).save(&state_path)?;
+
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
         "prepare-povw",
-        "--new",
-        &format!("{:#x}", log_id),
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
+        "--work-receipt-files",
         receipt_path.to_str().unwrap(),
     ])
     .env("NO_COLOR", "1")
@@ -187,7 +190,7 @@ async fn test_inspect_povw_state() -> anyhow::Result<()> {
     cmd.args([
         "rewards",
         "inspect-povw-state",
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
     ])
     .env("NO_COLOR", "1")
@@ -212,26 +215,24 @@ async fn test_prepare_and_submit() -> anyhow::Result<()> {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    // Use a random signer for the work log (with zero balance)
-    let work_log_signer = PrivateKeySigner::random();
-    let log_id: PovwLogId = work_log_signer.address().into();
-
-    // Use an Anvil-provided signer for transaction signing (with balance)
+    // Use an Anvil-provided signer for both work log and transactions (has balance)
     let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[1].clone().into();
+    let log_id: PovwLogId = tx_signer.address().into();
 
     let receipt_path = temp_path.join("receipt.bin");
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt_path)?;
 
-    // Run prepare-povw to create a work log update
+    // Create state file and run prepare-povw to create a work log update
     let state_path = temp_path.join("state.bin");
+    State::new(log_id).save(&state_path)?;
+
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
         "prepare-povw",
-        "--new",
-        &format!("{:#x}", log_id),
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
+        "--work-receipt-files",
         receipt_path.to_str().unwrap(),
     ])
     .env("NO_COLOR", "1")
@@ -245,15 +246,14 @@ async fn test_prepare_and_submit() -> anyhow::Result<()> {
     state.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
     // 3. Use the submit-povw command to post an update to the PoVW accounting contract
-    let env = RewardsEnv::from_test_ctx(&ctx, &tx_signer, &work_log_signer);
+    let env = RewardsEnv::from_test_ctx(&ctx, &tx_signer).await;
     let mut cmd = cli_cmd()?;
     env.apply_to_cmd(&mut cmd);
-    cmd.args(["rewards", "submit-povw", "--state", state_path.to_str().unwrap()])
+    cmd.args(["rewards", "submit-povw", "--state-file", state_path.to_str().unwrap()])
         .assert()
         .success()
         // 4. Confirm that the command logs success
-        .stdout(contains("Work log update confirmed"))
-        .stdout(contains("updated_commit"));
+        .stdout(contains("Successfully submitted"));
 
     // Additional verification: Load the state and check that the work log commit matches onchain
     let state = State::load(&state_path).await?;
@@ -280,20 +280,20 @@ async fn test_claim_multi_epoch() -> anyhow::Result<()> {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    // Use a random signer for the work log
-    let work_log_signer = PrivateKeySigner::random();
-    let log_id: PovwLogId = work_log_signer.address().into();
+    // Use an Anvil-provided signer for both work log and transactions (has balance)
+    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[1].clone().into();
+    let log_id: PovwLogId = tx_signer.address().into();
 
     // Use a different address as the value recipient
     let value_recipient = PrivateKeySigner::random().address();
 
-    // Use an Anvil-provided signer for transaction signing (with balance)
-    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[1].clone().into();
-
     let state_path = temp_path.join("state.bin");
     let work_values = [100u64, 200u64, 150u64]; // Different work values for each epoch
 
-    let env = RewardsEnv::from_test_ctx(&ctx, &tx_signer, &work_log_signer);
+    let env = RewardsEnv::from_test_ctx(&ctx, &tx_signer).await;
+
+    // Create initial state file
+    State::new(log_id).save(&state_path)?;
 
     // Loop: Create three updates across three epochs
     for (i, &work_value) in work_values.iter().enumerate() {
@@ -303,33 +303,17 @@ async fn test_claim_multi_epoch() -> anyhow::Result<()> {
         let receipt_path = temp_path.join(format!("receipt_{}.bin", i + 1));
         make_fake_work_receipt_file(log_id, work_value, 10, &receipt_path)?;
 
-        // Create or update the work log
+        // Update the work log
         let mut cmd = cli_cmd()?;
-        let log_id_str = format!("{:#x}", log_id);
-        let cmd_args = if i == 0 {
-            // First update: create new work log
-            vec![
-                "rewards",
-                "prepare-povw",
-                "--new",
-                &log_id_str,
-                "--state",
-                state_path.to_str().unwrap(),
-                receipt_path.to_str().unwrap(),
-            ]
-        } else {
-            // Subsequent updates: update existing work log
-            vec![
-                "rewards",
-                "prepare-povw",
-                "--state",
-                state_path.to_str().unwrap(),
-                receipt_path.to_str().unwrap(),
-            ]
-        };
-
         let result = cmd
-            .args(cmd_args)
+            .args([
+                "rewards",
+                "prepare-povw",
+                "--state-file",
+                state_path.to_str().unwrap(),
+                "--work-receipt-files",
+                receipt_path.to_str().unwrap(),
+            ])
             .env("NO_COLOR", "1")
             .env("RUST_LOG", "boundless_cli=debug,info")
             .env("RISC0_DEV_MODE", "1")
@@ -347,13 +331,13 @@ async fn test_claim_multi_epoch() -> anyhow::Result<()> {
         cmd.args([
             "rewards",
             "submit-povw",
-            "--state",
+            "--state-file",
             state_path.to_str().unwrap(),
-            "--value-recipient",
+            "--recipient",
             &format!("{:#x}", value_recipient),
         ]);
 
-        let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
+        let result = cmd.assert().success().stdout(contains("Successfully submitted"));
 
         println!(
             "submit command output:\n{}",
@@ -401,18 +385,18 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    // Use a random signer for the work log
-    let work_log_signer = PrivateKeySigner::random();
-    let log_id: PovwLogId = work_log_signer.address().into();
+    // Use an Anvil-provided signer for both work log and transactions (has balance)
+    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[1].clone().into();
+    let log_id: PovwLogId = tx_signer.address().into();
 
     // Use a different address as the value recipient
     let value_recipient = PrivateKeySigner::random().address();
 
-    // Use an Anvil-provided signer for transaction signing (with balance)
-    let tx_signer: PrivateKeySigner = ctx.anvil.lock().await.keys()[1].clone().into();
-
     let state_path = temp_path.join("state.bin");
-    let env = RewardsEnv::from_test_ctx(&ctx, &tx_signer, &work_log_signer);
+    let env = RewardsEnv::from_test_ctx(&ctx, &tx_signer).await;
+
+    // Create initial state file
+    State::new(log_id).save(&state_path)?;
 
     // Create a work receipt for the first epoch
     let receipt1_path = temp_path.join("receipt1.bin");
@@ -423,10 +407,9 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
         .args([
             "rewards",
             "prepare-povw",
-            "--new",
-            &format!("{:#x}", log_id),
-            "--state",
+            "--state-file",
             state_path.to_str().unwrap(),
+            "--work-receipt-files",
             receipt1_path.to_str().unwrap(),
         ])
         .env("NO_COLOR", "1")
@@ -443,13 +426,13 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     cmd.args([
         "rewards",
         "submit-povw",
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
-        "--value-recipient",
+        "--recipient",
         &format!("{:#x}", value_recipient),
     ]);
 
-    let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
+    let result = cmd.assert().success().stdout(contains("Successfully submitted"));
 
     println!("submit command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
@@ -467,8 +450,9 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
         .args([
             "rewards",
             "prepare-povw",
-            "--state",
+            "--state-file",
             state_path.to_str().unwrap(),
+            "--work-receipt-files",
             receipt2_path.to_str().unwrap(),
         ])
         .env("NO_COLOR", "1")
@@ -485,13 +469,13 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     cmd.args([
         "rewards",
         "submit-povw",
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
-        "--value-recipient",
+        "--recipient",
         &format!("{:#x}", value_recipient),
     ]);
 
-    let result = cmd.assert().success().stdout(contains("Work log update confirmed"));
+    let result = cmd.assert().success().stdout(contains("Successfully submitted"));
 
     println!("submit command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
@@ -540,6 +524,9 @@ async fn test_prepare_from_bento() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
     let log_id: PovwLogId = signer.address().into();
 
+    // Create initial state file
+    State::new(log_id).save(&state_path)?;
+
     // PHASE 1: Add one receipt and run prepare
     tracing::info!("=== Phase 1: Testing with single receipt ===");
 
@@ -550,18 +537,15 @@ async fn test_prepare_from_bento() -> anyhow::Result<()> {
     let receipt_id_1 = bento_server.add_work_receipt(&work_receipt_1)?;
     tracing::info!("Added receipt 1 with ID: {}", receipt_id_1);
 
-    // Run prepare with --from-bento to create new work log
+    // Run prepare with --work-receipt-bento-api-url to fetch from Bento
     let mut cmd = cli_cmd()?;
     let result = cmd
         .args([
             "rewards",
             "prepare-povw",
-            "--new",
-            &format!("{:#x}", log_id),
-            "--state",
+            "--state-file",
             state_path.to_str().unwrap(),
-            "--from-bento",
-            "--from-bento-url",
+            "--work-receipt-bento-api-url",
             &bento_url,
         ])
         .env("NO_COLOR", "1")
@@ -601,15 +585,14 @@ async fn test_prepare_from_bento() -> anyhow::Result<()> {
 
     assert_eq!(bento_server.receipt_count(), 4, "Should have 4 receipts in mock server");
 
-    // Run prepare again (without --new, updating existing work log)
+    // Run prepare again to fetch new receipts from Bento
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
         "prepare-povw",
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
-        "--from-bento",
-        "--from-bento-url",
+        "--work-receipt-bento-api-url",
         &bento_url,
     ])
     .env("NO_COLOR", "1")
@@ -659,18 +642,18 @@ async fn test_prepare_from_bento_no_receipts() -> anyhow::Result<()> {
     let signer = PrivateKeySigner::random();
     let log_id: PovwLogId = signer.address().into();
 
-    // Run prepare with --from-bento on empty Bento server
+    // Create initial state file
+    State::new(log_id).save(&state_path)?;
+
+    // Run prepare with --work-receipt-bento-api-url on empty Bento server
     let mut cmd = cli_cmd()?;
     let result = cmd
         .args([
             "rewards",
             "prepare-povw",
-            "--new",
-            &format!("{:#x}", log_id),
-            "--state",
+            "--state-file",
             state_path.to_str().unwrap(),
-            "--from-bento",
-            "--from-bento-url",
+            "--work-receipt-bento-api-url",
             &bento_url,
         ])
         .env("NO_COLOR", "1")
@@ -679,7 +662,7 @@ async fn test_prepare_from_bento_no_receipts() -> anyhow::Result<()> {
         .assert();
 
     // Should succeed with message about no receipts to process
-    let result = result.success().stdout(contains("No work receipts to process"));
+    let result = result.success().stdout(contains("No new receipts"));
 
     println!("command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
@@ -743,18 +726,18 @@ async fn test_prepare_from_bento_multiple_log_ids() -> anyhow::Result<()> {
     tracing::info!("Added 2 other receipts: {} {}", other_receipt_1, other_receipt_2);
     assert_eq!(bento_server.receipt_count(), 4, "Should have 4 total receipts in mock server");
 
-    // Run prepare with --from-bento for the target log ID
+    // Create initial state file
+    State::new(target_log_id).save(&state_path)?;
+
+    // Run prepare with --work-receipt-bento-api-url for the target log ID
     let mut cmd = cli_cmd()?;
     let result = cmd
         .args([
             "rewards",
             "prepare-povw",
-            "--new",
-            &format!("{:#x}", target_log_id),
-            "--state",
+            "--state-file",
             state_path.to_str().unwrap(),
-            "--from-bento",
-            "--from-bento-url",
+            "--work-receipt-bento-api-url",
             &bento_url,
             "--allow-partial-update",
         ])
@@ -765,7 +748,7 @@ async fn test_prepare_from_bento_multiple_log_ids() -> anyhow::Result<()> {
 
     // Should succeed and log warnings about skipping other log ID
     let result =
-        result.success().stdout(contains("Skipping receipts with log ID"));
+        result.success().stdout(contains("Skipping receipts associated with"));
 
     println!("command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
@@ -799,14 +782,15 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
 
     // Create initial state
     let state_path = temp_path.join("state.bin");
+    State::new(log_id).save(&state_path)?;
+
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
         "prepare-povw",
-        "--new",
-        &format!("{:#x}", log_id),
-        "--state",
+        "--state-file",
         state_path.to_str().unwrap(),
+        "--work-receipt-files",
         receipt1_path.to_str().unwrap(),
     ])
     .env("NO_COLOR", "1")
@@ -818,6 +802,9 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
     // Create second receipt
     let receipt2_path = temp_path.join("receipt2.bin");
     make_fake_work_receipt_file(log_id, 2000, 5, &receipt2_path)?;
+
+    // Sleep to ensure different timestamp for backup filename
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Get home directory for backup location
     let home = dirs::home_dir().expect("Could not determine home directory");
@@ -836,8 +823,9 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
         .args([
             "rewards",
             "prepare-povw",
-            "--state",
+            "--state-file",
             state_path.to_str().unwrap(),
+            "--work-receipt-files",
             receipt2_path.to_str().unwrap(),
         ])
         .env("NO_COLOR", "1")
@@ -848,7 +836,7 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
 
     // Check that output mentions backup
     let output = String::from_utf8_lossy(&result.get_output().stdout);
-    assert!(output.contains("Backup saved to:"), "Should mention backup creation");
+    assert!(output.contains("Saved backup of previous state to:"), "Should mention backup creation");
 
     // Count backup files after update
     let after_count = std::fs::read_dir(&backup_dir)

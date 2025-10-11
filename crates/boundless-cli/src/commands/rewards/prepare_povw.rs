@@ -27,7 +27,7 @@ use risc0_zkvm::{default_prover, GenericReceipt, ProverOpts, ReceiptClaim, WorkC
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::commands::povw::State;
+use super::State;
 use crate::config::{GlobalConfig, ProvingBackendConfig, RewardsConfig};
 
 /// Private type alias for work receipts

@@ -64,12 +64,10 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_cli::{
     commands::{
-        povw::PovwCommands, // Legacy - to be removed
         prover::ProverCommands,
         requestor::RequestorCommands,
         rewards::RewardsCommands,
         setup::SetupCommands,
-        zkc::ZKCCommands, // Legacy - to be removed
     },
     config::ProverConfig,
     convert_timestamp, DefaultProver, OrderFulfilled,
@@ -132,12 +130,6 @@ enum Command {
 
     #[command(subcommand, hide = true)]
     Ops(Box<OpsCommands>),
-
-    #[command(subcommand, hide = true)]
-    Povw(Box<PovwCommands>),
-
-    #[command(subcommand, hide = true)]
-    Zkc(Box<ZKCCommands>),
 
     #[command(hide = true)]
     Config {},
@@ -487,7 +479,7 @@ fn format_duration(duration: std::time::Duration) -> String {
 
 async fn show_welcome_screen() -> Result<()> {
     use boundless_cli::config_file::{Config, Secrets};
-    use boundless_cli::commands::povw::State;
+    use boundless_cli::commands::rewards::State;
     use colored::Colorize;
 
     println!();
@@ -961,7 +953,7 @@ fn show_prover_status() -> Result<()> {
 
 async fn show_rewards_status() -> Result<()> {
     use boundless_cli::config_file::{Config, Secrets};
-    use boundless_cli::commands::povw::State;
+    use boundless_cli::commands::rewards::State;
     use colored::Colorize;
 
     println!("\n{}\n", "Rewards Module".bold().underline());
@@ -1190,8 +1182,6 @@ pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
         Command::Request(request_cmd) => handle_request_command(request_cmd, config).await,
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, config).await,
         Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, config).await,
-        Command::Povw(povw_cmd) => povw_cmd.run(config).await,
-        Command::Zkc(zkc_cmd) => zkc_cmd.run(config).await,
         Command::Config {} => handle_config_command(config).await,
         Command::Completions { shell } => generate_shell_completions(shell),
     }

@@ -55,15 +55,12 @@ impl RequestorDeposit {
 
 #[cfg(test)]
 mod tests {
-    #[path = "../../../../tests/common/mod.rs"]
-    mod common;
-
-    use common::TestContext;
+    use crate::test_common::TestContext;
     use predicates::str::contains;
 
     #[tokio::test]
     async fn test_deposit_help() {
-        common::BoundlessCmd::new("requestor", "deposit")
+        crate::test_common::BoundlessCmd::new("requestor", "deposit")
             .arg("--help")
             .assert()
             .success()

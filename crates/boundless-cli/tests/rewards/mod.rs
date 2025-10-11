@@ -37,7 +37,6 @@ pub fn make_fake_work_receipt_file(
 pub struct RewardsEnv {
     pub reward_rpc_url: String,
     pub reward_private_key: String,
-    pub reward_povw_private_key: String,
     pub povw_accounting_address: String,
     pub povw_mint_address: String,
     pub zkc_address: String,
@@ -46,15 +45,13 @@ pub struct RewardsEnv {
 
 impl RewardsEnv {
     /// Create environment variables from test context
-    pub fn from_test_ctx(
+    pub async fn from_test_ctx(
         ctx: &boundless_test_utils::povw::TestCtx,
         tx_signer: &alloy::signers::local::PrivateKeySigner,
-        work_log_signer: &alloy::signers::local::PrivateKeySigner,
     ) -> Self {
         Self {
-            reward_rpc_url: ctx.anvil.clone().blocking_lock().endpoint_url().to_string(),
+            reward_rpc_url: ctx.anvil.lock().await.endpoint_url().to_string(),
             reward_private_key: format!("{:#x}", tx_signer.to_bytes()),
-            reward_povw_private_key: format!("{:#x}", work_log_signer.to_bytes()),
             povw_accounting_address: format!("{:#x}", ctx.povw_accounting.address()),
             povw_mint_address: format!("{:#x}", ctx.povw_mint.address()),
             zkc_address: format!("{:#x}", ctx.zkc.address()),
@@ -66,7 +63,6 @@ impl RewardsEnv {
     pub fn apply_to_cmd<'a>(&self, cmd: &'a mut assert_cmd::Command) -> &'a mut assert_cmd::Command {
         cmd.env("REWARD_RPC_URL", &self.reward_rpc_url)
             .env("REWARD_PRIVATE_KEY", &self.reward_private_key)
-            .env("REWARD_POVW_PRIVATE_KEY", &self.reward_povw_private_key)
             .env("POVW_ACCOUNTING_ADDRESS", &self.povw_accounting_address)
             .env("POVW_MINT_ADDRESS", &self.povw_mint_address)
             .env("ZKC_ADDRESS", &self.zkc_address)

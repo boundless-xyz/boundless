@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Commands of the Boundless CLI for Proof of Verifiable Work (PoVW) operations.
+//! PoVW state management for rewards commands.
 
 use std::{collections::HashMap, io::Write, path::Path, time::SystemTime};
 

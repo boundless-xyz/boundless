@@ -55,15 +55,12 @@ impl RequestorWithdraw {
 
 #[cfg(test)]
 mod tests {
-    #[path = "../../../../tests/common/mod.rs"]
-    mod common;
-
-    use common::TestContext;
+    use crate::test_common::TestContext;
     use predicates::str::contains;
 
     #[tokio::test]
     async fn test_withdraw_help() {
-        common::BoundlessCmd::new("requestor", "withdraw")
+        crate::test_common::BoundlessCmd::new("requestor", "withdraw")
             .arg("--help")
             .assert()
             .success()
