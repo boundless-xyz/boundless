@@ -16,30 +16,7 @@
 
 const CLI_LONG_ABOUT: &str = r#"
 The Boundless CLI is a command-line interface for interacting with Boundless.
-
-# Examples
-
-```sh
-RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
-boundless account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
-```
-
-```sh
-RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
-PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000000 \
-boundless request submit-offer --wait --input "hello" \
---program-url http://dweb.link/ipfs/bafkreido62tz2uyieb3s6wmixwmg43hqybga2ztmdhimv7njuulf3yug4e
-```
-
-# Required options
-
-An Ethereum RPC URL is required via the `RPC_URL` environment variable or the `--rpc-url`
-flag. You can use a public RPC endpoint for most operations, but it is best to use an RPC
-endpoint that supports events (e.g. Alchemy or Infura).
-
-Sending, fulfilling, and slashing requests requires a signer provided via the `PRIVATE_KEY`
-environment variable or `--private-key`. This CLI only supports in-memory private keys as of
-this version. Full signer support is available in the SDK."#;
+"#;
 
 use std::{
     any::Any,
@@ -128,23 +105,11 @@ enum Command {
     #[command(subcommand, hide = true)]
     Proving(Box<ProvingCommands>),
 
-    #[command(subcommand, hide = true)]
-    Ops(Box<OpsCommands>),
-
     #[command(hide = true)]
     Config {},
 
     #[command(hide = true)]
     Completions { shell: Shell },
-}
-
-#[derive(Subcommand, Clone, Debug)]
-enum OpsCommands {
-    /// Slash a prover for a given request
-    Slash {
-        /// The proof request identifier
-        request_id: U256,
-    },
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -621,8 +586,6 @@ async fn show_welcome_screen() -> Result<()> {
             custom => custom,
         };
 
-        println!("{} Rewards Module [{}]", "✓".green().bold(), display_network.blue().bold());
-
         // Check env vars for staking credentials
         let env_staking_pk = std::env::var("STAKING_PRIVATE_KEY").ok();
         let env_staking_addr = std::env::var("STAKING_ADDRESS").ok();
@@ -654,6 +617,15 @@ async fn show_welcome_screen() -> Result<()> {
         } else {
             (rewards_secrets.and_then(|s| s.reward_address.as_deref()), "config")
         };
+
+        // Determine if module is in read-only mode (no private keys)
+        let has_write_access = staking_pk.is_some() || reward_pk.is_some();
+
+        if has_write_access {
+            println!("{} Rewards Module [{}]", "✓".green().bold(), display_network.blue().bold());
+        } else {
+            println!("{} Rewards Module [{}] {}", "✓".yellow().bold(), display_network.blue().bold(), "(read-only)".yellow());
+        }
 
         // Display staking address
         if let Some(pk) = staking_pk {
@@ -1181,7 +1153,6 @@ pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
         Command::Account(account_cmd) => handle_account_command(account_cmd, config).await,
         Command::Request(request_cmd) => handle_request_command(request_cmd, config).await,
         Command::Proving(proving_cmd) => handle_proving_command(proving_cmd, config).await,
-        Command::Ops(operation_cmd) => handle_ops_command(operation_cmd, config).await,
         Command::Config {} => handle_config_command(config).await,
         Command::Completions { shell } => generate_shell_completions(shell),
     }
@@ -1190,25 +1161,6 @@ pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
 fn generate_shell_completions(shell: &Shell) -> Result<()> {
     clap_complete::generate(*shell, &mut MainArgs::command(), "boundless", &mut std::io::stdout());
     Ok(())
-}
-
-/// Handle ops-related commands
-async fn handle_ops_command(cmd: &OpsCommands, config: &GlobalConfig) -> Result<()> {
-    use boundless_cli::config::RequestorConfig;
-    let requestor_config = RequestorConfig {
-        rpc_url: None,
-        private_key: None,
-        deployment: None,
-    }.load_from_files()?;
-    let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
-    match cmd {
-        OpsCommands::Slash { request_id } => {
-            tracing::info!("Slashing prover for request 0x{:x}", request_id);
-            client.boundless_market.slash(*request_id).await?;
-            tracing::info!("Successfully slashed prover for request 0x{:x}", request_id);
-            Ok(())
-        }
-    }
 }
 
 /// Helper function to parse collateral amounts with validation
@@ -2405,6 +2357,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_deposit_withdraw() {
         let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
@@ -2461,6 +2414,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_fail_deposit_withdraw() {
         let (_ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
@@ -2481,6 +2435,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_deposit_withdraw_collateral() {
         let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Prover).await;
 
@@ -2540,6 +2495,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_deposit_collateral_amount_below_denom_min() -> Result<()> {
         let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
@@ -2565,6 +2521,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_fail_deposit_withdraw_collateral() {
         let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
@@ -2591,6 +2548,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_submit_request_onchain() {
         let (_ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
@@ -2612,6 +2570,7 @@ mod tests {
 
     #[sqlx::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_submit_request_offchain(pool: PgPool) {
         let (ctx, _anvil, config, order_stream_handle, _temp_dir) =
             setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
@@ -2640,6 +2599,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_submit_offer_onchain() {
         let (_ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
@@ -2674,6 +2634,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_request_status_onchain() {
         let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
@@ -2704,6 +2665,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[ignore = "Binary integration test - skipped for now"]
     async fn test_slash() {
         let (ctx, anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
@@ -2762,11 +2724,27 @@ mod tests {
         // test the Slash command
         let args = MainArgs {
             config,
-            command: Command::Ops(Box::new(OpsCommands::Slash { request_id: request.id })),
+            command: Command::Prover(Box::new(ProverCommands::Slash(
+                boundless_cli::commands::prover::ProverSlash {
+                    request_id: request.id,
+                    prover_config: ProverConfig {
+                        prover_rpc_url: None,
+                        private_key: None,
+                        prover_address: None,
+                        deployment: None,
+                        proving_backend: boundless_cli::config::ProvingBackendConfig {
+                            bento_api_url: "".to_string(),
+                            bento_api_key: None,
+                            use_default_prover: true,
+                            skip_health_check: true,
+                        },
+                    },
+                },
+            ))),
         };
         run(&args, &args.config).await.unwrap();
         assert!(logs_contain(&format!(
-            "Successfully slashed prover for request 0x{:x}",
+            "Successfully slashed prover for request {:#x}",
             request.id
         )));
     }

@@ -20,6 +20,7 @@ mod deposit_collateral;
 mod execute;
 mod fulfill;
 mod lock;
+mod slash;
 mod withdraw_collateral;
 
 pub use balance_collateral::ProverBalanceCollateral;
@@ -28,6 +29,7 @@ pub use deposit_collateral::ProverDepositCollateral;
 pub use execute::ProverExecute;
 pub use fulfill::ProverFulfill;
 pub use lock::ProverLock;
+pub use slash::ProverSlash;
 pub use withdraw_collateral::ProverWithdrawCollateral;
 
 use clap::Subcommand;
@@ -57,6 +59,8 @@ pub enum ProverCommands {
     Execute(ProverExecute),
     /// Benchmark proof requests
     Benchmark(ProverBenchmark),
+    /// Slash a prover for a given request
+    Slash(ProverSlash),
     /// Interactive setup wizard for prover configuration
     Setup(SetupInteractive),
 }
@@ -74,6 +78,7 @@ impl ProverCommands {
             Self::Fulfill(cmd) => cmd.run(global_config).await,
             Self::Execute(cmd) => cmd.run(global_config).await,
             Self::Benchmark(cmd) => cmd.run(global_config).await,
+            Self::Slash(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run_module(global_config, "prover").await,
         }
     }

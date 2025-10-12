@@ -302,7 +302,7 @@ impl State {
         Ok(())
     }
 
-    /// Save a backup of the state file to ~/.boundless
+    /// Save a backup of the state file to ~/.boundless/backups
     ///
     /// The backup filename format is: `{original_filename}.{timestamp}.{log_id_hex}.bak`
     /// Returns the path where the backup was saved.
@@ -317,10 +317,10 @@ impl State {
     }
 }
 
-/// Get the backup directory path (~/.boundless)
+/// Get the backup directory path (~/.boundless/backups)
 fn backup_dir() -> Result<PathBuf> {
     let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-    let backup_dir = home_dir.join(".boundless");
+    let backup_dir = home_dir.join(".boundless").join("backups");
 
     std::fs::create_dir_all(&backup_dir)
         .with_context(|| format!("Failed to create backup directory: {}", backup_dir.display()))?;
@@ -330,7 +330,7 @@ fn backup_dir() -> Result<PathBuf> {
 
 /// Compute the backup file path for a given state file
 ///
-/// Format: `~/.boundless/{original_filename}.{timestamp}.{log_id_hex}.bak`
+/// Format: `~/.boundless/backups/{original_filename}.{timestamp}.{log_id_hex}.bak`
 fn compute_backup_path(original_path: &Path, log_id: PovwLogId) -> Result<PathBuf> {
     let backup_dir = backup_dir()?;
 
