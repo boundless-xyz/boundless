@@ -365,8 +365,8 @@ impl RewardsConfig {
             if let Some(ref config) = config {
                 if let Some(ref rewards) = config.rewards {
                     self.zkc_deployment = match rewards.network.as_str() {
-                        "mainnet" => boundless_zkc::deployments::Deployment::from_chain_id(1u64),
-                        "sepolia" => boundless_zkc::deployments::Deployment::from_chain_id(11155111u64),
+                        "eth-mainnet" => boundless_zkc::deployments::Deployment::from_chain_id(1u64),
+                        "eth-sepolia" => boundless_zkc::deployments::Deployment::from_chain_id(11155111u64),
                         custom => config.custom_rewards.iter().find(|r| r.name == custom).map(|r| {
                             boundless_zkc::deployments::Deployment::builder()
                                 .zkc_address(r.zkc_address)

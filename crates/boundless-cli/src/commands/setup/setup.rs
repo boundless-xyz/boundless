@@ -22,11 +22,17 @@ use colored::Colorize;
 use inquire::{Confirm, Select, Text};
 use risc0_povw::PovwLogId;
 
+use super::custom_networks;
+use super::network::{
+    normalize_market_network, normalize_rewards_network, query_chain_id,
+    PREBUILT_PROVER_NETWORKS, PREBUILT_REQUESTOR_NETWORKS, PREBUILT_REWARDS_NETWORKS,
+};
+use super::secrets::{address_from_private_key, obscure_url};
 use crate::commands::rewards::State;
 use crate::config::GlobalConfig;
 use crate::config_file::{
-    Config, CustomMarketDeployment, CustomRewardsDeployment, ProverConfig, ProverSecrets,
-    RequestorConfig, RequestorSecrets, RewardsConfig, RewardsSecrets, Secrets,
+    Config, ProverConfig, ProverSecrets, RequestorConfig, RequestorSecrets, RewardsConfig,
+    RewardsSecrets, Secrets,
 };
 use crate::display::DisplayManager;
 
@@ -45,9 +51,77 @@ pub struct SetupInteractive {
     #[arg(long = "set-private-key")]
     pub private_key: Option<String>,
 
+    /// Address for read-only mode (requestor/prover modules)
+    #[arg(long = "set-address")]
+    pub address: Option<String>,
+
+    /// Staking private key (rewards module only)
+    #[arg(long = "set-staking-private-key")]
+    pub staking_private_key: Option<String>,
+
+    /// Staking address for read-only mode (rewards module only)
+    #[arg(long = "set-staking-address")]
+    pub staking_address: Option<String>,
+
+    /// Reward private key (rewards module only)
+    #[arg(long = "set-reward-private-key")]
+    pub reward_private_key: Option<String>,
+
+    /// Reward address (rewards module only)
+    #[arg(long = "set-reward-address")]
+    pub reward_address: Option<String>,
+
+    /// Beacon API URL (rewards module only)
+    #[arg(long = "set-beacon-api-url")]
+    pub beacon_api_url: Option<String>,
+
     /// Update only the PoVW state file path (rewards module only)
     #[arg(long = "state-file")]
     pub state_file: Option<String>,
+
+    /// BoundlessMarket contract address (custom networks only)
+    #[arg(long = "set-boundless-market-address")]
+    pub boundless_market_address: Option<String>,
+
+    /// RiscZeroVerifierRouter contract address (custom networks only)
+    #[arg(long = "set-verifier-router-address")]
+    pub verifier_router_address: Option<String>,
+
+    /// RiscZeroSetVerifier contract address (custom networks only)
+    #[arg(long = "set-set-verifier-address")]
+    pub set_verifier_address: Option<String>,
+
+    /// Collateral token contract address (custom networks only)
+    #[arg(long = "set-collateral-token-address")]
+    pub collateral_token_address: Option<String>,
+
+    /// Order stream URL (custom networks only)
+    #[arg(long = "set-order-stream-url")]
+    pub order_stream_url: Option<String>,
+
+    /// ZKC token contract address (custom networks only)
+    #[arg(long = "set-zkc-address")]
+    pub zkc_address: Option<String>,
+
+    /// veZKC contract address (custom networks only)
+    #[arg(long = "set-vezkc-address")]
+    pub vezkc_address: Option<String>,
+
+    /// Staking rewards contract address (custom networks only)
+    #[arg(long = "set-staking-rewards-address")]
+    pub staking_rewards_address: Option<String>,
+
+    /// PoVW accounting contract address (custom networks only)
+    #[arg(long = "set-povw-accounting-address")]
+    pub povw_accounting_address: Option<String>,
+
+    /// PoVW mint contract address (custom networks only)
+    #[arg(long = "set-povw-mint-address")]
+    pub povw_mint_address: Option<String>,
+
+    /// Rename a custom network (format: OLD_NAME NEW_NAME)
+    #[arg(long = "rename-network", num_args = 2, value_names = ["OLD_NAME", "NEW_NAME"])]
+    pub rename_network: Option<Vec<String>>,
 
     /// Reset all configuration for this module
     #[arg(long = "reset")]
@@ -56,14 +130,14 @@ pub struct SetupInteractive {
 
 impl SetupInteractive {
     /// Print a section header with consistent styling
-    fn print_section_header(title: &str) {
-        println!("\n{}\n", format!("--- {} ---", title).cyan().bold());
+    fn print_section_header(display: &DisplayManager, title: &str) {
+        display.header(&format!("\n{}", title));
     }
 
     /// Run the interactive setup
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let display = DisplayManager::new();
-        println!("\n{}\n", "🔧 Boundless CLI Interactive Setup".green().bold());
+        display.header("\n🔧 Boundless CLI Interactive Setup");
 
         let module = Select::new(
             "Which module would you like to configure?",
@@ -104,7 +178,7 @@ impl SetupInteractive {
             display.warning("Secrets are stored in plaintext. Consider using environment variables instead.");
         }
 
-        println!("\n{} {}\n", "✨".green().bold(), "Setup complete! Run `boundless` to see your configuration.".green().bold());
+        display.success("\n✨ Setup complete! Run `boundless` to see your configuration.");
 
         Ok(())
     }
@@ -112,7 +186,7 @@ impl SetupInteractive {
     /// Run setup for a specific module
     pub async fn run_module(&self, _global_config: &GlobalConfig, module: &str) -> Result<()> {
         let display = DisplayManager::new();
-        println!("\n{}\n", "🔧 Boundless CLI Setup".green().bold());
+        display.header("\n🔧 Boundless CLI Setup");
 
         let mut config = Config::load().unwrap_or_default();
         let mut secrets = Secrets::load().unwrap_or_default();
@@ -142,14 +216,14 @@ impl SetupInteractive {
             display.warning("Secrets are stored in plaintext. Consider using environment variables instead.");
         }
 
-        println!("\n{} {}\n", "✨".green().bold(), format!("Setup complete! Run `boundless {}` to see your configuration.", module).green().bold());
+        display.success(&format!("\n✨ Setup complete! Run `boundless {}` to see your configuration.", module));
 
         Ok(())
     }
 
     async fn setup_requestor(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
         let display = DisplayManager::new();
-        Self::print_section_header("Requestor Module Setup");
+        Self::print_section_header(&display, "Requestor Module Setup");
 
         // Handle reset mode
         if self.reset {
@@ -159,19 +233,61 @@ impl SetupInteractive {
             return Ok(());
         }
 
-        // Check if we're in non-interactive mode
-        let non_interactive = self.rpc_url.is_some() || self.private_key.is_some();
+        // Step 1: Handle --change-network first (determine target network)
+        let target_network = if let Some(ref network) = self.network {
+            Some(normalize_market_network(network).to_string())
+        } else {
+            None
+        };
+
+        // Step 2: If --change-network was provided, switch to that network
+        if let Some(ref network_name) = target_network {
+            config.requestor = Some(RequestorConfig { network: network_name.clone() });
+            display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
+        }
+
+        // Step 3: Check if we're in non-interactive mode (has flags to apply)
+        let non_interactive = self.rpc_url.is_some()
+            || self.private_key.is_some()
+            || self.address.is_some()
+            || self.boundless_market_address.is_some()
+            || self.verifier_router_address.is_some()
+            || self.set_verifier_address.is_some()
+            || self.collateral_token_address.is_some()
+            || self.order_stream_url.is_some();
 
         if non_interactive {
             // Non-interactive mode: update existing network or create new one
             if let Some(ref existing_config) = config.requestor {
                 // Network already selected - update secrets for that network
-                let network_name = &existing_config.network;
-                display.success(&format!("Updating configuration for network: {}", network_name.cyan().bold()));
+                let mut network_name = existing_config.network.clone();
+
+                // Check if user is trying to modify a pre-built network
+                let has_contract_address_flags = self.boundless_market_address.is_some()
+                    || self.verifier_router_address.is_some()
+                    || self.set_verifier_address.is_some()
+                    || self.collateral_token_address.is_some()
+                    || self.order_stream_url.is_some();
+
+                if PREBUILT_REQUESTOR_NETWORKS.contains(&network_name.as_str()) && has_contract_address_flags {
+                    // Clone pre-built network as custom with user's overrides
+                    let custom_network = custom_networks::clone_prebuilt_market_as_custom(config, &network_name, self)?;
+                    let custom_name = custom_network.name.clone();
+                    config.custom_markets.push(custom_network);
+
+                    // Switch to the new custom network
+                    config.requestor = Some(RequestorConfig { network: custom_name.clone() });
+
+                    display.success(&format!("Created new custom network '{}' based on '{}'", custom_name.cyan().bold(), network_name));
+                    display.note("Pre-built networks cannot be modified. A new custom network was created instead.");
+
+                    // Update network_name to point to the new custom network
+                    network_name = custom_name;
+                }
 
                 // Get existing secrets or create new entry
                 let existing_secrets = secrets.requestor_networks
-                    .get(network_name)
+                    .get(&network_name)
                     .cloned()
                     .unwrap_or(RequestorSecrets {
                         rpc_url: None,
@@ -189,9 +305,12 @@ impl SetupInteractive {
 
                 let (private_key, address) = if let Some(ref pk) = self.private_key {
                     let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                    let addr = Self::address_from_private_key(&pk);
+                    let addr = address_from_private_key(&pk);
                     display.success("Updated private key");
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
+                } else if let Some(ref addr) = self.address {
+                    display.success("Updated address");
+                    (existing_secrets.private_key, Some(addr.clone()))
                 } else {
                     (existing_secrets.private_key, existing_secrets.address)
                 };
@@ -205,34 +324,40 @@ impl SetupInteractive {
                     },
                 );
 
+                // Update contract addresses if this is a custom network and flags are provided
+                if network_name.starts_with("custom-") {
+                    custom_networks::update_custom_market_addresses(config, &network_name, self)?;
+                }
+
                 display.success(&format!("Updated requestor configuration for network: {}", network_name.cyan().bold()));
                 return Ok(());
             } else {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
                     // Query chain ID from RPC
-                    print!("{} ", "Querying chain ID from RPC...".cyan());
-                    std::io::stdout().flush()?;
-                    let chain_id = Self::query_chain_id(rpc_url).await?;
-                    println!("{}", chain_id.to_string().bright_white());
+                    display.info("Querying chain ID from RPC...");
+                    let chain_id = query_chain_id(rpc_url).await?;
+                    display.success(&format!("Chain ID: {}", chain_id.to_string().bright_white()));
 
                     let network_name = format!("custom-{}", chain_id);
 
                     // Check if this custom network already exists
                     if !config.custom_markets.iter().any(|m| m.name == network_name) {
                         // Create minimal custom network
-                        let custom_network = Self::create_minimal_custom_network(chain_id);
+                        let custom_network = custom_networks::create_minimal_custom_network(chain_id);
                         config.custom_markets.push(custom_network);
                     }
 
                     // Set as selected network
                     config.requestor = Some(RequestorConfig { network: network_name.clone() });
 
-                    // Extract address from private key if provided
+                    // Extract address from private key if provided, or use explicit address
                     let (private_key, address) = if let Some(ref pk) = self.private_key {
                         let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                        let addr = Self::address_from_private_key(&pk);
+                        let addr = address_from_private_key(&pk);
                         (Some(pk), addr.map(|a| format!("{:#x}", a)))
+                    } else if let Some(ref addr) = self.address {
+                        (None, Some(addr.clone()))
                     } else {
                         (None, None)
                     };
@@ -247,24 +372,54 @@ impl SetupInteractive {
                         },
                     );
 
+                    // Update contract addresses if flags are provided
+                    let has_contract_addresses = custom_networks::update_custom_market_addresses(config, &network_name, self)?;
+
                     display.success(&format!("Created custom network '{}' (chain ID: {})", network_name.cyan().bold(), chain_id.to_string().bright_white()));
-                    display.warning("Contract addresses not configured. Configure them by:");
-                    display.note("• Running 'boundless requestor setup' interactively");
-                    display.note("• Using command-line flags (--boundless-market-address, etc.)");
-                    display.note("• Editing ~/.boundless/config.toml directly");
+
+                    if !has_contract_addresses {
+                        display.warning("Contract addresses not configured. Configure them by:");
+                        display.note("• Running 'boundless requestor setup' interactively");
+                        display.note("• Using command-line flags (--set-boundless-market-address, etc.)");
+                        display.note("• Editing ~/.boundless/config.toml directly");
+                    }
 
                     return Ok(());
                 } else {
-                    bail!("No network configured. Please provide --requestor-rpc-url to create a custom network, or run 'boundless requestor setup' interactively to select a network");
+                    bail!("No network configured. Please provide --set-rpc-url to create a custom network, or run 'boundless requestor setup' interactively to select a network");
                 }
             }
         }
 
-        // Interactive mode (original logic)
-        let network_name = if let Some(ref network) = self.network {
-            display.success(&format!("Using network: {}", network.cyan().bold()));
-            network.clone()
+        // Step 4: If --change-network was provided but no other flags, check if we should load existing config
+        if target_network.is_some() {
+            let network_name = target_network.as_ref().unwrap();
+
+            // Check if this network has existing secrets
+            if let Some(existing) = secrets.requestor_networks.get(network_name) {
+                // Network already configured - load it and display config
+                display.success(&format!("Loaded existing configuration for network: {}", network_name.cyan().bold()));
+                if let Some(ref rpc) = existing.rpc_url {
+                    display.note(&format!("RPC URL: {}", obscure_url(rpc).dimmed()));
+                }
+                if let Some(ref addr) = existing.address {
+                    display.note(&format!("Address: {}", addr.bright_yellow()));
+                }
+                return Ok(());
+            } else {
+                // Network not configured - continue to interactive setup
+                display.info(&format!("Setting up new configuration for network: {}", network_name.cyan().bold()));
+                // Fall through to interactive setup below
+            }
+        }
+
+        // Step 5: Fully interactive mode - prompt for network selection
+        let network_name = if let Some(network) = target_network {
+            // Network was specified via --change-network but doesn't exist yet
+            // We already set it in Step 2, just use it
+            network
         } else {
+            // No --change-network provided - prompt user to select network
             let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
 
             for custom_market in &config.custom_markets {
@@ -274,28 +429,29 @@ impl SetupInteractive {
 
             let network = Select::new("Select Boundless Market network:", network_options).prompt()?;
 
-            match network {
+            let selected_network = match network {
                 "Base Mainnet" => "base-mainnet".to_string(),
                 "Base Sepolia" => "base-sepolia".to_string(),
                 "Ethereum Sepolia" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
-                    let custom = Self::setup_custom_market()?;
+                    let custom = custom_networks::setup_custom_market()?;
                     let name = custom.name.clone();
                     config.custom_markets.push(custom);
                     name
                 }
                 custom => custom.to_string(),
-            }
-        };
+            };
 
-        config.requestor = Some(RequestorConfig { network: network_name.clone() });
+            config.requestor = Some(RequestorConfig { network: selected_network.clone() });
+            selected_network
+        };
 
         // Check if we have previous configuration for this network
         if let Some(existing) = secrets.requestor_networks.get(&network_name) {
             if self.rpc_url.is_none() && self.private_key.is_none() {
                 display.info(&format!("Previous configuration found for {}", network_name.cyan().bold()));
                 if let Some(ref rpc) = existing.rpc_url {
-                    display.note(&format!("RPC URL: {}", Self::obscure_url(rpc).dimmed()));
+                    display.note(&format!("RPC URL: {}", obscure_url(rpc).dimmed()));
                 }
 
                 let use_previous = Confirm::new("Use previous configuration?")
@@ -370,7 +526,7 @@ impl SetupInteractive {
 
     async fn setup_prover(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
         let display = DisplayManager::new();
-        Self::print_section_header("Prover Module Setup");
+        Self::print_section_header(&display, "Prover Module Setup");
 
         // Handle reset mode
         if self.reset {
@@ -380,19 +536,61 @@ impl SetupInteractive {
             return Ok(());
         }
 
-        // Check if we're in non-interactive mode
-        let non_interactive = self.rpc_url.is_some() || self.private_key.is_some();
+        // Step 1: Handle --change-network first (determine target network)
+        let target_network = if let Some(ref network) = self.network {
+            Some(normalize_market_network(network).to_string())
+        } else {
+            None
+        };
+
+        // Step 2: If --change-network was provided, switch to that network
+        if let Some(ref network_name) = target_network {
+            config.prover = Some(ProverConfig { network: network_name.clone() });
+            display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
+        }
+
+        // Step 3: Check if we're in non-interactive mode (has flags to apply)
+        let non_interactive = self.rpc_url.is_some()
+            || self.private_key.is_some()
+            || self.address.is_some()
+            || self.boundless_market_address.is_some()
+            || self.verifier_router_address.is_some()
+            || self.set_verifier_address.is_some()
+            || self.collateral_token_address.is_some()
+            || self.order_stream_url.is_some();
 
         if non_interactive {
             // Non-interactive mode: update existing network or create new one
             if let Some(ref existing_config) = config.prover {
                 // Network already selected - update secrets for that network
-                let network_name = &existing_config.network;
-                display.success(&format!("Updating configuration for network: {}", network_name.cyan().bold()));
+                let mut network_name = existing_config.network.clone();
+
+                // Check if user is trying to modify a pre-built network
+                let has_contract_address_flags = self.boundless_market_address.is_some()
+                    || self.verifier_router_address.is_some()
+                    || self.set_verifier_address.is_some()
+                    || self.collateral_token_address.is_some()
+                    || self.order_stream_url.is_some();
+
+                if PREBUILT_PROVER_NETWORKS.contains(&network_name.as_str()) && has_contract_address_flags {
+                    // Clone pre-built network as custom with user's overrides
+                    let custom_network = custom_networks::clone_prebuilt_market_as_custom(config, &network_name, self)?;
+                    let custom_name = custom_network.name.clone();
+                    config.custom_markets.push(custom_network);
+
+                    // Switch to the new custom network
+                    config.prover = Some(ProverConfig { network: custom_name.clone() });
+
+                    display.success(&format!("Created new custom network '{}' based on '{}'", custom_name.cyan().bold(), network_name));
+                    display.note("Pre-built networks cannot be modified. A new custom network was created instead.");
+
+                    // Update network_name to point to the new custom network
+                    network_name = custom_name;
+                }
 
                 // Get existing secrets or create new entry
                 let existing_secrets = secrets.prover_networks
-                    .get(network_name)
+                    .get(&network_name)
                     .cloned()
                     .unwrap_or(ProverSecrets {
                         rpc_url: None,
@@ -410,9 +608,12 @@ impl SetupInteractive {
 
                 let (private_key, address) = if let Some(ref pk) = self.private_key {
                     let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                    let addr = Self::address_from_private_key(&pk);
+                    let addr = address_from_private_key(&pk);
                     display.success("Updated private key");
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
+                } else if let Some(ref addr) = self.address {
+                    display.success("Updated address");
+                    (existing_secrets.private_key, Some(addr.clone()))
                 } else {
                     (existing_secrets.private_key, existing_secrets.address)
                 };
@@ -426,34 +627,40 @@ impl SetupInteractive {
                     },
                 );
 
+                // Update contract addresses if this is a custom network and flags are provided
+                if network_name.starts_with("custom-") {
+                    custom_networks::update_custom_market_addresses(config, &network_name, self)?;
+                }
+
                 display.success(&format!("Updated prover configuration for network: {}", network_name.cyan().bold()));
                 return Ok(());
             } else {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
                     // Query chain ID from RPC
-                    print!("{} ", "Querying chain ID from RPC...".cyan());
-                    std::io::stdout().flush()?;
-                    let chain_id = Self::query_chain_id(rpc_url).await?;
-                    println!("{}", chain_id.to_string().bright_white());
+                    display.info("Querying chain ID from RPC...");
+                    let chain_id = query_chain_id(rpc_url).await?;
+                    display.success(&format!("Chain ID: {}", chain_id.to_string().bright_white()));
 
                     let network_name = format!("custom-{}", chain_id);
 
                     // Check if this custom network already exists
                     if !config.custom_markets.iter().any(|m| m.name == network_name) {
                         // Create minimal custom network
-                        let custom_network = Self::create_minimal_custom_network(chain_id);
+                        let custom_network = custom_networks::create_minimal_custom_network(chain_id);
                         config.custom_markets.push(custom_network);
                     }
 
                     // Set as selected network
                     config.prover = Some(ProverConfig { network: network_name.clone() });
 
-                    // Extract address from private key if provided
+                    // Extract address from private key if provided, or use explicit address
                     let (private_key, address) = if let Some(ref pk) = self.private_key {
                         let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                        let addr = Self::address_from_private_key(&pk);
+                        let addr = address_from_private_key(&pk);
                         (Some(pk), addr.map(|a| format!("{:#x}", a)))
+                    } else if let Some(ref addr) = self.address {
+                        (None, Some(addr.clone()))
                     } else {
                         (None, None)
                     };
@@ -468,11 +675,17 @@ impl SetupInteractive {
                         },
                     );
 
+                    // Update contract addresses if flags are provided
+                    let has_contract_addresses = custom_networks::update_custom_market_addresses(config, &network_name, self)?;
+
                     display.success(&format!("Created custom network '{}' (chain ID: {})", network_name.cyan().bold(), chain_id.to_string().bright_white()));
-                    display.warning("Contract addresses not configured. Configure them by:");
-                    display.note("• Running 'boundless prover setup' interactively");
-                    display.note("• Using command-line flags (--boundless-market-address, etc.)");
-                    display.note("• Editing ~/.boundless/config.toml directly");
+
+                    if !has_contract_addresses {
+                        display.warning("Contract addresses not configured. Configure them by:");
+                        display.note("• Running 'boundless prover setup' interactively");
+                        display.note("• Using command-line flags (--set-boundless-market-address, etc.)");
+                        display.note("• Editing ~/.boundless/config.toml directly");
+                    }
 
                     return Ok(());
                 } else {
@@ -481,10 +694,33 @@ impl SetupInteractive {
             }
         }
 
-        // Interactive mode (original logic)
-        let network_name = if let Some(ref network) = self.network {
-            display.success(&format!("Using network: {}", network.cyan().bold()));
-            network.clone()
+        // Step 4: If --change-network was provided but no other flags, check if we should load existing config
+        if target_network.is_some() {
+            let network_name = target_network.as_ref().unwrap();
+
+            // Check if this network has existing secrets
+            if let Some(existing) = secrets.prover_networks.get(network_name) {
+                // Network already configured - load it and display config
+                display.success(&format!("Loaded existing configuration for network: {}", network_name.cyan().bold()));
+                if let Some(ref rpc) = existing.rpc_url {
+                    display.note(&format!("RPC URL: {}", obscure_url(rpc).dimmed()));
+                }
+                if let Some(ref addr) = existing.address {
+                    display.note(&format!("Address: {}", addr.bright_yellow()));
+                }
+                return Ok(());
+            } else {
+                // Network not configured - continue to interactive setup
+                display.info(&format!("Setting up new configuration for network: {}", network_name.cyan().bold()));
+                // Fall through to interactive setup below
+            }
+        }
+
+        // Step 5: Fully interactive mode - prompt for network selection
+        let network_name = if let Some(network) = target_network {
+            // Network was specified via --change-network but doesn't exist yet
+            // We already set it in Step 2, just use it
+            network
         } else {
             let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
 
@@ -493,30 +729,32 @@ impl SetupInteractive {
             }
             network_options.push("Custom (add new)");
 
+            // No --change-network provided - prompt user to select network
             let network = Select::new("Select Boundless Market network:", network_options).prompt()?;
 
-            match network {
+            let selected_network = match network {
                 "Base Mainnet" => "base-mainnet".to_string(),
                 "Base Sepolia" => "base-sepolia".to_string(),
                 "Ethereum Sepolia" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
-                    let custom = Self::setup_custom_market()?;
+                    let custom = custom_networks::setup_custom_market()?;
                     let name = custom.name.clone();
                     config.custom_markets.push(custom);
                     name
                 }
                 custom => custom.to_string(),
-            }
-        };
+            };
 
-        config.prover = Some(ProverConfig { network: network_name.clone() });
+            config.prover = Some(ProverConfig { network: selected_network.clone() });
+            selected_network
+        };
 
         // Check if we have previous configuration for this network
         if let Some(existing) = secrets.prover_networks.get(&network_name) {
             if self.rpc_url.is_none() && self.private_key.is_none() {
                 display.info(&format!("Previous configuration found for {}", network_name.cyan().bold()));
                 if let Some(ref rpc) = existing.rpc_url {
-                    display.note(&format!("RPC URL: {}", Self::obscure_url(rpc).dimmed()));
+                    display.note(&format!("RPC URL: {}", obscure_url(rpc).dimmed()));
                 }
 
                 let use_previous = Confirm::new("Use previous configuration?")
@@ -587,28 +825,6 @@ impl SetupInteractive {
         );
 
         Ok(())
-    }
-
-    fn obscure_secret(secret: &str) -> String {
-        if secret.len() <= 8 {
-            "****".to_string()
-        } else {
-            format!("{}...{}", &secret[..3], &secret[secret.len() - 3..])
-        }
-    }
-
-    fn obscure_url(url: &str) -> String {
-        url.split('/')
-            .enumerate()
-            .map(|(i, part)| {
-                if i >= 3 && part.len() > 10 {
-                    format!("{}...", &part[..3])
-                } else {
-                    part.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("/")
     }
 
     async fn update_state_file_only(
@@ -712,72 +928,9 @@ impl SetupInteractive {
         Ok(())
     }
 
-    fn setup_custom_market() -> Result<CustomMarketDeployment> {
-        Self::print_section_header("Custom Market Deployment");
-
-        let name = Text::new("Deployment name:")
-            .with_help_message("A friendly name for this deployment (e.g., 'my-testnet')")
-            .prompt()?;
-
-        let chain_id: u64 = Text::new("Chain ID:")
-            .with_help_message("EIP-155 chain ID (e.g., 84532 for Base Sepolia)")
-            .prompt()?
-            .parse()
-            .context("Invalid chain ID")?;
-
-        let boundless_market_address = Text::new("BoundlessMarket contract address:")
-            .prompt()?
-            .parse()
-            .context("Invalid address")?;
-
-        let verifier_router_address_str =
-            Text::new("RiscZeroVerifierRouter address (optional, press Enter to skip):")
-                .with_default("")
-                .prompt()?;
-
-        let verifier_router_address = if verifier_router_address_str.is_empty() {
-            None
-        } else {
-            Some(verifier_router_address_str.parse().context("Invalid address")?)
-        };
-
-        let set_verifier_address = Text::new("RiscZeroSetVerifier address:")
-            .prompt()?
-            .parse()
-            .context("Invalid address")?;
-
-        let collateral_token_address_str =
-            Text::new("Collateral token address (optional, press Enter to skip):")
-                .with_default("")
-                .prompt()?;
-
-        let collateral_token_address = if collateral_token_address_str.is_empty() {
-            None
-        } else {
-            Some(collateral_token_address_str.parse().context("Invalid address")?)
-        };
-
-        let order_stream_url_str = Text::new("Order stream URL (optional, press Enter to skip):")
-            .with_default("")
-            .prompt()?;
-
-        let order_stream_url =
-            if order_stream_url_str.is_empty() { None } else { Some(order_stream_url_str) };
-
-        Ok(CustomMarketDeployment {
-            name,
-            chain_id,
-            boundless_market_address,
-            verifier_router_address,
-            set_verifier_address,
-            collateral_token_address,
-            order_stream_url,
-        })
-    }
-
     async fn setup_rewards(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
         let display = DisplayManager::new();
-        Self::print_section_header("Rewards Module Setup");
+        Self::print_section_header(&display, "Rewards Module Setup");
 
         // Handle reset mode
         if self.reset {
@@ -787,24 +940,71 @@ impl SetupInteractive {
             return Ok(());
         }
 
-        // Check if we're in non-interactive mode
-        let non_interactive = self.rpc_url.is_some() || self.private_key.is_some();
+        // Step 1: Handle --change-network first (determine target network)
+        let target_network = if let Some(ref network) = self.network {
+            Some(normalize_rewards_network(network).to_string())
+        } else {
+            None
+        };
+
+        // Step 2: If --change-network was provided, switch to that network
+        if let Some(ref network_name) = target_network {
+            config.rewards = Some(RewardsConfig { network: network_name.clone() });
+            display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
+        }
+
+        // Step 3: Check if we're in non-interactive mode (has flags to apply)
+        let non_interactive = self.rpc_url.is_some()
+            || self.staking_private_key.is_some()
+            || self.staking_address.is_some()
+            || self.reward_private_key.is_some()
+            || self.reward_address.is_some()
+            || self.beacon_api_url.is_some()
+            || self.state_file.is_some()
+            || self.zkc_address.is_some()
+            || self.vezkc_address.is_some()
+            || self.staking_rewards_address.is_some()
+            || self.povw_accounting_address.is_some()
+            || self.povw_mint_address.is_some();
 
         if non_interactive {
             // Non-interactive mode: update existing network or create new one
             if let Some(ref existing_config) = config.rewards {
                 // Network already selected - update secrets for that network
-                let network_name = &existing_config.network;
+                let mut network_name = existing_config.network.clone();
                 display.success(&format!("Updating configuration for network: {}", network_name.cyan().bold()));
 
                 // If --state-file is provided, do a quick update and return
                 if let Some(ref new_state_file) = self.state_file {
-                    return self.update_state_file_only(secrets, network_name, new_state_file).await;
+                    return self.update_state_file_only(secrets, &network_name, new_state_file).await;
+                }
+
+                // Check if user is trying to modify a pre-built network
+                let has_contract_address_flags = self.zkc_address.is_some()
+                    || self.vezkc_address.is_some()
+                    || self.staking_rewards_address.is_some()
+                    || self.povw_accounting_address.is_some()
+                    || self.povw_mint_address.is_some();
+
+                if PREBUILT_REWARDS_NETWORKS.contains(&network_name.as_str()) && has_contract_address_flags {
+                    // Clone pre-built network as custom with user's overrides
+                    let custom_network = custom_networks::clone_prebuilt_rewards_as_custom(config, &network_name, self)?;
+                    let custom_name = custom_network.name.clone();
+                    config.custom_rewards.push(custom_network);
+
+                    // Switch to the new custom network
+                    config.rewards = Some(RewardsConfig { network: custom_name.clone() });
+
+                    display.success(&format!("Created new custom network '{}' based on '{}'", custom_name.cyan().bold(), network_name));
+                    display.note("Pre-built networks cannot be modified. A new custom network was created instead.");
+
+                    // Update network_name to point to the new custom network
+                    network_name = custom_name;
                 }
 
                 // Get existing secrets or create new entry
                 let existing_secrets = secrets.rewards_networks
-                    .get(network_name)
+                    .get(&network_name)
                     .cloned()
                     .unwrap_or(RewardsSecrets {
                         rpc_url: None,
@@ -825,13 +1025,42 @@ impl SetupInteractive {
                     existing_secrets.rpc_url
                 };
 
-                let (staking_private_key, staking_address) = if let Some(ref pk) = self.private_key {
+                let (staking_private_key, staking_address) = if let Some(ref pk) = self.staking_private_key {
                     let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                    let addr = Self::address_from_private_key(&pk);
+                    let addr = address_from_private_key(&pk);
                     display.success("Updated staking private key");
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
+                } else if let Some(ref addr) = self.staking_address {
+                    display.success("Updated staking address");
+                    (existing_secrets.staking_private_key, Some(addr.clone()))
                 } else {
                     (existing_secrets.staking_private_key, existing_secrets.staking_address)
+                };
+
+                let (reward_private_key, reward_address) = if let Some(ref pk) = self.reward_private_key {
+                    let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+                    let addr = address_from_private_key(&pk);
+                    display.success("Updated reward private key");
+                    (Some(pk), addr.map(|a| format!("{:#x}", a)))
+                } else if let Some(ref addr) = self.reward_address {
+                    display.success("Updated reward address");
+                    (existing_secrets.reward_private_key, Some(addr.clone()))
+                } else {
+                    (existing_secrets.reward_private_key, existing_secrets.reward_address)
+                };
+
+                let beacon_api_url = if let Some(ref url) = self.beacon_api_url {
+                    display.success("Updated Beacon API URL");
+                    Some(url.clone())
+                } else {
+                    existing_secrets.beacon_api_url
+                };
+
+                let povw_state_file = if let Some(ref path) = self.state_file {
+                    display.success("Updated PoVW state file path");
+                    Some(path.clone())
+                } else {
+                    existing_secrets.povw_state_file
                 };
 
                 secrets.rewards_networks.insert(
@@ -840,13 +1069,18 @@ impl SetupInteractive {
                         rpc_url,
                         staking_private_key,
                         staking_address,
-                        reward_private_key: existing_secrets.reward_private_key,
-                        reward_address: existing_secrets.reward_address,
-                        povw_state_file: existing_secrets.povw_state_file,
-                        beacon_api_url: existing_secrets.beacon_api_url,
+                        reward_private_key,
+                        reward_address,
+                        povw_state_file,
+                        beacon_api_url,
                         private_key: None,
                     },
                 );
+
+                // Update contract addresses if this is a custom network and flags are provided
+                if network_name.starts_with("custom-") {
+                    custom_networks::update_custom_rewards_addresses(config, &network_name, self)?;
+                }
 
                 display.success(&format!("Updated rewards configuration for network: {}", network_name.cyan().bold()));
                 return Ok(());
@@ -854,28 +1088,39 @@ impl SetupInteractive {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
                     // Query chain ID from RPC
-                    print!("{} ", "Querying chain ID from RPC...".cyan());
-                    std::io::stdout().flush()?;
-                    let chain_id = Self::query_chain_id(rpc_url).await?;
-                    println!("{}", chain_id.to_string().bright_white());
+                    display.info("Querying chain ID from RPC...");
+                    let chain_id = query_chain_id(rpc_url).await?;
+                    display.success(&format!("Chain ID: {}", chain_id.to_string().bright_white()));
 
                     let network_name = format!("custom-{}", chain_id);
 
                     // Check if this custom network already exists
                     if !config.custom_rewards.iter().any(|r| r.name == network_name) {
                         // Create minimal custom rewards deployment
-                        let custom_rewards = Self::create_minimal_custom_rewards(chain_id);
+                        let custom_rewards = custom_networks::create_minimal_custom_rewards(chain_id);
                         config.custom_rewards.push(custom_rewards);
                     }
 
                     // Set as selected network
                     config.rewards = Some(RewardsConfig { network: network_name.clone() });
 
-                    // Extract address from private key if provided
-                    let (staking_private_key, staking_address) = if let Some(ref pk) = self.private_key {
+                    // Extract addresses from private keys if provided, or use explicit addresses
+                    let (staking_private_key, staking_address) = if let Some(ref pk) = self.staking_private_key {
                         let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                        let addr = Self::address_from_private_key(&pk);
+                        let addr = address_from_private_key(&pk);
                         (Some(pk), addr.map(|a| format!("{:#x}", a)))
+                    } else if let Some(ref addr) = self.staking_address {
+                        (None, Some(addr.clone()))
+                    } else {
+                        (None, None)
+                    };
+
+                    let (reward_private_key, reward_address) = if let Some(ref pk) = self.reward_private_key {
+                        let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+                        let addr = address_from_private_key(&pk);
+                        (Some(pk), addr.map(|a| format!("{:#x}", a)))
+                    } else if let Some(ref addr) = self.reward_address {
+                        (None, Some(addr.clone()))
                     } else {
                         (None, None)
                     };
@@ -887,18 +1132,25 @@ impl SetupInteractive {
                             rpc_url: Some(rpc_url.clone()),
                             staking_private_key,
                             staking_address,
-                            reward_private_key: None,
-                            reward_address: None,
-                            povw_state_file: None,
-                            beacon_api_url: None,
+                            reward_private_key,
+                            reward_address,
+                            povw_state_file: self.state_file.clone(),
+                            beacon_api_url: self.beacon_api_url.clone(),
                             private_key: None,
                         },
                     );
 
+                    // Update contract addresses if flags are provided
+                    let has_contract_addresses = custom_networks::update_custom_rewards_addresses(config, &network_name, self)?;
+
                     display.success(&format!("Created custom rewards network '{}' (chain ID: {})", network_name.cyan().bold(), chain_id.to_string().bright_white()));
-                    display.warning("Contract addresses not configured. Configure them by:");
-                    display.note("• Running 'boundless rewards setup' interactively");
-                    display.note("• Editing ~/.boundless/config.toml directly");
+
+                    if !has_contract_addresses {
+                        display.warning("Contract addresses not configured. Configure them by:");
+                        display.note("• Running 'boundless rewards setup' interactively");
+                        display.note("• Using command-line flags (--set-zkc-address, etc.)");
+                        display.note("• Editing ~/.boundless/config.toml directly");
+                    }
 
                     return Ok(());
                 } else {
@@ -907,10 +1159,39 @@ impl SetupInteractive {
             }
         }
 
-        // Interactive mode (original logic)
-        let network_name = if let Some(ref network) = self.network {
-            display.success(&format!("Using network: {}", network.cyan().bold()));
-            network.clone()
+        // Step 4: If --change-network was provided but no other flags, check if we should load existing config
+        if target_network.is_some() {
+            let network_name = target_network.as_ref().unwrap();
+
+            // Check if this network has existing secrets
+            if let Some(existing) = secrets.rewards_networks.get(network_name) {
+                // Network already configured - load it and display config
+                display.success(&format!("Loaded existing configuration for network: {}", network_name.cyan().bold()));
+                if let Some(ref rpc) = existing.rpc_url {
+                    display.note(&format!("RPC URL: {}", obscure_url(rpc).dimmed()));
+                }
+                if let Some(ref addr) = existing.staking_address {
+                    display.note(&format!("Staking Address: {}", addr.bright_yellow()));
+                }
+                if let Some(ref addr) = existing.reward_address {
+                    display.note(&format!("Reward Address: {}", addr.bright_yellow()));
+                }
+                if let Some(ref path) = existing.povw_state_file {
+                    display.note(&format!("PoVW State File: {}", path.cyan()));
+                }
+                return Ok(());
+            } else {
+                // Network not configured - continue to interactive setup
+                display.info(&format!("Setting up new configuration for network: {}", network_name.cyan().bold()));
+                // Fall through to interactive setup below
+            }
+        }
+
+        // Step 5: Fully interactive mode - prompt for network selection
+        let network_name = if let Some(network) = target_network {
+            // Network was specified via --change-network but doesn't exist yet
+            // We already set it in Step 2, just use it
+            network
         } else {
             let mut network_options = vec!["Eth Mainnet", "Eth Testnet (Sepolia)"];
 
@@ -919,22 +1200,24 @@ impl SetupInteractive {
             }
             network_options.push("Custom (add new)");
 
+            // No --change-network provided - prompt user to select network
             let network = Select::new("Select rewards network:", network_options).prompt()?;
 
-            match network {
-                "Eth Mainnet" => "mainnet".to_string(),
-                "Eth Testnet (Sepolia)" => "sepolia".to_string(),
+            let selected_network = match network {
+                "Eth Mainnet" => "eth-mainnet".to_string(),
+                "Eth Testnet (Sepolia)" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
-                    let custom = Self::setup_custom_rewards()?;
+                    let custom = custom_networks::setup_custom_rewards()?;
                     let name = custom.name.clone();
                     config.custom_rewards.push(custom);
                     name
                 }
                 custom => custom.to_string(),
-            }
-        };
+            };
 
-        config.rewards = Some(RewardsConfig { network: network_name.clone() });
+            config.rewards = Some(RewardsConfig { network: selected_network.clone() });
+            selected_network
+        };
 
         // If --state-file is provided, do a quick update and return
         if let Some(ref new_state_file) = self.state_file {
@@ -946,7 +1229,7 @@ impl SetupInteractive {
             if self.rpc_url.is_none() && self.private_key.is_none() {
                 display.info(&format!("Previous configuration found for {}", network_name.cyan().bold()));
                 if let Some(ref rpc) = existing.rpc_url {
-                    display.note(&format!("RPC URL: {}", Self::obscure_url(rpc).dimmed()));
+                    display.note(&format!("RPC URL: {}", obscure_url(rpc).dimmed()));
                 }
                 if let Some(ref addr) = existing.staking_address {
                     display.note(&format!("Staking Address: {}", addr.bright_yellow()));
@@ -958,7 +1241,7 @@ impl SetupInteractive {
                     display.note(&format!("PoVW State File: {}", path.cyan()));
                 }
                 if let Some(ref beacon) = existing.beacon_api_url {
-                    display.note(&format!("Beacon API URL: {}", Self::obscure_url(beacon).dimmed()));
+                    display.note(&format!("Beacon API URL: {}", obscure_url(beacon).dimmed()));
                 }
 
                 let use_previous = Confirm::new("Use previous configuration?")
@@ -981,13 +1264,13 @@ impl SetupInteractive {
                 .prompt()?
         };
 
-        Self::print_section_header("Staking Address Configuration");
+        Self::print_section_header(&display, "Staking Address Configuration");
         display.note("The staking address is the wallet used to stake ZKC tokens");
 
         let (staking_private_key, staking_address) = if let Some(ref pk) = self.private_key {
             let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
             display.success("Using provided private key for staking address");
-            let addr = Self::address_from_private_key(&pk);
+            let addr = address_from_private_key(&pk);
             (Some(pk), addr.map(|a| format!("{:#x}", a)))
         } else {
             let staking_key_prompt = Confirm::new("Do you want to store a private key for the staking address?")
@@ -1000,7 +1283,7 @@ impl SetupInteractive {
                     .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
                     .prompt()?;
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
-                let addr = Self::address_from_private_key(&pk);
+                let addr = address_from_private_key(&pk);
                 (Some(pk), addr.map(|a| format!("{:#x}", a)))
             } else {
                 let addr = Text::new("Enter staking address:")
@@ -1012,7 +1295,7 @@ impl SetupInteractive {
 
         // Query on-chain for reward delegation if we have a staking address
         let (reward_private_key, reward_address) = if let Some(ref staking_addr) = staking_address {
-            Self::print_section_header("Reward Address Configuration");
+            Self::print_section_header(&display, "Reward Address Configuration");
             display.note("The reward address is the address with reward power (can receive delegated rewards)");
 
             // Try to query delegation on-chain
@@ -1048,7 +1331,7 @@ impl SetupInteractive {
 
         // If reward address is the same as staking address, copy the staking private key
         let (final_reward_pk, final_reward_addr) = if let (Some(ref reward_addr), Some(ref staking_pk)) = (&reward_address, &staking_private_key) {
-            let staking_addr_derived = Self::address_from_private_key(staking_pk)
+            let staking_addr_derived = address_from_private_key(staking_pk)
                 .map(|a| format!("{:#x}", a).to_lowercase());
 
             if staking_addr_derived.as_ref().map(|s| s == &reward_addr.to_lowercase()).unwrap_or(false) {
@@ -1063,7 +1346,7 @@ impl SetupInteractive {
 
         // PoVW State File Configuration
         let povw_state_file = if let Some(ref reward_addr) = final_reward_addr {
-            Self::print_section_header("PoVW (Proof of Verifiable Work) Configuration");
+            Self::print_section_header(&display, "PoVW (Proof of Verifiable Work) Configuration");
 
             let generate_povw = Confirm::new("Do you plan to generate PoVW?")
                 .with_default(false)
@@ -1196,7 +1479,7 @@ impl SetupInteractive {
 
         // Beacon API URL Configuration (needed for claiming PoVW rewards)
         let beacon_api_url = if povw_state_file.is_some() {
-            Self::print_section_header("Beacon API Configuration");
+            Self::print_section_header(&display, "Beacon API Configuration");
             display.note("A Beacon API URL is required to claim PoVW rewards on Ethereum");
             display.note("Providers like Quicknode offer Beacon API access");
 
@@ -1258,7 +1541,7 @@ impl SetupInteractive {
                     .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
                     .prompt()?;
                 let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
-                let addr = Self::address_from_private_key(&pk);
+                let addr = address_from_private_key(&pk);
                 Ok((Some(pk), addr.map(|a| format!("{:#x}", a))))
             } else {
                 let addr = Text::new("Enter reward address:")
@@ -1275,8 +1558,8 @@ impl SetupInteractive {
 
         // Determine veZKC address based on network
         let vezkc_address = match network {
-            "mainnet" => "0xe8ae8ee8ffa57f6a79b6cbe06bafc0b05f3ffbf4",
-            "sepolia" => "0xc23340732038ca6C5765763180E81B395d2e9cCA",
+            "eth-mainnet" => "0xe8ae8ee8ffa57f6a79b6cbe06bafc0b05f3ffbf4",
+            "eth-sepolia" => "0xc23340732038ca6C5765763180E81B395d2e9cCA",
             _ => return Ok(None), // Can't query custom networks without deployment info
         };
 
@@ -1299,100 +1582,238 @@ impl SetupInteractive {
 
         Ok(Some(format!("{:#x}", delegate)))
     }
+}
 
-    fn address_from_private_key(pk: &str) -> Option<alloy::primitives::Address> {
-        use alloy::signers::local::PrivateKeySigner;
-        pk.parse::<PrivateKeySigner>().ok().map(|signer| signer.address())
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config_file::{Config, RequestorConfig, RequestorSecrets, Secrets};
+    use alloy::primitives::Address;
 
-    /// Query the chain ID from an RPC URL
-    async fn query_chain_id(rpc_url: &str) -> Result<u64> {
-        use alloy::providers::{Provider, ProviderBuilder};
+    #[test]
+    fn test_non_interactive_custom_network_creation() {
+        let boundless_market_addr = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+        let set_verifier_addr = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+        let collateral_token_addr = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0";
+        let order_stream_url = "wss://localhost:3030";
 
-        let provider = ProviderBuilder::new()
-            .connect(rpc_url)
-            .await
-            .context("Failed to connect to RPC provider")?;
-
-        let chain_id = provider.get_chain_id().await.context("Failed to query chain ID")?;
-
-        Ok(chain_id)
-    }
-
-    /// Create a minimal custom network with only chain ID set
-    fn create_minimal_custom_network(chain_id: u64) -> CustomMarketDeployment {
-        use alloy::primitives::Address;
-
-        CustomMarketDeployment {
-            name: format!("custom-{}", chain_id),
-            chain_id,
-            boundless_market_address: Address::ZERO,
+        let setup = SetupInteractive {
+            network: None,
+            rpc_url: Some("http://localhost:8545".to_string()),
+            private_key: Some("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string()),
+            address: None,
+            staking_private_key: None,
+            staking_address: None,
+            reward_private_key: None,
+            reward_address: None,
+            beacon_api_url: None,
+            state_file: None,
+            boundless_market_address: Some(boundless_market_addr.to_string()),
             verifier_router_address: None,
-            set_verifier_address: Address::ZERO,
+            set_verifier_address: Some(set_verifier_addr.to_string()),
+            collateral_token_address: Some(collateral_token_addr.to_string()),
+            order_stream_url: Some(order_stream_url.to_string()),
+            zkc_address: None,
+            vezkc_address: None,
+            staking_rewards_address: None,
+            povw_accounting_address: None,
+            povw_mint_address: None,
+            rename_network: None,
+            reset: false,
+        };
+
+        let chain_id = 31337u64;
+
+        let mut config = Config::default();
+        let network_name = format!("custom-{}", chain_id);
+
+        let custom_network = custom_networks::create_minimal_custom_network(chain_id);
+        config.custom_markets.push(custom_network);
+
+        assert_eq!(config.custom_markets.len(), 1);
+        assert_eq!(config.custom_markets[0].name, "custom-31337");
+        assert_eq!(config.custom_markets[0].chain_id, 31337);
+        assert_eq!(config.custom_markets[0].boundless_market_address, Address::ZERO);
+
+        let updated = custom_networks::update_custom_market_addresses(&mut config, &network_name, &setup);
+        assert!(updated.is_ok());
+        assert_eq!(updated.unwrap(), true);
+
+        let network = &config.custom_markets[0];
+        assert_eq!(
+            format!("{:#x}", network.boundless_market_address),
+            boundless_market_addr.to_lowercase()
+        );
+        assert_eq!(
+            format!("{:#x}", network.set_verifier_address),
+            set_verifier_addr.to_lowercase()
+        );
+        assert_eq!(
+            format!("{:#x}", network.collateral_token_address.unwrap()),
+            collateral_token_addr.to_lowercase()
+        );
+        assert_eq!(network.order_stream_url.as_ref().unwrap(), order_stream_url);
+
+        let mut secrets = Secrets::default();
+
+        let pk_clean = setup.private_key.as_ref().unwrap().strip_prefix("0x").unwrap_or(setup.private_key.as_ref().unwrap());
+
+        secrets.requestor_networks.insert(
+            network_name.clone(),
+            RequestorSecrets {
+                rpc_url: setup.rpc_url.clone(),
+                private_key: Some(pk_clean.to_string()),
+                address: Some("0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".to_string()),
+            },
+        );
+
+        assert_eq!(secrets.requestor_networks.len(), 1);
+        assert!(secrets.requestor_networks.contains_key("custom-31337"));
+
+        let network_secrets = secrets.requestor_networks.get("custom-31337").unwrap();
+        assert_eq!(network_secrets.rpc_url.as_ref().unwrap(), "http://localhost:8545");
+        assert!(network_secrets.private_key.is_some());
+        assert!(network_secrets.address.is_some());
+
+        config.requestor = Some(RequestorConfig {
+            network: network_name.clone(),
+        });
+
+        assert!(config.requestor.is_some());
+        assert_eq!(config.requestor.unwrap().network, "custom-31337");
+    }
+
+    #[test]
+    fn test_clone_prebuilt_when_modifying() {
+        let config = Config::default();
+
+        let setup = SetupInteractive {
+            network: Some("base-mainnet".to_string()),
+            rpc_url: None,
+            private_key: None,
+            address: None,
+            staking_private_key: None,
+            staking_address: None,
+            reward_private_key: None,
+            reward_address: None,
+            beacon_api_url: None,
+            state_file: None,
+            boundless_market_address: Some("0x1234567890123456789012345678901234567890".to_string()),
+            verifier_router_address: None,
+            set_verifier_address: None,
             collateral_token_address: None,
             order_stream_url: None,
-        }
+            zkc_address: None,
+            vezkc_address: None,
+            staking_rewards_address: None,
+            povw_accounting_address: None,
+            povw_mint_address: None,
+            rename_network: None,
+            reset: false,
+        };
+
+        let custom_network = custom_networks::clone_prebuilt_market_as_custom(&config, "base-mainnet", &setup);
+        assert!(custom_network.is_ok());
+
+        let network = custom_network.unwrap();
+
+        assert!(network.name.starts_with("custom-base-mainnet"));
+        assert_eq!(network.chain_id, 8453);
+
+        assert_eq!(
+            format!("{:#x}", network.boundless_market_address),
+            "0x1234567890123456789012345678901234567890"
+        );
+
+        assert_ne!(network.set_verifier_address, Address::ZERO);
     }
 
-    /// Create a minimal custom rewards deployment with only chain ID set
-    fn create_minimal_custom_rewards(chain_id: u64) -> CustomRewardsDeployment {
-        use alloy::primitives::Address;
+    #[test]
+    fn test_update_existing_custom_network() {
+        let mut config = Config::default();
 
-        CustomRewardsDeployment {
-            name: format!("custom-{}", chain_id),
-            chain_id,
-            zkc_address: Address::ZERO,
-            vezkc_address: Address::ZERO,
-            staking_rewards_address: Address::ZERO,
-            povw_accounting_address: Address::ZERO,
-            povw_mint_address: Address::ZERO,
-        }
+        let mut network = custom_networks::create_minimal_custom_network(1234);
+        network.boundless_market_address = "0x5FbDB2315678afecb367f032d93F642f64180aa3".parse().unwrap();
+        network.set_verifier_address = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512".parse().unwrap();
+        config.custom_markets.push(network);
+
+        let setup = SetupInteractive {
+            network: Some("custom-1234".to_string()),
+            rpc_url: None,
+            private_key: None,
+            address: None,
+            staking_private_key: None,
+            staking_address: None,
+            reward_private_key: None,
+            reward_address: None,
+            beacon_api_url: None,
+            state_file: None,
+            boundless_market_address: None,
+            verifier_router_address: None,
+            set_verifier_address: None,
+            collateral_token_address: None,
+            order_stream_url: Some("wss://new-url.com".to_string()),
+            zkc_address: None,
+            vezkc_address: None,
+            staking_rewards_address: None,
+            povw_accounting_address: None,
+            povw_mint_address: None,
+            rename_network: None,
+            reset: false,
+        };
+
+        let result = custom_networks::update_custom_market_addresses(&mut config, "custom-1234", &setup);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+
+        let network = &config.custom_markets[0];
+        assert_eq!(network.order_stream_url.as_ref().unwrap(), "wss://new-url.com");
+
+        assert_eq!(
+            format!("{:#x}", network.boundless_market_address),
+            "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        );
+        assert_eq!(
+            format!("{:#x}", network.set_verifier_address),
+            "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"
+        );
     }
 
-    fn setup_custom_rewards() -> Result<CustomRewardsDeployment> {
-        Self::print_section_header("Custom Rewards Deployment");
+    #[test]
+    fn test_unique_name_generation_on_clone() {
+        let mut config = Config::default();
 
-        let name = Text::new("Deployment name:")
-            .with_help_message("A friendly name for this deployment (e.g., 'my-testnet')")
-            .prompt()?;
+        let mut existing = custom_networks::create_minimal_custom_network(8453);
+        existing.name = "custom-base-mainnet".to_string();
+        config.custom_markets.push(existing);
 
-        let chain_id: u64 = Text::new("Chain ID:")
-            .with_help_message("EIP-155 chain ID")
-            .prompt()?
-            .parse()
-            .context("Invalid chain ID")?;
+        let setup = SetupInteractive {
+            network: None,
+            rpc_url: None,
+            private_key: None,
+            address: None,
+            staking_private_key: None,
+            staking_address: None,
+            reward_private_key: None,
+            reward_address: None,
+            beacon_api_url: None,
+            state_file: None,
+            boundless_market_address: Some("0x1234567890123456789012345678901234567890".to_string()),
+            verifier_router_address: None,
+            set_verifier_address: None,
+            collateral_token_address: None,
+            order_stream_url: None,
+            zkc_address: None,
+            vezkc_address: None,
+            staking_rewards_address: None,
+            povw_accounting_address: None,
+            povw_mint_address: None,
+            rename_network: None,
+            reset: false,
+        };
 
-        let zkc_address = Text::new("ZKC token contract address:")
-            .prompt()?
-            .parse()
-            .context("Invalid address")?;
+        let network = custom_networks::clone_prebuilt_market_as_custom(&config, "base-mainnet", &setup).unwrap();
 
-        let vezkc_address =
-            Text::new("veZKC contract address:").prompt()?.parse().context("Invalid address")?;
-
-        let staking_rewards_address = Text::new("Staking rewards contract address:")
-            .prompt()?
-            .parse()
-            .context("Invalid address")?;
-
-        let povw_accounting_address = Text::new("PoVW accounting contract address:")
-            .prompt()?
-            .parse()
-            .context("Invalid address")?;
-
-        let povw_mint_address = Text::new("PoVW mint contract address:")
-            .prompt()?
-            .parse()
-            .context("Invalid address")?;
-
-        Ok(CustomRewardsDeployment {
-            name,
-            chain_id,
-            zkc_address,
-            vezkc_address,
-            staking_rewards_address,
-            povw_accounting_address,
-            povw_mint_address,
-        })
+        assert_eq!(network.name, "custom-base-mainnet-1");
     }
 }
