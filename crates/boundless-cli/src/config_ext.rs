@@ -67,7 +67,7 @@ impl RewardsConfigExt for RewardsConfig {
     fn require_rpc_url_with_help(&self) -> Result<String> {
         self.reward_rpc_url.clone().map(|u| u.to_string()).context(
             "No RPC URL configured for rewards.\n\n\
-            To configure: run 'boundless setup rewards'\n\
+            To configure: run 'boundless rewards setup'\n\
             Or set REWARD_RPC_URL environment variable\n\
             Or use --rpc-url flag"
         )
@@ -76,7 +76,7 @@ impl RewardsConfigExt for RewardsConfig {
     fn require_reward_key_with_help(&self) -> Result<PrivateKeySigner> {
         self.reward_private_key.clone().context(
             "No reward private key configured.\n\n\
-            To configure: run 'boundless setup rewards'\n\
+            To configure: run 'boundless rewards setup'\n\
             Or set REWARD_PRIVATE_KEY environment variable\n\
             Or use --reward-private-key flag"
         )
@@ -86,7 +86,7 @@ impl RewardsConfigExt for RewardsConfig {
         // PoVW key is the same as reward_private_key in the current implementation
         self.reward_private_key.clone().or_else(|| self.private_key.clone()).context(
             "No PoVW private key configured.\n\n\
-            To configure: run 'boundless setup rewards' and enable PoVW\n\
+            To configure: run 'boundless rewards setup' and enable PoVW\n\
             Or set REWARD_PRIVATE_KEY environment variable\n\
             Or use --reward-private-key flag"
         )
@@ -95,7 +95,7 @@ impl RewardsConfigExt for RewardsConfig {
     fn require_staking_key_with_help(&self) -> Result<PrivateKeySigner> {
         self.staking_private_key.clone().or_else(|| self.reward_private_key.clone()).context(
             "No staking private key configured.\n\n\
-            To configure: run 'boundless setup rewards'\n\
+            To configure: run 'boundless rewards setup'\n\
             Or set STAKING_PRIVATE_KEY environment variable\n\
             Or use --staking-private-key flag"
         )
@@ -104,7 +104,7 @@ impl RewardsConfigExt for RewardsConfig {
     fn require_reward_address_with_help(&self) -> Result<Address> {
         self.reward_address.context(
             "No reward address configured.\n\n\
-            To configure: run 'boundless setup rewards'\n\
+            To configure: run 'boundless rewards setup'\n\
             Or set REWARD_ADDRESS environment variable\n\
             Or use --recipient flag"
         )
@@ -143,7 +143,7 @@ impl ConfigValidation for RewardsConfig {
     fn missing_config_help(&self, field: &str) -> String {
         format!(
             "Missing required configuration: {}\n\n\
-            To configure rewards: run 'boundless setup rewards'\n\
+            To configure rewards: run 'boundless rewards setup'\n\
             Or set environment variables (see 'boundless rewards --help')",
             field
         )
@@ -178,7 +178,7 @@ impl ProverConfigExt for ProverConfig {
     fn require_private_key_with_help(&self) -> Result<PrivateKeySigner> {
         self.private_key.clone().context(
             "No prover private key configured.\n\n\
-            To configure: run 'boundless setup prover'\n\
+            To configure: run 'boundless prover setup'\n\
             Or set PROVER_PRIVATE_KEY environment variable\n\
             Or use --private-key flag"
         )
@@ -187,7 +187,7 @@ impl ProverConfigExt for ProverConfig {
     fn require_rpc_url_with_help(&self) -> Result<String> {
         self.prover_rpc_url.clone().map(|u| u.to_string()).context(
             "No RPC URL configured for prover.\n\n\
-            To configure: run 'boundless setup prover'\n\
+            To configure: run 'boundless prover setup'\n\
             Or set PROVER_RPC_URL environment variable\n\
             Or use --rpc-url flag"
         )
@@ -221,7 +221,7 @@ impl ConfigValidation for ProverConfig {
     fn missing_config_help(&self, field: &str) -> String {
         format!(
             "Missing required configuration: {}\n\n\
-            To configure prover: run 'boundless setup prover'\n\
+            To configure prover: run 'boundless prover setup'\n\
             Or set environment variables (see 'boundless prover --help')",
             field
         )
@@ -253,7 +253,7 @@ impl RequestorConfigExt for RequestorConfig {
     fn require_private_key_with_help(&self) -> Result<PrivateKeySigner> {
         self.private_key.clone().context(
             "No requestor private key configured.\n\n\
-            To configure: run 'boundless setup requestor'\n\
+            To configure: run 'boundless requestor setup'\n\
             Or set REQUESTOR_PRIVATE_KEY environment variable\n\
             Or use --private-key flag"
         )
@@ -262,7 +262,7 @@ impl RequestorConfigExt for RequestorConfig {
     fn require_rpc_url_with_help(&self) -> Result<String> {
         self.rpc_url.clone().map(|u| u.to_string()).context(
             "No RPC URL configured for requestor.\n\n\
-            To configure: run 'boundless setup requestor'\n\
+            To configure: run 'boundless requestor setup'\n\
             Or set REQUESTOR_RPC_URL environment variable\n\
             Or use --rpc-url flag"
         )
@@ -290,7 +290,7 @@ impl ConfigValidation for RequestorConfig {
     fn missing_config_help(&self, field: &str) -> String {
         format!(
             "Missing required configuration: {}\n\n\
-            To configure requestor: run 'boundless setup requestor'\n\
+            To configure requestor: run 'boundless requestor setup'\n\
             Or set environment variables (see 'boundless requestor --help')",
             field
         )
@@ -327,7 +327,7 @@ pub fn validate_prover_address_input(
         .with_context(|| {
             format!(
                 "No address specified for {}.\n\n\
-                To configure a default address: run 'boundless setup prover'\n\
+                To configure a default address: run 'boundless prover setup'\n\
                 Or provide an address as an argument",
                 context
             )
@@ -385,7 +385,7 @@ mod tests {
         };
         let help = config.missing_config_help("test_field");
         assert!(help.contains("test_field"));
-        assert!(help.contains("boundless setup rewards"));
+        assert!(help.contains("boundless rewards setup"));
     }
 
     #[test]

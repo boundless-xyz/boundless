@@ -52,7 +52,7 @@ impl ProverBenchmark {
         }
 
         display.status("Status", "Configuring prover backend", "yellow");
-        self.prover_config.proving_backend.configure_proving_backend();
+        self.prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
         let prover = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
 
         // Track performance metrics across all runs

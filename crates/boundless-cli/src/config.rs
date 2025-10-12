@@ -187,13 +187,13 @@ impl RequestorConfig {
     pub fn require_rpc_url(&self) -> Result<Url> {
         self.rpc_url
             .clone()
-            .context("Requestor RPC URL not provided.\n\nTo configure: run 'boundless setup requestor'\nOr set REQUESTOR_RPC_URL env var")
+            .context("Requestor RPC URL not provided.\n\nTo configure: run 'boundless requestor setup'\nOr set REQUESTOR_RPC_URL env var")
     }
 
     /// Access [Self::private_key] or return an error that can be shown to the user.
     pub fn require_private_key(&self) -> Result<PrivateKeySigner> {
         self.private_key.clone().context(
-            "Requestor private key not provided.\n\nTo configure: run 'boundless setup requestor'\nOr set REQUESTOR_PRIVATE_KEY env var",
+            "Requestor private key not provided.\n\nTo configure: run 'boundless requestor setup'\nOr set REQUESTOR_PRIVATE_KEY env var",
         )
     }
 
@@ -386,14 +386,14 @@ impl RewardsConfig {
     pub fn require_rpc_url(&self) -> Result<Url> {
         self.reward_rpc_url
             .clone()
-            .context("Reward RPC URL not provided.\n\nTo configure: run 'boundless setup rewards'\nOr set REWARD_RPC_URL env var")
+            .context("Reward RPC URL not provided.\n\nTo configure: run 'boundless rewards setup'\nOr set REWARD_RPC_URL env var")
     }
 
     /// Access [Self::private_key] or return an error that can be shown to the user.
     /// This is deprecated - use require_staking_private_key or require_reward_private_key instead.
     pub fn require_private_key(&self) -> Result<PrivateKeySigner> {
         self.private_key.clone().context(
-            "Private key not provided.\n\nTo configure: run 'boundless setup rewards'\nOr set STAKING_PRIVATE_KEY or REWARD_PRIVATE_KEY env var",
+            "Private key not provided.\n\nTo configure: run 'boundless rewards setup'\nOr set STAKING_PRIVATE_KEY or REWARD_PRIVATE_KEY env var",
         )
     }
 
@@ -404,7 +404,7 @@ impl RewardsConfig {
             .or_else(|| self.reward_private_key.clone())
             .or_else(|| self.private_key.clone())
             .context(
-                "Staking private key not provided.\n\nTo configure: run 'boundless setup rewards'\nOr set STAKING_PRIVATE_KEY or REWARD_PRIVATE_KEY env var",
+                "Staking private key not provided.\n\nTo configure: run 'boundless rewards setup'\nOr set STAKING_PRIVATE_KEY or REWARD_PRIVATE_KEY env var",
             )
     }
 
@@ -415,7 +415,7 @@ impl RewardsConfig {
             .or_else(|| self.staking_private_key.clone())
             .or_else(|| self.private_key.clone())
             .context(
-                "Reward private key not provided.\n\nTo configure: run 'boundless setup rewards'\nOr set REWARD_PRIVATE_KEY or STAKING_PRIVATE_KEY env var",
+                "Reward private key not provided.\n\nTo configure: run 'boundless rewards setup'\nOr set REWARD_PRIVATE_KEY or STAKING_PRIVATE_KEY env var",
             )
     }
 
@@ -492,17 +492,15 @@ impl ProvingBackendConfig {
     /// read by `default_prover()` when constructing the prover.
     pub fn configure_proving_backend(&self) {
         if self.use_default_prover {
-            tracing::info!(
-                "Using default prover behavior (respects RISC0_PROVER, RISC0_DEV_MODE, etc.)"
-            );
+            println!("Using default prover behavior (respects RISC0_PROVER, RISC0_DEV_MODE, etc.)");
             return;
         }
 
+        println!("Using Bento prover at {}", &self.bento_api_url);
         std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
         if let Some(ref api_key) = self.bento_api_key {
             std::env::set_var("BONSAI_API_KEY", api_key);
         } else {
-            tracing::debug!("No API key provided. Setting BONSAI_API_KEY to reserved:50");
             std::env::set_var("BONSAI_API_KEY", "v1:reserved:50");
         }
     }
@@ -665,13 +663,13 @@ impl ProverConfig {
     pub fn require_rpc_url(&self) -> Result<Url> {
         self.prover_rpc_url
             .clone()
-            .context("Prover RPC URL not provided.\n\nTo configure: run 'boundless setup prover'\nOr set PROVER_RPC_URL env var")
+            .context("Prover RPC URL not provided.\n\nTo configure: run 'boundless prover setup'\nOr set PROVER_RPC_URL env var")
     }
 
     /// Access [Self::private_key] or return an error that can be shown to the user.
     pub fn require_private_key(&self) -> Result<PrivateKeySigner> {
         self.private_key.clone().context(
-            "Prover private key not provided.\n\nTo configure: run 'boundless setup prover'\nOr set PROVER_PRIVATE_KEY env var",
+            "Prover private key not provided.\n\nTo configure: run 'boundless prover setup'\nOr set PROVER_PRIVATE_KEY env var",
         )
     }
 

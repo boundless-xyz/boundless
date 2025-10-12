@@ -59,7 +59,7 @@ impl RewardsListPovwRewards {
 
         // Use provided address or default to reward address from config
         let address = self.address.or(rewards_config.reward_address)
-            .context("No address provided.\n\nTo configure: run 'boundless setup rewards'\nOr provide --address <ADDRESS>")?;
+            .context("No address provided.\n\nTo configure: run 'boundless rewards setup'\nOr provide --address <ADDRESS>")?;
 
         let rpc_url = rewards_config.require_rpc_url()?;
         let provider = ProviderBuilder::new()

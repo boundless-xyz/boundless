@@ -49,11 +49,11 @@ impl RewardsStakedBalanceZkc {
             use crate::config_file::{Config, Secrets};
 
             let config = Config::load()
-                .context("Failed to load config - run 'boundless setup rewards'")?;
+                .context("Failed to load config - run 'boundless rewards setup'")?;
             let network = config
                 .rewards
                 .as_ref()
-                .context("Rewards module not configured - run 'boundless setup rewards'")?
+                .context("Rewards module not configured - run 'boundless rewards setup'")?
                 .network
                 .clone();
 
@@ -62,7 +62,7 @@ impl RewardsStakedBalanceZkc {
             let rewards_secrets = secrets
                 .rewards_networks
                 .get(&network)
-                .context("No rewards secrets found for current network - run 'boundless setup rewards'")?;
+                .context("No rewards secrets found for current network - run 'boundless rewards setup'")?;
 
             let staking_addr_str = rewards_secrets
                 .staking_address
@@ -76,7 +76,7 @@ impl RewardsStakedBalanceZkc {
                     })
                 })
                 .context(
-                    "No staking address configured. Please run 'boundless setup rewards' or provide an address",
+                    "No staking address configured. Please run 'boundless rewards setup' or provide an address",
                 )?;
 
             staking_addr_str

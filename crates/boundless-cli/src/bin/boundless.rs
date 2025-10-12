@@ -506,7 +506,7 @@ async fn show_welcome_screen() -> Result<()> {
                 display_network.blue().bold(),
                 "(read-only)".yellow()
             );
-            println!("  Requestor Address: {} (PK: {} {})", addr.green(), "✗".yellow(), "[config]".dimmed());
+            println!("  Requestor Address: {} (PK: {} {})", addr.green(), "✗".yellow(), "[config file]".dimmed());
         } else {
             println!(
                 "{} Requestor Module [{}] {}",
@@ -518,7 +518,7 @@ async fn show_welcome_screen() -> Result<()> {
         println!("  {} {}", "→".cyan(), "Run 'boundless requestor' to see available commands".dimmed());
     } else {
         println!("{} Requestor Module: {}", "✗".red().bold(), "Not configured".red());
-        println!("  {} {}", "→".cyan(), "Run 'boundless setup requestor'".cyan());
+        println!("  {} {}", "→".cyan(), "Run 'boundless requestor setup'".cyan());
     }
 
     println!();
@@ -559,7 +559,7 @@ async fn show_welcome_screen() -> Result<()> {
                 display_network.blue().bold(),
                 "(read-only)".yellow()
             );
-            println!("  Prover Address:    {} (PK: {} {})", addr.green(), "✗".yellow(), "[config]".dimmed());
+            println!("  Prover Address:    {} (PK: {} {})", addr.green(), "✗".yellow(), "[config file]".dimmed());
         } else {
             println!(
                 "{} Prover Module [{}] {}",
@@ -571,7 +571,7 @@ async fn show_welcome_screen() -> Result<()> {
         println!("  {} {}", "→".cyan(), "Run 'boundless prover' to see available commands".dimmed());
     } else {
         println!("{} Prover Module: {}", "✗".red().bold(), "Not configured".red());
-        println!("  {} {}", "→".cyan(), "Run 'boundless setup prover'".cyan());
+        println!("  {} {}", "→".cyan(), "Run 'boundless prover setup'".cyan());
     }
 
     println!();
@@ -747,7 +747,7 @@ async fn show_welcome_screen() -> Result<()> {
         println!("  {} {}", "→".cyan(), "Run 'boundless rewards' to see available commands".dimmed());
     } else {
         println!("{} Rewards Module: {}", "✗".red().bold(), "Not configured".red());
-        println!("  {} {}", "→".cyan(), "Run 'boundless setup rewards'".cyan());
+        println!("  {} {}", "→".cyan(), "Run 'boundless rewards setup'".cyan());
     }
 
     println!();
@@ -807,7 +807,7 @@ fn show_requestor_status() -> Result<()> {
                     "{} {} {}",
                     "Private Key:".bold(),
                     "Not configured (read-only)".yellow(),
-                    "[config]".dimmed()
+                    "[config file]".dimmed()
                 );
             } else {
                 println!(
@@ -888,7 +888,7 @@ fn show_prover_status() -> Result<()> {
                     "{} {} {}",
                     "Private Key:".bold(),
                     "Not configured (read-only)".yellow(),
-                    "[config]".dimmed()
+                    "[config file]".dimmed()
                 );
             } else {
                 println!(
@@ -1048,7 +1048,7 @@ async fn show_rewards_status() -> Result<()> {
                             println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[env]".dimmed());
                         }
                     } else if let Some(ref url) = rewards_sec.beacon_api_url {
-                        println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[config]".dimmed());
+                        println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[config file]".dimmed());
                     }
                 }
             }

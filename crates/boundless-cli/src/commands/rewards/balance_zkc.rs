@@ -74,11 +74,11 @@ impl RewardsBalanceZkc {
             // No address provided - check both staking and reward addresses from config
             use crate::config_file::{Config, Secrets};
 
-            let config = Config::load().context("Failed to load config - run 'boundless setup rewards'")?;
+            let config = Config::load().context("Failed to load config - run 'boundless rewards setup'")?;
             let network = config
                 .rewards
                 .as_ref()
-                .context("Rewards module not configured - run 'boundless setup rewards'")?
+                .context("Rewards module not configured - run 'boundless rewards setup'")?
                 .network
                 .clone();
 
@@ -86,7 +86,7 @@ impl RewardsBalanceZkc {
             let rewards_secrets = secrets
                 .rewards_networks
                 .get(&network)
-                .context("No rewards secrets found for current network - run 'boundless setup rewards'")?;
+                .context("No rewards secrets found for current network - run 'boundless rewards setup'")?;
 
             let mut checked_addresses = Vec::new();
 
@@ -120,7 +120,7 @@ impl RewardsBalanceZkc {
             }
 
             if checked_addresses.is_empty() {
-                bail!("No addresses configured in rewards module. Please run 'boundless setup rewards' or provide an address");
+                bail!("No addresses configured in rewards module. Please run 'boundless rewards setup' or provide an address");
             }
 
             display.header("ZKC Balance");

@@ -47,7 +47,7 @@ impl RewardsGetDelegate {
             .or(rewards_config.staking_address)
             .context(
                 "No address provided.\n\n\
-                To configure: run 'boundless setup rewards'\n\
+                To configure: run 'boundless rewards setup'\n\
                 Or provide --address <ADDRESS>",
             )?;
 

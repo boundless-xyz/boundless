@@ -71,7 +71,7 @@ impl RewardsPreparePoVW {
         // Determine state file path (param > config > error)
         let state_path = self.state_file.clone()
             .or_else(|| rewards_config.povw_state_file.clone().map(PathBuf::from))
-            .context("No PoVW state file configured.\n\nTo configure: run 'boundless setup rewards' and enable PoVW\nOr set POVW_STATE_FILE env var")?;
+            .context("No PoVW state file configured.\n\nTo configure: run 'boundless rewards setup' and enable PoVW\nOr set POVW_STATE_FILE env var")?;
 
         println!("   Using PoVW state file: {}", state_path.display().to_string().cyan());
 
@@ -79,7 +79,7 @@ impl RewardsPreparePoVW {
             .await
             .with_context(|| {
                 format!(
-                    "Failed to load PoVW state file: {}\n\nEnsure the file exists and is valid. Run 'boundless setup rewards' to create one.",
+                    "Failed to load PoVW state file: {}\n\nEnsure the file exists and is valid. Run 'boundless rewards setup' to create one.",
                     state_path.display()
                 )
             })?;

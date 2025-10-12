@@ -77,7 +77,7 @@ impl SetupClear {
 
         if cleared_any {
             println!("\n{}", "✓ Configuration cleared successfully".green().bold());
-            println!("  Run {} to reconfigure", "'boundless setup all'".cyan());
+            println!("  Run {} to reconfigure", "'boundless setup'".cyan());
         } else {
             println!("\n{}", "No configuration files found".dimmed());
         }

@@ -837,7 +837,7 @@ impl SetupInteractive {
         let existing = secrets.rewards_networks.get_mut(network_name)
             .with_context(|| format!(
                 "No existing rewards configuration found for network: {}\n\n\
-                Please run 'boundless setup rewards' first to configure the rewards module.",
+                Please run 'boundless rewards setup' first to configure the rewards module.",
                 network_name
             ))?;
 
@@ -863,7 +863,7 @@ impl SetupInteractive {
         if !file_exists {
             // Create new state file
             let reward_addr = existing.reward_address.as_ref()
-                .context("Cannot create state file: no reward address configured.\n\nPlease run 'boundless setup rewards' first.")?;
+                .context("Cannot create state file: no reward address configured.\n\nPlease run 'boundless rewards setup' first.")?;
 
             let log_id = reward_addr.parse::<PovwLogId>()
                 .context("Failed to parse reward address as PoVW log ID")?;

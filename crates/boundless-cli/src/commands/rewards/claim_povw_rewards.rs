@@ -98,7 +98,7 @@ impl RewardsClaimPovwRewards {
         } else if let Some(reward_addr) = rewards_config.reward_address {
             reward_addr.into()
         } else {
-            bail!("No log ID provided and no reward address configured.\n\nTo configure: run 'boundless setup rewards' and set a reward address\nOr provide --log-id parameter")
+            bail!("No log ID provided and no reward address configured.\n\nTo configure: run 'boundless rewards setup' and set a reward address\nOr provide --log-id parameter")
         };
 
         let display = DisplayManager::new();
