@@ -15,7 +15,10 @@
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy_node_bindings::AnvilInstance;
 use assert_cmd::Command;
-use std::{borrow::Cow, collections::HashMap};
+use boundless_market::deployments::Deployment as MarketDeployment;
+use boundless_zkc::deployments::Deployment as ZkcDeployment;
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use tokio::sync::Mutex;
 
 // Anvil's pre-funded accounts with private keys
 pub const ANVIL_ACCOUNTS: &[(&str, &str)] = &[
@@ -61,11 +64,13 @@ pub const ANVIL_ACCOUNTS: &[(&str, &str)] = &[
     ),
 ];
 
-// Test context with Anvil instance
+// Test context with Anvil instance and deployed contracts
 pub struct TestContext {
     pub anvil: AnvilInstance,
     pub endpoint: String,
     pub chain: Chain,
+    pub market_deployment: Option<MarketDeployment>,
+    pub zkc_deployment: Option<ZkcDeployment>,
 }
 
 #[derive(Clone, Copy)]
@@ -76,21 +81,41 @@ pub enum Chain {
 
 impl TestContext {
     pub async fn base() -> Self {
-        let url = std::env::var("BOUNDLESS_MARKET_RPC_URL")
-            .expect("BOUNDLESS_MARKET_RPC_URL must be set for tests");
-        let anvil = alloy_node_bindings::Anvil::new().fork(url).spawn();
+        let anvil = alloy_node_bindings::Anvil::new().spawn();
         let endpoint = anvil.endpoint().to_string();
 
-        Self { anvil, endpoint, chain: Chain::Base }
+        let test_ctx = boundless_test_utils::market::create_test_ctx(&anvil)
+            .await
+            .expect("Failed to deploy market contracts");
+
+        Self {
+            anvil,
+            endpoint,
+            chain: Chain::Base,
+            market_deployment: Some(test_ctx.deployment),
+            zkc_deployment: None,
+        }
     }
 
     pub async fn ethereum() -> Self {
-        let url = std::env::var("ETH_MAINNET_RPC_URL")
-            .expect("ETH_MAINNET_RPC_URL must be set for tests");
-        let anvil = alloy_node_bindings::Anvil::new().fork(url).spawn();
+        let anvil = alloy_node_bindings::Anvil::new().spawn();
         let endpoint = anvil.endpoint().to_string();
 
-        Self { anvil, endpoint, chain: Chain::Ethereum }
+        let test_ctx = boundless_test_utils::zkc::test_ctx_with(Arc::new(Mutex::new(anvil)), 0)
+            .await
+            .expect("Failed to deploy ZKC contracts");
+
+        let anvil_instance = Arc::try_unwrap(test_ctx.anvil)
+            .expect("Failed to unwrap Arc")
+            .into_inner();
+
+        Self {
+            anvil: anvil_instance,
+            endpoint,
+            chain: Chain::Ethereum,
+            market_deployment: None,
+            zkc_deployment: Some(test_ctx.deployment),
+        }
     }
 
     // Get an Anvil account with private key
@@ -170,18 +195,20 @@ impl BoundlessCmd {
     }
 
     pub fn with_base_config(self, ctx: &TestContext) -> Self {
-        self.env("REQUESTOR_RPC_URL", &ctx.endpoint)  // For requestor commands
-            .env("PROVER_RPC_URL", &ctx.endpoint)      // For prover commands
-            .env("BOUNDLESS_MARKET_ADDRESS", "0xfd152dadc5183870710fe54f939eae3ab9f0fe82") // Base mainnet
-            .env("SET_VERIFIER_ADDRESS", "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104")
+        let deployment = ctx.market_deployment.as_ref().expect("Market deployment not initialized");
+        self.env("REQUESTOR_RPC_URL", &ctx.endpoint)
+            .env("PROVER_RPC_URL", &ctx.endpoint)
+            .env("BOUNDLESS_MARKET_ADDRESS", &deployment.boundless_market_address.to_string())
+            .env("SET_VERIFIER_ADDRESS", &deployment.set_verifier_address.to_string())
     }
 
     pub fn with_ethereum_config(self, ctx: &TestContext) -> Self {
-        self.env("REWARD_RPC_URL", &ctx.endpoint)  // Rewards commands use REWARD_RPC_URL
+        let deployment = ctx.zkc_deployment.as_ref().expect("ZKC deployment not initialized");
+        self.env("REWARD_RPC_URL", &ctx.endpoint)
             .env("ETH_MAINNET_RPC_URL", &ctx.endpoint)
-            .env("ZKC_ADDRESS", "0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555")
-            .env("VEZKC_ADDRESS", "0xe8ae8ee8ffa57f6a79b6cbe06bafc0b05f3ffbf4")
-            .env("STAKING_REWARDS_ADDRESS", "0x459d87d54808fac136ddcf439fcc1d8a238311c7")
+            .env("ZKC_ADDRESS", &deployment.zkc_address.to_string())
+            .env("VEZKC_ADDRESS", &deployment.vezkc_address.to_string())
+            .env("STAKING_REWARDS_ADDRESS", &deployment.staking_rewards_address.to_string())
     }
 
     pub fn with_account(self, account: &TestAccount) -> Self {

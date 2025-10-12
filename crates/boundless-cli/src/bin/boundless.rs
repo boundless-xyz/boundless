@@ -2264,29 +2264,95 @@ mod tests {
     /// Test setup helper that creates common test infrastructure
     async fn setup_test_env(
         owner: AccountOwner,
-    ) -> (TestCtx<impl Provider + WalletProvider + Clone + 'static>, AnvilInstance, GlobalConfig)
+    ) -> (TestCtx<impl Provider + WalletProvider + Clone + 'static>, AnvilInstance, GlobalConfig, tempfile::TempDir)
     {
         let anvil = Anvil::new().spawn();
-
         let ctx = create_test_ctx(&anvil).await.unwrap();
 
-        let private_key = match owner {
+        let (private_key, private_key_hex) = match owner {
             AccountOwner::Customer => {
                 ctx.prover_market
                     .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
                     .await
                     .unwrap();
-                ctx.customer_signer.clone()
+                (ctx.customer_signer.clone(), format!("0x{}", hex::encode(anvil.keys()[2].to_bytes())))
             }
-            AccountOwner::Prover => ctx.prover_signer.clone(),
+            AccountOwner::Prover => {
+                (ctx.prover_signer.clone(), format!("0x{}", hex::encode(anvil.keys()[1].to_bytes())))
+            }
         };
 
-        let config = GlobalConfig {
+        // Create temporary directory for test config files with unique prefix
+        // to avoid conflicts when tests run in parallel
+        let temp_dir = tempdir().unwrap();
+        let home_dir = temp_dir.path();
+
+        // Set HOME to temporary directory so config_dir() points there
+        std::env::set_var("HOME", home_dir);
+
+        // Create .boundless directory
+        let boundless_dir = home_dir.join(".boundless");
+        std::fs::create_dir_all(&boundless_dir).unwrap();
+
+        // Create custom network in config.toml
+        use boundless_cli::config_file::{Config, CustomMarketDeployment, RequestorConfig as FileRequestorConfig, ProverConfig as FileProverConfig};
+
+        let custom_network = CustomMarketDeployment {
+            name: "test-anvil".to_string(),
+            chain_id: ctx.deployment.market_chain_id.unwrap(),
+            boundless_market_address: ctx.deployment.boundless_market_address,
+            verifier_router_address: ctx.deployment.verifier_router_address,
+            set_verifier_address: ctx.deployment.set_verifier_address,
+            collateral_token_address: ctx.deployment.collateral_token_address,
+            order_stream_url: ctx.deployment.order_stream_url.as_ref().map(|u| u.to_string()),
+        };
+
+        let config = Config {
+            requestor: Some(FileRequestorConfig {
+                network: "test-anvil".to_string(),
+            }),
+            prover: Some(FileProverConfig {
+                network: "test-anvil".to_string(),
+            }),
+            rewards: None,
+            custom_markets: vec![custom_network],
+            custom_rewards: vec![],
+        };
+
+        config.save().unwrap();
+
+        // Create secrets.toml with RPC URLs and private keys
+        use boundless_cli::config_file::{Secrets, RequestorSecrets, ProverSecrets};
+        use std::collections::HashMap;
+
+        let mut requestor_networks = HashMap::new();
+        requestor_networks.insert("test-anvil".to_string(), RequestorSecrets {
+            rpc_url: Some(anvil.endpoint()),
+            private_key: Some(private_key_hex.clone()),
+            address: None,
+        });
+
+        let mut prover_networks = HashMap::new();
+        prover_networks.insert("test-anvil".to_string(), ProverSecrets {
+            rpc_url: Some(anvil.endpoint()),
+            private_key: Some(private_key_hex),
+            address: None,
+        });
+
+        let secrets = Secrets {
+            requestor_networks,
+            prover_networks,
+            rewards_networks: HashMap::new(),
+        };
+
+        secrets.save().unwrap();
+
+        let global_config = GlobalConfig {
             tx_timeout: None,
             log_level: LevelFilter::INFO,
         };
 
-        (ctx, anvil, config)
+        (ctx, anvil, global_config, temp_dir)
     }
 
     async fn setup_test_env_with_order_stream(
@@ -2297,8 +2363,9 @@ mod tests {
         AnvilInstance,
         GlobalConfig,
         JoinHandle<()>,
+        tempfile::TempDir,
     ) {
-        let (mut ctx, anvil, mut global_config) = setup_test_env(owner).await;
+        let (mut ctx, anvil, global_config, temp_dir) = setup_test_env(owner).await;
 
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
@@ -2322,16 +2389,24 @@ mod tests {
             run_from_parts(order_stream_clone, listener).await.unwrap();
         });
 
-        // Add the order_stream_url to the deployment config.
+        // Add the order_stream_url to the deployment config
         ctx.deployment.order_stream_url = Some(order_stream_url.to_string().into());
 
-        (ctx, anvil, global_config, order_stream_handle)
+        // Update config file with order stream URL
+        use boundless_cli::config_file::Config;
+        let mut file_config = Config::load().unwrap();
+        if let Some(custom_market) = file_config.custom_markets.first_mut() {
+            custom_market.order_stream_url = Some(order_stream_url.to_string());
+        }
+        file_config.save().unwrap();
+
+        (ctx, anvil, global_config, order_stream_handle, temp_dir)
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_deposit_withdraw() {
-        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let mut args = MainArgs {
             config,
@@ -2387,7 +2462,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_fail_deposit_withdraw() {
-        let (_ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (_ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let amount = U256::from(10000000000000000000000_u128);
         let mut args = MainArgs {
@@ -2407,7 +2482,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_deposit_withdraw_collateral() {
-        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Prover).await;
+        let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Prover).await;
 
         let mut args = MainArgs {
             config,
@@ -2466,7 +2541,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_deposit_collateral_amount_below_denom_min() -> Result<()> {
-        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         // Use amount below denom min
         let amount = "0.00000000000000000000000001".to_string();
@@ -2491,7 +2566,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_fail_deposit_withdraw_collateral() {
-        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let mut args = MainArgs {
             config,
@@ -2517,7 +2592,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_submit_request_onchain() {
-        let (_ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (_ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         // Submit a request onchain
         let args = MainArgs {
@@ -2538,7 +2613,7 @@ mod tests {
     #[sqlx::test]
     #[traced_test]
     async fn test_submit_request_offchain(pool: PgPool) {
-        let (ctx, _anvil, config, order_stream_handle) =
+        let (ctx, _anvil, config, order_stream_handle, _temp_dir) =
             setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
 
         // Deposit funds into the market
@@ -2566,7 +2641,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_submit_offer_onchain() {
-        let (_ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (_ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         // Submit a request onchain
         let args = MainArgs {
@@ -2600,7 +2675,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_request_status_onchain() {
-        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
@@ -2630,7 +2705,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_slash() {
-        let (ctx, anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let mut request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
@@ -2700,7 +2775,7 @@ mod tests {
     #[traced_test]
     #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_proving_onchain() {
-        let (ctx, anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
@@ -2839,7 +2914,7 @@ mod tests {
     #[traced_test]
     #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_proving_multiple_requests() {
-        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let mut request_ids = Vec::new();
         for _ in 0..3 {
@@ -2898,7 +2973,7 @@ mod tests {
     #[traced_test]
     #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_callback() {
-        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let mut request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
@@ -2973,7 +3048,7 @@ mod tests {
     #[traced_test]
     #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_selector() {
-        let (ctx, _anvil, config) = setup_test_env(AccountOwner::Customer).await;
+        let (ctx, _anvil, config, _temp_dir) = setup_test_env(AccountOwner::Customer).await;
 
         let mut request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
@@ -3038,7 +3113,7 @@ mod tests {
     #[traced_test]
     #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_proving_offchain(pool: PgPool) {
-        let (ctx, anvil, config, order_stream_handle) =
+        let (ctx, anvil, config, order_stream_handle, _temp_dir) =
             setup_test_env_with_order_stream(AccountOwner::Customer, pool).await;
 
         // Deposit funds into the market

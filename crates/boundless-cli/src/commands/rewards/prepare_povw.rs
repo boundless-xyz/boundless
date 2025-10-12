@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Borrow, collections::HashSet, io::Write, path::{Path, PathBuf}, str::FromStr};
+use std::{borrow::Borrow, collections::HashSet, io::Write, path::PathBuf, str::FromStr};
 
-use alloy::{
-    primitives::Address,
-    providers::{Provider, ProviderBuilder},
-};
+use alloy::providers::{Provider, ProviderBuilder};
 use anyhow::{bail, ensure, Context, Result};
 use boundless_povw::{deployments::Deployment, log_updater::IPovwAccounting};
 use clap::Args;
@@ -234,7 +231,8 @@ impl RewardsPreparePoVW {
         // Backup before modifying state
         println!("\n{}", "Saving updated PoVW state file".bold().green());
         if !self.skip_backup {
-            save_state_backup(&state, &state_path)?;
+            let backup_path = state.save_backup(&state_path)?;
+            println!("  Saved backup of previous state to:        {}", backup_path.display().to_string().dimmed());
         } else {
             println!("  Backup:        {} {}", "Skipped".yellow(), "(--skip-backup)".dimmed());
         }
@@ -256,39 +254,6 @@ impl RewardsPreparePoVW {
 
         Ok(())
     }
-}
-
-/// Save a backup of the state file to ~/.boundless
-fn save_state_backup(state: &State, original_path: &Path) -> Result<()> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-    let backup_dir = home_dir.join(".boundless");
-
-    std::fs::create_dir_all(&backup_dir)
-        .with_context(|| format!("Failed to create backup directory: {}", backup_dir.display()))?;
-
-    let original_filename = original_path
-        .file_name()
-        .context("Failed to get filename from state path")?
-        .to_str()
-        .context("State filename is not valid UTF-8")?;
-
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("Failed to get current timestamp")?
-        .as_secs();
-
-    let log_id_hex = format!("{:x}", state.log_id);
-    let backup_filename = format!("{}.{}.{}.bak", original_filename, timestamp, log_id_hex);
-    let backup_path = backup_dir.join(&backup_filename);
-
-    state.save(&backup_path)
-        .with_context(|| format!("Failed to save backup to {}", backup_path.display()))?;
-
-    println!("  Saved backup of previous state to:        {}", backup_path.display().to_string().dimmed());
-
-    Ok(())
 }
 
 /// Load work receipts from the specified files

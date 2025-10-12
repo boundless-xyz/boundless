@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{io::Write, path::{Path, PathBuf}};
+use std::{io::Write, path::PathBuf};
 
 use alloy::{
     primitives::{utils::{format_ether, parse_ether}, Address, U256},
@@ -27,7 +27,6 @@ use clap::Args;
 use colored::Colorize;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 use risc0_zkvm::{default_prover, ProverOpts};
-use url::Url;
 
 use crate::{
     commands::rewards::State,
@@ -247,14 +246,6 @@ impl RewardsSubmitPovw {
         self.proving_backend.configure_proving_backend_with_health_check().await?;
         display.status("Status", "Ready", "green");
 
-        // Backup the state file before making any modifications
-        display.subsection("Preparing to modify PoVW state file");
-        if !self.skip_backup {
-            self.save_state_backup(&state, &state_path, &display)?;
-        } else {
-            display.status("Backup", "Skipped (--skip-backup)", "yellow");
-        }
-
         let total_receipts = receipts_for_update.len();
         for (idx, receipt) in receipts_for_update.into_iter().enumerate() {
             let receipt_num = idx + 1;
@@ -271,7 +262,7 @@ impl RewardsSubmitPovw {
                 .context("Failed to build prover for Log Updater")?;
 
             // Sign and prove the authorized work log update
-            display.step(1, 3, "Generating Groth16 proof...");
+            display.step(1, 3, "Generating proof...");
             display.note("  (This may take several minutes)");
 
             let prove_info = prover
@@ -334,44 +325,17 @@ impl RewardsSubmitPovw {
                 .context("Failed to add transaction receipt to state")?
                 .save(&state_path)
                 .context("Failed to save state")?;
+
+            // Backup the updated state after each receipt is processed
+            if !self.skip_backup {
+                let backup_path = state.save_backup(&state_path)?;
+                display.note(&format!("Backup saved: {}", backup_path.display()));
+            }
         }
 
         display.separator();
         display.success(&format!("Successfully submitted {} PoVW update(s)", total_receipts));
         display.separator();
-
-        Ok(())
-    }
-
-    /// Save a backup of the state file to ~/.boundless
-    fn save_state_backup(&self, state: &State, original_path: &Path, display: &DisplayManager) -> Result<()> {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let backup_dir = home_dir.join(".boundless");
-
-        std::fs::create_dir_all(&backup_dir)
-            .with_context(|| format!("Failed to create backup directory: {}", backup_dir.display()))?;
-
-        let original_filename = original_path
-            .file_name()
-            .context("Failed to get filename from state path")?
-            .to_str()
-            .context("State filename is not valid UTF-8")?;
-
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .context("Failed to get current timestamp")?
-            .as_secs();
-
-        let log_id_hex = format!("{:x}", state.log_id);
-        let backup_filename = format!("{}.{}.{}.bak", original_filename, timestamp, log_id_hex);
-        let backup_path = backup_dir.join(&backup_filename);
-
-        state.save(&backup_path)
-            .with_context(|| format!("Failed to save backup to {}", backup_path.display()))?;
-
-        display.note(&format!("Backup saved: {}", backup_path.display()));
 
         Ok(())
     }

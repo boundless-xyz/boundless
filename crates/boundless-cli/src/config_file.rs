@@ -47,10 +47,6 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prover: Option<ProverConfig>,
 
-    /// Market (requestor/prover) configuration (deprecated, for backwards compatibility)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub market: Option<MarketConfig>,
-
     /// Rewards configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rewards: Option<RewardsConfig>,
@@ -74,13 +70,6 @@ pub struct RequestorConfig {
 /// Prover configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProverConfig {
-    /// Network name
-    pub network: String,
-}
-
-/// Market (requestor/prover) configuration (deprecated)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarketConfig {
     /// Network name
     pub network: String,
 }

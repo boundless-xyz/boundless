@@ -14,7 +14,7 @@
 
 //! PoVW state management for rewards commands.
 
-use std::{collections::HashMap, io::Write, path::Path, time::SystemTime};
+use std::{collections::HashMap, io::Write, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 
 use alloy::{primitives::B256, rpc::types::TransactionReceipt};
 use anyhow::{bail, ensure, Context, Result};
@@ -301,4 +301,52 @@ impl State {
 
         Ok(())
     }
+
+    /// Save a backup of the state file to ~/.boundless
+    ///
+    /// The backup filename format is: `{original_filename}.{timestamp}.{log_id_hex}.bak`
+    /// Returns the path where the backup was saved.
+    pub fn save_backup(&self, original_path: impl AsRef<Path>) -> Result<PathBuf> {
+        let original_path = original_path.as_ref();
+        let backup_path = compute_backup_path(original_path, self.log_id)?;
+
+        self.save(&backup_path)
+            .with_context(|| format!("Failed to save backup to {}", backup_path.display()))?;
+
+        Ok(backup_path)
+    }
+}
+
+/// Get the backup directory path (~/.boundless)
+fn backup_dir() -> Result<PathBuf> {
+    let home_dir = dirs::home_dir().context("Failed to get home directory")?;
+    let backup_dir = home_dir.join(".boundless");
+
+    std::fs::create_dir_all(&backup_dir)
+        .with_context(|| format!("Failed to create backup directory: {}", backup_dir.display()))?;
+
+    Ok(backup_dir)
+}
+
+/// Compute the backup file path for a given state file
+///
+/// Format: `~/.boundless/{original_filename}.{timestamp}.{log_id_hex}.bak`
+fn compute_backup_path(original_path: &Path, log_id: PovwLogId) -> Result<PathBuf> {
+    let backup_dir = backup_dir()?;
+
+    let original_filename = original_path
+        .file_name()
+        .context("Failed to get filename from state path")?
+        .to_str()
+        .context("State filename is not valid UTF-8")?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("Failed to get current timestamp")?
+        .as_secs();
+
+    let log_id_hex = format!("{:x}", log_id);
+    let backup_filename = format!("{}.{}.{}.bak", original_filename, timestamp, log_id_hex);
+
+    Ok(backup_dir.join(backup_filename))
 }

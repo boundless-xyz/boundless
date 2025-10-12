@@ -149,8 +149,7 @@ impl RequestorConfig {
                 let network = config
                     .requestor
                     .as_ref()
-                    .map(|r| &r.network)
-                    .or_else(|| config.market.as_ref().map(|m| &m.network));
+                    .map(|r| &r.network);
 
                 if let Some(network) = network {
                     self.deployment = match network.as_str() {
@@ -615,8 +614,7 @@ impl ProverConfig {
                 let network = config
                     .prover
                     .as_ref()
-                    .map(|p| &p.network)
-                    .or_else(|| config.market.as_ref().map(|m| &m.network));
+                    .map(|p| &p.network);
 
                 if let Some(network) = network {
                     self.deployment = match network.as_str() {
