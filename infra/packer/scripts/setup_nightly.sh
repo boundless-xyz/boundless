@@ -20,7 +20,16 @@ sudo mv target/release/rest_api /usr/local/bin/api
 sudo mv target/release/bento_cli /usr/local/bin/bento_cli
 sudo chmod +x /usr/local/bin/agent /usr/local/bin/api /usr/local/bin/bento_cli
 cd ../
+
+# Install Foundry
+echo "Installing Foundry..."
+curl -L https://foundry.paradigm.xyz | bash
+export PATH="$HOME/.foundry/bin:$PATH"
+echo 'export PATH="$HOME/.foundry/bin:$PATH"' >> ~/.bashrc
+foundryup
+
 # Install broker from source
+forge build
 cargo build --release --bin broker
 sudo mv target/release/broker /usr/local/bin/broker
 sudo chmod +x /usr/local/bin/broker
