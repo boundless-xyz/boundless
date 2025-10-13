@@ -149,13 +149,9 @@ impl RewardsStakedBalanceZkc {
         display.balance("Available", &format_eth(available_balance), &symbol, "cyan");
 
         if reward_delegate != address {
-            let reward_power_formatted = format_eth(reward_power);
             display.item(
                 "Reward Power",
-                format!(
-                    "{} (delegated {} to {:#x})",
-                    "0", reward_power_formatted, reward_delegate
-                ),
+                format!("0 (delegated to {:#x})", reward_delegate),
             );
         } else {
             display.balance("Reward Power", &format_eth(reward_power), "", "yellow");
