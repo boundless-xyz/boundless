@@ -19,6 +19,7 @@ use alloy::{
 use anyhow::Context;
 use anyhow::Result;
 use boundless_market::contracts::token::IERC20;
+use boundless_zkc::contracts::IStaking;
 use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
@@ -101,26 +102,22 @@ impl RewardsStakedBalanceZkc {
 
         alloy::sol! {
             #[sol(rpc)]
-            interface IERC721Votes {
-                function balanceOf(address owner) external view returns (uint256);
-            }
-
-            #[sol(rpc)]
             interface IRewards {
                 function getStakingRewards(address account) external view returns (uint256);
                 function rewardDelegates(address account) external view returns (address);
             }
         }
 
-        let vezkc = IERC721Votes::new(vezkc_address, &provider);
+        let staking = IStaking::new(vezkc_address, &provider);
         let rewards = IRewards::new(vezkc_address, &provider);
         let zkc_token = IERC20::new(zkc_address, &provider);
 
-        let staked_balance = vezkc
-            .balanceOf(address)
+        let staked_result = staking
+            .getStakedAmountAndWithdrawalTime(address)
             .call()
             .await
             .context("Failed to query staked ZKC balance")?;
+        let staked_balance = staked_result.amount;
 
         let available_balance = zkc_token
             .balanceOf(address)
