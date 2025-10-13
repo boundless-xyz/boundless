@@ -192,6 +192,15 @@ pub trait BrokerDb {
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
 
+    /// Reset an order back to PendingProving and clear its proof_id.
+    /// Also remove associated tasks/jobs in the taskdb for the given job_id.
+    ///
+    /// This mirrors the old reset-order.sh:
+    /// 1. Find proof_id (job_id) from SQLite
+    /// 2. Delete job, tasks, task_deps from Postgres
+    /// 3. Reset SQLite order status and clear proof_id
+    async fn reset_order(&self, order_id: &str) -> Result<(), DbError>;
+
     #[cfg(test)]
     async fn add_order(&self, order: &Order) -> Result<(), DbError>;
     #[cfg(test)]
@@ -310,6 +319,64 @@ struct DbLockedRequest {
 
 #[async_trait]
 impl BrokerDb for SqliteDb {
+    async fn reset_order(&self, order_id: &str) -> Result<(), DbError> {
+        // Step 1: Lookup proof_id (job_id) from SQLite
+        let job_id: Option<String> = sqlx::query_scalar(
+            r#"SELECT json_extract(data, '$.proof_id') FROM orders WHERE id = ?"#,
+        )
+        .bind(order_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::from)?;
+
+        let Some(job_id) = job_id else {
+            return Err(DbError::NotFound(format!(
+                "Order {order_id} not found or missing proof_id"
+            )));
+        };
+
+        // Step 2: Delete job, tasks, and deps from Postgres
+        sqlx::query("DELETE FROM public.task_deps WHERE job_id = $1")
+            .bind(&job_id)
+            .execute(&self.pg_pool)
+            .await
+            .map_err(DbError::from)?;
+        sqlx::query("DELETE FROM public.tasks WHERE job_id = $1")
+            .bind(&job_id)
+            .execute(&self.pg_pool)
+            .await
+            .map_err(DbError::from)?;
+        sqlx::query("DELETE FROM public.jobs WHERE id = $1")
+            .bind(&job_id)
+            .execute(&self.pg_pool)
+            .await
+            .map_err(DbError::from)?;
+
+        // Step 3: Reset SQLite order row back to PendingProving and clear proof_id
+        let res = sqlx::query(
+            r#"
+            UPDATE orders
+            SET data = json_set(
+                json_set(data, '$.status', 'PendingProving'),
+                '$.proof_id', NULL
+            )
+            WHERE id = ?;
+            "#,
+        )
+        .bind(order_id)
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::OrderNotFound(order_id.to_string()));
+        }
+
+        tracing::info!(
+            "[reset-order] order {order_id} reset to PendingProving; job {job_id} deleted in taskdb"
+        );
+
+        Ok(())
+    }
     #[cfg(test)]
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order.id())))]
     async fn add_order(&self, order: &Order) -> Result<(), DbError> {
