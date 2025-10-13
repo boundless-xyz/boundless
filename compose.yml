@@ -191,8 +191,8 @@ services:
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
     volumes:
       - type: bind
-        source: ${RISC0_BVM2_SETUP_DIR}
-        target: /.bitvm2
+        source: ${BLAKE3_GROTH16_SETUP_DIR}
+        target: /.blake3_groth16
         read_only: true
     # comment-out if running in CPU proving mode
     deploy:

@@ -51,12 +51,13 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
                 .identity_p254(succinct_receipt)
                 .context("failed to create p254 receipt")?;
             // TODO(ec2): Handle cpu vs gpu here?
-            let seal = shrink_bitvm2::shrink_wrap(&p254_receipt, &receipt.journal.bytes)?;
+            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into()?;
+            let seal_json = shrink_bitvm2::shrink_wrap(&p254_receipt, journal)?;
             (
                 shrink_bitvm2::finalize(
-                    receipt.journal.bytes,
+                    journal,
                     p254_receipt.claim.clone(),
-                    &seal.try_into()?,
+                    &seal_json.try_into()?,
                 )?,
                 SHRINK_BITVM2_BUCKET_DIR,
             )

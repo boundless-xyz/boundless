@@ -190,7 +190,9 @@ impl DefaultProver {
         }
         let receipt = succinct_receipt.clone();
         tokio::task::spawn_blocking(move || {
-            shrink_bitvm2::succinct_to_bitvm2(receipt.inner.succinct()?, &receipt.journal.bytes)
+            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into()?;
+            let seal = shrink_bitvm2::succinct_to_bitvm2(receipt.inner.succinct()?, journal)?;
+            shrink_bitvm2::finalize(journal, receipt.claim()?, &seal.try_into()?)
         })
         .await?
     }
