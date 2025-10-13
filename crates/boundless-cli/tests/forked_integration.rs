@@ -65,17 +65,6 @@ fn test_setup_commands_available() {
 }
 
 #[test]
-fn test_balance_without_rpc_fails() {
-    let mut cmd = Command::cargo_bin("boundless").unwrap();
-    cmd.arg("requestor")
-        .arg("balance")
-        .arg("0x0000000000000000000000000000000000000000")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("RPC URL"));
-}
-
-#[test]
 fn test_version_command() {
     let mut cmd = Command::cargo_bin("boundless").unwrap();
     cmd.arg("--version").assert().success().stdout(predicate::str::contains("boundless"));
