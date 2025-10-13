@@ -113,7 +113,7 @@ impl RewardsSubmitPovw {
             Address::from(state.log_id) == work_log_signer.address(),
             "Signer does not match the state log ID: signer: {}, state: {}",
             work_log_signer.address(),
-            state.log_id
+            format!("{:x}", state.log_id)
         );
 
         // Connect to the chain
@@ -370,13 +370,17 @@ impl RewardsSubmitPovw {
             .await
             .ok();
 
+        let display = DisplayManager::new();
+        display.header("Dry Run: PoVW Submission Projection");
+
         // Parse values with overrides
         let current_work_submitted = if let Some(ref override_val) = self.dry_run_work_submitted {
             parse_amount(override_val).context("Failed to parse --dry-run-work-submitted")?
         } else if let Some(ref data) = address_data {
             parse_amount(&data.work_submitted)?
         } else {
-            bail!("No work submitted data available and no override provided. Use --dry-run-work-submitted")
+            display.warning("Did not find any work already submitted for this epoch, and --dry-run-work-submitted not set. Defaulting to 0.");
+            U256::ZERO
         };
 
         let total_work = if let Some(ref override_val) = self.dry_run_total_work {
@@ -429,9 +433,6 @@ impl RewardsSubmitPovw {
         let uncapped_rewards_formatted = crate::format_amount(&format_ether(uncapped_rewards));
         let reward_cap_formatted = crate::format_amount(&format_ether(reward_cap));
         let capped_rewards_formatted = crate::format_amount(&format_ether(capped_rewards));
-
-        let display = DisplayManager::new();
-        display.header("Dry Run: PoVW Submission Projection");
 
         if let Some(ref meta) = metadata {
             let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);

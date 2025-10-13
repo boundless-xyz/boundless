@@ -44,7 +44,7 @@ use boundless_cli::{
         prover::ProverCommands,
         requestor::RequestorCommands,
         rewards::RewardsCommands,
-        setup::SetupCommands,
+        setup::{secrets::obscure_url, SetupCommands},
     },
     config::ProverConfig,
     convert_timestamp, DefaultProver, OrderFulfilled,
@@ -378,44 +378,6 @@ struct MainArgs {
     config: GlobalConfig,
 }
 
-fn obscure_url(url: &str) -> String {
-    use url::Url;
-
-    if let Ok(parsed) = Url::parse(url) {
-        let scheme = parsed.scheme();
-        let domain = parsed.host_str().unwrap_or("unknown");
-        let path = parsed.path();
-
-        // Build the visible prefix (scheme + domain + path structure, but we'll obscure part of path)
-        let base_prefix = format!("{}://{}", scheme, domain);
-
-        // For the path, show the structure but obscure sensitive parts
-        let url_len = url.len();
-        let base_len = base_prefix.len();
-
-        // Show domain + beginning of path, obscure the rest
-        let to_show = (base_len + path.len().min(10)).min(url_len.saturating_sub(8));
-
-        if url_len > to_show + 4 {
-            // Show beginning and last 4 characters
-            let beginning = &url[..to_show];
-            let last_4 = &url[url_len - 4..];
-            let obscured_count = url_len - to_show - 4;
-            let stars = "*".repeat(obscured_count);
-            format!("{}{}{}", beginning, stars, last_4)
-        } else if url_len > base_len {
-            // Show domain and obscure everything after
-            let obscured_count = url_len - base_len;
-            let stars = "*".repeat(obscured_count.min(20)); // Cap stars at 20
-            format!("{}{}", base_prefix, stars)
-        } else {
-            // URL is just the domain
-            base_prefix
-        }
-    } else {
-        "****".to_string()
-    }
-}
 
 fn address_from_private_key(private_key: &str) -> Option<String> {
     use alloy::signers::local::PrivateKeySigner;
@@ -581,8 +543,8 @@ async fn show_welcome_screen() -> Result<()> {
         let rewards_secrets = secrets.as_ref().and_then(|s| s.rewards_networks.get(&network));
 
         let display_network = match network.as_str() {
-            "mainnet" => "Ethereum Mainnet",
-            "sepolia" => "Ethereum Sepolia",
+            "eth-mainnet" => "Ethereum Mainnet",
+            "eth-sepolia" => "Ethereum Sepolia",
             custom => custom,
         };
 
@@ -912,6 +874,7 @@ fn show_prover_status() -> Result<()> {
     println!("  {} - Execute a request (test without submitting)", "execute".cyan());
     println!("  {} - Fulfill and submit proofs", "fulfill".cyan());
     println!("  {} - Benchmark proof requests", "benchmark".cyan());
+    println!("  {} - Slash a prover for a given request", "slash".cyan());
     println!("  {} - Interactive setup wizard for prover configuration", "setup".cyan());
 
     println!(
@@ -1060,16 +1023,18 @@ async fn show_rewards_status() -> Result<()> {
     }
 
     println!("\n{}\n", "Available Commands:".bold());
-    println!("  {} - Stake ZKC tokens", "stake-zkc".cyan());
     println!("  {} - Check ZKC balance", "balance-zkc".cyan());
+    println!("  {} - Stake ZKC tokens for rewards", "stake-zkc".cyan());
     println!("  {} - Check staked ZKC balance", "staked-balance-zkc".cyan());
+    println!("  {} - Delegate rewards to another address", "delegate".cyan());
+    println!("  {} - Get current reward delegate", "get-delegate".cyan());
+    println!("  {} - List staking rewards by epoch", "list-staking-rewards".cyan());
+    println!("  {} - Claim staking rewards", "claim-staking-rewards".cyan());
+    println!("  {} - List PoVW rewards by epoch", "list-povw-rewards".cyan());
+    println!("  {} - Prepare PoVW work log update", "prepare-povw".cyan());
     println!("  {} - Submit PoVW work updates", "submit-povw".cyan());
     println!("  {} - Claim PoVW rewards", "claim-povw-rewards".cyan());
-    println!("  {} - Claim staking rewards", "claim-staking-rewards".cyan());
-    println!("  {} - List staking rewards by epoch", "list-staking-rewards".cyan());
-    println!("  {} - List PoVW rewards by epoch", "list-povw-rewards".cyan());
     println!("  {} - Inspect PoVW state file", "inspect-povw-state".cyan());
-    println!("  {} - Delegate rewards to another address", "delegate".cyan());
     println!("  {} - Get current epoch information", "epoch".cyan());
     println!("  {} - Check reward power and earning potential", "power".cyan());
     println!("  {} - Interactive setup wizard for rewards configuration", "setup".cyan());

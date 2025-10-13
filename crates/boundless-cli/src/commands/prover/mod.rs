@@ -45,10 +45,7 @@ pub enum ProverCommands {
     /// Withdraw collateral funds from the market
     #[command(name = "withdraw-collateral")]
     WithdrawCollateral(ProverWithdrawCollateral),
-    /// Check the collateral balance of an account in the market
-    #[command(name = "deposited-balance-collateral")]
-    DepositedBalanceCollateral(ProverBalanceCollateral),
-    /// Check the collateral balance of an account (alias)
+    /// Check the collateral balance of an account
     #[command(name = "balance-collateral")]
     BalanceCollateral(ProverBalanceCollateral),
     /// Lock a request in the market
@@ -71,9 +68,7 @@ impl ProverCommands {
         match self {
             Self::DepositCollateral(cmd) => cmd.run(global_config).await,
             Self::WithdrawCollateral(cmd) => cmd.run(global_config).await,
-            Self::DepositedBalanceCollateral(cmd) | Self::BalanceCollateral(cmd) => {
-                cmd.run(global_config).await
-            }
+            Self::BalanceCollateral(cmd) => cmd.run(global_config).await,
             Self::Lock(cmd) => cmd.run(global_config).await,
             Self::Fulfill(cmd) => cmd.run(global_config).await,
             Self::Execute(cmd) => cmd.run(global_config).await,

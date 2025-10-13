@@ -401,8 +401,6 @@ impl RewardsConfig {
     pub fn require_staking_private_key(&self) -> Result<PrivateKeySigner> {
         self.staking_private_key
             .clone()
-            .or_else(|| self.reward_private_key.clone())
-            .or_else(|| self.private_key.clone())
             .context(
                 "Staking private key not provided.\n\nTo configure: run 'boundless rewards setup'\nOr set STAKING_PRIVATE_KEY or REWARD_PRIVATE_KEY env var",
             )
@@ -412,8 +410,6 @@ impl RewardsConfig {
     pub fn require_reward_private_key(&self) -> Result<PrivateKeySigner> {
         self.reward_private_key
             .clone()
-            .or_else(|| self.staking_private_key.clone())
-            .or_else(|| self.private_key.clone())
             .context(
                 "Reward private key not provided.\n\nTo configure: run 'boundless rewards setup'\nOr set REWARD_PRIVATE_KEY or STAKING_PRIVATE_KEY env var",
             )
@@ -496,7 +492,6 @@ impl ProvingBackendConfig {
             return;
         }
 
-        println!("Using Bento prover at {}", &self.bento_api_url);
         std::env::set_var("BONSAI_API_URL", &self.bento_api_url);
         if let Some(ref api_key) = self.bento_api_key {
             std::env::set_var("BONSAI_API_KEY", api_key);
@@ -518,7 +513,7 @@ impl ProvingBackendConfig {
         let bento_url = Url::parse(&self.bento_api_url)
             .with_context(|| format!("Failed to parse Bento API URL: {}", self.bento_api_url))?;
         let health_check_url = bento_url.join("health")?;
-        println!("  Using Bento prover at {}. Checking health...", health_check_url);
+        println!("  Using Bento prover at {}.", health_check_url);
         reqwest::get(health_check_url.clone())
             .await
             .with_context(|| match using_default_url {
@@ -527,7 +522,6 @@ impl ProvingBackendConfig {
             })?
             .error_for_status()
             .context("Bento health check endpoint returned error status")?;
-        println!("  Health check passed");
         Ok(())
     }
 }

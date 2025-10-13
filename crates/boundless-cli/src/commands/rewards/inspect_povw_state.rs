@@ -81,36 +81,44 @@ impl RewardsInspectPovwState {
         println!("{}", "═══════════════════════════════════════════════════════".bold());
 
         // File Information
-        println!("\n{}", "📁 File Information".bold().green());
+        println!("\n{}", "File Information".bold().green());
         println!("  Path:          {}", display_path.display().to_string().cyan());
         println!("  Size:          {} bytes", file_size.to_string().cyan());
         println!("  Last Modified: {}", file_modified.dimmed());
 
         // State Metadata
-        println!("\n{}", "📊 State Metadata".bold().green());
-        println!("  Log ID:        {}", format!("{:x}", state.log_id).cyan());
+        println!("\n{}", "State Metadata".bold().green());
+        println!("  Log ID:        {}", format!("0x{:x}", state.log_id).cyan());
 
         if let Ok(elapsed) = state.updated_at.elapsed() {
             println!("  Last Updated:  {}", format_duration(elapsed).dimmed());
         }
 
         // Work Log Information
-        println!("\n{}", "🔨 Work Log".bold().green());
+        println!("\n{}", "Work Log".bold().green());
         println!("  Commit:        {}", state.work_log.commit().to_string().cyan());
 
         if state.work_log.is_empty() {
             println!("  Jobs:          {} {}", "0".yellow(), "(empty work log)".dimmed());
         } else {
-            println!("  Jobs:          {}", state.work_log.jobs.len().to_string().cyan());
-            println!("\n  {} Job Details:", "➤".bold());
+            let total_jobs = state.work_log.jobs.len();
+            println!("  Jobs:          {}", total_jobs.to_string().cyan());
 
             let mut job_ids: Vec<_> = state.work_log.jobs.keys().collect();
             job_ids.sort();
 
-            for (idx, job_id) in job_ids.iter().enumerate() {
+            let jobs_to_show: Vec<_> = job_ids.iter().rev().take(10).cloned().collect();
+            let showing_count = jobs_to_show.len();
+
+            println!("\n  Last {} Jobs: (showing {} of {})",
+                showing_count,
+                showing_count,
+                total_jobs);
+
+            for (display_idx, job_id) in jobs_to_show.iter().enumerate() {
                 if let Some(job_data) = state.work_log.jobs.get(*job_id) {
                     println!("    {}. Job ID: {} | Commit: {}",
-                        (idx + 1).to_string().dimmed(),
+                        (display_idx + 1).to_string().dimmed(),
                         job_id.to_string().cyan(),
                         format!("{:?}", job_data).dimmed());
                 }
@@ -118,11 +126,15 @@ impl RewardsInspectPovwState {
         }
 
         // Log Builder Receipts
-        println!("\n{}", "📜 Log Builder Receipts".bold().green());
+        println!("\n{}", "Log Builder Receipts".bold().green());
         println!("  Count:         {}", state.log_builder_receipts.len().to_string().cyan());
 
+        // Build a map of updated_commit -> receipt index for linking transactions
+        use std::collections::HashMap;
+        let mut commit_to_receipt: HashMap<String, usize> = HashMap::new();
+
         if !state.log_builder_receipts.is_empty() {
-            println!("\n  {} Receipt Details:", "➤".bold());
+            println!("\n  Receipt Details:");
 
             for (idx, receipt) in state.log_builder_receipts.iter().enumerate() {
                 println!("    {}. Receipt #{}",
@@ -130,8 +142,11 @@ impl RewardsInspectPovwState {
                     idx.to_string().cyan());
 
                 if let Ok(journal) = LogBuilderJournal::decode(&receipt.journal.bytes) {
-                    println!("       Initial:  {}", journal.initial_commit.to_string().dimmed());
-                    println!("       Updated:  {}", journal.updated_commit.to_string().dimmed());
+                    println!("       Initial commit:  {}", journal.initial_commit.to_string().dimmed());
+                    println!("       Updated commit:  {}", journal.updated_commit.to_string().dimmed());
+
+                    // Store commit mapping for later use in transaction linking
+                    commit_to_receipt.insert(journal.updated_commit.to_string(), idx);
                 } else {
                     println!("       {}", "Failed to decode journal".yellow());
                 }
@@ -139,13 +154,43 @@ impl RewardsInspectPovwState {
         }
 
         // On-Chain Submissions
-        println!("\n{}", "⛓️  On-Chain Submissions".bold().green());
+        println!("\n{}", "On-Chain Submissions".bold().green());
 
-        if state.update_transactions.is_empty() {
+        // Check for unsubmitted work
+        let has_unsubmitted_work = if !state.log_builder_receipts.is_empty() {
+            // Get the latest receipt's updated commit
+            if let Some(latest_receipt) = state.log_builder_receipts.last() {
+                if let Ok(journal) = LogBuilderJournal::decode(&latest_receipt.journal.bytes) {
+                    let latest_commit_str = journal.updated_commit.to_string();
+                    // Check if any confirmed transaction has this commit
+                    !state.update_transactions.values().any(|tx_state| {
+                        if let Some(ref event) = tx_state.update_event {
+                            format!("{:?}", event.updatedCommit) == latest_commit_str
+                        } else {
+                            false
+                        }
+                    })
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if has_unsubmitted_work {
+            println!("  Status:        {} {}", "Has unsubmitted work".yellow().bold(), "(run 'boundless rewards submit-povw')".dimmed());
+        } else if state.update_transactions.is_empty() {
             println!("  Status:        {} {}", "Never submitted".yellow(), "(no transactions recorded)".dimmed());
         } else {
+            println!("  Status:        {} {}", "Up to date".green().bold(), "(all work submitted)".dimmed());
+        }
+
+        if !state.update_transactions.is_empty() {
             println!("  Transactions:  {}", state.update_transactions.len().to_string().cyan());
-            println!("\n  {} Transaction Details:", "➤".bold());
+            println!("\n  Transaction Details:");
 
             let mut txs: Vec<_> = state.update_transactions.iter().collect();
             txs.sort_by_key(|(hash, _)| format!("{:x}", hash));
@@ -163,19 +208,28 @@ impl RewardsInspectPovwState {
 
                 if let Some(ref event) = tx_state.update_event {
                     println!("       Update Value: {}", event.updateValue.to_string().cyan());
+
+                    // Link transaction to receipt
+                    let updated_commit_str = format!("{:?}", event.updatedCommit);
+                    if let Some(&receipt_idx) = commit_to_receipt.get(&updated_commit_str) {
+                        println!("       Receipt:      #{}", receipt_idx.to_string().cyan());
+                    }
+
+                    println!("       Initial Commit: {}", format!("{:?}", event.initialCommit).dimmed());
+                    println!("       Updated Commit: {}", format!("{:?}", event.updatedCommit).dimmed());
                 }
             }
         }
 
         // Validation
-        println!("\n{}", "✓ Validation".bold().green());
+        println!("\n{}", "Validation".bold().green());
         print!("  State Check:   ");
         match state.validate() {
             Ok(_) => {
-                println!("{} {}", "✓".green().bold(), "State is valid and consistent".green());
+                println!("{}", "Valid and consistent".green().bold());
             }
             Err(e) => {
-                println!("{} {}", "✗".red().bold(), "State validation failed".red());
+                println!("{}", "Validation failed".red().bold());
                 println!("  Error:         {}", e.to_string().red());
             }
         }

@@ -53,19 +53,63 @@ pub fn obscure_secret(secret: &str) -> String {
     }
 }
 
-/// Obscure a URL for display (hide API keys and tokens)
+/// Obscure a single segment (between dots or slashes)
+fn obscure_segment(segment: &str) -> String {
+    let len = segment.len();
+    if len <= 6 {
+        // Too short to obscure meaningfully
+        segment.to_string()
+    } else if len <= 10 {
+        // Show 2 chars + *** + 2 chars
+        format!("{}***{}",
+            segment[..2].to_lowercase(),
+            segment[len - 2..].to_lowercase())
+    } else {
+        // Show 3-4 chars + ***** + 3-4 chars (scale with length)
+        let show_chars = if len > 15 { 4 } else { 3 };
+        let stars = if len > 15 { "*****" } else { "***" };
+        format!("{}{}{}",
+            segment[..show_chars].to_lowercase(),
+            stars,
+            segment[len - show_chars..].to_lowercase())
+    }
+}
+
+/// Obscure a URL for display (obscure segments between dots and slashes)
 pub fn obscure_url(url: &str) -> String {
-    url.split('/')
-        .enumerate()
-        .map(|(i, part)| {
-            if i >= 3 && part.len() > 10 {
-                format!("{}...", &part[..3])
-            } else {
-                part.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("/")
+    // Split by :// to separate protocol
+    if let Some((protocol, rest)) = url.split_once("://") {
+        let parts = rest.split('/').collect::<Vec<_>>();
+
+        if parts.is_empty() {
+            return url.to_string();
+        }
+
+        // Process the host (first part) - split by dots
+        let host = parts[0];
+        let obscured_host = host.split('.')
+            .map(|segment| obscure_segment(segment))
+            .collect::<Vec<_>>()
+            .join(".");
+
+        // Process the path segments
+        let obscured_path: Vec<String> = parts[1..].iter()
+            .map(|&segment| obscure_segment(segment))
+            .collect();
+
+        // Reconstruct URL
+        if obscured_path.is_empty() {
+            format!("{}://{}", protocol, obscured_host)
+        } else {
+            format!("{}://{}/{}", protocol, obscured_host, obscured_path.join("/"))
+        }
+    } else {
+        // No protocol, just obscure each slash-separated part
+        url.split('/')
+            .map(|part| obscure_segment(part))
+            .collect::<Vec<_>>()
+            .join("/")
+    }
 }
 
 #[cfg(test)]
@@ -88,21 +132,41 @@ mod tests {
     fn test_obscure_url_simple() {
         let url = "https://example.com/api/v1";
         let obscured = obscure_url(url);
-        assert_eq!(obscured, "https://example.com/api/v1");
+        // "example" (7 chars) -> "ex***le", "com" stays, "api" and "v1" stay
+        assert_eq!(obscured, "https://ex***le.com/api/v1");
     }
 
     #[test]
     fn test_obscure_url_with_api_key() {
-        let url = "https://eth-mainnet.g.alchemy.com/v2/abc123def456ghi789";
+        let url = "https://eth-mainnet.g.alchemy.com/v2/kEepgHsajdisoajJcfV";
         let obscured = obscure_url(url);
-        assert!(obscured.contains("abc..."));
+        // "eth-mainnet" (11 chars) -> "eth***net"
+        // "g" (1 char) -> "g"
+        // "alchemy" (7 chars) -> "al***my"
+        // "com" (3 chars) -> "com"
+        // "v2" (2 chars) -> "v2"
+        // "kEepgHsajdisoajJcfV" (19 chars) -> "keep*****jcfv"
+        assert_eq!(obscured, "https://eth***net.g.al***my.com/v2/keep*****jcfv");
     }
 
     #[test]
-    fn test_obscure_url_short_path() {
-        let url = "https://example.com/short";
+    fn test_obscure_url_short_segments() {
+        let url = "https://a.b.c.d/x/y";
         let obscured = obscure_url(url);
-        assert_eq!(obscured, url);
+        // All segments are too short (<=6 chars), should remain unchanged
+        assert_eq!(obscured, "https://a.b.c.d/x/y");
+    }
+
+    #[test]
+    fn test_obscure_url_long_segments() {
+        let url = "https://verylongsubdomain.anotherlongdomain.com/verylongpath/anotherlongpath";
+        let obscured = obscure_url(url);
+        // "verylongsubdomain" (17 chars) -> "very*****main"
+        // "anotherlongdomain" (17 chars) -> "anot*****main"
+        // "com" (3 chars) -> "com"
+        // "verylongpath" (12 chars) -> "ver***ath"
+        // "anotherlongpath" (15 chars) -> "ano***ath"
+        assert_eq!(obscured, "https://very*****main.anot*****main.com/ver***ath/ano***ath");
     }
 
     #[test]

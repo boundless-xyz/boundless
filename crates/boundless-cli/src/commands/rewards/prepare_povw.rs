@@ -88,7 +88,7 @@ impl RewardsPreparePoVW {
 
         // Check if there's already prepared work that hasn't been submitted on-chain
         if !state.log_builder_receipts.is_empty() {
-            println!("\n{}", "🔍 Checking On-Chain State".bold().green());
+            println!("\n{}", "Checking On-Chain State".bold().green());
             print!("  Querying PoVW accounting contract... ");
             std::io::stdout().flush()?;
 
@@ -151,7 +151,7 @@ impl RewardsPreparePoVW {
                     .context("Failed to parse Bento API URL from proving backend config")?,
             };
 
-            println!("  Fetching PoVW work receipts from Bento instance:        {}", bento_url.to_string().cyan());
+            println!("  Fetching PoVW work receipts from Bento instance: {}", bento_url.to_string().cyan());
             println!("  {}", "(This may take several minutes)".dimmed());
             fetch_work_receipts(state.log_id, &state.work_log, &bento_url)
                 .await
@@ -209,13 +209,12 @@ impl RewardsPreparePoVW {
         };
 
         let mut prover = prover_builder.build().context("Failed to build WorkLogUpdateProver")?;
-        println!("  Status:        {}", "Ready".green().bold());
 
         let num_receipts = work_receipts.len();
         // Prove the work log update
         println!("\n{}", "Aggregating PoVW work receipts and generating proof".bold().green());
         println!("  Receipts:      {}", num_receipts.to_string().cyan());
-        println!("  Status:        {}", "Proving...".yellow());
+        println!("{}", "  Proving...".yellow());
         println!("{}", "  (This may take several minutes)".dimmed());
 
         // NOTE: We use tokio block_in_place here to mitigate two issues. One is that when using
@@ -368,8 +367,8 @@ async fn fetch_work_receipts(
     // Filter the list for new receipts
     let mut seen_log_ids = HashSet::new();
     let mut keys_to_fetch = HashSet::new();
-    for info in receipt_list.receipts {
-        let (info_log_id, info_job_number) = match parse_receipt_info(&info) {
+    for info in &receipt_list.receipts {
+        let (info_log_id, info_job_number) = match parse_receipt_info(info) {
             Ok(ok) => ok,
             Err(err) => {
                 tracing::warn!(
@@ -383,7 +382,9 @@ async fn fetch_work_receipts(
         if info_log_id != log_id {
             // Log any unknown log IDs we find, but only once
             if !seen_log_ids.insert(info_log_id) {
-                println!("  {} {}", "⚠".yellow(), format!("Skipping receipts associated with Reward Address {info_log_id:x}").dimmed());
+                // count number of receipts associated with this log id
+                let count = receipt_list.receipts.iter().filter(|r| r.povw_log_id == Some(info_log_id.to_string())).count();
+                println!("  {} {}", "⚠".yellow(), format!("Skipping {} receipts associated with Reward Address {info_log_id:x}", count).dimmed());
             }
             continue;
         }

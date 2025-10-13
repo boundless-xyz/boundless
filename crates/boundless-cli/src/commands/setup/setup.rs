@@ -1312,7 +1312,21 @@ impl SetupInteractive {
 
                     if use_delegated {
                         display.success("Using delegated address as reward address");
-                        (None, Some(delegated.clone()))
+
+                        let has_reward_key = Confirm::new("Do you want to store a private key for the reward address?")
+                            .with_default(false)
+                            .with_help_message("Skip if using a hardware wallet, smart contract wallet, or don't need to submit PoVW")
+                            .prompt()?;
+
+                        if has_reward_key {
+                            let pk = Text::new("Enter reward private key:")
+                                .with_help_message("Will be stored in plaintext in ~/.boundless/secrets.toml")
+                                .prompt()?;
+                            let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
+                            (Some(pk), Some(delegated.clone()))
+                        } else {
+                            (None, Some(delegated.clone()))
+                        }
                     } else {
                         Self::ask_for_reward_address(staking_addr, &staking_private_key).await?
                     }

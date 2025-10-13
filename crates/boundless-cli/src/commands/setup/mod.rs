@@ -18,7 +18,7 @@ mod clear;
 mod completions;
 mod custom_networks;
 mod network;
-mod secrets;
+pub mod secrets;
 mod setup;
 
 pub use clear::SetupClear;
