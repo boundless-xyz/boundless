@@ -5630,7 +5630,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shrink_bitvm2"
 version = "0.1.0"
-source = "git+https://github.com/ec2/shrink_bitvm2.git?rev=57b0ff68672d5c0491d7e0a94681c90a00d708b7#57b0ff68672d5c0491d7e0a94681c90a00d708b7"
+source = "git+https://github.com/ec2/shrink_bitvm2.git?rev=e3933355820e468a217387dd11fa0a1a0fc309ed#e3933355820e468a217387dd11fa0a1a0fc309ed"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -5638,7 +5638,6 @@ dependencies = [
  "ark-groth16",
  "ark-serialize 0.5.0",
  "blake3",
- "borsh",
  "circom-witnesscalc",
  "crypto-bigint 0.5.2",
  "hex",

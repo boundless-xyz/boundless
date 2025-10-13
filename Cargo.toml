@@ -39,7 +39,7 @@ distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
-shrink_bitvm2 = { git = "https://github.com/ec2/shrink_bitvm2.git", rev = "57b0ff68672d5c0491d7e0a94681c90a00d708b7", default-features = false }
+shrink_bitvm2 = { git = "https://github.com/ec2/shrink_bitvm2.git", rev = "e3933355820e468a217387dd11fa0a1a0fc309ed", default-features = false }
 
 async-stream = "0.3"
 alloy = { version = "1.0", default-features = false }

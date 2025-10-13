@@ -418,9 +418,25 @@ impl Prover for DefaultProver {
             tracing::debug!(
                 "r0vm does not currently support shrink_bitvm2, compressing will be done locally"
             );
+            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into().map_err(|_| {
+                ProverError::UnexpectedError(anyhow!(
+                    "Failed to convert journal to [u8; 32] as expected for blake3 groth16",
+                ))
+            })?;
+
             let succinct_receipt = receipt.inner.succinct().unwrap().clone();
-            shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, &receipt.journal.bytes)
-                .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))
+            let seal = shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, journal)
+                .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))?;
+            shrink_bitvm2::finalize(
+                journal,
+                receipt.claim().map_err(|e| ProverError::UnexpectedError(anyhow!(e)))?,
+                &seal.try_into().map_err(|_| {
+                    ProverError::UnexpectedError(anyhow!(
+                        "Failed to convert blake3 groth16 seal from json"
+                    ))
+                })?,
+            )
+            .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))
         })
         .await
         .unwrap();
@@ -463,7 +479,6 @@ mod tests {
     use tokio::test;
 
     use risc0_zkvm::{sha::Digest, Groth16Seal};
-    use shrink_bitvm2::verify::verify_proof;
 
     #[test]
     async fn test_upload_input_and_image() {
@@ -597,13 +612,12 @@ mod tests {
         let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
         let shrink_receipt: Receipt = bincode::deserialize(&compressed_receipt).unwrap();
 
-        let stark_receipt = prover.get_receipt(&stark_id).await.unwrap().unwrap();
-
         let groth16_receipt = shrink_receipt.inner.groth16().unwrap();
         let groth16_seal = Groth16Seal::decode(&groth16_receipt.seal)
             .expect("Failed to create Groth16 seal from receipt");
-
-        verify_proof(&groth16_seal, image_id, stark_receipt.journal.bytes)
+        let claim_digest =
+            shrink_bitvm2::ShrinkBitvm2ReceiptClaim::ok(ECHO_ID, input_data).claim_digest();
+        shrink_bitvm2::verify::verify(&groth16_seal, claim_digest)
             .expect("Failed to verify Shrink BitVM2 receipt");
     }
 }
