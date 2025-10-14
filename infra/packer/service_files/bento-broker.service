@@ -1,0 +1,17 @@
+[Unit]
+Description=Boundless Bento Broker Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+EnvironmentFile=/etc/environment
+WorkingDirectory=/opt/boundless
+ExecStart=/usr/local/bin/broker --config-file /opt/boundless/broker.toml --bento-api-url http://localhost:8081 --db-url 'sqlite:///opt/boundless/broker.db'
+Restart=always
+RestartSec=10
+TimeoutStartSec=1800
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target

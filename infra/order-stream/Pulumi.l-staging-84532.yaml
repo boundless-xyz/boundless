@@ -3,7 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFmXzySu/SW1BLRtO
 config:
   aws:region: us-west-2
   order-stream:BASE_STACK: organization/bootstrap/services-staging
-  order-stream:BOUNDLESS_ADDRESS: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
+  order-stream:BOUNDLESS_ADDRESS: 0x7abb16522f4599481361d318b765af988bfcca8e
   order-stream:CHAIN_ID: "84532"
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
   order-stream:DOCKER_DIR: ../../
@@ -16,3 +16,5 @@ config:
   order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   order-stream:ETH_RPC_URL:
     secure: v1:s5Krr0oDpt77PGI9:ajMXNh09uUNyf4zIDTc1NzMleFaYyypU1KR546ehRbGJNK6zTiSRaVwbrXSkXxy+4sf6hulKn3TI29SUbtleTR9K1cqy+S4s8W/y
+  order-stream:GH_TOKEN_SECRET:
+    secure: v1:ItT+FkGTSiyiHu6K:mI5jLzP9d/IzIOv0qdjZ6gRdRuFyQUBk7CR1uHt0P9BaeZHX2GtiKYl0uLe3MrqMZ7bYMO5vQjHOoCacnezXvI8Rr/dNCRxnnDlyNxAE3oHFmqBewRZTt0eM/8rm2wNJ5IMZu8eURGRguUAtjg==

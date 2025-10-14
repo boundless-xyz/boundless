@@ -1,0 +1,3 @@
+name: requestor-lists
+runtime: nodejs
+description: Deploy requestor priority lists to S3

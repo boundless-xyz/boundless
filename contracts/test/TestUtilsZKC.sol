@@ -3,7 +3,7 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.26;
 
 import {ZKC} from "zkc/ZKC.sol";
 import {veZKC} from "zkc/veZKC.sol";

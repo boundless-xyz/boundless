@@ -14,8 +14,6 @@ Proof-of-Verifiable-Work (PoVW), a novel invention within Boundless, is a permis
 
 To learn about ZK Mining, see the [ZK Mining Overview](/zkc/mining/overview).
 
-
-
 ## How to stake *$ZKC*?
 
 :::note
@@ -109,10 +107,10 @@ The easiest way to understand mining rewards is to walk through a concrete examp
 mining_reward_cap = staked_amount / 15
 ```
 
-*  Therefore, if a miner stakes 5000 $ZKC, they will have a mining reward cap of `5000 / 15 = 333.33 $ZKC` each epoch.
+*  Therefore, if a miner stakes 5000 $ZKC, they will have a mining reward cap of `5000 / 15 = 333.33 $ZKC`[^1] each epoch. 
 * Miners carry out work using [Bento](/provers/proving-stack#what-is-bento). Each proving job in Bento will generate a work proof. These cryptographically verify the amount of work done for each job. 
 * These work proofs are submitted onchain; each miner MUST submit their work proofs onchain at least once every epoch IF they want to be eligible for that epoch's rewards. Miners are free to submit previous work done during any later epochs; this will just delay any reward eligibility, for the work done, to the submission epoch. 
-* If there are 1 trillion cycles[^1] of work submitted for the current epoch, and a miner submits 1 billion cycles worth of work proofs, their work represent 0.1% of the total work in the epoch. 
+* If there are 1 trillion cycles[^2] of work submitted for the current epoch, and a miner submits 1 billion cycles worth of work proofs, their work represent 0.1% of the total work in the epoch. 
 * Therefore, the miner will receive 0.1% of 75% of the total reward *$ZKC* for the epoch.
   - Specifically, the miner will receive `0.075% of ~385k` *$ZKC* which equals ~289 `$ZKC`. 
   - The miner has a reward cap of ~333 $ZKC. Since the miner has already submitted enough work for ~289 *$ZKC*, they have ~45 $ZKC worth of reward cap left. If they submit enough work before the end of the epoch to cover the ~45 *$ZKC* remaining, they will receive the full amount their stake position entitles them to. 
@@ -159,7 +157,10 @@ Initially, governance will control five main processes:
 
 You can find more details on how the DAO is structured at Aragon’s portal for [Boundless Governance](https://app.aragon.org/dao/ethereum-mainnet/boundless.dao.eth).
 
-[^1]: Proofs are measured in cycles; concretely, the length of a proof is directly measured the length of the program that is being proven. That program's length can be measured in *cycles*, where each *cycle* correlates to one RISC-V instruction in the zkVM. For more information, please see this page on the [RISC Zero](https://dev.risczero.com/terminology#clock-cycles) docs. 
+
+[^1]: Concretely, this is set via the [POVW_REWARD_CAP_SCALAR](https://github.com/boundless-xyz/zkc/blob/933570f2e23ef33e9d60a1e33cdaeb62eac4ce38/src/libraries/Constants.sol#L22-L23) in the token contracts. See the interface for [getPoVWRewardCap](https://github.com/boundless-xyz/zkc/blob/933570f2e23ef33e9d60a1e33cdaeb62eac4ce38/src/interfaces/IRewards.sol#L39-L43) for further information.
+
+[^2]: Proofs are measured in cycles; concretely, the length of a proof is directly measured the length of the program that is being proven. That program's length can be measured in *cycles*, where each *cycle* correlates to one RISC-V instruction in the zkVM. For more information, please see this page on the [RISC Zero](https://dev.risczero.com/terminology#clock-cycles) docs. 
 
 
 
