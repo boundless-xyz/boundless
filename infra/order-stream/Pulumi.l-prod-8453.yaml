@@ -20,3 +20,5 @@ config:
   order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   order-stream:ETH_RPC_URL:
     secure: v1:1JqBWLXKmXbk8Xls:JHMf0dgA5XcrIKHwTmk7chQ+h1DPMVyZs9EBrg8r5zqtOBTu2YMnTfnNHRqL2YdKjwWl7NDV+kwb7xgrDcQIqQMT2/TcPvZ1GqvS
+  order-stream:PREMIUM_API_KEY:
+    secure: v1:Ry1iF4pmMQkbFfIG:SG83gNlv3XenGU6NqEFk6RWrcL37o48WEnJU4xS/
