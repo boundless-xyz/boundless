@@ -623,6 +623,34 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.snapshotGasLastCall("deposit: second deposit");
     }
 
+    function testDepositTo() public {
+        vm.deal(testProverAddress, 1 ether);
+        // Deposit funds into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(testProverAddress, 1 ether);
+        vm.prank(testProverAddress);
+        boundlessMarket.depositTo{value: 1 ether}(testProverAddress);
+        testProver.expectBalanceChange(1 ether);
+    }
+
+    function testDepositsTo() public {
+        address newUser = address(uint160(3));
+        vm.deal(newUser, 2 ether);
+
+        // Deposit funds into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(newUser, 1 ether);
+        vm.prank(newUser);
+        boundlessMarket.depositTo{value: 1 ether}(newUser);
+        vm.snapshotGasLastCall("depositTo: first ever deposit");
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(newUser, 1 ether);
+        vm.prank(newUser);
+        boundlessMarket.depositTo{value: 1 ether}(newUser);
+        vm.snapshotGasLastCall("depositTo: second deposit");
+    }
+
     function testAdminRoleSetup() public view {
         assertTrue(
             boundlessMarket.hasRole(boundlessMarket.ADMIN_ROLE(), ownerWallet.addr), "Owner should have admin role"
@@ -3675,6 +3703,36 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectRequestFulfilled(fill.id);
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillLockedRequestWithCallbackNotEnoughGas() public {
+        Client client = getClient(1);
+
+        // Create request with low gas callback
+        ProofRequest memory request = client.request(1);
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 500_000});
+
+        bytes memory clientSignature = client.sign(request);
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        // Lock and fulfill the request
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = fill;
+
+        vm.expectRevert(IBoundlessMarket.InsufficientGas.selector);
+        boundlessMarket.fulfill{gas: 499_000}(fills, assessorReceipt);
+
+        // Verify callback was not called
+        assertEq(mockCallback.getCallCount(), 0, "Callback should not be called");
+
+        expectRequestNotFulfilled(request.id);
         expectMarketBalanceUnchanged();
     }
 

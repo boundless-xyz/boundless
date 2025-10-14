@@ -17,3 +17,5 @@ config:
   indexer:START_BLOCK: "30757608"
   indexer:ETH_RPC_URL:
     secure: v1:YE8PUbzgOCGYW56j:RSk0HuKzhzZh81wvUjGZGGOX5RoEqqg5WH5bsGChtZLhfKJmWmPwqw1coo6P2782e4bLQwJMNWFul/DnIUKgDUO5e7OKQ9bWpu73
+  indexer:ORDER_STREAM_URL:
+    secure: v1:ML0Kk4FpP/GziDre:4jU25g1PNq2wuFzmhDmVAUPU+PfJN3YQyNx6aeMy/auojDeiQungfqUIw9FUqAurV2tPfCriGJncS5DsbsmemkWQsx1MhUZfvnNT6+ByDpmwCd768Yjvp3u/ul4=

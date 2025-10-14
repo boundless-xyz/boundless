@@ -653,6 +653,10 @@ contract BoundlessMarket is
         bytes calldata journal,
         bytes calldata seal
     ) internal {
+        // Ensure sufficient gas for callback, accounting for EIP-150 (63/64 rule).
+        // The requestor is responsible for ensuring that the callback gas limit is sufficient to cover
+        // for any extra overhead that the caller pays (calldata copy, cold access, etc.).
+        if (gasleft() * 63 / 64 < callbackGasLimit) revert InsufficientGas();
         try IBoundlessMarketCallback(callbackAddr).handleProof{gas: callbackGasLimit}(imageId, journal, seal) {}
         catch (bytes memory err) {
             emit CallbackFailed(id, callbackAddr, err);
@@ -775,6 +779,12 @@ contract BoundlessMarket is
     function deposit() public payable {
         accounts[msg.sender].balance += msg.value.toUint96();
         emit Deposit(msg.sender, msg.value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function depositTo(address to) public payable {
+        accounts[to].balance += msg.value.toUint96();
+        emit Deposit(to, msg.value);
     }
 
     function _withdraw(address account, uint256 value) internal {

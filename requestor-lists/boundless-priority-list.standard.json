@@ -1,0 +1,28 @@
+{
+  "name": "Boundless Recommended Priority List",
+  "description": "List of recommended priority requestors for provers. The request sizes here should be suitable for most provers.",
+  "schemaVersion": {
+    "major": 1,
+    "minor": 0
+  },
+  "version": {
+    "major": 1,
+    "minor": 0
+  },
+  "requestors": [
+    {
+      "address": "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+      "chainId": 1,
+      "name": "Anonymous Customer",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 100,
+          "estimatedMcycleCountMax": 2000,
+          "estimatedMaxInputSizeMB": 25
+        }
+      }
+    }
+  ]
+}
