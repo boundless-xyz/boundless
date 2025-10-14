@@ -19,6 +19,7 @@ use crate::{
     OrderRequest,
 };
 
+use alloy::primitives::U256;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
 
@@ -28,6 +29,7 @@ enum UnifiedPriorityMode {
     Random,
     TimeOrdered,
     ShortestExpiry,
+    ZkcStakeReward,
 }
 
 impl From<OrderPricingPriority> for UnifiedPriorityMode {
@@ -36,6 +38,7 @@ impl From<OrderPricingPriority> for UnifiedPriorityMode {
             OrderPricingPriority::Random => UnifiedPriorityMode::Random,
             OrderPricingPriority::ObservationTime => UnifiedPriorityMode::TimeOrdered,
             OrderPricingPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
+            OrderPricingPriority::ZkcStakeReward => UnifiedPriorityMode::ZkcStakeReward,
         }
     }
 }
@@ -45,6 +48,7 @@ impl From<OrderCommitmentPriority> for UnifiedPriorityMode {
         match mode {
             OrderCommitmentPriority::Random => UnifiedPriorityMode::Random,
             OrderCommitmentPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
+            OrderCommitmentPriority::ZkcStakeReward => UnifiedPriorityMode::ZkcStakeReward,
         }
     }
 }
@@ -83,6 +87,20 @@ where
         }
         UnifiedPriorityMode::ShortestExpiry => {
             orders.sort_by_key(|order| order.as_ref().expiry());
+        }
+        UnifiedPriorityMode::ZkcStakeReward => {
+            // Sort by ZKC stake reward (collateral reward) in descending order
+            // Higher collateral rewards indicate better opportunities for secondary proving
+            // This prioritization strategy focuses on maximizing ZKC mining rewards by
+            // prioritizing orders that offer the highest collateral rewards when completed
+            // as secondary provers, which directly increases ZKC stake accumulation
+            orders.sort_by(|a, b| {
+                let a_reward =
+                    a.as_ref().request.offer.collateral_reward_if_locked_and_not_fulfilled();
+                let b_reward =
+                    b.as_ref().request.offer.collateral_reward_if_locked_and_not_fulfilled();
+                b_reward.cmp(&a_reward) // Descending order (highest first)
+            });
         }
     }
 }
@@ -692,5 +710,173 @@ mod tests {
         assert_eq!(prioritized_orders[0].request.lock_expires_at(), current_timestamp + 500);
         assert_eq!(prioritized_orders[0].request.client_address(), priority_addr);
         assert_eq!(prioritized_orders[1].request.lock_expires_at(), current_timestamp + 100);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_pricing_priority_zkc_stake_reward() {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp();
+
+        // Create orders with different ZKC stake rewards (collateral rewards)
+        let mut orders = Vec::new();
+        let stake_rewards = [1000, 5000, 2000, 8000, 3000]; // Different collateral rewards
+
+        for (i, &reward) in stake_rewards.iter().enumerate() {
+            let mut order = ctx
+                .generate_next_order(OrderParams {
+                    order_index: i as u32,
+                    bidding_start: base_time,
+                    lock_timeout: 300,
+                    ..Default::default()
+                })
+                .await;
+
+            // Manually set the lock collateral for testing
+            // Note: In real usage, this would be set by the offer
+            // The collateral_reward_if_locked_and_not_fulfilled() method calculates reward based on lockCollateral
+            order.request.offer.lockCollateral = U256::from(reward);
+            orders.push(order);
+        }
+
+        // Test that ZkcStakeReward mode returns orders by highest collateral reward
+        let mut selected_order_indices = Vec::new();
+        while !orders.is_empty() {
+            let selected_orders = ctx.picker.select_pricing_orders(
+                &mut orders,
+                OrderPricingPriority::ZkcStakeReward,
+                None,
+                1,
+            );
+            if let Some(order) = selected_orders.into_iter().next() {
+                let order_index =
+                    boundless_market::contracts::RequestId::try_from(order.request.id)
+                        .unwrap()
+                        .index;
+                selected_order_indices.push(order_index);
+            }
+        }
+
+        // Should be sorted by collateral reward in descending order: 3 (8000), 1 (5000), 4 (3000), 2 (2000), 0 (1000)
+        assert_eq!(selected_order_indices, vec![3, 1, 4, 2, 0]);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_commitment_priority_zkc_stake_reward() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Create orders with different ZKC stake rewards
+        let mut orders = Vec::new();
+        let stake_rewards = [1500, 7500, 3000, 9000, 4500]; // Different collateral rewards
+
+        for (i, &reward) in stake_rewards.iter().enumerate() {
+            let mut order = ctx
+                .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 200, 400)
+                .await;
+
+            // Manually set the lock collateral for testing
+            // The collateral_reward_if_locked_and_not_fulfilled() method calculates reward based on lockCollateral
+            order.request.offer.lockCollateral = U256::from(reward);
+            orders.push(Arc::from(order));
+        }
+
+        let prioritized_orders =
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ZkcStakeReward, None);
+
+        // Orders should be sorted by collateral reward in descending order
+        let expected_rewards = [9000, 7500, 4500, 3000, 1500];
+        for (i, order) in prioritized_orders.iter().enumerate() {
+            assert_eq!(
+                order.request.offer.lockCollateral,
+                U256::from(expected_rewards[i]),
+                "Order at position {} should have lock collateral {}",
+                i,
+                expected_rewards[i]
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_zkc_stake_reward_priority_with_mixed_fulfillment_types() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Create mixed orders with different fulfillment types and ZKC stake rewards
+        let mut orders = Vec::new();
+
+        // LockAndFulfill orders with different rewards
+        let lock_orders =
+            [(FulfillmentType::LockAndFulfill, 6000), (FulfillmentType::LockAndFulfill, 2000)];
+        for (fulfillment_type, reward) in lock_orders {
+            let mut order =
+                ctx.create_test_order(fulfillment_type, current_timestamp, 100, 300).await;
+            order.request.offer.lockCollateral = U256::from(reward);
+            orders.push(Arc::from(order));
+        }
+
+        // FulfillAfterLockExpire orders with different rewards
+        let expire_orders = [
+            (FulfillmentType::FulfillAfterLockExpire, 8000),
+            (FulfillmentType::FulfillAfterLockExpire, 4000),
+        ];
+        for (fulfillment_type, reward) in expire_orders {
+            let mut order =
+                ctx.create_test_order(fulfillment_type, current_timestamp, 50, 200).await;
+            order.request.offer.lockCollateral = U256::from(reward);
+            orders.push(Arc::from(order));
+        }
+
+        let prioritized_orders =
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ZkcStakeReward, None);
+
+        // Should be sorted by collateral reward regardless of fulfillment type
+        let expected_rewards = [8000, 6000, 4000, 2000];
+        for (i, order) in prioritized_orders.iter().enumerate() {
+            assert_eq!(
+                order.request.offer.lockCollateral,
+                U256::from(expected_rewards[i]),
+                "Order at position {} should have lock collateral {}",
+                i,
+                expected_rewards[i]
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_zkc_stake_reward_priority_with_zero_rewards() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Create orders with some having zero collateral rewards
+        let mut orders = Vec::new();
+        let stake_rewards = [0, 5000, 0, 3000, 0]; // Mix of zero and non-zero rewards
+
+        for (i, &reward) in stake_rewards.iter().enumerate() {
+            let mut order = ctx
+                .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 200, 400)
+                .await;
+            order.request.offer.lockCollateral = U256::from(reward);
+            orders.push(Arc::from(order));
+        }
+
+        let prioritized_orders =
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ZkcStakeReward, None);
+
+        // Orders with non-zero rewards should come first, then zero rewards
+        // Non-zero rewards should be sorted in descending order
+        let expected_rewards = [5000, 3000, 0, 0, 0];
+        for (i, order) in prioritized_orders.iter().enumerate() {
+            assert_eq!(
+                order.request.offer.lockCollateral,
+                U256::from(expected_rewards[i]),
+                "Order at position {} should have lock collateral {}",
+                i,
+                expected_rewards[i]
+            );
+        }
     }
 }

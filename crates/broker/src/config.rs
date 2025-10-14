@@ -97,6 +97,8 @@ pub enum OrderPricingPriority {
     ObservationTime,
     /// Process orders by shortest expiry first (earliest deadline)
     ShortestExpiry,
+    /// Process orders by highest ZKC stake reward first (prioritizes secondary proving for ZKC mining)
+    ZkcStakeReward,
 }
 
 impl Default for OrderPricingPriority {
@@ -113,6 +115,8 @@ pub enum OrderCommitmentPriority {
     Random,
     /// Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
     ShortestExpiry,
+    /// Process orders by highest ZKC stake reward first (prioritizes secondary proving for ZKC mining)
+    ZkcStakeReward,
 }
 
 impl Default for OrderCommitmentPriority {
