@@ -239,7 +239,7 @@ ${postBuildCommands.map(cmd => `          - ${cmd}`).join('\n')}`
 
     env:
       git-credential-helper: yes
-    
+
     phases:
       pre_build:
         commands:
@@ -262,6 +262,7 @@ ${additionalCommandsStr}          - ls -lt
           - echo "DEPLOYING stack $STACK_NAME"
           - pulumi stack select $STACK_NAME
           - pulumi cancel --yes
+          - pulumi refresh --yes
           - pulumi up --yes${postBuildSection ? '\n' + postBuildSection : ''}
     `;
   }
