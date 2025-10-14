@@ -21,7 +21,7 @@ use crate::{
     errors::CodedError,
     futures_retry::retry,
     impl_coded_debug,
-    provers::ProverObj,
+    provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils::cancel_proof_and_fail_order,
     Order, OrderStateChange, OrderStatus,
@@ -102,8 +102,24 @@ impl ProvingService {
             .context("Monitoring proof (stark) failed")?;
 
         if is_groth16 && snark_proof_id.is_none() {
-            let compressed_proof_id =
-                self.prover.compress(stark_proof_id).await.context("Failed to compress proof")?;
+            let (retry_count, sleep_ms) = {
+                let config = self.config.lock_all().context("Failed to lock config")?;
+                (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+            };
+
+            let compressed_proof_id = retry(
+                retry_count,
+                sleep_ms,
+                || async {
+                    let proof_id = self.prover.compress(stark_proof_id).await?;
+                    provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
+                    Ok::<String, provers::ProverError>(proof_id)
+                },
+                "compress_and_verify",
+            )
+            .await
+            .context("Failed to compress and verify proof")?;
+
             self.db
                 .set_order_compressed_proof_id(order_id, &compressed_proof_id)
                 .await

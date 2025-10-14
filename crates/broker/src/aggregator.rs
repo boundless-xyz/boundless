@@ -688,30 +688,7 @@ impl AggregatorService {
                 sleep_ms,
                 || async {
                     let proof_id = self.prover.compress(&aggregation_proof_id).await?;
-
-                    // Sanity check that the receipt is valid.
-                    tracing::trace!("Verifying Groth16 receipt locally for proof_id: {proof_id}");
-                    let receipt_bytes =
-                        self.prover.get_compressed_receipt(&proof_id).await?.ok_or_else(|| {
-                            provers::ProverError::NotFound(format!(
-                                "Groth16 receipt not found: {proof_id}"
-                            ))
-                        })?;
-
-                    let receipt: risc0_zkvm::Receipt = bincode::deserialize(&receipt_bytes)
-                        .map_err(|e| {
-                            provers::ProverError::ProverInternalError(format!(
-                                "Failed to deserialize receipt: {e}"
-                            ))
-                        })?;
-
-                    receipt.verify_integrity_with_context(&Default::default()).map_err(|e| {
-                        provers::ProverError::ProverInternalError(format!(
-                            "Groth16 verification failed: {e}"
-                        ))
-                    })?;
-
-                    tracing::debug!("Groth16 verification passed for proof_id: {proof_id}");
+                    provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
                     Ok::<String, provers::ProverError>(proof_id)
                 },
                 "compress_and_verify",
