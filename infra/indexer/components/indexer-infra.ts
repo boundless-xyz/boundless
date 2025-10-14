@@ -144,14 +144,14 @@ export class IndexerShared extends pulumi.ComponentResource {
       })),
     }, { parent: this });
 
-    this.executionRole = new aws.iam.Role(`${serviceName}-ecs-execution-role`, {
+    this.executionRole = new aws.iam.Role(`${serviceName}-ecs-role`, {
       assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
         Service: 'ecs-tasks.amazonaws.com',
       }),
     }, { parent: this });
 
     this.ecrRepository.repository.arn.apply((repoArn) => {
-      new aws.iam.RolePolicy(`${serviceName}-ecs-execution-pol`, {
+      new aws.iam.RolePolicy(`${serviceName}-ecs-pol`, {
         role: this.executionRole.id,
         policy: {
           Version: '2012-10-17',
