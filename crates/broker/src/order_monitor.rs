@@ -844,9 +844,15 @@ where
 
         loop {
             tokio::select! {
-                // Process new orders from the channel as soon as they arrive
+                // Ensure cancellation is observed first, then new orders, then handling lock/prove
                 biased;
 
+                _ = cancel_token.cancelled() => {
+                    tracing::debug!("Order monitor received cancellation");
+                    break;
+                }
+
+                // Process new orders from the channel as soon as they arrive
                 Some(result) = new_orders.recv() => {
                     self.handle_new_order_result(result).await?;
                 }
@@ -907,14 +913,14 @@ where
                         );
 
                         if !final_orders.is_empty() {
+                            if cancel_token.is_cancelled() {
+                                tracing::debug!("Order monitor cancellation observed before locking/proving");
+                                break;
+                            }
                             // Lock and prove filtered orders.
                             self.lock_and_prove_orders(&final_orders).await?;
                         }
                     }
-                }
-                _ = cancel_token.cancelled() => {
-                    tracing::debug!("Order monitor received cancellation");
-                    break;
                 }
             }
         }
@@ -963,7 +969,7 @@ pub(crate) mod tests {
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
     use alloy::node_bindings::AnvilInstance;
-    use alloy::primitives::Bytes;
+    use alloy::primitives::{address, Bytes};
     use alloy::{
         network::EthereumWallet,
         node_bindings::Anvil,
@@ -1082,7 +1088,7 @@ pub(crate) mod tests {
         let market_address = deploy_boundless_market(
             signer.address(),
             provider.clone(),
-            Address::ZERO,
+            address!("0x0000000000000000000000000000000000000001"),
             hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
             format!("file://{ASSESSOR_GUEST_PATH}"),

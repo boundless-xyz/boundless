@@ -15,6 +15,7 @@ collateral_balance_error_threshold = "1"
 priority_requestor_addresses = ["0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"]
 deny_requestor_addresses = [
   "0x734dF7809c4ef94Da037449C287166D114503198", # Signal contract on Base; proofs are too large
+  "0xf353bda16a83399c11e09615ee7ac326a5a08ccf", # Kailua
 ]
 # max_fetch_retries = 2
 # allow_client_addresses = []

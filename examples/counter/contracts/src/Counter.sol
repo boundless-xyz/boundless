@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.26;
 
 import {ICounter} from "./ICounter.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";

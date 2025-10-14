@@ -11,7 +11,7 @@ config:
   distributor:ETH_THRESHOLD: "1"
   distributor:ETH_TOP_UP_AMOUNT: "10"
   distributor:GH_TOKEN_SECRET:
-    secure: v1:Ewi1ajIqtHVhfWGU:8rfrJyg2KnlVlLhu6XHbEXhKsK31ToqXToBHwkM9oer1egFIGKW39kOlG4uWS6m28Rx8RfCQaEsb5lGFRot7RRRgk7v3xe+PZ+ek44tcgLrK6MJTmj8xU5s8+6Du/jBgRZnq9K/zqn8CEyH+Iw==
+    secure: v1:pWE2ckcQ4PDEBZnq:HQeBHH17RFuhf2npkDtbQTmlCy+2CZVyCdFS94tuaGKLEZaAQa4GA69F+HbR/BzQnKgK3XUw9tShOLmey/Y2/8sS/9qsMju8uSifeQmqRNPZDLbPXcuCmUgdoHIOOJrkRY9JELy5tDHwbiLU+w==
   distributor:LOG_LEVEL: "info,boundless_market=debug"
   distributor:ORDER_GENERATOR_KEYS:
     secure: v1:/HxWVWdyZF0KC0G0:GLCGhTJO6wKxd7lk1HpfjBLYiBQhifZbl4KBxJDTuRuGiyL8/lmBpoBw2YvhYb4wiJwXxeOMulhlwQDpjrKusfkjd9LT22IaiH70Out0qLOnNdczShE6kENBOgXEcXp9uxQ+8bU4QkXUOAkFbGBUlmH9KJmg2nedzrb35eUqkklV848tlBCqD9eytVIy/UqM4+y24/m+v1Okbyc11TKHolco38340sx+UvAu6yPMEILxKiMk/DU1NQ+Tu4I8OCT6A9wPfO6w7PaGAWtpfUPQY9LX5eNBqAZUKMkjvOhk4vRQtnkhQujOSt/ual3zeztxmrjUg1lOt69qEnWsgpnXzXEz+gIdryADLgVg+7LaYk/7WEsqOGCqQcfpvBm2oeNJkJIuZlBPXl8nWNxpC8Z8cUSvSRBnpty+uidtVVUTsWrIRqeSSrJkA0q6Aq9x2aqMgL2ykNCy5N3cMh8Fj+/I5QsQAaDCRVWE7Q5Jy4T4JJinKKAzSQ2v6Li7UUirGg/3VVxbWJRD0enoDOScGUCHJY6IfqqK

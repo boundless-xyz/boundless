@@ -27,6 +27,7 @@ export = () => {
   const retries = config.require('RETRIES');
   const skipAddresses = config.get('SKIP_ADDRESSES');
   const maxBlockRange = config.get('MAX_BLOCK_RANGE');
+  const startBlock = config.get('START_BLOCK');
 
   const baseStackName = config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
@@ -178,7 +179,7 @@ export = () => {
   });
 
   // EFS
-  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev6`, {
+  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev7`, {
     encrypted: true,
     tags: {
       Name: serviceName,
@@ -214,6 +215,9 @@ export = () => {
   }
   if (maxBlockRange) {
     slasherArgs.push(`--max-block-range ${maxBlockRange}`);
+  }
+  if (startBlock) {
+    slasherArgs.push(`--start-block ${startBlock}`);
   }
 
   const service = new awsx.ecs.FargateService(

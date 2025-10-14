@@ -11,10 +11,10 @@ In our testing, the Alchemy free RPC plan in combination with the public beacon 
 After the reward epoch has finalized, mining rewards can be claimed with:
 
 ```bash
-boundless povw claim --reward-address ${REWARD_ADDRESS} --beacon-api-url${BEACON_CHAIN_RPC_ENDPOINT} --rpc-url ${RPC_URL} --private-key ${PRIVATE_KEY}
+boundless povw claim --log-id ${REWARD_ADDRESS} --rpc-url ${RPC_URL} --beacon-api-url ${BEACON_CHAIN_RPC_ENDPOINT} --private-key ${PRIVATE_KEY}
 ```
 
-This process is permissionless and DOES NOT require the private key for the address eligible for the rewards. The only requirement is that the `PRIVATE_KEY` has enough funds to cover gas costs on Ethereum mainnet.
+This process is permissionless and DOES NOT require the private key for the address eligible for the rewards. The only requirement is that the `PRIVATE_KEY` has enough funds to cover gas costs on Ethereum mainnet. `claim` uses Bento for proving (see [claim.rs](https://github.com/boundless-xyz/boundless/blob/040645c9f91bc4804ba63c9b4744a5a21df0c90c/crates/boundless-cli/src/commands/povw/claim.rs#L244-L267)); therefore, make sure to have Bento running locally or specify a valid Bento API URL endpoint via `--bento-api-url`.
 
 ## Staking Rewards
 
@@ -24,7 +24,7 @@ After the reward epoch has finalized, staking rewards can be claimed with:
 boundless zkc claim-rewards --rpc-url <RPC_URL> --private-key <PRIVATE_KEY>
 ```
 
-where `PRIVATE_KEY` is the private key of the address that has the [reward power](/zkc/mining/wallet-setup#stakes-zkc-and-receives-reward-power) i.e. the rewards address if the delegation best practice is followed. 
+where `PRIVATE_KEY` is the private key of the address that has the [reward power](/zkc/mining/wallet-setup#stakes-zkc-and-receives-reward-power). This would be the private key for the rewards address when using the [recommended wallet setup](/zkc/mining/wallet-setup).
 
 ## Checking Details of Current Reward Epoch
 

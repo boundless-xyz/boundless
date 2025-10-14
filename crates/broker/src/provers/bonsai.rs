@@ -63,7 +63,11 @@ impl Bonsai {
             )
         };
 
-        let prover_type = if api_key.is_empty() { ProverType::Bento } else { ProverType::Bonsai };
+        let prover_type = if api_key.is_empty() || api_key.starts_with("v1:reserved:") {
+            ProverType::Bento
+        } else {
+            ProverType::Bonsai
+        };
 
         let risc0_ver = match prover_type {
             ProverType::Bento => risc0_zkvm::VERSION.to_string(),

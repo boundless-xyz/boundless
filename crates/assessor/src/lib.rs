@@ -41,6 +41,10 @@ pub enum Error {
         expected_addr: Address,
     },
 
+    /// Signature is non-canonical.
+    #[error("invalid signature: not normalized s-value")]
+    SignatureNonCanonicalError,
+
     /// Predicate evaluation failure from [ProofRequest] [Requirements]
     #[error("fulfillment requirements evaluation failed")]
     RequirementsEvaluationError,
@@ -87,6 +91,10 @@ impl Fulfillment {
     pub fn verify_signature(&self, domain: &Eip712Domain) -> Result<[u8; 32], Error> {
         let hash = self.request.eip712_signing_hash(domain);
         let signature = Signature::try_from(self.signature.as_slice())?;
+        // Check if the signature is non-canonical.
+        if signature.normalize_s().is_some() {
+            return Err(Error::SignatureNonCanonicalError);
+        }
         // NOTE: This could be optimized by accepting the public key as input, checking it against
         // the address, and using it to verify the signature instead of recovering the
         // public key. It would save ~1M cycles.
@@ -195,7 +203,7 @@ mod tests {
         ProofRequest::new(
             RequestId::new(signer, id),
             Requirements::new(Predicate::prefix_match(Digest::from_bytes(image_id.0), prefix)),
-            "test",
+            "http://test.null",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),
@@ -213,7 +221,7 @@ mod tests {
         ProofRequest::new(
             RequestId::new(signer, id),
             Requirements::new(Predicate::claim_digest_match(claim_digest)),
-            "test",
+            "http://test.null",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
                 minPrice: U256::from(1),

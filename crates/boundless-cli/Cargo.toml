@@ -21,6 +21,7 @@ bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
+boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
@@ -41,6 +42,7 @@ serde_yaml = { workspace = true }
 shadow-rs = { version = "1.1", default-features = false }
 shrink_bitvm2 = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
+tabled = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

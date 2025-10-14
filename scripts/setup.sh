@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =============================================================================
-# Script Name: setup.sh
+# Sc ipt Name: setup.sh
 # Description:
 #   - Updates the system packages.
 #   - Installs essential boundless packages.
@@ -258,11 +258,13 @@ install_nvidia_container_toolkit() {
     info "Installing NVIDIA Container Toolkit..."
 
     {
-        # Add the package repositories
-        local distribution
-        distribution=$(grep '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
-        curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-        curl -s -L https://nvidia.github.io/nvidia-docker/"$distribution"/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+        # Add the NVIDIA Container Toolkit GPG key
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+        # Add the NVIDIA Container Toolkit repository
+        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+        sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 
         # Update the package lists
         sudo apt update -y
@@ -332,6 +334,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 # Display start message with timestamp
 info "===== Script Execution Started at $(date) ====="
+info "Logs are being written to: $LOG_FILE"
 
 # Check if the operating system is Ubuntu
 check_os

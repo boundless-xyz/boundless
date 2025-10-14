@@ -1,37 +1,56 @@
 import { readFile } from "node:fs/promises";
 import { glob } from "glob";
 
-// Add ignore list configuration
 const IGNORED_URL_PREFIXES = new Set([
   "https://github.com/boundless-xyz",
-  "https://sepolia.etherscan.io",
+  "https://etherscan.io",
   "https://polygonscan.com",
   "https://zkevm.polygonscan.com",
-  "https://basescan.org",
-  "https://sepolia.basescan.org",
-  "https://arbiscan.io",
-  "https://sepolia.arbiscan.io",
-  "https://snowtrace.io",
-  "https://testnet.snowtrace.io",
+  "https://basescan.org", 
+  "https://arbiscan.io", 
+  "https://snowtrace.io", 
   "https://lineascan.build",
-  "https://sepolia.lineascan.build",
   "https://crates.io",
   "https://ethereum.org",
   "https://staking.boundless.network",
   "https://app.aragon.org",
-  "https://etherscan.io",
   "https://docs.alchemy.com/"
 ]);
 
 async function checkRemoteUrl(url: string): Promise<boolean> {
-  // Check if URL starts with any of the ignored prefixes
-  if ([...IGNORED_URL_PREFIXES].some((prefix) => url.startsWith(prefix))) {
-    return true;
+  try {
+    const currentUrl = new URL(url);
+
+    // Check if the URL's hostname matches or is a subdomain of any ignored prefix
+    for (const prefix of IGNORED_URL_PREFIXES) {
+      try {
+        const ignoredUrl = new URL(prefix);
+
+        // Check for an exact hostname match OR a subdomain match
+        // e.g., "sepolia.etherscan.io" ends with ".etherscan.io"
+        if (
+          currentUrl.hostname === ignoredUrl.hostname ||
+          currentUrl.hostname.endsWith(`.${ignoredUrl.hostname}`)
+        ) {
+          return true; // It's an ignored URL, so we return true immediately
+        }
+      } catch {
+        // Handle cases where a prefix in the list isn't a full URL,
+        // and just do a simple startsWith check as a fallback.
+        if (url.startsWith(prefix)) {
+          return true;
+        }
+      }
+    }
+  } catch {
+    // If the url itself is invalid, we can't fetch it.
+    return false;
   }
 
+
+  // If no match was found, try to fetch the URL
   try {
     const response = await fetch(url);
-
     return response.status >= 200 && response.status < 300;
   } catch {
     return false;
