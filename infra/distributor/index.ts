@@ -275,6 +275,10 @@ export = () => {
         cpu: 128,
         memory: 512,
         essential: true,
+        networkConfiguration: {
+          securityGroups: [securityGroup.id],
+          subnets: privateSubnetIds,
+        },
         entryPoint: ['/bin/sh', '-c'],
         command: [
           `/app/boundless-distributor ${distributorArgs.join(' ')}`,
