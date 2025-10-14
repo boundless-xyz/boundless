@@ -29,7 +29,7 @@ export = () => {
   const disableCert = config.getBoolean('DISABLE_CERT') || false;
 
   const premiumApiKey = config.getSecret('PREMIUM_API_KEY');
-  const premiumRateLimit = config.getNumber('PREMIUM_RATE_LIMIT') ?? 5000;
+  const premiumRateLimit = config.getNumber('PREMIUM_RATE_LIMIT') ?? 10000;
   const standardRateLimit = config.getNumber('STANDARD_RATE_LIMIT') ?? 500;
 
   const baseStack = new pulumi.StackReference(baseStackName);
