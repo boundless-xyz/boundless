@@ -272,6 +272,7 @@ pub struct MarketConf {
     /// - "random": Process orders in random order to distribute competition among provers (default)
     /// - "observation_time": Process orders in the order they were observed (FIFO)
     /// - "shortest_expiry": Process orders by shortest expiry first (earliest deadline)
+    /// - "zkc_stake_reward": Process secondary proving opportunities (expired locks) by highest ZKC stake reward
     #[serde(default)]
     pub order_pricing_priority: OrderPricingPriority,
     /// Order commitment priority mode
@@ -279,6 +280,7 @@ pub struct MarketConf {
     /// Determines how orders are prioritized when committing to prove them. Options:
     /// - "random": Process orders in random order to distribute competition among provers (default)
     /// - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+    /// - "zkc_stake_reward": Process secondary proving opportunities (expired locks) by highest ZKC stake reward
     #[serde(default, alias = "expired_order_fulfillment_priority")]
     pub order_commitment_priority: OrderCommitmentPriority,
 }

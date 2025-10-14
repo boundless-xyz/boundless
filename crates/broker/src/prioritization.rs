@@ -21,7 +21,36 @@ use crate::{
 
 use alloy::primitives::U256;
 use rand::seq::SliceRandom;
+use std::cmp::Ordering;
 use std::sync::Arc;
+
+fn compare_by_zkc_reward(a: &OrderRequest, b: &OrderRequest) -> Ordering {
+    let a_is_secondary =
+        matches!(a.fulfillment_type, crate::FulfillmentType::FulfillAfterLockExpire);
+    let b_is_secondary =
+        matches!(b.fulfillment_type, crate::FulfillmentType::FulfillAfterLockExpire);
+
+    // Ensure secondary proving opportunities are always considered first.
+    b_is_secondary
+        .cmp(&a_is_secondary)
+        .then_with(|| {
+            let a_reward = if a_is_secondary {
+                a.request.offer.collateral_reward_if_locked_and_not_fulfilled()
+            } else {
+                U256::ZERO
+            };
+            let b_reward = if b_is_secondary {
+                b.request.offer.collateral_reward_if_locked_and_not_fulfilled()
+            } else {
+                U256::ZERO
+            };
+            b_reward.cmp(&a_reward)
+        })
+        // Fall back to earliest expiry to make ordering deterministic for equal rewards.
+        .then_with(|| a.expiry().cmp(&b.expiry()))
+        // Tie-breaker on order id for full determinism.
+        .then_with(|| a.id().cmp(&b.id()))
+}
 
 /// Unified priority mode for both pricing and commitment
 #[derive(Debug, Clone, Copy)]
@@ -89,18 +118,10 @@ where
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
         UnifiedPriorityMode::ZkcStakeReward => {
-            // Sort by ZKC stake reward (collateral reward) in descending order
-            // Higher collateral rewards indicate better opportunities for secondary proving
-            // This prioritization strategy focuses on maximizing ZKC mining rewards by
-            // prioritizing orders that offer the highest collateral rewards when completed
-            // as secondary provers, which directly increases ZKC stake accumulation
-            orders.sort_by(|a, b| {
-                let a_reward =
-                    a.as_ref().request.offer.collateral_reward_if_locked_and_not_fulfilled();
-                let b_reward =
-                    b.as_ref().request.offer.collateral_reward_if_locked_and_not_fulfilled();
-                b_reward.cmp(&a_reward) // Descending order (highest first)
-            });
+            // Prioritize true secondary proving opportunities (orders locked by someone else
+            // and now eligible for collateral rewards) before any other fulfillment type. Within
+            // that set, prefer higher rewards, then earlier expiries to break ties.
+            orders.sort_by(|a, b| compare_by_zkc_reward(a.as_ref(), b.as_ref()));
         }
     }
 }
@@ -718,28 +739,34 @@ mod tests {
         let ctx = PickerTestCtxBuilder::default().build().await;
         let base_time = now_timestamp();
 
-        // Create orders with different ZKC stake rewards (collateral rewards)
-        let mut orders = Vec::new();
-        let stake_rewards = [1000, 5000, 2000, 8000, 3000]; // Different collateral rewards
+        // Create a mix of secondary (FulfillAfterLockExpire) and primary (LockAndFulfill) orders.
+        // Secondary orders should come first, ordered by highest collateral reward.
+        let configs = [
+            (FulfillmentType::FulfillAfterLockExpire, 5_000u64, 300u32, 400u32),
+            (FulfillmentType::LockAndFulfill, 9_000u64, 100u32, 500u32),
+            (FulfillmentType::FulfillAfterLockExpire, 8_000u64, 200u32, 450u32),
+            (FulfillmentType::LockAndFulfill, 1_000u64, 120u32, 520u32),
+            (FulfillmentType::FulfillAfterLockExpire, 7_000u64, 250u32, 470u32),
+        ];
 
-        for (i, &reward) in stake_rewards.iter().enumerate() {
+        let mut orders = Vec::new();
+        for (index, (fulfillment_type, reward, lock_timeout, timeout)) in
+            configs.into_iter().enumerate()
+        {
             let mut order = ctx
                 .generate_next_order(OrderParams {
-                    order_index: i as u32,
+                    order_index: index as u32,
                     bidding_start: base_time,
-                    lock_timeout: 300,
+                    fulfillment_type,
+                    lock_timeout,
+                    timeout,
                     ..Default::default()
                 })
                 .await;
-
-            // Manually set the lock collateral for testing
-            // Note: In real usage, this would be set by the offer
-            // The collateral_reward_if_locked_and_not_fulfilled() method calculates reward based on lockCollateral
             order.request.offer.lockCollateral = U256::from(reward);
             orders.push(order);
         }
 
-        // Test that ZkcStakeReward mode returns orders by highest collateral reward
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
             let selected_orders = ctx.picker.select_pricing_orders(
@@ -757,8 +784,8 @@ mod tests {
             }
         }
 
-        // Should be sorted by collateral reward in descending order: 3 (8000), 1 (5000), 4 (3000), 2 (2000), 0 (1000)
-        assert_eq!(selected_order_indices, vec![3, 1, 4, 2, 0]);
+        // Expect all FulfillAfterLockExpire orders first (indices 2, 4, 0 by reward) then the remaining LockAndFulfill orders by expiry (1 before 3).
+        assert_eq!(selected_order_indices, vec![2, 4, 0, 1, 3]);
     }
 
     #[tokio::test]
@@ -767,17 +794,20 @@ mod tests {
         let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
-        // Create orders with different ZKC stake rewards
+        // Create a mix of orders; secondary opportunities (FulfillAfterLockExpire) should be
+        // prioritized before new lock-and-fulfill opportunities regardless of collateral size.
+        let configs = [
+            (FulfillmentType::FulfillAfterLockExpire, 9_000u64, 150u64, 450u64),
+            (FulfillmentType::LockAndFulfill, 20_000u64, 90u64, 300u64),
+            (FulfillmentType::FulfillAfterLockExpire, 7_500u64, 130u64, 420u64),
+            (FulfillmentType::LockAndFulfill, 3_000u64, 110u64, 360u64),
+        ];
+
         let mut orders = Vec::new();
-        let stake_rewards = [1500, 7500, 3000, 9000, 4500]; // Different collateral rewards
-
-        for (i, &reward) in stake_rewards.iter().enumerate() {
+        for (fulfillment_type, reward, lock_timeout, timeout) in configs {
             let mut order = ctx
-                .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 200, 400)
+                .create_test_order(fulfillment_type, current_timestamp, lock_timeout, timeout)
                 .await;
-
-            // Manually set the lock collateral for testing
-            // The collateral_reward_if_locked_and_not_fulfilled() method calculates reward based on lockCollateral
             order.request.offer.lockCollateral = U256::from(reward);
             orders.push(Arc::from(order));
         }
@@ -785,17 +815,21 @@ mod tests {
         let prioritized_orders =
             ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ZkcStakeReward, None);
 
-        // Orders should be sorted by collateral reward in descending order
-        let expected_rewards = [9000, 7500, 4500, 3000, 1500];
-        for (i, order) in prioritized_orders.iter().enumerate() {
-            assert_eq!(
-                order.request.offer.lockCollateral,
-                U256::from(expected_rewards[i]),
-                "Order at position {} should have lock collateral {}",
-                i,
-                expected_rewards[i]
-            );
-        }
+        let fulfillment_sequence: Vec<_> =
+            prioritized_orders.iter().map(|order| order.fulfillment_type).collect();
+        assert_eq!(
+            fulfillment_sequence,
+            vec![
+                FulfillmentType::FulfillAfterLockExpire,
+                FulfillmentType::FulfillAfterLockExpire,
+                FulfillmentType::LockAndFulfill,
+                FulfillmentType::LockAndFulfill
+            ]
+        );
+
+        // Secondary orders are sorted by reward descending (9000 then 7500). Primary orders fall back to expiry.
+        assert_eq!(prioritized_orders[0].request.offer.lockCollateral, U256::from(9_000u64));
+        assert_eq!(prioritized_orders[1].request.offer.lockCollateral, U256::from(7_500u64));
     }
 
     #[tokio::test]
@@ -807,12 +841,14 @@ mod tests {
         // Create mixed orders with different fulfillment types and ZKC stake rewards
         let mut orders = Vec::new();
 
-        // LockAndFulfill orders with different rewards
-        let lock_orders =
-            [(FulfillmentType::LockAndFulfill, 6000), (FulfillmentType::LockAndFulfill, 2000)];
-        for (fulfillment_type, reward) in lock_orders {
+        // LockAndFulfill orders with different rewards and expiries
+        let lock_orders = [
+            (FulfillmentType::LockAndFulfill, 6_000u64, 90u64),
+            (FulfillmentType::LockAndFulfill, 2_000u64, 140u64),
+        ];
+        for (fulfillment_type, reward, lock_timeout) in lock_orders {
             let mut order =
-                ctx.create_test_order(fulfillment_type, current_timestamp, 100, 300).await;
+                ctx.create_test_order(fulfillment_type, current_timestamp, lock_timeout, 300).await;
             order.request.offer.lockCollateral = U256::from(reward);
             orders.push(Arc::from(order));
         }
@@ -832,17 +868,19 @@ mod tests {
         let prioritized_orders =
             ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ZkcStakeReward, None);
 
-        // Should be sorted by collateral reward regardless of fulfillment type
-        let expected_rewards = [8000, 6000, 4000, 2000];
-        for (i, order) in prioritized_orders.iter().enumerate() {
-            assert_eq!(
-                order.request.offer.lockCollateral,
-                U256::from(expected_rewards[i]),
-                "Order at position {} should have lock collateral {}",
-                i,
-                expected_rewards[i]
-            );
-        }
+        // Secondary orders (FulfillAfterLockExpire) should be first, ordered by reward desc (8000, 4000)
+        assert_eq!(prioritized_orders[0].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(prioritized_orders[0].request.offer.lockCollateral, U256::from(8_000u64));
+        assert_eq!(prioritized_orders[1].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(prioritized_orders[1].request.offer.lockCollateral, U256::from(4_000u64));
+
+        // Remaining LockAndFulfill orders are ordered by expiry (lock timeout 90 before 140).
+        assert_eq!(prioritized_orders[2].fulfillment_type, FulfillmentType::LockAndFulfill);
+        assert_eq!(prioritized_orders[3].fulfillment_type, FulfillmentType::LockAndFulfill);
+        assert!(
+            prioritized_orders[2].request.lock_expires_at()
+                <= prioritized_orders[3].request.lock_expires_at()
+        );
     }
 
     #[tokio::test]
@@ -851,13 +889,19 @@ mod tests {
         let mut ctx = setup_om_test_context().await;
         let current_timestamp = now_timestamp();
 
-        // Create orders with some having zero collateral rewards
+        // Create orders with a mix of zero and non-zero rewards across fulfillment types.
         let mut orders = Vec::new();
-        let stake_rewards = [0, 5000, 0, 3000, 0]; // Mix of zero and non-zero rewards
+        let configs = [
+            (FulfillmentType::FulfillAfterLockExpire, 4_000u64, 150u64, 420u64),
+            (FulfillmentType::FulfillAfterLockExpire, 0u64, 160u64, 430u64),
+            (FulfillmentType::LockAndFulfill, 9_000u64, 80u64, 300u64),
+            (FulfillmentType::LockAndFulfill, 0u64, 100u64, 320u64),
+            (FulfillmentType::LockAndFulfill, 1_000u64, 120u64, 340u64),
+        ];
 
-        for (i, &reward) in stake_rewards.iter().enumerate() {
+        for (fulfillment_type, reward, lock_timeout, timeout) in configs {
             let mut order = ctx
-                .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 200, 400)
+                .create_test_order(fulfillment_type, current_timestamp, lock_timeout, timeout)
                 .await;
             order.request.offer.lockCollateral = U256::from(reward);
             orders.push(Arc::from(order));
@@ -866,17 +910,16 @@ mod tests {
         let prioritized_orders =
             ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ZkcStakeReward, None);
 
-        // Orders with non-zero rewards should come first, then zero rewards
-        // Non-zero rewards should be sorted in descending order
-        let expected_rewards = [5000, 3000, 0, 0, 0];
-        for (i, order) in prioritized_orders.iter().enumerate() {
-            assert_eq!(
-                order.request.offer.lockCollateral,
-                U256::from(expected_rewards[i]),
-                "Order at position {} should have lock collateral {}",
-                i,
-                expected_rewards[i]
-            );
-        }
+        // Even when rewards are zero, FulfillAfterLockExpire orders must stay ahead of primary orders.
+        assert_eq!(prioritized_orders[0].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(prioritized_orders[0].request.offer.lockCollateral, U256::from(4_000u64));
+        assert_eq!(prioritized_orders[1].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(prioritized_orders[1].request.offer.lockCollateral, U256::ZERO);
+
+        // Remaining orders are LockAndFulfill, ordered by expiry.
+        let primary = &prioritized_orders[2..];
+        assert!(primary.windows(2).all(|pair| {
+            pair[0].request.lock_expires_at() <= pair[1].request.lock_expires_at()
+        }));
     }
 }
