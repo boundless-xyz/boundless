@@ -39,7 +39,7 @@ const SIDEBAR_ITEMS = [
           },
           {
             text: "Set up the Auction",
-            link: "/developers/tutorials/configure",
+            link: "/developers/tutorials/auction",
           },
           {
             text: "Request a Proof",

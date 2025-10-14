@@ -383,11 +383,11 @@ let (request_id, expires_at) = client.submit_offchain(request).await?; // [!code
 
 ### Offer
 
-The [Offer](/developers/tutorials/configure) specifies how much the requestor will pay for a proof, by setting the auction price, timing, stake requirements, and expiration.
+The [Offer](/developers/tutorials/auction) specifies how much the requestor will pay for a proof, by setting the auction parameters; price, timing, stake requirements, and expiration.
 
 The Client helps you build requests and set these parameters. Within the client, the [OfferLayer](https://docs.rs/boundless-market/latest/boundless_market/request_builder/offer_layer/struct.OfferLayer.html) creates the offer. It contains a set of defaults, and logic to assign a price to your request.
 
-There are two ways to configure offer parameters:
+There are two ways to configure auction parameters:
 
 1. Using `client_builder.config_offer_layer` to configure the offer building logic.
 2. Using `request.with_offer` to override parameters for a specific request. This gives you direct control over the offer.
@@ -445,7 +445,7 @@ let (request_id, expires_at) = client.submit_onchain(request).await?;
 
 #### Client-Level Configuration with `config_offer_layer`
 
-Use `config_offer_layer` when you want to adjust how the SDK calculates offer parameters based on cycle count and gas prices. This is particularly useful when you want to use cycle-based pricing:
+Use `config_offer_layer` when you want to adjust how the SDK calculates auction parameters based on cycle count and gas prices. This is particularly useful when you want to use cycle-based pricing:
 
 <StripRustCodeComments>
 ```rust
