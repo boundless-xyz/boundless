@@ -276,7 +276,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       // IP Reputation - AWS managed
       {
         name: 'ip-rep',
-        priority: 1,
+        priority: 0,
         statement: {
           managedRuleGroupStatement: {
             name: 'AWSManagedRulesAmazonIpReputationList',
@@ -298,7 +298,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     if (premiumApiKey) {
       wafRules.push({
         name: 'premium-rate-limit',
-        priority: 2,
+        priority: 1,
         action: {
           block: {
             customResponse: {
@@ -348,7 +348,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     // Standard rate limit rule (for users without API key or with invalid key)
     wafRules.push({
       name: 'standard-rate-limit',
-      priority: premiumApiKey ? 3 : 2,
+      priority: premiumApiKey ? 2 : 1,
       action: {
         block: {
           customResponse: {
