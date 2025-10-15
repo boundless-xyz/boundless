@@ -64,7 +64,7 @@ pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
 pub(crate) mod order_picker;
 pub(crate) mod prioritization;
-pub(crate) mod provers;
+pub mod provers;
 pub(crate) mod proving;
 pub(crate) mod reaper;
 pub(crate) mod requestor_monitor;
