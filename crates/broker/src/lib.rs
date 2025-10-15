@@ -29,6 +29,7 @@ use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::OrderStreamClient,
+    override_gateway,
     selector::is_groth16_selector,
     Deployment,
 };
@@ -585,7 +586,7 @@ where
             "set builder",
             prover,
             image_id,
-            image_url_str,
+            override_gateway(&image_url_str),
             path,
             default_url,
         )
@@ -612,9 +613,16 @@ where
             )
         };
 
-        self.fetch_and_upload_image("assessor", prover, image_id, image_url_str, path, default_url)
-            .await
-            .context("uploading assessor image")?;
+        self.fetch_and_upload_image(
+            "assessor",
+            prover,
+            image_id,
+            override_gateway(&image_url_str),
+            path,
+            default_url,
+        )
+        .await
+        .context("uploading assessor image")?;
         Ok(image_id)
     }
 

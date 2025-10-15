@@ -86,6 +86,7 @@ use boundless_market::{
         FulfillmentData, Offer, Predicate, ProofRequest, RequestInputType, Selector,
     },
     input::GuestEnv,
+    override_gateway,
     request_builder::{OfferParams, RequirementParams},
     selector::ProofType,
     storage::{fetch_url, StorageProvider, StorageProviderConfig},
@@ -743,11 +744,13 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             prover_config.configure_proving_backend_with_health_check().await?;
 
             let (_, market_url) = client.boundless_market.image_info().await?;
+            let market_url = override_gateway(&market_url);
             tracing::debug!("Fetching Assessor program from {}", market_url);
             let assessor_program = fetch_url(&market_url).await?;
             let domain = client.boundless_market.eip712_domain().await?;
 
             let (_, set_builder_url) = client.set_verifier.image_info().await?;
+            let set_builder_url = override_gateway(&set_builder_url);
             tracing::debug!("Fetching SetBuilder program from {}", set_builder_url);
             let set_builder_program = fetch_url(&set_builder_url).await?;
 
