@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { createRustLambda } from './rust-lambda';
+import { Severity } from '../../util';
 
 export interface IndexerApiArgs {
   /** VPC where RDS lives */
@@ -18,6 +19,8 @@ export interface IndexerApiArgs {
   rustLogLevel: string;
   /** Optional custom domain for CloudFront */
   domain?: pulumi.Input<string>;
+  /** Boundless alerts topic ARNs */
+  boundlessAlertsTopicArns?: string[];
 }
 
 export class IndexerApi extends pulumi.ComponentResource {
@@ -123,6 +126,45 @@ export class IndexerApi extends pulumi.ComponentResource {
 
     this.lambdaFunction = lambda;
     this.logGroupName = logGroupName;
+
+    // Create error log metric filter and alarm
+    const alarmActions = args.boundlessAlertsTopicArns ?? [];
+
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
+      name: `${serviceName}-log-err-filter`,
+      logGroupName: logGroupName,
+      metricTransformation: {
+        namespace: `Boundless/Services/${serviceName}`,
+        name: `${serviceName}-log-err`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: '?ERROR ?error ?Error',
+    }, { dependsOn: [this.lambdaFunction], parent: this });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-${Severity.SEV2}-error-alarm`, {
+      name: `${serviceName}-${Severity.SEV2}-log-err`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-err`,
+            period: 300,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 2,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 4,
+      datapointsToAlarm: 2,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Indexer API Lambda (${serviceName}) ${Severity.SEV2} log ERROR level (2 errors within 20 mins)`,
+      actionsEnabled: true,
+      alarmActions,
+    }, { parent: this });
 
     // Create API Gateway v2 (HTTP API)
     const api = new aws.apigatewayv2.Api(
