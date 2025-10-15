@@ -28,27 +28,31 @@ phases:
     commands:
       - echo "Starting nightly build process..."
       - echo "Build started on $(date)"
-      - echo "Building from branch $CODEBUILD_WEBHOOK_HEAD_REF"
-      - echo "Commit $CODEBUILD_RESOLVED_SOURCE_VERSION"
       - sudo yum install -y git wget unzip jq
       - wget https://releases.hashicorp.com/packer/1.14.2/packer_1.14.2_linux_amd64.zip
       - unzip packer_1.14.2_linux_amd64.zip
       - sudo mv packer /usr/local/bin/
       - packer version
+      - echo "Cloning repository for nightly build..."
+      - git clone https://github.com/boundless-xyz/boundless.git
+      - cd boundless
+      - git checkout main
+      - echo "Building from main branch"
+      - echo "Commit $(git rev-parse HEAD)"
 
   build:
     commands:
       - echo "Building nightly artifacts..."
       - cd infra/packer
-      - packer init bento.pkr.hcl
-      - AWS_POLLING_MAX_ATTEMPTS=3600 AWS_POLLING_DELAY_SECONDS=30 packer build bento_nightly.pkr.hcl
+      - packer init bento_nightly.pkr.hcl
+      - AWS_POLLING_MAX_ATTEMPTS=3600 AWS_POLLING_DELAY_SECONDS=30 packer build  -var "service_account_ids=[\"$DEVELOPMENT_ACCOUNT_ID\",\"$STAGING_ACCOUNT_ID\",\"$PRODUCTION_ACCOUNT_ID\"]" bento_nightly.pkr.hcl
       - echo "Generating build artifacts..."
       - mkdir -p build-artifacts
       - echo "nightly-$(date +%Y%m%d-%H%M%S)" > build-artifacts/version.txt
-      - echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" > build-artifacts/commit.txt
-      - echo "$CODEBUILD_WEBHOOK_HEAD_REF" > build-artifacts/branch.txt
+      - echo "$(git rev-parse HEAD)" > build-artifacts/commit.txt
+      - echo "main" > build-artifacts/branch.txt
       - echo "Creating build summary..."
-      - jq -n --arg version "nightly-$(date +%Y%m%d-%H%M%S)" --arg commit "$CODEBUILD_RESOLVED_SOURCE_VERSION" --arg branch "$CODEBUILD_WEBHOOK_HEAD_REF" --arg buildTime "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg buildId "$CODEBUILD_BUILD_ID" '{version:$version, commit:$commit, branch:$branch, buildTime:$buildTime, buildId:$buildId, status:"success"}' > build-artifacts/build-summary.json
+      - jq -n --arg version "nightly-$(date +%Y%m%d-%H%M%S)" --arg commit "$(git rev-parse HEAD)" --arg branch "main" --arg buildTime "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg buildId "$CODEBUILD_BUILD_ID" '{version:$version, commit:$commit, branch:$branch, buildTime:$buildTime, buildId:$buildId, status:"success"}' > build-artifacts/build-summary.json
 
   post_build:
     commands:
@@ -106,10 +110,9 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
                 ],
             },
             source: {
-                type: "CODEPIPELINE",
+                type: "NO_SOURCE",
                 buildspec: NIGHTLY_BUILD_SPEC,
             },
-            sourceVersion: "CODEPIPELINE",
             tags: {
                 Project: "boundless",
                 Component: "packer-nightly-build",
@@ -117,7 +120,7 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
             },
         }, { parent: this });
 
-        // Create the main pipeline
+        // Create the main pipeline (nightly-only, no source stage)
         const pipeline = new aws.codepipeline.Pipeline(`packer-nightly-pipeline`, {
             roleArn: args.role.arn,
             pipelineType: "V2",
@@ -126,23 +129,6 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
                 location: artifactBucket.bucket
             }],
             stages: [
-                {
-                    name: "Source",
-                    actions: [{
-                        name: "Github",
-                        category: "Source",
-                        owner: "AWS",
-                        provider: "CodeStarSourceConnection",
-                        version: "1",
-                        outputArtifacts: ["source_output"],
-                        configuration: {
-                            ConnectionArn: connection.arn,
-                            FullRepositoryId: "boundless-xyz/boundless",
-                            BranchName: BRANCH_NAME,
-                            OutputArtifactFormat: "CODEBUILD_CLONE_REF"
-                        },
-                    }],
-                },
                 {
                     name: "Build",
                     actions: [{
@@ -155,7 +141,6 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
                             ProjectName: nightlyBuildProject.name
                         },
                         outputArtifacts: ["build_output"],
-                        inputArtifacts: ["source_output"],
                     }],
                 }
             ],
