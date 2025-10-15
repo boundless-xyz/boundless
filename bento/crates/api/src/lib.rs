@@ -212,7 +212,7 @@ pub struct Args {
     snark_timeout: i32,
 
     /// Snark retries
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t = 3)]
     snark_retries: i32,
 }
 
