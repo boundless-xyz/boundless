@@ -14,3 +14,5 @@ config:
   indexer:INDEXER_API_DOMAIN: indexer.eth-mainnet.boundless.network
   indexer:GH_TOKEN_SECRET:
     secure: v1:sqeRgRPjaKL5tzL4:fJyaGPpDw2Ts+umwm/SyGmqX/KYiMozexlgaIp15vvO1xo4u42XsETTEKgM814w7svqkF4Qbk2vyB2fJdPVn/GQwpwKNhsPnVHqeuk3Ev/V5mB4fUogXZlQjyALIMVcC76/aZweYOUGhEj4xRg==
+  indexer:ETH_RPC_URL:
+    secure: v1:Bm3FUPbytchzaS94:uO0iW9AUegk+SkbPOOpmnwfn3rRZjmSznZ4/NM2l0o6Bqon5qKkxcuTffdicUDHeE7sA9D9UrFGpXkHGgHIINhBkCaRw+m7wu9Y=
