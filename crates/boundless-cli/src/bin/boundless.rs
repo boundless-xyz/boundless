@@ -24,6 +24,7 @@ use std::{
     fs::File,
     io::BufReader,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
@@ -47,7 +48,7 @@ use boundless_cli::{
         setup::{secrets::obscure_url, SetupCommands},
     },
     config::ProverConfig,
-    convert_timestamp, DefaultProver, OrderFulfilled,
+    convert_timestamp, initialize_fulfiller, OrderFulfilled,
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::aot::Shell;
@@ -1552,24 +1553,8 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
                 request_ids.iter().map(|id| format!("0x{id:x}")).collect::<Vec<_>>().join(", ");
             tracing::info!("Fulfilling proof requests {}", request_ids_string);
 
-            // Configure proving backend (defaults to bento like benchmark command)
-            prover_config.configure_proving_backend_with_health_check().await?;
-
-            let (_, market_url) = client.boundless_market.image_info().await?;
-            tracing::debug!("Fetching Assessor program from {}", market_url);
-            let assessor_program = fetch_url(&market_url).await?;
-            let domain = client.boundless_market.eip712_domain().await?;
-
-            let (_, set_builder_url) = client.set_verifier.image_info().await?;
-            tracing::debug!("Fetching SetBuilder program from {}", set_builder_url);
-            let set_builder_program = fetch_url(&set_builder_url).await?;
-
-            let prover = DefaultProver::new(
-                set_builder_program,
-                assessor_program,
-                client.boundless_market.caller(),
-                domain,
-            )?;
+            // Initialize fulfiller with prover setup and image uploads
+            let fulfiller = initialize_fulfiller(&prover_config, &client).await?;
 
             let fetch_order_jobs = request_ids.iter().enumerate().map(|(i, request_id)| {
                 let client = client.clone();
@@ -1617,7 +1602,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
                 orders.push((req, sig));
             }
 
-            let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
+            let (fills, root_receipt, assessor_receipt) = fulfiller.fulfill(&orders).await?;
             let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
             let boundless_market = client.boundless_market.clone();
 

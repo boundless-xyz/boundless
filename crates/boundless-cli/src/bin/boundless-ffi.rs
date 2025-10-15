@@ -25,9 +25,12 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{bail, ensure, Context, Result};
-use boundless_cli::{DefaultProver, OrderFulfilled};
+use boundless_cli::{OrderFulfilled, OrderFulfiller};
 use boundless_market::contracts::{eip712_domain, ProofRequest};
+use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use clap::Parser;
+use risc0_zkvm::compute_image_id;
+use std::sync::Arc;
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -109,9 +112,26 @@ async fn main() -> Result<()> {
     let set_builder_program = fetch_url(set_builder_url, args.pinata_jwt.clone()).await?;
     let assessor_program = fetch_url(assessor_url, args.pinata_jwt).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
-    let prover = DefaultProver::new(
-        set_builder_program,
-        assessor_program,
+
+    // Compute image IDs
+    let set_builder_image_id = compute_image_id(&set_builder_program)?;
+    let assessor_image_id = compute_image_id(&assessor_program)?;
+
+    // Create prover and upload images
+    let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
+    prover
+        .upload_image(&set_builder_image_id.to_string(), set_builder_program)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to upload set builder image: {}", e))?;
+    prover
+        .upload_image(&assessor_image_id.to_string(), assessor_program)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to upload assessor image: {}", e))?;
+
+    let prover = OrderFulfiller::new(
+        prover,
+        set_builder_image_id,
+        assessor_image_id,
         args.prover_address,
         domain.clone(),
     )?;
