@@ -50,13 +50,13 @@ async fn test_workflow() -> anyhow::Result<()> {
         .verifier_ctx(VerifierContext::default().with_dev_mode(true))
         .build()?;
 
-    let log_updater_prove_info =
+    let (log_updater_prove_info, signature) =
         log_updater_prover.prove_update(log_builder_receipt, &signer).await?;
 
     // Step 4: Post the proven log update to the smart contract
     let tx_receipt = ctx
         .povw_accounting
-        .update_work_log(&log_updater_prove_info.receipt)?
+        .update_work_log(&log_updater_prove_info.receipt, &signature)?
         .send()
         .await?
         .get_receipt()
