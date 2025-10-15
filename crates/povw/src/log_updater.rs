@@ -111,13 +111,6 @@ pub struct Input {
     #[builder(setter(into))]
     pub value_recipient: Address,
 
-    /// EIP-712 ECDSA signature using the private key associated with the work log ID.
-    ///
-    /// This signature is verified by the log updater guest to authorize the update. Authorization
-    /// is required to avoid third-parties posting conflicting updates to any given work log.
-    #[builder(setter(into))]
-    pub signature: Vec<u8>,
-
     /// Address of the PoVW accounting contract, used to form the EIP-712 domain.
     #[borsh(
         deserialize_with = "borsh_deserialize_address",
@@ -128,42 +121,6 @@ pub struct Input {
 
     /// EIP-155 chain ID, used to form the EIP-712 domain.
     pub chain_id: u64,
-}
-
-impl InputBuilder {
-    #[cfg(feature = "signer")]
-    pub async fn sign_and_build(
-        &mut self,
-        signer: &impl alloy_signer::Signer,
-    ) -> anyhow::Result<Input> {
-        use anyhow::ensure;
-        use derive_builder::UninitializedFieldError;
-
-        ensure!(self.signature.is_none(), "Cannot sign input, input already has a signature");
-
-        let update = self.update.clone().ok_or(UninitializedFieldError::new("update"))?;
-        let contract_address =
-            self.contract_address.ok_or(UninitializedFieldError::new("contract_address"))?;
-        let chain_id = self.chain_id.ok_or(UninitializedFieldError::new("chain_id"))?;
-        ensure!(
-            signer.address() == Address::from(update.work_log_id),
-            "Signer does not match work log ID: signer: {}, log: {:x}",
-            signer.address(),
-            update.work_log_id
-        );
-
-        // Get the value recipient or set it to be equal to the log ID.
-        let value_recipient = *self.value_recipient.get_or_insert(signer.address());
-
-        self.signature = WorkLogUpdate::from_log_builder_journal(update.clone(), value_recipient)
-            .sign(signer, contract_address, chain_id)
-            .await?
-            .as_bytes()
-            .to_vec()
-            .into();
-
-        self.build().map_err(Into::into)
-    }
 }
 
 impl Input {
@@ -180,6 +137,28 @@ impl Input {
     /// Deserialize the input from a slice of bytes.
     pub fn decode(buffer: impl AsRef<[u8]>) -> anyhow::Result<Self> {
         borsh::from_slice(buffer.as_ref()).map_err(Into::into)
+    }
+
+    #[cfg(feature = "signer")]
+    pub async fn sign(&self, signer: &impl alloy_signer::Signer) -> anyhow::Result<Vec<u8>> {
+        use anyhow::ensure;
+
+        let update = self.update.clone();
+        ensure!(
+            signer.address() == Address::from(update.work_log_id),
+            "Signer does not match work log ID: signer: {}, log: {:x}",
+            signer.address(),
+            update.work_log_id
+        );
+
+        let signature =
+            WorkLogUpdate::from_log_builder_journal(update.clone(), self.value_recipient)
+                .sign(signer, self.contract_address, self.chain_id)
+                .await?
+                .as_bytes()
+                .to_vec();
+
+        Ok(signature)
     }
 }
 
@@ -217,6 +196,7 @@ mod host {
         pub fn update_work_log(
             &self,
             receipt: &Receipt,
+            signature: impl AsRef<[u8]>,
         ) -> anyhow::Result<CallBuilder<&P, PhantomData<updateWorkLogCall>>> {
             let journal = Journal::abi_decode(&receipt.journal.bytes)
                 .context("Failed to decode journal from Log Updater receipt")?;
@@ -228,6 +208,7 @@ mod host {
                 journal.update.updatedCommit,
                 journal.update.updateValue,
                 journal.update.valueRecipient,
+                signature.as_ref().to_vec().into(),
                 seal.into(),
             ))
         }
@@ -330,7 +311,7 @@ pub mod prover {
             &self,
             log_builder_receipt: Receipt,
             signer: &impl alloy_signer::Signer,
-        ) -> anyhow::Result<ProveInfo> {
+        ) -> anyhow::Result<(ProveInfo, Vec<u8>)> {
             // Decode the LogBuilderJournal from the receipt
             let log_builder_journal = LogBuilderJournal::decode(&log_builder_receipt.journal.bytes)
                 .context("failed to deserialize LogBuilderJournal from receipt")?;
@@ -341,9 +322,10 @@ pub mod prover {
                 .value_recipient(self.value_recipient.unwrap_or(signer.address()))
                 .contract_address(self.contract_address)
                 .chain_id(self.chain_id)
-                .sign_and_build(signer)
-                .await
-                .context("failed to create signed input")?;
+                .build()
+                .context("failed to create input")?;
+
+            let signature = input.sign(signer).await?;
 
             // Build the executor environment with the log builder receipt as an assumption
             let env = ExecutorEnv::builder()
@@ -368,7 +350,7 @@ pub mod prover {
                     .context("failed to prove log update")
             })?;
 
-            Ok(prove_info)
+            Ok((prove_info, signature))
         }
     }
 }
