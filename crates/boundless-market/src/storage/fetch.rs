@@ -75,3 +75,21 @@ pub fn override_gateway(url: &str) -> String {
     let new_url = format!("{gateway_url}/ipfs/{}", parts[1]);
     new_url
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_override_gateway() {
+        let original_url = "https://example.com/ipfs/QmHash";
+        let overridden_url = override_gateway(original_url);
+        assert_eq!(overridden_url, format!("{BOUNDLESS_IPFS_GATEWAY_URL}/ipfs/QmHash"));
+        let file_url = "file:///path/to/ipfs/QmHash";
+        let overridden_file_url = override_gateway(file_url);
+        assert_eq!(overridden_file_url, file_url);
+        let non_ipfs_url = "https://example.com/some/other/path";
+        let overridden_non_ipfs_url = override_gateway(non_ipfs_url);
+        assert_eq!(overridden_non_ipfs_url, non_ipfs_url);
+    }
+}
