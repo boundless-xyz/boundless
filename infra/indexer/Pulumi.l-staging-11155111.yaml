@@ -9,7 +9,7 @@ config:
   indexer:RUST_LOG: "info"
   indexer:CHAIN_ID: "11155111"
   indexer:GH_TOKEN_SECRET:
-    secure: v1:Ucve4qB6gUbr6wYA:KkjcpfItdRbofqIwJhViKC+1v/5rq4t81wlqeFsSN/zrklM1yw9o+2tN9iWj0qKbKjZ0nHhBouC+HZkTE9lMyjEMNl9oezsB5kFbxMb3sLDpK2jx4KZT8AZ/S/jHuGSAf7WTRCfEnUJWyu6P8g==
+    secure: v1:GQkMrkuUECHw9YE3:PoX0OZ26yXcLo9XQraKINIyZTyQ/5MYqXu3BKMDDLD0Q5XHjcDPTtXu9yOJTzUQY9jMJxj/xplpDzmX9pCnHLcG7Th3sqg50Do9Hd6nhEn89RHdKm8xWba0aSGXtaDI+HRwTf+CPPdCpMR9HWQ==
   indexer:ETH_RPC_URL:
     secure: v1:aDACh+FhCJte0D8a:x1Qz6hBhdgjHUAhu3m5NBvipn0MFctp5PRSNttCgV+7mPVgUU7+mvkRDwEa+K8Ll1IUToGX/eKBkwBeE+XYrWbuv+5EFsE9SHiY=
   indexer:RDS_PASSWORD:
