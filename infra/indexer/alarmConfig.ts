@@ -73,7 +73,7 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since we deploy with CI to staging, and this causes all the provers to restart,
-              // which can take a long time, especially if multiple changes are pushed subsequently. 
+              // which can take a long time, especially if multiple changes are pushed subsequently.
               // We set a longer time period for the success rate.
               description: "less than 90% success rate for three consecutive hours from og_offchain",
               severity: Severity.SEV2,
@@ -103,6 +103,42 @@ export const alarmConfig: ChainStageAlarms = {
           }],
         },
         {
+          name: "kailua_order_generator",
+          address: "0xf353bDA16a83399C11E09615Ee7ac326a5a08Ccf",
+          submissionRate: [
+            {
+              description: "no submitted orders in 60 minutes from kailua_order_generator",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 3600
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            }
+          ],
+          successRate: [
+            {
+              description: "less than 90% success rate for two consecutive hours from kailua_order_generator",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 3600
+              },
+              alarmConfig: {
+                threshold: 0.90,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
+                comparisonOperator: "LessThanThreshold"
+              }
+            }
+          ],
+          expiredRequests: []
+        },
+        {
           name: "og_onchain",
           address: "0x2B0E9678b8db1DD44980802754beFFd89eD3c495",
           submissionRate: [
@@ -124,7 +160,7 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since we deploy with CI to staging, and this causes all the provers to restart,
-              // which can take a long time, especially if multiple changes are pushed subsequently. 
+              // which can take a long time, especially if multiple changes are pushed subsequently.
               // We set a longer time period for the success rate.
               description: "less than 90% success rate for three consecutive hours from og_onchain",
               severity: Severity.SEV2,
