@@ -5,4 +5,3 @@ CREATE TABLE IF NOT EXISTS order_stream_state (
 
 INSERT INTO order_stream_state (id) VALUES (TRUE)
   ON CONFLICT (id) DO NOTHING;
-can
