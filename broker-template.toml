@@ -17,11 +17,17 @@ priority_requestor_addresses = [
 	"0x48268bE6235A23eb7b67356469362869D5d0293f",
 	"0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd",
 ]
-# Optional URLs to fetch requestor priority lists from.
+# URLs to fetch requestor priority lists from.
 #
 # These lists will be periodically refreshed and merged with priority_requestor_addresses.
-# Example: priority_requestor_lists = ["https://example.com/boundless-priority-list.json"]
-#priority_requestor_lists = []
+# Boundless provides curated lists of requestors known to request useful work with profitable pricing:
+# - standard: General purpose requests with competitive pricing, that should be suitable for smaller clusters ~2-3 GPUs.
+# - large: Larger computation requests with competitive pricing, that should be suitable for large clusters ~10+ GPUs.
+# You can also add your own lists, or lists maintained by others.
+#priority_requestor_lists = [
+#	"https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
+#	"https://requestors.boundless.network/boundless-recommended-priority-list.large.json",
+#]
 # Estimated peak performance of the proving cluster, in kHz.
 #
 # Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
