@@ -14,7 +14,8 @@ variable "aws_region" {
 
 variable "instance_type" {
   type    = string
-  default = "c7a.4xlarge"
+  default = "c7a.8xlarge"  # Increased for CUDA builds
+  description = "EC2 instance type for building the AMI"
 }
 
 variable "service_account_ids" {
@@ -41,6 +42,12 @@ source "amazon-ebs" "boundless" {
     owners      = ["099720109477"] # Canonical
   }
   ssh_username = "ubuntu"
+
+  # Increase wait time for AMI to be ready
+  aws_polling {
+    delay_seconds = 30
+    max_attempts  = 1200
+  }
 
   # Increase root volume size to 100GB
   launch_block_device_mappings {

@@ -41,7 +41,7 @@ phases:
       - echo "Building nightly artifacts..."
       - cd infra/packer
       - packer init bento.pkr.hcl
-      - packer build bento_nightly.pkr.hcl
+      - AWS_POLLING_MAX_ATTEMPTS=3600 AWS_POLLING_DELAY_SECONDS=30 packer build bento_nightly.pkr.hcl
       - echo "Generating build artifacts..."
       - mkdir -p build-artifacts
       - echo "nightly-$(date +%Y%m%d-%H%M%S)" > build-artifacts/version.txt
