@@ -140,7 +140,7 @@ pub struct Args {
     snark_timeout: i32,
 
     /// Snark retries
-    #[clap(env, long, default_value_t = 0)]
+    #[clap(env, long, default_value_t = 3)]
     snark_retries: i32,
 
     /// Requeue poll interval in seconds
