@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{primitives::Address, providers::{Provider, ProviderBuilder}};
+use alloy::{
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+};
 use anyhow::{Context, Result};
 use boundless_zkc::contracts::IRewards;
 use clap::Args;
@@ -43,10 +46,7 @@ impl RewardsDelegate {
             .wallet(signer.clone())
             .on_http(rpc_url.parse().context("Invalid RPC URL")?);
 
-        let chain_id = provider
-            .get_chain_id()
-            .await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         let vezkc_address = rewards_config.vezkc_address()?;
         let rewards = IRewards::new(vezkc_address, &provider);
@@ -72,11 +72,7 @@ impl RewardsDelegate {
         display.item_colored("Current", format!("{:#x}", current_delegate), "cyan");
 
         if current_delegate == self.delegatee {
-            display.status(
-                "Status",
-                "Already delegated (no action needed)",
-                "green",
-            );
+            display.status("Status", "Already delegated (no action needed)", "green");
             display.success("Reward power is already delegated to this address");
             return Ok(());
         }
@@ -98,10 +94,7 @@ impl RewardsDelegate {
         display.tx_hash(*tx.tx_hash());
         display.status("Status", "Waiting for confirmation...", "yellow");
 
-        let tx_hash = tx
-            .watch()
-            .await
-            .context("Failed to wait for transaction confirmation")?;
+        let tx_hash = tx.watch().await.context("Failed to wait for transaction confirmation")?;
 
         display.success("Successfully delegated!");
         display.item_colored("New Delegate", format!("{:#x}", self.delegatee), "cyan");

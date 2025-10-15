@@ -17,13 +17,16 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
-use boundless_zkc::{contracts::{IRewards, IZKC}, deployments::Deployment};
+use boundless_zkc::{
+    contracts::{IRewards, IZKC},
+    deployments::Deployment,
+};
 use clap::Args;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
     config_ext::RewardsConfigExt,
-    display::{DisplayManager, format_eth},
+    display::{format_eth, DisplayManager},
     indexer_client::{parse_amount, IndexerClient},
 };
 
@@ -56,12 +59,8 @@ impl RewardsPower {
             } else {
                 use crate::config_file::{Config, Secrets};
                 let config = Config::load().context("Failed to load config")?;
-                let network = config
-                    .rewards
-                    .as_ref()
-                    .context("Rewards not configured")?
-                    .network
-                    .clone();
+                let network =
+                    config.rewards.as_ref().context("Rewards not configured")?.network.clone();
 
                 let secrets = Secrets::load().context("Failed to load secrets")?;
                 let rewards_secrets = secrets
@@ -86,10 +85,7 @@ impl RewardsPower {
             .await
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        let chain_id = provider
-            .get_chain_id()
-            .await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         let deployment = self
             .deployment
@@ -109,11 +105,8 @@ impl RewardsPower {
         let vezkc = IERC721Votes::new(deployment.vezkc_address, &provider);
         let rewards = IRewards::new(deployment.vezkc_address, &provider);
 
-        let staked_balance = vezkc
-            .balanceOf(address)
-            .call()
-            .await
-            .context("Failed to query staked balance")?;
+        let staked_balance =
+            vezkc.balanceOf(address).call().await.context("Failed to query staked balance")?;
 
         let reward_power = rewards
             .getStakingRewards(address)
@@ -174,7 +167,12 @@ impl RewardsPower {
         display.note(&format!("Your Reward Power:  {} ZKC", format_eth(reward_power)));
         display.note(&format!("× Your Share:       {:.4}%", share_percentage));
         println!("  ─────────────────────────────────");
-        display.balance("Est. Rewards", &format!("~{}", format_eth(your_estimated_rewards)), "ZKC", "green");
+        display.balance(
+            "Est. Rewards",
+            &format!("~{}", format_eth(your_estimated_rewards)),
+            "ZKC",
+            "green",
+        );
 
         println!();
         display.item("", "Maximum PoVW Rewards");

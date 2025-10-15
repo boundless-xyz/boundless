@@ -229,21 +229,18 @@ impl IndexerClient {
             .join(&format!("v1/delegations/rewards/addresses/{:#x}", address))
             .context("Failed to build URL")?;
 
-        let response = self
-            .client
-            .get(url.clone())
-            .send()
-            .await
-            .with_context(|| format!("Failed to fetch reward delegation history from {}", url))?;
+        let response =
+            self.client.get(url.clone()).send().await.with_context(|| {
+                format!("Failed to fetch reward delegation history from {}", url)
+            })?;
 
         if !response.status().is_success() {
             bail!("API error from {}: {}", url, response.status());
         }
 
-        response
-            .json()
-            .await
-            .with_context(|| format!("Failed to parse reward delegation history response from {}", url))
+        response.json().await.with_context(|| {
+            format!("Failed to parse reward delegation history response from {}", url)
+        })
     }
 }
 

@@ -196,10 +196,7 @@ impl RequestorSubmitOffer {
         };
 
         display.item("Request ID", format!("{:#x}", request_id));
-        display.item(
-            "Bidding Starts",
-            convert_timestamp(request.offer.rampUpStart)
-        );
+        display.item("Bidding Starts", convert_timestamp(request.offer.rampUpStart));
         display.success("Request submitted successfully");
 
         // Wait for fulfillment if requested

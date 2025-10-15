@@ -537,7 +537,9 @@ where
             ));
         }
 
-        if let (Some(chain_id), Some(expected_chain_id)) = (manual.market_chain_id, expected.market_chain_id) {
+        if let (Some(chain_id), Some(expected_chain_id)) =
+            (manual.market_chain_id, expected.market_chain_id)
+        {
             if chain_id != expected_chain_id {
                 warnings.push(format!(
                     "market_chain_id mismatch: configured={chain_id}, expected={expected_chain_id}"
@@ -916,7 +918,8 @@ where
             Ok(())
         });
 
-        let prover_addr = self.args.private_key.as_ref().expect("Private key must be set").address();
+        let prover_addr =
+            self.args.private_key.as_ref().expect("Private key must be set").address();
 
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),

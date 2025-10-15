@@ -378,7 +378,6 @@ struct MainArgs {
     config: GlobalConfig,
 }
 
-
 fn address_from_private_key(private_key: &str) -> Option<String> {
     use alloy::signers::local::PrivateKeySigner;
 
@@ -405,8 +404,8 @@ fn format_duration(duration: std::time::Duration) -> String {
 }
 
 async fn show_welcome_screen() -> Result<()> {
-    use boundless_cli::config_file::{Config, Secrets};
     use boundless_cli::commands::rewards::State;
+    use boundless_cli::config_file::{Config, Secrets};
     use colored::Colorize;
 
     println!();
@@ -453,13 +452,14 @@ async fn show_welcome_screen() -> Result<()> {
         };
 
         if let Some(pk) = requestor_pk {
-            println!(
-                "{} Requestor Module [{}]",
-                "✓".green().bold(),
-                display_network.blue().bold()
-            );
+            println!("{} Requestor Module [{}]", "✓".green().bold(), display_network.blue().bold());
             if let Some(addr) = address_from_private_key(pk) {
-                println!("  Requestor Address: {} (PK: {} {})", addr.green(), "✓".green(), format!("[{}]", pk_source).dimmed());
+                println!(
+                    "  Requestor Address: {} (PK: {} {})",
+                    addr.green(),
+                    "✓".green(),
+                    format!("[{}]", pk_source).dimmed()
+                );
             }
         } else if let Some(addr) = requestor_secrets.and_then(|s| s.address.as_deref()) {
             println!(
@@ -468,7 +468,12 @@ async fn show_welcome_screen() -> Result<()> {
                 display_network.blue().bold(),
                 "(read-only)".yellow()
             );
-            println!("  Requestor Address: {} (PK: {} {})", addr.green(), "✗".yellow(), "[config file]".dimmed());
+            println!(
+                "  Requestor Address: {} (PK: {} {})",
+                addr.green(),
+                "✗".yellow(),
+                "[config file]".dimmed()
+            );
         } else {
             println!(
                 "{} Requestor Module [{}] {}",
@@ -477,7 +482,11 @@ async fn show_welcome_screen() -> Result<()> {
                 "(read-only)".yellow()
             );
         }
-        println!("  {} {}", "→".cyan(), "Run 'boundless requestor' to see available commands".dimmed());
+        println!(
+            "  {} {}",
+            "→".cyan(),
+            "Run 'boundless requestor' to see available commands".dimmed()
+        );
     } else {
         println!("{} Requestor Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless requestor setup'".cyan());
@@ -506,13 +515,14 @@ async fn show_welcome_screen() -> Result<()> {
         };
 
         if let Some(pk) = prover_pk {
-            println!(
-                "{} Prover Module [{}]",
-                "✓".green().bold(),
-                display_network.blue().bold()
-            );
+            println!("{} Prover Module [{}]", "✓".green().bold(), display_network.blue().bold());
             if let Some(addr) = address_from_private_key(pk) {
-                println!("  Prover Address:    {} (PK: {} {})", addr.green(), "✓".green(), format!("[{}]", pk_source).dimmed());
+                println!(
+                    "  Prover Address:    {} (PK: {} {})",
+                    addr.green(),
+                    "✓".green(),
+                    format!("[{}]", pk_source).dimmed()
+                );
             }
         } else if let Some(addr) = prover_secrets.and_then(|s| s.address.as_deref()) {
             println!(
@@ -521,7 +531,12 @@ async fn show_welcome_screen() -> Result<()> {
                 display_network.blue().bold(),
                 "(read-only)".yellow()
             );
-            println!("  Prover Address:    {} (PK: {} {})", addr.green(), "✗".yellow(), "[config file]".dimmed());
+            println!(
+                "  Prover Address:    {} (PK: {} {})",
+                addr.green(),
+                "✗".yellow(),
+                "[config file]".dimmed()
+            );
         } else {
             println!(
                 "{} Prover Module [{}] {}",
@@ -530,7 +545,11 @@ async fn show_welcome_screen() -> Result<()> {
                 "(read-only)".yellow()
             );
         }
-        println!("  {} {}", "→".cyan(), "Run 'boundless prover' to see available commands".dimmed());
+        println!(
+            "  {} {}",
+            "→".cyan(),
+            "Run 'boundless prover' to see available commands".dimmed()
+        );
     } else {
         println!("{} Prover Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless prover setup'".cyan());
@@ -586,22 +605,42 @@ async fn show_welcome_screen() -> Result<()> {
         if has_write_access {
             println!("{} Rewards Module [{}]", "✓".green().bold(), display_network.blue().bold());
         } else {
-            println!("{} Rewards Module [{}] {}", "✓".yellow().bold(), display_network.blue().bold(), "(read-only)".yellow());
+            println!(
+                "{} Rewards Module [{}] {}",
+                "✓".yellow().bold(),
+                display_network.blue().bold(),
+                "(read-only)".yellow()
+            );
         }
 
         // Display staking address
         if let Some(pk) = staking_pk {
             if let Some(addr) = address_from_private_key(pk) {
-                println!("  Staking Address: {} (PK: {} {})", addr.green(), "✓".green(), format!("[{}]", staking_pk_source).dimmed());
+                println!(
+                    "  Staking Address: {} (PK: {} {})",
+                    addr.green(),
+                    "✓".green(),
+                    format!("[{}]", staking_pk_source).dimmed()
+                );
             }
         } else if let Some(addr) = staking_addr {
-            println!("  Staking Address: {} (PK: {} {})", addr.green(), "✗".yellow(), format!("[{}]", staking_addr_source).dimmed());
+            println!(
+                "  Staking Address: {} (PK: {} {})",
+                addr.green(),
+                "✗".yellow(),
+                format!("[{}]", staking_addr_source).dimmed()
+            );
         }
 
         // Display reward address
         if let Some(pk) = reward_pk {
             if let Some(addr) = address_from_private_key(pk) {
-                println!("  Reward Address:  {} (PK: {} {})", addr.green(), "✓".green(), format!("[{}]", reward_pk_source).dimmed());
+                println!(
+                    "  Reward Address:  {} (PK: {} {})",
+                    addr.green(),
+                    "✓".green(),
+                    format!("[{}]", reward_pk_source).dimmed()
+                );
             }
         } else if let Some(addr) = reward_addr {
             // Check if reward address is same as staking address
@@ -610,15 +649,19 @@ async fn show_welcome_screen() -> Result<()> {
                 .map(|a| a.to_lowercase())
                 .or_else(|| staking_addr.map(|s| s.to_lowercase()));
 
-            let same_as_staking = staking_addr_resolved
-                .map(|s| s == addr.to_lowercase())
-                .unwrap_or(false);
+            let same_as_staking =
+                staking_addr_resolved.map(|s| s == addr.to_lowercase()).unwrap_or(false);
 
             // If same address and we have staking PK, show ✓ for reward too
             let has_pk = same_as_staking && staking_pk.is_some();
             let pk_indicator = if has_pk { "✓".green() } else { "✗".yellow() };
 
-            println!("  Reward Address:  {} (PK: {} {})", addr.green(), pk_indicator, format!("[{}]", reward_addr_source).dimmed());
+            println!(
+                "  Reward Address:  {} (PK: {} {})",
+                addr.green(),
+                pk_indicator,
+                format!("[{}]", reward_addr_source).dimmed()
+            );
         }
 
         // Display PoVW state file if configured
@@ -640,9 +683,11 @@ async fn show_welcome_screen() -> Result<()> {
                         .unwrap_or_else(|_| state_path.to_string())
                 });
 
-            println!("  PoVW State:      {} {}",
+            println!(
+                "  PoVW State:      {} {}",
                 display_path.green(),
-                format!("[{}]", povw_source).dimmed());
+                format!("[{}]", povw_source).dimmed()
+            );
 
             // Try to load and display state statistics
             match State::load(state_path).await {
@@ -655,8 +700,10 @@ async fn show_welcome_screen() -> Result<()> {
 
                     // Display work log stats
                     if !state.work_log.is_empty() {
-                        println!("    Total PoVW jobs: {}",
-                            state.work_log.jobs.len().to_string().cyan());
+                        println!(
+                            "    Total PoVW jobs: {}",
+                            state.work_log.jobs.len().to_string().cyan()
+                        );
                     } else {
                         println!("    Total PoVW jobs: {}", "0 (empty)".yellow());
                     }
@@ -665,12 +712,16 @@ async fn show_welcome_screen() -> Result<()> {
                     if !state.update_transactions.is_empty() {
                         // Find any transaction (they're all in the same timeframe based on updated_at)
                         if let Some((tx_hash, _)) = state.update_transactions.iter().next() {
-                            let time_str = state.updated_at.elapsed()
+                            let time_str = state
+                                .updated_at
+                                .elapsed()
                                 .map(format_duration)
                                 .unwrap_or_else(|_| "unknown".to_string());
-                            println!("    Last submitted on-chain: {} (tx: {})",
+                            println!(
+                                "    Last submitted on-chain: {} (tx: {})",
                                 time_str.dimmed(),
-                                format!("{:#x}", tx_hash).cyan());
+                                format!("{:#x}", tx_hash).cyan()
+                            );
                         }
                     } else {
                         println!("    Last submitted on-chain: {}", "Never submitted".yellow());
@@ -678,11 +729,15 @@ async fn show_welcome_screen() -> Result<()> {
                 }
                 Err(e) => {
                     // Distinguish between file not found vs invalid file
-                    if e.to_string().contains("No such file or directory") ||
-                       e.to_string().contains("Failed to read work log state file") {
+                    if e.to_string().contains("No such file or directory")
+                        || e.to_string().contains("Failed to read work log state file")
+                    {
                         println!("    Status:        {} File not found: verify path or run prepare-povw to initialize", "⚠".yellow());
                     } else {
-                        println!("    Status:        {} Invalid file: cannot decode state", "⚠".yellow());
+                        println!(
+                            "    Status:        {} Invalid file: cannot decode state",
+                            "⚠".yellow()
+                        );
                     }
                 }
             }
@@ -691,7 +746,10 @@ async fn show_welcome_screen() -> Result<()> {
         }
 
         // Backwards compatibility: show deprecated private_key field if nothing else is set
-        let has_modern_config = staking_pk.is_some() || staking_addr.is_some() || reward_pk.is_some() || reward_addr.is_some();
+        let has_modern_config = staking_pk.is_some()
+            || staking_addr.is_some()
+            || reward_pk.is_some()
+            || reward_addr.is_some();
         if !has_modern_config {
             if let Some(rewards_sec) = rewards_secrets {
                 if let Some(ref pk) = rewards_sec.private_key {
@@ -706,7 +764,11 @@ async fn show_welcome_screen() -> Result<()> {
                 println!("  Status: {} (no credentials)", "Read-only".yellow());
             }
         }
-        println!("  {} {}", "→".cyan(), "Run 'boundless rewards' to see available commands".dimmed());
+        println!(
+            "  {} {}",
+            "→".cyan(),
+            "Run 'boundless rewards' to see available commands".dimmed()
+        );
     } else {
         println!("{} Rewards Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless rewards setup'".cyan());
@@ -746,7 +808,8 @@ fn show_requestor_status() -> Result<()> {
 
             // Check env var first, then config
             let env_requestor_pk = std::env::var("REQUESTOR_PRIVATE_KEY").ok();
-            let requestor_sec = secrets.as_ref().and_then(|s| s.requestor_networks.get(&requestor.network));
+            let requestor_sec =
+                secrets.as_ref().and_then(|s| s.requestor_networks.get(&requestor.network));
 
             if let Some(ref rpc) = requestor_sec.and_then(|s| s.rpc_url.as_ref()) {
                 println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
@@ -762,7 +825,12 @@ fn show_requestor_status() -> Result<()> {
                 if let Some(addr) = address_from_private_key(pk_str) {
                     println!("{} {}", "Requestor Address:".bold(), addr.green());
                 }
-                println!("{} {} {}", "Private Key:".bold(), "Configured".green(), format!("[{}]", pk_source).dimmed());
+                println!(
+                    "{} {} {}",
+                    "Private Key:".bold(),
+                    "Configured".green(),
+                    format!("[{}]", pk_source).dimmed()
+                );
             } else if let Some(addr) = requestor_sec.and_then(|s| s.address.as_deref()) {
                 println!("{} {}", "Requestor Address:".bold(), addr.green());
                 println!(
@@ -772,11 +840,7 @@ fn show_requestor_status() -> Result<()> {
                     "[config file]".dimmed()
                 );
             } else {
-                println!(
-                    "{} {}",
-                    "Private Key:".bold(),
-                    "Not configured (read-only)".yellow()
-                );
+                println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
             }
         } else {
             println!("{}", "Not configured - run 'boundless requestor setup'".red());
@@ -843,7 +907,12 @@ fn show_prover_status() -> Result<()> {
                 if let Some(addr) = address_from_private_key(pk_str) {
                     println!("{} {}", "Prover Address:".bold(), addr.green());
                 }
-                println!("{} {} {}", "Private Key:".bold(), "Configured".green(), format!("[{}]", pk_source).dimmed());
+                println!(
+                    "{} {} {}",
+                    "Private Key:".bold(),
+                    "Configured".green(),
+                    format!("[{}]", pk_source).dimmed()
+                );
             } else if let Some(addr) = prover_sec.and_then(|s| s.address.as_deref()) {
                 println!("{} {}", "Prover Address:".bold(), addr.green());
                 println!(
@@ -853,11 +922,7 @@ fn show_prover_status() -> Result<()> {
                     "[config file]".dimmed()
                 );
             } else {
-                println!(
-                    "{} {}",
-                    "Private Key:".bold(),
-                    "Not configured (read-only)".yellow()
-                );
+                println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
             }
         } else {
             println!("{}", "Not configured - run 'boundless prover setup'".red());
@@ -887,8 +952,8 @@ fn show_prover_status() -> Result<()> {
 }
 
 async fn show_rewards_status() -> Result<()> {
-    use boundless_cli::config_file::{Config, Secrets};
     use boundless_cli::commands::rewards::State;
+    use boundless_cli::config_file::{Config, Secrets};
     use colored::Colorize;
 
     println!("\n{}\n", "Rewards Module".bold().underline());
@@ -961,57 +1026,101 @@ async fn show_rewards_status() -> Result<()> {
                                 // Display last updated time
                                 if let Ok(elapsed) = state.updated_at.elapsed() {
                                     let duration_str = format_duration(elapsed);
-                                    println!("  {} {}", "Last updated:".bold(), duration_str.dimmed());
+                                    println!(
+                                        "  {} {}",
+                                        "Last updated:".bold(),
+                                        duration_str.dimmed()
+                                    );
                                 }
 
                                 // Display work log stats
                                 if !state.work_log.is_empty() {
-                                    println!("  {} {}",
+                                    println!(
+                                        "  {} {}",
                                         "Total PoVW jobs:".bold(),
-                                        state.work_log.jobs.len().to_string().cyan());
+                                        state.work_log.jobs.len().to_string().cyan()
+                                    );
                                 } else {
-                                    println!("  {} {}", "Total PoVW jobs:".bold(), "0 (empty)".yellow());
+                                    println!(
+                                        "  {} {}",
+                                        "Total PoVW jobs:".bold(),
+                                        "0 (empty)".yellow()
+                                    );
                                 }
 
                                 // Display last on-chain submission from update_transactions
                                 if !state.update_transactions.is_empty() {
-                                    if let Some((tx_hash, _)) = state.update_transactions.iter().next() {
-                                        let time_str = state.updated_at.elapsed()
+                                    if let Some((tx_hash, _)) =
+                                        state.update_transactions.iter().next()
+                                    {
+                                        let time_str = state
+                                            .updated_at
+                                            .elapsed()
                                             .map(format_duration)
                                             .unwrap_or_else(|_| "unknown".to_string());
-                                        println!("  {} {} (tx: {})",
+                                        println!(
+                                            "  {} {} (tx: {})",
                                             "Last submitted on-chain:".bold(),
                                             time_str.dimmed(),
-                                            format!("{:#x}", tx_hash).cyan());
+                                            format!("{:#x}", tx_hash).cyan()
+                                        );
                                     }
                                 } else {
-                                    println!("  {} {}", "Last submitted on-chain:".bold(), "Never submitted".yellow());
+                                    println!(
+                                        "  {} {}",
+                                        "Last submitted on-chain:".bold(),
+                                        "Never submitted".yellow()
+                                    );
                                 }
                             }
                             Err(e) => {
                                 // Distinguish between file not found vs invalid file
-                                if e.to_string().contains("No such file or directory") ||
-                                   e.to_string().contains("Failed to read work log state file") {
+                                if e.to_string().contains("No such file or directory")
+                                    || e.to_string().contains("Failed to read work log state file")
+                                {
                                     println!("  {} {} File not found: verify path or run prepare-povw to initialize", "Status:".bold(), "⚠".yellow());
                                 } else {
-                                    println!("  {} {} Invalid file: cannot decode state", "Status:".bold(), "⚠".yellow());
+                                    println!(
+                                        "  {} {} Invalid file: cannot decode state",
+                                        "Status:".bold(),
+                                        "⚠".yellow()
+                                    );
                                 }
                             }
                         }
                     } else {
-                        println!("{} {}", "PoVW State:".bold(), "Not configured (PoVW disabled)".yellow());
+                        println!(
+                            "{} {}",
+                            "PoVW State:".bold(),
+                            "Not configured (PoVW disabled)".yellow()
+                        );
                     }
 
                     // Display Beacon API URL if configured
                     let env_beacon_api = std::env::var("BEACON_API_URL").ok();
                     if let Some(ref url) = env_beacon_api {
                         if rewards_sec.beacon_api_url.is_some() {
-                            println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[env]".dimmed());
+                            println!(
+                                "{} {} {}",
+                                "Beacon API:".bold(),
+                                obscure_url(url).dimmed(),
+                                "[env]".dimmed()
+                            );
                         } else {
-                            println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[env]".dimmed());
+                            println!(
+                                "{} {} {}",
+                                "Beacon API:".bold(),
+                                obscure_url(url).dimmed(),
+                                "[env]".dimmed()
+                            );
                         }
                     } else if let Some(ref url) = rewards_sec.beacon_api_url {
-                        println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[config file]".dimmed());
+                        println!(
+                            "{} {} {}",
+                            "Beacon API:".bold(),
+                            obscure_url(url).dimmed(),
+                            "[config file]".dimmed()
+                        );
                     }
                 }
             }
@@ -1147,22 +1256,21 @@ async fn parse_collateral_amount(
 /// Handle account-related commands
 async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) -> Result<()> {
     use boundless_cli::config::RequestorConfig;
-    let requestor_config = RequestorConfig {
-        rpc_url: None,
-        private_key: None,
-        deployment: None,
-    }.load_from_files()?;
+    let requestor_config =
+        RequestorConfig { rpc_url: None, private_key: None, deployment: None }.load_from_files()?;
 
     match cmd {
         AccountCommands::Deposit { amount } => {
-            let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
+            let client =
+                requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             tracing::info!("Depositing {} ETH into the market", format_ether(*amount));
             client.boundless_market.deposit(*amount).await?;
             tracing::info!("Successfully deposited {} ETH into the market", format_ether(*amount));
             Ok(())
         }
         AccountCommands::Withdraw { amount } => {
-            let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
+            let client =
+                requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             tracing::info!("Withdrawing {} ETH from the market", format_ether(*amount));
             client.boundless_market.withdraw(*amount).await?;
             tracing::info!("Successfully withdrew {} ETH from the market", format_ether(*amount));
@@ -1180,7 +1288,8 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             Ok(())
         }
         AccountCommands::DepositCollateral { amount } => {
-            let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
+            let client =
+                requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             let (parsed_amount, formatted_amount, symbol) =
                 parse_collateral_amount(&client, amount).await?;
 
@@ -1233,7 +1342,8 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
             }
         }
         AccountCommands::WithdrawCollateral { amount } => {
-            let client = requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
+            let client =
+                requestor_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             let (parsed_amount, formatted_amount, symbol) =
                 parse_collateral_amount(&client, amount).await?;
             tracing::info!("Withdrawing {formatted_amount} {symbol} from collateral");
@@ -1262,11 +1372,8 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
 /// Handle request-related commands
 async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) -> Result<()> {
     use boundless_cli::config::RequestorConfig;
-    let requestor_config = RequestorConfig {
-        rpc_url: None,
-        private_key: None,
-        deployment: None,
-    }.load_from_files()?;
+    let requestor_config =
+        RequestorConfig { rpc_url: None, private_key: None, deployment: None }.load_from_files()?;
 
     match cmd {
         RequestCommands::SubmitOffer(offer_args) => {
@@ -1383,7 +1490,8 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             use_default_prover: false,
             skip_health_check: false,
         },
-    }.load_from_files()?;
+    }
+    .load_from_files()?;
 
     match cmd {
         ProvingCommands::Execute { request_path, request_id, request_digest, tx_hash } => {
@@ -1429,7 +1537,8 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             withdraw,
             prover_config,
         } => {
-            let client = prover_client_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
+            let client =
+                prover_client_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             if request_digests.is_some()
                 && request_ids.len() != request_digests.as_ref().unwrap().len()
             {
@@ -1533,7 +1642,8 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             }
         }
         ProvingCommands::Lock { request_id, request_digest, tx_hash } => {
-            let client = prover_client_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
+            let client =
+                prover_client_config.client_builder_with_signer(config.tx_timeout)?.build().await?;
             tracing::info!("Locking proof request 0x{:x}", request_id);
 
             let (request, signature) =
@@ -1988,11 +2098,8 @@ fn now_timestamp() -> u64 {
 /// Handle config command
 async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
     use boundless_cli::config::RequestorConfig;
-    let requestor_config = RequestorConfig {
-        rpc_url: None,
-        private_key: None,
-        deployment: None,
-    }.load_from_files()?;
+    let requestor_config =
+        RequestorConfig { rpc_url: None, private_key: None, deployment: None }.load_from_files()?;
 
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");
@@ -2181,8 +2288,12 @@ mod tests {
     /// Test setup helper that creates common test infrastructure
     async fn setup_test_env(
         owner: AccountOwner,
-    ) -> (TestCtx<impl Provider + WalletProvider + Clone + 'static>, AnvilInstance, GlobalConfig, tempfile::TempDir)
-    {
+    ) -> (
+        TestCtx<impl Provider + WalletProvider + Clone + 'static>,
+        AnvilInstance,
+        GlobalConfig,
+        tempfile::TempDir,
+    ) {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
 
@@ -2192,11 +2303,15 @@ mod tests {
                     .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
                     .await
                     .unwrap();
-                (ctx.customer_signer.clone(), format!("0x{}", hex::encode(anvil.keys()[2].to_bytes())))
+                (
+                    ctx.customer_signer.clone(),
+                    format!("0x{}", hex::encode(anvil.keys()[2].to_bytes())),
+                )
             }
-            AccountOwner::Prover => {
-                (ctx.prover_signer.clone(), format!("0x{}", hex::encode(anvil.keys()[1].to_bytes())))
-            }
+            AccountOwner::Prover => (
+                ctx.prover_signer.clone(),
+                format!("0x{}", hex::encode(anvil.keys()[1].to_bytes())),
+            ),
         };
 
         // Create temporary directory for test config files with unique prefix
@@ -2212,7 +2327,10 @@ mod tests {
         std::fs::create_dir_all(&boundless_dir).unwrap();
 
         // Create custom network in config.toml
-        use boundless_cli::config_file::{Config, CustomMarketDeployment, RequestorConfig as FileRequestorConfig, ProverConfig as FileProverConfig};
+        use boundless_cli::config_file::{
+            Config, CustomMarketDeployment, ProverConfig as FileProverConfig,
+            RequestorConfig as FileRequestorConfig,
+        };
 
         let custom_network = CustomMarketDeployment {
             name: "test-anvil".to_string(),
@@ -2225,12 +2343,8 @@ mod tests {
         };
 
         let config = Config {
-            requestor: Some(FileRequestorConfig {
-                network: "test-anvil".to_string(),
-            }),
-            prover: Some(FileProverConfig {
-                network: "test-anvil".to_string(),
-            }),
+            requestor: Some(FileRequestorConfig { network: "test-anvil".to_string() }),
+            prover: Some(FileProverConfig { network: "test-anvil".to_string() }),
             rewards: None,
             custom_markets: vec![custom_network],
             custom_rewards: vec![],
@@ -2239,35 +2353,35 @@ mod tests {
         config.save().unwrap();
 
         // Create secrets.toml with RPC URLs and private keys
-        use boundless_cli::config_file::{Secrets, RequestorSecrets, ProverSecrets};
+        use boundless_cli::config_file::{ProverSecrets, RequestorSecrets, Secrets};
         use std::collections::HashMap;
 
         let mut requestor_networks = HashMap::new();
-        requestor_networks.insert("test-anvil".to_string(), RequestorSecrets {
-            rpc_url: Some(anvil.endpoint()),
-            private_key: Some(private_key_hex.clone()),
-            address: None,
-        });
+        requestor_networks.insert(
+            "test-anvil".to_string(),
+            RequestorSecrets {
+                rpc_url: Some(anvil.endpoint()),
+                private_key: Some(private_key_hex.clone()),
+                address: None,
+            },
+        );
 
         let mut prover_networks = HashMap::new();
-        prover_networks.insert("test-anvil".to_string(), ProverSecrets {
-            rpc_url: Some(anvil.endpoint()),
-            private_key: Some(private_key_hex),
-            address: None,
-        });
+        prover_networks.insert(
+            "test-anvil".to_string(),
+            ProverSecrets {
+                rpc_url: Some(anvil.endpoint()),
+                private_key: Some(private_key_hex),
+                address: None,
+            },
+        );
 
-        let secrets = Secrets {
-            requestor_networks,
-            prover_networks,
-            rewards_networks: HashMap::new(),
-        };
+        let secrets =
+            Secrets { requestor_networks, prover_networks, rewards_networks: HashMap::new() };
 
         secrets.save().unwrap();
 
-        let global_config = GlobalConfig {
-            tx_timeout: None,
-            log_level: LevelFilter::INFO,
-        };
+        let global_config = GlobalConfig { tx_timeout: None, log_level: LevelFilter::INFO };
 
         (ctx, anvil, global_config, temp_dir)
     }
@@ -2760,10 +2874,7 @@ mod tests {
 
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
-        let prover_config = GlobalConfig {
-            tx_timeout: None,
-            log_level: LevelFilter::INFO,
-        };
+        let prover_config = GlobalConfig { tx_timeout: None, log_level: LevelFilter::INFO };
 
         // test the Lock command
         let args = MainArgs {
@@ -3102,10 +3213,7 @@ mod tests {
 
         assert!(logs_contain(&format!("Successfully executed request 0x{:x}", request.id)));
 
-        let prover_config = GlobalConfig {
-            tx_timeout: None,
-            log_level: LevelFilter::INFO,
-        };
+        let prover_config = GlobalConfig { tx_timeout: None, log_level: LevelFilter::INFO };
 
         // test the Lock command
         let args = MainArgs {

@@ -46,10 +46,7 @@ impl RewardsEpoch {
             .await
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        let chain_id = provider
-            .get_chain_id()
-            .await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
         let deployment = self
@@ -131,20 +128,12 @@ impl RewardsEpoch {
 
         if let Some(ref povw) = povw_data {
             display.item_colored("Number of Miners", povw.num_participants, "cyan");
-            display.item_colored(
-                "Submitted Work",
-                &povw.total_work_formatted,
-                "yellow",
-            );
+            display.item_colored("Submitted Work", &povw.total_work_formatted, "yellow");
         }
 
         if let Some(ref staking) = staking_data {
             display.item_colored("Number of Stakers", staking.num_stakers, "cyan");
-            display.item_colored(
-                "Staked ZKC",
-                &staking.total_staking_power_formatted,
-                "green",
-            );
+            display.item_colored("Staked ZKC", &staking.total_staking_power_formatted, "green");
         }
 
         Ok(())

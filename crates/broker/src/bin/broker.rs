@@ -49,11 +49,13 @@ async fn main() -> Result<()> {
     }
 
     // Handle private key fallback: PROVER_PRIVATE_KEY -> PRIVATE_KEY
-    let private_key = args.private_key.clone().or_else(|| {
-        std::env::var("PRIVATE_KEY")
-            .ok()
-            .and_then(|key| key.parse().ok())
-    }).context("Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable")?;
+    let private_key = args
+        .private_key
+        .clone()
+        .or_else(|| std::env::var("PRIVATE_KEY").ok().and_then(|key| key.parse().ok()))
+        .context(
+            "Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable",
+        )?;
     args.private_key = Some(private_key.clone());
 
     let wallet = EthereumWallet::from(private_key.clone());

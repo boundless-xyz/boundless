@@ -19,7 +19,7 @@ use clap::Args;
 use crate::config::{GlobalConfig, ProverConfig};
 use crate::config_ext::ProverConfigExt;
 use crate::contracts::{get_token_balance, get_token_info};
-use crate::display::{DisplayManager, format_token};
+use crate::display::{format_token, DisplayManager};
 
 /// Deposit collateral funds into the market
 #[derive(Args, Clone, Debug)]
@@ -72,7 +72,14 @@ impl ProverDepositCollateral {
             display.status("Step 2", &format!("Depositing {}", collateral_label), "yellow");
             match client.boundless_market.deposit_collateral(parsed_amount).await {
                 Ok(_) => {
-                    self.display_success(&display, &client, &token_info, &formatted_amount, &collateral_label).await?;
+                    self.display_success(
+                        &display,
+                        &client,
+                        &token_info,
+                        &formatted_amount,
+                        &collateral_label,
+                    )
+                    .await?;
                     Ok(())
                 }
                 Err(e) => {
@@ -88,7 +95,11 @@ impl ProverDepositCollateral {
                 }
             }
         } else {
-            display.status("Status", &format!("Depositing {} with permit", collateral_label), "yellow");
+            display.status(
+                "Status",
+                &format!("Depositing {} with permit", collateral_label),
+                "yellow",
+            );
             let signer = client.signer.as_ref().unwrap();
             match client
                 .boundless_market
@@ -96,7 +107,14 @@ impl ProverDepositCollateral {
                 .await
             {
                 Ok(_) => {
-                    self.display_success(&display, &client, &token_info, &formatted_amount, &collateral_label).await?;
+                    self.display_success(
+                        &display,
+                        &client,
+                        &token_info,
+                        &formatted_amount,
+                        &collateral_label,
+                    )
+                    .await?;
                     Ok(())
                 }
                 Err(e) => {

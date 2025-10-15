@@ -14,13 +14,16 @@
 
 use alloy::{
     network::Ethereum,
-    primitives::{utils::{format_ether, parse_ether}, Address, U256},
+    primitives::{
+        utils::{format_ether, parse_ether},
+        Address, U256,
+    },
     providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     signers::Signer,
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_market::contracts::token::{IERC20, IERC20Permit, Permit};
+use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
     contracts::{extract_tx_log, DecodeRevert, IStaking},
     deployments::Deployment,
@@ -94,13 +97,20 @@ impl RewardsStakeZkc {
 
         // Determine if we're staking to another address or our own
         let (target_token_id, add) = if let Some(staking_address) = self.staking_address {
-            let token_id = get_active_token_id(provider.clone(), deployment.vezkc_address, staking_address).await?;
+            let token_id =
+                get_active_token_id(provider.clone(), deployment.vezkc_address, staking_address)
+                    .await?;
             if token_id.is_zero() {
                 bail!("Address {:#x} does not have an active staking position", staking_address);
             }
             (Some(token_id), true)
         } else {
-            let token_id = get_active_token_id(provider.clone(), deployment.vezkc_address, tx_signer.address()).await?;
+            let token_id = get_active_token_id(
+                provider.clone(),
+                deployment.vezkc_address,
+                tx_signer.address(),
+            )
+            .await?;
             let add = !token_id.is_zero();
             (if add { Some(token_id) } else { None }, add)
         };
@@ -192,11 +202,27 @@ impl RewardsStakeZkc {
         let zkc_token = IERC20::new(deployment.zkc_address, provider);
 
         // Query balances
-        let staked_result = staking.getStakedAmountAndWithdrawalTime(address).call().await.context("Failed to query staked amount")?;
+        let staked_result = staking
+            .getStakedAmountAndWithdrawalTime(address)
+            .call()
+            .await
+            .context("Failed to query staked amount")?;
         let staked_amount = staked_result.amount;
-        let available_balance = zkc_token.balanceOf(address).call().await.context("Failed to query available balance")?;
-        let reward_power = rewards.getStakingRewards(address).call().await.context("Failed to query reward power")?;
-        let reward_delegate = rewards.rewardDelegates(address).call().await.context("Failed to query reward delegate")?;
+        let available_balance = zkc_token
+            .balanceOf(address)
+            .call()
+            .await
+            .context("Failed to query available balance")?;
+        let reward_power = rewards
+            .getStakingRewards(address)
+            .call()
+            .await
+            .context("Failed to query reward power")?;
+        let reward_delegate = rewards
+            .rewardDelegates(address)
+            .call()
+            .await
+            .context("Failed to query reward delegate")?;
 
         // Format values
         let staked_formatted = crate::format_amount(&format_ether(staked_amount));
@@ -212,7 +238,8 @@ impl RewardsStakeZkc {
             println!(
                 "  Reward Power: {} {}",
                 "0".yellow().bold(),
-                format!("[delegated {} to {:#x}]", reward_power_formatted, reward_delegate).dimmed()
+                format!("[delegated {} to {:#x}]", reward_power_formatted, reward_delegate)
+                    .dimmed()
             );
         } else {
             let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
@@ -222,9 +249,13 @@ impl RewardsStakeZkc {
         Ok(())
     }
 
-    async fn run_dry_run(&self, _global_config: &GlobalConfig, rewards_config: &crate::config::RewardsConfig) -> Result<()> {
-        let deployment = rewards_config.zkc_deployment.as_ref()
-            .context("ZKC deployment not configured")?;
+    async fn run_dry_run(
+        &self,
+        _global_config: &GlobalConfig,
+        rewards_config: &crate::config::RewardsConfig,
+    ) -> Result<()> {
+        let deployment =
+            rewards_config.zkc_deployment.as_ref().context("ZKC deployment not configured")?;
 
         let network_name = crate::network_name_from_chain_id(deployment.chain_id);
 
@@ -283,19 +314,28 @@ impl RewardsStakeZkc {
         let max_povw_formatted = crate::format_amount(&format_ether(max_povw_per_epoch));
 
         println!("\n{}", "Maximum PoVW Rewards".bold());
-        println!("  Reward Power:  {} {}", your_stake_formatted.yellow(), "(equals staked amount)".dimmed());
-        println!("  Max per Epoch: {} {} {}", max_povw_formatted.yellow().bold(), "ZKC".yellow(), "(reward power / 15)".dimmed());
+        println!(
+            "  Reward Power:  {} {}",
+            your_stake_formatted.yellow(),
+            "(equals staked amount)".dimmed()
+        );
+        println!(
+            "  Max per Epoch: {} {} {}",
+            max_povw_formatted.yellow().bold(),
+            "ZKC".yellow(),
+            "(reward power / 15)".dimmed()
+        );
 
         // Rough staking reward estimate
-        let estimated_epoch_rewards =
-            U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
+        let estimated_epoch_rewards = U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
         let your_estimated_rewards = estimated_epoch_rewards * your_stake / new_total;
-        let estimated_rewards_formatted = crate::format_amount(&format_ether(your_estimated_rewards));
+        let estimated_rewards_formatted =
+            crate::format_amount(&format_ether(your_estimated_rewards));
 
         // Calculate APY as a rough estimate
         let apy = if your_stake > U256::ZERO {
-            let reward_ratio = (your_estimated_rewards * U256::from(10000) / your_stake)
-                .to::<u64>() as f64
+            let reward_ratio = (your_estimated_rewards * U256::from(10000) / your_stake).to::<u64>()
+                as f64
                 / 10000.0;
             reward_ratio * 52.0 * 100.0
         } else {
@@ -350,7 +390,10 @@ impl RewardsStakeZkc {
         let v = signature[64];
 
         let send_result = if let Some(token_id) = token_id {
-            staking.addToStakeWithPermitByTokenId(token_id, amount, U256::from(deadline), v, r, s).send().await
+            staking
+                .addToStakeWithPermitByTokenId(token_id, amount, U256::from(deadline), v, r, s)
+                .send()
+                .await
         } else {
             staking.stakeWithPermit(amount, U256::from(deadline), v, r, s).send().await
         };
@@ -389,10 +432,7 @@ impl RewardsStakeZkc {
         value: U256,
         token_id: Option<U256>,
     ) -> Result<()> {
-        let approve_call = IERC20::approveCall {
-            spender: deployment.vezkc_address,
-            value,
-        };
+        let approve_call = IERC20::approveCall { spender: deployment.vezkc_address, value };
 
         println!("========= Approve Call =========");
         println!("target address: {}", deployment.zkc_address);

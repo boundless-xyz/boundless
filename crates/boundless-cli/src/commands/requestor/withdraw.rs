@@ -18,7 +18,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::{DisplayManager, format_eth};
+use crate::display::{format_eth, DisplayManager};
 
 /// Command to withdraw funds from the market
 #[derive(Args, Clone, Debug)]
@@ -37,7 +37,8 @@ impl RequestorWithdraw {
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
-        let client = requestor_config.client_builder_with_signer(global_config.tx_timeout)?.build().await?;
+        let client =
+            requestor_config.client_builder_with_signer(global_config.tx_timeout)?.build().await?;
         let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
 
         let display = DisplayManager::with_network(network_name);

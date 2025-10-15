@@ -19,7 +19,7 @@ use clap::Args;
 use crate::config::{GlobalConfig, ProverConfig};
 use crate::config_ext::ProverConfigExt;
 use crate::contracts::{get_token_balance, get_token_info};
-use crate::display::{DisplayManager, format_token};
+use crate::display::{format_token, DisplayManager};
 
 /// Withdraw collateral funds from the market
 #[derive(Args, Clone, Debug)]
@@ -74,7 +74,8 @@ impl ProverWithdrawCollateral {
         // Display updated balance
         let addr = client.boundless_market.caller();
         let deposited = client.boundless_market.balance_of_collateral(addr).await?;
-        let available = get_token_balance(client.provider(), collateral_token_address, addr).await?;
+        let available =
+            get_token_balance(client.provider(), collateral_token_address, addr).await?;
 
         let deposited_formatted = format_token(deposited, token_info.decimals)?;
         let available_formatted = format_token(available, token_info.decimals)?;

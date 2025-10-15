@@ -69,7 +69,7 @@ impl RewardsConfigExt for RewardsConfig {
             "No RPC URL configured for rewards.\n\n\
             To configure: run 'boundless rewards setup'\n\
             Or set REWARD_RPC_URL environment variable\n\
-            Or use --rpc-url flag"
+            Or use --rpc-url flag",
         )
     }
 
@@ -78,7 +78,7 @@ impl RewardsConfigExt for RewardsConfig {
             "No reward private key configured.\n\n\
             To configure: run 'boundless rewards setup'\n\
             Or set REWARD_PRIVATE_KEY environment variable\n\
-            Or use --reward-private-key flag"
+            Or use --reward-private-key flag",
         )
     }
 
@@ -88,7 +88,7 @@ impl RewardsConfigExt for RewardsConfig {
             "No PoVW private key configured.\n\n\
             To configure: run 'boundless rewards setup' and enable PoVW\n\
             Or set REWARD_PRIVATE_KEY environment variable\n\
-            Or use --reward-private-key flag"
+            Or use --reward-private-key flag",
         )
     }
 
@@ -97,7 +97,7 @@ impl RewardsConfigExt for RewardsConfig {
             "No staking private key configured.\n\n\
             To configure: run 'boundless rewards setup'\n\
             Or set STAKING_PRIVATE_KEY environment variable\n\
-            Or use --staking-private-key flag"
+            Or use --staking-private-key flag",
         )
     }
 
@@ -106,28 +106,31 @@ impl RewardsConfigExt for RewardsConfig {
             "No reward address configured.\n\n\
             To configure: run 'boundless rewards setup'\n\
             Or set REWARD_ADDRESS environment variable\n\
-            Or use --recipient flag"
+            Or use --recipient flag",
         )
     }
 
     fn get_zkc_deployment(&self, chain_id: u64) -> Result<ZkcDeployment> {
-        self.zkc_deployment.clone()
-            .or_else(|| ZkcDeployment::from_chain_id(chain_id))
-            .with_context(|| format!(
-                "Could not determine ZKC deployment for chain ID {}.\n\
+        self.zkc_deployment.clone().or_else(|| ZkcDeployment::from_chain_id(chain_id)).with_context(
+            || {
+                format!(
+                    "Could not determine ZKC deployment for chain ID {}.\n\
                 Please specify deployment explicitly with environment variables or flags",
-                chain_id
-            ))
+                    chain_id
+                )
+            },
+        )
     }
 
     fn get_povw_deployment(&self, chain_id: u64) -> Result<PovwDeployment> {
         // Use ZKC deployment as base for PoVW deployment
-        PovwDeployment::from_chain_id(chain_id)
-            .with_context(|| format!(
+        PovwDeployment::from_chain_id(chain_id).with_context(|| {
+            format!(
                 "Could not determine PoVW deployment for chain ID {}.\n\
                 Please specify deployment explicitly with environment variables or flags",
                 chain_id
-            ))
+            )
+        })
     }
 }
 
@@ -180,7 +183,7 @@ impl ProverConfigExt for ProverConfig {
             "No prover private key configured.\n\n\
             To configure: run 'boundless prover setup'\n\
             Or set PROVER_PRIVATE_KEY environment variable\n\
-            Or use --private-key flag"
+            Or use --private-key flag",
         )
     }
 
@@ -189,18 +192,20 @@ impl ProverConfigExt for ProverConfig {
             "No RPC URL configured for prover.\n\n\
             To configure: run 'boundless prover setup'\n\
             Or set PROVER_RPC_URL environment variable\n\
-            Or use --rpc-url flag"
+            Or use --rpc-url flag",
         )
     }
 
     fn get_deployment(&self, chain_id: u64) -> Result<MarketDeployment> {
-        self.deployment.clone()
-            .or_else(|| MarketDeployment::from_chain_id(chain_id))
-            .with_context(|| format!(
-                "Could not determine Boundless Market deployment for chain ID {}.\n\
+        self.deployment.clone().or_else(|| MarketDeployment::from_chain_id(chain_id)).with_context(
+            || {
+                format!(
+                    "Could not determine Boundless Market deployment for chain ID {}.\n\
                 Please specify deployment explicitly with environment variables or flags",
-                chain_id
-            ))
+                    chain_id
+                )
+            },
+        )
     }
 
     fn configure_backend(&mut self) -> Result<()> {
@@ -255,7 +260,7 @@ impl RequestorConfigExt for RequestorConfig {
             "No requestor private key configured.\n\n\
             To configure: run 'boundless requestor setup'\n\
             Or set REQUESTOR_PRIVATE_KEY environment variable\n\
-            Or use --private-key flag"
+            Or use --private-key flag",
         )
     }
 
@@ -264,18 +269,20 @@ impl RequestorConfigExt for RequestorConfig {
             "No RPC URL configured for requestor.\n\n\
             To configure: run 'boundless requestor setup'\n\
             Or set REQUESTOR_RPC_URL environment variable\n\
-            Or use --rpc-url flag"
+            Or use --rpc-url flag",
         )
     }
 
     fn get_deployment(&self, chain_id: u64) -> Result<MarketDeployment> {
-        self.deployment.clone()
-            .or_else(|| MarketDeployment::from_chain_id(chain_id))
-            .with_context(|| format!(
-                "Could not determine Boundless Market deployment for chain ID {}.\n\
+        self.deployment.clone().or_else(|| MarketDeployment::from_chain_id(chain_id)).with_context(
+            || {
+                format!(
+                    "Could not determine Boundless Market deployment for chain ID {}.\n\
                 Please specify deployment explicitly with environment variables or flags",
-                chain_id
-            ))
+                    chain_id
+                )
+            },
+        )
     }
 }
 
@@ -321,17 +328,16 @@ pub fn validate_prover_address_input(
     context: &str,
 ) -> Result<Address> {
     // Priority: CLI arg > config address > private key derived address
-    address_arg
-        .or(config_address)
-        .or_else(|| private_key.map(|pk| pk.address()))
-        .with_context(|| {
+    address_arg.or(config_address).or_else(|| private_key.map(|pk| pk.address())).with_context(
+        || {
             format!(
                 "No address specified for {}.\n\n\
                 To configure a default address: run 'boundless prover setup'\n\
                 Or provide an address as an argument",
                 context
             )
-        })
+        },
+    )
 }
 
 #[cfg(test)]
@@ -414,39 +420,20 @@ mod tests {
             .unwrap();
 
         // CLI arg takes precedence
-        let result = validate_prover_address_input(
-            Some(cli_addr),
-            Some(config_addr),
-            Some(&signer),
-            "test"
-        );
+        let result =
+            validate_prover_address_input(Some(cli_addr), Some(config_addr), Some(&signer), "test");
         assert_eq!(result.unwrap(), cli_addr);
 
         // Config address used when no CLI arg
-        let result = validate_prover_address_input(
-            None,
-            Some(config_addr),
-            Some(&signer),
-            "test"
-        );
+        let result = validate_prover_address_input(None, Some(config_addr), Some(&signer), "test");
         assert_eq!(result.unwrap(), config_addr);
 
         // Private key derived when no CLI arg or config address
-        let result = validate_prover_address_input(
-            None,
-            None,
-            Some(&signer),
-            "test"
-        );
+        let result = validate_prover_address_input(None, None, Some(&signer), "test");
         assert_eq!(result.unwrap(), signer.address());
 
         // Read-only mode: config address but no private key
-        let result = validate_prover_address_input(
-            None,
-            Some(config_addr),
-            None,
-            "test"
-        );
+        let result = validate_prover_address_input(None, Some(config_addr), None, "test");
         assert_eq!(result.unwrap(), config_addr);
 
         // Error when nothing is provided

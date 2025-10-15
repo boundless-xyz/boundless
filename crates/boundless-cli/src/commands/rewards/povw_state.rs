@@ -14,7 +14,12 @@
 
 //! PoVW state management for rewards commands.
 
-use std::{collections::HashMap, io::Write, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap,
+    io::Write,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::{primitives::B256, rpc::types::TransactionReceipt};
 use anyhow::{bail, ensure, Context, Result};

@@ -45,28 +45,15 @@ where
 {
     let token = IERC20::new(token_address, provider);
 
-    let symbol = token
-        .symbol()
-        .call()
-        .await
-        .context("Failed to get token symbol")?;
+    let symbol = token.symbol().call().await.context("Failed to get token symbol")?;
 
-    let decimals = token
-        .decimals()
-        .call()
-        .await
-        .context("Failed to get token decimals")?;
+    let decimals = token.decimals().call().await.context("Failed to get token decimals")?;
 
     // Name is optional - not all tokens have it in the IERC20 interface
     // We'll set it to None for now
     let name = None;
 
-    Ok(TokenInfo {
-        address: token_address,
-        symbol,
-        decimals,
-        name,
-    })
+    Ok(TokenInfo { address: token_address, symbol, decimals, name })
 }
 
 /// Get balance of an ERC20 token
@@ -79,11 +66,7 @@ where
     P: Provider<Ethereum> + Clone + 'static,
 {
     let token = IERC20::new(token_address, provider);
-    token
-        .balanceOf(account)
-        .call()
-        .await
-        .context("Failed to get token balance")
+    token.balanceOf(account).call().await.context("Failed to get token balance")
 }
 
 /// Get both native ETH and token balances
@@ -95,10 +78,7 @@ pub async fn get_balances<P>(
 where
     P: Provider<Ethereum> + Clone + 'static,
 {
-    let eth_balance = provider
-        .get_balance(account)
-        .await
-        .context("Failed to get ETH balance")?;
+    let eth_balance = provider.get_balance(account).await.context("Failed to get ETH balance")?;
 
     let token_balance = if let Some(addr) = token_address {
         Some(get_token_balance(provider, addr, account).await?)
@@ -128,11 +108,7 @@ pub async fn confirm_transaction(
         .await
         .with_context(|| format!("Failed to get receipt for transaction {:#x}", tx_hash))?;
 
-    ensure!(
-        receipt.status(),
-        "Transaction failed: {:#x}",
-        receipt.transaction_hash
-    );
+    ensure!(receipt.status(), "Transaction failed: {:#x}", receipt.transaction_hash);
 
     Ok(receipt)
 }
@@ -187,29 +163,21 @@ where
             .into_iter()
             .map(move |addr| {
                 let token_contract = token_contract.clone();
-                async move {
-                    token_contract.balanceOf(addr).call().await
-                }
+                async move { token_contract.balanceOf(addr).call().await }
             })
             .collect::<Vec<_>>();
 
-        try_join_all(futures)
-            .await
-            .context("Failed to get token balances")
+        try_join_all(futures).await.context("Failed to get token balances")
     } else {
         let futures = addresses
             .into_iter()
             .map(move |addr| {
                 let provider = provider.clone();
-                async move {
-                    provider.get_balance(addr).await
-                }
+                async move { provider.get_balance(addr).await }
             })
             .collect::<Vec<_>>();
 
-        try_join_all(futures)
-            .await
-            .context("Failed to get ETH balances")
+        try_join_all(futures).await.context("Failed to get ETH balances")
     }
 }
 
@@ -256,10 +224,7 @@ pub async fn get_block_timestamp<P>(provider: P) -> Result<u64>
 where
     P: Provider<Ethereum> + 'static,
 {
-    let block_number = provider
-        .get_block_number()
-        .await
-        .context("Failed to get block number")?;
+    let block_number = provider.get_block_number().await.context("Failed to get block number")?;
 
     let block = provider
         .get_block_by_number(block_number.into())
@@ -284,23 +249,14 @@ where
 {
     use alloy::rpc::types::TransactionRequest;
 
-    let tx = TransactionRequest::default()
-        .from(from)
-        .to(to)
-        .input(data.into())
-        .value(value);
+    let tx = TransactionRequest::default().from(from).to(to).input(data.into()).value(value);
 
-    let estimated = provider
-        .estimate_gas(tx)
-        .await
-        .context("Failed to estimate gas")?;
+    let estimated = provider.estimate_gas(tx).await.context("Failed to estimate gas")?;
 
     // Add safety margin (e.g., 20% more)
     // Convert u64 to u128 for calculation
     let estimated_u128: u128 = estimated.into();
-    let with_margin = U256::from(
-        (estimated_u128 as f64 * (1.0 + margin)) as u128
-    );
+    let with_margin = U256::from((estimated_u128 as f64 * (1.0 + margin)) as u128);
 
     Ok(with_margin)
 }
@@ -335,9 +291,7 @@ mod tests {
         } else {
             base_gas.try_into().unwrap_or(u128::MAX)
         };
-        let with_margin = U256::from(
-            (base_gas_u128 as f64 * (1.0 + margin)) as u128
-        );
+        let with_margin = U256::from((base_gas_u128 as f64 * (1.0 + margin)) as u128);
 
         assert_eq!(with_margin, expected);
     }

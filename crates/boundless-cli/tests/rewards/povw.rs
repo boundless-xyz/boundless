@@ -187,20 +187,15 @@ async fn test_inspect_povw_state() -> anyhow::Result<()> {
 
     // Now inspect the state file
     let mut cmd = cli_cmd()?;
-    cmd.args([
-        "rewards",
-        "inspect-povw-state",
-        "--state-file",
-        state_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .assert()
-    .success()
-    .stdout(contains("State Metadata"))
-    .stdout(contains("Log ID:"))
-    .stdout(contains("Work Log"))
-    .stdout(contains("Jobs:"))
-    .stdout(contains("1")); // Should show 1 job
+    cmd.args(["rewards", "inspect-povw-state", "--state-file", state_path.to_str().unwrap()])
+        .env("NO_COLOR", "1")
+        .assert()
+        .success()
+        .stdout(contains("State Metadata"))
+        .stdout(contains("Log ID:"))
+        .stdout(contains("Work Log"))
+        .stdout(contains("Jobs:"))
+        .stdout(contains("1")); // Should show 1 job
 
     Ok(())
 }
@@ -747,8 +742,7 @@ async fn test_prepare_from_bento_multiple_log_ids() -> anyhow::Result<()> {
         .assert();
 
     // Should succeed and log warnings about skipping other log ID
-    let result =
-        result.success().stdout(contains("Skipping receipts associated with"));
+    let result = result.success().stdout(contains("Skipping receipts associated with"));
 
     println!("command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
@@ -812,9 +806,12 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
 
     // Count existing backup files before update
     let before_count = std::fs::read_dir(&backup_dir)
-        .map(|entries| entries.filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(&format!("{:x}", log_id)))
-            .count())
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains(&format!("{:x}", log_id)))
+                .count()
+        })
         .unwrap_or(0);
 
     // Update state file (should create backup)
@@ -836,20 +833,22 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
 
     // Check that output mentions backup
     let output = String::from_utf8_lossy(&result.get_output().stdout);
-    assert!(output.contains("Saved backup of previous state to:"), "Should mention backup creation");
+    assert!(
+        output.contains("Saved backup of previous state to:"),
+        "Should mention backup creation"
+    );
 
     // Count backup files after update
     let after_count = std::fs::read_dir(&backup_dir)
-        .map(|entries| entries.filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(&format!("{:x}", log_id)))
-            .count())
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains(&format!("{:x}", log_id)))
+                .count()
+        })
         .unwrap_or(0);
 
-    assert_eq!(
-        after_count,
-        before_count + 1,
-        "Should have created one new backup file"
-    );
+    assert_eq!(after_count, before_count + 1, "Should have created one new backup file");
 
     // Verify updated state has 2 jobs
     let state = State::load(&state_path).await?;

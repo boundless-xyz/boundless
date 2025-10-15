@@ -105,9 +105,8 @@ impl TestContext {
             .await
             .expect("Failed to deploy ZKC contracts");
 
-        let anvil_instance = Arc::try_unwrap(test_ctx.anvil)
-            .expect("Failed to unwrap Arc")
-            .into_inner();
+        let anvil_instance =
+            Arc::try_unwrap(test_ctx.anvil).expect("Failed to unwrap Arc").into_inner();
 
         Self {
             anvil: anvil_instance,

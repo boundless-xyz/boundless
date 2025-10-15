@@ -20,7 +20,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::{DisplayManager, format_eth};
+use crate::display::{format_eth, DisplayManager};
 
 /// Check the ZKC token balance of an address
 #[derive(Args, Clone, Debug)]
@@ -46,8 +46,7 @@ impl RewardsBalanceZkc {
             .await
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        let chain_id = provider.get_chain_id().await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
@@ -64,7 +63,10 @@ impl RewardsBalanceZkc {
         // If address is provided, just check that one
         if let Some(address) = self.address {
             let zkc_token_balance = IERC20::new(zkc_address, &provider);
-            let balance = zkc_token_balance.balanceOf(address).call().await
+            let balance = zkc_token_balance
+                .balanceOf(address)
+                .call()
+                .await
                 .context("Failed to get token balance")?;
 
             display.header("ZKC Balance");
@@ -74,7 +76,8 @@ impl RewardsBalanceZkc {
             // No address provided - check both staking and reward addresses from config
             use crate::config_file::{Config, Secrets};
 
-            let config = Config::load().context("Failed to load config - run 'boundless rewards setup'")?;
+            let config =
+                Config::load().context("Failed to load config - run 'boundless rewards setup'")?;
             let network = config
                 .rewards
                 .as_ref()
@@ -82,22 +85,23 @@ impl RewardsBalanceZkc {
                 .network
                 .clone();
 
-            let secrets = Secrets::load().context("Failed to load secrets - no addresses configured")?;
-            let rewards_secrets = secrets
-                .rewards_networks
-                .get(&network)
-                .context("No rewards secrets found for current network - run 'boundless rewards setup'")?;
+            let secrets =
+                Secrets::load().context("Failed to load secrets - no addresses configured")?;
+            let rewards_secrets = secrets.rewards_networks.get(&network).context(
+                "No rewards secrets found for current network - run 'boundless rewards setup'",
+            )?;
 
             let mut checked_addresses = Vec::new();
 
             // Get staking address
-            let staking_addr_opt = rewards_secrets.staking_address.as_ref().cloned().or_else(|| {
-                rewards_secrets.staking_private_key.as_ref().and_then(|pk| {
-                    pk.parse::<alloy::signers::local::PrivateKeySigner>()
-                        .ok()
-                        .map(|s| format!("{:#x}", s.address()))
-                })
-            });
+            let staking_addr_opt =
+                rewards_secrets.staking_address.as_ref().cloned().or_else(|| {
+                    rewards_secrets.staking_private_key.as_ref().and_then(|pk| {
+                        pk.parse::<alloy::signers::local::PrivateKeySigner>()
+                            .ok()
+                            .map(|s| format!("{:#x}", s.address()))
+                    })
+                });
 
             // Get reward address
             let reward_addr_opt = rewards_secrets.reward_address.as_ref().cloned().or_else(|| {
@@ -110,12 +114,14 @@ impl RewardsBalanceZkc {
 
             // Always show both staking and reward addresses separately
             if let Some(staking_addr_str) = staking_addr_opt {
-                let staking_addr: Address = staking_addr_str.parse().context("Invalid staking address")?;
+                let staking_addr: Address =
+                    staking_addr_str.parse().context("Invalid staking address")?;
                 checked_addresses.push(("Staking", staking_addr));
             }
 
             if let Some(reward_addr_str) = reward_addr_opt {
-                let reward_addr: Address = reward_addr_str.parse().context("Invalid reward address")?;
+                let reward_addr: Address =
+                    reward_addr_str.parse().context("Invalid reward address")?;
                 checked_addresses.push(("Reward", reward_addr));
             }
 
@@ -128,8 +134,10 @@ impl RewardsBalanceZkc {
             // Query and display balance for each address
             for (i, (label, address)) in checked_addresses.iter().enumerate() {
                 let zkc_token_bal = IERC20::new(zkc_address, &provider);
-                let balance = zkc_token_bal.balanceOf(*address).call().await
-                    .with_context(|| format!("Failed to query ZKC balance for {} address", label))?;
+                let balance =
+                    zkc_token_bal.balanceOf(*address).call().await.with_context(|| {
+                        format!("Failed to query ZKC balance for {} address", label)
+                    })?;
 
                 if i > 0 {
                     println!();

@@ -4,15 +4,60 @@ fn main() {
     println!("\n{}\n", "=== OPTION 1: Cyan Gradient with Border ===".bold());
     println!("{}", "╔═══════════════════════════════════╗".cyan().bold());
     println!("{}     .MMMMMMMMMM,                  {}", "║".cyan().bold(), "║".cyan().bold());
-    println!("{}  {}              {}", "║".cyan().bold(), ",MMMMO     cMMMMMc".bright_cyan().bold(), "║".cyan().bold());
-    println!("{} {}               {}", "║".cyan().bold(), "WMMMMx       .MMMMMM".cyan().bold(), "║".cyan().bold());
-    println!("{}{} {}", "║".cyan().bold(), "0MMMMM'        ;MMMMM0".bright_cyan().bold(), "║".cyan().bold());
-    println!("{}{}{}", "║".cyan().bold(), ":MMMMM.           :MMM".cyan().bold(), "║".cyan().bold());
-    println!("{}      {} {}", "║".cyan().bold(), "0MMMMM;        .MMMMMK".bright_cyan().bold(), "║".cyan().bold());
-    println!("{}       {}        {}", "║".cyan().bold(), "MMMMMM.       dMMMMM".cyan().bold(), "║".cyan().bold());
-    println!("{}        {}       {}", "║".cyan().bold(), "lMMMMM;     dMMMMc".bright_cyan().bold(), "║".cyan().bold());
-    println!("{}           {}  {}", "║".cyan().bold(), "lMMMMMMMMMM:".cyan().bold(), "║".cyan().bold());
-    println!("{}               {}               {}", "║".cyan().bold(), "lMM;".bright_cyan().bold(), "║".cyan().bold());
+    println!(
+        "{}  {}              {}",
+        "║".cyan().bold(),
+        ",MMMMO     cMMMMMc".bright_cyan().bold(),
+        "║".cyan().bold()
+    );
+    println!(
+        "{} {}               {}",
+        "║".cyan().bold(),
+        "WMMMMx       .MMMMMM".cyan().bold(),
+        "║".cyan().bold()
+    );
+    println!(
+        "{}{} {}",
+        "║".cyan().bold(),
+        "0MMMMM'        ;MMMMM0".bright_cyan().bold(),
+        "║".cyan().bold()
+    );
+    println!(
+        "{}{}{}",
+        "║".cyan().bold(),
+        ":MMMMM.           :MMM".cyan().bold(),
+        "║".cyan().bold()
+    );
+    println!(
+        "{}      {} {}",
+        "║".cyan().bold(),
+        "0MMMMM;        .MMMMMK".bright_cyan().bold(),
+        "║".cyan().bold()
+    );
+    println!(
+        "{}       {}        {}",
+        "║".cyan().bold(),
+        "MMMMMM.       dMMMMM".cyan().bold(),
+        "║".cyan().bold()
+    );
+    println!(
+        "{}        {}       {}",
+        "║".cyan().bold(),
+        "lMMMMM;     dMMMMc".bright_cyan().bold(),
+        "║".cyan().bold()
+    );
+    println!(
+        "{}           {}  {}",
+        "║".cyan().bold(),
+        "lMMMMMMMMMM:".cyan().bold(),
+        "║".cyan().bold()
+    );
+    println!(
+        "{}               {}               {}",
+        "║".cyan().bold(),
+        "lMM;".bright_cyan().bold(),
+        "║".cyan().bold()
+    );
     println!("{}", "╚═══════════════════════════════════╝".cyan().bold());
 
     println!("\n{}\n", "=== OPTION 2: Purple & Blue Neon ===".bold());
@@ -67,15 +112,65 @@ fn main() {
 
     println!("\n{}\n", "=== OPTION 6: Blue Fire ===".bold());
     println!("{}", "╭─────────────────────────────────╮".bright_blue().bold());
-    println!("{}     {}                  {}", "│".bright_blue().bold(), ".MMMMMMMMMM,".white().bold(), "│".bright_blue().bold());
-    println!("{}  {}              {}", "│".bright_blue().bold(), ",MMMMO     cMMMMMc".bright_white().bold(), "│".bright_blue().bold());
-    println!("{} {}               {}", "│".bright_blue().bold(), "WMMMMx       .MMMMMM".bright_cyan().bold(), "│".bright_blue().bold());
-    println!("{}{} {}", "│".bright_blue().bold(), "0MMMMM'        ;MMMMM0".cyan().bold(), "│".bright_blue().bold());
-    println!("{}{}{}", "│".bright_blue().bold(), ":MMMMM.           :MMM".bright_blue().bold(), "│".bright_blue().bold());
-    println!("{}      {} {}", "│".bright_blue().bold(), "0MMMMM;        .MMMMMK".blue().bold(), "│".bright_blue().bold());
-    println!("{}       {}        {}", "│".bright_blue().bold(), "MMMMMM.       dMMMMM".bright_cyan().bold(), "│".bright_blue().bold());
-    println!("{}        {}       {}", "│".bright_blue().bold(), "lMMMMM;     dMMMMc".cyan().bold(), "│".bright_blue().bold());
-    println!("{}           {}  {}", "│".bright_blue().bold(), "lMMMMMMMMMM:".bright_blue().bold(), "│".bright_blue().bold());
-    println!("{}               {}               {}", "│".bright_blue().bold(), "lMM;".blue().bold(), "│".bright_blue().bold());
+    println!(
+        "{}     {}                  {}",
+        "│".bright_blue().bold(),
+        ".MMMMMMMMMM,".white().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{}  {}              {}",
+        "│".bright_blue().bold(),
+        ",MMMMO     cMMMMMc".bright_white().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{} {}               {}",
+        "│".bright_blue().bold(),
+        "WMMMMx       .MMMMMM".bright_cyan().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{}{} {}",
+        "│".bright_blue().bold(),
+        "0MMMMM'        ;MMMMM0".cyan().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{}{}{}",
+        "│".bright_blue().bold(),
+        ":MMMMM.           :MMM".bright_blue().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{}      {} {}",
+        "│".bright_blue().bold(),
+        "0MMMMM;        .MMMMMK".blue().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{}       {}        {}",
+        "│".bright_blue().bold(),
+        "MMMMMM.       dMMMMM".bright_cyan().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{}        {}       {}",
+        "│".bright_blue().bold(),
+        "lMMMMM;     dMMMMc".cyan().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{}           {}  {}",
+        "│".bright_blue().bold(),
+        "lMMMMMMMMMM:".bright_blue().bold(),
+        "│".bright_blue().bold()
+    );
+    println!(
+        "{}               {}               {}",
+        "│".bright_blue().bold(),
+        "lMM;".blue().bold(),
+        "│".bright_blue().bold()
+    );
     println!("{}", "╰─────────────────────────────────╯".bright_blue().bold());
 }

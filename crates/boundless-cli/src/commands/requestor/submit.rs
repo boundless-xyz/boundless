@@ -142,10 +142,7 @@ impl RequestorSubmit {
         };
 
         display.item("Request ID", format!("{:#x}", request_id));
-        display.item(
-            "Bidding Starts",
-            convert_timestamp(request.offer.rampUpStart)
-        );
+        display.item("Bidding Starts", convert_timestamp(request.offer.rampUpStart));
         display.success("Request submitted successfully");
 
         // Wait for fulfillment if requested
@@ -156,7 +153,10 @@ impl RequestorSubmit {
                 .await?;
 
             display.success("Request fulfilled!");
-            println!("\nFulfillment Data:\n{}", serde_json::to_string_pretty(&fulfillment.data()?)?);
+            println!(
+                "\nFulfillment Data:\n{}",
+                serde_json::to_string_pretty(&fulfillment.data()?)?
+            );
             println!("\nSeal:\n{}", serde_json::to_string_pretty(&fulfillment.seal)?);
         }
 

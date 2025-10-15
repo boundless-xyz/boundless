@@ -43,9 +43,8 @@ impl SetupClear {
         println!("  • PoVW state file backups (in any directory)");
 
         if !self.force {
-            let confirmed = Confirm::new("Are you sure you want to continue?")
-                .with_default(false)
-                .prompt()?;
+            let confirmed =
+                Confirm::new("Are you sure you want to continue?").with_default(false).prompt()?;
 
             if !confirmed {
                 println!("\n{}", "Cancelled".dimmed());

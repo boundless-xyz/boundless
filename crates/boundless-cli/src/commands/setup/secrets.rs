@@ -61,17 +61,17 @@ fn obscure_segment(segment: &str) -> String {
         segment.to_string()
     } else if len <= 10 {
         // Show 2 chars + *** + 2 chars
-        format!("{}***{}",
-            segment[..2].to_lowercase(),
-            segment[len - 2..].to_lowercase())
+        format!("{}***{}", segment[..2].to_lowercase(), segment[len - 2..].to_lowercase())
     } else {
         // Show 3-4 chars + ***** + 3-4 chars (scale with length)
         let show_chars = if len > 15 { 4 } else { 3 };
         let stars = if len > 15 { "*****" } else { "***" };
-        format!("{}{}{}",
+        format!(
+            "{}{}{}",
             segment[..show_chars].to_lowercase(),
             stars,
-            segment[len - show_chars..].to_lowercase())
+            segment[len - show_chars..].to_lowercase()
+        )
     }
 }
 
@@ -87,15 +87,12 @@ pub fn obscure_url(url: &str) -> String {
 
         // Process the host (first part) - split by dots
         let host = parts[0];
-        let obscured_host = host.split('.')
-            .map(|segment| obscure_segment(segment))
-            .collect::<Vec<_>>()
-            .join(".");
+        let obscured_host =
+            host.split('.').map(|segment| obscure_segment(segment)).collect::<Vec<_>>().join(".");
 
         // Process the path segments
-        let obscured_path: Vec<String> = parts[1..].iter()
-            .map(|&segment| obscure_segment(segment))
-            .collect();
+        let obscured_path: Vec<String> =
+            parts[1..].iter().map(|&segment| obscure_segment(segment)).collect();
 
         // Reconstruct URL
         if obscured_path.is_empty() {
@@ -105,10 +102,7 @@ pub fn obscure_url(url: &str) -> String {
         }
     } else {
         // No protocol, just obscure each slash-separated part
-        url.split('/')
-            .map(|part| obscure_segment(part))
-            .collect::<Vec<_>>()
-            .join("/")
+        url.split('/').map(|part| obscure_segment(part)).collect::<Vec<_>>().join("/")
     }
 }
 
@@ -174,7 +168,10 @@ mod tests {
         let pk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
         let address = address_from_private_key(pk);
         assert!(address.is_some());
-        assert_eq!(format!("{:#x}", address.unwrap()), "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+        assert_eq!(
+            format!("{:#x}", address.unwrap()),
+            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+        );
     }
 
     #[test]
@@ -182,7 +179,10 @@ mod tests {
         let pk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
         let address = address_from_private_key(pk);
         assert!(address.is_some());
-        assert_eq!(format!("{:#x}", address.unwrap()), "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+        assert_eq!(
+            format!("{:#x}", address.unwrap()),
+            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+        );
     }
 
     #[test]

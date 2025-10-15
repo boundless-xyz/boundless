@@ -52,28 +52,28 @@ impl RewardsInspectPovwState {
         };
 
         // Get absolute path for display
-        let display_path = std::fs::canonicalize(&expanded_path)
-            .unwrap_or_else(|_| {
-                std::env::current_dir()
-                    .map(|cwd| cwd.join(&expanded_path))
-                    .unwrap_or_else(|_| expanded_path.clone())
-            });
+        let display_path = std::fs::canonicalize(&expanded_path).unwrap_or_else(|_| {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(&expanded_path))
+                .unwrap_or_else(|_| expanded_path.clone())
+        });
 
         // Get file metadata
         let file_metadata = std::fs::metadata(&expanded_path)
             .with_context(|| format!("Failed to read file metadata: {}", display_path.display()))?;
 
         let file_size = file_metadata.len();
-        let file_modified = file_metadata.modified()
+        let file_modified = file_metadata
+            .modified()
             .ok()
             .and_then(|t| t.elapsed().ok())
             .map(|d| format_duration(d))
             .unwrap_or_else(|| "unknown".to_string());
 
         // Load state
-        let state = State::load(&expanded_path)
-            .await
-            .with_context(|| format!("Failed to load PoVW state file: {}", display_path.display()))?;
+        let state = State::load(&expanded_path).await.with_context(|| {
+            format!("Failed to load PoVW state file: {}", display_path.display())
+        })?;
 
         // Print header
         println!("\n{}", "═══════════════════════════════════════════════════════".bold());
@@ -110,17 +110,19 @@ impl RewardsInspectPovwState {
             let jobs_to_show: Vec<_> = job_ids.iter().rev().take(10).cloned().collect();
             let showing_count = jobs_to_show.len();
 
-            println!("\n  Last {} Jobs: (showing {} of {})",
-                showing_count,
-                showing_count,
-                total_jobs);
+            println!(
+                "\n  Last {} Jobs: (showing {} of {})",
+                showing_count, showing_count, total_jobs
+            );
 
             for (display_idx, job_id) in jobs_to_show.iter().enumerate() {
                 if let Some(job_data) = state.work_log.jobs.get(*job_id) {
-                    println!("    {}. Job ID: {} | Commit: {}",
+                    println!(
+                        "    {}. Job ID: {} | Commit: {}",
                         (display_idx + 1).to_string().dimmed(),
                         job_id.to_string().cyan(),
-                        format!("{:?}", job_data).dimmed());
+                        format!("{:?}", job_data).dimmed()
+                    );
                 }
             }
         }
@@ -137,13 +139,21 @@ impl RewardsInspectPovwState {
             println!("\n  Receipt Details:");
 
             for (idx, receipt) in state.log_builder_receipts.iter().enumerate() {
-                println!("    {}. Receipt #{}",
+                println!(
+                    "    {}. Receipt #{}",
                     (idx + 1).to_string().dimmed(),
-                    idx.to_string().cyan());
+                    idx.to_string().cyan()
+                );
 
                 if let Ok(journal) = LogBuilderJournal::decode(&receipt.journal.bytes) {
-                    println!("       Initial commit:  {}", journal.initial_commit.to_string().dimmed());
-                    println!("       Updated commit:  {}", journal.updated_commit.to_string().dimmed());
+                    println!(
+                        "       Initial commit:  {}",
+                        journal.initial_commit.to_string().dimmed()
+                    );
+                    println!(
+                        "       Updated commit:  {}",
+                        journal.updated_commit.to_string().dimmed()
+                    );
 
                     // Store commit mapping for later use in transaction linking
                     commit_to_receipt.insert(journal.updated_commit.to_string(), idx);
@@ -181,11 +191,23 @@ impl RewardsInspectPovwState {
         };
 
         if has_unsubmitted_work {
-            println!("  Status:        {} {}", "Has unsubmitted work".yellow().bold(), "(run 'boundless rewards submit-povw')".dimmed());
+            println!(
+                "  Status:        {} {}",
+                "Has unsubmitted work".yellow().bold(),
+                "(run 'boundless rewards submit-povw')".dimmed()
+            );
         } else if state.update_transactions.is_empty() {
-            println!("  Status:        {} {}", "Never submitted".yellow(), "(no transactions recorded)".dimmed());
+            println!(
+                "  Status:        {} {}",
+                "Never submitted".yellow(),
+                "(no transactions recorded)".dimmed()
+            );
         } else {
-            println!("  Status:        {} {}", "Up to date".green().bold(), "(all work submitted)".dimmed());
+            println!(
+                "  Status:        {} {}",
+                "Up to date".green().bold(),
+                "(all work submitted)".dimmed()
+            );
         }
 
         if !state.update_transactions.is_empty() {
@@ -196,9 +218,11 @@ impl RewardsInspectPovwState {
             txs.sort_by_key(|(hash, _)| format!("{:x}", hash));
 
             for (idx, (tx_hash, tx_state)) in txs.iter().enumerate() {
-                println!("    {}. TX Hash:    {}",
+                println!(
+                    "    {}. TX Hash:    {}",
                     (idx + 1).to_string().dimmed(),
-                    format!("{:#x}", tx_hash).cyan());
+                    format!("{:#x}", tx_hash).cyan()
+                );
 
                 if let Some(block_num) = tx_state.block_number {
                     println!("       Block:      {}", block_num.to_string().cyan());
@@ -215,8 +239,14 @@ impl RewardsInspectPovwState {
                         println!("       Receipt:      #{}", receipt_idx.to_string().cyan());
                     }
 
-                    println!("       Initial Commit: {}", format!("{:?}", event.initialCommit).dimmed());
-                    println!("       Updated Commit: {}", format!("{:?}", event.updatedCommit).dimmed());
+                    println!(
+                        "       Initial Commit: {}",
+                        format!("{:?}", event.initialCommit).dimmed()
+                    );
+                    println!(
+                        "       Updated Commit: {}",
+                        format!("{:?}", event.updatedCommit).dimmed()
+                    );
                 }
             }
         }

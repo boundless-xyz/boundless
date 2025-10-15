@@ -30,11 +30,8 @@ use boundless_zkc;
 
 /// Parse a private key string, adding "0x" prefix if not present
 fn parse_private_key(key: &str) -> Result<PrivateKeySigner> {
-    let key_with_prefix = if key.starts_with("0x") {
-        key.to_string()
-    } else {
-        format!("0x{}", key)
-    };
+    let key_with_prefix =
+        if key.starts_with("0x") { key.to_string() } else { format!("0x{}", key) };
     key_with_prefix.parse().context("Failed to parse private key")
 }
 
@@ -115,10 +112,7 @@ impl RequestorConfig {
         let secrets = Secrets::load().ok();
 
         // Get network name from config
-        let network = config
-            .as_ref()
-            .and_then(|c| c.requestor.as_ref())
-            .map(|r| &r.network);
+        let network = config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| &r.network);
 
         if self.rpc_url.is_none() {
             if let Ok(rpc_url) = std::env::var("REQUESTOR_RPC_URL") {
@@ -146,35 +140,34 @@ impl RequestorConfig {
 
         if self.deployment.is_none() {
             if let Some(ref config) = config {
-                let network = config
-                    .requestor
-                    .as_ref()
-                    .map(|r| &r.network);
+                let network = config.requestor.as_ref().map(|r| &r.network);
 
                 if let Some(network) = network {
                     self.deployment = match network.as_str() {
                         "base-mainnet" => Some(boundless_market::deployments::BASE),
                         "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
                         "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
-                        custom => config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
-                            let mut builder = boundless_market::Deployment::builder();
-                            builder
-                                .market_chain_id(m.chain_id)
-                                .boundless_market_address(m.boundless_market_address)
-                                .set_verifier_address(m.set_verifier_address);
+                        custom => {
+                            config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
+                                let mut builder = boundless_market::Deployment::builder();
+                                builder
+                                    .market_chain_id(m.chain_id)
+                                    .boundless_market_address(m.boundless_market_address)
+                                    .set_verifier_address(m.set_verifier_address);
 
-                            if let Some(addr) = m.verifier_router_address {
-                                builder.verifier_router_address(addr);
-                            }
-                            if let Some(addr) = m.collateral_token_address {
-                                builder.collateral_token_address(addr);
-                            }
-                            if let Some(url) = m.order_stream_url.as_ref() {
-                                builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
-                            }
+                                if let Some(addr) = m.verifier_router_address {
+                                    builder.verifier_router_address(addr);
+                                }
+                                if let Some(addr) = m.collateral_token_address {
+                                    builder.collateral_token_address(addr);
+                                }
+                                if let Some(url) = m.order_stream_url.as_ref() {
+                                    builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
+                                }
 
-                            builder.build().expect("Failed to build custom deployment")
-                        }),
+                                builder.build().expect("Failed to build custom deployment")
+                            })
+                        }
                     };
                 }
             }
@@ -223,41 +216,46 @@ impl RewardsConfig {
         let secrets = Secrets::load().ok();
 
         // Get network name from config
-        let network = config
-            .as_ref()
-            .and_then(|c| c.rewards.as_ref())
-            .map(|r| &r.network);
+        let network = config.as_ref().and_then(|c| c.rewards.as_ref()).map(|r| &r.network);
 
         // Get config values for override detection
-        let config_rpc_url = secrets.as_ref()
+        let config_rpc_url = secrets
+            .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.rpc_url.as_ref());
 
-        let config_private_key = secrets.as_ref()
+        let config_private_key = secrets
+            .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.private_key.as_ref());
 
-        let config_staking_private_key = secrets.as_ref()
+        let config_staking_private_key = secrets
+            .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.staking_private_key.as_ref());
 
-        let config_staking_address = secrets.as_ref()
+        let config_staking_address = secrets
+            .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.staking_address.as_ref());
 
-        let config_reward_private_key = secrets.as_ref()
+        let config_reward_private_key = secrets
+            .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.reward_private_key.as_ref());
 
-        let config_reward_address = secrets.as_ref()
+        let config_reward_address = secrets
+            .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.reward_address.as_ref());
 
-        let config_povw_state_file = secrets.as_ref()
+        let config_povw_state_file = secrets
+            .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.povw_state_file.as_ref());
 
-        let config_beacon_api_url = secrets.as_ref()
+        let config_beacon_api_url = secrets
+            .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.beacon_api_url.as_ref());
 
@@ -265,7 +263,9 @@ impl RewardsConfig {
         if self.reward_rpc_url.is_none() {
             if let Ok(rpc_url) = std::env::var("REWARD_RPC_URL") {
                 if config_rpc_url.is_some() {
-                    println!("⚠ Using REWARD_RPC_URL from environment (overriding configured value)");
+                    println!(
+                        "⚠ Using REWARD_RPC_URL from environment (overriding configured value)"
+                    );
                 }
                 self.reward_rpc_url = Some(Url::parse(&rpc_url)?);
             } else if let Some(ref rpc_url) = config_rpc_url {
@@ -296,7 +296,9 @@ impl RewardsConfig {
         if self.staking_address.is_none() {
             if let Ok(addr) = std::env::var("STAKING_ADDRESS") {
                 if config_staking_address.is_some() {
-                    println!("⚠ Using STAKING_ADDRESS from environment (overriding configured value)");
+                    println!(
+                        "⚠ Using STAKING_ADDRESS from environment (overriding configured value)"
+                    );
                 }
                 if !addr.is_empty() {
                     self.staking_address = Some(addr.parse()?);
@@ -312,7 +314,9 @@ impl RewardsConfig {
         if self.reward_private_key.is_none() {
             if let Ok(pk) = std::env::var("REWARD_PRIVATE_KEY") {
                 if config_reward_private_key.is_some() {
-                    println!("⚠ Using REWARD_PRIVATE_KEY from environment (overriding configured value)");
+                    println!(
+                        "⚠ Using REWARD_PRIVATE_KEY from environment (overriding configured value)"
+                    );
                 }
                 self.reward_private_key = Some(parse_private_key(&pk)?);
             } else if let Some(ref pk) = config_reward_private_key {
@@ -324,7 +328,9 @@ impl RewardsConfig {
         if self.reward_address.is_none() {
             if let Ok(addr) = std::env::var("REWARD_ADDRESS") {
                 if config_reward_address.is_some() {
-                    println!("⚠ Using REWARD_ADDRESS from environment (overriding configured value)");
+                    println!(
+                        "⚠ Using REWARD_ADDRESS from environment (overriding configured value)"
+                    );
                 }
                 if !addr.is_empty() {
                     self.reward_address = Some(addr.parse()?);
@@ -340,7 +346,9 @@ impl RewardsConfig {
         if self.povw_state_file.is_none() {
             if let Ok(state_file) = std::env::var("POVW_STATE_FILE") {
                 if config_povw_state_file.is_some() {
-                    println!("⚠ Using POVW_STATE_FILE from environment (overriding configured value)");
+                    println!(
+                        "⚠ Using POVW_STATE_FILE from environment (overriding configured value)"
+                    );
                 }
                 self.povw_state_file = Some(state_file);
             } else if let Some(state_file) = config_povw_state_file {
@@ -352,7 +360,9 @@ impl RewardsConfig {
         if self.beacon_api_url.is_none() {
             if let Ok(url) = std::env::var("BEACON_API_URL") {
                 if config_beacon_api_url.is_some() {
-                    println!("⚠ Using BEACON_API_URL from environment (overriding configured value)");
+                    println!(
+                        "⚠ Using BEACON_API_URL from environment (overriding configured value)"
+                    );
                 }
                 self.beacon_api_url = Some(Url::parse(&url)?);
             } else if let Some(ref url) = config_beacon_api_url {
@@ -364,16 +374,22 @@ impl RewardsConfig {
             if let Some(ref config) = config {
                 if let Some(ref rewards) = config.rewards {
                     self.zkc_deployment = match rewards.network.as_str() {
-                        "eth-mainnet" => boundless_zkc::deployments::Deployment::from_chain_id(1u64),
-                        "eth-sepolia" => boundless_zkc::deployments::Deployment::from_chain_id(11155111u64),
-                        custom => config.custom_rewards.iter().find(|r| r.name == custom).map(|r| {
-                            boundless_zkc::deployments::Deployment::builder()
-                                .zkc_address(r.zkc_address)
-                                .vezkc_address(r.vezkc_address)
-                                .staking_rewards_address(r.staking_rewards_address)
-                                .build()
-                                .expect("Failed to build custom ZKC deployment")
-                        }),
+                        "eth-mainnet" => {
+                            boundless_zkc::deployments::Deployment::from_chain_id(1u64)
+                        }
+                        "eth-sepolia" => {
+                            boundless_zkc::deployments::Deployment::from_chain_id(11155111u64)
+                        }
+                        custom => {
+                            config.custom_rewards.iter().find(|r| r.name == custom).map(|r| {
+                                boundless_zkc::deployments::Deployment::builder()
+                                    .zkc_address(r.zkc_address)
+                                    .vezkc_address(r.vezkc_address)
+                                    .staking_rewards_address(r.staking_rewards_address)
+                                    .build()
+                                    .expect("Failed to build custom ZKC deployment")
+                            })
+                        }
                     };
                 }
             }
@@ -559,10 +575,7 @@ impl ProverConfig {
         let secrets = Secrets::load().ok();
 
         // Get network name from config
-        let network = config
-            .as_ref()
-            .and_then(|c| c.prover.as_ref())
-            .map(|p| &p.network);
+        let network = config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| &p.network);
 
         if self.prover_rpc_url.is_none() {
             if let Ok(rpc_url) = std::env::var("PROVER_RPC_URL") {
@@ -603,35 +616,34 @@ impl ProverConfig {
 
         if self.deployment.is_none() {
             if let Some(ref config) = config {
-                let network = config
-                    .prover
-                    .as_ref()
-                    .map(|p| &p.network);
+                let network = config.prover.as_ref().map(|p| &p.network);
 
                 if let Some(network) = network {
                     self.deployment = match network.as_str() {
                         "base-mainnet" => Some(boundless_market::deployments::BASE),
                         "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
                         "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
-                        custom => config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
-                            let mut builder = boundless_market::Deployment::builder();
-                            builder
-                                .market_chain_id(m.chain_id)
-                                .boundless_market_address(m.boundless_market_address)
-                                .set_verifier_address(m.set_verifier_address);
+                        custom => {
+                            config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
+                                let mut builder = boundless_market::Deployment::builder();
+                                builder
+                                    .market_chain_id(m.chain_id)
+                                    .boundless_market_address(m.boundless_market_address)
+                                    .set_verifier_address(m.set_verifier_address);
 
-                            if let Some(addr) = m.verifier_router_address {
-                                builder.verifier_router_address(addr);
-                            }
-                            if let Some(addr) = m.collateral_token_address {
-                                builder.collateral_token_address(addr);
-                            }
-                            if let Some(url) = m.order_stream_url.as_ref() {
-                                builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
-                            }
+                                if let Some(addr) = m.verifier_router_address {
+                                    builder.verifier_router_address(addr);
+                                }
+                                if let Some(addr) = m.collateral_token_address {
+                                    builder.collateral_token_address(addr);
+                                }
+                                if let Some(url) = m.order_stream_url.as_ref() {
+                                    builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
+                                }
 
-                            builder.build().expect("Failed to build custom deployment")
-                        }),
+                                builder.build().expect("Failed to build custom deployment")
+                            })
+                        }
                     };
                 }
             }
@@ -682,7 +694,6 @@ impl ProverConfig {
     ) -> Result<ClientBuilder<NotProvided, PrivateKeySigner>> {
         Ok(self.client_builder(tx_timeout)?.with_private_key(self.require_private_key()?))
     }
-
 
     /// Sets environment variables BONSAI_API_URL and BONSAI_API_KEY that are
     /// read by `default_prover()` when constructing the prover.

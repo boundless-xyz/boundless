@@ -17,9 +17,9 @@ use anyhow::{Context, Result};
 use clap::Args;
 
 use crate::config::{GlobalConfig, ProverConfig};
-use crate::config_ext::{ProverConfigExt, validate_prover_address_input};
+use crate::config_ext::{validate_prover_address_input, ProverConfigExt};
 use crate::contracts::{get_token_balance, get_token_info};
-use crate::display::{DisplayManager, format_token};
+use crate::display::{format_token, DisplayManager};
 
 /// Check the collateral balance of an account in the market
 #[derive(Args, Clone, Debug)]
@@ -43,7 +43,7 @@ impl ProverBalanceCollateral {
             self.address,
             prover_config.prover_address,
             prover_config.private_key.as_ref(),
-            "collateral balance query"
+            "collateral balance query",
         )?;
 
         // Build client with standard configuration
@@ -64,7 +64,8 @@ impl ProverBalanceCollateral {
 
         // Query both deposited and available balances
         let deposited = client.boundless_market.balance_of_collateral(addr).await?;
-        let available = get_token_balance(client.provider(), collateral_token_address, addr).await?;
+        let available =
+            get_token_balance(client.provider(), collateral_token_address, addr).await?;
 
         // Format balances using token decimals
         let deposited_formatted = format_token(deposited, token_info.decimals)?;

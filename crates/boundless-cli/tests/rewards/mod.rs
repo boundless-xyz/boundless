@@ -60,7 +60,10 @@ impl RewardsEnv {
     }
 
     /// Apply these environment variables to a Command
-    pub fn apply_to_cmd<'a>(&self, cmd: &'a mut assert_cmd::Command) -> &'a mut assert_cmd::Command {
+    pub fn apply_to_cmd<'a>(
+        &self,
+        cmd: &'a mut assert_cmd::Command,
+    ) -> &'a mut assert_cmd::Command {
         cmd.env("REWARD_RPC_URL", &self.reward_rpc_url)
             .env("REWARD_PRIVATE_KEY", &self.reward_private_key)
             .env("POVW_ACCOUNTING_ADDRESS", &self.povw_accounting_address)

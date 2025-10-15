@@ -99,7 +99,10 @@ impl ProverExecute {
 }
 
 /// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
-async fn execute(request: &ProofRequest, display: &DisplayManager) -> Result<(Digest, SessionInfo)> {
+async fn execute(
+    request: &ProofRequest,
+    display: &DisplayManager,
+) -> Result<(Digest, SessionInfo)> {
     display.status("Status", "Fetching program", "yellow");
     let program = fetch_url(&request.imageUrl).await?;
     let image_id = compute_image_id(&program)?;

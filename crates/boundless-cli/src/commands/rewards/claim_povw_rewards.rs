@@ -106,9 +106,8 @@ impl RewardsClaimPovwRewards {
         display.item_colored("Log ID", format!("{:x}", log_id), "cyan");
 
         // Determine beacon API URL (param > config)
-        let beacon_api_url = self.beacon_api_url
-            .clone()
-            .or_else(|| rewards_config.beacon_api_url.clone());
+        let beacon_api_url =
+            self.beacon_api_url.clone().or_else(|| rewards_config.beacon_api_url.clone());
 
         let tx_signer = rewards_config.require_reward_private_key()?;
         let rpc_url = rewards_config.require_rpc_url()?;
@@ -131,8 +130,8 @@ impl RewardsClaimPovwRewards {
             .clone()
             .or_else(|| Deployment::from_chain_id(chain_id))
             .context(
-                "Could not determine deployment from chain ID; please specify deployment explicitly",
-            )?;
+            "Could not determine deployment from chain ID; please specify deployment explicitly",
+        )?;
 
         // Determine the limits on the blocks that will be searched for events
         let latest_block_number =
@@ -181,7 +180,10 @@ impl RewardsClaimPovwRewards {
 
         // Search for the WorkLogUpdated events, and the the EpochFinalized events
         display.subsection("Searching for claimable work");
-        display.note(&format!("Scanning past {} days for work log updates...", self.days.to_string().cyan()));
+        display.note(&format!(
+            "Scanning past {} days for work log updates...",
+            self.days.to_string().cyan()
+        ));
         let update_events = search_work_log_updated(
             &povw_accounting,
             log_id,
@@ -193,7 +195,11 @@ impl RewardsClaimPovwRewards {
         )
         .await
         .context("Search for work log update events failed")?;
-        display.item_colored("Found", format!("{} work log update events", update_events.len()), "cyan");
+        display.item_colored(
+            "Found",
+            format!("{} work log update events", update_events.len()),
+            "cyan",
+        );
 
         // Check to see what the current pending epoch is on the PoVW accounting contract. Filter
         // out update events with an epoch that has not finalized (with a warning).
@@ -237,9 +243,16 @@ impl RewardsClaimPovwRewards {
         let first_epoch = epochs.iter().next().unwrap();
         let last_epoch = epochs.iter().last().unwrap();
         if first_epoch == last_epoch {
-            display.note(&format!("Searching for epoch {} finalization event...", first_epoch.to_string().cyan()));
+            display.note(&format!(
+                "Searching for epoch {} finalization event...",
+                first_epoch.to_string().cyan()
+            ));
         } else {
-            display.note(&format!("Searching for epoch finalization events (epochs {} to {})...", first_epoch.to_string().cyan(), last_epoch.to_string().cyan()));
+            display.note(&format!(
+                "Searching for epoch finalization events (epochs {} to {})...",
+                first_epoch.to_string().cyan(),
+                last_epoch.to_string().cyan()
+            ));
         }
         let epoch_events = search_epoch_finalized(
             &povw_accounting,
@@ -250,7 +263,11 @@ impl RewardsClaimPovwRewards {
         )
         .await
         .context("Search for epoch finalized events failed")?;
-        display.item_colored("Found", format!("{} epoch finalization events", epoch_events.len()), "cyan");
+        display.item_colored(
+            "Found",
+            format!("{} epoch finalization events", epoch_events.len()),
+            "cyan",
+        );
 
         let event_block_numbers = BTreeSet::from_iter(
             finalized_update_events

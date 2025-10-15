@@ -19,7 +19,9 @@ use anyhow::{bail, ensure, Context, Result};
 use boundless_povw::{deployments::Deployment, log_updater::IPovwAccounting};
 use clap::Args;
 use colored::Colorize;
-use risc0_povw::{guest::Journal as LogBuilderJournal, prover::WorkLogUpdateProver, PovwLogId, WorkLog};
+use risc0_povw::{
+    guest::Journal as LogBuilderJournal, prover::WorkLogUpdateProver, PovwLogId, WorkLog,
+};
 use risc0_zkvm::{default_prover, GenericReceipt, ProverOpts, ReceiptClaim, WorkClaim};
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -103,19 +105,19 @@ impl RewardsPreparePoVW {
             let deployment = Deployment::from_chain_id(chain_id)
                 .context("Could not determine deployment from chain ID")?;
 
-            let povw_accounting = IPovwAccounting::new(deployment.povw_accounting_address, &provider);
+            let povw_accounting =
+                IPovwAccounting::new(deployment.povw_accounting_address, &provider);
 
             // Query on-chain commit
-            let onchain_commit = povw_accounting
-                .workLogCommit(state.log_id.into())
-                .call()
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to get work log commit for {:x} from {:x}",
-                        state.log_id, deployment.povw_accounting_address
-                    )
-                })?;
+            let onchain_commit =
+                povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(
+                    || {
+                        format!(
+                            "Failed to get work log commit for {:x} from {:x}",
+                            state.log_id, deployment.povw_accounting_address
+                        )
+                    },
+                )?;
 
             println!("{}", "✓".green());
 
@@ -133,7 +135,11 @@ impl RewardsPreparePoVW {
                 println!("{}", "  Running prepare multiple times before submitting work on-chain will increase gas costs during submission.".yellow());
                 println!();
             } else {
-                println!("  Status:        {} {}", "Up to date".green().bold(), "(all prepared work has been submitted)".dimmed());
+                println!(
+                    "  Status:        {} {}",
+                    "Up to date".green().bold(),
+                    "(all prepared work has been submitted)".dimmed()
+                );
             }
         }
 
@@ -141,7 +147,10 @@ impl RewardsPreparePoVW {
         println!("\n{}", "Loading PoVW work receipts".bold().green());
         let work_receipt_results = if !self.work_receipt_files.is_empty() {
             // Load from files
-            println!("  Loading receipts from:        {} files", self.work_receipt_files.len().to_string().cyan());
+            println!(
+                "  Loading receipts from:        {} files",
+                self.work_receipt_files.len().to_string().cyan()
+            );
             load_work_receipts(state.log_id, &state.work_log, &self.work_receipt_files).await
         } else {
             // Fetch from Bento (default behavior)
@@ -151,7 +160,10 @@ impl RewardsPreparePoVW {
                     .context("Failed to parse Bento API URL from proving backend config")?,
             };
 
-            println!("  Fetching PoVW work receipts from Bento instance: {}", bento_url.to_string().cyan());
+            println!(
+                "  Fetching PoVW work receipts from Bento instance: {}",
+                bento_url.to_string().cyan()
+            );
             println!("  {}", "(This may take several minutes)".dimmed());
             fetch_work_receipts(state.log_id, &state.work_log, &bento_url)
                 .await
@@ -175,13 +187,22 @@ impl RewardsPreparePoVW {
         }
 
         if work_receipts.is_empty() {
-            println!("  Status:        {} {}", "No new receipts".yellow(), "(nothing to process)".dimmed());
-            println!("  All work receipts have already been added to the state file. Nothing to do.");
+            println!(
+                "  Status:        {} {}",
+                "No new receipts".yellow(),
+                "(nothing to process)".dimmed()
+            );
+            println!(
+                "  All work receipts have already been added to the state file. Nothing to do."
+            );
             println!();
             return Ok(());
         }
 
-        println!("  Fetched {} new PoVW work receipts", work_receipts.len().to_string().cyan().bold());
+        println!(
+            "  Fetched {} new PoVW work receipts",
+            work_receipts.len().to_string().cyan().bold()
+        );
 
         // Set up the work log update prover
         println!("\n{}", "Setting up prover for aggregating PoVW work receipts".bold().green());
@@ -231,7 +252,10 @@ impl RewardsPreparePoVW {
         println!("\n{}", "Saving updated PoVW state file".bold().green());
         if !self.skip_backup {
             let backup_path = state.save_backup(&state_path)?;
-            println!("  Saved backup of previous state to:        {}", backup_path.display().to_string().dimmed());
+            println!(
+                "  Saved backup of previous state to:        {}",
+                backup_path.display().to_string().dimmed()
+            );
         } else {
             println!("  Backup:        {} {}", "Skipped".yellow(), "(--skip-backup)".dimmed());
         }
@@ -245,7 +269,10 @@ impl RewardsPreparePoVW {
 
         let new_commit = prover.work_log.commit();
         println!("  State file:    {}", "Updated".green().bold());
-        println!("  Updated PoVW state file saved to:        {}", state_path.display().to_string().cyan());
+        println!(
+            "  Updated PoVW state file saved to:        {}",
+            state_path.display().to_string().cyan()
+        );
         println!("  New commit:    {}", new_commit.to_string().cyan());
 
         println!("{} {}", "✓".green().bold(), format!("Successfully prepared PoVW state file update. Added {} new receipts to the work log.", num_receipts).green().bold());
@@ -383,8 +410,20 @@ async fn fetch_work_receipts(
             // Log any unknown log IDs we find, but only once
             if !seen_log_ids.insert(info_log_id) {
                 // count number of receipts associated with this log id
-                let count = receipt_list.receipts.iter().filter(|r| r.povw_log_id == Some(info_log_id.to_string())).count();
-                println!("  {} {}", "⚠".yellow(), format!("Skipping {} receipts associated with Reward Address {info_log_id:x}", count).dimmed());
+                let count = receipt_list
+                    .receipts
+                    .iter()
+                    .filter(|r| r.povw_log_id == Some(info_log_id.to_string()))
+                    .count();
+                println!(
+                    "  {} {}",
+                    "⚠".yellow(),
+                    format!(
+                        "Skipping {} receipts associated with Reward Address {info_log_id:x}",
+                        count
+                    )
+                    .dimmed()
+                );
             }
             continue;
         }

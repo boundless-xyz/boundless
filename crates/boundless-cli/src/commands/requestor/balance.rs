@@ -18,8 +18,8 @@ use anyhow::Result;
 use clap::Args;
 
 use crate::config::{GlobalConfig, RequestorConfig};
-use crate::config_ext::{RequestorConfigExt, validate_address_input};
-use crate::display::{DisplayManager, format_eth};
+use crate::config_ext::{validate_address_input, RequestorConfigExt};
+use crate::display::{format_eth, DisplayManager};
 
 /// Command to check balance in the market
 #[derive(Args, Clone, Debug)]
@@ -42,7 +42,7 @@ impl RequestorBalance {
         let addr = validate_address_input(
             self.address,
             requestor_config.private_key.as_ref(),
-            "balance query"
+            "balance query",
         )?;
 
         // Build client with standard configuration

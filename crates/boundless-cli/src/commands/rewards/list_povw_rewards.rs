@@ -96,13 +96,8 @@ impl RewardsListPovwRewards {
 
         // Set epoch range with defaults
         let end_epoch = self.end_epoch.unwrap_or(current_epoch);
-        let start_epoch = self.start_epoch.unwrap_or_else(|| {
-            if end_epoch >= 5 {
-                end_epoch - 5
-            } else {
-                0
-            }
-        });
+        let start_epoch =
+            self.start_epoch.unwrap_or_else(|| if end_epoch >= 5 { end_epoch - 5 } else { 0 });
 
         // Create epoch data structures
         struct EpochPovwData {
@@ -169,7 +164,12 @@ impl RewardsListPovwRewards {
         }
 
         println!();
-        display.balance("Total Rewards Received", &crate::format_amount(&format_ether(total_rewards)), "ZKC", "green");
+        display.balance(
+            "Total Rewards Received",
+            &crate::format_amount(&format_ether(total_rewards)),
+            "ZKC",
+            "green",
+        );
         display.item_colored("Total Work Submitted", &format_work_cycles(&total_work), "cyan");
         display.item("Epochs Participated", epochs_participated);
 
@@ -185,19 +185,36 @@ impl RewardsListPovwRewards {
                 let cap_formatted = crate::format_amount(&format_ether(data.reward_cap));
                 let staked_formatted = crate::format_amount(&format_ether(data.staked_amount));
 
-                display.subitem("Work Submitted:", &format!("{} ({:.2}% of epoch)", work_formatted.cyan(), data.percentage));
-                display.subitem("Actual Rewards:", &format!("{} {}", actual_formatted.green(), "ZKC".green()));
+                display.subitem(
+                    "Work Submitted:",
+                    &format!("{} ({:.2}% of epoch)", work_formatted.cyan(), data.percentage),
+                );
+                display.subitem(
+                    "Actual Rewards:",
+                    &format!("{} {}", actual_formatted.green(), "ZKC".green()),
+                );
 
                 if data.is_capped {
-                    display.subitem("Uncapped Rewards:", &format!("{} {}", uncapped_formatted.yellow(), "ZKC".yellow()));
-                    display.subitem("Reward Cap:", &format!("{} {}", cap_formatted.yellow(), "ZKC".yellow()));
-                    display.subitem("Staked Amount:", &format!("{} {}", staked_formatted.cyan(), "ZKC".cyan()));
-                    display.subitem("Capped:", &format!("{}", "✓ (rewards limited by stake)".red()));
+                    display.subitem(
+                        "Uncapped Rewards:",
+                        &format!("{} {}", uncapped_formatted.yellow(), "ZKC".yellow()),
+                    );
+                    display.subitem(
+                        "Reward Cap:",
+                        &format!("{} {}", cap_formatted.yellow(), "ZKC".yellow()),
+                    );
+                    display.subitem(
+                        "Staked Amount:",
+                        &format!("{} {}", staked_formatted.cyan(), "ZKC".cyan()),
+                    );
+                    display
+                        .subitem("Capped:", &format!("{}", "✓ (rewards limited by stake)".red()));
                 } else {
                     display.subitem("Capped:", &format!("{}", "✗".green()));
                 }
             } else {
-                display.subitem("Work Submitted:", &format!("{} {}", "0".dimmed(), "cycles".dimmed()));
+                display
+                    .subitem("Work Submitted:", &format!("{} {}", "0".dimmed(), "cycles".dimmed()));
                 display.subitem("Actual Rewards:", &format!("{} {}", "0".dimmed(), "ZKC".dimmed()));
             }
         }

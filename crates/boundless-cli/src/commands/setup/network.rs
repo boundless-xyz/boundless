@@ -17,24 +17,13 @@
 use anyhow::{Context, Result};
 
 /// Pre-built requestor networks that cannot be modified
-pub const PREBUILT_REQUESTOR_NETWORKS: &[&str] = &[
-    "base-mainnet",
-    "base-sepolia",
-    "eth-sepolia",
-];
+pub const PREBUILT_REQUESTOR_NETWORKS: &[&str] = &["base-mainnet", "base-sepolia", "eth-sepolia"];
 
 /// Pre-built prover networks that cannot be modified
-pub const PREBUILT_PROVER_NETWORKS: &[&str] = &[
-    "base-mainnet",
-    "base-sepolia",
-    "eth-sepolia",
-];
+pub const PREBUILT_PROVER_NETWORKS: &[&str] = &["base-mainnet", "base-sepolia", "eth-sepolia"];
 
 /// Pre-built rewards networks that cannot be modified
-pub const PREBUILT_REWARDS_NETWORKS: &[&str] = &[
-    "eth-mainnet",
-    "eth-sepolia",
-];
+pub const PREBUILT_REWARDS_NETWORKS: &[&str] = &["eth-mainnet", "eth-sepolia"];
 
 /// Module type for network operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

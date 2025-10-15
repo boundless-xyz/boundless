@@ -15,7 +15,10 @@
 use std::{io::Write, path::PathBuf};
 
 use alloy::{
-    primitives::{utils::{format_ether, parse_ether}, Address, U256},
+    primitives::{
+        utils::{format_ether, parse_ether},
+        Address, U256,
+    },
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{bail, ensure, Context, Result};
@@ -133,8 +136,8 @@ impl RewardsSubmitPovw {
             .clone()
             .or_else(|| Deployment::from_chain_id(chain_id))
             .context(
-                "Could not determine deployment from chain ID; please specify deployment explicitly",
-            )?;
+            "Could not determine deployment from chain ID; please specify deployment explicitly",
+        )?;
 
         let povw_accounting =
             IPovwAccounting::new(deployment.povw_accounting_address, provider.clone());
@@ -159,7 +162,8 @@ impl RewardsSubmitPovw {
         };
         let latest_receipt_journal = LogBuilderJournal::decode(&latest_receipt.journal.bytes)
             .context("Failed to decode journal from latest receipt")?;
-        let latest_local_commit = bytemuck::cast::<_, [u8; 32]>(latest_receipt_journal.updated_commit);
+        let latest_local_commit =
+            bytemuck::cast::<_, [u8; 32]>(latest_receipt_journal.updated_commit);
 
         if latest_local_commit == *onchain_commit {
             display.status("Status", "Already up to date (no submission needed)", "green");
@@ -167,7 +171,11 @@ impl RewardsSubmitPovw {
             return Ok(());
         }
 
-        display.status("Status", "On-chain work log is not up to date (submission required)", "yellow");
+        display.status(
+            "Status",
+            "On-chain work log is not up to date (submission required)",
+            "yellow",
+        );
 
         // Find the index of the receipt in the state that has an initial commit equal to the
         // commit current onchain. We will send all updates after that point.
@@ -201,8 +209,11 @@ impl RewardsSubmitPovw {
 
         display.item_colored(
             "Updates to submit",
-            format!("{} updates to the PoVW state file need to be submitted on-chain", receipts_for_update.len()),
-            "cyan"
+            format!(
+                "{} updates to the PoVW state file need to be submitted on-chain",
+                receipts_for_update.len()
+            ),
+            "cyan",
         );
 
         if receipts_for_update.len() > 1 {
@@ -250,7 +261,10 @@ impl RewardsSubmitPovw {
         for (idx, receipt) in receipts_for_update.into_iter().enumerate() {
             let receipt_num = idx + 1;
 
-            display.subsection(&format!("Processing PoVW state file update {}/{}", receipt_num, total_receipts));
+            display.subsection(&format!(
+                "Processing PoVW state file update {}/{}",
+                receipt_num, total_receipts
+            ));
 
             let prover = LogUpdaterProver::builder()
                 .prover(default_prover())
@@ -439,18 +453,28 @@ impl RewardsSubmitPovw {
             display.note(&format!("Data last updated: {}", formatted_time));
         }
 
-        display.note(&format!("Dry-run for submitting work during Epoch {}", current_epoch.to_string().cyan().bold()));
+        display.note(&format!(
+            "Dry-run for submitting work during Epoch {}",
+            current_epoch.to_string().cyan().bold()
+        ));
         display.address("Reward Address", reward_address);
         display.balance("Total Epoch Emissions", &total_emissions_formatted, "ZKC", "cyan");
 
         display.subsection("Before Work Submission State");
         display.subitem("Your total work submitted:", &current_work_formatted.cyan().to_string());
-        display.subitem("Total work submitted by all participants:", &total_work_formatted.cyan().to_string());
+        display.subitem(
+            "Total work submitted by all participants:",
+            &total_work_formatted.cyan().to_string(),
+        );
 
         display.subsection("Projected After Submission");
         display.subitem("Your new work being submitted:", &new_work_formatted.yellow().to_string());
-        display.subitem("Your total work submitted:", &projected_total_formatted.cyan().to_string());
-        display.subitem("Total work submitted by all participants:", &new_total_work_formatted.cyan().to_string());
+        display
+            .subitem("Your total work submitted:", &projected_total_formatted.cyan().to_string());
+        display.subitem(
+            "Total work submitted by all participants:",
+            &new_total_work_formatted.cyan().to_string(),
+        );
 
         display.subsection("Reward Calculations");
         let percentage = if !new_total_work.is_zero() {
@@ -465,10 +489,16 @@ impl RewardsSubmitPovw {
                 "{:.2}% {}",
                 percentage_float,
                 format!("({} / {})", projected_total_formatted, new_total_work_formatted).dimmed()
-            )
+            ),
         );
-        display.subitem("Potential Rewards:", &format!("{} {}", uncapped_rewards_formatted.yellow(), "ZKC".yellow()));
-        display.subitem("Reward Cap:", &format!("{} {}", reward_cap_formatted.yellow(), "ZKC".yellow()));
+        display.subitem(
+            "Potential Rewards:",
+            &format!("{} {}", uncapped_rewards_formatted.yellow(), "ZKC".yellow()),
+        );
+        display.subitem(
+            "Reward Cap:",
+            &format!("{} {}", reward_cap_formatted.yellow(), "ZKC".yellow()),
+        );
         display.subitem(
             "Actual Rewards:",
             &format!(
@@ -476,14 +506,15 @@ impl RewardsSubmitPovw {
                 capped_rewards_formatted.green().bold(),
                 "ZKC".green(),
                 format!("(min(reward cap, potential rewards))").dimmed()
-            )
+            ),
         );
 
         if uncapped_rewards > reward_cap {
             display.warning("Your rewards are CAPPED");
             let lost = uncapped_rewards - reward_cap;
             let lost_formatted = crate::format_amount(&format_ether(lost));
-            display.subitem("", &format!("You would lose {} ZKC due to reward cap", lost_formatted));
+            display
+                .subitem("", &format!("You would lose {} ZKC due to reward cap", lost_formatted));
         }
 
         // Display override information if any were used
@@ -497,7 +528,10 @@ impl RewardsSubmitPovw {
                 display.subitem("Reward Cap:", &format!("{} ZKC (override)", cap));
             }
             if let Some(ref staked) = self.dry_run_staked_zkc {
-                display.subitem("Staked ZKC:", &format!("{} ZKC (override, reward cap = staked / 15)", staked));
+                display.subitem(
+                    "Staked ZKC:",
+                    &format!("{} ZKC (override, reward cap = staked / 15)", staked),
+                );
             }
             if let Some(ref work) = self.dry_run_work_submitted {
                 display.subitem("Work Submitted:", &format!("{} (override)", work));

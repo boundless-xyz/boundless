@@ -99,13 +99,8 @@ impl RewardsListStakingRewards {
 
         // Set epoch range with defaults
         let end_epoch = self.end_epoch.unwrap_or(current_epoch);
-        let start_epoch = self.start_epoch.unwrap_or_else(|| {
-            if end_epoch >= 5 {
-                end_epoch - 5
-            } else {
-                0
-            }
-        });
+        let start_epoch =
+            self.start_epoch.unwrap_or_else(|| if end_epoch >= 5 { end_epoch - 5 } else { 0 });
 
         // Create epoch data structures
         struct EpochRewardData {
@@ -187,7 +182,12 @@ impl RewardsListStakingRewards {
         }
 
         println!();
-        display.balance("Total Rewards Received", &crate::format_amount(&format_ether(total_rewards)), "ZKC", "green");
+        display.balance(
+            "Total Rewards Received",
+            &crate::format_amount(&format_ether(total_rewards)),
+            "ZKC",
+            "green",
+        );
         display.item("Epochs Participated", epochs_participated);
 
         display.subsection("Epoch History");
@@ -212,14 +212,20 @@ impl RewardsListStakingRewards {
                         let power_formatted = crate::format_amount(&format_ether(data.power));
                         let rewards_formatted = crate::format_amount(&format_ether(rewards));
 
-                        display.subitem("Reward Power:", &format!("{} {}", power_formatted.yellow(), "ZKC".yellow()));
-                        display.subitem("Rewards:", &format!("{} {}", rewards_formatted.green(), "ZKC".green()));
+                        display.subitem(
+                            "Reward Power:",
+                            &format!("{} {}", power_formatted.yellow(), "ZKC".yellow()),
+                        );
+                        display.subitem(
+                            "Rewards:",
+                            &format!("{} {}", rewards_formatted.green(), "ZKC".green()),
+                        );
 
                         // Show delegators if this is delegated power
                         if data.delegator_count > 0 {
                             display.subitem(
                                 "Delegated From:",
-                                &format!("{} staker(s)", data.delegator_count.to_string().cyan())
+                                &format!("{} staker(s)", data.delegator_count.to_string().cyan()),
                             );
                             if data.delegators.len() <= 3 {
                                 for delegator in &data.delegators {
@@ -229,7 +235,12 @@ impl RewardsListStakingRewards {
                                 for delegator in data.delegators.iter().take(3) {
                                     display.subitem("  -", &delegator.dimmed().to_string());
                                 }
-                                display.subitem("  -", &format!("... and {} more", data.delegators.len() - 3).dimmed().to_string());
+                                display.subitem(
+                                    "  -",
+                                    &format!("... and {} more", data.delegators.len() - 3)
+                                        .dimmed()
+                                        .to_string(),
+                                );
                             }
                         }
 
@@ -254,7 +265,10 @@ impl RewardsListStakingRewards {
                         display.subitem("Claimed:", &claim_status);
                     }
                     Err(e) => {
-                        display.subitem("Error:", &format!("Failed to fetch epoch data: {}", e).red().to_string());
+                        display.subitem(
+                            "Error:",
+                            &format!("Failed to fetch epoch data: {}", e).red().to_string(),
+                        );
                     }
                 }
             } else {

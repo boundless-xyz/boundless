@@ -17,7 +17,9 @@
 use anyhow::{bail, Context, Result};
 use inquire::Text;
 
-use super::network::{PREBUILT_PROVER_NETWORKS, PREBUILT_REQUESTOR_NETWORKS, PREBUILT_REWARDS_NETWORKS};
+use super::network::{
+    PREBUILT_PROVER_NETWORKS, PREBUILT_REQUESTOR_NETWORKS, PREBUILT_REWARDS_NETWORKS,
+};
 use super::SetupInteractive;
 use crate::config_file::{Config, CustomMarketDeployment, CustomRewardsDeployment};
 use crate::display::DisplayManager;
@@ -53,10 +55,8 @@ pub fn setup_custom_market() -> Result<CustomMarketDeployment> {
         Some(verifier_router_address_str.parse().context("Invalid address")?)
     };
 
-    let set_verifier_address = Text::new("RiscZeroSetVerifier address:")
-        .prompt()?
-        .parse()
-        .context("Invalid address")?;
+    let set_verifier_address =
+        Text::new("RiscZeroSetVerifier address:").prompt()?.parse().context("Invalid address")?;
 
     let collateral_token_address_str =
         Text::new("Collateral token address (optional, press Enter to skip):")
@@ -69,9 +69,8 @@ pub fn setup_custom_market() -> Result<CustomMarketDeployment> {
         Some(collateral_token_address_str.parse().context("Invalid address")?)
     };
 
-    let order_stream_url_str = Text::new("Order stream URL (optional, press Enter to skip):")
-        .with_default("")
-        .prompt()?;
+    let order_stream_url_str =
+        Text::new("Order stream URL (optional, press Enter to skip):").with_default("").prompt()?;
 
     let order_stream_url =
         if order_stream_url_str.is_empty() { None } else { Some(order_stream_url_str) };
@@ -102,10 +101,8 @@ pub fn setup_custom_rewards() -> Result<CustomRewardsDeployment> {
         .parse()
         .context("Invalid chain ID")?;
 
-    let zkc_address = Text::new("ZKC token contract address:")
-        .prompt()?
-        .parse()
-        .context("Invalid address")?;
+    let zkc_address =
+        Text::new("ZKC token contract address:").prompt()?.parse().context("Invalid address")?;
 
     let vezkc_address =
         Text::new("veZKC contract address:").prompt()?.parse().context("Invalid address")?;
@@ -120,10 +117,8 @@ pub fn setup_custom_rewards() -> Result<CustomRewardsDeployment> {
         .parse()
         .context("Invalid address")?;
 
-    let povw_mint_address = Text::new("PoVW mint contract address:")
-        .prompt()?
-        .parse()
-        .context("Invalid address")?;
+    let povw_mint_address =
+        Text::new("PoVW mint contract address:").prompt()?.parse().context("Invalid address")?;
 
     Ok(CustomRewardsDeployment {
         name,
@@ -184,26 +179,26 @@ pub fn update_custom_market_addresses(
     let mut updated = false;
 
     if let Some(ref addr_str) = setup.boundless_market_address {
-        custom_market.boundless_market_address = addr_str.parse::<Address>()
-            .context("Invalid boundless market address")?;
+        custom_market.boundless_market_address =
+            addr_str.parse::<Address>().context("Invalid boundless market address")?;
         updated = true;
     }
 
     if let Some(ref addr_str) = setup.verifier_router_address {
-        custom_market.verifier_router_address = Some(addr_str.parse::<Address>()
-            .context("Invalid verifier router address")?);
+        custom_market.verifier_router_address =
+            Some(addr_str.parse::<Address>().context("Invalid verifier router address")?);
         updated = true;
     }
 
     if let Some(ref addr_str) = setup.set_verifier_address {
-        custom_market.set_verifier_address = addr_str.parse::<Address>()
-            .context("Invalid set verifier address")?;
+        custom_market.set_verifier_address =
+            addr_str.parse::<Address>().context("Invalid set verifier address")?;
         updated = true;
     }
 
     if let Some(ref addr_str) = setup.collateral_token_address {
-        custom_market.collateral_token_address = Some(addr_str.parse::<Address>()
-            .context("Invalid collateral token address")?);
+        custom_market.collateral_token_address =
+            Some(addr_str.parse::<Address>().context("Invalid collateral token address")?);
         updated = true;
     }
 
@@ -233,32 +228,31 @@ pub fn update_custom_rewards_addresses(
     let mut updated = false;
 
     if let Some(ref addr_str) = setup.zkc_address {
-        custom_rewards.zkc_address = addr_str.parse::<Address>()
-            .context("Invalid ZKC address")?;
+        custom_rewards.zkc_address = addr_str.parse::<Address>().context("Invalid ZKC address")?;
         updated = true;
     }
 
     if let Some(ref addr_str) = setup.vezkc_address {
-        custom_rewards.vezkc_address = addr_str.parse::<Address>()
-            .context("Invalid veZKC address")?;
+        custom_rewards.vezkc_address =
+            addr_str.parse::<Address>().context("Invalid veZKC address")?;
         updated = true;
     }
 
     if let Some(ref addr_str) = setup.staking_rewards_address {
-        custom_rewards.staking_rewards_address = addr_str.parse::<Address>()
-            .context("Invalid staking rewards address")?;
+        custom_rewards.staking_rewards_address =
+            addr_str.parse::<Address>().context("Invalid staking rewards address")?;
         updated = true;
     }
 
     if let Some(ref addr_str) = setup.povw_accounting_address {
-        custom_rewards.povw_accounting_address = addr_str.parse::<Address>()
-            .context("Invalid PoVW accounting address")?;
+        custom_rewards.povw_accounting_address =
+            addr_str.parse::<Address>().context("Invalid PoVW accounting address")?;
         updated = true;
     }
 
     if let Some(ref addr_str) = setup.povw_mint_address {
-        custom_rewards.povw_mint_address = addr_str.parse::<Address>()
-            .context("Invalid PoVW mint address")?;
+        custom_rewards.povw_mint_address =
+            addr_str.parse::<Address>().context("Invalid PoVW mint address")?;
         updated = true;
     }
 
@@ -615,11 +609,8 @@ mod tests {
 
         for i in 0..3 {
             let mut network = create_minimal_custom_network(1234 + i);
-            network.name = if i == 0 {
-                "custom-test".to_string()
-            } else {
-                format!("custom-test-{}", i)
-            };
+            network.name =
+                if i == 0 { "custom-test".to_string() } else { format!("custom-test-{}", i) };
             config.custom_markets.push(network);
         }
 

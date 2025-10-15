@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{primitives::Address, providers::{Provider, ProviderBuilder}};
+use alloy::{
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+};
 use anyhow::{Context, Result};
 use boundless_zkc::contracts::IStakingRewards;
 use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::{DisplayManager, format_eth};
+use crate::display::{format_eth, DisplayManager};
 
 /// Claim accumulated staking rewards
 #[derive(Args, Clone, Debug)]
@@ -46,10 +49,7 @@ impl RewardsClaimStakingRewards {
             .await
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        let chain_id = provider
-            .get_chain_id()
-            .await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
         let display = DisplayManager::with_network(network_name);
@@ -74,9 +74,8 @@ impl RewardsClaimStakingRewards {
             .await
             .context("Failed to query current epoch")?;
 
-        let epochs_to_check: Vec<alloy::primitives::U256> = (0..=current_epoch.to::<u64>())
-            .map(alloy::primitives::U256::from)
-            .collect();
+        let epochs_to_check: Vec<alloy::primitives::U256> =
+            (0..=current_epoch.to::<u64>()).map(alloy::primitives::U256::from).collect();
 
         let unclaimed = staking_rewards
             .calculateUnclaimedRewards(claim_address, epochs_to_check.clone())
@@ -117,15 +116,9 @@ impl RewardsClaimStakingRewards {
         };
 
         display.info("Waiting for confirmation...");
-        let tx_hash = tx
-            .watch()
-            .await
-            .context("Failed to wait for transaction confirmation")?;
+        let tx_hash = tx.watch().await.context("Failed to wait for transaction confirmation")?;
 
-        display.success(&format!(
-            "Successfully claimed {} ZKC",
-            format_eth(total_unclaimed)
-        ));
+        display.success(&format!("Successfully claimed {} ZKC", format_eth(total_unclaimed)));
         display.tx_hash(tx_hash);
         display.item_colored("Recipient", format!("{:#x}", recipient_address), "green");
 

@@ -24,7 +24,11 @@ pub use alloy_chains::NamedChain;
 // NOTE: See https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717 about clap usage.
 #[non_exhaustive]
 #[derive(Clone, Debug, Builder, Args)]
-#[group(id = "market_deployment", requires = "boundless_market_address", requires = "set_verifier_address")]
+#[group(
+    id = "market_deployment",
+    requires = "boundless_market_address",
+    requires = "set_verifier_address"
+)]
 pub struct Deployment {
     /// EIP-155 chain ID of the network.
     #[clap(long = "market-chain-id", env = "MARKET_CHAIN_ID")]

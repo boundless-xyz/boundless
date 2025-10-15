@@ -14,7 +14,10 @@
 
 //! Display utilities for consistent CLI output formatting
 
-use alloy::primitives::{Address, B256, U256, utils::{format_ether, format_units}};
+use alloy::primitives::{
+    utils::{format_ether, format_units},
+    Address, B256, U256,
+};
 use colored::Colorize;
 use std::fmt::Display;
 
@@ -32,9 +35,7 @@ impl DisplayManager {
 
     /// Create a display manager with network context
     pub fn with_network(network: impl Into<String>) -> Self {
-        Self {
-            network: Some(network.into()),
-        }
+        Self { network: Some(network.into()) }
     }
 
     /// Print a section header with optional network badge
@@ -215,12 +216,7 @@ pub fn progress_bar(current: usize, total: usize, width: usize) -> String {
     let filled = (current as f64 / total as f64 * width as f64) as usize;
     let empty = width - filled;
 
-    format!(
-        "[{}{}] {}%",
-        "█".repeat(filled).green(),
-        "░".repeat(empty).dimmed(),
-        percentage
-    )
+    format!("[{}{}] {}%", "█".repeat(filled).green(), "░".repeat(empty).dimmed(), percentage)
 }
 
 #[cfg(test)]

@@ -24,7 +24,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::{DisplayManager, format_eth};
+use crate::display::{format_eth, DisplayManager};
 
 /// Check the staked ZKC balance (veZKC) of an address
 #[derive(Args, Clone, Debug)]
@@ -49,8 +49,8 @@ impl RewardsStakedBalanceZkc {
         } else {
             use crate::config_file::{Config, Secrets};
 
-            let config = Config::load()
-                .context("Failed to load config - run 'boundless rewards setup'")?;
+            let config =
+                Config::load().context("Failed to load config - run 'boundless rewards setup'")?;
             let network = config
                 .rewards
                 .as_ref()
@@ -58,12 +58,11 @@ impl RewardsStakedBalanceZkc {
                 .network
                 .clone();
 
-            let secrets = Secrets::load()
-                .context("Failed to load secrets - no addresses configured")?;
-            let rewards_secrets = secrets
-                .rewards_networks
-                .get(&network)
-                .context("No rewards secrets found for current network - run 'boundless rewards setup'")?;
+            let secrets =
+                Secrets::load().context("Failed to load secrets - no addresses configured")?;
+            let rewards_secrets = secrets.rewards_networks.get(&network).context(
+                "No rewards secrets found for current network - run 'boundless rewards setup'",
+            )?;
 
             let staking_addr_str = rewards_secrets
                 .staking_address
@@ -80,9 +79,7 @@ impl RewardsStakedBalanceZkc {
                     "No staking address configured. Please run 'boundless rewards setup' or provide an address",
                 )?;
 
-            staking_addr_str
-                .parse()
-                .context("Invalid staking address")?
+            staking_addr_str.parse().context("Invalid staking address")?
         };
 
         let provider = ProviderBuilder::new()
@@ -90,10 +87,7 @@ impl RewardsStakedBalanceZkc {
             .await
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        let chain_id = provider
-            .get_chain_id()
-            .await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
 
         let vezkc_address = rewards_config.vezkc_address()?;
@@ -137,11 +131,7 @@ impl RewardsStakedBalanceZkc {
             .await
             .context("Failed to query reward delegate")?;
 
-        let symbol = zkc_token
-            .symbol()
-            .call()
-            .await
-            .context("Failed to query ZKC symbol")?;
+        let symbol = zkc_token.symbol().call().await.context("Failed to query ZKC symbol")?;
 
         display.header("Staking Address Balance");
         display.address("Address", address);
@@ -149,10 +139,7 @@ impl RewardsStakedBalanceZkc {
         display.balance("Available", &format_eth(available_balance), &symbol, "cyan");
 
         if reward_delegate != address {
-            display.item(
-                "Reward Power",
-                format!("0 (delegated to {:#x})", reward_delegate),
-            );
+            display.item("Reward Power", format!("0 (delegated to {:#x})", reward_delegate));
         } else {
             display.balance("Reward Power", &format_eth(reward_power), "", "yellow");
         }

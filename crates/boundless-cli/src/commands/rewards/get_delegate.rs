@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{primitives::Address, providers::{Provider, ProviderBuilder}};
+use alloy::{
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+};
 use anyhow::{Context, Result};
 use boundless_zkc::{contracts::IRewards, deployments::Deployment};
 use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::{DisplayManager, format_eth};
+use crate::display::{format_eth, DisplayManager};
 
 /// Get the current reward delegate for an address
 #[derive(Args, Clone, Debug)]
@@ -42,14 +45,11 @@ impl RewardsGetDelegate {
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.load_and_validate()?;
 
-        let address = self
-            .address
-            .or(rewards_config.staking_address)
-            .context(
-                "No address provided.\n\n\
+        let address = self.address.or(rewards_config.staking_address).context(
+            "No address provided.\n\n\
                 To configure: run 'boundless rewards setup'\n\
                 Or provide --address <ADDRESS>",
-            )?;
+        )?;
 
         let rpc_url = rewards_config.require_rpc_url_with_help()?;
 
@@ -58,10 +58,7 @@ impl RewardsGetDelegate {
             .await
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
-        let chain_id = provider
-            .get_chain_id()
-            .await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         let deployment = self
             .deployment

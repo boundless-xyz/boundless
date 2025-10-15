@@ -33,11 +33,7 @@ pub struct ChainProvider<P = ()> {
 impl ChainProvider {
     /// Create a new provider builder with RPC URL
     pub fn new(rpc_url: impl Into<String>) -> Self {
-        Self {
-            rpc_url: rpc_url.into(),
-            signer: None,
-            _phantom: PhantomData,
-        }
+        Self { rpc_url: rpc_url.into(), signer: None, _phantom: PhantomData }
     }
 
     /// Add a signer to the provider
@@ -47,7 +43,9 @@ impl ChainProvider {
     }
 
     /// Build and connect the provider
-    pub async fn connect(self) -> Result<Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>> {
+    pub async fn connect(
+        self,
+    ) -> Result<Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>> {
         let rpc_url = self.rpc_url.clone();
 
         if let Some(signer) = self.signer {
@@ -67,17 +65,18 @@ impl ChainProvider {
     }
 
     /// Build provider and get chain ID
-    pub async fn connect_with_chain_id(self) -> Result<(Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>, u64)> {
+    pub async fn connect_with_chain_id(
+        self,
+    ) -> Result<(Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>, u64)> {
         let provider = self.connect().await?;
-        let chain_id = provider
-            .get_chain_id()
-            .await
-            .context("Failed to get chain ID")?;
+        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
         Ok((provider, chain_id))
     }
 
     /// Build provider with chain ID and deployment resolution
-    pub async fn connect_with_deployment<D>(self) -> Result<(Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>, u64, Option<D>)>
+    pub async fn connect_with_deployment<D>(
+        self,
+    ) -> Result<(Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>, u64, Option<D>)>
     where
         D: DeploymentFromChainId,
     {
@@ -120,11 +119,7 @@ pub async fn provider_from_rewards_config(
     signer: Option<PrivateKeySigner>,
 ) -> Result<Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>> {
     let builder = ChainProvider::new(rpc_url);
-    let builder = if let Some(s) = signer {
-        builder.with_signer(s)
-    } else {
-        builder
-    };
+    let builder = if let Some(s) = signer { builder.with_signer(s) } else { builder };
     builder.connect().await
 }
 
@@ -137,11 +132,7 @@ where
     D: DeploymentFromChainId,
 {
     let builder = ChainProvider::new(rpc_url);
-    let builder = if let Some(s) = signer {
-        builder.with_signer(s)
-    } else {
-        builder
-    };
+    let builder = if let Some(s) = signer { builder.with_signer(s) } else { builder };
     builder.connect_with_deployment().await
 }
 
@@ -177,24 +168,17 @@ impl<P: Provider> BatchProviderOps<P> {
             .into_iter()
             .map(|addr| {
                 let provider = &self.provider;
-                async move {
-                    provider.get_balance(addr).await
-                }
+                async move { provider.get_balance(addr).await }
             })
             .collect();
 
-        try_join_all(futures)
-            .await
-            .context("Failed to get balances")
+        try_join_all(futures).await.context("Failed to get balances")
     }
 
     /// Get block number and timestamp together
     pub async fn get_block_info(&self) -> Result<(u64, u64)> {
-        let block_number = self
-            .provider
-            .get_block_number()
-            .await
-            .context("Failed to get block number")?;
+        let block_number =
+            self.provider.get_block_number().await.context("Failed to get block number")?;
 
         let block = self
             .provider
@@ -212,7 +196,9 @@ pub mod configs {
     use super::*;
 
     /// Create a read-only provider (no signer needed)
-    pub async fn read_only_provider(rpc_url: &str) -> Result<Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>> {
+    pub async fn read_only_provider(
+        rpc_url: &str,
+    ) -> Result<Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>> {
         ChainProvider::new(rpc_url).connect().await
     }
 
@@ -221,10 +207,7 @@ pub mod configs {
         rpc_url: &str,
         signer: PrivateKeySigner,
     ) -> Result<Arc<dyn Provider<alloy::network::Ethereum> + Send + Sync>> {
-        ChainProvider::new(rpc_url)
-            .with_signer(signer)
-            .connect()
-            .await
+        ChainProvider::new(rpc_url).with_signer(signer).connect().await
     }
 
     /// Create a provider with retry logic for unreliable networks
@@ -247,7 +230,8 @@ pub mod configs {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Failed to connect after {} attempts", max_retries)))
+        Err(last_error
+            .unwrap_or_else(|| anyhow::anyhow!("Failed to connect after {} attempts", max_retries)))
     }
 }
 
@@ -266,8 +250,7 @@ mod tests {
     #[test]
     fn test_provider_builder_pattern() {
         let signer = PrivateKeySigner::random();
-        let _provider = ChainProvider::new("http://localhost:8545")
-            .with_signer(signer);
+        let _provider = ChainProvider::new("http://localhost:8545").with_signer(signer);
         // Just testing that the builder pattern compiles
     }
 }

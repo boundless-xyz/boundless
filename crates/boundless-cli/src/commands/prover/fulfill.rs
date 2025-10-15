@@ -161,7 +161,8 @@ impl ProverFulfill {
         display.status("Status", "Submitting fulfillment", "yellow");
         match boundless_market.fulfill(fulfillment_tx).await {
             Ok(_) => {
-                display.success(&format!("Successfully fulfilled requests: {}", request_ids_string));
+                display
+                    .success(&format!("Successfully fulfilled requests: {}", request_ids_string));
                 if self.withdraw {
                     display.item_colored("Funds", "withdrawn", "green");
                 }
