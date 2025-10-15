@@ -586,7 +586,7 @@ where
             "set builder",
             prover,
             image_id,
-            override_gateway(&image_url_str),
+            image_url_str,
             path,
             default_url,
         )
@@ -613,16 +613,9 @@ where
             )
         };
 
-        self.fetch_and_upload_image(
-            "assessor",
-            prover,
-            image_id,
-            override_gateway(&image_url_str),
-            path,
-            default_url,
-        )
-        .await
-        .context("uploading assessor image")?;
+        self.fetch_and_upload_image("assessor", prover, image_id, image_url_str, path, default_url)
+            .await
+            .context("uploading assessor image")?;
         Ok(image_id)
     }
 
@@ -665,7 +658,15 @@ where
                             image_id,
                             computed_id
                         );
-                        self.download_image(&contract_url, "contract").await?
+                        let program = match self.download_image(&contract_url, "contract").await {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                let overridden_url = override_gateway(&contract_url);
+                                tracing::debug!("Retrying with overridden URL: {}", overridden_url);
+                                self.download_image(&overridden_url, "gateway fallback").await?
+                            }
+                        };
+                        program
                     }
                 }
                 Err(e) => {
@@ -674,7 +675,15 @@ where
                         image_label,
                         e
                     );
-                    self.download_image(&contract_url, "contract").await?
+                    let program = match self.download_image(&contract_url, "contract").await {
+                        Ok(bytes) => bytes,
+                        Err(_) => {
+                            let overridden_url = override_gateway(&contract_url);
+                            tracing::debug!("Retrying with overridden URL: {}", overridden_url);
+                            self.download_image(&overridden_url, "gateway fallback").await?
+                        }
+                    };
+                    program
                 }
             }
         };

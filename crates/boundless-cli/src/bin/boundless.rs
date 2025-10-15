@@ -744,15 +744,29 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
             prover_config.configure_proving_backend_with_health_check().await?;
 
             let (_, market_url) = client.boundless_market.image_info().await?;
-            let market_url = override_gateway(&market_url);
             tracing::debug!("Fetching Assessor program from {}", market_url);
-            let assessor_program = fetch_url(&market_url).await?;
+            let assessor_program = match fetch_url(&market_url).await {
+                Ok(program) => program,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch from {}, error: {:?}", market_url, e);
+                    let overridden_url = override_gateway(&market_url);
+                    tracing::debug!("Retrying with overridden URL: {}", overridden_url);
+                    fetch_url(&overridden_url).await?
+                }
+            };
             let domain = client.boundless_market.eip712_domain().await?;
 
             let (_, set_builder_url) = client.set_verifier.image_info().await?;
-            let set_builder_url = override_gateway(&set_builder_url);
             tracing::debug!("Fetching SetBuilder program from {}", set_builder_url);
-            let set_builder_program = fetch_url(&set_builder_url).await?;
+            let set_builder_program = match fetch_url(&set_builder_url).await {
+                Ok(program) => program,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch from {}, error: {:?}", set_builder_url, e);
+                    let overridden_url = override_gateway(&set_builder_url);
+                    tracing::debug!("Retrying with overridden URL: {}", overridden_url);
+                    fetch_url(&overridden_url).await?
+                }
+            };
 
             let prover = DefaultProver::new(
                 set_builder_program,
