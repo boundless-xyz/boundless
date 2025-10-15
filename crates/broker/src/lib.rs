@@ -662,7 +662,7 @@ where
                             Ok(bytes) => bytes,
                             Err(_) => {
                                 let overridden_url = override_gateway(&contract_url);
-                                tracing::debug!("Retrying with overridden URL: {}", overridden_url);
+                                tracing::debug!("Retrying with overridden URL: {overridden_url}");
                                 self.download_image(&overridden_url, "gateway fallback").await?
                             }
                         };
@@ -679,7 +679,7 @@ where
                         Ok(bytes) => bytes,
                         Err(_) => {
                             let overridden_url = override_gateway(&contract_url);
-                            tracing::debug!("Retrying with overridden URL: {}", overridden_url);
+                            tracing::debug!("Retrying with overridden URL: {overridden_url}");
                             self.download_image(&overridden_url, "gateway fallback").await?
                         }
                     };

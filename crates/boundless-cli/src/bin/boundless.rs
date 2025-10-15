@@ -750,7 +750,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
                 Err(e) => {
                     tracing::warn!("Failed to fetch from {}, error: {:?}", market_url, e);
                     let overridden_url = override_gateway(&market_url);
-                    tracing::debug!("Retrying with overridden URL: {}", overridden_url);
+                    tracing::debug!("Retrying with overridden URL: {overridden_url}");
                     fetch_url(&overridden_url).await?
                 }
             };
@@ -763,7 +763,7 @@ async fn handle_proving_command(cmd: &ProvingCommands, config: &GlobalConfig) ->
                 Err(e) => {
                     tracing::warn!("Failed to fetch from {}, error: {:?}", set_builder_url, e);
                     let overridden_url = override_gateway(&set_builder_url);
-                    tracing::debug!("Retrying with overridden URL: {}", overridden_url);
+                    tracing::debug!("Retrying with overridden URL: {overridden_url}");
                     fetch_url(&overridden_url).await?
                 }
             };
