@@ -27,7 +27,7 @@ pub const KECCAK_RECEIPT_PATH: &str = "keccak_receipts";
 pub const JOIN_WORK_TYPE: &str = "join";
 
 pub const SNARK_RETRIES_DEFAULT: i32 = 3;
-pub const SNARK_TIMEOUT_DEFAULT: i32 = 60 * 2;
+pub const SNARK_TIMEOUT_DEFAULT: i32 = 30;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 pub enum CompressType {
