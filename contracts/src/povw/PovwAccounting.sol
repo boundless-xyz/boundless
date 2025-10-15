@@ -14,6 +14,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IZKC} from "zkc/interfaces/IZKC.sol";
 import {IPovwAccounting, WorkLogUpdate, Journal, PendingEpoch} from "./IPovwAccounting.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {WorkLogUpdateLibrary} from "./WorkLogUpdateLibrary.sol";
 
 bytes32 constant EMPTY_LOG_ROOT = hex"b26927f749929e8484785e36e7ec93d5eeae4b58182f76f1e760263ab67f540c";
 
@@ -26,6 +28,7 @@ struct PendingEpochStorage {
 
 contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
     using SafeCast for uint256;
+    using WorkLogUpdateLibrary for WorkLogUpdate;
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
@@ -104,6 +107,7 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
         bytes32 updatedCommit,
         uint64 updateValue,
         address valueRecipient,
+        bytes calldata signature,
         bytes calldata seal
     ) public {
         uint64 currentEpoch = TOKEN.getCurrentEpoch().toUint64();
@@ -123,6 +127,8 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
             updateValue: updateValue,
             valueRecipient: valueRecipient
         });
+        verifySignature(update, workLogId, signature);
+
         Journal memory journal = Journal({update: update, eip712Domain: _domainSeparatorV4()});
         VERIFIER.verify(seal, LOG_UPDATER_ID, sha256(abi.encode(journal)));
 
@@ -149,5 +155,42 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
             return EMPTY_LOG_ROOT;
         }
         return commit;
+    }
+
+    function verifySignature(WorkLogUpdate memory update, address signer, bytes calldata signature) public view {
+        // Check if signer is a contract
+        uint256 codeSize;
+        assembly {
+            codeSize := extcodesize(signer)
+        }
+        bytes32 eip712Digest = update.eip712Digest();
+        bytes32 hash = _hashTypedDataV4(eip712Digest);
+        if (codeSize > 0) {
+            // Signer is a contract, try IERC1271
+            try IERC1271(signer).isValidSignature(hash, signature) returns (bytes4 magicValue) {
+                if (magicValue == 0x1626ba7e) {
+                    return; // valid signature
+                }
+            } catch {
+                revert InvalidSignature();
+            }
+        } else {
+            // Signer is likely an EOA, try ECDSA
+            bytes32 r;
+            bytes32 s;
+            uint8 v;
+            if (signature.length == 65) {
+                assembly {
+                    r := calldataload(add(signature.offset, 0))
+                    s := calldataload(add(signature.offset, 32))
+                    v := byte(0, calldataload(add(signature.offset, 64)))
+                }
+                address recovered = ecrecover(hash, v, r, s);
+                if (recovered == signer) {
+                    return;
+                }
+            }
+            revert InvalidSignature();
+        }
     }
 }

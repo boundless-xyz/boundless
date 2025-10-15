@@ -213,8 +213,8 @@ impl TestCtx {
             .value_recipient(value_recipient)
             .contract_address(*self.povw_accounting.address())
             .chain_id(self.chain_id)
-            .sign_and_build(signer)
-            .await?;
+            .build()?;
+        let signature = input.sign(signer).await?;
         let journal = execute_log_updater_guest(&input)?;
         println!("Guest execution completed, journal: {journal:#?}");
 
@@ -230,6 +230,7 @@ impl TestCtx {
                 journal.update.updatedCommit,
                 journal.update.updateValue,
                 journal.update.valueRecipient,
+                signature.into(),
                 encode_seal(&fake_receipt)?.into(),
             )
             .send()

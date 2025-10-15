@@ -170,14 +170,14 @@ impl PovwSubmit {
 
             // Sign and prove the authorized work log update.
             tracing::info!("Proving work log update");
-            let prove_info = prover
+            let (prove_info, signature) = prover
                 .prove_update(receipt, work_log_signer)
                 .await
                 .context("Failed to prove authorized log update")?;
 
             tracing::info!("Sending work log update transaction");
             let tx_result = povw_accounting
-                .update_work_log(&prove_info.receipt)
+                .update_work_log(&prove_info.receipt, &signature)
                 .context("Failed to construct update transaction")?
                 .send()
                 .await

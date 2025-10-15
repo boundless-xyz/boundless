@@ -39,10 +39,10 @@ async fn basic() -> anyhow::Result<()> {
 
     let input = Input::builder()
         .update(update.clone())
+        .value_recipient(signer.address())
         .contract_address(contract_address)
         .chain_id(chain_id)
-        .sign_and_build(&signer)
-        .await?;
+        .build()?;
     let journal = execute_log_updater_guest(&input)?;
 
     assert_eq!(journal.update.workLogId, signer.address());
@@ -76,8 +76,7 @@ async fn reject_zero_value_recipient() -> anyhow::Result<()> {
         .value_recipient(Address::ZERO)
         .contract_address(contract_address)
         .chain_id(chain_id)
-        .sign_and_build(&signer)
-        .await?;
+        .build()?;
 
     let err = execute_log_updater_guest(&input).unwrap_err();
     println!("execute_log_updater_guest failed with: {err}");
@@ -88,6 +87,7 @@ async fn reject_zero_value_recipient() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_wrong_signer() -> anyhow::Result<()> {
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
     let contract_address = address!("0x0000000000000000000000000000000000000f00");
@@ -103,51 +103,40 @@ async fn reject_wrong_signer() -> anyhow::Result<()> {
     let wrong_signer = PrivateKeySigner::random();
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
         .sign(&wrong_signer, contract_address, chain_id)
-        .await?;
+        .await?
+        .as_bytes()
+        .to_vec();
 
     let input = Input::builder()
         .update(update.clone())
         .value_recipient(signer.address())
-        .signature(signature.as_bytes().to_vec())
         .contract_address(contract_address)
         .chain_id(chain_id)
         .build()?;
-    let err = execute_log_updater_guest(&input).unwrap_err();
-    println!("execute_log_updater_guest failed with: {err}");
-    assert!(err.to_string().contains("recovered signer does not match expected"));
+    let journal = execute_log_updater_guest(&input)?;
 
-    Ok(())
-}
+    // Guest execution succeeds, but contract should reject
+    let fake_receipt = risc0_zkvm::FakeReceipt::new(risc0_zkvm::ReceiptClaim::ok(
+        BOUNDLESS_POVW_LOG_UPDATER_ID,
+        journal.abi_encode(),
+    ));
+    let receipt: risc0_zkvm::Receipt = fake_receipt.try_into()?;
 
-#[tokio::test]
-async fn reject_wrong_chain_id() -> anyhow::Result<()> {
-    let signer = PrivateKeySigner::random();
-    let chain_id = 31337;
-    let wrong_chain_id = 1; // Different chain ID
-    let contract_address = address!("0x0000000000000000000000000000000000000f00");
+    let result = ctx
+        .povw_accounting
+        .updateWorkLog(
+            journal.update.workLogId,
+            journal.update.updatedCommit,
+            journal.update.updateValue,
+            journal.update.valueRecipient,
+            signature.into(),
+            encode_seal(&receipt)?.into(),
+        )
+        .send()
+        .await;
 
-    let update = LogBuilderJournal::builder()
-        .self_image_id(RISC0_POVW_LOG_BUILDER_ID)
-        .initial_commit(Digest::new(rand::random()))
-        .updated_commit(Digest::new(rand::random()))
-        .update_value(5)
-        .work_log_id(signer.address())
-        .build()?;
-
-    let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
-        .sign(&signer, contract_address, wrong_chain_id)
-        .await?;
-
-    let input = Input::builder()
-        .update(update.clone())
-        .value_recipient(signer.address())
-        .signature(signature.as_bytes().to_vec())
-        .contract_address(contract_address)
-        .chain_id(chain_id) // Correct chain ID in input, but signature was for wrong one
-        .build()?;
-    let err = execute_log_updater_guest(&input).unwrap_err();
-    println!("execute_log_updater_guest failed with: {err}");
-    assert!(err.to_string().contains("recovered signer does not match expected"));
+    assert!(result.is_err(), "Contract should reject wrong signature");
+    println!("Contract correctly rejected wrong signature: {:?}", result.unwrap_err());
 
     Ok(())
 }
@@ -169,12 +158,13 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
     // Sign with wrong chain ID but execute with that same wrong chain ID
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
         .sign(&signer, *ctx.povw_accounting.address(), wrong_chain_id)
-        .await?;
+        .await?
+        .as_bytes()
+        .to_vec();
 
     let input = Input::builder()
         .update(update.clone())
         .value_recipient(signer.address())
-        .signature(signature.as_bytes().to_vec())
         .contract_address(*ctx.povw_accounting.address())
         .chain_id(wrong_chain_id) // Consistent but wrong chain ID
         .build()?;
@@ -194,6 +184,7 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
             journal.update.updatedCommit,
             journal.update.updateValue,
             journal.update.valueRecipient,
+            signature.into(),
             encode_seal(&receipt)?.into(),
         )
         .send()
@@ -207,6 +198,7 @@ async fn reject_wrong_chain_id_contract() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn reject_wrong_contract_address() -> anyhow::Result<()> {
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
     let contract_address = address!("0x0000000000000000000000000000000000000f00");
@@ -222,18 +214,40 @@ async fn reject_wrong_contract_address() -> anyhow::Result<()> {
 
     let signature = WorkLogUpdate::from_log_builder_journal(update.clone(), signer.address())
         .sign(&signer, wrong_contract_address, chain_id)
-        .await?;
+        .await?
+        .as_bytes()
+        .to_vec();
 
     let input = Input::builder()
         .update(update.clone())
         .value_recipient(signer.address())
-        .signature(signature.as_bytes().to_vec())
         .contract_address(contract_address) // Correct contract address in input, but signature was for wrong one
         .chain_id(chain_id)
         .build()?;
-    let err = execute_log_updater_guest(&input).unwrap_err();
-    println!("execute_log_updater_guest failed with: {err}");
-    assert!(err.to_string().contains("recovered signer does not match expected"));
+    let journal = execute_log_updater_guest(&input)?;
+
+    // Guest execution succeeds, but contract should reject
+    let fake_receipt = risc0_zkvm::FakeReceipt::new(risc0_zkvm::ReceiptClaim::ok(
+        BOUNDLESS_POVW_LOG_UPDATER_ID,
+        journal.abi_encode(),
+    ));
+    let receipt: risc0_zkvm::Receipt = fake_receipt.try_into()?;
+
+    let result = ctx
+        .povw_accounting
+        .updateWorkLog(
+            journal.update.workLogId,
+            journal.update.updatedCommit,
+            journal.update.updateValue,
+            journal.update.valueRecipient,
+            signature.into(),
+            encode_seal(&receipt)?.into(),
+        )
+        .send()
+        .await;
+
+    assert!(result.is_err(), "Contract should reject wrong contract address");
+    println!("Contract correctly rejected wrong contract address: {:?}", result.unwrap_err());
 
     Ok(())
 }
@@ -270,8 +284,8 @@ async fn reject_invalid_initial_commit() -> anyhow::Result<()> {
 
     let err = result.unwrap_err();
     println!("Contract correctly rejected invalid initial commit: {err}");
-    // Check for verification failure selector 0x439cc0cd
-    assert!(err.to_string().contains("0x439cc0cd"));
+    // Check for verification failure selector 0x8baa579f
+    assert!(err.to_string().contains("0x8baa579f"));
 
     Ok(())
 }
@@ -298,14 +312,15 @@ async fn reject_duplicate_update() -> anyhow::Result<()> {
 
     let err = result.unwrap_err();
     println!("Contract correctly rejected duplicate update: {err}");
-    // Check for verification failure selector 0x439cc0cd
-    assert!(err.to_string().contains("0x439cc0cd"));
+    // Check for verification failure selector 0x8baa579f
+    assert!(err.to_string().contains("0x8baa579f"));
 
     Ok(())
 }
 
 #[tokio::test]
 async fn reject_invalid_work_log_id() -> anyhow::Result<()> {
+    let ctx = test_ctx().await?;
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
     let contract_address = address!("0x0000000000000000000000000000000000000f00");
@@ -323,18 +338,40 @@ async fn reject_invalid_work_log_id() -> anyhow::Result<()> {
         signer.address(),
     )
     .sign(&signer, contract_address, chain_id)
-    .await?;
+    .await?
+    .as_bytes()
+    .to_vec();
 
     let input = boundless_povw::log_updater::Input::builder()
         .update(update.clone())
         .value_recipient(signer.address())
-        .signature(signature.as_bytes().to_vec())
         .contract_address(contract_address)
         .chain_id(chain_id)
         .build()?;
-    let err = execute_log_updater_guest(&input).unwrap_err();
-    println!("execute_log_updater_guest failed with: {err}");
-    assert!(err.to_string().contains("recovered signer does not match expected"));
+    let journal = execute_log_updater_guest(&input)?;
+
+    // Guest execution succeeds, but contract should reject
+    let fake_receipt = risc0_zkvm::FakeReceipt::new(risc0_zkvm::ReceiptClaim::ok(
+        BOUNDLESS_POVW_LOG_UPDATER_ID,
+        journal.abi_encode(),
+    ));
+    let receipt: risc0_zkvm::Receipt = fake_receipt.try_into()?;
+
+    let result = ctx
+        .povw_accounting
+        .updateWorkLog(
+            journal.update.workLogId,
+            journal.update.updatedCommit,
+            journal.update.updateValue,
+            journal.update.valueRecipient,
+            signature.into(),
+            encode_seal(&receipt)?.into(),
+        )
+        .send()
+        .await;
+
+    assert!(result.is_err(), "Contract should reject invalid work log ID");
+    println!("Contract correctly rejected invalid work log ID: {:?}", result.unwrap_err());
 
     Ok(())
 }
@@ -355,10 +392,11 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
     // Execute guest to get valid journal
     let input = boundless_povw::log_updater::Input::builder()
         .update(update.clone())
+        .value_recipient(signer.address())
         .contract_address(*ctx.povw_accounting.address())
         .chain_id(ctx.chain_id)
-        .sign_and_build(&signer)
-        .await?;
+        .build()?;
+    let signature = input.sign(&signer).await?;
 
     let journal = execute_log_updater_guest(&input)?;
 
@@ -378,6 +416,7 @@ async fn reject_wrong_image_id() -> anyhow::Result<()> {
             journal.update.updatedCommit,
             journal.update.updateValue,
             journal.update.valueRecipient,
+            signature.into(),
             encode_seal(&receipt)?.into(),
         )
         .send()
@@ -628,10 +667,11 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
         async move |update: LogBuilderJournal| -> anyhow::Result<u64> {
             let input = Input::builder()
                 .update(update.clone())
+                .value_recipient(signer.address())
                 .contract_address(*ctx.povw_accounting.address())
                 .chain_id(ctx.chain_id)
-                .sign_and_build(&signer)
-                .await?;
+                .build()?;
+            let signature = input.sign(&signer).await?;
             let journal = execute_log_updater_guest(&input)?;
             let fake_receipt: Receipt = FakeReceipt::new(ReceiptClaim::ok(
                 BOUNDLESS_POVW_LOG_UPDATER_ID,
@@ -647,6 +687,7 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
                     journal.update.updatedCommit,
                     journal.update.updateValue,
                     journal.update.valueRecipient,
+                    signature.into(),
                     encode_seal(&fake_receipt)?.into(),
                 )
                 .send()
@@ -685,14 +726,14 @@ async fn measure_log_update_gas() -> anyhow::Result<()> {
         .build()?;
 
     // First update: from the initial state.
-    assert!(measure_update_gas(first_update).await? < 80000);
+    assert!(measure_update_gas(first_update).await? < 90000);
 
     // First update: from the state of a fresh epoch. Finalizes the epoch.
     ctx.advance_epochs(U256::ONE).await?;
-    assert!(measure_update_gas(second_update).await? < 65000);
+    assert!(measure_update_gas(second_update).await? < 75000);
 
     // Second update within the same epoch.
-    assert!(measure_update_gas(third_update).await? < 60000);
+    assert!(measure_update_gas(third_update).await? < 70000);
 
     Ok(())
 }
