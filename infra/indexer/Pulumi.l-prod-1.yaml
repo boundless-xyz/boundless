@@ -1,5 +1,5 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
-encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGxUaGCL++GQCvX/zLtljzzAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM9k9K+qatJH8EMesJAgEQgDuCOpKHxoA6+LTQnfvVw5a6ELbGojJbAVAA6e5wTaWkMArFNkFiyhHacnJUQnjpAiVWKl2FDz6D4l6NkQ==
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFENpC4nM4ety57wps7qAsIAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM9+SeDYAwx0VExWWBAgEQgDuU2+MSQPunHYAiZZt6xStyKOo4SdYofelR7IcC1n2UpUBGjt2QzV0wEnLj92nWuz6twcO/B3k6g6cEcg==
 config:
   aws:region: us-west-2
   indexer:DOCKER_DIR: ../../
@@ -13,5 +13,8 @@ config:
   indexer:CHAIN_ID: "1"
   indexer:INDEXER_API_DOMAIN: indexer.eth-mainnet.boundless.network
   indexer:GH_TOKEN_SECRET:
-    secure: v1:ycZdieA5Ym3rfKaM:2PIhdorREAbwugxt/sAdh08Tdd/A2kK+NtHiz1j+JZR1oPCp5020JaIjw411wPQZ3xfAQZx5iKq1UlI/hKZe8cA5RJgv14KVAV6DP9cjlaWJe/905fGIUbwjfM1iHQiVLlGV40+Q46WKvinQLA==
-encryptionsalt: v1:z72nvyQ+CSM=:v1:p2GVuxRO5/eryKql:+4+3TTs93mJ9aH5Xhew65QJk5FWb8Q==
+    secure: v1:sqeRgRPjaKL5tzL4:fJyaGPpDw2Ts+umwm/SyGmqX/KYiMozexlgaIp15vvO1xo4u42XsETTEKgM814w7svqkF4Qbk2vyB2fJdPVn/GQwpwKNhsPnVHqeuk3Ev/V5mB4fUogXZlQjyALIMVcC76/aZweYOUGhEj4xRg==
+  indexer:ETH_RPC_URL:
+    secure: v1:Bm3FUPbytchzaS94:uO0iW9AUegk+SkbPOOpmnwfn3rRZjmSznZ4/NM2l0o6Bqon5qKkxcuTffdicUDHeE7sA9D9UrFGpXkHGgHIINhBkCaRw+m7wu9Y=
+  indexer:RDS_PASSWORD:
+    secure: v1:Dgy+uSuiBgyEcb13:XtMKpSotMXWM3UnaY0RehuUKvF2IliQRxDQH0RgN4w==

@@ -316,8 +316,8 @@ export const alarmConfig: ChainStageAlarms = {
               },
               alarmConfig: {
                 threshold: 0.90,
-                evaluationPeriods: 8,
-                datapointsToAlarm: 10,
+                evaluationPeriods: 10,
+                datapointsToAlarm: 8,
                 comparisonOperator: "LessThanThreshold"
               }
             }

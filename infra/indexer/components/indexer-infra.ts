@@ -90,10 +90,10 @@ export class IndexerShared extends pulumi.ComponentResource {
       ],
     }, { parent: this });
 
-    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v2`, {
+    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v3`, {
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      clusterIdentifier: `${serviceName}-aurora-v2`,
+      clusterIdentifier: `${serviceName}-aurora-v3`,
       databaseName: rdsDbName,
       masterUsername: rdsUser,
       masterPassword: rdsPassword,
@@ -105,12 +105,12 @@ export class IndexerShared extends pulumi.ComponentResource {
       storageEncrypted: true,
     }, { parent: this /* protect: true */ });
 
-    new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-2`, {
+    new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-3`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
       instanceClass: 'db.t4g.medium',
-      identifier: `${serviceName}-aurora-writer-v2`,
+      identifier: `${serviceName}-aurora-writer-v3`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
     }, { parent: this /* protect: true */ });
