@@ -10,18 +10,18 @@ config:
   prover-cluster:managerInstanceType: t3a.2xlarge
   prover-cluster:taskDBName: "taskdb"
   prover-cluster:taskDBUsername:
-    secure: v1:PXujzeEs/12Vgl5g:TLxaGmUg61kWGYVer8vwTY8QkaC0bbs=
+    secure: v1:TJ9LVKR/D4T5fqP1:AaraRAeOokTFVL/Z7eFBvdjEInbJHQ==
   prover-cluster:taskDBPassword:
-    secure: v1:fDSTtU9J7zXzF+tB:IOF1ZvqsF9cVrXXonMqSFr6MzG9b
+    secure: v1:UzhrO9QE/GMGimCC:LZiFdz5tIQHqBYQpZ2J9xDiV4NTrhzeH/4u2IvjLHw==
   prover-cluster:minioUsername:
-    secure: v1:P1EhPfZtMpxqXDp1:4msIr+fFlK0O4ixKaDUcJEL92Oh+2NU=
+    secure: v1:qt26WgrY6/0j6EZK:y/YwN7DaeSOLuCzjaJDEY+TT64M486mA
   prover-cluster:minioPassword:
-    secure: v1:qdMFDop9G60QnG9t:HOT+pX2MyrELiYUt3YgsaHMdxTxWgKEpRAto1jh6pszFNu0=
+    secure: v1:GiHZc4IxgbGYvTj2:Uole5jnRgqXcVcJqogooi2MqnSXJRzBAs4ebolTqXeXdXt2c
   prover-cluster:executionCount: "4"
   prover-cluster:auxWorkerCount: "4"
   prover-cluster:proverWorkerCount: "15"
   prover-cluster:privateKey:
-    secure: v1:bZaP8gZLLn+7PG9z:9u7k5/ch7P3WCrI6oaFzUpsljSw3ZiOBKcrM3mQL9Tg09HdrjDK8kM5FpWJ8nSfTouzr2Ghfiyj+KGcJgXYWFQQXbj2SXGVc8HMl0LbPdkk=
+    secure: v1:pNivS9eWP45vRLP3:tGQ1LNjIAs3in1GcMezJ0vBwukUSzy114wpgEWK1MnnnVDIKg+Es4Zym+78guM0S1igZI5CCCYrZzsHjz6A5Tov0bXfb3+MDSrMwQWl4kea5og==
   prover-cluster:ethRpcUrl:
     secure: v1:lFT0b4jaqt9DTTz8:QUmzfFkJTx753kerYTsYteef43jKTjRsk4GUjgW2vfV41yRzarZ1YVGFJ3QyXfmC8fsfTezQ7JwcEFdprqmkkTu+NaN9wrkb2aZsEdwahxxEIuLUD+DMR1vSO7IgVbd3MmunrP2Dm7ufmVlbzhsTXQ==
   prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network/"
