@@ -1,0 +1,18 @@
+config:
+  aws:region: us-west-2
+  indexer:DOCKER_DIR: ../../
+  indexer:DOCKER_TAG: latest
+  indexer:BASE_STACK: organization/bootstrap/services-staging
+  indexer:POVW_ACCOUNTING_ADDRESS: 0x129aEAB812d77c102ff1AD9D76DfB55FaAE4b8D3
+  indexer:VEZKC_ADDRESS: 0xB7c63161DA06eC56840465308e24C70dF65ABC56
+  indexer:ZKC_ADDRESS: 0x99A52662b576f4b2D4FFBc4504331A624a7b2846
+  indexer:RUST_LOG: "info"
+  indexer:CHAIN_ID: "11155111"
+  indexer:GH_TOKEN_SECRET:
+    secure: v1:GQkMrkuUECHw9YE3:PoX0OZ26yXcLo9XQraKINIyZTyQ/5MYqXu3BKMDDLD0Q5XHjcDPTtXu9yOJTzUQY9jMJxj/xplpDzmX9pCnHLcG7Th3sqg50Do9Hd6nhEn89RHdKm8xWba0aSGXtaDI+HRwTf+CPPdCpMR9HWQ==
+  indexer:ETH_RPC_URL:
+    secure: v1:aDACh+FhCJte0D8a:x1Qz6hBhdgjHUAhu3m5NBvipn0MFctp5PRSNttCgV+7mPVgUU7+mvkRDwEa+K8Ll1IUToGX/eKBkwBeE+XYrWbuv+5EFsE9SHiY=
+  indexer:RDS_PASSWORD:
+    secure: v1:w4gH1O7RvkOIKDd+:QSjcdDB9Fz4L45pDn/KqazFQ7f3jmVqk6huQozjQ
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFHtwzjU7yLfdQ9logy0MInAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNhj+98DbHRflFcp9AgEQgDvp1BoYvt06/rXZ3L1vMct30E+uQelDoPiY/hIdIIdV2JfqTHKgFfsu73W3Rsy2zG9W0sRQcSl8jrc1tg==

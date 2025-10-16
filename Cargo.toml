@@ -11,10 +11,13 @@ members = [
     "crates/guest/assessor",
     "crates/guest/util",
     "crates/indexer",
-    "crates/ops-lambdas/indexer-monitor",
+    "crates/lambdas/indexer-api",
+    "crates/lambdas/indexer-monitor",
     "crates/order-generator",
     "crates/order-stream",
-    "crates/povw",
+    "crates/povw", 
+    "crates/requestor-lists",
+    "crates/rewards",
     "crates/slasher",
     "crates/test-utils",
     "crates/zkc",
@@ -31,6 +34,7 @@ repository = "https://github.com/boundless-xyz/boundless/"
 boundless-assessor = { version = "0.15.0", path = "crates/assessor" }
 boundless-cli = { version = "0.15.0", path = "crates/boundless-cli" }
 boundless-market = { version = "0.15.0", path = "crates/boundless-market" }
+boundless-rewards = { version = "0.15.0", path = "crates/rewards" }
 boundless-test-utils = { path = "crates/test-utils" }
 boundless-zkc = { version = "0.15.0", path = "crates/zkc" }
 boundless-povw = { path = "crates/povw" }
@@ -38,6 +42,7 @@ distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
+requestor-lists = { path = "crates/requestor-lists" }
 
 async-stream = "0.3"
 alloy = { version = "1.0", default-features = false }

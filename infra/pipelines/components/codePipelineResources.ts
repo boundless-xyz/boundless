@@ -72,10 +72,21 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
       role: this.role,
       policyArn: aws.iam.ManagedPolicies.AWSCodeBuildDeveloperAccess
     });
-    
+
     new aws.iam.RolePolicyAttachment(`pipeline-cloudwatch-access`, {
       role: this.role,
       policyArn: aws.iam.ManagedPolicies.CloudWatchFullAccessV2
+    });
+
+    // Add EC2 and SSM permissions for Packer builds
+    new aws.iam.RolePolicyAttachment(`pipeline-ec2-access`, {
+      role: this.role,
+      policyArn: aws.iam.ManagedPolicies.AmazonEC2FullAccess
+    });
+
+    new aws.iam.RolePolicyAttachment(`pipeline-ssm-access`, {
+      role: this.role,
+      policyArn: aws.iam.ManagedPolicies.AmazonSSMFullAccess
     });
 
     // Defines the IAM policy that allows the role to access the CodeStar connection service. This

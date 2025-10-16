@@ -151,6 +151,10 @@ pub struct MarketConf {
     /// If enabled, the order will be preflighted without constraints.
     #[serde(alias = "priority_requestor_addresses")]
     pub priority_requestor_addresses: Option<Vec<Address>>,
+    /// Optional URLs to fetch requestor priority lists from.
+    ///
+    /// These lists will be periodically refreshed and merged with priority_requestor_addresses.
+    pub priority_requestor_lists: Option<Vec<String>>,
     /// Max journal size in bytes
     ///
     /// Orders that produce a journal larger than this size in preflight will be skipped. Since journals
@@ -290,6 +294,7 @@ impl Default for MarketConf {
             assumption_price: None,
             max_mcycle_limit: None,
             priority_requestor_addresses: None,
+            priority_requestor_lists: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,
             min_deadline: 120, // 2 mins

@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.26;
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

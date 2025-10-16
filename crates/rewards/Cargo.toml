@@ -1,0 +1,22 @@
+[package]
+name = "boundless-rewards"
+description = "Rewards computation for Boundless PoVW system"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[dependencies]
+alloy = { version = "1.0.34", features = ["network", "providers", "transports", "sol-types", "contract", "rpc-client"] }
+anyhow = { workspace = true }
+boundless-povw = { workspace = true }
+boundless-zkc = { workspace = true }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]

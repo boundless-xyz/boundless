@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {AssessorReceipt} from "./types/AssessorReceipt.sol";
@@ -148,6 +148,12 @@ interface IBoundlessMarket {
     /// @dev selector 0x897f6c58
     error InsufficientBalance(address account);
 
+    /// @notice Error when a payment is partially settled due to insufficient funds.
+    /// @param fullAmount The full amount that was required.
+    /// @param paidAmount The amount that was actually paid.
+    /// @dev selector 0x6008fdcb
+    error PartialPayment(uint256 fullAmount, uint256 paidAmount);
+
     /// @notice Error when a signature did not pass verification checks.
     /// @dev selector 0x8baa579f
     error InvalidSignature();
@@ -171,6 +177,10 @@ interface IBoundlessMarket {
     /// @notice Error when the fulfillment has a unfulfillable callback
     /// @dev selector 0xb90a25b1
     error UnfulfillableCallback();
+
+    /// @notice Error when there is not enough gas to fulfill a callback.
+    /// @dev selector 0x1c26714c
+    error InsufficientGas();
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
@@ -207,6 +217,11 @@ interface IBoundlessMarket {
     /// @notice Deposit Ether into the market to pay for proof.
     /// @dev Value deposited is msg.value and it is credited to the account of msg.sender.
     function deposit() external payable;
+
+    /// @notice Deposit Ether into the market to pay for proof.
+    /// @dev Value deposited is msg.value and it is credited to the given account.
+    /// @param to The address to credit the deposit to.
+    function depositTo(address to) external payable;
 
     /// @notice Withdraw Ether from the market.
     /// @dev Value is debited from msg.sender.

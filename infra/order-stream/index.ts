@@ -28,6 +28,10 @@ export = () => {
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const disableCert = config.getBoolean('DISABLE_CERT') || false;
 
+  const premiumApiKey = config.getSecret('PREMIUM_API_KEY');
+  const premiumRateLimit = config.getNumber('PREMIUM_RATE_LIMIT') ?? 10000;
+  const standardRateLimit = config.getNumber('STANDARD_RATE_LIMIT') ?? 500;
+
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
@@ -51,6 +55,9 @@ export = () => {
     albDomain,
     boundlessAlertsTopicArns: alertsTopicArns,
     disableCert,
+    premiumApiKey,
+    standardRateLimit,
+    premiumRateLimit,
   });
 
   return {

@@ -31,7 +31,7 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli -- --include-ignored
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -40,11 +40,23 @@ test-cargo-example:
     RISC0_DEV_MODE=1 cargo test
 
 # Run database tests
-test-cargo-db: 
+test-cargo-db:
     just test-db setup
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
+
+# Run indexer integration tests (requires ETH_MAINNET_RPC_URL)
+test-indexer:
+    #!/usr/bin/env bash
+    set -e
+    if [ -z "$ETH_MAINNET_RPC_URL" ]; then
+        echo "Error: ETH_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    RISC0_DEV_MODE=1 cargo test -p boundless-indexer --all-targets -- --ignored --nocapture
+    RISC0_DEV_MODE=1 cargo test -p indexer-api --all-targets -- --ignored --nocapture
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
@@ -129,6 +141,7 @@ check-clippy:
     cargo clippy --workspace --all-targets
 
 check-docs:
+    cd documentation && bun install
     # Matches the docs-rs job in CI 
     RUSTDOCFLAGS="--cfg docsrs -D warnings" RISC0_SKIP_BUILD=1 cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
 
@@ -372,15 +385,22 @@ bento action="up" env_file="" compose_flags="" detached="true":
         fi
     elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services"
-        if docker compose {{compose_flags}} $ENV_FILE_ARG down; then
+        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down; then
             echo "Docker Compose services have been stopped and removed."
         else
             echo "Error: Failed to stop Docker Compose services."
             exit 1
         fi
     elif [ "{{action}}" = "clean" ]; then
+        echo "WARNING: This will stop Docker Compose services and remove all volumes (including data)."
+        echo "If you have not run boundless povw prepare, you will lose the work you have done."
+        read -p "Are you sure you want to continue? (y/N): " -r
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Clean operation cancelled."
+            exit 0
+        fi
         echo "Stopping and cleaning Docker Compose services"
-        if docker compose {{compose_flags}} $ENV_FILE_ARG down -v; then
+        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down -v; then
             echo "Docker Compose services have been stopped and volumes have been removed."
         else
             echo "Error: Failed to clean Docker Compose services."
@@ -404,8 +424,39 @@ broker action="up" env_file="" detached="true":
         cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
         echo "broker.toml created successfully."
     fi
-    
+
     just bento "{{action}}" "{{env_file}}" "--profile broker" "{{detached}}"
+
+# Run the mining service with a bento cluster
+mine action="up":
+    #!/usr/bin/env bash
+    if ! command -v docker &> /dev/null; then
+        echo "Error: Docker command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if ! docker compose version &> /dev/null; then
+        echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
+        exit 1
+    fi
+
+    if [ "{{action}}" = "up" ]; then
+        echo "Starting mining service"
+        docker compose --profile miner up -d --build miner
+        echo "Mining service has been started."
+    elif [ "{{action}}" = "down" ]; then
+        echo "Stopping mining service"
+        if docker compose --profile miner stop miner; then
+            echo "Mining service has been stopped."
+        else
+            echo "Error: Failed to stop mining service."
+            exit 1
+        fi
+    else
+        echo "Unknown action: {{action}}"
+        echo "Available actions: up, down"
+        exit 1
+    fi
 
 # Run the setup script
 bento-setup:
