@@ -210,7 +210,7 @@ export class IndexerApi extends pulumi.ComponentResource {
     );
 
     // Create deployment stage
-    const apiStage = new aws.apigatewayv2.Stage(
+    new aws.apigatewayv2.Stage(
       `${serviceName}-stage`,
       {
         apiId: api.id,
@@ -382,9 +382,9 @@ export class IndexerApi extends pulumi.ComponentResource {
     });
 
     const viewerCertificate: pulumi.Input<aws.types.input.cloudfront.DistributionViewerCertificate> =
-      certificateArn
+      certificateValidation
         ? {
-          acmCertificateArn: certificateArn,
+          acmCertificateArn: certificateValidation.certificateArn,
           sslSupportMethod: 'sni-only',
           minimumProtocolVersion: 'TLSv1.2_2021',
         }
@@ -503,7 +503,7 @@ export class IndexerApi extends pulumi.ComponentResource {
           },
         ],
       },
-      { parent: this },
+      distributionOpts,
     );
 
     this.cloudFrontDomain = distribution.domainName;
