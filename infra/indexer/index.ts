@@ -80,7 +80,7 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
       orderStreamUrl,
-    }, { parent: infra });
+    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;
@@ -99,7 +99,7 @@ export = () => {
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
-    }, { parent: infra });
+    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
   const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion];

@@ -142,7 +142,7 @@ export class IndexerShared extends pulumi.ComponentResource {
           },
         ],
       })),
-    }, { parent: this });
+    }, { parent: this, dependsOn: [this.dbUrlSecret] });
 
     this.executionRole = new aws.iam.Role(`${serviceName}-ecs-role`, {
       assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
