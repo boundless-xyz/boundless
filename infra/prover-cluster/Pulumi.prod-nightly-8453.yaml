@@ -24,10 +24,10 @@ config:
     secure: v1:Wm9PUWwB2yIsdXNs:tVCY41A74qOu+NCBPImcIY0Cim+hRJqcfhrLjtHWc871JFM9zD3ObGorn+BKjEGL+BBBcwEIEBceFriSWmHtXDHNwFDbTBC4DhdWjlqYc3YIQw==
   prover-cluster:ethRpcUrl:
     secure: v1:lBwY+KQ4/2FTr1Ya:/H/mfCn/NAOKHW0r5Nvwew/GF5HoAnTsxZCG5Gg95RxEZVHDAtSc6kd7OD6MPOM4MHKtrxWDZjdwC97WEq33UuLQQ8UFvHIwUxab31Z1TG5Yp8J5+HByXi21AgKW1CpWgIgT+vgTNU5Kj43K
-  prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network/"
+  prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network"
   prover-cluster:verifierAddress: "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
   prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
-  prover-cluster:boundlessMarketAddress: "0x7abb16522f4599481361d318b765af988bfcca8e"
-  prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
+  prover-cluster:boundlessMarketAddress: "0xfd152dadc5183870710fe54f939eae3ab9f0fe82"
+  prover-cluster:collateralTokenAddress: "0x8d4dA4b7938471A919B08F941461b2ed1679d7bb"
   prover-cluster:taskDBusername:
     secure: v1:9FrKfdSIsieo1bxD:S8s/9tyJN0U4V2r4PT81CQYWHgR9tbA=
