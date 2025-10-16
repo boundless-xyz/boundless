@@ -116,11 +116,11 @@ export class IndexerShared extends pulumi.ComponentResource {
     }, { parent: this /* protect: true */ });
 
     const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
-    this.dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`, {}, { parent: this });
-    this.dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
+    this.dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url-1`, {}, { parent: this });
+    this.dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver-1`, {
       secretId: this.dbUrlSecret.id,
       secretString: dbUrlSecretValue,
-    }, { parent: this });
+    }, { parent: this, dependsOn: [this.dbUrlSecret] });
 
     this.secretHash = pulumi
       .all([dbUrlSecretValue, this.dbUrlSecretVersion.arn])
