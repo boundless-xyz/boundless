@@ -7,10 +7,11 @@ import { LIndexerPipeline } from "./pipelines/l-indexer";
 import { LOrderGeneratorPipeline } from "./pipelines/l-order-generator";
 import { LOrderStreamPipeline } from "./pipelines/l-order-stream";
 import { LProverPipeline } from "./pipelines/l-prover";
+import { LRequestorListsPipeline } from "./pipelines/l-requestor-lists";
 import { LSlasherPipeline } from "./pipelines/l-slasher";
 import { PackerPipeline } from "./pipelines/packer";
 import { ProverClusterPipeline } from "./pipelines/prover-cluster";
-import { NightlyBuildPipeline } from "./pipelines/nightly-build";
+import { PackerNightlyPipeline } from "./pipelines/packer-nightly";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import {
@@ -174,6 +175,16 @@ const lSlasherPipeline = new LSlasherPipeline("lSlasherPipeline", {
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
 
+const lRequestorListsPipeline = new LRequestorListsPipeline("lRequestorListsPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
 // Packer AMI build pipeline
 const packerPipeline = new PackerPipeline("packerPipeline", {
   connection: githubConnection,
@@ -206,7 +217,7 @@ const proverClusterPipeline = new ProverClusterPipeline("proverClusterPipeline",
 });
 
 // Nightly build pipeline
-const nightlyBuildPipeline = new NightlyBuildPipeline("nightlyBuildPipeline", {
+const packerNightlyPipeline = new PackerNightlyPipeline("packerNightlyPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
@@ -231,4 +242,4 @@ export const boundlessAlertsTopicArnLaunch = notifications.slackSNSTopicLaunch.a
 export const boundlessAlertsTopicArnStagingLaunch = notifications.slackSNSTopicStagingLaunch.arn;
 export const packerPipelineName = packerPipeline.pipelineName;
 export const proverClusterStagingPipelineName = proverClusterPipeline.pipelineName;
-export const nightlyBuildPipelineName = nightlyBuildPipeline.pipelineName;
+export const packerNightlyPipelineName = packerNightlyPipeline.pipelineName;
