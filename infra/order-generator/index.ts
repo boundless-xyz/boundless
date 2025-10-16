@@ -37,7 +37,6 @@ export = () => {
   const interval = baseConfig.require('INTERVAL');
   const lockCollateralRaw = baseConfig.require('LOCK_COLLATERAL_RAW');
   const minPricePerMCycle = baseConfig.require('MIN_PRICE_PER_MCYCLE');
-  const maxPricePerMCycle = baseConfig.require('MAX_PRICE_PER_MCYCLE');
   const txTimeout = baseConfig.require('TX_TIMEOUT');
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
@@ -122,6 +121,7 @@ export = () => {
   const offchainRampUpSecondsPerMCycle = offchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const offchainInterval = offchainConfig.get('INTERVAL');
   const offchainExecRateKhz = offchainConfig.get('EXEC_RATE_KHZ');
+  const offchainMaxPricePerMCycle = offchainConfig.require('MAX_PRICE_PER_MCYCLE');
   new OrderGenerator('offchain', {
     chainId,
     stackName,
@@ -142,7 +142,7 @@ export = () => {
     interval: offchainInterval ?? interval,
     lockCollateralRaw,
     minPricePerMCycle,
-    maxPricePerMCycle,
+    maxPricePerMCycle: offchainMaxPricePerMCycle,
     vpcId,
     privateSubnetIds,
     boundlessAlertsTopicArns: alertsTopicArns,
@@ -169,6 +169,7 @@ export = () => {
   const onchainRampUpSecondsPerMCycle = onchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const onchainInterval = onchainConfig.get('INTERVAL');
   const onchainExecRateKhz = onchainConfig.get('EXEC_RATE_KHZ');
+  const onchainMaxPricePerMCycle = onchainConfig.require('MAX_PRICE_PER_MCYCLE');
   new OrderGenerator('onchain', {
     chainId,
     stackName,
@@ -188,7 +189,7 @@ export = () => {
     rampUp: onchainRampUp,
     inputMaxMCycles: onchainInputMaxMCycles,
     minPricePerMCycle,
-    maxPricePerMCycle,
+    maxPricePerMCycle: onchainMaxPricePerMCycle,
     secondsPerMCycle: onchainSecondsPerMCycle,
     rampUpSecondsPerMCycle: onchainRampUpSecondsPerMCycle,
     vpcId,

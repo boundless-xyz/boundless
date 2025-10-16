@@ -9,5 +9,10 @@ config:
   indexer:RUST_LOG: "info"
   indexer:CHAIN_ID: "11155111"
   indexer:GH_TOKEN_SECRET:
-    secure: v1:J4xZ56NwrwjtY0Jp:dpbSAQPuDpFfsHo+QhKLK4C+C0iaSyT2mIAvrpRN7wXXCija5tBhn+yoX84ral2eER24LxQQj3QB1bXaZs0c6NYQwvRo589I4/01I4kw+UgntN7hr64TUDdXZeVisR7wYjfmLwjSIo2frxzW1A==
-encryptionsalt: v1:HL2bLYFQivc=:v1:KcERsQ2cFYC6O0+/:S4QR92sqLTBU8qboGwF219jAZ0zD6Q==
+    secure: v1:GQkMrkuUECHw9YE3:PoX0OZ26yXcLo9XQraKINIyZTyQ/5MYqXu3BKMDDLD0Q5XHjcDPTtXu9yOJTzUQY9jMJxj/xplpDzmX9pCnHLcG7Th3sqg50Do9Hd6nhEn89RHdKm8xWba0aSGXtaDI+HRwTf+CPPdCpMR9HWQ==
+  indexer:ETH_RPC_URL:
+    secure: v1:aDACh+FhCJte0D8a:x1Qz6hBhdgjHUAhu3m5NBvipn0MFctp5PRSNttCgV+7mPVgUU7+mvkRDwEa+K8Ll1IUToGX/eKBkwBeE+XYrWbuv+5EFsE9SHiY=
+  indexer:RDS_PASSWORD:
+    secure: v1:w4gH1O7RvkOIKDd+:QSjcdDB9Fz4L45pDn/KqazFQ7f3jmVqk6huQozjQ
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFHtwzjU7yLfdQ9logy0MInAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNhj+98DbHRflFcp9AgEQgDvp1BoYvt06/rXZ3L1vMct30E+uQelDoPiY/hIdIIdV2JfqTHKgFfsu73W3Rsy2zG9W0sRQcSl8jrc1tg==

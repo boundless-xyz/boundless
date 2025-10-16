@@ -4,8 +4,7 @@ echo "Installing all Bento dependencies..."
 
 # Update system
 sudo apt-get update -y
-sudo apt-get upgrade -y
-sudo apt-get install -y jq htop tree git nvtop build-essential pkg-config libssl-dev curl wget gnupg2 software-properties-common apt-transport-https ca-certificates lsb-release protobuf-compiler unzip
+sudo apt-get install -y jq htop tree git nvtop build-essential pkg-config libssl-dev curl wget gnupg2 software-properties-common apt-transport-https ca-certificates lsb-release protobuf-compiler unzip clang
 
 # Install NVIDIA drivers and CUDA
 echo "Installing NVIDIA drivers and CUDA..."

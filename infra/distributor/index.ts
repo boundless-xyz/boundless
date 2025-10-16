@@ -2,7 +2,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-import { ChainId, getServiceNameV1, getEnvVar, Severity } from '../util';
+import { getServiceNameV1, getEnvVar, Severity } from '../util';
 import * as crypto from 'crypto';
 require('dotenv').config();
 

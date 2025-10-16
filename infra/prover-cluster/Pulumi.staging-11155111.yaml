@@ -1,7 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFOcFJCvMT28oLfkp4sh8o4AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMgyWx4oZKLBsfdMb3AgEQgDttrAKl4dgLv7aEB+wk0pcurQyT6uGSNg6ESJ76JygyQInWiCilDGvxSGw0XPuqFQ1I35PRxoO6AYuixA==
 config:
-  prover-cluster:boundlessAmiName: "boundless-v1.0.1-ubuntu-24.04-nvidia-*"
+  prover-cluster:boundlessAmiName: "boundless-nightly-ubuntu*"
   base:BASE_STACK: organization/bootstrap/services-staging
   prover-cluster:environment: staging
   prover-cluster:managerInstanceType: t3a.2xlarge

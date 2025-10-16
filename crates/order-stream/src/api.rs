@@ -20,6 +20,7 @@ use boundless_market::order_stream_client::{
     ORDER_SUBMISSION_PATH,
 };
 use serde::Deserialize;
+use sqlx::types::chrono;
 use std::sync::Arc;
 use utoipa::IntoParams;
 
@@ -56,10 +57,17 @@ const MAX_ORDERS: u64 = 1000;
 /// Paging query parameters
 #[derive(Deserialize, IntoParams)]
 pub struct Pagination {
-    /// order id offset to start at
-    offset: u64,
+    /// order id offset to start at (used when sort is not specified or sort=asc)
+    #[serde(default)]
+    offset: Option<u64>,
     /// Limit of orders returned, max 1000
     limit: u64,
+    /// Sort order: "desc" for descending by creation time, otherwise ascending by id (default)
+    #[serde(default)]
+    sort: Option<String>,
+    /// ISO 8601 timestamp to fetch orders created after this time (only used with sort=desc)
+    #[serde(default)]
+    after: Option<String>,
 }
 
 #[utoipa::path(
@@ -73,17 +81,37 @@ pub struct Pagination {
         (status = 500, description = "Internal error", body = ErrMsg)
     )
 )]
-/// Returns a list of orders, with optional paging.
+/// Returns a list of orders with optional paging and sorting.
+///
+/// By default, orders are sorted by id ascending. Use sort=desc to sort by creation time descending.
 pub(crate) async fn list_orders(
     State(state): State<Arc<AppState>>,
     paging: Query<Pagination>,
 ) -> Result<Json<Vec<DbOrder>>, AppError> {
     let limit = if paging.limit > MAX_ORDERS { MAX_ORDERS } else { paging.limit };
-    // i64::try_from converts to non-zero u64
     let limit = i64::try_from(limit).map_err(|_| AppError::QueryParamErr("limit"))?;
-    let offset = i64::try_from(paging.offset).map_err(|_| AppError::QueryParamErr("index"))?;
 
-    let results = state.db.list_orders(offset, limit).await.context("Failed to query DB")?;
+    let results = if paging.sort.as_deref() == Some("desc") {
+        let after_timestamp = if let Some(after_str) = &paging.after {
+            let ts = after_str
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .map_err(|_| AppError::QueryParamErr("after"))?;
+            Some(ts)
+        } else {
+            None
+        };
+
+        state
+            .db
+            .list_orders_by_creation_desc(after_timestamp, limit)
+            .await
+            .context("Failed to query DB")?
+    } else {
+        let offset = i64::try_from(paging.offset.unwrap_or(0))
+            .map_err(|_| AppError::QueryParamErr("offset"))?;
+        state.db.list_orders(offset, limit).await.context("Failed to query DB")?
+    };
+
     Ok(Json(results))
 }
 

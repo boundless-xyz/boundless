@@ -4,7 +4,7 @@
 // as found in the LICENSE-BSL file.
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";

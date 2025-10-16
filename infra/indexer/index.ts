@@ -33,7 +33,7 @@ export = () => {
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
   const indexerServiceName = getServiceNameV1(stackName, "indexer", chainId);
   const monitorServiceName = getServiceNameV1(stackName, "monitor", chainId);
-  const apiServiceName = getServiceNameV1(stackName, "api", chainId);
+  const indexerApiServiceName = getServiceNameV1(stackName, "indexer-api", chainId);
 
   // Metric namespace for service metrics, e.g. operation health of the monitor/indexer infra
   const serviceMetricsNamespace = `Boundless/Services/${indexerServiceName}`;
@@ -43,6 +43,7 @@ export = () => {
 
   const boundlessAddress = config.get('BOUNDLESS_ADDRESS');
   const startBlock = boundlessAddress ? config.require('START_BLOCK') : undefined;
+  const orderStreamUrl = config.getSecret('ORDER_STREAM_URL');
 
   const vezkcAddress = config.get('VEZKC_ADDRESS');
   const zkcAddress = config.get('ZKC_ADDRESS');
@@ -78,7 +79,8 @@ export = () => {
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
-    }, { parent: infra });
+      orderStreamUrl,
+    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;
@@ -97,7 +99,7 @@ export = () => {
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
-    }, { parent: infra });
+    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
   const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion];
@@ -126,7 +128,7 @@ export = () => {
 
   let api: IndexerApi | undefined;
   if (shouldDeployRewards && rewardsIndexer) {
-    api = new IndexerApi(apiServiceName, {
+    api = new IndexerApi(indexerApiServiceName, {
       vpcId: vpcId,
       privSubNetIds: privSubNetIds,
       dbUrlSecret: infra.dbUrlSecret,
@@ -134,6 +136,7 @@ export = () => {
       indexerSgId: infra.indexerSecurityGroup.id,
       rustLogLevel: rustLogLevel,
       domain: indexerApiDomain,
+      boundlessAlertsTopicArns: alertsTopicArns,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 

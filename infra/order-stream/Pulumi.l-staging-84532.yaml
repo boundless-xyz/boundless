@@ -18,3 +18,5 @@ config:
     secure: v1:s5Krr0oDpt77PGI9:ajMXNh09uUNyf4zIDTc1NzMleFaYyypU1KR546ehRbGJNK6zTiSRaVwbrXSkXxy+4sf6hulKn3TI29SUbtleTR9K1cqy+S4s8W/y
   order-stream:GH_TOKEN_SECRET:
     secure: v1:ItT+FkGTSiyiHu6K:mI5jLzP9d/IzIOv0qdjZ6gRdRuFyQUBk7CR1uHt0P9BaeZHX2GtiKYl0uLe3MrqMZ7bYMO5vQjHOoCacnezXvI8Rr/dNCRxnnDlyNxAE3oHFmqBewRZTt0eM/8rm2wNJ5IMZu8eURGRguUAtjg==
+  order-stream:PREMIUM_API_KEY:
+    secure: v1:UqnuM0FhpigMqe4P:rFD+VEXvHlBq+KfFH8eNUsk/g1IDF+Ug9tXIvG7Q

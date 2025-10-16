@@ -17,7 +17,6 @@ use alloy::{
     signers::{Error as SignerErr, Signer},
 };
 use alloy_primitives::B256;
-use alloy_sol_types::SolStruct;
 use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::{DateTime, Utc};
@@ -35,7 +34,7 @@ use tokio_tungstenite::{
 };
 use utoipa::ToSchema;
 
-use crate::contracts::{eip712_domain, ProofRequest, RequestError};
+use crate::contracts::{ProofRequest, RequestError};
 
 /// Order stream submission API path.
 pub const ORDER_SUBMISSION_PATH: &str = "/api/v1/submit_order";
@@ -135,8 +134,7 @@ impl Order {
     /// Validate the Order
     pub fn validate(&self, market_address: Address, chain_id: u64) -> Result<(), OrderError> {
         self.request.validate()?;
-        let domain = eip712_domain(market_address, chain_id);
-        let hash = self.request.eip712_signing_hash(&domain.alloy_struct());
+        let hash = self.request.signing_hash(market_address, chain_id)?;
         if hash != self.request_digest {
             return Err(OrderError::RequestError(RequestError::DigestMismatch));
         }
@@ -224,8 +222,7 @@ impl OrderStreamClient {
         let url = self.base_url.join(ORDER_SUBMISSION_PATH)?;
         let signature =
             request.sign_request(signer, self.boundless_market_address, self.chain_id).await?;
-        let domain = eip712_domain(self.boundless_market_address, self.chain_id);
-        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
+        let request_digest = request.signing_hash(self.boundless_market_address, self.chain_id)?;
         let order = Order { request: request.clone(), request_digest, signature };
         order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;
@@ -302,6 +299,43 @@ impl OrderStreamClient {
         let nonce = res.json().await?;
 
         Ok(nonce)
+    }
+
+    /// List orders sorted by creation time descending (most recent first)
+    ///
+    /// Returns orders created after the given timestamp (if provided), up to the specified limit.
+    /// If `after` is None, returns the most recent orders.
+    pub async fn list_orders_by_creation(
+        &self,
+        after: Option<DateTime<Utc>>,
+        limit: u64,
+    ) -> Result<Vec<OrderData>> {
+        let mut url = self.base_url.join(ORDER_LIST_PATH)?;
+
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("sort", "desc");
+            query.append_pair("limit", &limit.to_string());
+            if let Some(ts) = after {
+                query.append_pair("after", &ts.to_rfc3339());
+            }
+        }
+
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            let error_message = match response.json::<serde_json::Value>().await {
+                Ok(json_body) => {
+                    json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
+                }
+                Err(_) => "Failed to read server error message".to_string(),
+            };
+
+            return Err(anyhow::Error::msg(error_message));
+        }
+
+        let orders: Vec<OrderData> = response.json().await?;
+        Ok(orders)
     }
 
     /// Return a WebSocket stream connected to the order stream server
