@@ -182,7 +182,7 @@ impl ProvingService {
 
         let timeout_duration = {
             let expiry_timestamp_secs = order.request.expires_at();
-            let now = crate::now_timestamp();
+            let now = now_timestamp();
             Duration::from_secs(expiry_timestamp_secs.saturating_sub(now))
         };
         // Only subscribe to order state events for FulfillAfterLockExpire orders
@@ -190,7 +190,7 @@ impl ProvingService {
             let rx = self.order_state_tx.subscribe();
 
             if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire)
-                || order.expire_timestamp.unwrap() < crate::now_timestamp()
+                || order.expire_timestamp.unwrap() < now_timestamp()
             {
                 // Check if the order has already been fulfilled before starting proof
                 match self.db.is_request_fulfilled(request_id).await {
@@ -281,7 +281,7 @@ impl ProvingService {
                                     return Err(ProvingErr::ExternallyFulfilled);
                                 }
                                 FulfillmentType::LockAndFulfill => {
-                                    if crate::now_timestamp() >= order.request.lock_expires_at() {
+                                    if now_timestamp() >= order.request.lock_expires_at() {
                                         tracing::debug!(
                                             "Order {} (request {}) was fulfilled after lock expiry, cancelling proof {}",
                                             order_id,
@@ -290,7 +290,7 @@ impl ProvingService {
                                         );
                                         return Err(ProvingErr::ExternallyFulfilled);
                                     } else {
-                                        let now = crate::now_timestamp();
+                                        let now = now_timestamp();
                                         let remaining = Duration::from_secs(
                                             order.request.lock_expires_at().saturating_sub(now)
                                         );
@@ -409,7 +409,7 @@ impl ProvingService {
             self.db.get_active_proofs().await.context("Failed to get active proofs")?;
 
         tracing::info!("Found {} proofs currently proving", current_proofs.len());
-        let now = crate::now_timestamp();
+        let now = now_timestamp();
         for order in current_proofs {
             let order_id = order.id();
             if order.request.expires_at() < now {
