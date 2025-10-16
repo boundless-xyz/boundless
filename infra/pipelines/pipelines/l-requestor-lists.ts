@@ -9,7 +9,7 @@ const config: LaunchPipelineConfig = {
   appName: "requestor-lists",
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
-  branchName: "willpote/indexer-and-requestor-list-pipelines",
+  branchName: "main",
 };
 
 export class LRequestorListsPipeline extends LaunchBasePipeline<LaunchPipelineConfig> {

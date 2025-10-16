@@ -19,7 +19,7 @@ interface ProverClusterPipelineArgs extends BasePipelineArgs {
 // The name of the app that we are deploying. Must match the name of the directory in the infra directory.
 const APP_NAME = "prover-cluster";
 // The branch that we should deploy from on push.
-const BRANCH_NAME = "willpote/indexer-and-requestor-list-pipelines";
+const BRANCH_NAME = "main";
 // Buildspec for prover cluster deployment
 const PROVER_CLUSTER_BUILD_SPEC = `version: 0.2
 
