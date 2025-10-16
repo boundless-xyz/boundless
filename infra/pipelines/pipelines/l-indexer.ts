@@ -7,7 +7,7 @@ interface LIndexerPipelineArgs extends BasePipelineArgs { }
 
 const config: LaunchPipelineConfig = {
   appName: "indexer",
-  buildTimeout: 60,
+  buildTimeout: 75,
   computeType: "BUILD_GENERAL1_LARGE",
   additionalBuildSpecCommands: [
     'curl https://sh.rustup.rs -sSf | sh -s -- -y',
