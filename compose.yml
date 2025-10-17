@@ -171,9 +171,8 @@ services:
 
   exec_agent0:
     <<: *exec-agent-common
-
-  exec_agent1:
-    <<: *exec-agent-common
+    deploy:
+      replicas: 2
 
   aux_agent:
     <<: *agent-common
