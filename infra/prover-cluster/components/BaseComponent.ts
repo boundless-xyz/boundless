@@ -6,6 +6,7 @@ export interface BaseComponentConfig {
     environment: string;
     vpcId: pulumi.Output<string>;
     privateSubnetIds: pulumi.Output<string[]>;
+    publicSubnetIds: pulumi.Output<string[]>;
 }
 
 export abstract class BaseComponent {
