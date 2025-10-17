@@ -169,7 +169,7 @@ services:
       - redis
       - minio
 
-  exec_agent0:
+  exec_agent:
     <<: *exec-agent-common
     deploy:
       replicas: 2
