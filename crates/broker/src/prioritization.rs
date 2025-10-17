@@ -28,6 +28,8 @@ enum UnifiedPriorityMode {
     Random,
     TimeOrdered,
     ShortestExpiry,
+    LockPrice,
+    LockCyclePrice,
 }
 
 impl From<OrderPricingPriority> for UnifiedPriorityMode {
@@ -45,6 +47,8 @@ impl From<OrderCommitmentPriority> for UnifiedPriorityMode {
         match mode {
             OrderCommitmentPriority::Random => UnifiedPriorityMode::Random,
             OrderCommitmentPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
+            OrderCommitmentPriority::LockPrice => UnifiedPriorityMode::LockPrice,
+            OrderCommitmentPriority::LockCyclePrice => UnifiedPriorityMode::LockCyclePrice,
         }
     }
 }
@@ -76,6 +80,49 @@ fn sort_by_mode<T>(orders: &mut [T], mode: UnifiedPriorityMode)
 where
     T: AsRef<OrderRequest>,
 {
+    use crate::FulfillmentType;
+
+    fn sort_lock_then_by<T, F, K>(orders: &mut [T], key: F)
+    where
+        T: AsRef<OrderRequest>,
+        F: Fn(&OrderRequest) -> K,
+        K: Ord,
+    {
+        // Group lock-capable orders first, sort them by key (descending), then shuffle expired.
+        orders.sort_by(|a, b| {
+            let a_ref = a.as_ref();
+            let b_ref = b.as_ref();
+            let a_is_expired =
+                matches!(a_ref.fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+            let b_is_expired =
+                matches!(b_ref.fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+
+            match (a_is_expired, b_is_expired) {
+                (false, true) => std::cmp::Ordering::Less,
+                (true, false) => std::cmp::Ordering::Greater,
+                (false, false) => {
+                    // Both lock-capable: order by key descending
+                    let a_key = key(a_ref);
+                    let b_key = key(b_ref);
+                    b_key.cmp(&a_key)
+                }
+                (true, true) => std::cmp::Ordering::Equal,
+            }
+        });
+
+        // Shuffle only the expired orders section
+        let expired_start = orders
+            .iter()
+            .position(|order| {
+                matches!(order.as_ref().fulfillment_type, FulfillmentType::FulfillAfterLockExpire)
+            })
+            .unwrap_or(orders.len());
+
+        if expired_start < orders.len() {
+            orders[expired_start..].shuffle(&mut rand::rng());
+        }
+    }
+
     match mode {
         UnifiedPriorityMode::Random => orders.shuffle(&mut rand::rng()),
         UnifiedPriorityMode::TimeOrdered => {
@@ -83,6 +130,20 @@ where
         }
         UnifiedPriorityMode::ShortestExpiry => {
             orders.sort_by_key(|order| order.as_ref().expiry());
+        }
+        UnifiedPriorityMode::LockPrice => {
+            let now = crate::now_timestamp();
+            sort_lock_then_by(orders, |o| o.request.offer.price_at(now).unwrap_or_default());
+        }
+        UnifiedPriorityMode::LockCyclePrice => {
+            let now = crate::now_timestamp();
+            sort_lock_then_by(orders, |o| {
+                let payment = o.request.offer.price_at(now).unwrap_or_default();
+                match o.total_cycles {
+                    Some(cycles) if cycles > 0 => payment / alloy::primitives::U256::from(cycles),
+                    _ => alloy::primitives::U256::ZERO,
+                }
+            });
         }
     }
 }
@@ -692,5 +753,254 @@ mod tests {
         assert_eq!(prioritized_orders[0].request.lock_expires_at(), current_timestamp + 500);
         assert_eq!(prioritized_orders[0].request.client_address(), priority_addr);
         assert_eq!(prioritized_orders[1].request.lock_expires_at(), current_timestamp + 100);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_commitment_priority_lock_price_ordering_and_expired_shuffled() {
+        // Build orders with different prices; lock-capable should be sorted by price desc, expired randomized.
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp().saturating_sub(1_000); // ensure price_at(now) == maxPrice
+
+        // Lock-capable orders with max prices 30, 10, 20 (descending should be 30,20,10)
+        let lock_30 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                min_price: alloy::primitives::U256::from(1u64),
+                max_price: alloy::primitives::U256::from(30u64),
+                lock_timeout: 10_000,
+                timeout: 20_000,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        let lock_30 = std::sync::Arc::new(*lock_30);
+
+        let lock_10 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                bidding_start: base_time,
+                min_price: alloy::primitives::U256::from(1u64),
+                max_price: alloy::primitives::U256::from(10u64),
+                lock_timeout: 10_000,
+                timeout: 20_000,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        let lock_10 = std::sync::Arc::new(*lock_10);
+
+        let lock_20 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 3,
+                bidding_start: base_time,
+                min_price: alloy::primitives::U256::from(1u64),
+                max_price: alloy::primitives::U256::from(20u64),
+                lock_timeout: 10_000,
+                timeout: 20_000,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        let lock_20 = std::sync::Arc::new(*lock_20);
+
+        // Expired fulfillment orders
+        let exp_a = ctx
+            .generate_next_order(OrderParams {
+                order_index: 4,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                timeout: 500,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        let exp_a = std::sync::Arc::new(*exp_a);
+
+        let exp_b = ctx
+            .generate_next_order(OrderParams {
+                order_index: 5,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                timeout: 600,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        let exp_b = std::sync::Arc::new(*exp_b);
+
+        // Verify ordering for LockPrice
+        let mut orders =
+            vec![lock_30.clone(), lock_10.clone(), lock_20.clone(), exp_a.clone(), exp_b.clone()];
+        sort_orders_by_priority_and_mode(
+            &mut orders,
+            None,
+            OrderCommitmentPriority::LockPrice.into(),
+        );
+
+        // First 3 must be lock-capable, ordered by price desc (30, 20, 10)
+        assert_eq!(orders[0].request.offer.maxPrice, alloy::primitives::U256::from(30u64));
+        assert_eq!(orders[1].request.offer.maxPrice, alloy::primitives::U256::from(20u64));
+        assert_eq!(orders[2].request.offer.maxPrice, alloy::primitives::U256::from(10u64));
+        assert!(matches!(
+            orders[0].fulfillment_type,
+            FulfillmentType::LockAndFulfill | FulfillmentType::FulfillWithoutLocking
+        ));
+        assert!(matches!(
+            orders[1].fulfillment_type,
+            FulfillmentType::LockAndFulfill | FulfillmentType::FulfillWithoutLocking
+        ));
+        assert!(matches!(
+            orders[2].fulfillment_type,
+            FulfillmentType::LockAndFulfill | FulfillmentType::FulfillWithoutLocking
+        ));
+
+        // Last 2 must be expired type
+        assert_eq!(orders[3].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(orders[4].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+
+        // The expired tail should be randomized across runs
+        let mut tails = HashSet::new();
+        for _ in 0..15 {
+            let mut test_orders = vec![
+                lock_30.clone(),
+                lock_10.clone(),
+                lock_20.clone(),
+                exp_a.clone(),
+                exp_b.clone(),
+            ];
+            sort_orders_by_priority_and_mode(
+                &mut test_orders,
+                None,
+                OrderCommitmentPriority::LockPrice.into(),
+            );
+            tails.insert((test_orders[3].request.id, test_orders[4].request.id));
+        }
+        assert!(tails.len() > 1, "Expired orders should be shuffled in LockPrice mode");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_commitment_priority_lock_cycle_price_ordering_and_expired_shuffled() {
+        // Build orders with same absolute price behavior but different cycles; sort by per-cycle desc.
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp().saturating_sub(1_000);
+
+        // B: max 900, cycles 30 -> per-cycle 30 (first)
+        let mut lock_b = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 10,
+                bidding_start: base_time,
+                min_price: alloy::primitives::U256::from(1u64),
+                max_price: alloy::primitives::U256::from(900u64),
+                lock_timeout: 10_000,
+                timeout: 20_000,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        lock_b.total_cycles = Some(30);
+        let lock_b = std::sync::Arc::new(lock_b);
+
+        // A: max 1000, cycles 100 -> per-cycle 10 (second)
+        let mut lock_a = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 11,
+                bidding_start: base_time,
+                min_price: alloy::primitives::U256::from(1u64),
+                max_price: alloy::primitives::U256::from(1000u64),
+                lock_timeout: 10_000,
+                timeout: 20_000,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        lock_a.total_cycles = Some(100);
+        let lock_a = std::sync::Arc::new(lock_a);
+
+        // C: max 1200, cycles 200 -> per-cycle 6 (third)
+        let mut lock_c = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 12,
+                bidding_start: base_time,
+                min_price: alloy::primitives::U256::from(1u64),
+                max_price: alloy::primitives::U256::from(1200u64),
+                lock_timeout: 10_000,
+                timeout: 20_000,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        lock_c.total_cycles = Some(200);
+        let lock_c = std::sync::Arc::new(lock_c);
+
+        // Expired fulfillment orders
+        let exp_a = ctx
+            .generate_next_order(OrderParams {
+                order_index: 13,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                timeout: 500,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        let exp_a = std::sync::Arc::new(*exp_a);
+
+        let exp_b = ctx
+            .generate_next_order(OrderParams {
+                order_index: 14,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                timeout: 600,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        let exp_b = std::sync::Arc::new(*exp_b);
+
+        // Verify ordering for LockCyclePrice: B (30), A (10), C (6)
+        let mut orders =
+            vec![lock_a.clone(), lock_b.clone(), lock_c.clone(), exp_a.clone(), exp_b.clone()];
+        sort_orders_by_priority_and_mode(
+            &mut orders,
+            None,
+            OrderCommitmentPriority::LockCyclePrice.into(),
+        );
+
+        assert_eq!(orders[0].request.id, lock_b.request.id);
+        assert_eq!(orders[1].request.id, lock_a.request.id);
+        assert_eq!(orders[2].request.id, lock_c.request.id);
+        assert!(matches!(
+            orders[0].fulfillment_type,
+            FulfillmentType::LockAndFulfill | FulfillmentType::FulfillWithoutLocking
+        ));
+        assert!(matches!(
+            orders[1].fulfillment_type,
+            FulfillmentType::LockAndFulfill | FulfillmentType::FulfillWithoutLocking
+        ));
+        assert!(matches!(
+            orders[2].fulfillment_type,
+            FulfillmentType::LockAndFulfill | FulfillmentType::FulfillWithoutLocking
+        ));
+
+        // Last 2 must be expired type
+        assert_eq!(orders[3].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+        assert_eq!(orders[4].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
+
+        // The expired tail should be randomized across runs
+        let mut tails = HashSet::new();
+        for _ in 0..15 {
+            let mut test_orders =
+                vec![lock_a.clone(), lock_b.clone(), lock_c.clone(), exp_a.clone(), exp_b.clone()];
+            sort_orders_by_priority_and_mode(
+                &mut test_orders,
+                None,
+                OrderCommitmentPriority::LockCyclePrice.into(),
+            );
+            tails.insert((test_orders[3].request.id, test_orders[4].request.id));
+        }
+        assert!(tails.len() > 1, "Expired orders should be shuffled in LockCyclePrice mode");
     }
 }
