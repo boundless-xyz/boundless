@@ -37,7 +37,7 @@ struct MainArgs {
     #[clap(long)]
     start_block: Option<u64>,
     /// Interval in seconds between checking for new events.
-    #[clap(long, default_value = "5")]
+    #[clap(long, default_value = "3")]
     interval: u64,
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
