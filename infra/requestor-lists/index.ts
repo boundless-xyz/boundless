@@ -134,6 +134,8 @@ export = () => {
 
   // If custom domain is configured, create ACM cert and CloudFront distribution
   if (domain) {
+    const usEast1Provider = new aws.Provider('us-east-1-provider', { region: 'us-east-1' });
+
     // Create ACM certificate for the custom domain (must be in us-east-1 for CloudFront)
     const certificate = new aws.acm.Certificate(
       `${serviceName}-cert`,
@@ -145,7 +147,19 @@ export = () => {
           Environment: stackName,
         },
       },
-      { provider: new aws.Provider('us-east-1-provider', { region: 'us-east-1' }) }
+      { provider: usEast1Provider }
+    );
+
+    // Create certificate validation resource
+    const certificateValidation = new aws.acm.CertificateValidation(
+      `${serviceName}-cert-validation`,
+      {
+        certificateArn: certificate.arn,
+        validationRecordFqdns: certificate.domainValidationOptions.apply(options =>
+          options.map(option => option.resourceRecordName),
+        ),
+      },
+      { provider: usEast1Provider }
     );
 
     // Create CloudFront distribution
@@ -185,7 +199,7 @@ export = () => {
         },
       },
       viewerCertificate: {
-        acmCertificateArn: certificate.arn,
+        acmCertificateArn: certificateValidation.certificateArn,
         sslSupportMethod: 'sni-only',
         minimumProtocolVersion: 'TLSv1.2_2021',
       },
@@ -193,6 +207,8 @@ export = () => {
         Name: 'Boundless Requestor Lists CDN',
         Environment: stackName,
       },
+    }, {
+      dependsOn: [certificateValidation],
     });
 
     outputs = {

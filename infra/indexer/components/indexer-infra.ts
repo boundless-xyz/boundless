@@ -90,10 +90,10 @@ export class IndexerShared extends pulumi.ComponentResource {
       ],
     }, { parent: this });
 
-    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v1`, {
+    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v3`, {
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      clusterIdentifier: `${serviceName}-aurora-v1`,
+      clusterIdentifier: `${serviceName}-aurora-v3`,
       databaseName: rdsDbName,
       masterUsername: rdsUser,
       masterPassword: rdsPassword,
@@ -105,22 +105,22 @@ export class IndexerShared extends pulumi.ComponentResource {
       storageEncrypted: true,
     }, { parent: this /* protect: true */ });
 
-    new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-1`, {
+    new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-3`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
       instanceClass: 'db.t4g.medium',
-      identifier: `${serviceName}-aurora-writer-v1`,
+      identifier: `${serviceName}-aurora-writer-v3`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
     }, { parent: this /* protect: true */ });
 
     const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
-    this.dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`, {}, { parent: this });
-    this.dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver`, {
+    this.dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url-1`, {}, { parent: this });
+    this.dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver-1`, {
       secretId: this.dbUrlSecret.id,
       secretString: dbUrlSecretValue,
-    }, { parent: this });
+    }, { parent: this, dependsOn: [this.dbUrlSecret] });
 
     this.secretHash = pulumi
       .all([dbUrlSecretValue, this.dbUrlSecretVersion.arn])
@@ -142,16 +142,16 @@ export class IndexerShared extends pulumi.ComponentResource {
           },
         ],
       })),
-    }, { parent: this });
+    }, { parent: this, dependsOn: [this.dbUrlSecret] });
 
-    this.executionRole = new aws.iam.Role(`${serviceName}-ecs-execution-role`, {
+    this.executionRole = new aws.iam.Role(`${serviceName}-ecs-role`, {
       assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
         Service: 'ecs-tasks.amazonaws.com',
       }),
     }, { parent: this });
 
     this.ecrRepository.repository.arn.apply((repoArn) => {
-      new aws.iam.RolePolicy(`${serviceName}-ecs-execution-pol`, {
+      new aws.iam.RolePolicy(`${serviceName}-ecs-pol`, {
         role: this.executionRole.id,
         policy: {
           Version: '2012-10-17',
