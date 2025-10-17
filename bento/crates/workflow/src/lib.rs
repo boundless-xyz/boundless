@@ -28,7 +28,8 @@ mod redis;
 mod tasks;
 
 pub use workflow_common::{
-    AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, s3::S3Client,
+    AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
+    SNARK_TIMEOUT_DEFAULT, s3::S3Client,
 };
 
 /// Workflow agent
@@ -136,11 +137,11 @@ pub struct Args {
     finalize_timeout: i32,
 
     /// Snark timeout in seconds
-    #[clap(env, long, default_value_t = 60 * 4)]
+    #[clap(env, long, default_value_t = SNARK_TIMEOUT_DEFAULT)]
     snark_timeout: i32,
 
     /// Snark retries
-    #[clap(env, long, default_value_t = 0)]
+    #[clap(env, long, default_value_t = SNARK_RETRIES_DEFAULT)]
     snark_retries: i32,
 
     /// Requeue poll interval in seconds
